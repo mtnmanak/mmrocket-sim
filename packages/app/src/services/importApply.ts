@@ -354,13 +354,10 @@ export function planImport(
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
   const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
   for (const [nodeId, ref] of Object.entries(openRefs)) {
-    const { motor: mm, note, approximated } = openMatches[nodeId] ?? { note: '' };
+    const { motor: mm, note } = openMatches[nodeId] ?? { note: '' };
     if (mm) nextMotors[nodeId] = mm;
     else nextUnmatchedRefs[nodeId] = ref;
-    // A built-in standing in for a database motor whose curve would not
-    // download is a motor the user is FLYING on an approximate curve, so it
-    // is reported even though a motor loaded.
-    if (!mm || approximated) notes.push(note);
+    if (!mm) notes.push(note);
   }
   // Stage B: every configuration in the file becomes a ready-to-apply
   // preset, matched in the same pass. Only the APPLIED config's notes

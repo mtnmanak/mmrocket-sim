@@ -16,13 +16,16 @@
 // on, and every deviation from the recommended sets names the sites that forced it.
 //
 // Deliberately NOT enabled, with the measured reason:
-//   - type-aware typescript-eslint configs: they need a full program build, too slow
-//     for a gate that is meant to fail before `npm test` does
-//   - @typescript-eslint/no-non-null-assertion: 2,902 hits (576 outside tests),
-//     load-bearing under the base tsconfig's noUncheckedIndexedAccess. The figure
-//     read "~284" until 2026-09-08, which was 10x low — a reader sizing the cleanup
-//     off it would have budgeted an afternoon for a week. Re-measure before acting
-//     on it: npx eslint . --rule '{"@typescript-eslint/no-non-null-assertion":"error"}'
+//   - type-aware typescript-eslint configs: they need a full program build.
+//     MEASURED 2026-09-22 (parserOptions.projectService): 12.6 s against 4.9 s,
+//     +7.6 s on this tree — a cost to weigh, not a bar; the rules it would unlock
+//     have simply not been adopted yet
+//   - @typescript-eslint/no-non-null-assertion: 4,120 hits (624 outside tests) on
+//     2026-09-23, load-bearing under the base tsconfig's noUncheckedIndexedAccess. The
+//     figure read "~284" until 2026-09-08, which was 10x low — a reader sizing the
+//     cleanup off it would have budgeted an afternoon for a week — and 2,902 until
+//     2026-09-23. It only grows; re-measure before acting on it:
+//     npx eslint . --rule '{"@typescript-eslint/no-non-null-assertion":"error"}'
 //   - the React-Compiler rules shipped in eslint-plugin-react-hooks v6/v7
 //     (set-state-in-effect, purity, immutability, …): only rules-of-hooks and
 //     exhaustive-deps are wired up, because those are the two the source already
@@ -70,8 +73,9 @@ export default tseslint.config(
     // match the convention already in the source (15 underscore-prefixed params).
     // ignoreRestSiblings is explicit rather than left to the default, which flipped to
     // false somewhere in typescript-eslint 8: `const { id, children, ...rest } = node`
-    // is the omit idiom this codebase strips ids with (services/orkFile.test.ts:106,
-    // scripts/manufacturers.test.mjs:110), and naming a field in order to DROP it is a
+    // is the omit idiom this codebase strips ids with (services/orkFile.test.ts's
+    // stripIds; scripts/manufacturers.test.mjs's "did not silently collapse two
+    // different parts" check), and naming a field in order to DROP it is a
     // use of that name, not dead code.
     rules: {
       'no-unused-vars': 'off',
@@ -91,28 +95,26 @@ export default tseslint.config(
     // silently dropped so the next person can see what was checked.
     rules: {
       // 3 hits, all the same thing: a literal U+FEFF inside a regex that strips a BOM
-      // from imported file text (services/orkFile.ts:168, rasaeroFile.ts:225,
-      // rocksimFile.ts:165). skipRegExps keeps the rule's real value — a stray
-      // non-breaking space in code — without outlawing the character we exist to remove.
+      // from imported file text (the three readers: orkFile.ts importOrk,
+      // rasaeroFile.ts importCdx1, rocksimFile.ts importRkt). skipRegExps keeps the
+      // rule's real value — a stray non-breaking space in code — without outlawing the
+      // character we exist to remove.
       'no-irregular-whitespace': ['error', { skipRegExps: true }],
 
-      // 3 hits (prefs/PrefsContext.tsx:265, services/saveFile.ts:103,
-      // components/DragPanel.test.tsx:150), all the same shape: a defensive
+      // 2 hits (prefs/PrefsContext.tsx's `ok` in the preference writer,
+      // services/saveFile.ts's `handle` in saveFile), both the same shape: a defensive
       // initialiser before a try/catch that assigns in both branches. Removing the
       // initialiser is what the rule asks for and is strictly worse — `let handle:
       // FsFileHandle | null = null` is the declaration that gives the variable its type.
       'no-useless-assignment': 'off',
 
-      // 3 hits, all in scripts/build-user-guide.mjs (lines 75, 82, 91), which uses \x00
-      // and \x01 as sentinels while splitting the user guide. Matching a control
-      // character on purpose is the entire point of those regexes.
+      // 4 hits, each matching a control character on purpose: three in
+      // scripts/build-user-guide.mjs's inline(), which uses \x00 and \x01 as
+      // sentinels while splitting the user guide, and services/textFold.ts's BREAKS,
+      // which folds the \x1c-\x1e separators Python's splitlines() reads as line ends.
       'no-control-regex': 'off',
 
-      // 1 hit, services/savedMarkSites.test.ts:59: /\n  const on[A-Z]/ matches a
-      // two-space indent. `{2}` would hide what the pattern is anchored to.
-      'no-regex-spaces': 'off',
-
-      // 2 hits (services/shareLink.ts:142, services/thrustcurve.ts:650), both
+      // 2 hits (shareLink.ts decodeShareFragment, thrustcurve.ts fetchMotorSpec), both
       // deliberate: Chromium reports a corrupt deflate stream and a stalled body read
       // with messages that name the wrong condition, so the rethrow replaces them.
       // Attaching `cause` there would still be an improvement, so this stays visible
@@ -120,11 +122,13 @@ export default tseslint.config(
       'preserve-caught-error': 'warn',
 
       // 4 hits, and 3 are one member of a group of siblings declared together where the
-      // others ARE reassigned: tree/solidMesh.ts:215 (a, beside b and c, which the
-      // winding-order swap reassigns) and tree/finOutline.ts:52-53 (dx2/dy2, beside
-      // dpx/dpy/ccw, in a line-for-line transcription of java.awt.geom.Line2D.relativeCCW
-      // that is meant to diff against its Java source). Splitting such a group by which
-      // member a later branch happens to touch reads worse than the uniform `let`.
+      // others ARE reassigned: tree/solidMesh.ts extrudePolygon's `a` (beside b and c,
+      // which the winding-order swap reassigns) and tree/finOutline.ts relativeCcw's
+      // dx2/dy2 (beside dpx/dpy/ccw, in a line-for-line transcription of
+      // java.awt.geom.Line2D.relativeCCW that is meant to diff against its Java
+      // source). Splitting such a group by which member a later branch happens to touch
+      // reads worse than the uniform `let`. The fourth is a test's `open`
+      // (components/useDialog.test.tsx).
       'prefer-const': 'off',
     },
   },
@@ -141,10 +145,13 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      // WARN, not error: eight deliberate suppressions already exist and each carries a
-      // written reason. As an error this would either fail the deploy on day one or
-      // force those eight to be rewritten blind. A warning still puts a NEW stale dep
-      // array in the CI log, which is the failure this whole config is here to catch.
+      // WARN, not error: deliberate suppressions exist and each carries a written
+      // reason — eight when this was written, twenty on 2026-09-23 (17 in App.tsx, 2 in
+      // components/NozzleField.tsx, 1 in hooks/useRelaunchLatch.ts). As an error this
+      // would have failed the deploy on day one or forced them to be rewritten blind. A
+      // warning still puts a NEW stale dep array in the CI log, and deploy.yml's
+      // --max-warnings ceiling makes it fail the deploy, which is the failure this
+      // whole config is here to catch.
       'react-hooks/exhaustive-deps': 'warn',
       // The free half of the 2026-09-08 audit's recommendation: all three were
       // MEASURED at zero violations against this tree before being turned on, so
@@ -157,8 +164,8 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       'no-var': 'error',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
-      // 2,902 non-null assertions (576 outside tests), load-bearing under
-      // noUncheckedIndexedAccess. See the header for why that number is not ~284.
+      // Thousands of non-null assertions, load-bearing under noUncheckedIndexedAccess.
+      // The header carries the measured count and the command that re-measures it.
       '@typescript-eslint/no-non-null-assertion': 'off',
       // console.log in shipped code is a leak. warn/error survive because the app
       // reports engine failures through them, and debug because engine/kernelLogSink.ts:35
@@ -168,12 +175,12 @@ export default tseslint.config(
   },
 
   {
-    // src/tree/ is the geometry layer — no file under it imports React (the single
-    // "react" match, tree/pieces.ts:25, is a comment about bundle size). The plugin
-    // reads ANY call to a function named `use` as React's `use` hook, and
-    // tree/solidMesh.ts:645 calls a local edge-counting helper called `use()` three
-    // times inside isWatertight(). Three false errors; exhaustive-deps stays on, since
-    // it only fires on real hook calls.
+    // src/tree/ is the geometry layer — no file under it imports React (the one
+    // "react" match, in tree/pieces.ts's header, is a comment about keeping
+    // @react-three out of the entry bundle). The plugin reads ANY call to a function
+    // named `use` as React's `use` hook, and tree/solidMesh.ts's isWatertight() calls
+    // a local edge-counting helper called `use()` three times. Three false errors;
+    // exhaustive-deps stays on, since it only fires on real hook calls.
     files: ['packages/app/src/tree/**'],
     rules: { 'react-hooks/rules-of-hooks': 'off' },
   },
@@ -220,8 +227,8 @@ export default tseslint.config(
 
   {
     // Tests run under Node (vitest), some under happy-dom, and a few print measured
-    // sweep numbers on purpose — see the two no-console suppressions in
-    // services/lemivSweep.test.ts.
+    // sweep numbers on purpose (services/lemivSweep.test.ts) — which is why
+    // no-console is off here rather than suppressed line by line.
     files: ['**/*.test.{ts,tsx,mts,mjs,js}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
     rules: { 'no-console': 'off' },

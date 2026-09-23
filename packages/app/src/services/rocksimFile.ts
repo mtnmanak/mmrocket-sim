@@ -4,13 +4,14 @@ import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
-import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { finCountOf } from '../tree/counts.js';
+import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
+import { shapeParamDefault } from '../tree/shapeProfile.js';
 import {
-  autoDelaySaveNote, shapeParamDefault, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+  autoDelaySaveNote, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
@@ -960,11 +961,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
       }
-      case 'RingTail':
-        // The desktop importer has no RingTail handler either — parity.
-        ignored.add(tag);
-        return null;
       default:
+        // Includes RingTail: the desktop importer has no handler for it
+        // either — parity.
         ignored.add(tag);
         return null;
     }
@@ -1264,20 +1263,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       const finSets = kids.filter((k) => k.type.endsWith('finset'));
       if (finSets.length >= 2) {
         const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
-        // Start from the kernel's length, end from the drawn outline — the
-        // same pair finAlign.ts uses, so an overhanging freeform tip still
-        // counts as overlap while the station stays where the kernel puts it.
-        const range = (k: ComponentNode): [number, number] => {
-          const start = startFromPosition(
-            (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition, axialLength(k), pLen);
-          return [start, start + drawnExtent(k)];
-        };
-        const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
+        // finAlign's span (kernel station, drawn extent), so an overhanging
+        // freeform tip still counts as overlap here exactly as it does there.
+        const range = (k: ComponentNode) => finSetSpan(k, pLen);
         const rotOf = (k: ComponentNode) => (typeof k['rotation'] === 'number' ? (k['rotation'] as number) : 0);
         for (let i = 1; i < finSets.length; i++) {
           const me = finSets[i]!;
           const clash = finSets.slice(0, i).find((other) =>
-            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && overlaps(range(other), range(me)));
+            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(range(other), range(me)));
           if (clash) {
             // The count that is DRAWN AND FLOWN (finCountOf, 1..8): this pass
             // runs before sanitizeTree clamps the stored one, and the raw count

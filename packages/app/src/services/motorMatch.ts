@@ -42,13 +42,29 @@ import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
  */
 
 /**
- * A designation with any trailing delay suffix removed: "C6-5" → "c6",
- * "H220-P" → "h220", "I224-15A" → "i224-15a" (a delay with a propellant letter
- * is NOT a bare delay and is left alone). Written for the old built-in match
- * and kept because the test that pins the delay grammar is still worth having.
+ * A motor designation or picker label with its delay removed, case kept:
+ * "H220-14", "H220-P", "H220-p" and the picker's "H220 (auto delay)" are all
+ * "H220"; "I224-15A" is left whole (a delay with a propellant letter is NOT a
+ * bare delay).
+ *
+ * THE ONE COPY of the rule (audit 2026-09-22, Dead code row 575). There were
+ * three: this module's (tested, but called by nothing in production), the
+ * catalogue overlay's private copy of the same regex, and App's baseLabel,
+ * which had drifted: case-sensitive and untrimmed, so "H220-p" kept its "-p",
+ * while the overlay's copy never knew "(auto delay)", so a changed motor flown
+ * on auto delay was never named as loaded. App's labels and the overlay's
+ * matcher both call this now.
+ */
+export function stripDelay(label: string): string {
+  return label.trim().replace(/ \(auto delay\)$/, '').replace(/-(\d+(?:\.\d+)?|P)$/i, '');
+}
+
+/**
+ * `stripDelay`, lower-cased: the key two spellings of one motor share
+ * ("C6-5" and "C6" are both "c6"). The catalogue overlay matches on it.
  */
 export function baseDesignation(designation: string): string {
-  return designation.trim().replace(/-(\d+(?:\.\d+)?|P)$/i, '').toLowerCase();
+  return stripDelay(designation).toLowerCase();
 }
 
 /**
@@ -57,7 +73,7 @@ export function baseDesignation(designation: string): string {
  * 'unknown' is our reader's fallback and 'custom' our old writer's — both are
  * sentinels, not manufacturers, and must not be re-exported.
  */
-export function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
+function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
   return {
     ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
       ? { orkManufacturer: ref.manufacturer } : {}),
@@ -99,18 +115,14 @@ export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
 /** The result of resolving one file reference. */
 export interface MotorMatchResult {
   motor?: MountMotor;
-  /** What happened, for the import note. */
-  note: string;
   /**
-   * True when `motor` is a built-in APPROXIMATION standing in for a database
-   * motor whose published curve could not be fetched. The caller surfaces this
-   * one even though a motor was loaded: substituting a hand-written curve for
-   * the manufacturer's is a numbers change, and silence about it is the defect
-   * this whole module exists to close. Always absent since 2026-09-05 — there
-   * is no approximation left to load — and kept on the type only so a stored
-   * result from an older session still typechecks.
+   * What happened, for the import note. The importer surfaces it only when
+   * `motor` is absent: since 2026-09-05 a curve that cannot be had loads
+   * nothing, so a loaded motor is always the database's own. (An
+   * `approximated` flag for a built-in curve standing in was never set after
+   * that ruling and went, audit 2026-09-22, Dead code row 577.)
    */
-  approximated?: boolean;
+  note: string;
   /**
    * Why nothing loaded, when nothing did: the catalogue has no such motor, or
    * has it with no thrust curve anywhere. For a sentence that has to say it

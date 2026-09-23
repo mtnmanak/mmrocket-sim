@@ -236,26 +236,6 @@ const PRINTABLE = new Set([
 ]);
 
 /**
- * "Use instead of everything inside" for one override, plus the notice that
- * says when an ANCESTOR'S flag is suppressing this one.
- *
- * Relabelled 2026-08-23 (owner ruling): the old "…and everything inside" read
- * as though the contents were being added in, when ticking is precisely what
- * makes them stop counting.
- *
- * The semantics, measured against the kernel rather than assumed (2026-08-23):
- * an override always stands in for the component's OWN computed value — it does
- * not add to it. The flag widens that to the whole subtree, and everything
- * below then stops contributing, INCLUDING its own overrides. An earlier
- * description of the unticked case as "adds" was wrong for anything with
- * geometry: it is only true of a stage, which has no drag or mass of its own.
- *
- * The suppression notice matters more than it looks. Without it a user sets a
- * mass on a body tube, watches nothing change, and has nothing on screen
- * telling them a stage above is standing in for the lot — exactly the
- * "confusion up and down the hierarchical stack" the owner flagged.
- */
-/**
  * Containers with no mass, CG or drag of their own (ComponentAssembly:
  * getComponentMass() = 0, isMassive() = false).
  *
@@ -277,6 +257,26 @@ const PRINTABLE = new Set([
  */
 const CONTAINER_TYPES = new Set(['stage', 'podset', 'parallelstage']);
 
+/**
+ * "Use instead of everything inside" for one override, plus the notice that
+ * says when an ANCESTOR'S flag is suppressing this one.
+ *
+ * Relabelled 2026-08-23 (owner ruling): the old "…and everything inside" read
+ * as though the contents were being added in, when ticking is precisely what
+ * makes them stop counting.
+ *
+ * The semantics, measured against the kernel rather than assumed (2026-08-23):
+ * an override always stands in for the component's OWN computed value — it does
+ * not add to it. The flag widens that to the whole subtree, and everything
+ * below then stops contributing, INCLUDING its own overrides. An earlier
+ * description of the unticked case as "adds" was wrong for anything with
+ * geometry: it is only true of a stage, which has no drag or mass of its own.
+ *
+ * The suppression notice matters more than it looks. Without it a user sets a
+ * mass on a body tube, watches nothing change, and has nothing on screen
+ * telling them a stage above is standing in for the lot — exactly the
+ * "confusion up and down the hierarchical stack" the owner flagged.
+ */
 function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch }: {
   tree: RocketTree;
   node: ComponentNode;

@@ -217,6 +217,18 @@ describe('curation renames never collide', () => {
     expect(entry.detail).toMatch(/already/);
   });
 
+  it('refuses an action it does not apply, rather than leaving the row as it is', async () => {
+    // `set` was a third action no entry ever used (audit 2026-09-22, Dead code
+    // row 580). With its branch gone, an entry that asked for it must not fall
+    // through to the drop path as "already in place".
+    const { CURATIONS, planCurations } = await import('./curate-presets.mjs');
+    const rows = [{ kind: 'NoseCone', manufacturer: 'SEMROC', partNo: 'BNC-50SF1', description: 'cone' }];
+    const [entry] = planCurations(rows, [{ action: 'set', key: 'NoseCone|semroc|bnc50sf1', field: 'mass', value: 1 }]);
+    expect(entry.status).toBe('error');
+    expect(entry.detail).toMatch(/unknown action "set"/);
+    expect(new Set(CURATIONS.map((c) => c.action))).toEqual(new Set(['drop', 'rename']));
+  });
+
   it('still plans the same rename onto a free number', async () => {
     const { planCurations } = await import('./curate-presets.mjs');
     const rows = [

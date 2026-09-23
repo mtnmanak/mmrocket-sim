@@ -5,7 +5,8 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
  * orient a first-time visitor in ~30 seconds. In-house on purpose — the
  * anchors are our own `data-tour` attributes, so a tour library would buy
  * nothing but bytes. Shown once (its own localStorage flag), replayable from
- * the Guide, and Preferences → Display can turn the auto-show off entirely.
+ * the header's ⟲ Tour button beside the Guide (it moved out of the Guide in
+ * batch 08-21c), and Preferences → Display can turn the auto-show off entirely.
  */
 
 const STORAGE_KEY = 'online-openrocket.tour.v1';

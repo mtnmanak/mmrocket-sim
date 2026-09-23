@@ -6,9 +6,10 @@
  *
  * WHY IT EXISTS: `git diff` cannot answer the question. Two measured reasons.
  *
- *  1. Both refresh scripts stamp the day into their output UNCONDITIONALLY —
- *     fetch-motor-db.mjs:64 and fetch-motor-curves.mjs:133 are both
- *     `generated: new Date().toISOString().slice(0, 10)`. So the bytes of both files
+ *  1. Both refresh scripts stamp the day into their output UNCONDITIONALLY — the
+ *     `main` of fetch-motor-db.mjs and of fetch-motor-curves.mjs both hand
+ *     `new Date().toISOString().slice(0, 10)` to the document they write as its
+ *     `generated`. So the bytes of both files
  *     change on EVERY run whether or not thrustcurve.org moved a single row. A
  *     `git diff`-driven Action would open a pull request every Monday for ever, and
  *     the third one gets merged unread.
@@ -58,22 +59,18 @@
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { FIELDS } from './fetch-motor-db.mjs';
 
 /**
- * The 18 fields the catalogue projects. There are two other copies of this list — FIELDS
- * in fetch-motor-db.mjs (the WRITER, and therefore the authority) and CATALOGUE_FIELDS in
- * src/services/catalogueOverlay.ts (the in-app differ) — and three copies of a list is how
- * a list drifts. It cannot be imported from either: fetch-motor-db.mjs does its work at
- * module top level and exports nothing, and the .ts is browser source. So it is copied
- * here and PINNED — motor-diff-summary.test.mjs reads both of those files as text and
- * fails if the three lists disagree.
+ * The 18 fields the catalogue projects — FIELDS in fetch-motor-db.mjs, the WRITER and
+ * therefore the authority, IMPORTED rather than copied. This file used to hold its own
+ * copy because fetch-motor-db.mjs did its work at module top level and could not be
+ * imported; since 2026-09-22 it runs only as an entry point, so the copy is gone. One
+ * copy remains outside the pipeline: CATALOGUE_FIELDS in src/services/catalogueOverlay.ts
+ * (browser source, the in-app differ), which motor-diff-summary.test.mjs reads as text
+ * and holds to this list.
  */
-export const CATALOGUE_FIELDS = [
-  'motorId', 'manufacturerAbbrev', 'designation', 'commonName', 'impulseClass',
-  'diameter', 'length', 'type', 'avgThrustN', 'maxThrustN', 'totImpulseNs',
-  'burnTimeS', 'totalWeightG', 'propWeightG', 'delays', 'availability',
-  'propInfo', 'caseInfo',
-];
+export const CATALOGUE_FIELDS = FIELDS;
 
 /**
  * The 8 catalogue fields that are numbers — the only ones the float tolerance applies to.
@@ -97,13 +94,13 @@ const FLOAT_TOL = 1e-9;
 
 /**
  * Top-level keys excluded from the verdict because they are a clock or are derived from
- * the rows: `generated` (in BOTH files — written unconditionally from new Date() at
- * fetch-motor-db.mjs:64 and fetch-motor-curves.mjs:133), `catalogueGenerated` (a copy of
+ * the rows: `generated` (in BOTH files — written unconditionally from new Date() by
+ * the two refresh scripts' `main`), `catalogueGenerated` (a copy of
  * the first), `count` / `motors` / `files` (counts of the rows, so a change in one means a
  * row changed and the row diff has already seen it), and `source` (a fixed description
  * string). A difference confined to these is what `dateOnly` means.
  */
-export const IGNORED_TOP_LEVEL = ['generated', 'catalogueGenerated', 'count', 'motors', 'files', 'source'];
+const IGNORED_TOP_LEVEL = ['generated', 'catalogueGenerated', 'count', 'motors', 'files', 'source'];
 
 /**
  * How stale the SHIPPED catalogue may get before a date-only refresh is worth a pull
@@ -135,7 +132,7 @@ export const MAX_ROWS = 40;
  * truncated fetch. It WARNS rather than refusing: a genuine mass availability update must
  * still reach a human.
  */
-export const MASS_CHANGE_WARN_FRACTION = 0.25;
+const MASS_CHANGE_WARN_FRACTION = 0.25;
 
 /**
  * GitHub rejects a pull-request body over 65,536 characters ("body is too long"). Render
@@ -246,7 +243,7 @@ export function diffCurves(beforeCurves, afterCurves) {
 }
 
 /** Shape of a curve bundle, for the headline line. `bytes` is passed in by the caller. */
-export function curveStats(curvesDoc, bytes = 0) {
+function curveStats(curvesDoc, bytes = 0) {
   const curves = curvesDoc?.curves ?? {};
   let files = 0;
   let points = 0;
@@ -406,7 +403,7 @@ export function renderCommitMessage(summary) {
 }
 
 /** stdout, in check-upstream.mjs's voice: aligned labels, one measured line each. */
-export function renderPlain(summary) {
+function renderPlain(summary) {
   const c = summary.catalogue;
   const s = summary.curves.stats;
   const age = Number.isFinite(summary.dates.shippedAgeDays)

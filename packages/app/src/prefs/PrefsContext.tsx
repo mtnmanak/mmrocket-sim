@@ -57,7 +57,7 @@ export interface Preferences {
   /**
    * First-run tour opt-out. Absent = the tour may auto-show once (its own
    * localStorage flag limits it to a single showing); true = never auto-show.
-   * The Guide's "⟲ Tour" replay button works either way.
+   * The header's "⟲ Tour" replay button (beside the Guide) works either way.
    */
   tourOff?: boolean;
   /**
@@ -103,7 +103,7 @@ export interface Preferences {
   printer?: PrinterPrefs;
 }
 
-export const DEFAULT_PREFS: Preferences = {
+const DEFAULT_PREFS: Preferences = {
   units: INITIAL_UNITS,
   radiusMode: 'diameter',
   theme: 'dark',

@@ -9,7 +9,9 @@
  * situation every curation below is about. So the curations needed a home that
  * can address one row *inside* a duplicate group, and this is it.
  *
- * Run it after fetch-component-presets.mjs and apply-preset-corrections.mjs:
+ * It is the LAST step of the regeneration, after every merge and after
+ * apply-preset-corrections.mjs; the whole order is CLAUDE.md's "REGENERATION
+ * ORDER", the one copy of it.
  *
  *   node packages/app/scripts/curate-presets.mjs          # report only
  *   node packages/app/scripts/curate-presets.mjs --write  # apply
@@ -264,27 +266,25 @@ const matches = (p, c) => {
   return true;
 };
 
-export function planCurations(rows) {
+/**
+ * The plan for `curations` (the table above unless a test passes its own)
+ * against `rows`: each entry `todo` with the row's index, `already`, or
+ * `error` with a detail.
+ */
+export function planCurations(rows, curations = CURATIONS) {
   const plan = [];
-  for (const c of CURATIONS) {
+  for (const c of curations) {
+    // DROP and RENAME are the only actions. A `set` action existed with no
+    // entry ever using it and was deleted (audit 2026-09-22, Dead code row
+    // 580); anything else is an error rather than a row silently left as is.
+    if (c.action !== 'drop' && c.action !== 'rename') {
+      plan.push({ c, status: 'error', detail: `unknown action "${c.action}" (drop or rename)` });
+      continue;
+    }
     const group = rows
       .map((p, i) => ({ i, p }))
       .filter(({ p }) => presetKey(p) === c.key);
     const hits = group.filter(({ p }) => matches(p, c));
-
-    if (c.action === 'set') {
-      // Already applied when every matching row already carries the value, which
-      // is what makes a second run a no-op. A row that still needs it is
-      // "pending"; exactly one of those is required, same as everywhere else.
-      const pending = hits.filter(({ p }) => JSON.stringify(p[c.field]) !== JSON.stringify(c.value));
-      if (hits.length > 0 && pending.length === 0) { plan.push({ c, status: 'already' }); continue; }
-      if (pending.length !== 1) {
-        plan.push({ c, status: 'error', detail: `${pending.length} rows pending (expected 1)` });
-        continue;
-      }
-      plan.push({ c, status: 'todo', index: pending[0].i });
-      continue;
-    }
 
     if (c.action === 'rename') {
       // Already applied? The target name is present and the source group no
@@ -374,12 +374,10 @@ function main() {
   const todo = plan.filter((x) => x.status === 'todo');
   for (const t of todo) {
     if (t.c.action === 'drop') console.log(`  drop    ${t.c.key}`);
-    else if (t.c.action === 'rename') console.log(`  rename  ${t.c.key} -> ${t.c.to}`);
-    else console.log(`  set     ${t.c.key}  ${t.c.field} = ${t.c.value}`);
+    else console.log(`  rename  ${t.c.key} -> ${t.c.to}`);
   }
   console.log(`\n${todo.filter((t) => t.c.action === 'drop').length} drop(s), `
-    + `${todo.filter((t) => t.c.action === 'rename').length} rename(s), `
-    + `${todo.filter((t) => t.c.action === 'set').length} set(s); `
+    + `${todo.filter((t) => t.c.action === 'rename').length} rename(s); `
     + `${plan.length - todo.length} already in place.`);
 
   if (!process.argv.includes('--write')) { console.log('\n(report only — pass --write to apply)'); return; }
@@ -388,9 +386,6 @@ function main() {
   // In-place edits first, then drops, so no index shifts under us.
   for (const t of todo.filter((x) => x.c.action === 'rename')) {
     db.presets[t.index].partNo = t.c.to;
-  }
-  for (const t of todo.filter((x) => x.c.action === 'set')) {
-    db.presets[t.index][t.c.field] = t.c.value;
   }
   const doomed = new Set(todo.filter((x) => x.c.action === 'drop').map((x) => x.index));
   db.presets = db.presets.filter((_, i) => !doomed.has(i));

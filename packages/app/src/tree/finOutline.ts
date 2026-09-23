@@ -195,8 +195,3 @@ export function finOutlineProblem(
   }
   return null;
 }
-
-/** Convenience wrapper for callers that only need yes/no. */
-export function isValidFinOutline(points: readonly FinOutlinePoint[] | undefined | null): boolean {
-  return finOutlineProblem(points) === null;
-}

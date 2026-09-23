@@ -311,4 +311,13 @@ describe('the words the browser shows', () => {
     expect(changedMotorsInDesign(overlay, [{ label: 'C6-5', manufacturer: 'Quest' }])).toHaveLength(0);
     expect(changedMotorsInDesign(overlay, [{ label: 'D12-5', manufacturer: 'Estes' }])).toHaveLength(0);
   });
+
+  it('knows a loaded motor whose picker label says "(auto delay)"', () => {
+    // App labels an auto-delay motor "C6 (auto delay)" (labelWithDelay), and
+    // this matcher's private copy of the delay rule stripped only "-5" / "-P",
+    // so a changed motor flown on auto delay was never named (audit
+    // 2026-09-22, Dead code row 575: one shared delay-strip rule).
+    expect(changedMotorsInDesign(overlay, [{ label: 'C6 (auto delay)', manufacturer: 'Estes' }])).toHaveLength(1);
+    expect(changedMotorsInDesign(overlay, [{ label: 'C6-p', manufacturer: 'Estes' }])).toHaveLength(1);
+  });
 });

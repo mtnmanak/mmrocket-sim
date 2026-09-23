@@ -4,7 +4,16 @@
  * was a hand-maintained transcription that silently drifted from the markdown
  * every release (each mirror ended up with sentences the other lacked); this
  * script replaces that with a build step the app's `npm run build` runs, so
- * drift is structurally impossible.
+ * the guide a deploy SERVES cannot drift from the markdown.
+ *
+ * The COMMITTED userGuide.ts still could (audit 2026-09-22): the deploy runs the
+ * tests before the build, so a test reading GUIDE_SECTIONS read whatever was
+ * last committed, and the weekly motors refresh moved the catalogue figures the
+ * guide quotes without recompiling it. `compileGuide()` is exported so
+ * packages/app/scripts/user-guide-current.test.mjs can compile the guide and
+ * require the committed file to match it byte for byte, and `npm run
+ * motors:refresh` ends by running this script, so a refresh — the weekly
+ * workflow's or a hand-run one — writes the guide beside the JSON it commits.
  *
  * Usage: node scripts/build-user-guide.mjs
  *
@@ -18,25 +27,30 @@
  * (exit 1, with the offending line) on anything outside the known set, so an
  * unsupported edit to the markdown breaks the build instead of the dialog.
  *
- * Output is a pure function of the input file — byte-identical on re-run —
- * and its data strings are pure ASCII (non-ASCII escaped as \uXXXX) so the
+ * Output is a pure function of its inputs (the markdown, and the two shipped
+ * motor-data files its {{TOKENS}} come from) — byte-identical on re-run — and
+ * its data strings are pure ASCII (non-ASCII escaped as \uXXXX) so the
  * content survives any editor/codepage mishap on the way through a Windows
  * checkout.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Lives beside the app that consumes it — the guide is a
 // BUILD INPUT (CI runs this script on every deploy), so it must not sit in a
 // directory the project may prune.
-const SRC = join(root, 'packages', 'app', 'user-guide.md');
-const OUT = join(root, 'packages', 'app', 'src', 'data', 'userGuide.ts');
+export const SRC = join(root, 'packages', 'app', 'user-guide.md');
+export const OUT = join(root, 'packages', 'app', 'src', 'data', 'userGuide.ts');
+export const DATA = join(root, 'packages', 'app', 'src', 'data');
+
+/** A refusal. Thrown rather than exiting so a test can import the compiler;
+ *  main() turns it back into the message on stderr and exit 1. */
+export class GuideError extends Error {}
 
 function fail(msg, line) {
-  console.error(`build-user-guide: ${msg}${line !== undefined ? `\n  at packages/app/user-guide.md:${line + 1}` : ''}`);
-  process.exit(1);
+  throw new GuideError(`build-user-guide: ${msg}${line !== undefined ? `\n  at packages/app/user-guide.md:${line + 1}` : ''}`);
 }
 
 const escText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -223,8 +237,7 @@ const TOKEN_KIND = {
   CURVE_SHARE_MFR: 'percent',
 };
 
-function guideTokens() {
-  const data = join(root, 'packages', 'app', 'src', 'data');
+function guideTokens(data) {
   const motors = JSON.parse(readFileSync(join(data, 'motors.json'), 'utf8'));
   const curves = JSON.parse(readFileSync(join(data, 'motorCurves.json'), 'utf8'));
   const total = motors.count ?? motors.motors.length;
@@ -285,11 +298,6 @@ function guideTokens() {
     CURVE_SHARE_USER: share('user'),
     CURVE_SHARE_MFR: share('mfr'),
   };
-}
-
-const TOKENS = guideTokens();
-for (const key of Object.keys(TOKENS)) {
-  if (!(key in TOKEN_KIND)) fail(`guide token {{${key}}} has no entry in TOKEN_KIND`);
 }
 
 /**
@@ -359,55 +367,66 @@ function checkBareFigures(raw, tokens) {
   });
 }
 
-const rawGuide = readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
-checkBareFigures(rawGuide, TOKENS);
-
-const lines = rawGuide
-  .replace(/\{\{([A-Z_]+)\}\}/g, (_m, key) => {
-    if (!(key in TOKENS)) {
-      fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);
-    }
-    return TOKENS[key];
-  })
-  .split('\n');
-const anchors = [];
-lines.forEach((l, n) => {
-  const m = l.match(/^<a id="([a-z0-9-]+)"><\/a>\s*$/);
-  if (m) anchors.push({ id: m[1], line: n });
-  else if (/<a id/.test(l)) fail(`malformed section anchor: "${l}"`, n);
-});
-if (anchors.length === 0) fail('no <a id="…"></a> section anchors found');
-
-const sections = anchors.map(({ id, line }, k) => {
-  let t = line + 1;
-  while (t < lines.length && lines[t].trim() === '') t++;
-  const m = lines[t]?.match(/^## (.+)$/);
-  if (!m) fail(`anchor "${id}" is not followed by a "## Title" heading`, line);
-  const title = m[1].trim();
-  if (/[*`[\]<>]/.test(title)) fail(`markup in section title "${title}"`, t);
-  const end = k + 1 < anchors.length ? anchors[k + 1].line : lines.length;
-  const html = renderBlocks(lines.slice(t + 1, end), t + 1);
-  if (!html) fail(`section "${id}" has no content`, line);
-  return { id, title, html };
-});
-
-const ids = new Set(sections.map((s) => s.id));
-if (ids.size !== sections.length) fail('duplicate section ids');
-for (const s of sections) {
-  // Belt and braces on the trust contract, over and above the whitelist.
-  if (/<\s*(script|style|iframe)\b|javascript:|\bon[a-z]+=/i.test(s.html)) {
-    fail(`unsafe markup slipped into section "${s.id}"`);
-  }
-}
-
-// ---- emit ---------------------------------------------------------------------
+// ---- compile and emit ---------------------------------------------------------
 
 // \uXXXX-escape everything outside printable ASCII (per UTF-16 unit, so
 // emoji surrogate pairs stay valid JS).
 const ascii = (s) => s.replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 const field = (k, v) => `    ${JSON.stringify(k)}: ${ascii(JSON.stringify(v))}`;
 
-const ts = `/**
+/**
+ * Compile the guide: markdown in, the text of userGuide.ts out. Pure — it
+ * writes nothing — so user-guide-current.test.mjs can hold the committed file
+ * to it. `dataDir` is where motors.json and motorCurves.json are read from.
+ */
+export function compileGuide({ markdown = readFileSync(SRC, 'utf8'), dataDir = DATA } = {}) {
+  const TOKENS = guideTokens(dataDir);
+  for (const key of Object.keys(TOKENS)) {
+    if (!(key in TOKEN_KIND)) fail(`guide token {{${key}}} has no entry in TOKEN_KIND`);
+  }
+
+  const rawGuide = markdown.replace(/\r\n/g, '\n');
+  checkBareFigures(rawGuide, TOKENS);
+
+  const lines = rawGuide
+    .replace(/\{\{([A-Z_]+)\}\}/g, (_m, key) => {
+      if (!(key in TOKENS)) {
+        fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);
+      }
+      return TOKENS[key];
+    })
+    .split('\n');
+  const anchors = [];
+  lines.forEach((l, n) => {
+    const m = l.match(/^<a id="([a-z0-9-]+)"><\/a>\s*$/);
+    if (m) anchors.push({ id: m[1], line: n });
+    else if (/<a id/.test(l)) fail(`malformed section anchor: "${l}"`, n);
+  });
+  if (anchors.length === 0) fail('no <a id="…"></a> section anchors found');
+
+  const sections = anchors.map(({ id, line }, k) => {
+    let t = line + 1;
+    while (t < lines.length && lines[t].trim() === '') t++;
+    const m = lines[t]?.match(/^## (.+)$/);
+    if (!m) fail(`anchor "${id}" is not followed by a "## Title" heading`, line);
+    const title = m[1].trim();
+    if (/[*`[\]<>]/.test(title)) fail(`markup in section title "${title}"`, t);
+    const end = k + 1 < anchors.length ? anchors[k + 1].line : lines.length;
+    const html = renderBlocks(lines.slice(t + 1, end), t + 1);
+    if (!html) fail(`section "${id}" has no content`, line);
+    return { id, title, html };
+  });
+
+  const ids = new Set(sections.map((s) => s.id));
+  if (ids.size !== sections.length) fail('duplicate section ids');
+  for (const s of sections) {
+    // Belt and braces on the trust contract, over and above the whitelist.
+    if (/<\s*(script|style|iframe)\b|javascript:|\bon[a-z]+=/i.test(s.html)) {
+      fail(`unsafe markup slipped into section "${s.id}"`);
+    }
+  }
+
+  const ts = `/**
  * MMRocket Sim user guide content — the in-app rendered version of
  * packages/app/user-guide.md.
  *
@@ -430,6 +449,20 @@ export const GUIDE_SECTIONS: GuideSection[] = [
 ${sections.map((s) => `  {\n${field('id', s.id)},\n${field('title', s.title)},\n${field('html', s.html)}\n  }`).join(',\n')}
 ];
 `;
+  return { ts, sections: sections.length };
+}
 
-writeFileSync(OUT, ts);
-console.log(`build-user-guide: wrote ${sections.length} sections to packages/app/src/data/userGuide.ts`);
+function main() {
+  let out;
+  try {
+    out = compileGuide();
+  } catch (err) {
+    if (!(err instanceof GuideError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
+  writeFileSync(OUT, out.ts);
+  console.log(`build-user-guide: wrote ${out.sections} sections to packages/app/src/data/userGuide.ts`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

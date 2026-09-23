@@ -231,6 +231,7 @@ function loadChipState(): { x: number; y: number; folded: boolean } {
  * or restored from storage — into the drawer's footprint and simply disappear,
  * with no reset control to get it back. That is half of the owner's
  * 2026-09-01 "there is almost no way to fit it in the canvas window".
+ * @internal Exported for components/StatsChip.test.tsx; no other module imports it.
  */
 export function clampToVisible(
   { x, y, hostW, hostH, elW, elH, covered }:

@@ -1,14 +1,12 @@
 /**
  * Post-merge corrections to the bundled component-preset database.
  *
- * PIPELINE ORDER (every step, in this order, or data is lost):
- *   1. fetch-component-presets.mjs  — OVERWRITES presets.json wholesale
- *   2. merge-rocksim-parts.mjs      — APPENDS the RockSim-only rows
- *   2b. merge-cw-tubes.mjs          — APPENDS the Composite Warehouse tubes
- *   3. apply-preset-corrections.mjs — PATCHES rows this table names
- *   4. curate-presets.mjs --write — the ruled per-row DROPS and part-number fixes
- *      (added 2026-09-01; this file no longer runs last). CLAUDE.md § Architecture
- *      holds the authoritative order.
+ * PIPELINE ORDER: CLAUDE.md, "REGENERATION ORDER" — the ONE copy, and every
+ * step in it must run or its data is lost, because the first step overwrites
+ * presets.json wholesale. This header used to restate the order and had
+ * drifted (it had no Fruity Chutes merge), and a restated order is how an
+ * order drifts — so it points instead. This script
+ * PATCHES the rows its table names, after every merge and before the curations.
  *
  * Why this exists (2026-08-29, owner ruling "fix it"): four centering-ring
  * rows ship an outer diameter that cannot centre the tube their own part
@@ -35,12 +33,10 @@ import { presetKey } from './manufacturers.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
 
-// Keep in lockstep with fetch-component-presets.mjs presetKey()/normMfr() —
-// duplicated here because importing that module runs its network main.
-// One shared table (scripts/manufacturers.mjs). This file used to carry its own
-// copy under a comment reading "keep in lockstep with fetch-component-presets";
-// they did stay in lockstep, and the THIRD copy in merge-rocksim-parts.mjs did
-// not, which is the whole defect.
+// The key is the shared `presetKey` (scripts/manufacturers.mjs). This file used
+// to carry its own copy under a comment reading "keep in lockstep with
+// fetch-component-presets"; they did stay in lockstep, and the THIRD copy in
+// merge-rocksim-parts.mjs did not, which is the whole defect.
 
 
 /**

@@ -52,7 +52,7 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
-import { loadCatalogueMotor } from './services/motorMatch.js';
+import { loadCatalogueMotor, stripDelay } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
@@ -326,9 +326,10 @@ const afterPaint = (): Promise<void> =>
  * A motor label with its delay suffix stripped ("H220-14" / "H220-P" /
  * "H220 (auto delay)" → "H220"). The pad-mass field and the batch note name
  * the motor by this: the weighing belongs to the motor, not to its delay grain.
+ * The rule is motorMatch's stripDelay, the one copy.
  */
 function baseLabel(label: string): string {
-  return label.replace(/ \(auto delay\)$/, '').replace(/-(\d+(\.\d+)?|P)$/, '');
+  return stripDelay(label);
 }
 
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
@@ -2908,9 +2909,10 @@ export function App() {
    * camera-shroud offer.
    *
    * The matching itself is `matchImportedMotor` in services/motorMatch.ts —
-   * the shipped database first, the built-in approximations only as a gated
-   * offline fallback. It used to be a closure in this file, where the only
-   * thing that could reach it was a regular expression over App.tsx.
+   * the shipped database and nothing below it: since v0.107 a motor whose
+   * curve cannot be had is reported, never substituted. It used to be a
+   * closure in this file, where the only thing that could reach it was a
+   * regular expression over App.tsx.
    *
    * There used to be an `withoutMotors` option here, driven by the config
    * picker's "Open with no motors loaded" button. The picker is gone

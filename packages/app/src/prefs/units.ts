@@ -227,6 +227,7 @@ export function fmtSig(v: number, sig: number, places = 0): string {
  * Whether this browser's own locale writes 1.5 as "1,5". Read once; any
  * failure (an engine without Intl) answers no, which is the stricter reading
  * in `readDecimal` below.
+ * @internal Exported for components/DragPanel.test.tsx and components/NumField.test.tsx; no other module imports it.
  */
 export const LOCALE_DECIMAL_COMMA: boolean = (() => {
   try {

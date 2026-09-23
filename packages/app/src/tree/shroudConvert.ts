@@ -1,5 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { finOutlineIntersection } from './finOutline.js';
 import { num } from './nodeNum.js';
+import { signedArea } from './polygon.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -38,28 +40,63 @@ export function findShroudCandidates(tree: RocketTree): ShroudCandidate[] {
   return out;
 }
 
-/** Shoelace area of the fin outline (points are [x along body, y off surface], m). */
-function outlineArea(pts: [number, number][]): number {
-  if (pts.length < 3) return 0;
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i]!;
-    const [x2, y2] = pts[(i + 1) % pts.length]!;
-    a += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(a) / 2;
+/**
+ * The side-profile area the mass estimate uses, m² (points are [x along body,
+ * y off surface], m): the outline's own shoelace area, unless that cannot be
+ * its area — then the box it spans.
+ *
+ * A crossed outline — a planform dragged until two edges cross — has a
+ * shoelace area of ZERO (its lobes cancel), and until audit 2026-09-22 that
+ * converted to a 0 kg fairing: the rocket silently lost its camera's mass.
+ * The kernel refuses a crossed fin outline anyway, so converting is how such
+ * a design gets back to building; the box is an upper bound (twice a bow-tie's
+ * lobes), which the conversion note already tells the user to check. The same
+ * box stands in for a shoelace of exactly zero however it arises (lobes either
+ * side of the root line can cancel too), and for fewer than three points.
+ *
+ * "Crossed" is the KERNEL's own test (finOutlineIntersection over the listed
+ * points), deliberately not a stricter one. A first version of this fix also
+ * tested the closing edge back along the root, and because the kernel's
+ * segment test counts a TOUCH as a crossing, every outline with a corner ON
+ * the root line — a flat run at the leading or trailing edge, two humps —
+ * read as crossed and jumped to the box: +18 % to +100 % on outlines the
+ * kernel builds without complaint. So an outline the kernel accepts, with a
+ * non-zero shoelace, converts to the area it always did.
+ */
+function profileArea(pts: [number, number][], length: number, height: number): number {
+  const simple = pts.length >= 3 && finOutlineIntersection(pts) === null;
+  const area = simple ? Math.abs(signedArea(pts)) : 0;
+  return area > 0 ? area : length * height;
+}
+
+/**
+ * How far the outline reaches along one axis: its MAXIMUM, as it always was —
+ * the kernel puts point 0, and with it the root line, at the origin — unless
+ * that is not positive.
+ *
+ * Math.max over y read an outline drawn wholly at or below its root line as a
+ * NEGATIVE height (audit 2026-09-22), a fairing nobody can see to fix. Only
+ * then does the span the outline covers (max − min) stand in. Not spans
+ * throughout, because they are not what a converted shroud has always
+ * measured: a leading edge swept forward of point 0 would lengthen by its
+ * overhang, and an interior corner dipped below the root (which the kernel
+ * pulls back up to the body) would heighten.
+ */
+function reach(pts: [number, number][], k: 0 | 1): number {
+  const hi = Math.max(...pts.map((p) => p[k]));
+  return hi > 0 ? hi : hi - Math.min(...pts.map((p) => p[k]));
 }
 
 /** Builds the fairing node a candidate freeform set becomes (same id/position). */
 export function shroudToFairing(n: ComponentNode): ComponentNode {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
-  const length = pts.length ? Math.max(...pts.map((p) => p[0])) : 0.08;
-  const height = pts.length ? Math.max(...pts.map((p) => p[1])) : 0.02;
+  const length = pts.length ? reach(pts, 0) : 0.08;
+  const height = pts.length ? reach(pts, 1) : 0.02;
   const width = num(n, 'thickness', 0.025);
   const override = n['overrideMass'];
   const mass = typeof override === 'number' && override > 0
     ? override
-    : outlineArea(pts) * width * num(n, 'density', 680);
+    : profileArea(pts, length, height) * width * num(n, 'density', 680);
   const out: ComponentNode = {
     type: 'fairing',
     id: n.id,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { autoAlignFinSets } from './finAlign.js';
+import { autoAlignFinSets, finSetSpan, spansOverlap } from './finAlign.js';
 import { findNode } from './treeModel.js';
 
 const tree = (children: ComponentNode[]): RocketTree => ({
@@ -96,5 +96,40 @@ describe('autoAlignFinSets — a freeform fin with an overhanging tip', () => {
     ]));
     expect(res.changes.length).toBe(0);
     expect(findNode(res.tree, 'b')!['rotation']).toBeUndefined();
+  });
+});
+
+/**
+ * The span and overlap test the one-click alignment and the RockSim
+ * importer's de-collision now share (they were two copies until audit
+ * 2026-09-22). Both callers' own tests above and in rocksimFile.test.ts ride
+ * on these; this pins the shared pieces directly.
+ */
+describe('finSetSpan / spansOverlap', () => {
+  it('stations a set by the kernel length and extends it to the drawn outline', () => {
+    // Bottom-aligned 60 mm root on a 300 mm tube: 240-300 mm.
+    const [a, b] = finSetSpan(straight(), 0.3);
+    expect(a).toBeCloseTo(0.24, 12);
+    expect(b).toBeCloseTo(0.30, 12);
+    // A freeform tip overhanging its 50 mm root by 20 mm, top-aligned at 10 mm:
+    // stationed by the root, colliding out to the tip.
+    const overhang = {
+      type: 'freeformfinset', id: 'ff', points: [[0, 0], [0.07, 0.04], [0.05, 0]],
+      position: { method: 'top', offset: 0.01 },
+    } as unknown as ComponentNode;
+    const [c, d] = finSetSpan(overhang, 0.3);
+    expect(c).toBeCloseTo(0.01, 12);
+    expect(d).toBeCloseTo(0.08, 12);
+  });
+
+  it('reads an absent position as top, offset 0', () => {
+    expect(finSetSpan({ type: 'trapezoidfinset', rootChord: 0.06 } as ComponentNode, 0.3)[0]).toBe(0);
+  });
+
+  it('counts an overlap, and not two spans that only touch', () => {
+    expect(spansOverlap([0, 0.1], [0.05, 0.2])).toBe(true);
+    expect(spansOverlap([0.05, 0.2], [0, 0.1])).toBe(true);
+    expect(spansOverlap([0, 0.1], [0.1, 0.2])).toBe(false);
+    expect(spansOverlap([0, 0.1], [0.2, 0.3])).toBe(false);
   });
 });

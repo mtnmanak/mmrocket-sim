@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { nozzleDbMeta, nozzleForMotorId, resetNozzleDbCache } from './nozzleDb.js';
+import { nozzleForMotorId, resetNozzleDbCache } from './nozzleDb.js';
 import nozzles from '../data/nozzles.json';
 
 /**
@@ -48,11 +48,12 @@ describe('the published nozzle lookup', () => {
     expect(e!.exitDiameterM).toBeCloseTo(0.011125, 9);
   });
 
-  it('exposes the database’s own provenance once loaded', async () => {
-    expect(nozzleDbMeta()).toBeNull();
-    await nozzleForMotorId('5f4294d20002310000000021');
-    expect(nozzleDbMeta()?.source).toMatch(/AeroTech/);
-    expect(nozzleDbMeta()?.generated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it('ships the database’s own provenance', () => {
+    // Read off the file itself: the accessor that carried it (nozzleDbMeta)
+    // had no production caller and went (audit 2026-09-22, Dead code row 575).
+    const { source, generated } = nozzles as unknown as { source: string; generated: string };
+    expect(source).toMatch(/AeroTech/);
+    expect(generated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 

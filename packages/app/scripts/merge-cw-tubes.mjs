@@ -1,13 +1,12 @@
 /**
  * Composite Warehouse G12 fiberglass tubes → component-preset database.
  *
- * PIPELINE ORDER (see apply-preset-corrections.mjs for the whole ritual):
- *   1. fetch-component-presets.mjs  — OVERWRITES presets.json wholesale
- *   2. merge-rocksim-parts.mjs      — APPENDS the RockSim-only rows
- *   2b. merge-cw-tubes.mjs          — APPENDS these rows  ← THIS SCRIPT
- *   3. apply-preset-corrections.mjs — PATCHES rows by key
- *   4. curate-presets.mjs --write — the ruled DROPS and part-number fixes, and THIS
- *      is what runs last (added 2026-09-01). CLAUDE.md § Architecture is authoritative.
+ * PIPELINE ORDER: CLAUDE.md, "REGENERATION ORDER" — the ONE copy, and every
+ * step in it must run or its data is lost, because the first step overwrites
+ * presets.json wholesale. This header used to restate the order and had
+ * drifted (it had no Fruity Chutes merge), and a restated order is how an
+ * order drifts — so it points instead. This script
+ * APPENDS the Composite Warehouse rows, after the RockSim merge.
  *
  * SOURCE OF TRUTH: the table below, committed in this script the way the
  * corrections table is — because the spreadsheet it was transcribed from
@@ -79,6 +78,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { presetKey } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
@@ -136,14 +136,13 @@ function impliedDensity(idIn, odIn, ozPerFt) {
 }
 
 
-// Same normalization pair as fetch-component-presets/apply-preset-corrections
-// (duplicated for the same reason the corrections script documents: importing
-// the fetch module runs its network main).
-const presetKey = (p) => {
-  const pn = String(p.partNo ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const mfr = String(p.manufacturer ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return `${p.kind}|${mfr}|${pn}`;
-};
+// `presetKey` is the shared one (manufacturers.mjs) since 2026-09-22. This file
+// kept a private copy "because importing the fetch module runs its network
+// main", which stopped being true when manufacturers.mjs became the one home of
+// the key — and the copy had drifted from it: no alias table, and `+` stripped,
+// so SEMROC's BT-2+ and BT-2 were one key here and two everywhere else. Every
+// Composite Warehouse row keys the same under both (checked: a re-run against
+// the shipped presets.json is still "26 already current").
 
 function buildRows() {
   return TUBES.map(([name, idIn, odIn, mmt, ozPerFt]) => {

@@ -149,16 +149,18 @@ function footerLinkTarget(url: string): { target: string; rel?: string } {
     const host = new URL(url).hostname.toLowerCase();
     if (host === 'github.com' || host.endsWith('.github.com')) {
       // `noreferrer` as well as `noopener` (2026-09-08 audit). noopener covers
-      // the window.opener half; noreferrer is the referrer-privacy half, and
-      // App.tsx's equivalent window.open already passes 'noopener'. This is the
-      // only target="_blank" in the components tree.
+      // the window.opener half; noreferrer is the referrer-privacy half. The
+      // app's other new-tab links: App.tsx's window.open calls ('noopener'),
+      // its GPL source link (rel="noreferrer", which implies noopener), and the
+      // user guide's generated anchors (rel="noopener", build-user-guide.mjs).
       return { target: '_blank', rel: 'noopener noreferrer' };
     }
   } catch {
     /* `new URL` throws on anything it cannot parse, and a throw inside render
-       takes the band down (MUST 1). `parseNav` screens contract URLs, but the
-       baked fallback and a hand-edited cache entry also reach here — anything
-       unparseable is treated as a site link and keeps the spec's default. */
+       takes the band down (MUST 1). `parseNav` screens every contract, live or
+       cached (readCachedNav), but only for an http(s) SHAPE — "http://[" passes
+       it and still does not parse — so anything unparseable is treated as a
+       site link and keeps the spec's default. */
   }
   return { target: '_top' };
 }

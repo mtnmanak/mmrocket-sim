@@ -1057,7 +1057,22 @@ export function solve(prepared, options) {
   }
 
   // ── burnout ─────────────────────────────────────────────────────────────
-  const detectedBurnout = detectBurnout(t, aAxG, { rate: rateHz });
+  // With --burnout-s the detector is only a second opinion for the report. A
+  // trace it cannot read (R7: the smoothed channel never HOLDS negative, which
+  // a glitching board produces) is the very one R7 tells the operator to rescue
+  // with --burnout-s, so under an override its refusal is reported as "found
+  // none" rather than thrown. Without an override it still throws: nothing
+  // else can supply the time.
+  let detectedBurnout = null;
+  if (burnoutS == null) {
+    detectedBurnout = detectBurnout(t, aAxG, { rate: rateHz });
+  } else {
+    try {
+      detectedBurnout = detectBurnout(t, aAxG, { rate: rateHz });
+    } catch (err) {
+      if (err.code !== 'R7') throw err;
+    }
+  }
   const tBurnout = burnoutS != null ? burnoutS : detectedBurnout;
 
   // ── velocity, and the altitude the atmosphere is evaluated at ───────────
@@ -1185,7 +1200,7 @@ export function solve(prepared, options) {
       + `(${(100 * negatives / series.length).toFixed(1)} %) give Cd <= 0, which means thrust is `
       + `being counted as drag: the coast window starts at ${coastStart.toFixed(3)} s and the `
       + 'motor is still burning. Check --burnout-s (detected: '
-      + `${detectedBurnout.toFixed(3)} s) and --settle-s.`);
+      + `${detectedBurnout == null ? 'none found' : `${detectedBurnout.toFixed(3)} s`}) and --settle-s.`);
   }
   if (series.length === 0) {
     fail('R8', `no usable coast samples between ${coastStart.toFixed(3)} s and `
@@ -1305,7 +1320,8 @@ export function formatReport(s) {
   const flag = (x) => (x == null ? 'no flag column' : `flag ${f(x, 2)} s`);
   L.push(`burnout         ${f(s.burnoutS, 3)} s `
     + `${s.burnoutOverridden ? '(given via --burnout-s' : '(detected from the axial channel'}`
-    + `; detector says ${f(s.detectedBurnout, 3)} s, altimeter ${flag(s.burnoutFlag)})`);
+    + `; ${s.detectedBurnout == null ? 'detector found none' : `detector says ${f(s.detectedBurnout, 3)} s`}`
+    + `, altimeter ${flag(s.burnoutFlag)})`);
   L.push(`apogee          ${f(s.apogeeS, 3)} s (${s.apogeeSource}; altimeter ${flag(s.apogeeFlag)})`);
   L.push(`settling guard  ${f(s.settleS, 2)} s — discards ${f(s.burnoutS, 3)}-${f(s.coastStart, 3)} s, `
     + `where Cd is still climbing out of motor tail-off`);

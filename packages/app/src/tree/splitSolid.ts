@@ -105,7 +105,7 @@ export class SplitError extends Error {
 
 export const DEFAULT_MARGIN = 0.008;
 export const DEFAULT_CLEARANCE = 0.00015;
-export const DEFAULT_MAX_SEGMENTS = 6;
+const DEFAULT_MAX_SEGMENTS = 6;
 /** Spigot wall: thin enough to stay stiff-but-printable, never thicker than the part's own. */
 const SPIGOT_WALL = 0.0016;
 const MIN_SPIGOT = 0.006;
@@ -774,8 +774,14 @@ export function splitComponent(
   // A plan that was already legal keeps its own numbers and its own sentence:
   // the named cases must be byte-identical to what they were before shoulders
   // were considered at all.
+  // A cut the plan does not have counts as moved. (This read `plan.cuts[i]!`,
+  // defined only because the segment test short-circuits first; the `!`
+  // silenced noUncheckedIndexedAccess instead of answering it.)
   const moved = n !== plan.segments
-    || cuts.some((c, i) => Math.abs(c - (x0 + plan.cuts[i]!)) > EPS);
+    || cuts.some((c, i) => {
+      const planned = plan.cuts[i];
+      return planned == null || Math.abs(c - (x0 + planned)) > EPS;
+    });
   let used = plan;
   if (moved) {
     const ends = [x0, ...cuts, x1];

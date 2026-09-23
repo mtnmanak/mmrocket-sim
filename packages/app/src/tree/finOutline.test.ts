@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineIntersection, finOutlineProblem, isValidFinOutline, kernelFinPoints } from './finOutline.js';
+import { finOutlineIntersection, finOutlineProblem, kernelFinPoints } from './finOutline.js';
 import { engineTree } from './treeModel.js';
 
 /**
@@ -23,7 +23,6 @@ describe('finOutlineProblem — degenerate outlines', () => {
   it('accepts the editor default and a plain triangle', () => {
     expect(finOutlineProblem(GOOD)).toBeNull();
     expect(finOutlineProblem([[0, 0], [0.02, 0.03], [0.05, 0]])).toBeNull();
-    expect(isValidFinOutline(GOOD)).toBe(true);
   });
 
   it('rejects fewer than 3 points', () => {

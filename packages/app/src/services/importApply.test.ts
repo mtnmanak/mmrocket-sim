@@ -141,6 +141,18 @@ describe('planImport — one plan, applied and marked', () => {
     expect(plan.note.text).toContain('Z9999');
   });
 
+  it('keeps a LOADED motor\'s match note out of the import note', () => {
+    // Only a motor that did not load is news here: the vitals strip and the
+    // Motors tab show a loaded one live, and this note is never rewritten.
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') } };
+    const plan = planImport(imported, {
+      working: { mmt: { motor: motor('H100'), note: 'Motor “H100” loaded from the motor database.' } }, configs: {},
+    }, { launch: LAUNCH, text: TEXT });
+    expect(plan.snapshot.mountMotors['mmt']).toBeDefined();
+    expect(plan.note.text).not.toContain('loaded from the motor database');
+    expect(plan.note.severity).toBe('info');
+  });
+
   it('clears the previous rocket’s measured figures when the file carries none', () => {
     const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: {} };
     const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });

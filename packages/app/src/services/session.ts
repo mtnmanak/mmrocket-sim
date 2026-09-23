@@ -362,11 +362,11 @@ let overwriting: string | null = null;
  * Key prefixes holding data the app can rebuild for free, in the order they may
  * be sacrificed to keep the user's design.
  *
- * Today that is exactly one family: `tc:samples:v4:<motorId>`, one entry per
- * downloaded thrust curve. Matched on the FAMILY prefix `tc:` rather than the
- * versioned one so a bump to `tc:samples:v5:` is still swept without this file
- * knowing the cache's version — and so this file never has to import from
- * thrustcurve.ts, which owns the cache and its own eviction policy.
+ * Today that is exactly one family: `tc:samples:v5:<motorId>` (the generation
+ * since v0.116), one entry per downloaded thrust curve. Matched on the FAMILY
+ * prefix `tc:` rather than the versioned one so the next bump is still swept
+ * without this file knowing the cache's version — and so this file never has to
+ * import from thrustcurve.ts, which owns the cache and its own eviction policy.
  *
  * NOTE the asymmetry, because v0.111 turned on it: the session is NOT
  * disposable and is never swept, and `mountMotors[].spec` carries the resolved
@@ -534,7 +534,7 @@ export function watchOtherTabs(): () => void {
   return () => { window.removeEventListener('storage', onStorage); };
 }
 
-export function clearSession(): void {
+function clearSession(): void {
   try {
     localStorage.removeItem(KEY);
   } catch { /* ignore */ }

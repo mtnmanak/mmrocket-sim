@@ -20,9 +20,6 @@ import {
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
-// Re-export: rocksimFile.ts (and historical callers) import it from here.
-export { shapeParamDefault };
-
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
  *
@@ -80,7 +77,12 @@ export interface OrkMotorRef {
 export interface OrkTreeImportResult {
   name: string;
   tree: RocketTree;
-  /** First motor found (legacy callers). */
+  /**
+   * First motor found, in document order. TEST-ONLY: no production code reads
+   * it (every caller uses `motors`); orkFile.test.ts and importLimits.test.ts
+   * do, ~47 assertions (audit 2026-09-22, Dead code row 575). Do not build on
+   * it — read `motors`.
+   */
   motor?: OrkMotorRef;
   /** EVERY mount's motor, keyed by the mount's editor node id. */
   motors: Record<string, OrkMotorRef>;
@@ -198,7 +200,7 @@ export interface OrkSeparationOverride {
  * to the beta thread, carries TEN.) Desktop substitutes the motor set for a
  * nameless configuration; so do we.
  */
-export function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
+function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
   if (c.name) return c.name;
   const designations = Object.values(c.motors).map((m) => m.designation).filter(Boolean);
   return designations.length ? `[${designations.join(', ')}]` : 'No motors';
@@ -1174,9 +1176,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       + `Set the diameter${k === 1 ? '' : 's'} before simulating.`);
   }
 
-  // Honesty notes for the two things this reader now PRESERVES but the
-  // simulation does not yet act on. Saying so beats a silent discrepancy —
-  // both change mass, and mass changes the stability the user is designing to.
+  // Honesty note for what this reader PRESERVES but the simulation does not
+  // yet act on. Saying so beats a silent discrepancy — it changes mass, and
+  // mass changes the stability the user is designing to. (There were two such
+  // notes; the fillet one went when fillets were bridged, below.)
   const allNodes: ComponentNode[] = [];
   // Fin fillets used to be preserved but not bridged to the kernel, and this
   // reader said so in a note. As of the fillet bridge the epoxy is counted in
@@ -1319,8 +1322,8 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
  * could not be seen, checked or re-entered, which is the trap the
  * `<timestep>` floor below documents.
  */
-export const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
-export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
+const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
+const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
 
 /** Shed float noise no one typed, the way fmtStepS does for a time step. */
 const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
@@ -1653,7 +1656,11 @@ export interface OrkTreeExportInput {
   tree: RocketTree;
   /** Motors keyed by mount node id (Release C: one per mount). */
   motors?: Record<string, OrkExportMotor>;
-  /** Legacy single-motor form (tests/back-compat). */
+  /**
+   * Legacy single-motor form, merged into `motors` under `mountId`. TEST-ONLY:
+   * no production caller passes either (audit 2026-09-22, Dead code row 575);
+   * pass `motors`.
+   */
   motor?: OrkExportMotor;
   mountId?: string | null;
   /** Launch-site conditions — written as one <simulation> when present. */
@@ -3089,27 +3096,6 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
 }
 
 /**
- * Fin tabs: <tabheight>, <tablength>, <tabposition relativeto="...">. Desktop
- * files carry TWO tabposition elements (legacy front/center/end + modern
- * top/middle/bottom) — like the desktop reader, the last one wins.
- */
-/**
- * RASAero feature #4: supersonic airfoil section (our extension tags — the
- * desktop loader warns on unknown elements and continues, so files stay
- * openable there). Absent tags leave the classic cross-section behavior.
- */
-/**
- * <instancecount>/<instanceseparation>, PASS-THROUGH only.
- *
- * CenteringRing and Bulkhead are LineInstanceable and LaunchLug/RailButton are
- * Instanceable, so OpenRocket writes these for all four. Neither was read, and
- * export hard-wrote 1 / 0.0 — so a motor mount declared as one CenteringRing
- * with instancecount 3 came back from a save as a single ring, permanently
- * losing two-thirds of that structural mass from the user's own file. The app
- * still simulates and draws ONE; the file keeps all N, and the import note
- * says so rather than letting the difference stay silent.
- */
-/**
  * Explicit ring/coupler/bulkhead/engine-block radii. OpenRocket writes these
  * as numbers whenever the author sized the part by hand and `auto` otherwise;
  * we read neither, so every hand-set dimension was replaced by our automatic
@@ -3125,6 +3111,19 @@ function readRingRadii(el: Element, node: ComponentNode): void {
   if (ir !== undefined && ir >= 0) node['innerRadius'] = ir;
 }
 
+/**
+ * <instancecount>/<instanceseparation>.
+ *
+ * CenteringRing and Bulkhead are LineInstanceable and LaunchLug/RailButton are
+ * Instanceable, so OpenRocket writes these for all four. Neither was read, and
+ * export hard-wrote 1 / 0.0 — so a motor mount declared as one CenteringRing
+ * with instancecount 3 came back from a save as a single ring, permanently
+ * losing two-thirds of that structural mass from the user's own file. The file
+ * now keeps all N. Lugs and rail buttons are drawn, weighed and flown as N
+ * since v0.089 (ComponentFactory.applyLineInstances); rings and bulkheads are
+ * still PASS-THROUGH — the app simulates and draws ONE — and the import note
+ * says so rather than letting the difference stay silent.
+ */
 function readInstances(el: Element, node: ComponentNode): void {
   const count = Math.round(num(el, 'instancecount', 1));
   if (count > 1) node['instanceCount'] = count;
@@ -3132,6 +3131,11 @@ function readInstances(el: Element, node: ComponentNode): void {
   if (sep !== 0) node['instanceSeparation'] = sep;
 }
 
+/**
+ * RASAero feature #4: supersonic airfoil section (our extension tags — the
+ * desktop loader warns on unknown elements and continues, so files stay
+ * openable there). Absent tags leave the classic cross-section behavior.
+ */
 function readAirfoil(el: Element, node: ComponentNode): void {
   const section = text(el, ':scope > airfoilsection');
   if (section) node['airfoilSection'] = section;
@@ -3145,15 +3149,16 @@ function readAirfoil(el: Element, node: ComponentNode): void {
 }
 
 /**
- * Fin fillets, PASS-THROUGH only.
+ * Fin fillets.
  *
  * OpenRocket's FinSetSaver writes <filletradius>/<filletmaterial> for every fin
- * set and counts the fillet volume toward fin mass. This app's kernel bridge
- * does not model fillets yet — but the exporter used to hard-write
- * `<filletradius>0.0</filletradius>` and a Cardboard material, so opening a
- * desktop design with 6 mm epoxy fillets and saving it DELETED them from the
- * user's own file. Preserving the values costs nothing and stops the
- * destruction; the mass still is not counted, which the import note says.
+ * set and counts the fillet volume toward fin mass. The exporter used to
+ * hard-write `<filletradius>0.0</filletradius>` and a Cardboard material, so
+ * opening a desktop design with 6 mm epoxy fillets and saving it DELETED them
+ * from the user's own file; this reader keeps them. And they are MODELLED: the
+ * fin-set case of ComponentFactory hands both to the kernel
+ * (FinSet.setFilletRadius / setFilletMaterial), so the epoxy counts in mass and
+ * CG as desktop counts it, and the import note that said it did not is gone.
  */
 function readFillet(el: Element, node: ComponentNode): void {
   const r = num(el, 'filletradius', 0);
@@ -3213,6 +3218,11 @@ function readFinRotation(el: Element, node: ComponentNode): void {
   if (deg !== 0) node['rotation'] = (deg * Math.PI) / 180;
 }
 
+/**
+ * Fin tabs: <tabheight>, <tablength>, <tabposition relativeto="...">. Desktop
+ * files carry TWO tabposition elements (legacy front/center/end + modern
+ * top/middle/bottom) — like the desktop reader, the last one wins.
+ */
 function readFinTabs(el: Element, node: ComponentNode): void {
   const h = num(el, 'tabheight', 0);
   const len = num(el, 'tablength', 0);

@@ -93,7 +93,7 @@ export const RULER_TOP = 18;
 export const RULER_LEFT = 30;
 
 /** Total viewBox px of height reserved for the two callout lanes (S2). */
-export const CALLOUT_LANES = 34;
+const CALLOUT_LANES = 34;
 /** Lane-center distance from the airframe edge (or marker edge, if wider). */
 const LANE_GAP = 13;
 /** CP label footprint in the lower lane, relative to cpX: dot (r 4) plus
@@ -191,6 +191,7 @@ interface DragState {
  *  - `keepBelow` preserves the bottom padding and the bottom callout lane,
  *    exactly what a symmetric layout gives them, so the rocket can never be
  *    pushed down onto its own CP callout.
+ * @internal Exported for components/centrelineY.test.ts; no other module imports it.
  */
 export function centrelineY({ h, gutY, pad, lanes, halfDrawn, topReserve }: {
   h: number; gutY: number; pad: number; lanes: number; halfDrawn: number; topReserve: number;

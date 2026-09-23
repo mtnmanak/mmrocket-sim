@@ -2,6 +2,7 @@ import {
   MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
   type MotorDbEntry,
 } from './motorDb.js';
+import { baseDesignation } from './motorMatch.js';
 import { API } from './thrustcurve.js';
 
 /**
@@ -219,7 +220,7 @@ async function getJson(url: string, fetchImpl: typeof fetch, signal?: AbortSigna
  * subdivided by impulse class when a manufacturer hits the 500-result cap.
  * Projected to the same 18 fields so the diff compares like with like.
  */
-export async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
+async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const meta = await getJson(`${API}/metadata.json?availability=all`, fetchImpl, opts.signal) as {
     manufacturers?: { abbrev: string }[]; impulseClasses?: string[];
@@ -347,7 +348,9 @@ export function changedMotorsInDesign(
   o: CatalogueOverlay,
   loaded: readonly { label: string; manufacturer?: string }[],
 ): CatalogueChange[] {
-  const base = (s: string) => s.trim().replace(/-(\d+(?:\.\d+)?|P)$/i, '').toLowerCase();
+  // motorMatch's one delay-strip rule, so a picker label on auto delay
+  // ("C6 (auto delay)") is known as the C6 it is.
+  const base = baseDesignation;
   return o.changed.filter((c) => loaded.some((l) =>
     (l.manufacturer === undefined || l.manufacturer === c.after.manufacturerAbbrev)
     && (base(l.label) === base(c.after.designation) || base(l.label) === base(c.after.commonName ?? ''))));

@@ -3,7 +3,7 @@
  * holds for every motor in src/data/motors.json, so the app can FLY any
  * catalogued motor with no network at all.
  *
- * Usage: node packages/app/scripts/fetch-motor-curves.mjs
+ * Usage: node packages/app/scripts/fetch-motor-curves.mjs [--allow-partial]
  *        (run AFTER fetch-motor-db.mjs — this file is keyed by that one's ids)
  *
  * WHY THIS EXISTS (2026-09-05). From the repo's first day the app shipped three
@@ -37,9 +37,19 @@
  * runtime reads out of it (thrustcurve.ts headerMasses), because those masses
  * win over the catalogue's when present and the runtime must behave the same
  * from the bundle as from the wire.
+ *
+ * A FAILED BATCH WRITES NOTHING (audit 2026-09-22). A batch that failed to
+ * download used to be reported AFTER motorCurves.json had been overwritten
+ * with the rest, so a run one batch short left a bundle fifty motors short on
+ * disk: the refresh workflow's non-zero exit kept it out of a PR, and nothing
+ * kept it from being committed by hand. The decision is now made before the
+ * write — any failed batch exits 1 with the file as it was, unless
+ * `--allow-partial` says a short bundle is wanted. The work is exported and
+ * the CLI runs only when this file is the entry point, so
+ * fetch-motor-curves.test.mjs drives it against a stubbed API.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const API = 'https://www.thrustcurve.org/api/v1';
@@ -48,12 +58,8 @@ const DB = join(HERE, '..', 'src', 'data', 'motors.json');
 const OUT = join(HERE, '..', 'src', 'data', 'motorCurves.json');
 
 /** thrustcurve.org accepts a list of motorIds per download; keep batches polite. */
-const BATCH = 50;
+export const BATCH = 50;
 const PAUSE_MS = 250;
-
-const db = JSON.parse(readFileSync(DB, 'utf8'));
-const motors = db.motors ?? [];
-if (!motors.length) throw new Error(`${DB} has no motors — run fetch-motor-db.mjs first`);
 
 /**
  * The two masses in a RASP or RockSim header — a MIRROR of thrustcurve.ts
@@ -61,9 +67,10 @@ if (!motors.length) throw new Error(`${DB} has no motors — run fetch-motor-db.
  * whatever the declared format, then the RASP header line, and a pair is kept
  * only if both are finite and positive and the propellant does not outweigh
  * the loaded motor. A bundled curve must yield exactly the masses a live
- * download of the same file would.
+ * download of the same file would. RockSim states grams and a RASP header
+ * kilograms; both come out in grams.
  */
-function headerMasses(file) {
+export function headerMasses(file) {
   if (!file.data) return null;
   let text;
   try { text = Buffer.from(file.data, 'base64').toString('utf8'); } catch { return null; }
@@ -86,73 +93,127 @@ function headerMasses(file) {
   return null;
 }
 
-const out = {};
-let files = 0, motorsWith = 0, points = 0;
-const failed = [];
-
-for (let i = 0; i < motors.length; i += BATCH) {
-  const batch = motors.slice(i, i + BATCH);
-  let body;
-  try {
-    const res = await fetch(`${API}/download.json`, {
-      method: 'POST',
-      // Name ourselves, same string as fetch-motor-db.mjs and
-      // scripts/check-upstream.mjs:64. These are 24 POSTs to a volunteer-run
-      // service, run weekly from CI since 2026-09-07.
-      headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
-      body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    body = await res.json();
-  } catch (err) {
-    failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
-    continue;
-  }
-  for (const f of body.results ?? []) {
-    const s = f.samples;
-    if (!Array.isArray(s) || s.length < 2) continue;
-    if (!s.every((p) => Number.isFinite(p?.time) && Number.isFinite(p?.thrust))) continue;
-    const compact = {
-      simfileId: f.simfileId,
-      source: f.source,
-      format: f.format,
-      samples: s.map((p) => [Number(p.time.toFixed(4)), Number(p.thrust.toFixed(2))]),
-    };
-    const masses = headerMasses(f);
-    if (masses) compact.masses = masses;
-    (out[f.motorId] ??= []).push(compact);
-    files++;
-    points += s.length;
-  }
-  process.stdout.write(`  ${Math.min(i + BATCH, motors.length)} / ${motors.length}\r`);
-  await new Promise((r) => setTimeout(r, PAUSE_MS));
+/**
+ * One downloaded simulator file as the bundle stores it, or null when its
+ * samples are unusable: [t, F] pairs rounded to 4 decimals of a second and 2
+ * of a newton, plus the header masses when the file states them.
+ */
+export function compactFile(f) {
+  const s = f.samples;
+  if (!Array.isArray(s) || s.length < 2) return null;
+  if (!s.every((p) => Number.isFinite(p?.time) && Number.isFinite(p?.thrust))) return null;
+  const compact = {
+    simfileId: f.simfileId,
+    source: f.source,
+    format: f.format,
+    samples: s.map((p) => [Number(p.time.toFixed(4)), Number(p.thrust.toFixed(2))]),
+  };
+  const masses = headerMasses(f);
+  if (masses) compact.masses = masses;
+  return compact;
 }
-process.stdout.write('\n');
 
-motorsWith = Object.keys(out).length;
-const noCurve = motors.filter((m) => !out[m.motorId]);
-
-const doc = {
-  generated: new Date().toISOString().slice(0, 10),
-  source: 'thrustcurve.org API v1 download.json (data: both), every simulator file per motor',
-  catalogueGenerated: db.generated,
-  motors: motorsWith,
-  files,
-  curves: out,
-};
-const json = JSON.stringify(doc);
-writeFileSync(OUT, json);
-
-console.log(`Wrote ${OUT}`);
-console.log(`  ${motorsWith} of ${motors.length} motors have at least one usable curve; ${files} files; ${points} sample points`);
-console.log(`  ${(json.length / 1024).toFixed(0)} KB on disk (${(json.length / motorsWith).toFixed(0)} bytes per motor)`);
-if (noCurve.length) {
-  console.log(`  ${noCurve.length} motors have NO simulator file on thrustcurve.org and will still need one imported to fly:`);
-  for (const m of noCurve.slice(0, 15)) console.log(`     ${m.manufacturerAbbrev} ${m.designation} (${m.availability})`);
-  if (noCurve.length > 15) console.log(`     ...and ${noCurve.length - 15} more`);
+/**
+ * Every usable file for every motor, batch by batch. A batch that fails is
+ * recorded in `failed`, one line per motor, and the run goes on — the caller
+ * decides what a failure costs. `fetchImpl` and `sleep` are injectable so the
+ * test can stand in for the network and the courtesy pause.
+ */
+export async function fetchCurves(motors, {
+  fetchImpl = fetch,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log = (s) => process.stdout.write(s),
+} = {}) {
+  const curves = {};
+  let files = 0, points = 0;
+  const failed = [];
+  for (let i = 0; i < motors.length; i += BATCH) {
+    const batch = motors.slice(i, i + BATCH);
+    let body;
+    try {
+      const res = await fetchImpl(`${API}/download.json`, {
+        method: 'POST',
+        // Name ourselves, same string as fetch-motor-db.mjs and
+        // scripts/check-upstream.mjs. These are 24 POSTs to a volunteer-run
+        // service, run weekly from CI since 2026-09-07.
+        headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
+        body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      body = await res.json();
+    } catch (err) {
+      failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
+      continue;
+    }
+    for (const f of body.results ?? []) {
+      const compact = compactFile(f);
+      if (!compact) continue;
+      (curves[f.motorId] ??= []).push(compact);
+      files++;
+      points += f.samples.length;
+    }
+    log(`  ${Math.min(i + BATCH, motors.length)} / ${motors.length}\r`);
+    await sleep(PAUSE_MS);
+  }
+  log('\n');
+  return { curves, files, points, failed };
 }
-if (failed.length) {
-  console.log(`  ${failed.length} motors FAILED to fetch — re-run:`);
-  failed.slice(0, 10).forEach((f) => console.log(`     ${f}`));
-  process.exitCode = 1;
+
+/** motorCurves.json itself; `today` is an ISO date. */
+export function curvesDocument({ curves, files }, catalogueGenerated, today) {
+  return {
+    generated: today,
+    source: 'thrustcurve.org API v1 download.json (data: both), every simulator file per motor',
+    catalogueGenerated,
+    motors: Object.keys(curves).length,
+    files,
+    curves,
+  };
+}
+
+/**
+ * Fetch every curve, decide, and only then write. Resolves to the process
+ * exit code: 1, with nothing written, if any batch failed and `allowPartial`
+ * is not set.
+ */
+export async function main({
+  dbPath = DB, outPath = OUT, fetchImpl, sleep, log,
+  allowPartial = process.argv.includes('--allow-partial'),
+} = {}) {
+  const db = JSON.parse(readFileSync(dbPath, 'utf8'));
+  const motors = db.motors ?? [];
+  if (!motors.length) throw new Error(`${dbPath} has no motors — run fetch-motor-db.mjs first`);
+
+  const got = await fetchCurves(motors, { fetchImpl, sleep, log });
+  const { curves, files, points, failed } = got;
+  if (failed.length) {
+    console.log(`  ${failed.length} motors FAILED to fetch:`);
+    failed.slice(0, 10).forEach((f) => console.log(`     ${f}`));
+    if (failed.length > 10) console.log(`     ...and ${failed.length - 10} more`);
+    if (!allowPartial) {
+      console.error(`Nothing was written; ${outPath} is as it was. Re-run, or pass --allow-partial `
+        + 'to write a bundle without them.');
+      return 1;
+    }
+    console.warn(`--allow-partial: writing a bundle WITHOUT those ${failed.length} motors.`);
+  }
+
+  const doc = curvesDocument(got, db.generated, new Date().toISOString().slice(0, 10));
+  const json = JSON.stringify(doc);
+  writeFileSync(outPath, json);
+
+  const noCurve = motors.filter((m) => !curves[m.motorId]);
+  console.log(`Wrote ${outPath}`);
+  console.log(`  ${doc.motors} of ${motors.length} motors have at least one usable curve; ${files} files; ${points} sample points`);
+  console.log(`  ${(json.length / 1024).toFixed(0)} KB on disk (${(json.length / doc.motors).toFixed(0)} bytes per motor)`);
+  if (noCurve.length) {
+    console.log(`  ${noCurve.length} motors have NO simulator file on thrustcurve.org and will still need one imported to fly:`);
+    for (const m of noCurve.slice(0, 15)) console.log(`     ${m.manufacturerAbbrev} ${m.designation} (${m.availability})`);
+    if (noCurve.length > 15) console.log(`     ...and ${noCurve.length - 15} more`);
+  }
+  return 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await main();
 }

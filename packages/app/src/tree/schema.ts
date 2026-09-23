@@ -70,7 +70,7 @@ const BODY_CHILDREN: ComponentType[] = [
 // axial chain (nose/body/transition), exactly like a mini-rocket.
 const ASSEMBLIES: ComponentType[] = ['podset', 'parallelstage'];
 
-export const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
+const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
   stage: STAGE_CHILDREN,
   bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
   // NO assemblies on a nose cone or a transition: Transition.isCompatible
@@ -290,6 +290,7 @@ export const MAX_ASSEMBLY_INSTANCES = 32;
  * 256 is over ten times the most any parachute in the shipped parts catalogue
  * has (24; the corpus tops out at 20 bar that 66), and the 540 kg file's
  * 600 mm canopy weighs 0.157 kg at it (0.054 kg at the old 64).
+ * @internal Exported for tree/sanitize.test.ts; no other module imports it.
  */
 export const MAX_SHROUD_LINES = 256;
 
@@ -319,6 +320,7 @@ export const MAX_DIMENSION_M = 1000;
  * buildTree; 1e-12 m builds in both. 0.1 mm is below any tube fin or shroud
  * anyone builds, yet still reads as a number rather than as zero in millimetres
  * and in inches (the panel shows three decimals), so the repair is visible.
+ * @internal Exported for tree/sanitize.test.ts; no other module imports it.
  */
 export const MIN_POSITIVE_DIMENSION_M = 0.0001;
 

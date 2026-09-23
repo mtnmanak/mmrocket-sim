@@ -1,5 +1,5 @@
 import { finCountOf } from './counts.js';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
 
@@ -43,6 +43,27 @@ const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
  */
 const countOf = (n: ComponentNode): number => finCountOf(n);
 
+/**
+ * The axial span a fin set occupies on its parent, metres from the parent's
+ * fore end. Anchored by the kernel's length, which is where the set is
+ * STATIONED; extended by the drawn outline, because a freeform fin whose tip
+ * overhangs its root collides with the set behind it out to the tip.
+ *
+ * Shared with the RockSim importer's de-collision pass (rocksimFile.ts), which
+ * carried its own copy of this and of `spansOverlap` (audit 2026-09-22, from
+ * the 8 September record) — two copies of one geometric question.
+ */
+export function finSetSpan(k: ComponentNode, parentLength: number): [number, number] {
+  const pos = (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  const start = startFromPosition(pos, axialLength(k), parentLength);
+  return [start, start + drawnExtent(k)];
+}
+
+/** Do two axial spans overlap? Touching end to end is not an overlap. */
+export function spansOverlap(a: [number, number], b: [number, number]): boolean {
+  return a[0] < b[1] && b[0] < a[1];
+}
+
 /** Smallest circular distance between any fin of set A and any fin of set B. */
 function minClearance(rotA: number, countA: number, rotB: number, countB: number): number {
   const TWO_PI = Math.PI * 2;
@@ -68,20 +89,11 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
     const finSets = kids.filter((k) => k.type.endsWith('finset'));
     if (finSets.length >= 2) {
       const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
-      // Anchored by the kernel's length, extended by the drawn outline: a
-      // freeform fin whose tip overhangs its root is stationed by the root
-      // chord but collides with the set behind it out to the tip.
-      const range = (k: ComponentNode): [number, number] => {
-        const pos = (k.position ?? { method: 'top', offset: 0 }) as { method: 'top' | 'middle' | 'bottom' | 'absolute'; offset: number };
-        const start = startFromPosition(pos, axialLength(k), pLen);
-        return [start, start + drawnExtent(k)];
-      };
-      const overlaps = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
 
       for (let i = 1; i < finSets.length; i++) {
         const me = finSets[i]!;
-        const myRange = range(me);
-        const others = finSets.slice(0, i).filter((o) => overlaps(range(o), myRange));
+        const myRange = finSetSpan(me, pLen);
+        const others = finSets.slice(0, i).filter((o) => spansOverlap(finSetSpan(o, pLen), myRange));
         if (!others.length || !me.id) continue;
 
         // Grid-search this set's rotation over one of its own pitches for

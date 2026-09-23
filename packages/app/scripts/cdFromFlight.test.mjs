@@ -495,6 +495,41 @@ describe('it refuses, loudly, rather than producing a confident wrong number', (
     }))).toThrow(/^R8:.*thrust is being counted as drag/);
   });
 
+  it('R7 is rescued by --burnout-s, as its own message promises', () => {
+    // A glitch PAIR every 0.2 s: +400 g then -400 g on consecutive samples. It
+    // integrates to nothing, so the velocity (and the band's mean Cd) barely
+    // move, but each pair lifts the SMOOTH_S trailing mean above zero for one
+    // sample, so no HOLD_S window ever completes and the detector refuses (R7)
+    // — the shape a glitching board gives. R7 says "Pass --burnout-s to
+    // override"; until 2026-09-22 that could not help, because the detector ran,
+    // and threw, before the override was looked at.
+    const fx = synthFlight();
+    const [head, ...rows] = fx.accelCsv.trimEnd().split('\n');
+    const glitched = rows.map((line) => {
+      const [tCell, x, y, z] = line.split(',');
+      const tick = Math.round(Number(tCell) * 500);
+      // Blue Raven sign: +Z specific force is a NEGATIVE raw reading. The pairs
+      // start at tick 100 so every one is whole; an unpaired half is a 7.8 m/s
+      // velocity step, which is a different fixture.
+      const bump = tick < 100 ? 0 : tick % 100 === 0 ? -400 : tick % 100 === 1 ? 400 : 0;
+      return `${tCell},${x},${y},${Number(z) + bump}`;
+    });
+    const accelText = `${[head, ...glitched].join('\n')}\n`;
+    const opts = synthOpts(fx, { accelText, baroText: fx.baroCsv, padTempC: ISA_T0 - 273.15 });
+    const pr = prepare(opts);
+    expect(() => detectBurnout(pr.t, pr.aAxG, { rate: pr.rateHz })).toThrow(/^R7:.*--burnout-s/);
+    // Without the override it still refuses: the rescue is the override's, not a
+    // loosened detector's.
+    expect(() => solve(pr, opts)).toThrow(/^R7:/);
+    const s = solve(pr, { ...opts, burnoutS: fx.truth.burnoutT });
+    expect(s.burnoutS).toBe(fx.truth.burnoutT);
+    expect(s.burnoutOverridden).toBe(true);
+    expect(s.detectedBurnout).toBeNull();
+    expect(s.band.cd).toBeCloseTo(0.45, 2);
+    expect(formatReport(analyse({ ...opts, burnoutS: fx.truth.burnoutT })))
+      .toContain('(given via --burnout-s; detector found none, altimeter');
+  });
+
   it('R9 — there is no default mass or diameter, ever', () => {
     const fx = synthFlight();
     const pr = prepare(synthOpts(fx, { baroText: fx.baroCsv }));

@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   arrowPan, clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
-  WHEEL_ZOOM_BASE, WHEEL_ZOOM_IN, WHEEL_ZOOM_OUT, wheelNotches, wheelWindow, wheelZoomFactor,
+  WHEEL_ZOOM_BASE, wheelNotches, wheelWindow, wheelZoomFactor,
   xDataExtent, zoomPercent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
+
+/**
+ * One wheel detent each way, through the path the handler takes. These were
+ * exported constants no production code read (audit 2026-09-22, Dead code row
+ * 575): a test pinning them passed whatever wheelZoomFactor did.
+ */
+const WHEEL_ZOOM_IN = wheelZoomFactor({ deltaY: -100 });
+const WHEEL_ZOOM_OUT = wheelZoomFactor({ deltaY: 100 });
 
 // Data extent used throughout: a 0–20 s flight.
 const D0 = 0;

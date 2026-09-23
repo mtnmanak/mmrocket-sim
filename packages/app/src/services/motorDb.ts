@@ -75,6 +75,7 @@ export interface CatalogueOverlay {
  * state for a motor thrustcurve.org has dropped. With no overlay it returns
  * `base` itself, so identity checks against MOTOR_DB (allClasses' fast path)
  * keep working.
+ * @internal Exported for services/catalogueOverlay.test.ts; no other module imports it.
  */
 export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | null): MotorDbEntry[] {
   if (!overlay || (!overlay.added.length && !overlay.changed.length && !overlay.removed.length)) return base;
@@ -132,6 +133,7 @@ export function subscribeCatalogue(fn: () => void): () => void {
  * (Jambol's whole line, and Ultra's) behind the "include out-of-production"
  * checkbox and labelled them as discontinued. 'occasional' means produced
  * intermittently, not gone; only 'OOP' is out of production.
+ * @internal Exported for components/BatchSimulate.sweep.test.tsx; no other module imports it.
  */
 export const isAvailable = (m: Pick<MotorDbEntry, 'availability'>): boolean =>
   m.availability !== 'OOP';
@@ -484,10 +486,11 @@ const normMfr = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
  * ("Estes Industries" → "Estes", "Cesaroni Technology" → "Cesaroni"); the
  * alias table above covers the ones it cannot reach.
  *
- * Exported for tests — a mis-paired alias sends a flight to another vendor's
- * thrust curve, which is a wrong number, not a cosmetic slip.
+ * A mis-paired alias sends a flight to another vendor's thrust curve, which is
+ * a wrong number, not a cosmetic slip. motorMatch.test.ts holds it through
+ * findDbMotor (the Public Missiles G80T, the 'unknown'/'custom' sentinels).
  */
-export function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
+function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
   if (!fileName) return false;
   const a = normMfr(fileName);
   // 'unknown' is our own reader's fallback and 'custom' our old writer's —

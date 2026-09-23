@@ -12,20 +12,33 @@
  *
  * Plain Node ESM, no dependencies (uses global fetch, Node >= 18).
  *
- * Usage: node packages/app/scripts/fetch-component-presets.mjs
+ * Usage: node packages/app/scripts/fetch-component-presets.mjs [--allow-partial]
  *
- * ⚠ THIS SCRIPT OVERWRITES presets.json WHOLESALE. Regeneration is a
- * three-step pipeline, in order, or data is lost:
- *   1. this script (overwrites) → 2. merge-rocksim-parts.mjs (appends the
- *   RockSim-only rows) → 3. apply-preset-corrections.mjs (re-patches rows
- *   whose upstream .orc data is known-wrong — the corrections table cites
- *   its references and fails loudly if a regen invalidates a key).
+ * ⚠ THIS SCRIPT OVERWRITES presets.json WHOLESALE, and it is only the FIRST of
+ * several steps: every later step re-applies data this one wipes (the RockSim
+ * rows, the Composite Warehouse tubes, the Fruity Chutes canopies, the
+ * corrections and the curations). The order is kept in ONE place — CLAUDE.md,
+ * "REGENERATION ORDER" — because the copies that used to sit in these headers
+ * drifted: this one said "three-step pipeline", and following it lost 26 CW
+ * tubes, 68 Fruity Chutes models and every curation.
+ *
+ * A PARTIAL DOWNLOAD WRITES NOTHING (audit 2026-09-22). A .orc file that failed
+ * to download, or a skip rate over 5 %, used to be reported AFTER presets.json
+ * had been overwritten — so a catalogue short a whole source file sat on disk,
+ * and the later steps then reported their patches "already in place" against
+ * rows that were simply missing. The decision now comes first: the run exits 2
+ * with presets.json as it was, unless `--allow-partial` says a short catalogue
+ * is wanted.
+ *
+ * The work is exported and runs only when this file is the entry point, so
+ * fetch-component-presets.test.mjs pins the unit tables and drives main()
+ * against a stubbed GitHub, never the network.
  */
 
 import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { mfrDisplay, presetKey, spellingConflicts } from './manufacturers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,13 +57,33 @@ const API_URL = 'https://api.github.com/repos/openrocket/openrocket-database/con
  *  on every machine, so its location is configured rather than hard-coded:
  *  OPENROCKET_SRC, or a gitignored .openrocket-src at the repo root. Null when
  *  none is set — the github orc/ set alone still produces a usable bundle, so
- *  this script degrades rather than failing. */
-const SRC_ROOT = openrocketSrcRoot();
-// '' when no reference checkout is configured — existsSync('') is false, so the
-// desktop-internal merge below simply skips and the github orc/ set stands alone.
-const DESKTOP_COMPONENTS_DIR = SRC_ROOT
-  ? join(SRC_ROOT, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal')
-  : '';
+ *  this script degrades rather than failing.
+ *
+ *  '' when no reference checkout is configured — existsSync('') is false, so
+ *  the desktop-internal merge simply skips and the github orc/ set stands alone.
+ *  Resolved when main() runs, not at import. */
+function desktopComponentsDir() {
+  const srcRoot = openrocketSrcRoot();
+  return srcRoot
+    ? join(srcRoot, 'core', 'src', 'main', 'resources', 'datafiles', 'components', 'internal')
+    : '';
+}
+
+/**
+ * The desktop-internal files in NTFS's own order — names compared upper-cased,
+ * code unit by code unit — rather than whatever order `readdirSync` returns.
+ * Order matters here: the first definition of a material wins the pool, and the
+ * first of two duplicate parts is the one kept. On the Windows machine that
+ * generated the committed presets.json the two orders are the same (checked
+ * 2026-09-22 on the 15 files of 24.12); on Linux or macOS `readdirSync` order
+ * is the filesystem's, so an unsorted merge could regenerate a different file
+ * from identical inputs (audit 2026-09-22).
+ */
+export const byNtfsName = (a, b) => {
+  const x = a.toUpperCase();
+  const y = b.toUpperCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+};
 
 /** Manufacturer aliases (lowercased alphanumerics) so the same maker dedupes
  *  across sources: desktop-internal files spell names differently. */
@@ -65,7 +98,7 @@ const DESKTOP_COMPONENTS_DIR = SRC_ROOT
 // Unit conversion tables (everything -> SI)
 // ---------------------------------------------------------------------------
 
-const LENGTH_UNITS = {
+export const LENGTH_UNITS = {
   m: 1,
   meter: 1,
   meters: 1,
@@ -77,7 +110,7 @@ const LENGTH_UNITS = {
   ft: 0.3048,
 };
 
-const MASS_UNITS = {
+export const MASS_UNITS = {
   kg: 1,
   g: 0.001,
   oz: 0.028349523125,
@@ -85,7 +118,7 @@ const MASS_UNITS = {
 };
 
 // Density conversion factors, keyed by material type then unit string.
-const DENSITY_UNITS = {
+export const DENSITY_UNITS = {
   BULK: {
     'kg/m3': 1,
     'kg/m^3': 1,
@@ -159,7 +192,7 @@ function decodeEntities(s) {
     .replace(/&amp;/g, '&');
 }
 
-function stripComments(xml) {
+export function stripComments(xml) {
   return xml.replace(/<!--[\s\S]*?-->/g, '');
 }
 
@@ -209,21 +242,21 @@ function childElements(block) {
 // Value conversion
 // ---------------------------------------------------------------------------
 
-function convertLength(value, unit, context) {
+export function convertLength(value, unit, context) {
   if (!unit) return value; // no Unit attribute => already SI (meters)
   const f = LENGTH_UNITS[unit.trim()];
   if (f === undefined) throw new Error(`unknown length unit "${unit}" (${context})`);
   return value * f;
 }
 
-function convertMass(value, unit, context) {
+export function convertMass(value, unit, context) {
   if (!unit) return value; // already kg
   const f = MASS_UNITS[unit.trim().toLowerCase()];
   if (f === undefined) throw new Error(`unknown mass unit "${unit}" (${context})`);
   return value * f;
 }
 
-function convertDensity(value, unitsOfMeasure, type, context) {
+export function convertDensity(value, unitsOfMeasure, type, context) {
   const table = DENSITY_UNITS[type];
   if (!table) throw new Error(`unknown material type "${type}" (${context})`);
   if (!unitsOfMeasure) return value; // already SI
@@ -238,7 +271,7 @@ function camel(tag) {
   return tag.charAt(0).toLowerCase() + tag.slice(1);
 }
 
-function round(v) {
+export function round(v) {
   // Trim float noise from unit conversion without losing real precision.
   return Number.parseFloat(v.toPrecision(12));
 }
@@ -251,7 +284,7 @@ function round(v) {
  * Parse the <Materials> section of one .orc file into a Map of
  * name -> { TYPE -> density(SI) }. Appends any problems to `warnings`.
  */
-function parseMaterials(xml, fileName, warnings) {
+export function parseMaterials(xml, fileName, warnings) {
   const materials = new Map();
   const materialsBlock = extractBlock(xml, 'Materials');
   if (materialsBlock) {
@@ -286,7 +319,7 @@ function parseMaterials(xml, fileName, warnings) {
  * falling back to `globalMaterials` (materials pooled from all files, e.g.
  * generic_materials.orc). Returns { presets, skippedComponents, warnings }.
  */
-function parseOrc(xml, fileName, globalMaterials) {
+export function parseOrc(xml, fileName, globalMaterials) {
   const warnings = [];
   const presets = [];
   let skippedComponents = 0;
@@ -400,12 +433,15 @@ function parseOrc(xml, fileName, globalMaterials) {
 // Fetching
 // ---------------------------------------------------------------------------
 
-async function fetchWithRetry(url, opts = {}, attempts = 4) {
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** `fetchImpl` and `sleep` are injectable so the test needs neither the network nor the waits. */
+export async function fetchWithRetry(url, { headers, fetchImpl = fetch, sleep = pause } = {}, attempts = 4) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'online-openrocket-preset-fetcher', ...opts.headers },
+      const res = await fetchImpl(url, {
+        headers: { 'User-Agent': 'online-openrocket-preset-fetcher', ...headers },
       });
       if (res.status === 403 || res.status === 429) {
         const reset = res.headers.get('x-ratelimit-reset');
@@ -415,7 +451,7 @@ async function fetchWithRetry(url, opts = {}, attempts = 4) {
         else if (reset) waitMs = Math.max(0, Number(reset) * 1000 - Date.now()) + 1000;
         waitMs = Math.min(waitMs, 90_000);
         console.warn(`  rate-limited (${res.status}) on ${url}; waiting ${Math.round(waitMs / 1000)}s...`);
-        await new Promise((r) => setTimeout(r, waitMs));
+        await sleep(waitMs);
         continue;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
@@ -424,15 +460,27 @@ async function fetchWithRetry(url, opts = {}, attempts = 4) {
       lastErr = err;
       const waitMs = 2000 * (i + 1);
       console.warn(`  fetch failed (${err.message}); retrying in ${waitMs / 1000}s...`);
-      await new Promise((r) => setTimeout(r, waitMs));
+      await sleep(waitMs);
     }
   }
   throw lastErr ?? new Error(`failed to fetch ${url}`);
 }
 
-async function main() {
+/**
+ * Fetch, parse, decide, and only then write. Resolves to the process exit code:
+ * 0 written; 1 a manufacturer spelling conflict (nothing written); 2 a partial
+ * catalogue refused (nothing written) unless `allowPartial`.
+ */
+export async function main({
+  outPath = OUT_PATH,
+  fetchImpl = fetch,
+  sleep = pause,
+  desktopDir = desktopComponentsDir(),
+  allowPartial = process.argv.includes('--allow-partial'),
+} = {}) {
+  const net = { fetchImpl, sleep };
   console.log(`Listing ${API_URL} ...`);
-  const listing = await (await fetchWithRetry(API_URL)).json();
+  const listing = await (await fetchWithRetry(API_URL, net)).json();
   if (!Array.isArray(listing)) {
     throw new Error(`unexpected GitHub API response: ${JSON.stringify(listing).slice(0, 200)}`);
   }
@@ -451,7 +499,7 @@ async function main() {
   for (const file of orcFiles) {
     process.stdout.write(`  fetching ${file.name} ... `);
     try {
-      const res = await fetchWithRetry(file.download_url);
+      const res = await fetchWithRetry(file.download_url, net);
       const xml = stripComments(await res.text());
       fetched.push({ name: file.name, xml });
       // (warnings from this pass are discarded; pass 2 re-parses and reports)
@@ -469,23 +517,23 @@ async function main() {
 
   // Local pass: the desktop's bundled internal .orc files (see constant docs).
   const localFiles = [];
-  if (existsSync(DESKTOP_COMPONENTS_DIR)) {
-    for (const name of readdirSync(DESKTOP_COMPONENTS_DIR)) {
+  if (existsSync(desktopDir)) {
+    for (const name of readdirSync(desktopDir).sort(byNtfsName)) {
       if (!/\.orc$/i.test(name)) continue;
-      const xml = stripComments(readFileSync(join(DESKTOP_COMPONENTS_DIR, name), 'utf8'));
+      const xml = stripComments(readFileSync(join(desktopDir, name), 'utf8'));
       localFiles.push({ name: `desktop:${name}`, xml });
       for (const [matName, byType] of parseMaterials(xml, name, [])) {
         const existing = globalMaterials.get(matName) || {};
         globalMaterials.set(matName, { ...byType, ...existing }); // github still wins
       }
     }
-    console.log(`Found ${localFiles.length} desktop-internal .orc files in ${DESKTOP_COMPONENTS_DIR}`);
+    console.log(`Found ${localFiles.length} desktop-internal .orc files in ${desktopDir}`);
   } else {
     // No dead KNOWN_SRC_ROOTS reference here: the per-machine probe list was
     // scrubbed when path resolution moved to scripts/openrocket-src.mjs, and
     // the leftover identifier turned this documented degrade path into a
     // ReferenceError crash (2026-08-29 audit).
-    console.warn(`WARNING: desktop components dir not found (${DESKTOP_COMPONENTS_DIR || '<no reference source configured>'}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC or a .openrocket-src file at the repo root (see .openrocket-src.example).`);
+    console.warn(`WARNING: desktop components dir not found (${desktopDir || '<no reference source configured>'}) — desktop-only presets (Fruity Chutes etc.) will be missing. Set OPENROCKET_SRC or a .openrocket-src file at the repo root (see .openrocket-src.example).`);
   }
 
   // Pass 2: parse components. Github first (canonical), then desktop-internal
@@ -539,21 +587,10 @@ async function main() {
       console.error(`MANUFACTURER SPELLING CONFLICT "${c.key}": ${c.spellings.join(' / ')}`);
     }
     console.error('Add the spelling to ALIASES/DISPLAY in scripts/manufacturers.mjs.');
-    process.exit(1);
+    return 1;
   }
 
-  const out = {
-    generated: new Date().toISOString().slice(0, 10),
-    source: 'github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal',
-    count: allPresets.length,
-    presets: allPresets,
-  };
-
-  mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, JSON.stringify(out, null, 1) + '\n');
-  console.log(`\nWrote ${OUT_PATH} (${allPresets.length} presets)`);
-
-  // ------- report -------
+  // ------- report (before the write: it is what a refused run is read by) -------
   const byKind = {};
   const byMfr = {};
   for (const p of allPresets) {
@@ -598,11 +635,30 @@ async function main() {
   const skipPct = totalAttempted ? (100 * skippedComponents) / totalAttempted : 0;
   if (skippedFiles > 0 || skipPct > 5) {
     console.error(`\nWARNING: skip rate too high (${skipPct.toFixed(1)}% components, ${skippedFiles} files) — investigate.`);
-    process.exitCode = 2;
+    if (!allowPartial) {
+      console.error(`Nothing was written; ${outPath} is as it was. Re-run, or pass --allow-partial to write `
+        + 'this catalogue anyway.');
+      return 2;
+    }
+    console.warn('--allow-partial: writing the catalogue anyway.');
   }
+
+  const out = {
+    generated: new Date().toISOString().slice(0, 10),
+    source: 'github.com/openrocket/openrocket-database + OpenRocket 24.12 datafiles/components/internal',
+    count: allPresets.length,
+    presets: allPresets,
+  };
+
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, JSON.stringify(out, null, 1) + '\n');
+  console.log(`\nWrote ${outPath} (${allPresets.length} presets)`);
+  return 0;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().then((code) => { process.exitCode = code; }, (err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

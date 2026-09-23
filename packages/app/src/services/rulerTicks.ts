@@ -108,9 +108,9 @@ export function formatTickLabel(value: number): string {
 }
 
 /** Smallest tick spacing, in px — desktop's ScaleScrollPane.MINOR_TICKS. */
-export const MINOR_TICK_PX = 3;
+const MINOR_TICK_PX = 3;
 /** Smallest LABELLED spacing, in px — desktop's ScaleScrollPane.MAJOR_TICKS. */
-export const MAJOR_TICK_PX = 30;
+const MAJOR_TICK_PX = 30;
 
 export interface RulerMark {
   /** Position along the ruler, in the same px space as `originPx`. */

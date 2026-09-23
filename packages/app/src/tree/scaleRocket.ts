@@ -281,7 +281,7 @@ function outerRadiusForBore(n: ComponentNode, boreM: number): number {
  * two files, so changing it meant four coordinated edits and one miss made the
  * dialog's list disagree with its own checkbox.
  */
-export const CLASS_TOLERANCE_MM = 0.05;
+const CLASS_TOLERANCE_MM = 0.05;
 
 export interface MountPreview {
   id: string;
@@ -497,10 +497,13 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // designs on, so it is the one that must not be missed.
   if (Array.isArray(n['points'])) {
     const pts = n['points'] as unknown[];
+    // A row it cannot read is passed through as a COPY, never by reference:
+    // the result must share nothing with the input (cloneSubtree's rule, and
+    // for the same reason).
     out['points'] = pts.map((p) => (Array.isArray(p) && p.length >= 2
       && typeof p[0] === 'number' && typeof p[1] === 'number'
       ? [round((p[0] as number) * k), round((p[1] as number) * k)]
-      : p));
+      : Array.isArray(p) ? [...p] : p));
   }
 
   // Masses go as k³ — but only where the geometry moved. A camera shroud and a
@@ -530,6 +533,9 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   const pos = n.position as ComponentPosition | undefined;
   if (pos && typeof pos.offset === 'number') {
     out.position = { ...pos, offset: round(pos.offset * k) };
+  } else if (pos && typeof pos === 'object') {
+    // Nothing to scale, but still this tree's own object, not the input's.
+    out.position = { ...pos };
   }
 
   return out;

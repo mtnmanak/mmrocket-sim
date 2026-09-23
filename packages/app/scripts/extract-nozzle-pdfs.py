@@ -51,6 +51,16 @@ import sys
 # with "Unexpected token 'w'". Same library, current name (2026-09-13).
 import pymupdf as fitz
 
+# THE SAME CHANNEL, the other way in (audit 2026-09-22). MuPDF reports a damaged
+# file — a truncated download, a font with no metrics table — as a
+# "MuPDF error: ..." line, and PyMuPDF prints those to STDOUT by default. One bad
+# PDF among the 1,074 would put that line ahead of the JSON and fail
+# build-nozzle-db.mjs's JSON.parse, the very failure the import rule above was
+# meant to end. Measured on a truncated copy of a drawing in this set: the line
+# went to stdout, and after this call it goes to stderr, which the builder's
+# execFileSync passes through to the console while the JSON stays clean.
+fitz.set_messages(stream=sys.stderr)
+
 
 # ----------------------------------------------------------------- PDF tables
 
