@@ -7,7 +7,7 @@ import { finTabFront } from '../tree/finTab.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
-import { arrowPan, wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
@@ -76,17 +76,9 @@ const fillOf = (n: ComponentNode, dflt: string): string =>
  *  physical click jitters 1-3 px whichever of them it could turn into. */
 const PAN_SLOP = 4;
 
-/**
- * Whether a press may start a gesture here: the primary button of the primary
- * pointer only (audit 2026-09-22). A right-press started a drag — and on
- * macOS the context menu then swallows the release, leaving the part glued to
- * a bare mouse — and a second finger on a touch screen started a second
- * gesture that drove the first one's state.
- */
-const startsGesture = (e: React.PointerEvent): boolean => e.button === 0 && e.isPrimary;
-
-/** A move with the primary button up is a release this view never saw. */
-const releasedDuring = (e: React.PointerEvent): boolean => (e.buttons & 1) === 0;
+// Which press may start a drag or pan, and a release this view never saw:
+// `startsGesture` / `releasedDuring` (chartPanZoom.ts), one rule shared with the
+// aft view and the fin-point editor.
 
 const MARKER_R = 9;
 

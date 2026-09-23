@@ -110,6 +110,19 @@ export const CORRECTIONS = [
       },
     },
   },
+  {
+    // Found by the limits table (seam review of audit 2026-09-22): the only row
+    // in the catalogue whose pick it had to repair — a -10.668 mm wall, so the
+    // coupler was stored at 0 mm and weighed nothing. NOT a swap of the two
+    // diameters (a 10.7 mm paper wall): the inside diameter is simply wrong.
+    key: 'TubeCoupler|semroc|htc11',
+    why: 'upstream semroc.orc ships ID 1.968 in inside an OD of 1.128 in; 1.088 in per desktop 24.12 semroc-legacy.orc and SEMROC\'s own RockSim TCDATA.CSV (HTC-11, ID 1.088 / OD 1.130) — a 0.020 in wall, the HTC-10 sibling\'s 0.021',
+    fields: { insideDiameter: { bad: 0.0499872, good: 0.0276352 } },
+    upstream: {
+      file: 'semroc.orc', element: 'TubeCoupler', partNo: 'HTC-11',
+      fields: { InsideDiameter: { bad: '1.968', good: '1.088' } },
+    },
+  },
 ];
 
 /**

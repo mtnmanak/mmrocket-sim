@@ -5,6 +5,8 @@ import type { MountMotor } from '../App.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
+import { padFieldsAsFlown } from './atmosphere.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -691,6 +693,14 @@ const HW_TERM = '|hw:';
  *
  * Moved here from App.tsx on 2026-09-22 (audit): the key was produced there
  * and parsed here, and assembled around it in four places.
+ *
+ * An ignition event the kernel does not know is spelled `refused:<event>`
+ * (seam review of audit 2026-09-22). Since the audit `writeMountMotor` refuses
+ * such a motor before it goes on the handle, so it no longer flies — where a
+ * run stored before that flew it on AUTOMATIC. Hashed raw, that run kept
+ * matching (240.34 m stored, 122.06 m re-flown by Show charts under its name,
+ * on the review's two-mount design). Every event the kernel knows, in any
+ * spelling it accepts, keeps the exact key it always had.
  */
 export function motorSetKeyOf(
   set: readonly (readonly [string, MountMotor])[], hardwareKg: number,
@@ -700,7 +710,7 @@ export function motorSetKeyOf(
       id,
       motorIdentity(mm.meta, mm.spec.designation),
       mm.spec.ejectionDelay,
-      mm.ignition.event,
+      knownIgnitionEvent(mm.ignition.event) === null ? `refused:${mm.ignition.event}` : mm.ignition.event,
       mm.ignition.delay,
     ].join(':'))
     .sort()
@@ -1019,7 +1029,22 @@ export function shortHash(s: string): string {
  * them move the numbers.
  */
 export function conditionsKeyOf(launch: LaunchConditions): string {
-  const l = launch as unknown as Record<string, unknown>;
+  const l = { ...launch } as unknown as Record<string, unknown>;
+  // THE PAD'S AIR AS FLOWN (seam review of audit 2026-09-22). Since the audit
+  // `kernelSimOptions` flies the pad through `padAir`: a temperature or
+  // pressure outside the panel's envelope flies blank and the altitude is
+  // clamped. Hashed as stored, a run flown before that at such a value (a
+  // v0.137 .CDX1 import with hPa in the in-Hg field: 39.75 m) kept matching,
+  // and Show charts and the CSV re-flew it at the site's standard day
+  // (280.38 m) under its name. Only a stored value the flight does NOT fly is
+  // re-spelled — as the blank or the clamped figure it flies — so every
+  // in-envelope key, and so every run in the history flown at one, is
+  // byte-identical to before, while a run stored at an out-of-envelope value
+  // now reads as "the launch conditions" changed.
+  const flown: Record<string, unknown> = padFieldsAsFlown(launch);
+  for (const k of ['launchAltitudeM', 'temperatureC', 'pressureHPa']) {
+    if (l[k] != null && l[k] !== flown[k]) l[k] = flown[k];
+  }
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at

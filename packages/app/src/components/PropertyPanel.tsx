@@ -3,7 +3,9 @@ import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, Stati
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
-import { applyFieldLimit, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef } from '../tree/schema.js';
+import {
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef,
+} from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
@@ -35,6 +37,7 @@ import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
+import { limitPatch } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
@@ -356,6 +359,23 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   const exportNote = exportNoteFor !== null && exportNoteFor.id === node.id ? exportNoteFor.text : null;
   const setExportNote = (text: string | null) =>
     setExportNoteFor(text === null ? null : { id: node.id, text });
+  // What the limits table repaired in the last preset pick, and for WHICH
+  // component — scoped like the export note above, for the same reason. The
+  // picker has closed by the time the patch lands, so the panel says it.
+  const [presetNoteFor, setPresetNoteFor] = useState<{ id: string | undefined; text: string } | null>(null);
+  const presetNote = presetNoteFor !== null && presetNoteFor.id === node.id ? presetNoteFor.text : null;
+  /**
+   * A preset pick, held to the limits table on its way in (seam review of audit
+   * 2026-09-22). The table was enforced by the typed commit below and by the
+   * load boundary's sanitize pass, and a pick went through neither: the shipped
+   * SEMROC HTC-11 stored a -10.668 mm wall and a CSV canopy of a million lines
+   * a 540 kg chute, which a restored session then repaired with no word said.
+   */
+  const applyPreset = (patch: Partial<ComponentNode>) => {
+    const notes: string[] = [];
+    onPatch(limitPatch(node, patch, notes));
+    setPresetNoteFor(notes.length > 0 ? { id: node.id, text: notes.join(' ') } : null);
+  };
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
@@ -582,6 +602,18 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
       }
     }
+    // Every other blank that flies ONE known value — a new fin set's cant (0), a
+    // new canopy's lines (6), a set saved with no fin count (3) — shows it and
+    // steps from it the same way (seam review of audit 2026-09-22; schema.ts
+    // `blankValue`). A blank with no such figure keeps no base, so NumField's
+    // spinner stays inert on it, as the audit made it.
+    if (typeof raw !== 'number' && autoValue === undefined && autoPlaceholder === undefined) {
+      const blank = blankValue(node.type, f.key);
+      if (blank !== undefined) {
+        autoValue = toDisplay(blank);
+        autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
+      }
+    }
     // NumField rejects typed values above max — round the display cap up a
     // hair so typing the limit as NumField shows it (three decimals, or three
     // figures below 0.1) still lands; the commit clamp below keeps the stored
@@ -727,6 +759,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           onClick={() => setShowPresets(true)}>
           📦 Choose from preset database…
         </button>
+      )}
+      {presetNote && (
+        <p className="print-note print-note-warn" role="status">{presetNote}</p>
       )}
       {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
         || node.type === 'freeformfinset') && (
@@ -880,7 +915,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         );
       })()}
       {showPresets && (
-        <PresetPicker type={node.type} node={node} onApply={onPatch} onClose={() => setShowPresets(false)} />
+        <PresetPicker type={node.type} node={node} onApply={applyPreset} onClose={() => setShowPresets(false)} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
         <label htmlFor={idFor('color')}>Color (2D/3D display)</label>

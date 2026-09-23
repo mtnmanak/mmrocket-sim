@@ -71,16 +71,47 @@ describe('.rkt — counts', () => {
     const r = importRkt(rkt('<Parachute><Name>Chute</Name><Dia>600</Dia>'
       + '<ShroudLineCount>1000000</ShroudLineCount><ShroudLineLen>300</ShroudLineLen></Parachute>'));
     const chute = ofType(r.tree, 'parachute');
-    expect(chute['lineCount']).toBe(64);
-    expect(r.notes).toContain(
-      '“Chute”: line count 1000000 is over the limit of 64 (more than any real parachute) — set to 64.');
+    expect(chute['lineCount']).toBe(256);
+    expect(r.notes).toContain('“Chute”: line count 1000000 is over the limit of 256 (over ten times the most'
+      + ' lines of any parachute in the parts database, and every line is weighed) — set to 256.');
     // The kernel's own mass for the imported canopy: 540.02 kg with the file's
-    // count (measured at a7756c5), 0.0535 kg with 64 lines.
+    // count (measured at a7756c5), 0.0535 kg with 64 lines, 0.1572 kg with 256.
     resetEngine();
     const t = engineTree(normalizeTree(r.tree));
     const rocket = OrkRocket.buildTree(t);
     rocket.staticInfo();
-    expect(rocket.componentInfo(ofType(t, 'parachute').id!).mass).toBeLessThan(0.1);
+    expect(rocket.componentInfo(ofType(t, 'parachute').id!).mass).toBeLessThan(0.2);
+  });
+
+  /**
+   * The ceiling is not the kernel's (seam review of audit 2026-09-22). It was
+   * 64 "to match the line-instance ceiling", but that ceiling is the bridge's
+   * for lugs and rail buttons (ComponentFactory.applyLineInstances), which
+   * allocate a Coordinate per instance. A canopy's lines are one integer the
+   * kernel multiplies into the mass (Parachute.setLineCount has no clamp), so
+   * the one real design over 64 — Black-Brant-IV-24mm.rkt's 66 — was stored at
+   * 64 and told its parachute had "more than any real parachute" (its KnownMass
+   * override kept the mass unchanged; see MAX_SHROUD_LINES in schema.ts).
+   */
+  it('a ShroudLineCount of 66 is kept, and the kernel weighs every line', () => {
+    const chuteOf = (lines: number) => importRkt(rkt('<Parachute><Name>Chute</Name><Dia>457</Dia>'
+      + `<ShroudLineCount>${lines}</ShroudLineCount><ShroudLineLen>300</ShroudLineLen></Parachute>`));
+    const r = chuteOf(66);
+    expect(ofType(r.tree, 'parachute')['lineCount']).toBe(66);
+    expect(r.notes.filter((n) => /line count/.test(n))).toEqual([]);
+    const chuteMass = (tree: RocketTree): number => {
+      resetEngine();
+      const t = engineTree(normalizeTree(tree));
+      const rocket = OrkRocket.buildTree(t);
+      rocket.staticInfo();
+      return rocket.componentInfo(ofType(t, 'parachute').id!).mass;
+    };
+    const m66 = chuteMass(r.tree);
+    const m64 = chuteMass(chuteOf(64).tree);
+    const m62 = chuteMass(chuteOf(62).tree);
+    // Linear in the count: two lines more cost what two lines fewer save.
+    expect(m66).toBeGreaterThan(m64);
+    expect(m66 - m64).toBeCloseTo(m64 - m62, 12);
   });
 });
 

@@ -59,7 +59,8 @@ describe('sanitizeTree — counts', () => {
     expect(kid(t, 5)['count']).toBe(1000);
     expect(notes).toHaveLength(6);
     expect(notes[0]).toMatch(/^“Fins”: fin count 70000 is over the limit of 8 \(.*\) — set to 8\.$/);
-    expect(notes[2]).toBe('“Chute”: line count 1000000 is over the limit of 64 (more than any real parachute) — set to 64.');
+    expect(notes[2]).toBe('“Chute”: line count 1000000 is over the limit of 256 (over ten times the most lines'
+      + ' of any parachute in the parts database, and every line is weighed) — set to 256.');
   });
 
   it('rounds a fractional count, and raises a zero fin count to one', () => {

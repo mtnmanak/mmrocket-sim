@@ -122,3 +122,70 @@ describe('zooming and panning do not re-walk the tree (audit 2026-09-22)', () =>
     expect(walks()).toBe(after + 1);
   });
 });
+
+/**
+ * THE PAN TAKES THE SIDE VIEW'S GESTURE RULES (seam review of audit
+ * 2026-09-22). The audit gated TreeSchematic's drag and pan — primary button of
+ * the primary pointer only, a move with the button up is a release it never
+ * saw, and a gesture belongs to the pointer that started it — and left this
+ * view's pan as it was: a right-press panned (on macOS the context menu then
+ * swallows the release, so the view followed a bare mouse), and a second finger
+ * drove the first finger's pan.
+ */
+describe('the pan follows only the press that started it', () => {
+  type Ptr = { id?: number; primary?: boolean; button?: number; buttons?: number; x: number };
+  const ptr = (type: string, p: Ptr) => act(() => {
+    svgEl().dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: p.id ?? 1, isPrimary: p.primary ?? true,
+      button: p.button ?? 0, buttons: p.buttons ?? (type === 'pointerup' || type === 'pointercancel' ? 0 : 1),
+      clientX: p.x, clientY: 180,
+    }));
+  });
+  const zoomIn = () => act(() => { host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')!.click(); });
+  beforeEach(zoomIn);
+
+  it('a primary press pans (the gesture these rules must keep)', () => {
+    const before = view();
+    ptr('pointerdown', { x: 180 });
+    ptr('pointermove', { x: 220 });
+    expect(view()).not.toBe(before);
+  });
+
+  it('a right-press does not pan, even when the move that follows reports no button', () => {
+    const before = view();
+    ptr('pointerdown', { button: 2, buttons: 2, x: 180 });
+    ptr('pointermove', { buttons: 0, x: 220 });
+    ptr('pointermove', { buttons: 2, x: 260 });
+    expect(view()).toBe(before);
+  });
+
+  it('a move with the button up ends the pan: the release it never saw', () => {
+    ptr('pointerdown', { x: 180 });
+    ptr('pointermove', { x: 200 });
+    const panned = view();
+    ptr('pointermove', { buttons: 0, x: 240 });
+    ptr('pointermove', { buttons: 1, x: 280 }); // no new press: nothing to follow
+    expect(view()).toBe(panned);
+  });
+
+  it("a second finger neither starts a pan nor drives or ends the first one's", () => {
+    ptr('pointerdown', { x: 180 });
+    ptr('pointermove', { x: 200 });
+    const first = view();
+    ptr('pointerdown', { id: 2, primary: false, x: 100 });
+    ptr('pointermove', { id: 2, primary: false, x: 60 });
+    expect(view()).toBe(first);
+    ptr('pointerup', { id: 2, primary: false, x: 60 });
+    ptr('pointermove', { x: 240 });
+    expect(view()).not.toBe(first); // still the first finger's pan
+  });
+
+  it('a cancelled pointer ends the pan', () => {
+    ptr('pointerdown', { x: 180 });
+    ptr('pointermove', { x: 200 });
+    const panned = view();
+    ptr('pointercancel', { x: 200 });
+    ptr('pointermove', { x: 260 });
+    expect(view()).toBe(panned);
+  });
+});

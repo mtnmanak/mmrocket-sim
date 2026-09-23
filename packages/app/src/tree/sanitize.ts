@@ -185,6 +185,43 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
 }
 
 /**
+ * A PATCH brought inside the limits table before it is written, one note per
+ * repair in the wording the load boundary uses — for a write path that is
+ * neither the property panel's typed commit nor a load: a pick from the preset
+ * catalogue, which a user's own CSV rows feed too (seam review of audit
+ * 2026-09-22). It wrote whatever the row said: SEMROC HTC-11 as it shipped
+ * (inside diameter 49.99 mm over an outside 28.65; corrected since, in
+ * apply-preset-corrections.mjs) stored a -10.668 mm wall,
+ * and a CSV canopy of 1,000,000 lines a 540 kg parachute — values a restored
+ * session then repaired SILENTLY, which this file's header says only an older
+ * build could have let through.
+ *
+ * Numeric keys only: a preset writes no position and none of ENUM_LIMITS'
+ * fields. The note names the part as it will be after the patch, so a pick
+ * reads '“SEMROC HTC-11”: wall thickness …' — the words a reopened file would
+ * have given. The SAME patch object when nothing needed it.
+ */
+export function limitPatch(
+  node: ComponentNode, patch: Partial<ComponentNode>, notes?: string[],
+): Partial<ComponentNode> {
+  const after = { ...node, ...patch } as ComponentNode;
+  let out: Partial<ComponentNode> | null = null;
+  for (const [key, raw] of Object.entries(patch)) {
+    if (typeof raw !== 'number') continue;
+    const limit = fieldLimit(after.type, key);
+    if (!limit) continue;
+    const fixed = applyFieldLimit(limit, raw);
+    if (fixed === raw) continue;
+    (out ??= { ...patch })[key] = fixed;
+    if (notes) {
+      const f = limitFinding(after, key, limit, raw, fixed);
+      notes.push(`${f.problem} — ${f.repair}.`);
+    }
+  }
+  return out ?? patch;
+}
+
+/**
  * A stage separation trigger in the kernel's spelling, or null when it names
  * none of the kernel's nine — `OrkEngine.separationEventOf` throws on anything
  * else. For the per-configuration separations, which live outside the tree

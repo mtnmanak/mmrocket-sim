@@ -498,6 +498,26 @@ describe('the sweep, flown on the real kernel', () => {
     expect(unlit.rows[0]!.run!.maxAltitude).toBeLessThan(lit.rows[0]!.run!.maxAltitude * 0.8);
   }, 60000);
 
+  /**
+   * THE ROW-283 GAP (seam review of audit 2026-09-22). The design page refuses a
+   * motor whose ignition event the kernel does not know — `writeMountMotor`
+   * checks the event BEFORE the motor goes on — and flies without it. Batch
+   * wrote the motor first, then the ignition threw into a catch meant for a
+   * missing mount, so the same motor flew here on AUTOMATIC: 240.34 m in Batch
+   * against 122.06 m on the design page, on the review's two-mount design.
+   */
+  it("refuses another mount's motor whose ignition the kernel does not know, as the design page does", async () => {
+    const side: BatchMountOption = { id: 'side', label: 'Side', diameterMm: 24, motorCount: 1, maxMotorLengthM: null };
+    const base = { mounts: [MOUNT, side], candidates: [entry('cat', 'Acme', 'E22', '5')] };
+    const deps = { fetchSpec: fetchFrom({ cat: curve('E22') }), nozzleFor: nozzles({}) };
+    const refused = await sweep(input(rocket({ sideMount: true }), {
+      ...base, assignedMotors: { side: curve('E20') },
+      assignedIgnitions: { side: { event: 'bogus' as never, delay: 0 } },
+    }), deps);
+    const absent = await sweep(input(rocket({ sideMount: true }), base), deps);
+    expect(refused.rows[0]!.run!.maxAltitude).toBe(absent.rows[0]!.run!.maxAltitude);
+  }, 60000);
+
   it("strips the design's own nozzle: a candidate with no published exit flies none", async () => {
     const cands = [entry('cat', 'Acme', 'E22', '5')];
     const deps = { fetchSpec: fetchFrom({ cat: curve('E22') }), nozzleFor: nozzles({}) };

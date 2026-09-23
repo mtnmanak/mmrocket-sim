@@ -114,6 +114,21 @@ export function arrowPan(key: string): [number, number] | null {
 }
 
 /**
+ * Whether a press may start a drag or a pan on the 2D and aft drawings (and the
+ * fin-point editor): the primary button of the primary pointer only (audit
+ * 2026-09-22). A right-press started one — and on macOS the context menu then
+ * swallows the release, leaving the gesture glued to a bare mouse — and a
+ * second finger on a touch screen started a second gesture that drove the
+ * first one's state. One rule for every drawing, as arrowPan is for the keys;
+ * the aft view's pan was left out when the side view got it (seam review).
+ */
+export const startsGesture = (e: { button: number; isPrimary: boolean }): boolean =>
+  e.button === 0 && e.isPrimary;
+
+/** A move with the primary button up is a release the drawing never saw. */
+export const releasedDuring = (e: { buttons: number }): boolean => (e.buttons & 1) === 0;
+
+/**
  * How far in the x-axis is zoomed, as a percentage: 100 % is the whole flight,
  * 200 % is half of it on screen. Degenerate or missing scales read 100 %,
  * because "all of it" is what an un-zoomed chart shows.

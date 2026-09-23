@@ -97,6 +97,28 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
     expect(plugged.motor?.label).toBe('C6-P');
   });
 
+  it('loads a reference flagged for auto delay on Auto, labelled as the browser labels it', async () => {
+    // The RockSim reader's "every delay" on a catalogue motor that lists no
+    // numeric delay (rktEveryDelay): the browser starts such a motor on
+    // "Auto (optimal)" — meta.autoDelay, first flown at 0 s, then re-flown at
+    // the optimum (flightRunner) — and the import must start it the same way.
+    const kba = dbEntry({ manufacturerAbbrev: 'KBA', designation: 'G135R', commonName: 'G135', delays: 'M' });
+    const res = await matchImportedMotor(ref({ designation: 'G135R', manufacturer: 'KBA', delay: 0, autoDelay: true }), {
+      findDb: () => kba, fetchSpec: async (_m, d) => spec('G135R', d),
+    });
+    expect(res.motor?.meta.autoDelay).toBe(true);
+    expect(res.motor?.spec.ejectionDelay).toBe(0);
+    expect(res.motor?.label).toBe('G135 (auto delay)');
+    expect(res.motor?.meta.label).toBe('G135 (auto delay)');
+    expect(res.note).toContain('G135R (auto delay)');
+    // Without the flag, nothing about an ordinary reference changes.
+    const plain = await matchImportedMotor(ref({ delay: 5 }), {
+      findDb: () => dbEntry(), fetchSpec: async (_m, d) => spec('C6', d),
+    });
+    expect(plain.motor?.meta.autoDelay).toBeUndefined();
+    expect(plain.motor?.label).toBe('C6-5');
+  });
+
   it('carries the file’s motor identity onto the meta for write-back', async () => {
     const res = await matchImportedMotor(
       ref({ manufacturer: 'Estes Industries', motorType: 'single', digest: 'abc' }),

@@ -274,10 +274,24 @@ export const MAX_ASSEMBLY_INSTANCES = 32;
  * Parachute shroud lines. The kernel takes any count (Parachute.setLineCount
  * has no clamp) and bills `lineCount × lineLength × line density` as mass, so a
  * .rkt saying 1,000,000 lines made a 540 kg parachute (audit 2026-09-22). The
- * largest count in the whole shipped parts catalogue is 24; 64 matches the
- * line-instance ceiling above.
+ * ceiling is the APP's, against a corrupt count, and deliberately loose.
+ *
+ * It was 64, "matching the line-instance ceiling above" — but that ceiling
+ * exists because every lug or rail-button instance is a Coordinate the kernel
+ * allocates on each pass, and a canopy's lines are no such thing: one integer,
+ * multiplied into the mass, drawn by nothing. So 64 clamped a count the kernel
+ * flies faithfully, and the one design over it in the owner's 939-file RockSim
+ * corpus — Black-Brant-IV-24mm.rkt, 66 lines — was stored at 64 and told it had
+ * "more than any real parachute" (seam review of audit 2026-09-22). No number
+ * moved there: that file's KnownMass overrides the chute's mass. And its 66 is
+ * very likely a typo for 6 — the part is an 18" plastic hexagon, which the
+ * corpus carries 27 more times at 6 or 8 lines — but a file's plausible count
+ * is flown as written, not called impossible, and a typo is the user's to fix.
+ * 256 is over ten times the most any parachute in the shipped parts catalogue
+ * has (24; the corpus tops out at 20 bar that 66), and the 540 kg file's
+ * 600 mm canopy weighs 0.157 kg at it (0.054 kg at the old 64).
  */
-export const MAX_SHROUD_LINES = 64;
+export const MAX_SHROUD_LINES = 256;
 
 /**
  * A protuberance's `count` is an area multiplier, never a loop — this is the
@@ -409,7 +423,10 @@ const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<R
     instanceCount: { kind: 'count', hmin: 1, hmax: MAX_ASSEMBLY_INSTANCES, why: 'the most this app draws or flies' },
   },
   parachute: {
-    lineCount: { kind: 'count', hmin: 0, hmax: MAX_SHROUD_LINES, why: 'more than any real parachute' },
+    lineCount: {
+      kind: 'count', hmin: 0, hmax: MAX_SHROUD_LINES,
+      why: 'over ten times the most lines of any parachute in the parts database, and every line is weighed',
+    },
   },
   protuberance: { count: { kind: 'count', hmin: 1, hmax: MAX_PROTUBERANCE_COUNT } },
 });
@@ -1118,4 +1135,71 @@ export function finCountDefault(type: EditorComponentType): number {
 export function interleaveRotation(existing: ComponentNode): number {
   const count = Math.max(1, Math.round(num(existing, 'finCount', finCountDefault(existing.type))));
   return num(existing, 'rotation', 0) + Math.PI / count;
+}
+
+/**
+ * What an ABSENT numeric key flies, by key (SI): the kernel bridge's own
+ * fallback — `ComponentFactory`'s `dbl(node, key, default)`, or the kernel
+ * constructor's field where the bridge sets nothing for a missing key — which
+ * the .ork writer and the drawings read the same way. Line numbers are
+ * ComponentFactory.java's.
+ */
+const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
+  cant: 0, // :173, :184, :193
+  rotation: 0, // :229 (tube fins), :530 (fin sets)
+  tabHeight: 0, tabLength: 0, tabOffset: 0, // applyFinTabs :758-765 — no tab
+  airfoilLeDiamond: 0, airfoilTeDiamond: 0, finLeRadius: 0, // :554-556
+  motorOverhang: 0, // :161, :253
+  radialPosition: 0, radialDirection: 0, // :260-261
+  clusterScale: 1, clusterRotation: 0, // :280-281, and engineTree's cluster split
+  // A surface part's clock angle (applyMountAngle :945, and every renderer's
+  // num(child, 'angleOffset', 0)); an assembly's (:953).
+  angleOffset: 0,
+  radiusOffset: 0, // :952
+  // Set only with a count (applyLineInstances :911); with no count the part is
+  // ONE button or lug, and the spacing means nothing.
+  instanceSeparation: 0,
+  // Unset shoulders are the kernel Transition's zero-initialised fields.
+  shoulderRadius: 0, shoulderLength: 0, shoulderThickness: 0,
+  foreShoulderRadius: 0, foreShoulderLength: 0, aftShoulderRadius: 0, aftShoulderLength: 0,
+  spillHoleDiameter: 0, // no vent (treeModel's Cd scaling reads absent as 0)
+  lineCount: 6, lineLength: 0.3, // :431-432
+  // Unset, DeploymentConfiguration's own 200 m and 0 s (the .ork writer's too).
+  deployAltitude: 200, deployDelay: 0,
+  separationDelay: 0, // StageSeparationConfiguration's own
+});
+
+/** Type-specific blanks, which win over BLANK_BY_KEY. */
+const BLANK_BY_TYPE: Record<string, Record<string, number>> = lookupTable<Record<string, number>>({
+  trapezoidfinset: { finCount: finCountDefault('trapezoidfinset') },
+  ellipticalfinset: { finCount: finCountDefault('ellipticalfinset') },
+  freeformfinset: { finCount: finCountDefault('freeformfinset') },
+  tubefinset: { finCount: finCountDefault('tubefinset') },
+  // Kernel RailButton / LaunchLug: instanceCount = 1 (lineInstanceCount's too).
+  railbutton: { instanceCount: 1 },
+  launchlug: { instanceCount: 1 },
+  podset: { instanceCount: 2 }, // :950
+  parallelstage: { instanceCount: 2 },
+  // treeModel's protuberance lowering: an absent count is one, an absent plate angle 45°.
+  protuberance: { count: 1, plateAngle: Math.PI / 4 },
+});
+
+/**
+ * WHAT A BLANK NUMERIC FIELD FLIES, where that is ONE known value (SI), or
+ * undefined where it is not — an "auto" Cd the kernel computes, a density that
+ * is the part type's default material.
+ *
+ * The property panel shows it as the blank box's placeholder and steps the
+ * spinner and the arrow keys from it (seam review of audit 2026-09-22). The
+ * audit had made a blank field with no figure behind it inert — seeding an
+ * "auto" Cd from 0 replaced the whole computed drag — which is right, and
+ * stands; but a blank on a part just added is usually NOT figureless: a new fin
+ * set's cant flies 0, a new canopy's lines fly 6, and a set saved with no count
+ * flies 3 fins. Those went dead too, with nothing on screen saying what the
+ * blank meant. Before the audit, ▴ on a new canopy's lines committed ONE line.
+ */
+export function blankValue(type: EditorComponentType | string, key: string): number | undefined {
+  const byType = BLANK_BY_TYPE[type];
+  if (byType && Object.hasOwn(byType, key)) return byType[key];
+  return BLANK_BY_KEY[key];
 }

@@ -305,6 +305,31 @@ function inEnvelope(v: number | null | undefined, [lo, hi]: readonly [number, nu
   return typeof v === 'number' && v >= lo && v <= hi ? v : null;
 }
 
+/**
+ * The three pad fields as `padAir` READS them, in the launch's own units: an
+ * out-of-envelope (or non-numeric) temperature or pressure as blank, the
+ * altitude clamped into `SITE_ALTITUDE_M_RANGE` (0 when it is not a finite
+ * number). Every in-envelope value comes back as the same number, untouched.
+ *
+ * Split out of `padAir` (seam review of audit 2026-09-22) because the run
+ * provenance key has to hash what is FLOWN, not what is stored: `conditionsKeyOf`
+ * hashed the stored values, so a run flown before the chokepoint at a pressure
+ * of 34,313 hPa kept matching a design that now flies the site's standard day,
+ * and Show charts re-flew it in different air under the stored run's name.
+ */
+export function padFieldsAsFlown(launch: PadConditions): {
+  launchAltitudeM: number; temperatureC: number | null; pressureHPa: number | null;
+} {
+  const h = launch.launchAltitudeM;
+  return {
+    launchAltitudeM: typeof h === 'number' && Number.isFinite(h)
+      ? Math.min(Math.max(h, SITE_ALTITUDE_M_RANGE[0]), SITE_ALTITUDE_M_RANGE[1])
+      : 0,
+    temperatureC: inEnvelope(launch.temperatureC, PAD_TEMP_C_RANGE),
+    pressureHPa: inEnvelope(launch.pressureHPa, PAD_PRESSURE_HPA_RANGE),
+  };
+}
+
 /** The pad's air as the flight flies it — see `padAir`. */
 export interface PadAir {
   /** Site altitude flown (m): the stored one, clamped into `SITE_ALTITUDE_M_RANGE`. */
@@ -343,12 +368,7 @@ export interface PadAir {
  * evaluated at and the pad the flight starts from cannot differ.
  */
 export function padAir(launch: PadConditions): PadAir {
-  const h = launch.launchAltitudeM;
-  const altitudeM = typeof h === 'number' && Number.isFinite(h)
-    ? Math.min(Math.max(h, SITE_ALTITUDE_M_RANGE[0]), SITE_ALTITUDE_M_RANGE[1])
-    : 0;
-  const tC = inEnvelope(launch.temperatureC, PAD_TEMP_C_RANGE);
-  const pHPa = inEnvelope(launch.pressureHPa, PAD_PRESSURE_HPA_RANGE);
+  const { launchAltitudeM: altitudeM, temperatureC: tC, pressureHPa: pHPa } = padFieldsAsFlown(launch);
   return {
     altitudeM,
     temperatureK: tC !== null ? tC + 273.15 : isaTemperatureK(altitudeM),
