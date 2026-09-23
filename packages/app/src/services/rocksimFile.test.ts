@@ -2877,11 +2877,11 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
   });
 
   /** Four identical tubes around the axis, and what each simulation loads in them — 8 in Goblin 4 x 75mm.rkt's shape. */
-  const goblin = (sims: string[][]) => `<RockSimDocument><DesignInformation><RocketDesign>
+  const goblin = (sims: string[][], tubeXml: (i: number) => string = () => '') => `<RockSimDocument><DesignInformation><RocketDesign>
     <Name>Goblin-ish</Name><StageCount>1</StageCount>
     <Stage3Parts><BodyTube><Name>Body</Name><OD>203</OD><ID>199</ID><Len>1500</Len><SerialNo>1</SerialNo>
       <AttachedParts>${[0, 1, 2, 3].map((i) => `<BodyTube><Name>Tube ${i + 1}</Name><OD>79</OD><ID>76</ID><Len>600</Len>
-        <IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount><SerialNo>${8 + i}</SerialNo>
+        <IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount><SerialNo>${8 + i}</SerialNo>${tubeXml(i)}
         <RadialLoc>60</RadialLoc><RadialAngle>${(i * Math.PI) / 2}</RadialAngle></BodyTube>`).join('')}
       </AttachedParts></BodyTube></Stage3Parts>
     </RocketDesign></DesignInformation>
@@ -2911,6 +2911,64 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     const alike = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ'], ['K1499N', 'K1499N', 'K1499N', 'K1499N']]));
     expect(mountsOf(alike.tree).map((m) => m['cluster'])).toEqual(['4-ring']);
     expect(Object.values(alike.configs.find((c) => c.id === 'rocksim-sim-2')!.motors).map((m) => m.designation)).toEqual(['K1499N']);
+  });
+
+  /**
+   * ONE TUBE'S MASS IS NOT THE CLUSTER'S (review of the seam fixes). A
+   * RockSim <KnownMass> is its own tube's; the kernel's override on a cluster
+   * tube is the WHOLE cluster's (MassCalculation.calculateStructure weighs it
+   * at getOverrideMass(), where a computed mass is multiplied by the instance
+   * count). Merged, four 441.75 g tubes — 8 in Goblin 4 x 75mm.rkt's — flew as
+   * 441.75 g, 1,325 g light, while the same four kept apart flew all 1,767 g:
+   * the rocket's weight hung on whether its simulations loaded the tubes alike.
+   */
+  const weighed = () => '<KnownMass>441.75</KnownMass><KnownCG>279.4</KnownCG><UseKnownCG>1</UseKnownCG>';
+  it('weighs a merged cluster as every tube the file weighs — the same as the tubes kept apart', async () => {
+    const merged = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ']], weighed));
+    const apart = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ'], ['M2050X', 'L1170FJ', 'M2050X', 'L1170FJ']], weighed));
+    const [cluster] = mountsOf(merged.tree);
+    expect(cluster!['cluster']).toBe('4-ring');
+    expect(cluster!['overrideMass']).toBeCloseTo(4 * 0.44175, 12);
+    expect(cluster!['overrideCGX']).toBeCloseTo(0.2794, 12);
+    expect(mountsOf(apart.tree).map((m) => m['overrideMass'])).toEqual(Array(4).fill(expect.closeTo(0.44175, 12)));
+    expect(merged.notes).toContain('Cluster: 4 identical motor tubes in “Body” imported as one 4-ring cluster. '
+      + 'Its mass is the 4 tube masses the file states, added together: 1767 g.');
+    // The kernel's own sum agrees: the same rocket, whichever way it came in.
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const dry = (t: typeof merged.tree): number => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree(t)).staticInfo().massEmpty;
+    };
+    expect(dry(merged.tree)).toBeCloseTo(dry(apart.tree), 9);
+  }, 60000);
+
+  it('keeps apart identical tubes the file weighs differently', () => {
+    // One tube weighed, three computed: no single cluster mass says that.
+    const r = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ']], (i) => (i === 0 ? weighed() : '')));
+    const mounts = mountsOf(r.tree);
+    expect(mounts).toHaveLength(4);
+    expect(mounts.map((m) => m['overrideMass'])).toEqual([expect.closeTo(0.44175, 12), undefined, undefined, undefined]);
+    expect(r.notes.join('\n')).toMatch(/4 identical motor tubes in “Body” are weighed differently in the file, so each stays a part of its own/);
+    // Every tube weighed, at different balance points: apart too.
+    const cgs = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ']],
+      (i) => `<KnownMass>441.75</KnownMass><KnownCG>${279.4 + i}</KnownCG><UseKnownCG>1</UseKnownCG>`));
+    expect(mountsOf(cgs.tree)).toHaveLength(4);
+  });
+
+  it('writes each tube of a cluster its own share of the cluster’s mass, and reads the whole back', () => {
+    const notes: string[] = [];
+    const design = tubeIn({ motorMount: true, cluster: '3-ring', overrideMass: 0.3, overrideCGX: 0.035 });
+    // The kernel's figures for the cluster tube: the whole cluster's, as componentInfo reports them.
+    const xml = exportRkt({ ...design, notes, compInfo: { m: { mass: 0.3, cgX: 0.035 } } });
+    const grams = (tag: string) => [...xml.matchAll(new RegExp(`<${tag}>([^<]+)</${tag}>`, 'g'))].map((m) => Number(m[1]));
+    // The body, then every copy at 100 g — RockSim's per-part mass — never the cluster's 300 g.
+    expect(grams('KnownMass')).toEqual([0, 100, 100, 100].map((g) => expect.closeTo(g, 9)));
+    expect(grams('CalcMass')).toEqual([100, 100, 100].map((g) => expect.closeTo(g, 9)));
+    expect(notes).toEqual([]);
+    const [back] = mountsOf(importRkt(xml).tree);
+    expect(back!['cluster']).toBe('3-ring');
+    expect(back!['overrideMass']).toBeCloseTo(0.3, 12);
   });
 
   /**
@@ -2969,5 +3027,11 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
       .map((m) => m.designation).sort();
     expect(sim(90)).toEqual(['L1170FJ', 'L1170FJ', 'M2050X', 'M2050X']);
     expect(sim(102)).toEqual(['K1499N', 'K1499N']);
+  });
+  const DARKSTAR = corpus.map((c) => `${c}/Scratch Builds/PELTZER - 12in Darkstar.rkt`).find((p) => existsSync(p));
+  it.skipIf(!DARKSTAR)('PELTZER - 12in Darkstar.rkt: the six-tube cluster weighs all six 892 g tubes', () => {
+    const r = importRkt(readFileSync(DARKSTAR!, 'latin1'));
+    const cluster = mountsOf(r.tree).find((m) => m['cluster'] === '6-ring')!;
+    expect(cluster['overrideMass']).toBeCloseTo(6 * 0.892, 12);
   });
 });

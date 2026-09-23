@@ -1171,6 +1171,31 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             + 'simulation would fly one of those motors in every tube.');
           continue;
         }
+        // ONE TUBE'S MASS IS NOT THE CLUSTER'S (review of the seam fixes). A
+        // RockSim <KnownMass> is its own tube's — desktop, which reads a
+        // cluster as N separate tubes, counts every one, as RockSim does — but
+        // the kernel's override on a cluster tube is the WHOLE cluster's
+        // (MassCalculation.calculateStructure weighs it at getOverrideMass(),
+        // where a computed mass is multiplied by the instance count). The kept
+        // tube took one copy's, so every merged cluster the file weighs flew
+        // (N − 1) tubes light — the owner's 12in Darkstar six 892 g tubes as
+        // one, 4.46 kg — and once tubes that carry different motors stayed
+        // apart, 8 in Goblin 4 x 75mm.rkt weighed 1,325 g more or less by how
+        // its simulations loaded them. A merged cluster carries the tubes'
+        // masses added together; tubes the file weighs differently — one
+        // weighed and another computed, or balanced at different points — have
+        // no single cluster mass or balance point, and stay apart, each with
+        // its own. (0 of the 20 weighed ring groups in the corpus do.)
+        const weighedTubes = g.filter((t) => typeof t['overrideMass'] === 'number');
+        const balance = new Set(g.map((t) => (typeof t['overrideCGX'] === 'number'
+          ? Math.round((t['overrideCGX'] as number) * 1e4) : null))); // to 0.1 mm
+        if ((weighedTubes.length > 0 && weighedTubes.length < g.length) || balance.size > 1) {
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical ${kind} in “${where}” are weighed differently in the file, so each `
+            + 'stays a part of its own, where the file puts it — a cluster carries one mass and one balance '
+            + 'point for all its tubes.');
+          continue;
+        }
         const tubeR = typeof g[0]!['outerRadius'] === 'number' ? (g[0]!['outerRadius'] as number) : 0.0095;
         const m = matchCluster(g.map((t) => radialByNode.get(t) ?? { y: 0, z: 0 }), tubeR);
         if (!m) {
@@ -1196,6 +1221,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         }
         if (Math.abs(rotation) > 1e-4) keep['clusterRotation'] = rotation;
         keep.name = keep.name?.replace(/ \(\d+\)$/, '');
+        // Summed in grams, as the file states them, so 4 × 441.75 reads "1767".
+        const clusterG = weighedTubes.length > 0
+          ? Number(g.reduce((a, t) => a + (t['overrideMass'] as number) * MASS, 0).toFixed(6)) : null;
+        if (clusterG !== null) keep['overrideMass'] = clusterG / MASS;
         mergedKeep.add(keep);
         const dropped = new Set(g.filter((t) => t !== keep));
         for (const [serial, node] of serialToNode) {
@@ -1203,7 +1232,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         }
         parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
         notes.push(`Cluster: ${g.length} identical ${kind} in “${where}” imported as one ${m.pattern} cluster`
-          + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`);
+          + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`
+          + (clusterG !== null ? ` Its mass is the ${g.length} tube masses the file states, added together: ${clusterG} g.` : ''));
       }
       reconstructClusters(parentNode.children ?? []);
     }
@@ -2089,6 +2119,12 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
        * front (m), `length` is its body length (m). See the MassObject branches.
        */
       point?: { cg: number; length: number };
+      /**
+       * How many RockSim parts this node goes out as — a cluster's tubes. Its
+       * override and computed mass are the whole cluster's; each part's
+       * <KnownMass> and <CalcMass> is its own share.
+       */
+      copies?: number;
     },
   ) => {
     const { mode, xb: xbEnd } = rocksimXb(node, parent);
@@ -2127,9 +2163,18 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // in the un-overridden field is the data error the compInfo map exists to
     // prevent, and it stays wrong even with the flag off — a reader is entitled
     // to look at the number regardless.
+    //
+    // ONE COPY'S SHARE (review of the seam fixes). A cluster goes out as one
+    // <BodyTube> per tube, each re-emitting the same node, and the kernel's
+    // override and computed mass on a cluster tube are the whole cluster's
+    // (componentInfo's getMass) where RockSim's <KnownMass> and <CalcMass> are
+    // the one tube's. Written whole on every copy, a 300 g 3-ring reached
+    // RockSim and desktop — which read the tubes as three parts — at 900 g,
+    // and this app's reader, adding the tubes back together, would say so too.
+    const share = opts?.copies ?? 1;
     const knownMass = opts?.knownMass
       ?? ((hasMassOv ? (node['overrideMass'] as number)
-        : override ? info?.mass ?? 0 : 0) * MASS);
+        : override ? info?.mass ?? 0 : 0) * MASS) / share;
     emit(`<KnownMass>${knownMass}</KnownMass>`);
     // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
     // never carry node.density — orkFile stores them as surfaceDensity (chute /
@@ -2201,7 +2246,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // sets — an overridden set exports UseKnownCG=1, where desktop's airfoil branch
     // never runs. Real RockSim files put these right here, after <Xb>.
     if (info) {
-      emit(`<CalcMass>${info.mass * MASS}</CalcMass>`);
+      emit(`<CalcMass>${(info.mass * MASS) / share}</CalcMass>`);
       emit(`<CalcCG>${info.cgX * LEN}</CalcCG>`);
     }
   };
@@ -2213,10 +2258,10 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   };
 
   const emitInnerTube = (
-    node: ComponentNode, parent: ComponentNode | null, radialLocM = 0, radialAngle = 0, suffix = '',
+    node: ComponentNode, parent: ComponentNode | null, radialLocM = 0, radialAngle = 0, suffix = '', copies = 1,
   ) => {
     emit('<BodyTube>');
-    common(node, parent, `Inner Tube${suffix}`);
+    common(node, parent, `Inner Tube${suffix}`, { copies });
     emit(`<OD>${nnum(node, 'outerRadius', 0.0095) * RAD}</OD>`);
     emit(`<ID>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
@@ -2319,7 +2364,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
         if (centres.length === 1) {
           emitInnerTube(node, parent, ...polar(centres[0]!));
         } else {
-          centres.forEach((c, i) => emitInnerTube(node, parent, ...polar(c), i === 0 ? '' : ` (${i + 1})`));
+          centres.forEach((c, i) => emitInnerTube(node, parent, ...polar(c), i === 0 ? '' : ` (${i + 1})`, centres.length));
         }
         break;
       }
