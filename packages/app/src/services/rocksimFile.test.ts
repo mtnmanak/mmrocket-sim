@@ -1205,7 +1205,11 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
   it('says what RockSim cannot: launch above the pad stage, a charge below that is plugged, never', () => {
     const cases: [Partial<OrkExportMotor>, Partial<OrkExportMotor>, RegExp][] = [
       [{ ignitionEvent: 'launch', ignitionDelay: 2 }, {}, /“K250W” lights at launch, above the stage that leaves the pad\. .* lights it 2 s after the burnout of the stage below\./],
-      [{ ignitionEvent: 'automatic' }, { delay: Infinity }, /“K250W” lights on the ejection charge of the stage below, whose motors do not share one ejection delay\./],
+      // A plugged motor fires no charge (the kernel schedules EJECTION_CHARGE
+      // only for a motor with one), so here the stage above never lights —
+      // one plugged motor shares 'plugged', so "do not share" was the wrong
+      // reason (review of the seam fixes).
+      [{ ignitionEvent: 'automatic' }, { delay: Infinity }, /“K250W” lights on the ejection charge of the stage below, whose motor is plugged — with no charge to fire, it does not light here either\. .* lights it 0 s after the burnout of the stage below\./],
       [{ ignitionEvent: 'never' }, {}, /“K250W” is set never to light\./],
     ];
     for (const [upper, booster, said] of cases) {
@@ -1213,6 +1217,14 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
       exportRkt({ name: 'RT', tree: twoStage(), notes, motors: { m1: motor('M1350W', booster), m0: motor('K250W', upper) } });
       expect(notes).toEqual([expect.stringMatching(said)]);
     }
+    // Two booster motors whose charges fire at different times: RockSim has one burnout to count from.
+    const split = twoStage();
+    split.components[1]!.children!.push({ type: 'bodytube', id: 'm2', length: 0.3, outerRadius: 0.027, thickness: 0.001, motorMount: true } as ComponentNode);
+    const differ: string[] = [];
+    exportRkt({ name: 'RT', tree: split, notes: differ, motors: {
+      m1: motor('M1350W', { delay: 3 }), m2: motor('M1350W', { delay: 5 }), m0: motor('K250W', { ignitionEvent: 'automatic' }),
+    } });
+    expect(differ).toEqual([expect.stringMatching(/“K250W” lights on the ejection charge of the stage below, whose motors do not share one ejection delay\. /)]);
     // Burnout on the pad stage: nothing burns below it, so it never lights here.
     const notes: string[] = [];
     exportRkt({ name: 'RT', tree: twoStage(), notes, motors: { m1: motor('M1350W', { ignitionEvent: 'burnout', ignitionDelay: 1 }) } });

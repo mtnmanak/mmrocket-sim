@@ -2667,6 +2667,18 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       const [d] = delays;
       return below.length > 0 && delays.size === 1 && d !== undefined && Number.isFinite(d) ? d : null;
     };
+    /**
+     * Every motor on slot `i + 1` plugged. A plugged motor fires no charge —
+     * the kernel schedules EJECTION_CHARGE only for a motor that has one
+     * (BasicEventSimulationEngine, BURNOUT: `motorState.hasEjectionCharge()`)
+     * — so a stage above waiting for one never lights in this app, while the
+     * .rkt lights it at that burnout. One plugged motor does share one delay,
+     * 'plugged', which the note used to deny (review of the seam fixes).
+     */
+    const pluggedBelow = (i: number): number => {
+      const below = stageMotors[i + 1] ?? [];
+      return below.every(([, m]) => !m.rktEveryDelay && !Number.isFinite(m.delay)) ? below.length : 0;
+    };
     const writtenIgnition = new Map<string, number>();
     const lostIgnition = new Set<string>();
     for (const i of [0, 1, 2]) {
@@ -2686,9 +2698,11 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
           : event === 'launch' ? 'lights at launch, above the stage that leaves the pad'
             : event === 'burnout' ? 'lights on the burnout of the stage below'
               : 'lights on the ejection charge of the stage below';
+        const plugged = event === 'ejectioncharge' && i !== lowestSlot ? pluggedBelow(i) : 0;
         const why = i === lowestSlot && (event === 'burnout' || event === 'ejectioncharge')
           ? ' — which never comes on the stage that leaves the pad, so it does not light here either'
-          : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
+          : plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged — with no charge to fire, it does not light here either`
+            : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
         lostIgnition.add(`“${m.designation}” ${what}${why}. RockSim times the stage that leaves the pad from `
           + `launch and every other stage from the burnout of the one below, so the .rkt lights it ${delay} s ${after}.`);
       }
