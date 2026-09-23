@@ -514,7 +514,11 @@ const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   gr: 'gorilla',
   ht: 'hypertek',
   kat: 'kba',
-  kosdonbyaerotech: 'kba',
+  // “Kosdon by AeroTech” is not here, though thrustcurve.org calls KBA that:
+  // it is OpenRocket's name for its ONE maker of both, the prefix rule pairs it
+  // with Kosdon, and MAKER_FAMILIES with KBA. As an alias to KBA it named KBA
+  // as firmly as Kosdon, and “I170” under it took KBA's I170S (374 Ns), where
+  // v0.138 found Kosdon's I170DH (433 Ns) (third review of the audit).
   lr: 'loki',
   publicmissileslimited: 'pml',
   prop: 'pp',
@@ -537,8 +541,9 @@ const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   // left out: it normalises to AMW's own “AM” in the same table. Kosdon's row
   // is TRM, K, KOS, KTRM, KOS-TRM. RASAero writes Gorilla as “GM”
   // (rasaeroFile.ts RASAERO_MFG), and ThreeCarbYen-2018.CDX1's M745WC opened
-  // with the same false note. “Kosdon-by-Aerot” is RockSim's 15-character cut
-  // of “Kosdon-by-Aerotech”, which the prefix rule pairs with Kosdon only.
+  // with the same false note. “Kosdon-by-Aerot”, RockSim's 15-character cut
+  // of “Kosdon-by-Aerotech”, needs no alias, for the reason “Kosdon by
+  // AeroTech” has none (above).
   atsu: 'aerotech',
   atej: 'aerotech',
   aj: 'aerotech',
@@ -548,7 +553,6 @@ const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   ktrm: 'kosdon',
   kostrm: 'kosdon',
   gm: 'gorilla',
-  kosdonbyaerot: 'kba',
 });
 
 const normName = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -567,15 +571,28 @@ const normName = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, ''
  * thrust curve, which is a wrong number, not a cosmetic slip.
  */
 export function manufacturerMatches(fileName: string | undefined, abbrev: string): boolean {
-  if (!fileName) return false;
+  return makerStanding(fileName, abbrev) > 0;
+}
+
+/**
+ * {@link manufacturerMatches} with how: 2 the name pairs with this maker, 1
+ * only with another of its {@link MAKER_FAMILIES}, 0 neither. The matcher
+ * ranks 2 above 1 last of all, just before production status: “I170” under
+ * Kosdon is Kosdon's I170DH, as in v0.138, with KBA's I170S named beside it,
+ * where the family alone took KBA's on catalogue order (third review of the
+ * audit).
+ */
+function makerStanding(fileName: string | undefined, abbrev: string): 0 | 1 | 2 {
+  if (!fileName) return 0;
   const a = normName(fileName);
   // 'unknown' is our own reader's fallback and 'custom' our old writer's —
   // sentinels, not manufacturers, and they must never steer a match.
-  if (!a || a === 'unknown' || a === 'custom') return false;
+  if (!a || a === 'unknown' || a === 'custom') return 0;
   const b = normName(abbrev);
-  if (!b) return false;
+  if (!b) return 0;
   const pairs = (x: string): boolean => a === x || a.startsWith(x) || x.startsWith(a) || MANUFACTURER_ALIASES[a] === x;
-  return pairs(b) || (MAKER_FAMILIES.find((f) => f.includes(b))?.some((o) => o !== b && pairs(o)) ?? false);
+  if (pairs(b)) return 2;
+  return MAKER_FAMILIES.find((f) => f.includes(b))?.some((o) => o !== b && pairs(o)) ? 1 : 0;
 }
 
 /**
@@ -726,14 +743,17 @@ function readLeftover(rest: string, m: MotorDbEntry, motors: MotorDbEntry[]): 'd
  * may not be cut short of a digit — the delay tokens (“14a”, “p”) are dropped
  * and what is left must name the row's propellant ({@link namesPropellant}). A
  * suffix that names no propellant, or one this cannot read, matches nothing.
+ * `'name'` when it is the propellant's own name written out (“I285Redline”),
+ * `'code'` for a code or Dual Thrust's “dt” (“G115-WT”), null for no match.
  */
-function namesByCommonAndPropellant(want: string, m: MotorDbEntry): boolean {
+function namesByCommonAndPropellant(want: string, m: MotorDbEntry): 'name' | 'code' | null {
   const common = m.commonName.toLowerCase();
-  if (!common || !m.propInfo || !prefixWithoutSplit(common, want)) return false;
+  if (!common || !m.propInfo || !prefixWithoutSplit(common, want)) return null;
   const named = want.slice(common.length).split(SEPARATORS)
     .filter((t) => t !== '' && !isDelayToken(t))
     .join('');
-  return named !== '' && namesPropellant(named, m.propInfo);
+  if (named === '' || !namesPropellant(named, m.propInfo)) return null;
+  return named === normName(m.propInfo) ? 'name' : 'code';
 }
 
 /** What {@link matchDbMotor} found, and how firmly. */
@@ -820,8 +840,16 @@ function rankMatches(
   // “MICRO_MAXX_II-1”; prefixWithoutSplit refuses a digit-free short side
   // because a bare impulse letter or a propellant word is no designation.
   const begins = (d: string): boolean => (/\d/.test(d) ? prefixWithoutSplit(d, want) : d !== '' && want.startsWith(d));
+  // The one cut between two digits allowed: the rest is the whole of the row's
+  // own propellant, and that propellant begins with a digit — AeroTech's G142
+  // is catalogued with “8222ALF”, so “G1428222ALF” can be written no other way
+  // (third review of the audit; v0.138 found it, the no-split rule lost it).
+  const gluesOwnPropellant = (d: string, m: MotorDbEntry): boolean => /^\d/.test(m.propInfo ?? '')
+    && want.startsWith(d) && normName(want.slice(d.length)) === normName(m.propInfo!);
   // Rows reached by their common name and a delay alone (rank 1, below).
   const byCommon = new Set<MotorDbEntry>();
+  // Rows reached by their common name and their propellant's own name (rank 2).
+  const byPropellantName = new Set<MotorDbEntry>();
   const tierOf = (m: MotorDbEntry): number => {
     const raw = m.designation.toLowerCase();
     const disp = displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase();
@@ -831,7 +859,7 @@ function rankMatches(
     if (prefixWithoutSplit(want, raw) || prefixWithoutSplit(want, disp)
       || m.commonName.toLowerCase() === want) return 1;
     // The file writing more than the catalog: read what it adds.
-    const stem = [disp, raw].filter(begins).sort((a, b) => b.length - a.length)[0];
+    const stem = [disp, raw].filter((d) => begins(d) || gluesOwnPropellant(d, m)).sort((a, b) => b.length - a.length)[0];
     const left = stem === undefined ? null : readLeftover(want.slice(stem.length), m, motors);
     if (left === 'delay' || left === 'agrees') return 1;
     const common = m.commonName.toLowerCase();
@@ -844,38 +872,48 @@ function rankMatches(
     // Within the rank it yields to a row whose DESIGNATION the reference is
     // (below): “D10-3” is Apogee's D10 before AeroTech's D10W.
     if (afterCommon === 'delay') { byCommon.add(m); return 1; }
-    if (namesByCommonAndPropellant(want, m)) return 2;
+    const byPropellant = namesByCommonAndPropellant(want, m);
+    if (byPropellant === 'name') byPropellantName.add(m);
+    if (byPropellant) return 2;
     if (left === 'unread') return 3;
     // Only ever taken for the file's own maker's rows (below).
     return afterCommon === 'unread' ? 4 : -1;
   };
-  const stated = (m: MotorDbEntry): boolean => manufacturerMatches(manufacturer, m.manufacturerAbbrev);
+  const standing = (m: MotorDbEntry): number => makerStanding(manufacturer, m.manufacturerAbbrev);
   const claims = motors.some((m) => {
     const common = m.commonName.toLowerCase();
-    return stated(m) && common !== '' && (common === want || prefixWithoutSplit(common, want));
+    return standing(m) > 0 && common !== '' && (common === want || prefixWithoutSplit(common, want));
   });
   const scored = motors
     .filter((m) => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5) && admit(m))
-    .map((m) => ({ m, tier: tierOf(m), maker: stated(m) }))
+    .map((m) => { const s = standing(m); return { m, tier: tierOf(m), maker: s > 0, direct: s }; })
     .filter(({ tier, maker }) => tier >= 0 && (tier < 4 || maker));
   // A maker that catalogues the common name keeps the reference (see
   // findDbMotor) — unless all it has is a tier-4 guess, or nothing, and another
   // maker's row IS the designation, bar a delay. KBA and Kosdon each catalogue
   // an I170, and “I170S” under Kosdon took Kosdon's Dirty Harry I170DH (433 Ns)
   // over KBA's I170S (374 Ns), the designation the file wrote; “I170DH-11”
-  // under KBA the reverse (second review of the audit).
+  // under KBA the reverse (second review of the audit). Nor when the reference
+  // names a propellant every row of the maker's contradicts, and another
+  // maker's row is that common name AND that propellant written out in full
+  // (rank 2): RockSim files AeroTech as “A-M”, which reads as AMW's “AM”, and
+  // AMW's Green Gorilla I285 shut “I285Redline” out of AeroTech's I285R, the
+  // only Redline I285 and v0.138's match (third review of the audit). A code
+  // is not enough: “217-H135-WH-12A” filed under AeroTech stays unmatched.
   const ownBest = Math.min(Infinity, ...scored.filter((s) => s.maker).map((s) => s.tier));
-  const keep = claims && !(ownBest >= 4 && scored.some((s) => !s.maker && s.tier <= 1));
+  const keep = claims && !scored.some((s) => !s.maker
+    && (s.tier <= 1 ? ownBest >= 4 : ownBest === Infinity && byPropellantName.has(s.m)));
   const candidates = keep ? scored.filter((s) => s.maker) : scored;
   if (candidates.length === 0) return null;
   const delayNamed = want.split(SEPARATORS).slice(1).map((t) => /^(\d+)[a-z]?$/.exec(t)?.[1]).find(Boolean);
   const fitsDelay = (m: MotorDbEntry): boolean =>
     delayNamed !== undefined && (m.delays ?? '').split(',').map((d) => d.trim()).includes(delayNamed);
-  const keyed = candidates.map(({ m, tier, maker }) => ({ m, tier, maker, delay: fitsDelay(m), named: !byCommon.has(m) }));
+  const keyed = candidates.map(({ m, tier, maker, direct }) => ({ m, tier, maker, direct, delay: fitsDelay(m), named: !byCommon.has(m) }));
   keyed.sort((a, b) => a.tier - b.tier
     || Number(b.maker) - Number(a.maker)
     || Number(b.delay) - Number(a.delay)
     || Number(b.named) - Number(a.named)
+    || b.direct - a.direct
     || Number(isAvailable(b.m)) - Number(isAvailable(a.m)));
   const best = keyed[0]!;
   const rivals = keyed.slice(1)
@@ -955,7 +993,10 @@ function rankMatches(
  * Within a rank the file's manufacturer, then a row whose delays include the
  * one the designation names (“H123-SK-14A”: only the 38 mm H123 lists 14 s),
  * then a row whose designation the reference names over one it reaches by
- * common name and delay only, then production status. And A MAKER THAT CATALOGUES THE COMMON NAME KEEPS
+ * common name and delay only, then a maker the file names outright over one
+ * it names only as family ({@link MAKER_FAMILIES}: “I170” under Kosdon is
+ * Kosdon's I170DH, with KBA's I170S named beside it), then production status.
+ * And A MAKER THAT CATALOGUES THE COMMON NAME KEEPS
  * THE REFERENCE: when a row by the file's manufacturer has a common name the
  * designation begins with, other makers' rows are not candidates at all, even
  * an exact designation. “G69-Classic” filed under Cesaroni resolved to SkyR's
@@ -972,7 +1013,12 @@ function rankMatches(
  * a rank-4 guess, or nothing, when another maker's row is the designation bar
  * a delay (rank 0 or 1): KBA and Kosdon each catalogue an I170, and “I170S”
  * under Kosdon took Kosdon's Dirty Harry I170DH, 433 Ns against the 374 of
- * KBA's I170S (second review of the audit).
+ * KBA's I170S (second review of the audit). And so does one whose every row of
+ * that name the reference contradicts, when another maker's row is that name
+ * and the propellant the reference writes out in full (rank 2): “I285Redline”
+ * filed under RockSim's “A-M”, which reads as AMW, is AeroTech's I285R, not
+ * nothing for AMW's Green Gorilla I285 (third review). A propellant CODE does
+ * not do it: “217-H135-WH-12A” filed under AeroTech stays unmatched.
  *
  * A CESARONI IMPULSE PREFIX ON THE FILE'S SIDE — RockSim's own EngineCode form,
  * “217-H135-WH-12A” — is read past when the whole of it matches nothing

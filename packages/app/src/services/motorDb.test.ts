@@ -578,6 +578,60 @@ describe('findDbMotor — the second review of the audit', () => {
 });
 
 /**
+ * THE THIRD REVIEW OF AUDIT 2026-09-23: lookups the self-match sweep found
+ * resolving to their own row at v0.138 (db35f1f) that the first two reviews
+ * lost. Each is back on the row v0.138 gave it.
+ */
+describe('findDbMotor — the third review of the audit', () => {
+  const find = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr);
+
+  /**
+   * A name for Kosdon or KBA pairs with both (second review), and catalogue
+   * order then gave a bare “I170” under Kosdon to KBA's I170S (374 Ns, no
+   * propellant recorded) where v0.138 found Kosdon's own I170DH (433 Ns). The
+   * maker the file names outright wins the tie; the other is named beside it.
+   */
+  it('a bare I170 is the named maker’s, with the other maker’s named beside it', () => {
+    for (const mfr of ['Kosdon', 'KOS', 'KOSDON/AT', 'KOSDON/AEROTECH', 'Kosdon by AeroTech', 'Kosdon-by-Aerot', 'TRM']) {
+      const m = matchDbMotor('I170', undefined, undefined, mfr)!;
+      expect(m.motor.designation, mfr).toBe('I170DH');
+      expect(m.rivals.map((r) => r.designation), mfr).toEqual(['I170S']);
+    }
+    for (const mfr of ['KBA', 'K-AT']) expect(find('I170', mfr)?.designation, mfr).toBe('I170S');
+    // Still one maker to the open note.
+    expect(manufacturerMatches('Kosdon by AeroTech', 'KBA')).toBe(true);
+    expect(manufacturerMatches('Kosdon-by-Aerot', 'KBA')).toBe(true);
+  });
+
+  it('reads AeroTech’s G142 with its numeric propellant glued on', () => {
+    expect(find('G1428222ALF')?.designation).toBe('G142');
+    expect(find('G1428222ALF', 'AeroTech')?.designation).toBe('G142');
+    // Only the whole of the row's own propellant: a number cut short is refused.
+    expect(find('G1428222')).toBeNull();
+    expect(find('G115-WT')?.designation).toBe('141G115-13A');     // not AeroTech's G11
+  });
+
+  /**
+   * RockSim writes AeroTech as “A-M”, which reads as AMW's “AM”, and AMW
+   * catalogues an I285, K535, K560, K700, L1300, M1350 and M1850: “a maker that
+   * catalogues the common name keeps the reference” shut AeroTech's row out
+   * even where the reference spells out a propellant only it carries.
+   */
+  it('a propellant written out that the maker’s rows contradict lets another maker’s row in', () => {
+    for (const [ref, des] of [['I285Redline', 'I285R'], ['K560WhiteLightning', 'K560W'],
+      ['K700WhiteLightning', 'K700W'], ['L1300Redline', 'L1300R'], ['M1850WhiteLightning', 'M1850W'],
+      ['K535WhiteLightning', 'HP-K535W'], ['M1350WhiteLightning', 'M1350W']] as const) {
+      expect(find(ref, 'A-M')?.designation, ref).toBe(des);
+    }
+    // The maker's own propellant keeps its row.
+    expect(find('I285-GG', 'A-M')?.designation).toBe('GG-38-390');
+    // A code is not enough (second review), and nobody's G69 is Classic.
+    expect(find('217-H135-WH-12A', 'AT')).toBeNull();
+    expect(find('G69-Classic', 'Cesaroni')).toBeNull();
+  });
+});
+
+/**
  * v0.081 filters (owner, 2026-08-30): impulse class first — "often users want
  * to just be able to see H motors" — plus a fits-my-rocket length cut and
  * propellant, the last folded behind "All filters".
