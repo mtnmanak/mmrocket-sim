@@ -315,9 +315,17 @@ export function WeatherDialog({
             : <button type="submit" className="file-btn" disabled={busy !== null || query.trim() === ''}>Search</button>}
         </form>
         <div className="weather-place-alt">
-          <button type="button" className="file-btn" onClick={runLocate} disabled={busy !== null}>
-            {WEATHER_DIALOG_COPY.locate}
-          </button>
+          {/* A Cancel while the browser is asked, as for a search or a fetch: its
+              `timeout` only starts once permission is given, so a permission
+              prompt left unanswered would otherwise hold every button here
+              disabled until the dialog was closed. */}
+          {busy === 'locate'
+            ? <button type="button" className="file-btn" onClick={cancel}>Cancel</button>
+            : (
+              <button type="button" className="file-btn" onClick={runLocate} disabled={busy !== null}>
+                {WEATHER_DIALOG_COPY.locate}
+              </button>
+            )}
           {offerSite && (
             <button type="button" className="file-btn" disabled={busy !== null} onClick={() => choosePlace({
               label: coordinatesLabel(launch.latitudeDeg, launch.longitudeDeg!),
@@ -356,7 +364,13 @@ export function WeatherDialog({
             <label>
               Date{' '}
               <input type="date" value={date} onChange={(e) => {
-                // Another day's answer must not stay applicable under this one.
+                // Another day's answer must not stay applicable under this one —
+                // neither the answer on screen nor one still on its way: a fetch
+                // for the old date that lands after this would otherwise pass
+                // the sequencer (nothing newer had begun) and show, and Apply,
+                // a day the Date box no longer says. So a running fetch is
+                // cancelled, and Fetch asks again for the new date.
+                if (busy === 'fetch') cancel();
                 setDate(e.target.value);
                 setDateTouched(true);
                 setDateNote(null);

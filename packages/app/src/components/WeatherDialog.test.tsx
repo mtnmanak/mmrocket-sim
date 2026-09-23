@@ -244,6 +244,47 @@ describe('the weather dialog', () => {
     expect(q('.weather-places')).toBeNull();
   });
 
+  it('never shows, or applies, a day the Date box no longer says — a date change cancels a fetch still out', async () => {
+    // The forecast request is held; the search and the terrain answer at once.
+    const held: Array<(v: { body: unknown }) => void> = [];
+    render({ route: (u) => (u.includes('/v1/forecast')
+      ? new Promise((resolve) => { held.push(resolve); })
+      : GERLACH(u)) });
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    await click(button(/^Gerlach, Nevada, US/));
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(held).toHaveLength(1);
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
+    // A slow connection: the user moves the date on before Saturday's answer lands.
+    typeInto(q('input[type="date"]'), '2026-09-28');
+    await settle();
+    held[0]!({ body: fixture('forecast-gerlach-0-1202m.json') });
+    await settle();
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-28');
+    expect(q('.weather-review')).toBeNull();
+    expect(button('Apply')!.hasAttribute('disabled')).toBe(true);
+    // ...and nothing is left running: Fetch is back, for the new date.
+    expect(button('Fetch')).toBeTruthy();
+    expect(applied).toHaveLength(0);
+  });
+
+  it('can cancel a location request the browser never answers', async () => {
+    // A permission prompt left unanswered: neither callback ever runs.
+    const silent = { getCurrentPosition: vi.fn() };
+    render({ geolocation: silent, initialPlace: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' } });
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    expect(silent.getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(button('Fetch')!.hasAttribute('disabled')).toBe(true);
+    await click(button('Cancel'));
+    expect(button(WEATHER_DIALOG_COPY.locate)!.hasAttribute('disabled')).toBe(false);
+    expect(button('Fetch')!.hasAttribute('disabled')).toBe(false);
+    expect(host.textContent).not.toContain('Waiting for your browser’s location');
+    expect(closed).toBe(0);
+  });
+
   it('rounds a device position to about 1 km before it is used, and says how close it is', async () => {
     const geo = { getCurrentPosition: vi.fn((ok: PositionCallback) => ok({
       coords: { latitude: 40.869712, longitude: -119.061288, accuracy: 30 },
