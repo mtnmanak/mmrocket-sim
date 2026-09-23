@@ -7,7 +7,7 @@ import {
   DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchField, LaunchPanel,
   LONGITUDE_HELP, timeStepCostFactor, type LaunchConditions,
 } from './LaunchPanel.js';
-import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -551,6 +551,21 @@ describe('the density-altitude readout', () => {
       .toMatch(/^Density altitude/);
     // Not shaped like the two field helps, which other tests find by pattern.
     expect(DENSITY_ALTITUDE_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
+
+  // The help's "roughly 110 ft, 33 m, for each °C at a 4,000 ft field", held
+  // to the readout's own slope: 105.5 ft/°C on a 95 °F day, 118.6 on a
+  // standard one, so 110 sits between them.
+  it('moves about 110 ft per °C at a 4,000 ft field, as its help says', () => {
+    expect(DENSITY_ALTITUDE_HELP).toContain('roughly 110 ft, 33 m, for each °C at a 4,000 ft field');
+    const slopeFtPerC = (tC: number) => (densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC + 0.01, pressureHPa: null })
+      - densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC - 0.01, pressureHPa: null })) / 0.02 / 0.3048;
+    const standardC = isaTemperatureK(1219.2) - 273.15;
+    expect(slopeFtPerC(35)).toBeCloseTo(105.5, 1);
+    expect(slopeFtPerC(standardC)).toBeCloseTo(118.6, 1);
+    expect(110).toBeGreaterThan(slopeFtPerC(35));
+    expect(110).toBeLessThan(slopeFtPerC(standardC));
+    expect(33 / 0.3048).toBeCloseTo(108.3, 1);
   });
 });
 

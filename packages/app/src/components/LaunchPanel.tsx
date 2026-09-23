@@ -503,8 +503,10 @@ export const SITE_TEMPERATURE_HELP =
  * Deliberately NOT shaped like the two atmosphere helps above (no "Filled in
  * from your Site altitude" opening, no "falling 6.5", no "STATION pressure"):
  * the tests find those two by exactly those patterns, and this is a readout,
- * not a field that fills itself in. The per-degree figure is re-measured: at a
- * 4,000 ft field it is 105 ft per °C on a 95 °F day and 114 on a standard one.
+ * not a field that fills itself in. The per-degree figure is re-measured (the
+ * slope of `densityAltitudeM` in temperature, pressure blank): at a 4,000 ft
+ * field it is 105.5 ft per °C on a 95 °F day and 118.6 on a standard one — the
+ * spec's 114 was a mis-measure — so "roughly 110" sits between the two.
  */
 export const DENSITY_ALTITUDE_HELP =
   'How thin the pad’s air is, stated as an altitude: the height at which a standard day has air '
