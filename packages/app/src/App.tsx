@@ -906,8 +906,10 @@ export function App() {
    * Which OPEN is current. Opening a design is asynchronous — a file read, the
    * preset catalogue, and one thrustcurve.org fetch per unmatched motor with
    * no timeout — so two opens overlap freely and the SLOWER one used to land
-   * last and win. Bumped before the first await of every open path; each one
-   * checks it before touching state. See applyImported.
+   * last and win. Bumped before the first await of every open path — Open…,
+   * a share link (importApply.openShareLink) — and by ✕ New, which supersedes
+   * any open still in flight (audit 2026-09-22); each open checks it before
+   * touching state. See applyImported.
    */
   const openSeq = useRef(createSequencer()).current;
   /**
