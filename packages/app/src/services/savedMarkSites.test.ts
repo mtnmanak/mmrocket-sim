@@ -38,6 +38,8 @@ const app = () => readFileSync(join(here, '../App.tsx'), 'utf8');
  * configurations, measured and flight data), and a share link puts nothing on
  * disk — marking any of them would let the next Open discard precisely what
  * the file does not hold. An absence is invisible to every behavioural test.
+ * So are App's HAND-OFFS to the tested units, until App renders in a test:
+ * those are the last block.
  */
 
 const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
@@ -106,8 +108,11 @@ describe('an import marks the design it leaves on screen', () => {
     applyImportPlan(plan, rec.sinks);
     expect(rec.held().launch.windAverage).toBe(8);
     expect(isDirty(designFingerprint(rec.held()), rec.mark(), false)).toBe(false);
-    // The defect this closes: the old mark merged the launch from the render
-    // that STARTED the open, so it described a wind nobody had on screen.
+    // The mark describes the wind handed in, not another: a mark over the
+    // launch the open STARTED under would read dirty against this one. This
+    // half is the plan's (one merge, marked from the object it writes); the
+    // other half — that App hands in the mirror's launch after its last await,
+    // not the render's — is the source guard at the foot of this file.
     expect(designFingerprint({ ...rec.held(), launch: { ...before, timeStepS: undefined } })).not.toBe(rec.mark());
   });
 });
@@ -137,6 +142,14 @@ describe('only a full-fidelity save clears the unsaved-changes mark (App-only ab
     expect(app()).toContain("if (out.kind !== 'cancelled') markSaved(mark);");
   });
 
+  it('the .ork save takes its mark BEFORE the Save-As picker opens', () => {
+    // The picker can sit open indefinitely with the user editing behind it; a
+    // mark taken after the await would bless those edits as saved. planOrkSave
+    // is tested in importApply.test.ts; that App calls it FIRST is not.
+    expect(app()).toMatch(
+      /const \{ savedConfigs: synced, mark \} = planOrkSave\(snapshotNow\(\), unmatchedRefs\);[\s\S]{0,600}?await download\(exportOrk/);
+  });
+
   it('the lossy exports do NOT mark', () => {
     const src = app();
     for (const fn of ['onSaveRkt', 'onSaveCdx1']) {
@@ -158,5 +171,44 @@ describe('only a full-fidelity save clears the unsaved-changes mark (App-only ab
     const start = src.lastIndexOf('const frag = await encodeShareFragment', i);
     expect(src.slice(start, i + 400).includes('markSaved'),
       'copying a share link must not clear the unsaved-changes mark').toBe(false);
+  });
+});
+
+/**
+ * THE APP WIRING THE UNITS ABOVE DEPEND ON (audit 2026-09-22, from review).
+ * Each of these fixes lives in a unit that is tested by behaviour — importApply,
+ * session, useTreeHistory — and each needs App to hand that unit the right
+ * thing. Reverting all of the hand-offs at once left the whole suite green, so
+ * until App itself renders in a test, each one is held here as a source guard.
+ * A guard names the WIRING, never the behaviour, which is tested where it lives.
+ */
+describe('App hands the tested units what their fixes depend on', () => {
+  it('an Open merges the launch from the mirror, after its last await (audit row 304)', () => {
+    // The render-captured `launch` was the one the open STARTED under, so a
+    // wind typed while the file loaded made the just-opened design read dirty.
+    expect(app()).toContain('planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText })');
+  });
+
+  it('the autosave writes the unresolved motor references and the restore reads them (row 299)', () => {
+    const src = app();
+    const start = src.indexOf('saveSessionDebounced({');
+    expect(start).toBeGreaterThan(-1);
+    const call = src.slice(start, src.indexOf('});', start));
+    expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
+    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs]);');
+    expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
+  });
+
+  it('undo and redo are refused while a flight holds the engine handle (row 278)', () => {
+    const src = app();
+    expect(src).toContain('blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,');
+    expect(src).toContain('flightHoldsHandle.current = simulating || reflying !== null;');
+  });
+
+  it('the starter motor, ✕ New and a share link take their turn in the open sequence (row 303)', () => {
+    const src = app();
+    expect(src).toContain('setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)');
+    expect(src).toContain('planNewDesign({ launch, measured }, openSeq)');
+    expect(src).toMatch(/void openShareLink\(hash, \{\s+openSeq,/);
   });
 });
