@@ -2118,7 +2118,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // Temperature has no unset, so it states the temperature the flight FLIES —
   // padAir: a typed one, else the standard one at the site altitude (audit
   // 2026-09-22). A blank used to be written as 59 °F, sea level's, whatever the
-  // site: at 2,682 m that re-opened 15 °C too warm, 0.8824 kg/m³ against the
+  // site: at 2,682 m that re-opened 17.4 °C too warm, 0.8824 kg/m³ against the
   // 0.9393 flown. 59 °F is still what a sea-level site writes.
   const padTempK = padAir(launch ?? {}).temperatureK;
   emit('<LaunchSite>');

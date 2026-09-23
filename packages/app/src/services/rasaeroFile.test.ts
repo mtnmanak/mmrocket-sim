@@ -2406,7 +2406,7 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
  * A blank temperature flies the STANDARD temperature at the site altitude
  * (atmosphere.ts padAir, since v0.122). RASAero's <Temperature> has no
  * "unset", so the writer has to state one — and it stated 59 °F, sea level's,
- * whatever the site. At 2,682 m that re-opened 15 °C too warm.
+ * whatever the site. At 2,682 m that re-opened 17.4 °C too warm.
  */
 describe('RASAero export — a blank temperature is the site’s standard one', () => {
   const site = { name: 'Hi', tree: { components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
