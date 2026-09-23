@@ -1,5 +1,6 @@
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterCount } from '../tree/cluster.js';
+import { numOpt } from '../tree/nodeNum.js';
 import { DISPLAY_NAME, FIELDS, type FieldDef } from '../tree/schema.js';
 import { asStageNodes, flownInstanceCount, kernelStageIdByNode } from '../tree/treeModel.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
@@ -132,7 +133,8 @@ export function componentTable(
     const info = infoOf(n);
     if (!info) return null;
     let total = info.mass * mult;
-    if (n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number') return total;
+    // A finite override, as the kernel reads one (audit row 522).
+    if (n['overrideSubcomponentsMass'] === true && numOpt(n, 'overrideMass') !== undefined) return total;
     const inner = mult * copiesInside(n);
     for (const c of n.children ?? []) {
       const sub = flownSection(c, inner);
@@ -153,8 +155,11 @@ export function componentTable(
           if (typeof raw !== 'string') return '';
           return f.options.find(([v]) => v === raw)?.[1] ?? raw;
         }
-        return typeof raw === 'number' ? toUi(f, raw) : '';
+        // A non-finite value is a blank cell, not "NaN" (audit row 522).
+        const si = numOpt(n, f.key);
+        return si !== undefined ? toUi(f, si) : '';
       });
+      const ownLength = numOpt(n, 'length');
       const kStage = n.id ? kernelStage.get(n.id) : undefined;
       rows.push([
         n.name ?? DISPLAY_NAME[n.type] ?? n.type,
@@ -163,7 +168,7 @@ export function componentTable(
         parentName,
         typeof n['materialName'] === 'string' ? (n['materialName'] as string) : '',
         info ? uiLen(info.positionX) : '',
-        info ? uiLen(info.length) : typeof n['length'] === 'number' ? uiLen(n['length'] as number) : '',
+        info ? uiLen(info.length) : ownLength !== undefined ? uiLen(ownLength) : '',
         mult,
         info ? uiMass(info.mass * mult) : '',
         info && section != null && section > info.mass * mult + 1e-9 ? uiMass(section) : '',

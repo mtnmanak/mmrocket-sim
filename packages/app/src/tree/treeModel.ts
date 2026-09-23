@@ -27,7 +27,7 @@ import { axialLength, resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
-import { num, numOrNull } from './nodeNum.js';
+import { num, numOpt, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 import { ventLimit } from './canopyVent.js';
 
@@ -401,7 +401,9 @@ export function mountCountNote(tree: RocketTree, mountId: string): string {
  * `<overridesubcomponentsmass>true</overridesubcomponentsmass>` with no
  * `<overridemass>`, and readOverrides preserves the flag either way. Testing
  * the flag on its own would tell a user their value is being covered when it
- * is doing exactly what they typed.
+ * is doing exactly what they typed. A non-finite value is no override either:
+ * JSON.stringify hands the kernel null for it, and ComponentFactory sets an
+ * override only on a real number (audit row 522).
  */
 export function suppressingAncestor(
   tree: RocketTree,
@@ -410,7 +412,7 @@ export function suppressingAncestor(
   valueKey: string,
 ): ComponentNode | null {
   return ancestorsOf(tree, id)
-    .find((a) => a[flagKey] === true && typeof a[valueKey] === 'number') ?? null;
+    .find((a) => a[flagKey] === true && numOpt(a, valueKey) !== undefined) ?? null;
 }
 
 export function updateNode(
@@ -1089,7 +1091,9 @@ export function protuberanceCd(tree: RocketTree, node: ComponentNode): number {
   if (explicit !== null) return explicit;
   const cls = protuberanceClass(node);
   if (cls === 'plate') {
-    const raw = typeof node['plateAngle'] === 'number' ? (node['plateAngle'] as number) : Math.PI / 4;
+    // num, not a typeof test (audit row 522): Math.max(0, NaN) is NaN, so a
+    // NaN angle made the plate's Cd, and the kernel's overrideCD, NaN.
+    const raw = num(node, 'plateAngle', Math.PI / 4);
     const theta = Math.min(Math.PI / 2, Math.max(0, raw)); // radians, 0..90 deg
     return PROTUBERANCE_PLATE_CD * Math.sin(theta) ** 2;
   }
@@ -1097,11 +1101,16 @@ export function protuberanceCd(tree: RocketTree, node: ComponentNode): number {
   return cls === 'streamlined' ? body.noBase : body.withBase;
 }
 
-/** Total frontal area (m²) a protuberance node presents: width × height × count. */
+/**
+ * Total frontal area (m²) a protuberance node presents: width × height × count.
+ * A non-finite field reads as an absent one (audit row 522): the clamps below
+ * do not catch it, since Math.max(0, NaN) is NaN, and this area feeds the
+ * carrier's overrideCD and overrideCDBodyRatio in engineTree.
+ */
 export function protuberanceFrontalArea(node: ComponentNode): number {
-  const w = typeof node['width'] === 'number' ? (node['width'] as number) : 0.02;
-  const h = typeof node['height'] === 'number' ? (node['height'] as number) : 0.01;
-  const c = typeof node['count'] === 'number' ? Math.max(1, Math.round(node['count'] as number)) : 1;
+  const w = num(node, 'width', 0.02);
+  const h = num(node, 'height', 0.01);
+  const c = Math.max(1, Math.round(num(node, 'count', 1)));
   return Math.max(0, w) * Math.max(0, h) * c;
 }
 
@@ -1535,7 +1544,9 @@ export function engineTree(tree: RocketTree): RocketTree {
       next = { ...next };
       delete next['airfoilSection'];
     }
-    const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
+    // A non-finite hole is no hole (audit row 522): +Infinity used to pass
+    // `dh > 0` and fly the widest vent the canopy can carry.
+    const dh = num(n, 'spillHoleDiameter', 0);
     if (n.type === 'parachute' && dh > 0) {
       // The canopy diameter (0.3 m when absent) and the widest vent it can
       // carry, 0.95 D — ONE rule with the property panel's ceiling
@@ -1553,12 +1564,17 @@ export function engineTree(tree: RocketTree): RocketTree {
       // only the maximum. The guarded twin of this same formula —
       // `services/recoverySizing.ts` `canopyCdA` — has bailed on `!(d > 0)`
       // since it was written; this is that bail. `> 0` also rejects a negative
-      // or NaN diameter, which arrive here by the same route.
+      // diameter, which arrives here by the same route. A NaN or infinite one
+      // reads as absent (ventLimit, audit row 522) — the 0.3 m the kernel
+      // itself flies for it, since JSON.stringify sends it as null.
       if (vent) {
         const D = vent.diameter;
         const hole = Math.min(dh, vent.maxHole);
-        const typedBase = typeof n['cd'] === 'number';
-        const base = typedBase ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
+        // A typed Cd is a finite one: a NaN reached the kernel as null, which
+        // flew the automatic 0.80 unscaled by the vent (audit row 522).
+        const typedCd = numOpt(n, 'cd');
+        const typedBase = typedCd !== undefined;
+        const base = typedCd ?? KERNEL_DEFAULT_CD;
         // `cdNominal` keeps the pre-vent figure so the launch report can show
         // both — the vent doing its work, rather than a flown coefficient that
         // silently disagrees with the number in the design panel. The kernel
@@ -1676,8 +1692,11 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
   if (!mount || mount.type !== 'innertube') return null;
   const pattern = mount['cluster'];
   if (pattern !== '4-ring' && pattern !== '6-ring') return null;
-  const s = typeof mount['clusterScale'] === 'number' ? (mount['clusterScale'] as number) : 1;
-  const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
+  // num, the kernel's own reading (audit row 522): a NaN scale or rotation is
+  // null to ComponentFactory, which keeps 1 and 0, while scaling it here would
+  // hand every group mount a NaN.
+  const s = num(mount, 'clusterScale', 1);
+  const phi = num(mount, 'clusterRotation', 0);
   const mk = (sub: string, scaleMul: number, rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
     ...overrideMassShare(mount, 2),
@@ -1714,8 +1733,8 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
 export function splitClusterPairsTree(tree: RocketTree, mountId: string): ClusterSplit | null {
   const mount = findNode(tree, mountId);
   if (!mount || mount.type !== 'innertube' || mount['cluster'] !== '6-ring') return null;
-  const s = typeof mount['clusterScale'] === 'number' ? (mount['clusterScale'] as number) : 1;
-  const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
+  const s = num(mount, 'clusterScale', 1); // as splitClusterTree (audit row 522)
+  const phi = num(mount, 'clusterRotation', 0);
   const mk = (rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
     ...overrideMassShare(mount, 3),
@@ -1831,11 +1850,13 @@ export function updateAllNodes(tree: RocketTree, patch: Partial<ComponentNode>):
   return { ...tree, components: walk(tree.components) };
 }
 
-/** The radius a component presents at its AFT end (for chain continuity). */
+/**
+ * The radius a component presents at its AFT end (for chain continuity). A
+ * non-finite radius is no radius (audit row 522): it would be copied onto the
+ * new part as its own.
+ */
 function aftRadiusOf(n: ComponentNode): number | null {
-  if (typeof n['aftRadius'] === 'number') return n['aftRadius'] as number;
-  if (typeof n['outerRadius'] === 'number') return n['outerRadius'] as number;
-  return null;
+  return numOrNull(n, 'aftRadius') ?? numOrNull(n, 'outerRadius');
 }
 
 /**
@@ -1870,11 +1891,12 @@ export function inheritDefaults(
     if (node.type === 'bodytube') out['outerRadius'] = srcAft;
     if (node.type === 'transition') out['foreRadius'] = srcAft;
   }
-  // Tube walls: carry the previous tube's thickness.
-  if (typeof src['thickness'] === 'number'
+  // Tube walls: carry the previous tube's thickness — a finite one (audit row 522).
+  const srcWall = numOpt(src, 'thickness');
+  if (srcWall !== undefined
       && (node.type === 'bodytube' || node.type === 'innertube' || node.type === 'tubecoupler')
       && fields.some((f) => f.key === 'thickness')) {
-    out['thickness'] = src['thickness'];
+    out['thickness'] = srcWall;
   }
   return out;
 }

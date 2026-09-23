@@ -426,7 +426,9 @@ export function planImport(
     // the chosen configuration shares its records with `nextMotors`, so the
     // object is replaced in both places, never mutated. A non-chosen
     // configuration with no primary loses the value silently — a stated limit.
-    if (typeof cfg.padMassKg === 'number') {
+    // A finite weighing only, as the .ork reader keeps (audit row 522): the
+    // configuration is an interface, so nodeNum's readers cannot take it.
+    if (typeof cfg.padMassKg === 'number' && Number.isFinite(cfg.padMassKg)) {
       const padMassKg = cfg.padMassKg;
       const primary = primaryMountOf(importedTree, Object.keys(cfg.motors));
       if (!primary) {

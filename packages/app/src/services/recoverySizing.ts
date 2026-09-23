@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { numOrNull } from '../tree/nodeNum.js';
+import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
@@ -213,11 +213,13 @@ export const SEA_LEVEL_DENSITY = ISA_SEA_LEVEL.pressurePa / (R_AIR * ISA_SEA_LEV
  * the real part is a Cd 2.2 elliptical would be recommended 1.66x too small.
  */
 export function canopyCdA(p: Preset): number | null {
-  const d = typeof p['diameter'] === 'number' ? (p['diameter'] as number) : NaN;
-  const cd = typeof p['dragCoefficient'] === 'number' ? (p['dragCoefficient'] as number) : NaN;
+  // Through nodeNum (audit row 522): an absent or non-finite diameter or Cd
+  // reads as NaN, which the `> 0` bail refuses — +Infinity used to pass it and
+  // return an infinite drag area — and a non-finite hole is no hole.
+  const d = nnum(p, 'diameter', NaN);
+  const cd = nnum(p, 'dragCoefficient', NaN);
   if (!(d > 0) || !(cd > 0)) return null;
-  const rawHole = typeof p['spillHoleDiameter'] === 'number' ? (p['spillHoleDiameter'] as number) : 0;
-  const hole = Math.min(Math.max(0, Number.isFinite(rawHole) ? rawHole : 0), d * 0.95);
+  const hole = Math.min(Math.max(0, nnum(p, 'spillHoleDiameter', 0)), d * 0.95);
   return cd * (1 - (hole / d) ** 2) * Math.PI * d * d / 4;
 }
 
@@ -486,7 +488,7 @@ export interface RecoverySizingInput {
  */
 function familyKey(p: Preset): string {
   const prefix = String(p.partNo ?? '').toUpperCase().match(/^[^0-9]*/)?.[0] ?? '';
-  const mm = Math.round((typeof p['diameter'] === 'number' ? (p['diameter'] as number) : 0) * 1000);
+  const mm = Math.round(nnum(p, 'diameter', 0) * 1000);
   return `${mfrKey(p.manufacturer)}|${prefix.replace(/[^A-Z]/g, '')}|${mm}`;
 }
 
@@ -573,8 +575,9 @@ function slotMassPinned(
     return suppressingAncestor(tree, device.id, 'overrideSubcomponentsMass', 'overrideMass') !== null;
   }
   const stageNodes = scope.filter((n) => n.type === 'stage');
+  // The same two conditions, a finite override among them (audit row 522).
   return stageNodes.length > 0 && stageNodes.every(
-    (st) => st['overrideSubcomponentsMass'] === true && typeof st['overrideMass'] === 'number');
+    (st) => st['overrideSubcomponentsMass'] === true && num(st, 'overrideMass') !== null);
 }
 
 /**
@@ -676,7 +679,7 @@ function bandAdvice(
     if (!(m > 0)) continue;
     const rate = descentRate(m, instances * cdA, rho);
     if (!Number.isFinite(rate) || rate < band.min || rate > band.max) continue;
-    const packed = typeof p['packedDiameter'] === 'number' ? (p['packedDiameter'] as number) : null;
+    const packed = numOrNull(p, 'packedDiameter');
     const known = packed !== null && packed > 0 && boreM !== null;
     scored.push({ p, rate, fits: !known || packed! <= boreM! + 1e-9, known });
   }
@@ -740,15 +743,15 @@ function bandAdvice(
     manufacturer: best.p.manufacturer,
     partNo: best.p.partNo,
     description: best.p.description,
+    // Finite by now: canopyCdA refused any other diameter or Cd.
     diameter: best.p['diameter'] as number,
     cd: best.p['dragCoefficient'] as number,
-    spillHoleDiameter: typeof best.p['spillHoleDiameter'] === 'number'
-      ? (best.p['spillHoleDiameter'] as number) : 0,
+    // Read as canopyCdA and the fit test above read them: a non-finite figure
+    // is none (audit row 522).
+    spillHoleDiameter: nnum(best.p, 'spillHoleDiameter', 0),
     mass: presetMass(best.p),
-    packedDiameter: typeof best.p['packedDiameter'] === 'number'
-      ? (best.p['packedDiameter'] as number) : null,
-    packedLength: typeof best.p['packedLength'] === 'number'
-      ? (best.p['packedLength'] as number) : null,
+    packedDiameter: numOrNull(best.p, 'packedDiameter'),
+    packedLength: numOrNull(best.p, 'packedLength'),
     rate: best.rate,
     fit: best.known ? 'fits' : 'unverified',
     flagged: band.warnAbove !== null && best.rate > band.warnAbove,

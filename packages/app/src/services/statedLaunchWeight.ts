@@ -1,5 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { num } from '../tree/nodeNum.js';
+import { num, numOpt } from '../tree/nodeNum.js';
 import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designationText.js';
 
 /**
@@ -300,7 +300,8 @@ export function reconcileIncludedMotor(
   // the note so the user can put it back by hand.
   if (!namesSameMotor(motor.designation, named)) {
     const hasMass = typeof stated === 'number' && stated > 0;
-    const hasCg = typeof cleared['overrideCGX'] === 'number';
+    // A finite CG only, as the kernel reads one (audit row 522).
+    const hasCg = numOpt(cleared, 'overrideCGX') !== undefined;
     if (!hasMass && !hasCg) {
       // Nothing left to clear — both were cleared by hand already. Drop the
       // stale mark quietly, exactly as the matching path does below.
@@ -341,7 +342,7 @@ export function reconcileIncludedMotor(
     // stage mass to divide by, so it goes: the same "a wrong override is worse
     // than none" ruling the branch below runs on. With no CG either there is
     // nothing to correct and nothing worth a notice — just drop the stale mark.
-    if (typeof cleared['overrideCGX'] !== 'number') {
+    if (numOpt(cleared, 'overrideCGX') === undefined) {
       return { tree: replaceStage(tree, index, cleared), note: null, severity: 'info' };
     }
     const bare = { ...cleared };
@@ -385,8 +386,10 @@ export function reconcileIncludedMotor(
   let trailer = '';
 
   // ---- CG, the same double count and the same back-transform ----
-  const statedCg = cleared['overrideCGX'];
-  if (typeof statedCg === 'number') {
+  // Read as the two branches above read it: a non-finite CG is no override
+  // (audit row 522), which the kernel already ignores.
+  const statedCg = numOpt(cleared, 'overrideCGX');
+  if (statedCg !== undefined) {
     // Where the motor's CG sits, measured from the STAGE's own front — which
     // is the frame the importer wrote `overrideCGX` in. The motor's aft face
     // is the mount's aft end (BodyTube.getMotorPosition with no overhang), so

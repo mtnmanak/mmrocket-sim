@@ -10,6 +10,7 @@ import {
   maxBodyDiameter, previewMounts, rocketLength, scaleRocket,
   type MountChoice, type MountPreview, type ScaleResult,
 } from '../tree/scaleRocket.js';
+import { numOpt } from '../tree/nodeNum.js';
 
 /** The factor box's range, which every other way of setting the factor now honours too. */
 const FACTOR_MIN = 0.01;
@@ -84,8 +85,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     // sets state on an unmounted component (2026-09-08 audit).
     let live = true;
     loadPresets()
+      // A finite OD (audit row 522): every later read here casts it to a number.
       .then((all) => { if (live) setTubes(all.filter((p) => p.kind === 'BodyTube'
-        && typeof p['outsideDiameter'] === 'number')); })
+        && numOpt(p, 'outsideDiameter') !== undefined)); })
       .catch(() => { if (live) setTubes([]); });
     return () => { live = false; };
   }, []);

@@ -247,3 +247,33 @@ describe('PropertyPanel — a container CG override with nothing to position', (
     expect(text).not.toMatch(/does nothing at all/i);
   });
 });
+
+/**
+ * AUDIT ROW 522: a NaN or infinite value is not one the rocket flies — the
+ * kernel is handed null for it and falls back — so the panel shows it as
+ * absent: an empty box, no "Use instead of everything inside" flag and no
+ * inert-CG note, where the typeof reads showed "NaN" and offered all three.
+ */
+describe('PropertyPanel — a non-finite value reads as absent (audit row 522)', () => {
+  const values = () => [...host.querySelectorAll('input')].map((i) => (i as HTMLInputElement).value);
+
+  it('shows the three overrides as empty, with no flag and no inert-CG note', () => {
+    mount(stage({ overrideMass: NaN, overrideCGX: NaN, overrideCD: Infinity }));
+    const byLabel = (label: string) =>
+      (host.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement).value;
+    expect(byLabel('Mass override')).toBe('');
+    expect(byLabel('CG override, from component top')).toBe('');
+    expect(byLabel('Drag coefficient (Cd) override')).toBe('');
+    expect(subsBoxes()).toHaveLength(0);
+    expect(host.querySelector('.override-inert')).toBeNull();
+    expect(values().filter((v) => /NaN|Infinity/.test(v))).toEqual([]);
+  });
+
+  it('shows a NaN geometry field as an empty box, not "NaN"', () => {
+    mount({
+      id: 'b1', type: 'bodytube', length: NaN, outerRadius: 0.012, thickness: Infinity,
+    } as unknown as ComponentNode);
+    expect(values().filter((v) => /NaN|Infinity/.test(v))).toEqual([]);
+    expect(host.textContent).not.toMatch(/NaN|Infinity/);
+  });
+});

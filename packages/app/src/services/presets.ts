@@ -151,9 +151,10 @@ export function presetPatch(
   //  - an assembly the user weighed (the flag on a mass that is not a
   //    catalogue mass) stays whole either way: one part changing inside it does
   //    not change what they weighed, and desktop keeps it too.
-  const held = prior?.node['overrideMass'];
+  // A weighing is a finite mass (audit row 522): a NaN one is no override to keep.
+  const held = prior ? numOpt(prior.node, 'overrideMass') : undefined;
   const heldIsCatalogue = prior != null && holdsCatalogueMass(prior.node, prior.presets);
-  const weighedAssembly = type !== 'parachute' && typeof held === 'number' && !heldIsCatalogue
+  const weighedAssembly = type !== 'parachute' && held !== undefined && !heldIsCatalogue
     && prior?.node['overrideSubcomponentsMass'] === true;
   if (!weighedAssembly && p.mass !== undefined && p.mass > 0) {
     set('overrideMass', p.mass);
@@ -479,9 +480,12 @@ const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =
  * effect, kept the catalogue's mass, and it goes with that part).
  */
 export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset[]): boolean {
-  const held = node['overrideMass'];
+  // Finite (audit row 522): a NaN passed a typeof test and then failed the
+  // tolerance test below in the direction that says "catalogue mass" — a NaN
+  // difference is never greater than anything.
+  const held = numOpt(node, 'overrideMass');
   const kind = KIND_FOR_TYPE[node.type];
-  if (typeof held !== 'number' || !kind || node['presetPartNo'] == null) return false;
+  if (held === undefined || !kind || node['presetPartNo'] == null) return false;
   const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
   return presets.some((p) => {
     if (p.kind !== kind || !(typeof p.mass === 'number' && p.mass > 0)) return false;
@@ -597,7 +601,7 @@ export function applyPresetLinks(
      * RockSim reader now writes the `false` itself; this covers every reader.)
      */
     const statesHollow = (node.type === 'nosecone' || node.type === 'transition')
-      && node['filled'] === undefined && typeof node['thickness'] === 'number';
+      && node['filled'] === undefined && numOpt(node, 'thickness') !== undefined;
     const stated = (key: string): unknown => (key === 'filled' && statesHollow ? false : node[key]);
     /**
      * THE CONFLICT MARKER, tier (a) — the owner's caveat on the precedence

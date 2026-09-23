@@ -2,12 +2,23 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num, numOpt, numOrNull } from './nodeNum.js';
 import { buildPieces } from './pieces.js';
-import { fairingFrontalArea, mountRadiusOf, referenceArea } from './treeModel.js';
+import {
+  engineTree, fairingFrontalArea, findNode, inheritDefaults, makeNode, mountRadiusOf, referenceArea,
+  splitClusterTree, suppressingAncestor,
+} from './treeModel.js';
+import { finCutOutline } from './solidMesh.js';
+import { previewMounts } from './scaleRocket.js';
 import { exportOrk } from '../services/orkFile.js';
 import { exportRkt } from '../services/rocksimFile.js';
 import { exportCdx1 } from '../services/rasaeroFile.js';
 import { componentDxf } from '../services/dxfExport.js';
 import { finOutline, finTemplateSvg } from '../services/finTemplate.js';
+import { canopyCdA, recoverySizing } from '../services/recoverySizing.js';
+import { holdsCatalogueMass, type Preset } from '../services/presets.js';
+import { componentTable } from '../services/componentTable.js';
+import { coveringMassOverride, solePinnedStage } from '../services/buildAllowance.js';
+import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 
 const node = (fields: Record<string, unknown>): ComponentNode =>
   ({ type: 'bodytube', id: 'b', ...fields }) as ComponentNode;
@@ -235,5 +246,144 @@ describe('the consumers that carried their own reader fall back on NaN too', () 
     const shroud = { type: 'fairing', id: 'c', width: NaN, height: 0.02 } as ComponentNode;
     body.children!.push(shroud);
     expect(Number.isFinite(fairingFrontalArea(tree, shroud))).toBe(true);
+  });
+});
+
+/**
+ * AUDIT ROW 522: the inline reads outside the writers. Every lone `typeof
+ * x[k] === 'number'` left in src — the kernel lowering, recovery sizing, the
+ * component table, the catalogue link, the cluster split, the Add defaults, the
+ * scale preview — now reads through this module, and eslint.config.mjs refuses
+ * the shape anywhere. Each case sets NaN or Infinity where the field was read,
+ * and expects exactly what the same design gives with the field left out: the
+ * kernel is handed null for a non-finite number (JSON.stringify) and falls back,
+ * so "absent" is also what it flies.
+ */
+describe('the inline reads outside the writers fall back on NaN and Infinity too (audit row 522)', () => {
+  const stageOf = (children: ComponentNode[], stage: Record<string, unknown> = {}): RocketTree => ({
+    name: 'R',
+    components: [{ type: 'stage', id: 's', name: 'S', ...stage, children } as ComponentNode],
+  });
+  const tube = (children: ComponentNode[] = [], fields: Record<string, unknown> = {}): ComponentNode => ({
+    type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.05, thickness: 0.001, children, ...fields,
+  } as ComponentNode);
+  const nose: ComponentNode = { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.05, thickness: 0.002, shape: 'ogive' };
+
+  it('engineTree: a protuberance carrier is the one the absent fields give', () => {
+    // protuberanceFrontalArea and the plate Cd: Math.max(0, NaN) is NaN, so a
+    // NaN width, count or plate angle made the carrier's overrideCD NaN.
+    const bump = (fields: Record<string, unknown>) => engineTree(stageOf([nose, tube([{
+      type: 'protuberance', id: 'x', name: 'Bump', length: 0.03, mass: 0,
+      position: { method: 'middle', offset: 0 }, ...fields,
+    } as unknown as ComponentNode])]));
+    for (const bad of [NaN, Infinity]) {
+      expect(bump({ width: bad, height: bad, count: bad }), String(bad)).toEqual(bump({}));
+      expect(bump({ dragClass: 'plate', plateAngle: bad }), String(bad)).toEqual(bump({ dragClass: 'plate' }));
+    }
+    const carrier = findNode(bump({ width: NaN }), 'x')!;
+    expect(Number.isFinite(carrier['overrideCD'])).toBe(true);
+    expect(Number.isFinite(carrier['overrideCDBodyRatio'])).toBe(true);
+  });
+
+  it('a NaN mass override suppresses nothing, as it overrides nothing in the kernel', () => {
+    const tree = (overrideMass: number) => stageOf([nose, tube()], { overrideSubcomponentsMass: true, overrideMass });
+    expect(suppressingAncestor(tree(0.4), 'b', 'overrideSubcomponentsMass', 'overrideMass')?.id).toBe('s');
+    expect(solePinnedStage(tree(0.4).components)?.id).toBe('s');
+    for (const bad of [NaN, Infinity]) {
+      expect(suppressingAncestor(tree(bad), 'b', 'overrideSubcomponentsMass', 'overrideMass'), String(bad)).toBeNull();
+      expect(solePinnedStage(tree(bad).components), String(bad)).toBeNull();
+      expect(coveringMassOverride(tree(bad), 0.4, 0.02), String(bad)).toBeNull();
+    }
+  });
+
+  it('the cluster split scales from the default, not from a NaN scale or rotation', () => {
+    const split = (fields: Record<string, unknown>) => splitClusterTree(stageOf([tube([{
+      type: 'innertube', id: 'm', length: 0.1, outerRadius: 0.012, thickness: 0.0005, cluster: '4-ring',
+      motorMount: true, ...fields,
+    } as ComponentNode])]), 'm')!;
+    const groups = (s: ReturnType<typeof split>) => s.mountIds.map((id) => findNode(s.tree, id)!)
+      .map((g) => [g['clusterScale'], g['clusterRotation']]);
+    expect(groups(split({ clusterScale: NaN, clusterRotation: Infinity }))).toEqual(groups(split({})));
+    expect(groups(split({}))[0]).toEqual([Math.SQRT2, Math.PI / 4]);
+  });
+
+  it('Add carries a finite radius and wall only', () => {
+    // inheritDefaults' aftRadiusOf and wall copy: a NaN was copied onto the new part.
+    const next = inheritDefaults(makeNode('bodytube'), 'stage',
+      { ...tube(), aftRadius: NaN, outerRadius: 0.03, thickness: Infinity } as ComponentNode);
+    expect(next['outerRadius']).toBe(0.03);
+    expect(next['thickness']).toBe(makeNode('bodytube')['thickness']);
+  });
+
+  it('recovery sizing: a non-finite catalogue figure is an absent one', () => {
+    const row = (fields: Record<string, unknown>): Preset => ({
+      kind: 'Parachute', manufacturer: 'Test', partNo: 'P-36', description: 'test canopy',
+      diameter: 0.9144, dragCoefficient: 1.5, mass: 0.1, ...fields,
+    } as Preset);
+    expect(canopyCdA(row({ diameter: Infinity }))).toBeNull();
+    expect(canopyCdA(row({ dragCoefficient: NaN }))).toBeNull();
+    expect(canopyCdA(row({ spillHoleDiameter: NaN }))).toBe(canopyCdA(row({})));
+    expect(canopyCdA(row({ spillHoleDiameter: Infinity }))).toBe(canopyCdA(row({})));
+    // The candidate line and its fit test.
+    const tree = stageOf([nose, tube([{ type: 'parachute', id: 'p', diameter: 0.9, cd: 1.5 } as ComponentNode])]);
+    const advice = (fields: Record<string, unknown>) => {
+      const r = recoverySizing({
+        recovery: { state: 'ok', mass: 1.5, multiStage: false }, tree, deviceMass: () => null,
+        presets: [row(fields)], launch: DEFAULT_CONDITIONS,
+      });
+      if (r.state !== 'ok') throw new Error(r.state);
+      return r.main.candidates;
+    };
+    expect(advice({})).toHaveLength(1);
+    expect(advice({ packedDiameter: NaN, packedLength: Infinity, spillHoleDiameter: NaN })).toEqual(advice({}));
+  });
+
+  it('a NaN mass override is not the catalogue mass', () => {
+    // It passed the typeof test, and a NaN difference is never greater than
+    // the tolerance, so it read as the catalogue's own mass.
+    const presets = [{ kind: 'BodyTube', manufacturer: 'Estes', partNo: 'BT-50', mass: 0.01 } as Preset];
+    const linked = (overrideMass: number) => ({
+      ...tube(), overrideMass, presetManufacturer: 'Estes', presetPartNo: 'BT-50',
+    } as ComponentNode);
+    expect(holdsCatalogueMass(linked(0.01), presets)).toBe(true);
+    expect(holdsCatalogueMass(linked(NaN), presets)).toBe(false);
+  });
+
+  it('the component table leaves a blank, not "NaN"', () => {
+    const table = componentTable(stageOf([nose, tube([], { length: NaN, outerRadius: Infinity })]),
+      { units: INITIAL_UNITS, radiusMode: 'diameter' });
+    expect(table.rows.flat().some((c) => typeof c === 'number' && !Number.isFinite(c))).toBe(false);
+  });
+
+  it('.rkt: a NaN override or shape parameter writes what the absent one writes', () => {
+    // hasMassOv/hasCgOv were typeof tests OUTSIDE a conditional's test, which
+    // the writer block's rule did not match: <KnownMass>NaN</KnownMass>.
+    const xml = (fields: Record<string, unknown>, noseFields: Record<string, unknown> = {}) =>
+      exportRkt({ name: 'R', tree: stageOf([{ ...nose, shape: 'power', ...noseFields }, tube([], fields)]) });
+    for (const bad of [NaN, Infinity]) {
+      expect(xml({ overrideMass: bad, overrideCGX: bad }), String(bad)).toBe(xml({}));
+      expect(xml({}, { shapeParameter: bad }), String(bad)).toBe(xml({}));
+    }
+    expect(xml({ overrideMass: NaN })).not.toContain('NaN');
+  });
+
+  it('a freeform fin with a NaN point has no cut outline, like one with a string point', () => {
+    const fin = (pts: unknown[]) =>
+      ({ type: 'freeformfinset', id: 'f', finCount: 3, thickness: 0.003, points: pts }) as unknown as ComponentNode;
+    expect(finCutOutline(fin([[0, 0], [0.02, 0.03], [0.05, 0]]))).not.toBeNull();
+    for (const bad of [NaN, Infinity]) {
+      expect(finCutOutline(fin([[0, 0], [0.02, bad], [0.05, 0]])), String(bad)).toBeNull();
+      expect(componentDxf(fin([[0, 0], [0.02, bad], [0.05, 0]]), {}, 'R')?.text ?? '', String(bad)).not.toContain('NaN');
+    }
+  });
+
+  it('the scale preview reads a non-finite motor diameter as no motor', () => {
+    const tree = stageOf([tube([{
+      type: 'innertube', id: 'm', length: 0.1, outerRadius: 0.0145, thickness: 0.0005, motorMount: true,
+    } as ComponentNode])]);
+    for (const bad of [NaN, Infinity]) {
+      expect(previewMounts(tree, 2, { assignedMotorDiameters: { m: bad } }), String(bad))
+        .toEqual(previewMounts(tree, 2, {}));
+    }
   });
 });

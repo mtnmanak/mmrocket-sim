@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { num } from './nodeNum.js';
 
 /**
  * THE SPILL-HOLE CEILING — a vent cannot be bigger than the canopy it is cut
@@ -32,19 +33,19 @@ export interface VentLimit {
 
 /**
  * The canopy diameter a vent is measured against, and the widest vent it can
- * carry — or null where the canopy states a diameter no vent fits: 0, a
- * negative, NaN. That null is engineTree's divide guard (its note has the
- * whole story: a diameter STORED as a literal 0 is a `typeof 'number'` hit, and
- * (0/0)² is NaN).
+ * carry — or null where the canopy states a diameter no vent fits: 0 or a
+ * negative. That null is engineTree's divide guard (its note has the whole
+ * story: a diameter STORED as a literal 0 is a real number, not an absent one,
+ * and (0/0)² is NaN).
  *
- * A `typeof` read and not nodeNum's `num`, deliberately: this is the reader the
- * kernel has always been handed, and a NaN or infinite diameter keeps doing
- * exactly what it did (no vent scaling / no ceiling). Folding it into `num`
- * would change what the kernel flies for one — a decision for audit row 522's
- * sweep, not for an extraction.
+ * A NaN or infinite diameter reads as ABSENT, through nodeNum's `num` (audit
+ * row 522, which this was left for). That is the diameter the kernel flies for
+ * it: JSON.stringify sends a non-finite number as null, and ComponentFactory
+ * reads `dbl(node, "diameter", 0.3)`. The old `typeof` read called NaN a
+ * diameter no vent fits (no vent scaling, no ceiling) and +Infinity one no
+ * vent dents, while the kernel flew a 0.3 m canopy either way.
  */
 export function ventLimit(canopy: ComponentNode): VentLimit | null {
-  const d = canopy['diameter'];
-  const diameter = typeof d === 'number' ? d : CANOPY_DIAMETER_FALLBACK;
+  const diameter = num(canopy, 'diameter', CANOPY_DIAMETER_FALLBACK);
   return diameter > 0 ? { diameter, maxHole: diameter * SPILL_HOLE_MAX_FRACTION } : null;
 }

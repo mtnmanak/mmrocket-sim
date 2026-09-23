@@ -45,9 +45,8 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
   const pOuter = numOpt(parent, 'outerRadius');
   if (pOuter !== undefined) ctx.bodyRadius = pOuter;
   const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
-  if (mount && typeof mount['outerRadius'] === 'number') {
-    ctx.mountOuterRadius = mount['outerRadius'] as number;
-  }
+  const mountOuter = mount ? numOpt(mount, 'outerRadius') : undefined;
+  if (mountOuter !== undefined) ctx.mountOuterRadius = mountOuter;
   return ctx;
 }
 
@@ -93,7 +92,7 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       const x0 = Math.min(Math.max(startFromPosition(pos, len, L), 0), L);
       const x1 = Math.min(Math.max(startFromPosition(pos, len, L) + len, 0), L);
       const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
-      const param = typeof host['shapeParameter'] === 'number' ? (host['shapeParameter'] as number) : undefined;
+      const param = numOpt(host, 'shapeParameter');
       const clipped = typeof host['clipped'] === 'boolean' ? (host['clipped'] as boolean) : undefined;
       // Exact samples AT the two ends (outerProfile's extraX), not the nearest
       // of the curve's regular steps.

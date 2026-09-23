@@ -97,6 +97,7 @@ import {
   isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
+import { num, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
@@ -1383,8 +1384,7 @@ export function App() {
    * setTree, so it is a single undoable edit like any other.
    */
   const applyAllowance = (sol: Extract<BallastSolution, { kind: 'ok' }>) => {
-    const lengthM = typeof allowanceNode?.['length'] === 'number'
-      ? allowanceNode['length'] as number : 0.02;
+    const lengthM = allowanceNode ? num(allowanceNode, 'length', 0.02) : 0.02;
     const place = placeAtStation(tree, sol.stationM, lengthM);
     if (!place) return;
 
@@ -1438,9 +1438,9 @@ export function App() {
       })
       : null;
     if (sol?.kind !== 'ok') return null;
-    // Same default length applyAllowance uses for a not-yet-created allowance.
-    const lengthM = typeof allowanceNode?.['length'] === 'number'
-      ? allowanceNode['length'] as number : 0.02;
+    // Same default length applyAllowance uses for a not-yet-created allowance,
+    // read the same way (a non-finite length is none, audit row 522).
+    const lengthM = allowanceNode ? num(allowanceNode, 'length', 0.02) : 0.02;
     return coveringMassOverride(tree, sol.stationM, lengthM);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }, [built, bare, measured, tree.components, allowanceNode]);
@@ -3177,8 +3177,7 @@ export function App() {
               label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
               diameterMm: mountDiaMm(mNode),
               motorCount,
-              maxMotorLengthM: maxMotorLen[stId]
-                ?? (typeof mNode?.['maxMotorLength'] === 'number' ? (mNode['maxMotorLength'] as number) : null),
+              maxMotorLengthM: maxMotorLen[stId] ?? (mNode ? numOrNull(mNode, 'maxMotorLength') : null),
             };
           })}
           // The mount with a motor when there is one; otherwise the first mount,
@@ -3887,10 +3886,14 @@ export function App() {
               if (stMounts.length === 0) return null;
               const stName = st.name ?? `Stage ${stIdx + 1}`;
               // Effective limit: the per-stage override when typed, else the
-              // first mount tube carrying a design-time maxMotorLength.
+              // first mount tube carrying a design-time maxMotorLength (a
+              // finite one, audit row 522).
               const designMax = stMounts
-                .map((m) => findNode(tree, m.id!)?.['maxMotorLength'])
-                .find((v): v is number => typeof v === 'number') ?? null;
+                .map((m) => {
+                  const mNode = findNode(tree, m.id!);
+                  return mNode ? numOrNull(mNode, 'maxMotorLength') : null;
+                })
+                .find((v): v is number => v !== null) ?? null;
               const stMax = (st.id ? maxMotorLen[st.id] : null) ?? designMax;
               // ONE call, read by the Estimate button and the "Room for" line
               // below it. It was called twice per stage per render with
@@ -3963,8 +3966,7 @@ export function App() {
                     {st.id && (
                       <NozzleField
                         stageName={stName}
-                        exitDiameterM={typeof st['nozzleExitDiameter'] === 'number'
-                          ? st['nozzleExitDiameter'] : null}
+                        exitDiameterM={numOrNull(st, 'nozzleExitDiameter')}
                         motors={stMotorList}
                         motorLabel={stMotorLabel}
                         clearedFor={nozzleCleared[st.id] ?? null}

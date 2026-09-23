@@ -9,6 +9,7 @@ import { exportOrk, importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { fetchMotorSpec } from './thrustcurve.js';
 import { MOTOR_DB } from './motorDb.js';
+import { num } from '../tree/nodeNum.js';
 import {
   includedMotorOf, namesSameMotor, OVERRIDE_INCLUDES_MOTOR, reconcileAllIncludedMotors,
   reconcileIncludedMotor,
@@ -178,8 +179,7 @@ describe('MESOS: the stated launch weight and the motor that was still inside it
     // airframe's own CG has to be FORWARD of it once the motor comes out.
     expect(cg).toBeLessThan(before);
     expect(cg).toBeGreaterThan(0);
-    const len = (sus.children ?? []).reduce(
-      (s, c) => s + (typeof c['length'] === 'number' ? (c['length'] as number) : 0), 0);
+    const len = (sus.children ?? []).reduce((s, c) => s + num(c, 'length', 0), 0);
     expect(cg).toBeLessThan(len);
     expect(after['overrideSubcomponentsCG']).toBe(true);
     expect(fix.severity).toBe('info');

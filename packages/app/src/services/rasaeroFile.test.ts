@@ -45,10 +45,11 @@ describe('RASAero import — desktop fixture files', () => {
     // RASAero geometry is inches: every radius must be plausible meters.
     for (const c of all) {
       for (const k of ['aftRadius', 'outerRadius', 'foreRadius']) {
-        if (typeof c[k] === 'number') {
-          expect(c[k] as number).toBeGreaterThan(0.001);
-          expect(c[k] as number).toBeLessThan(0.5);
-        }
+        // Every radius that is present is checked — a NaN, which a typeof test
+        // would have let through to here, fails the bound too.
+        if (c[k] === undefined) continue;
+        expect(c[k]).toBeGreaterThan(0.001);
+        expect(c[k]).toBeLessThan(0.5);
       }
     }
     // Fins exist, and fins on the boat tail became freeform.

@@ -32,6 +32,7 @@ import { importOrk } from './orkFile.js';
 import { parseEng } from './exMotors.js';
 import { samplesToMotorSpec, type TcMotor } from './thrustcurve.js';
 import { engineTree } from '../tree/treeModel.js';
+import { numOpt } from '../tree/nodeNum.js';
 
 /**
  * Local-only inputs (docs/ is gitignored — see CLAUDE.md "Two machines").
@@ -110,7 +111,8 @@ function massScaled(tree: unknown, f: number): unknown {
   const walk = (n: Record<string, unknown>): Record<string, unknown> => {
     const out: Record<string, unknown> = { ...n };
     for (const k of ['overrideMass', 'mass']) {
-      if (typeof out[k] === 'number') out[k] = (out[k] as number) * f;
+      const m = numOpt(out, k);
+      if (m !== undefined) out[k] = m * f;
     }
     if (Array.isArray(out['children'])) {
       out['children'] = (out['children'] as Record<string, unknown>[]).map(walk);

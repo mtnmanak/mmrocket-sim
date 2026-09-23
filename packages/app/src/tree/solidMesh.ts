@@ -351,7 +351,7 @@ function ringLoop(outerR: number, innerR: number, length: number): Array<[number
 function shapeOf(node: ComponentNode): { shape: string; param: number | undefined } {
   return {
     shape: typeof node['shape'] === 'string' ? (node['shape'] as string) : 'ogive',
-    param: typeof node['shapeParameter'] === 'number' ? (node['shapeParameter'] as number) : undefined,
+    param: numOpt(node, 'shapeParameter'),
   };
 }
 
@@ -416,7 +416,9 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
     if (!Array.isArray(raw) || raw.length < 3) return null;
     pts = [];
     for (const p of raw as unknown[]) {
-      if (!Array.isArray(p) || typeof p[0] !== 'number' || typeof p[1] !== 'number') return null;
+      // A NaN or infinite row is as unreadable as a string one (audit row
+      // 522): it passed the typeof test and cut a NaN outline into the DXF.
+      if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null;
       pts.push([p[0], p[1]]);
     }
   }

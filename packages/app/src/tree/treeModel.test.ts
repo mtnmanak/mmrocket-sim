@@ -47,11 +47,20 @@ describe('engineTree — spill-hole Cd reduction at the engine boundary', () => 
     expect(chute['cdNominal']).toBeUndefined();
   });
 
-  it('leaves cd finite for a negative or NaN diameter, which arrive the same way', () => {
-    for (const diameter of [-0.6, NaN]) {
+  it('leaves cd finite for a negative diameter, which arrives the same way', () => {
+    const chute = findNode(engineTree(chuteTree({ diameter: -0.6, cd: 1.5, spillHoleDiameter: 0.1 })), 'p1')!;
+    expect(chute['cd']).toBe(1.5);
+  });
+
+  it('vents a NaN or infinite diameter as an absent one: the 0.3 m the kernel flies (audit row 522)', () => {
+    // JSON.stringify hands the kernel null for a non-finite diameter, and
+    // ComponentFactory flies 0.3 m. The typeof read used to skip the vent for
+    // NaN (cd 1.5 as typed) and dent nothing for Infinity.
+    const noDiameter = findNode(engineTree(chuteTree({ diameter: undefined, cd: 1.5, spillHoleDiameter: 0.1 })), 'p1')!;
+    expect(noDiameter['cd']).toBeCloseTo(1.5 * (1 - (0.1 / 0.3) ** 2), 12);
+    for (const diameter of [NaN, Infinity]) {
       const chute = findNode(engineTree(chuteTree({ diameter, cd: 1.5, spillHoleDiameter: 0.1 })), 'p1')!;
-      expect(Number.isFinite(chute['cd'] as number), `diameter ${diameter}`).toBe(true);
-      expect(chute['cd']).toBe(1.5);
+      expect(chute['cd'], `diameter ${diameter}`).toBe(noDiameter['cd']);
     }
   });
 

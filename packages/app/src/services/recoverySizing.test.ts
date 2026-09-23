@@ -4,6 +4,7 @@ import presetsJson from '../data/presets.json';
 import type { Preset } from './presets.js';
 import { presetPatch } from './presets.js';
 import { engineTree } from '../tree/treeModel.js';
+import { numOpt } from '../tree/nodeNum.js';
 import { SAFETY } from './simReport.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
@@ -115,7 +116,7 @@ describe('canopyCdA — a Cd and its spill hole are ONE fact (2026-09-03)', () =
   });
 
   it('refuses a row with no Cd rather than defaulting it', () => {
-    const bare = canopies.find((p) => typeof p['dragCoefficient'] !== 'number')!;
+    const bare = canopies.find((p) => numOpt(p, 'dragCoefficient') === undefined)!;
     expect(canopyCdA(bare)).toBeNull();
   });
 });

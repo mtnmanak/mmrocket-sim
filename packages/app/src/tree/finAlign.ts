@@ -89,7 +89,7 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
     const kids = parentNode.children ?? [];
     const finSets = kids.filter((k) => k.type.endsWith('finset'));
     if (finSets.length >= 2) {
-      const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
+      const pLen = num(parentNode, 'length', 0.2);
 
       for (let i = 1; i < finSets.length; i++) {
         const me = finSets[i]!;

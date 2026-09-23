@@ -58,15 +58,14 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
 
-// `typeof <member> === 'number'` as the whole test of a conditional or an `if` —
-// true of NaN. Used by the two no-restricted-syntax blocks below: the reader
-// shape everywhere in src, and any such test at all in the file writers.
-const TYPEOF_NUMBER_TEST = "[test.operator='==='][test.left.operator='typeof']"
-  + "[test.left.argument.type='MemberExpression'][test.right.value='number']";
-const NUMBER_READER_SHAPES = [
-  ':function > ConditionalExpression.body',
-  ':function > BlockStatement > ReturnStatement > ConditionalExpression.argument',
-];
+// `typeof <member> === 'number'` (or `!==`, `==`, `!=`; `x?.[k]` too) standing
+// on its own — the whole test of a conditional or an `if`, a value, a return,
+// an arrow body — rather than one operand of `&&` / `||`. True of NaN and of
+// ±Infinity. The no-restricted-syntax rule in the browser-source block below
+// refuses it; its comment says why and what it leaves alone.
+const LONE_TYPEOF_NUMBER = "BinaryExpression[operator=/^[!=]==?$/][left.operator='typeof']"
+  + "[left.argument.type=/^(MemberExpression|ChainExpression)$/][right.value='number']"
+  + ':not(LogicalExpression > BinaryExpression)';
 
 export default tseslint.config(
   {
@@ -248,52 +247,55 @@ export default tseslint.config(
       'no-extend-native': 'error',
       'no-new-wrappers': 'error',
 
-      // A private node-number reader: a function whose whole answer is
-      // `typeof n[k] === 'number' ? n[k] : fb`. `typeof NaN` is 'number', so
-      // that shape passes a NaN field on as a number — into a reference area, a
-      // view, or (before the writer block below) a saved file. tree/nodeNum.ts
-      // is the one reader (Number.isFinite); fourteen copies outlived its
-      // 2026-09-08 consolidation and were folded into it on 2026-09-22, which
-      // is when this went on, at 0. Here it matches the READER shape (an arrow
-      // body, or a function's top-level return), not every inline test. Outside
-      // the writers, 34 inline `typeof x[k] === 'number' ?` reads remain
-      // (PropertyPanel 10, treeModel 10, recoverySizing 8, six files with one
-      // each) and 3 `if (typeof x[k] === 'number')` (treeModel 2, importApply
-      // 1), counted 2026-09-23. Converting those is a separate sitting — they
-      // sit in the files every other change touches.
-      'no-restricted-syntax': ['error', ...NUMBER_READER_SHAPES.map((reader) => ({
-        selector: `${reader}${TYPEOF_NUMBER_TEST}`,
-        message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
-          + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
-      }))],
-    },
-  },
-
-  {
-    // The design-file writers and the cut-file exports refuse the INLINE test
-    // as well, as the test of any conditional or `if` in the file:
-    // `typeof node['cd'] === 'number' ? node['cd'] : 'auto'` wrote <cd>NaN</cd>
-    // into a saved .ork for a NaN field, `if (typeof node['overrideMass'] ===
-    // 'number')` wrote <overridemass>NaN</overridemass>, and finTemplate's
-    // label printed "cut NaN" / "thickness NaN mm" on a sheet meant to be cut
-    // from. Their 32 such reads (orkFile 18, rocksimFile 10, rasaeroFile 2,
-    // finTemplate 2; dxfExport had none) went through nodeNum on 2026-09-23 —
-    // every import, export, template and DXF byte-identical over the 21
-    // committed fixtures and the 108 local tester uploads, since only a
-    // non-finite field reads differently — so this is on at 0. A compound test
-    // is not matched; of those in these files all but three refuse NaN in
-    // their second half (a `>`/`>=` bound, or an `===`), and the three
-    // (`|| typeof …`, `&& v !== 0`) are import-side and only decide whether to
-    // keep a mark or fold a part. This block's no-restricted-syntax REPLACES
-    // the reader block's options for these files rather than adding to them,
-    // which is why its selector is the broad one: it covers the reader shape
-    // as well.
-    files: ['packages/app/src/services/{orkFile,rocksimFile,rasaeroFile,finTemplate,dxfExport}.ts'],
-    rules: {
+      // A number read off a node, a catalogue row or a file through a lone
+      // `typeof x[k] === 'number'` (LONE_TYPEOF_NUMBER, top of file). `typeof
+      // NaN` is 'number', so the test passes a NaN or an infinite field on as
+      // a number — into a saved .ork/.rkt, a cut file, the kernel document
+      // engineTree builds, a recommendation, a view — where the kernel itself
+      // reads it as ABSENT (JSON.stringify sends null, and ComponentFactory
+      // falls back). tree/nodeNum.ts is the one reader (Number.isFinite).
+      //
+      // How it got to 0. 2026-09-22: fourteen private reader FUNCTIONS folded
+      // into nodeNum, and this went on for the reader shape. 2026-09-23 (C3a):
+      // the 32 inline reads in the five design-file writers and cut-file
+      // exports, under a block of their own. 2026-09-23 (audit row 522): every
+      // other one in src, and this replaced both — 54 lone tests, counted with
+      // this selector: 46 in shipped source (PropertyPanel 12, treeModel 12,
+      // recoverySizing 8, App 4, statedLaunchWeight 2, and componentTable,
+      // finAlign, importApply, scaleRocket, simStore, solidContext, solidMesh
+      // and useNozzleFollow one each), 4 the writer block's condition-only
+      // selector had missed (rocksimFile: two override flags that still wrote
+      // <KnownMass>NaN</KnownMass>, a `!==` test, a `parent?.[k]` read), and 4
+      // in tests. Each now reads through nodeNum with the fallback it had for
+      // an absent value, or — where nodeNum cannot take the object (an
+      // interface: importApply's configuration, simStore's run) — through a
+      // Number.isFinite test (and rasaeroFile.test asserts on every radius
+      // present, so a NaN fails it). Every corpus design opens, lowers to the
+      // kernel, sizes, tabulates, exports and renders its property panels
+      // byte-identically, since only a non-finite field reads differently.
+      //
+      // Tests are included (they read nodes too), and so is packages/engine/src
+      // (0 hits; there, test Number.isFinite). NOT matched, on purpose:
+      //  - a test that is one operand of && or ||: most refuse NaN in another
+      //    operand (a `>`/`>=` bound, Number.isFinite, a tolerance), 26 of the
+      //    39 such lines in shipped source on 2026-09-23. The other 13 read no
+      //    design number, or use none they read: the pad-mass records
+      //    (configSync, padMassReconcile — hardwareMass refuses a non-finite
+      //    weighing before any arithmetic), the importers' keep-the-mark and
+      //    fold-the-part decisions (orkFile, rocksimFile), the load-boundary
+      //    clamp (sanitize: applyFieldLimit hands a non-finite value back), the
+      //    scaler's pass-through (scaleRocket: NaN × k is NaN either way), the
+      //    weather fetch's null test, the chip position and a set-key count;
+      //  - `typeof v === 'number'` on a plain variable, which is as often a
+      //    union discriminator (`number | undefined`, `RktTrigger | number`)
+      //    as a field read. The field reads among them went through nodeNum
+      //    too (canopyVent's diameter, rocksimFile's shape parameter, the
+      //    panel's field value); what is left is a discriminator, the load
+      //    clamp's walk (sanitize), or a value validated where it was set.
       'no-restricted-syntax': ['error', {
-        selector: `:matches(ConditionalExpression, IfStatement)${TYPEOF_NUMBER_TEST}`,
-        message: 'typeof-number accepts NaN (typeof NaN is "number"), and this file writes what it reads '
-          + 'into a design or cut file. Use num / numOpt / numOrNull from tree/nodeNum.ts.',
+        selector: LONE_TYPEOF_NUMBER,
+        message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), which the kernel reads '
+          + 'as absent. Read the field with num / numOpt / numOrNull from tree/nodeNum.ts.',
       }],
     },
   },

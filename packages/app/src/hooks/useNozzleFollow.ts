@@ -4,6 +4,7 @@ import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
   equivalentExitDiameterM, followNozzle, stageMotorKey, type StageMotors,
 } from '../services/nozzleFollow.js';
+import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
 
 /**
@@ -150,7 +151,7 @@ export function useNozzleFollow(opts: {
         const act = followNozzle({
           hadMotorsBefore: (was?.key ?? '') !== '',
           previousLabel: was?.label ?? '',
-          currentValueM: typeof node?.['nozzleExitDiameter'] === 'number' ? node['nozzleExitDiameter'] : null,
+          currentValueM: node ? numOrNull(node, 'nozzleExitDiameter') : null,
           publishedM: equivalentExitDiameterM(s.motors.map((m, i) => ({
             count: m.count,
             exitDiameterM: entries[i]?.exitDiameterM ?? null,
