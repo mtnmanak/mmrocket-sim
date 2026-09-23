@@ -401,6 +401,44 @@ describe('the sweep, flown on the real kernel', () => {
     expect(historyMotorLabel(rows.find((r) => !r.combo)!.run!)).toBe('Acme E20');
   }, 60000);
 
+  /**
+   * A cluster inside a POD SET (audit 2026-09-22, row 351, from review). The
+   * single-motor pass counts the pods through `target.motorCount`; the
+   * combination pass counted each group as `split.groupSize` alone — a 4-ring
+   * in three pods read "2× A + 2× B", was stored as 4 motors and was given four
+   * motors' equivalent exit, where the kernel burns twelve.
+   */
+  it('counts a combination’s groups as every pod fires them', async () => {
+    const base = clusterRocket('4-ring');
+    const bt = base.components[0]!.children![1]!;
+    const mount = bt.children!.find((c) => c.id === 'mount')!;
+    bt.children = [
+      ...bt.children!.filter((c) => c.id !== 'mount'),
+      {
+        type: 'podset', id: 'pods', instanceCount: 3, radiusMethod: 'relative', radiusOffset: 0, angleOffset: 0,
+        position: { method: 'bottom', offset: 0 },
+        children: [{
+          type: 'bodytube', id: 'pb', length: 0.3, outerRadius: 0.03, thickness: 0.001,
+          children: [mount],
+        } as ComponentNode],
+      } as ComponentNode,
+    ];
+    const split = splitClusterTree(base, 'mount')!;
+    const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+    const specs = { a: curve('E20'), b: curve('E22', 1.05) };
+    const target = { ...MOUNT, motorCount: 12 };
+    const { rows } = await sweep(input(base, { mounts: [target], target, candidates: cands, splits: [split], autoDelay: false }), {
+      fetchSpec: fetchFrom(specs), nozzleFor: nozzles({ a: 0.01, b: 0.01 }),
+    });
+    const combo = rows.find((r) => r.combo)!;
+    expect(combo.label).toBe('6× Acme E20 + 6× Acme E22');
+    expect(combo.run!.motorCount).toBe(12);
+    // Twelve 10 mm exits, summed by area: 10·√12 mm.
+    expect(combo.exitM).toBeCloseTo(0.01 * Math.sqrt(12), 12);
+    // The single-motor rows already counted the pods, and still do.
+    expect(rows.find((r) => !r.combo)!.run!.motorCount).toBe(12);
+  }, 60000);
+
   it('the history keeps the maker in front of a combination stored before its label named one', () => {
     expect(historyMotorLabel({ manufacturer: 'Acme+Bolt', motor: '4× E20 + 2× E20', motorConfig: 'mixed 4+2' }))
       .toBe('Acme+Bolt 4× E20 + 2× E20');
