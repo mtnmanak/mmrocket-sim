@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
-import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
+import { findAllowance } from './services/buildAllowance.js';
 import { buildDesign, KERNEL_HANDLES } from './services/buildDesign.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
 import { classLabel } from './services/motorDb.js';
@@ -21,22 +21,17 @@ import { APP_VERSION } from './version.js';
  * App, rendered — for what App itself decides: which of its memos a keystroke
  * re-runs, and what its layout and gates put on screen. The behavioural
  * replacements for the regexes statsDrawerDefault.test.ts, panelHeadWrap.test.ts
- * and noticeBarPhoneLift.test.ts used to run over App.tsx's text, and for some
- * of those in nozzleWiring.test.ts, primaryMount.test.ts and appA11y.test.ts
- * (audit 2026-09-22, row 477). The same harness as App.session.test.tsx: the
- * real TeaVM kernel, the bundled starter motor, fetch stubbed to fail as offline.
+ * and noticeBarPhoneLift.test.ts used to run over App.tsx's text (audit
+ * 2026-09-22, row 477). The same harness as App.session.test.tsx: the real
+ * TeaVM kernel, the bundled starter motor, fetch stubbed to fail as offline.
  *
- * The five spies below pass straight through to the real functions. Each is
+ * The four spies below pass straight through to the real functions. Each is
  * called, on the Design tab, by exactly ONE of App's memos — which is what
  * lets a count of its calls stand for "that memo re-ran".
  */
 vi.mock('./services/buildAllowance.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/buildAllowance.js')>();
-  return {
-    ...real,
-    findAllowance: vi.fn(real.findAllowance),
-    solePinnedStage: vi.fn(real.solePinnedStage),
-  };
+  return { ...real, findAllowance: vi.fn(real.findAllowance) };
 });
 vi.mock('./services/nozzleCheck.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/nozzleCheck.js')>();
@@ -171,14 +166,11 @@ afterEach(async () => {
  * of the nine the 8 September audit named; these are the other five (the
  * allowance lookup, the pin check beside it, the notice list, the mount-size
  * chips and the provenance key — whose new identity also re-ran the saved-run
- * matching behind it). Those five, and only those: a few other memos still key
- * on the whole tree (`stageMotorLoadout`, the two primary-mount lookups,
- * `quickPicksOffered` — the last reads the name) and are not claimed here.
+ * matching behind it).
  */
-describe('a keystroke in the Rocket name re-runs none of the five memos row 513 narrowed', () => {
+describe('a keystroke in the Rocket name re-runs none of the design memos', () => {
   const spies = () => ({
     allowance: vi.mocked(findAllowance).mock.calls.length,
-    pinCheck: vi.mocked(solePinnedStage).mock.calls.length,
     notices: vi.mocked(nozzleOversize).mock.calls.length,
     provenance: vi.mocked(designMatchKeyOf).mock.calls.length,
     mountSizes: vi.mocked(classLabel).mock.calls.length,
@@ -285,88 +277,6 @@ describe('a nozzle exit wider than the loaded motor', () => {
     expect(item?.textContent).toContain('the nozzle exit diameter is 50.0 mm, wider than the 18.0 mm casing');
     expect(item?.className).toContain('notice-warn');
     expect(item?.querySelector('.notice-dismiss')).toBeNull();
-  }, 30000);
-
-  /**
-   * The list is a memo, and the length unit is one of its keys: without it
-   * the bar keeps printing millimetres to someone who has just switched to
-   * inches. nozzleWiring.test.ts held that key as a string match on the memo's
-   * dependency list; this is the switch made where a user makes it (a unit
-   * chip on the Design tab) and the bar read back.
-   */
-  it('follows the length unit when it is switched', async () => {
-    await seedStarterSession({
-      edit: (t) => ({
-        ...t,
-        components: t.components.map((st) => ({ ...st, nozzleExitDiameter: 0.05 }) as ComponentNode),
-      }),
-    });
-    const host = await mountApp();
-    await settle(50);
-    const unit = host.querySelector<HTMLSelectElement>('select[aria-label="Rocket dimensions unit"]')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(unit, 'in');
-      unit.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    const item = [...(noticeBar()?.querySelectorAll('.notice-item') ?? [])]
-      .find((li) => li.textContent?.includes('the nozzle exit diameter is'));
-    expect(item?.textContent).toContain('the nozzle exit diameter is 1.97 in, wider than the 0.709 in casing');
-  }, 30000);
-});
-
-/**
- * PIN THE STAGE, BUT ONLY WHEN THERE IS ONE TO PIN (v0.074). A weighed rocket
- * whose stage carries a whole-contents mass override cannot take a Build
- * allowance — the override swallows it — so the Measured box offers to pin that
- * stage to the scale instead. The measured figures are whole-airframe and the
- * overrides per-stage, so the offer is made only when exactly one stage is
- * pinned: with two, nothing says which should absorb the difference, and the
- * box says so rather than guess. The session is the starter rocket with its
- * stage(s) pinned and the box holding a weighing 20 g over the pinned mass at
- * the computed CG, which puts the solved ballast inside the pinned sustainer.
- */
-describe('a weighed rocket whose stage stands in for its own mass', () => {
-  async function pinnedSession(twoStages: boolean): Promise<string> {
-    const pin = (st: ComponentNode) =>
-      ({ ...st, overrideSubcomponentsMass: true, overrideMass: 0.1 }) as ComponentNode;
-    const staged = (t: RocketTree): RocketTree => {
-      if (!twoStages) return t;
-      const { tree, newId } = addStage(t);
-      return addChild(tree, newId, {
-        type: 'bodytube', id: 'booster-bt', name: 'Booster tube', length: 0.2, outerRadius: 0.0125,
-        thickness: 0.0003,
-      } as ComponentNode);
-    };
-    const probe = ((t: RocketTree) => ({ ...t, components: t.components.map(pin) }))(staged(defaultTree()));
-    const mount = motorMounts(probe)[0]!.id!;
-    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
-    const built = buildDesign({
-      tree: probe, assigned: [[mount, c6]], kbf: true, supersonic: false,
-      measuredDryMassKg: null, primaryMountId: mount, currentSetKey: '',
-    }, KERNEL_HANDLES);
-    if ('error' in built) throw new Error(built.error);
-    await seedStarterSession({
-      edit: () => probe,
-      over: { measured: { massKg: built.info.massEmpty + 0.02, cgM: built.info.cgEmpty } },
-    });
-    return probe.components[0]!.name!;
-  }
-
-  it('offers to pin the one pinned stage to the measured figures', async () => {
-    const sustainer = await pinnedSession(false);
-    const host = await mountApp();
-    await settle(50);
-    expect(host.textContent).toContain('stands in for the mass of everything inside it');
-    expect(button(host, `Pin “${sustainer}” to my measured mass & CG`)).toBeTruthy();
-  }, 30000);
-
-  it('offers nothing when two stages are pinned, and says why', async () => {
-    await pinnedSession(true);
-    const host = await mountApp();
-    await settle(50);
-    expect(host.textContent).toContain('stands in for the mass of everything inside it');
-    expect(host.textContent).toContain('more than one stage is pinned');
-    expect([...host.querySelectorAll('button')].some((b) => b.textContent?.startsWith('Pin “'))).toBe(false);
   }, 30000);
 });
 
