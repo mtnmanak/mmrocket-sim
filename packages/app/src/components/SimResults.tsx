@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
+import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
   aeroModelLabel, commentsOf, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type SimRun,
 } from '../services/simReport.js';
-import { clearRuns, deleteRun, runsToCsv, runsToTable } from '../services/simStore.js';
+import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
@@ -474,7 +475,40 @@ export function SimHistory({
   const [open, setOpen] = useState(false);
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
-  if (runs.length === 0) return null;
+  /*
+   * NOTHING GOES ON ONE STRAY CLICK (audit 2026-09-22, WCAG 3.3.4). "Clear all"
+   * removed up to 500 saved runs — the comparison history, and the flights a
+   * later Save .ork writes into the file — with no question and no way back,
+   * one tab stop past the XLSX button; each row's ✕ was just as final. Clear
+   * all now asks, with the count. A ✕ still acts at once — a question on every
+   * row would be the always-firing prompt people learn to click through — and
+   * offers Undo instead, one level deep.
+   */
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [undo, setUndo] = useState<{ run: SimRun; beforeId: string | null } | null>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  // The ✕ that had the focus went with its row; Undo takes it.
+  useEffect(() => { if (undo) undoRef.current?.focus(); }, [undo]);
+  if (runs.length === 0 && undo === null) return null;
+
+  const runName = (r: SimRun) => [r.rocket, r.motor].filter(Boolean).join(' ');
+  const removeRun = (r: SimRun) => {
+    const i = runs.findIndex((x) => x.id === r.id);
+    setUndo({ run: r, beforeId: runs[i + 1]?.id ?? null });
+    onRunsChange(deleteRun(r.id));
+  };
+  const undoLine = undo && (
+    <p className="comp-stats" role="status" style={{ margin: '6px 0 0' }}>
+      {runName(undo.run) ? `Deleted run ${runName(undo.run)}.` : 'Deleted a run.'}{' '}
+      <button ref={undoRef} className="file-btn" aria-label={`Undo: put back run ${runName(undo.run)}`.trim()}
+        onClick={() => { onRunsChange(restoreRun(undo.run, undo.beforeId)); setUndo(null); }}>
+        Undo
+      </button>{' '}
+      <button className="file-note-dismiss" aria-label="Dismiss" onClick={() => setUndo(null)}>×</button>
+    </p>
+  );
+  // The last run deleted: the table has gone, its Undo has not.
+  if (runs.length === 0) return <div className="panel" style={{ marginTop: 10 }}>{undoLine}</div>;
 
   const downloadCsv = () => downloadBlob(
     new Blob([CSV_BOM, runsToCsv(runs, prefs.units)], { type: 'text/csv;charset=utf-8' }),
@@ -501,9 +535,27 @@ export function SimHistory({
           title="The same run table as an Excel workbook: typed cells (no date mangling), bold frozen header, filter.">
           ⬇ Run table (.xlsx)
         </button>
-        <button className="file-btn file-btn-danger" onClick={() => onRunsChange(clearRuns())}>Clear all</button>
+        <button className="file-btn file-btn-danger" onClick={() => setConfirmClear(true)}>Clear all</button>
         <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
+      {undoLine}
+      {confirmClear && (
+        <Modal label="Delete all saved runs" onClose={() => setConfirmClear(false)}>
+          <h2>Delete all {runs.length} saved runs?</h2>
+          <p>
+            This deletes every run in the table — the comparison history, and the
+            flights a later Save .ork would write into the file. It cannot be
+            undone: download the run table first to keep the numbers.
+          </p>
+          <div className="modal-actions">
+            <button className="file-btn modal-danger"
+              onClick={() => { setConfirmClear(false); setUndo(null); onRunsChange(clearRuns()); }}>
+              Delete all {runs.length}
+            </button>
+            <button className="file-btn" onClick={() => setConfirmClear(false)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
       {open && (
         <div className="motor-table-wrap" style={{ maxHeight: 300 }}>
           <table className="motor-table">
@@ -587,7 +639,7 @@ export function SimHistory({
                           which. */}
                       <button className="fin-row-del" title="Delete run"
                         aria-label={`Delete run ${[r.rocket, r.motor].filter(Boolean).join(' ')}`.trim()}
-                        onClick={(e) => { e.stopPropagation(); onRunsChange(deleteRun(r.id)); }}>✕</button>
+                        onClick={(e) => { e.stopPropagation(); removeRun(r); }}>✕</button>
                     </td>
                   </tr>
                 );

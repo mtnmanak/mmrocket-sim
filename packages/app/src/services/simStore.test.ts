@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, runsToCsv, runsToTable,
+  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runsToCsv, runsToTable,
 } from './simStore.js';
 import type { SimRun } from './simReport.js';
 
@@ -107,6 +107,42 @@ describe('persist under quota — the table must not lie', () => {
     const out = clearRuns();
     expect(out.map((r) => r.id)).toEqual(['a']);
     expect(persistFailed()).toBe(true);
+  });
+});
+
+describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
+  const ids = () => loadRuns().map((r) => r.id);
+
+  it('puts a run back above the one that sat below it — flights added since stay on top', () => {
+    addRuns([mkRun('a'), mkRun('b'), mkRun('c')]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    addRun(mkRun('new'));
+    expect(restoreRun(b, 'c').map((r) => r.id)).toEqual(['new', 'a', 'b', 'c']);
+    expect(ids()).toEqual(['new', 'a', 'b', 'c']);
+  });
+
+  it('the bottom row goes back to the bottom', () => {
+    addRuns([mkRun('a'), mkRun('b')]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    expect(restoreRun(b, null).map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('with its neighbour gone too, it goes back by its own time', () => {
+    addRuns([mkRun('a', { when: 3 }), mkRun('b', { when: 2 }), mkRun('c', { when: 1 }), mkRun('z', { when: 0 })]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    deleteRun('c');
+    addRun(mkRun('d', { when: 4 }));
+    expect(restoreRun(b, 'c').map((r) => r.id)).toEqual(['d', 'a', 'b', 'z']);
+    expect(ids()).toEqual(['d', 'a', 'b', 'z']);
+  });
+
+  it('never doubles a run that is already there', () => {
+    addRuns([mkRun('a'), mkRun('b')]);
+    const a = loadRuns()[0]!;
+    expect(restoreRun(a, 'b').map((r) => r.id)).toEqual(['a', 'b']);
   });
 });
 

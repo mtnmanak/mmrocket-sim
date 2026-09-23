@@ -123,6 +123,21 @@ export function deleteRun(id: string): SimRun[] {
   return persist(loadRuns().filter((r) => r.id !== id));
 }
 
+/**
+ * Put back a run the row's ✕ deleted — its Undo (audit 2026-09-22: one click
+ * used to destroy a run with no way back). `beforeId` is the run that sat just
+ * below it when it went, or null when it was the bottom row; flights added
+ * since stay above it. With that neighbour gone too it goes back by its own
+ * time, and a run already present is not doubled.
+ */
+export function restoreRun(run: SimRun, beforeId: string | null): SimRun[] {
+  const list = loadRuns().filter((r) => r.id !== run.id);
+  let at = beforeId === null ? list.length : list.findIndex((r) => r.id === beforeId);
+  if (at === -1) at = list.findIndex((r) => r.when < run.when);
+  list.splice(at === -1 ? list.length : at, 0, run);
+  return persist(list);
+}
+
 export function clearRuns(): SimRun[] {
   // removeItem frees space instead of needing it, so clearing works even at
   // quota, where persist([])'s setItem could in principle still be refused.
