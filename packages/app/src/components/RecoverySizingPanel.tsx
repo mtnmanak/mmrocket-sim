@@ -444,9 +444,14 @@ function PartRow({ c, lenSym, velSym, massSym }: {
             on the same line as the name and the one set in the panel's ink. */}
         <span className="recovery-part-rate">
           {fixedRate} {velSym}
+          {/* The mark is for the eye and the words for a screen reader (audit
+              2026-09-22): an aria-label on a bare <span> is ignored, so a
+              too-fast drogue was read as "dagger". */}
           {c.flagged && (
-            <span className="recovery-mark recovery-mark-warn"
-              aria-label="above the preferred drogue rate — a caution">†</span>
+            <>
+              <span className="recovery-mark recovery-mark-warn" aria-hidden="true">†</span>
+              <span className="sr-only"> (above the preferred drogue rate — a caution)</span>
+            </>
           )}
         </span>
       </div>
@@ -459,7 +464,10 @@ function PartRow({ c, lenSym, velSym, massSym }: {
           : (
             <>
               packed size unpublished
-              <span className="recovery-mark" aria-label="packed size unpublished">‡</span>
+              {/* The words beside it already say it; the mark only ties the row
+                  to the footnote, so it is hidden rather than read as "double
+                  dagger" (audit 2026-09-22). */}
+              <span className="recovery-mark" aria-hidden="true">‡</span>
             </>
           )}
       </div>

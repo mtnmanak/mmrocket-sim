@@ -40,8 +40,11 @@ export function RollControl({ roll, onRoll, top = 0, orientation = 'vertical' }:
         aria-valuetext={`${deg} degrees`}
         onChange={(e) => onRoll((Number(e.target.value) * Math.PI) / 180)}
         onDoubleClick={() => onRoll(0)} />
+      {/* Named for what it does, opening with the angle it shows (audit
+          2026-09-22): its text alone announced "12 degrees, button". */}
       <button className="roll-reset" type="button"
         title="Roll the view about the rocket's long axis — click to return to the design's own angles"
+        aria-label={`${deg}° view roll — reset to the design's own angles`}
         onClick={() => onRoll(0)}>{deg}°</button>
     </div>
   );

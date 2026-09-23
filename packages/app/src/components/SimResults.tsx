@@ -208,7 +208,9 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
             ? ' · matches the design as it stands'
             : ` · ${listAnd(changedSince)} changed since`}
         </span>
-        <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>
+        {/* aria-expanded (audit 2026-09-22): it opens and closes a section,
+            and said so to nobody. */}
+        <button className="file-btn file-btn-ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
@@ -539,7 +541,8 @@ export function SimHistory({
           ⬇ Run table (.xlsx)
         </button>
         <button className="file-btn file-btn-danger" onClick={() => setConfirmClear(true)}>Clear all</button>
-        <button className="file-btn file-btn-ghost" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
+        <button className="file-btn file-btn-ghost" aria-expanded={open}
+          onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
       {undoLine}
       {confirmClear && (

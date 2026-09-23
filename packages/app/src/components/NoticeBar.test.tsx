@@ -39,6 +39,9 @@ const draw = (notices: Notice[]) => {
 };
 
 const bar = () => host.querySelector('.notice-bar');
+/** The two always-mounted announcers (audit 2026-09-22). */
+const polite = () => host.querySelector('.notice-announce[role="status"]');
+const assertive = () => host.querySelector('.notice-announce[role="alert"]');
 const buttonByLabel = (re: RegExp): HTMLButtonElement => {
   const found = [...host.querySelectorAll('button')]
     .find((b) => re.test(b.getAttribute('aria-label') ?? ''));
@@ -60,28 +63,135 @@ afterEach(() => {
 });
 
 describe('NoticeBar', () => {
-  it('renders nothing when there is nothing to say', () => {
+  it('draws no bar when there is nothing to say, but keeps its live regions mounted', () => {
     draw([]);
-    expect(host.innerHTML).toBe('');
+    expect(bar()).toBeNull();
+    // A live region inserted WITH its first message is announced unreliably,
+    // so both exist, empty, before anything is said (audit 2026-09-22 — the
+    // bar used to render null here, taking its only region with it).
+    expect(polite()?.textContent).toBe('');
+    expect(polite()?.getAttribute('aria-live')).toBe('polite');
+    expect(assertive()?.textContent).toBe('');
+    expect(assertive()?.getAttribute('aria-live')).toBe('assertive');
+  });
+
+  /**
+   * Review of the audit branch, measured: "always mounted" was false. The
+   * empty render returned the announcers' fragment and the busy one returned
+   * `<>{bar}{fragment}</>`, so React reused the polite region's node AS the
+   * bar and built both regions afresh each time the bar appeared or emptied —
+   * the insert-with-first-message case the regions exist to avoid. Worse, the
+   * rebuilt alert region arrived already holding the last problem's words, so
+   * dismissing an error inserted it again and a screen reader re-read it.
+   */
+  it('keeps the SAME two region nodes as the bar comes and goes', () => {
+    draw([]);
+    const p = polite()!;
+    const a = assertive()!;
+    const liveInserted: Element[] = [];
+    const said = new Map<Element, string[]>([[p, []], [a, []]]);
+    const log = (records: MutationRecord[]) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (!(n instanceof Element)) continue;
+          for (const el of [n, ...n.querySelectorAll('*')]) {
+            if (el.matches('[role="alert"], [role="status"], [aria-live]')) liveInserted.push(el);
+          }
+          said.get(r.target as Element)?.push(n.textContent ?? '');
+        }
+      }
+    };
+    const mo = new MutationObserver(log);
+    mo.observe(host, { childList: true, subtree: true });
+    try {
+      const steps: Notice[][] = [[info], [], [err], [], [info], [warn, info], []];
+      for (const step of steps) {
+        draw(step);
+        expect(polite(), `polite region replaced at [${step.map((n) => n.id)}]`).toBe(p);
+        expect(assertive(), `alert region replaced at [${step.map((n) => n.id)}]`).toBe(a);
+      }
+      log(mo.takeRecords());
+      expect(bar()).toBeNull();
+      // Inserting a live region that already has words is itself an
+      // announcement: after the first render none may be inserted at all.
+      expect(liveInserted).toEqual([]);
+      // Each problem is spoken once, as it ARRIVES — not again as it goes.
+      expect(said.get(a)).toEqual([`Error: ${err.text}`, `Warning: ${warn.text}`]);
+      expect(said.get(p)).toEqual(['Notice: Loaded “Goblin.ork”.', 'Notice: Loaded “Goblin.ork”.']);
+    } finally {
+      mo.disconnect();
+    }
   });
 
   it('shows information collapsed to a single line, announced politely', () => {
+    draw([]);
     draw([info]);
     const el = bar()!;
-    expect(el.getAttribute('role')).toBe('status');
-    expect(el.getAttribute('aria-live')).toBe('polite');
     expect(el.textContent).toContain('Loaded “Goblin.ork”.');
     // The second line stays folded away until asked for.
     expect(el.textContent).not.toContain('Second line.');
+    expect(polite()!.textContent).toBe('Notice: Loaded “Goblin.ork”.');
+    expect(assertive()!.textContent).toBe('');
+    // The visible bar is NOT itself a live region any more: expanding or
+    // collapsing it rewrites its content, which re-read the whole bar.
+    expect(el.getAttribute('aria-live')).toBeNull();
+    expect(el.getAttribute('role')).toBe('region');
   });
 
   it('opens itself for a warning and announces assertively', () => {
+    draw([]);
     draw([warn]);
     const el = bar()!;
-    expect(el.getAttribute('role')).toBe('alert');
-    expect(el.getAttribute('aria-live')).toBe('assertive');
     expect(el.className).toContain('notice-warn');
+    expect(el.className).toContain('expanded');
     expect(el.textContent).toContain('needed repair');
+    expect(assertive()!.textContent).toBe(`Warning: ${warn.text}`);
+    expect(polite()!.textContent).toBe('');
+  });
+
+  /**
+   * Audit 2026-09-22, measured: with the stale-session notice showing — every
+   * returning user after every release — "Saved “X”" never rendered at all.
+   * The collapsed bar led with the FIRST of equal severities, which was the
+   * standing notice, and the live region changed only by "+1".
+   */
+  it('leads with the newest notice, and announces it, beside a standing one', () => {
+    const stale: Notice = {
+      id: 'stale-session', severity: 'info',
+      text: 'This design was restored from autosave and was read in by an earlier build.',
+    };
+    const saved: Notice = { id: 'file-note', severity: 'info', text: 'Saved “Goblin.ork”.' };
+    draw([stale]);
+    draw([stale, saved]);
+    expect(bar()!.querySelector('.notice-oneline')!.textContent).toBe('Notice: Saved “Goblin.ork”.');
+    expect(host.querySelector('.notice-count')?.textContent).toBe('+1');
+    expect(polite()!.textContent).toBe('Notice: Saved “Goblin.ork”.');
+
+    // The same id with new words is new information: say it, and lead with it.
+    draw([stale, { ...saved, text: 'Share link copied.' }]);
+    expect(bar()!.querySelector('.notice-oneline')!.textContent).toBe('Notice: Share link copied.');
+    expect(polite()!.textContent).toBe('Notice: Share link copied.');
+
+    // It goes: the standing one leads again, and nothing new is announced.
+    draw([stale]);
+    expect(bar()!.querySelector('.notice-oneline')!.textContent).toContain('restored from autosave');
+    expect(polite()!.textContent).toBe('Notice: Share link copied.');
+
+    // The same words again after they went ARE a new event, and are said again.
+    const before = polite()!.firstElementChild;
+    draw([stale, { ...saved, text: 'Share link copied.' }]);
+    expect(polite()!.textContent).toBe('Notice: Share link copied.');
+    expect(polite()!.firstElementChild, 'identical text must still be a DOM change').not.toBe(before);
+  });
+
+  it('never lets the newest routine notice outrank an older problem', () => {
+    draw([err]);
+    draw([err, info]);
+    expect(bar()!.className).toContain('notice-error');
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    expect(bar()!.querySelector('.notice-oneline')!.textContent).toContain('Could not open that .ork file.');
+    // The new routine notice is still announced — politely.
+    expect(polite()!.textContent).toBe('Notice: Loaded “Goblin.ork”.');
   });
 
   it('leads with the most serious notice, not the first one handed to it', () => {
@@ -174,6 +284,6 @@ describe('NoticeBar', () => {
 
   it('names the severity for a screen reader, not just by colour', () => {
     draw([err]);
-    expect(host.querySelector('.sr-only')?.textContent).toBe('Error: ');
+    expect(bar()!.querySelector('.sr-only')?.textContent).toBe('Error: ');
   });
 });

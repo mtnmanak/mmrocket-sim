@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { ComponentTree } from './ComponentTree.js';
+import { duplicateNode, moveNode, removeNode } from '../tree/treeModel.js';
 
 /**
  * The component tree is the ONLY complete list of what a design contains, and
@@ -190,5 +191,138 @@ describe('the tree keeps the keyboard contract its role promises', () => {
     key(rows()[2]!, 'Enter');
     key(rows()[2]!, ' ');
     expect(selected.slice(-2)).toEqual(['n1', 'n1']);
+  });
+});
+
+/**
+ * Audit 2026-09-22, row 457. Move down, Delete, Cut (and Duplicate, which
+ * moves the selection to the new copy and so unmounts the old row's buttons)
+ * dropped focus to <body>: the button pressed was re-inserted or removed, and
+ * nothing put focus anywhere. And the selected row's name was every action
+ * label run together, because a treeitem is named from its content.
+ */
+describe('structural actions keep the keyboard in the tree', () => {
+  function Harness() {
+    const [tree, setTree] = useState(TREE);
+    const [sel, setSel] = useState<string | null>('n1');
+    return (
+      <>
+        <button id="before">before</button>
+        <ComponentTree
+          tree={tree}
+          selectedId={sel}
+          onSelect={(id) => setSel(id)}
+          onMove={(id, dir) => setTree(moveNode(tree, id, dir))}
+          onDelete={(id) => { setTree(removeNode(tree, id)); if (sel === id) setSel(null); }}
+          onDuplicate={(id) => {
+            const { tree: next, newId } = duplicateNode(tree, id);
+            setTree(next);
+            if (newId) setSel(newId);
+          }}
+          onAdd={() => {}}
+          onAddStage={() => {}}
+          clipboard={null}
+          onCopy={() => {}}
+          onCut={(id) => { setTree(removeNode(tree, id)); if (sel === id) setSel(null); }}
+          onPaste={() => {}}
+        />
+      </>
+    );
+  }
+  const action = (name: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>('.tree-actions button')]
+      .find((b) => b.getAttribute('aria-label') === name)!;
+  const press = (b: HTMLButtonElement) => {
+    act(() => { b.focus(); });
+    act(() => { b.click(); });
+  };
+  const labels = () => [...host.querySelectorAll('.tree-row .tree-label')].map((l) => l.textContent);
+
+  // A browser runs the HTML "focus fixup" when a focused node is MOVED (an
+  // insertBefore of a connected node is a remove and an insert) and focus
+  // falls to <body>; happy-dom keeps it on the moved node. Emulate the
+  // browser, or the Move-down case would pass whether or not it was fixed.
+  const realInsertBefore = Node.prototype.insertBefore;
+  const realAppendChild = Node.prototype.appendChild;
+  const blurIfMoving = (node: Node) => {
+    const active = document.activeElement;
+    if (node.isConnected && active instanceof HTMLElement && node.contains(active)) active.blur();
+  };
+  beforeEach(() => {
+    Node.prototype.insertBefore = function <T extends Node>(this: Node, node: T, child: Node | null): T {
+      blurIfMoving(node);
+      return realInsertBefore.call(this, node, child) as T;
+    };
+    Node.prototype.appendChild = function <T extends Node>(this: Node, node: T): T {
+      blurIfMoving(node);
+      return realAppendChild.call(this, node) as T;
+    };
+  });
+  afterEach(() => {
+    Node.prototype.insertBefore = realInsertBefore;
+    Node.prototype.appendChild = realAppendChild;
+  });
+
+  it('Move down keeps focus on the moved row\'s Move-down button', () => {
+    act(() => root.render(<Harness />));
+    press(action('Move Nose down'));
+    expect(labels()).toEqual(['Zephyr', 'Sustainer', 'Airframe', 'Nose']);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move Nose down');
+  });
+
+  it('Move up keeps it too', () => {
+    act(() => root.render(<Harness />));
+    press(action('Move Nose down'));
+    press(action('Move Nose up'));
+    expect(labels()).toEqual(['Zephyr', 'Sustainer', 'Nose', 'Airframe']);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move Nose up');
+  });
+
+  it('Delete and Cut land on the tree\'s tab stop, not <body>', () => {
+    act(() => root.render(<Harness />));
+    press(action('Delete Nose'));
+    expect(labels()).not.toContain('Nose');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.getAttribute('role')).toBe('treeitem');
+    expect((document.activeElement as HTMLElement).tabIndex).toBe(0);
+
+    act(() => { (host.querySelectorAll<HTMLElement>('.tree-row')[2]!).click(); }); // Airframe
+    press(action('Cut Airframe'));
+    expect(labels()).not.toContain('Airframe');
+    expect(document.activeElement?.getAttribute('role')).toBe('treeitem');
+  });
+
+  it('Duplicate lands on the new copy\'s row', () => {
+    act(() => root.render(<Harness />));
+    press(action('Duplicate Nose'));
+    const active = document.activeElement as HTMLElement;
+    expect(active.getAttribute('role')).toBe('treeitem');
+    expect(active.getAttribute('aria-selected')).toBe('true');
+    expect(active.querySelector('.tree-label')!.textContent).toMatch(/Nose/);
+  });
+
+  it('names the selected row by its label and badges, not its buttons', () => {
+    show('n1');
+    const row = host.querySelectorAll<HTMLElement>('.tree-row')[2]!;
+    const ids = (row.getAttribute('aria-labelledby') ?? '').split(' ').filter(Boolean);
+    expect(ids.length).toBeGreaterThan(0);
+    const name = ids.map((id) => document.getElementById(id)?.textContent).join(' ');
+    expect(name).toBe('Nose');
+    show('s1');
+    const stage = host.querySelectorAll<HTMLElement>('.tree-row')[1]!;
+    expect((stage.getAttribute('aria-labelledby') ?? '').split(' ')
+      .map((id) => document.getElementById(id)?.textContent).join(' ')).toBe('Sustainer stage');
+  });
+});
+
+describe('the Add buttons are disclosures (audit 2026-09-22, row 462)', () => {
+  it('say whether their menu is open', () => {
+    show('b1');
+    const add = [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent === '+ Add to Airframe')!;
+    expect(add.getAttribute('aria-expanded')).toBe('false');
+    act(() => { add.click(); });
+    expect(add.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('.add-menu')).not.toBeNull();
   });
 });

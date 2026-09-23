@@ -355,12 +355,15 @@ describe('MotorPadMass — label, help and remounting', () => {
       .toBe('Weigh the rocket ready to fly, with every motor in. Used at once; it carries the adapter, retainer and closure the catalogue motor weight leaves out. Re-weigh for each motor set.');
     expect(text()).toContain('with every motor in, and type it here');
     expect(text()).toContain('Re-weigh for each motor set.');
-    // The aria name is per motor either way — tests and screen readers find
-    // it by the same prefix.
-    expect(input().getAttribute('aria-label')).toBe('Weighed pad mass with J540R');
+    // The aria name OPENS with the visible label (audit 2026-09-22) — it used
+    // to be "Weighed pad mass with J540R", which overrode the wired <label>
+    // and dropped its words, so voice control's "click Weighed pad mass with
+    // every motor installed" found nothing — then names the motor.
+    expect(input().getAttribute('aria-label')).toBe('Weighed pad mass with every motor installed (J540R)');
 
     show({ multiMotor: false });
     expect(host.querySelector('label')!.textContent).toContain('Weighed pad mass with this motor');
+    expect(input().getAttribute('aria-label')).toBe('Weighed pad mass with this motor (J540R)');
     expect(host.querySelector('label')!.textContent).not.toContain('every motor');
     expect(host.querySelector('.field')!.getAttribute('title'))
       .toBe('Weigh the rocket ready to fly, with this motor in. Used at once; it carries the adapter, retainer and closure the catalogue motor weight leaves out. Re-weigh for each motor.');

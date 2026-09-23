@@ -9,6 +9,7 @@ import {
   panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent,
 } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
+import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { UnitChip } from './UnitChip.js';
 import { flightDataCsv } from '../services/flightDataCsv.js';
 import { flightXlsx } from '../services/flightXlsx.js';
@@ -82,9 +83,15 @@ export function GestureHints() {
   );
 }
 
-function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
+function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csvNote }: {
   result: FlightResult;
   def: SeriesDef;
+  /**
+   * The closing sentence of the canvas's spoken summary, naming the download
+   * that holds the same data — absent where no download is offered, or where
+   * it is refused for this flight.
+   */
+  csvNote?: string;
   /** Live registry of every mounted panel's uPlot — pan/zoom peers. */
   plots: Set<uPlot>;
   /** ⤢ state: full grid width + a much taller canvas. */
@@ -104,12 +111,32 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
   // x-extent is unchanged, so a NEW flight always opens at full width.
   const savedWin = useRef<{ min: number; max: number; x0: number; x1: number } | null>(null);
 
+  const values = useMemo(() => {
+    const raw = result.series[def.key] ?? [];
+    return def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
+  }, [result, def]);
+  // The canvas's name (audit 2026-09-22): each plot was a bare canvas, so a
+  // screen reader got its heading and the legend's series name, never the curve.
+  const summary = useMemo(() => chartSummary({
+    title: `${def.title}${def.unit ? ` (${def.unit})` : ''} over time`,
+    x: result.series.time,
+    at: (t) => `${formatReadout(t, 3)} s`,
+    series: [{ label: def.title, values }],
+    source: csvNote,
+  }), [result, def, values, csvNote]);
+  // Read through a ref by the plot effect, and applied on its own below: the
+  // download note changes when the design moves under a flight (staleReason),
+  // and that must re-word the canvas, not destroy and rebuild the plot.
+  const summaryRef = useRef(summary);
+  summaryRef.current = summary;
+  useEffect(() => {
+    if (ref.current) nameChartCanvas(ref.current, summary);
+  }, [summary]);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const ink = chartInk(el);
-    const raw = result.series[def.key] ?? [];
-    const values = def.f ? raw.map((v) => (v == null ? v : def.f!(v))) : raw;
     const data: uPlot.AlignedData = [result.series.time, values];
     // Panels widen a lot on big screens — let height follow (capped) so a
     // 1500px-wide chart doesn't flatten into a ribbon. The ⤢ expanded state
@@ -141,6 +168,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
       ],
     };
     const plot = new uPlot(opts, data, el);
+    nameChartCanvas(el, summaryRef.current);
     const t = result.series.time;
     const x0 = t[0];
     const x1 = t[t.length - 1];
@@ -170,7 +198,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange }: {
     };
     // `expanded` recreates the plot the same way a theme change does — the
     // group window survives via the peer registry / savedWin restore above.
-  }, [result, def, resolvedTheme, daylight, plots, expanded]);
+  }, [result, def, values, resolvedTheme, daylight, plots, expanded]);
 
   return (
     <div className={expanded ? 'chart-panel chart-panel-expanded' : 'chart-panel'}>
@@ -379,6 +407,8 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
       <div className="charts-grid">
         {visible.map((d) => (
           <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current}
+            csvNote={onFullSeries && !staleReason
+              ? 'The Flight data (.csv) download above holds every timestep.' : undefined}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}
             onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }} />
         ))}

@@ -28,10 +28,12 @@ afterEach(() => {
   host.remove();
 });
 
-const openMenu = () => act(() => (host.querySelector('button') as HTMLButtonElement).click());
+const trigger = () => host.querySelector('button') as HTMLButtonElement;
+const openMenu = () => act(() => trigger().click());
+const popup = () => host.querySelector('.image-export-popup');
 const widthButtons = () =>
-  [...host.querySelectorAll('[role="menu"] button')] as HTMLButtonElement[];
-const fitBox = () => host.querySelector('[role="menu"] input[type="checkbox"]') as HTMLInputElement | null;
+  [...host.querySelectorAll('.image-export-popup button')] as HTMLButtonElement[];
+const fitBox = () => host.querySelector('.image-export-popup input[type="checkbox"]') as HTMLInputElement | null;
 
 describe('ImageExportMenu — fit-to-frame toggle', () => {
   it('offers the checkbox only when asked, and defaults it ON', () => {
@@ -42,7 +44,7 @@ describe('ImageExportMenu — fit-to-frame toggle', () => {
 
     act(() => root.render(<ImageExportMenu label="x" title="t" fitOption onPick={onPick} />));
     expect(fitBox()!.checked).toBe(true);
-    expect(host.querySelector('[role="menu"] label')!.textContent).toContain('Fit rocket to frame');
+    expect(host.querySelector('.image-export-popup label')!.textContent).toContain('Fit rocket to frame');
   });
 
   it('passes fit:true with the format and width, and closes the menu', () => {
@@ -54,7 +56,7 @@ describe('ImageExportMenu — fit-to-frame toggle', () => {
     expect(buttons).toHaveLength(2 * IMAGE_WIDTHS.length);
     act(() => buttons[buttons.length - 1]!.click());
     expect(onPick).toHaveBeenCalledWith('jpeg', IMAGE_WIDTHS[IMAGE_WIDTHS.length - 1], { fit: true });
-    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(popup()).toBeNull();
   });
 
   it('passes fit:false once unchecked — the old behaviour stays reachable', () => {
@@ -77,5 +79,61 @@ describe('ImageExportMenu — fit-to-frame toggle', () => {
     openMenu();
     act(() => widthButtons()[0]!.click());
     expect(onPick).toHaveBeenCalledWith('png', IMAGE_WIDTHS[0], { fit: false });
+  });
+});
+
+/**
+ * Audit 2026-09-22: the header's own export popups were fixed and this sibling
+ * was not. It declared `role="menu"` over plain buttons (not menuitems, so
+ * assistive tech prunes them — an empty menu), Escape did not dismiss it, and
+ * its six buttons had three names: "HD", "4K", "8K", each twice.
+ */
+describe('ImageExportMenu — a disclosure, keyboard-complete', () => {
+  it('is a disclosure: no menu roles, a named group, and aria-expanded on the trigger', () => {
+    act(() => root.render(<ImageExportMenu label="⬇ Image" title="t" onPick={vi.fn()} />));
+    expect(trigger().getAttribute('aria-haspopup')).toBeNull();
+    expect(trigger().getAttribute('aria-expanded')).toBe('false');
+    openMenu();
+    expect(trigger().getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(popup()!.getAttribute('role')).toBe('group');
+    expect(popup()!.getAttribute('aria-label')).toBe('Image export — format and width');
+  });
+
+  it('gives every width button its own name, format first-class, visible text first', () => {
+    act(() => root.render(<ImageExportMenu label="⬇ Image" title="t" onPick={vi.fn()} />));
+    openMenu();
+    const names = widthButtons().map((b) => b.getAttribute('aria-label') ?? '');
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain('HD PNG, 1920 px wide');
+    expect(names).toContain('8K JPG, 7680 px wide');
+    // Label in name: each accessible name opens with the text on the button,
+    // so "click HD" still works for voice control.
+    for (const b of widthButtons()) {
+      expect(b.getAttribute('aria-label')!.startsWith(b.textContent!)).toBe(true);
+    }
+  });
+
+  it('Escape closes it and puts focus back on the trigger', () => {
+    act(() => root.render(<ImageExportMenu label="⬇ Image" title="t" onPick={vi.fn()} />));
+    trigger().focus();
+    openMenu();
+    act(() => widthButtons()[0]!.focus());
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(popup()).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it('a pick puts focus back on the trigger rather than dropping it to <body>', () => {
+    act(() => root.render(<ImageExportMenu label="⬇ Image" title="t" onPick={vi.fn()} />));
+    trigger().focus();
+    openMenu();
+    const b = widthButtons()[1]!;
+    act(() => b.focus());
+    act(() => b.click());
+    expect(popup()).toBeNull();
+    expect(document.activeElement).toBe(trigger());
   });
 });

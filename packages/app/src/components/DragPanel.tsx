@@ -9,6 +9,7 @@ import { UnitChip } from './UnitChip.js';
 import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
+import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
 import { foldTypography, oneLine } from '../services/textFold.js';
 import { hasAerodynamicForce, shownCp } from '../services/simReport.js';
@@ -43,10 +44,19 @@ interface Line {
   dash?: boolean | number[];
 }
 
+/** Said at the end of every drag chart's canvas name — the button is above them. */
+const DRAG_CSV_NOTE = 'The Drag table (.csv) download above holds the same numbers.';
+
 /** A single multi-series uPlot line chart (all series share the CD y-scale). */
-function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false, expanded = false, plotRef, onZoomChange }: {
+function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend = false, expanded = false, plotRef, onZoomChange }: {
   x: number[];
   lines: Line[];
+  /**
+   * What the chart plots, as its heading says it — the start of the canvas's
+   * spoken summary (audit 2026-09-22: the canvases were unnamed, so a screen
+   * reader got the heading and the legend and never the curve).
+   */
+  title: string;
   xLabel: string;
   /** y-axis label (uPlot renders it in the axis gutter). */
   yLabel?: string;
@@ -70,6 +80,9 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
   // parent render can't force a plot recreate (kept out of the deps below).
   const onZoomChangeRef = useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
+  const summary = useMemo(() => chartSummary({
+    title, x, at: (m) => `Mach ${formatReadout(m, 3)}`, series: lines, source: DRAG_CSV_NOTE,
+  }), [title, x, lines]);
 
   useEffect(() => {
     const el = ref.current;
@@ -104,6 +117,7 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
       ],
     };
     const plot = new uPlot(opts, data, el);
+    nameChartCanvas(el, summary);
     if (plotRef) plotRef.current = plot;
     const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: chartH() }));
     obs.observe(el);
@@ -112,7 +126,7 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
       if (plotRef) plotRef.current = null;
       plot.destroy();
     };
-  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef]);
+  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef, summary]);
 
   return <div ref={ref} className={lockLegend ? 'chart-legend-locked' : undefined} />;
 }
@@ -121,9 +135,13 @@ function LineChart({ x, lines, xLabel, yLabel, height = 190, lockLegend = false,
  * The ↺ Reset / ⤢ Expand pair that rides in each drag-chart heading row —
  * the headings already exist, so discoverability costs no vertical space.
  * These charts are independent (no sync group), so each pair acts on its
- * own chart only.
+ * own chart only — and so each pair is NAMED for its chart (audit
+ * 2026-09-22): all three said "Reset chart view" and "Expand chart", six
+ * buttons with two names.
  */
-function ChartHeadButtons({ zoomed, expanded, plot, onToggleExpand }: {
+function ChartHeadButtons({ chart, zoomed, expanded, plot, onToggleExpand }: {
+  /** The chart in words, lower case: "drag coefficient". */
+  chart: string;
   zoomed: boolean;
   expanded: boolean;
   plot: { current: uPlot | null };
@@ -134,10 +152,10 @@ function ChartHeadButtons({ zoomed, expanded, plot, onToggleExpand }: {
       <button className="chart-btn" disabled={!zoomed}
         onClick={() => { if (plot.current) resetPlots([plot.current]); }}
         title="Show the full Mach range again (same as double-clicking the chart)"
-        aria-label="Reset chart view">↺</button>
+        aria-label={`Reset the ${chart} chart view`}>↺</button>
       <button className="chart-btn" onClick={onToggleExpand} aria-pressed={expanded}
         title={expanded ? 'Restore chart size' : 'Expand chart (taller)'}
-        aria-label={expanded ? 'Restore chart size' : 'Expand chart'}>
+        aria-label={expanded ? `Restore the ${chart} chart size` : `Expand the ${chart} chart`}>
         {expanded ? '⤡' : '⤢'}
       </button>
     </span>
@@ -547,10 +565,10 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
           <div className="chart-panel">
             <div className="chart-panel-head">
               <h3>Drag coefficient vs Mach</h3>
-              <ChartHeadButtons zoomed={zoomedCharts.has('cd')} expanded={bigCharts.has('cd')}
+              <ChartHeadButtons chart="drag coefficient" zoomed={zoomedCharts.has('cd')} expanded={bigCharts.has('cd')}
                 plot={cdPlot} onToggleExpand={() => toggleBig('cd')} />
             </div>
-            <LineChart x={sweep.machs} lines={totalLines} xLabel="Mach" yLabel="CD"
+            <LineChart x={sweep.machs} lines={totalLines} title="Drag coefficient vs Mach" xLabel="Mach" yLabel="CD"
               expanded={bigCharts.has('cd')} plotRef={cdPlot} onZoomChange={noteZoom('cd')} />
             {/* The caption rides INSIDE the chart panel so a screenshot of the
                 chart carries its conditions with it — the same reason the CSV
@@ -592,11 +610,12 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                   <button className={cpView === 'unit' ? 'active' : ''}
                     aria-pressed={cpView === 'unit'} onClick={() => setCpView('unit')}>{lenUnit} from nose</button>
                 </div>
-                <ChartHeadButtons zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
+                <ChartHeadButtons chart="center of pressure" zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
               </div>
               {cpHasLift ? (
                 <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
+                  title={`Center of pressure vs Mach (${cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})`}
                   yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend
                   expanded={bigCharts.has('cp')} plotRef={cpPlot} onZoomChange={noteZoom('cp')} />
               ) : (
@@ -652,10 +671,10 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                 <button className={mode === 'type' ? 'active' : ''}
                   aria-pressed={mode === 'type'} onClick={() => setMode('type')}>By type</button>
               </div>
-              <ChartHeadButtons zoomed={zoomedCharts.has('breakdown')} expanded={bigCharts.has('breakdown')}
+              <ChartHeadButtons chart="drag breakdown" zoomed={zoomedCharts.has('breakdown')} expanded={bigCharts.has('breakdown')}
                 plot={bdPlot} onToggleExpand={() => toggleBig('breakdown')} />
             </div>
-            <LineChart x={sweep.machs} lines={breakdownLines} xLabel="Mach" yLabel="CD"
+            <LineChart x={sweep.machs} lines={breakdownLines} title="Drag breakdown (power-off) vs Mach" xLabel="Mach" yLabel="CD"
               expanded={bigCharts.has('breakdown')} plotRef={bdPlot} onZoomChange={noteZoom('breakdown')} />
           </div>
 

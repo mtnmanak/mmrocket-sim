@@ -91,10 +91,12 @@ export function MotorPadMass({
     ? 'Weigh the rocket ready to fly, with every motor in. Used at once; it carries the adapter, retainer and closure the catalogue motor weight leaves out. Re-weigh for each motor set.'
     : 'Weigh the rocket ready to fly, with this motor in. Used at once; it carries the adapter, retainer and closure the catalogue motor weight leaves out. Re-weigh for each motor.';
 
+  const labelText = multiMotor ? 'Weighed pad mass with every motor installed' : 'Weighed pad mass with this motor';
+
   return (
     <div className={`field${stale ? ' field-stale' : ''}`} style={{ marginTop: 6 }} title={help}>
       <label htmlFor={id}>
-        {multiMotor ? 'Weighed pad mass with every motor installed' : 'Weighed pad mass with this motor'}
+        {labelText}
         {' '}<UnitChip quantity="mass" />
       </label>
       {/* A numeric placeholder is what NumField's autoBase steps the spinner
@@ -108,7 +110,11 @@ export function MotorPadMass({
         nullable
         step={niceStep(siToUi('mass', massSym, 0.005))}
         placeholder={computedPadMassKg == null ? undefined : fmtSi('mass', massSym, computedPadMassKg)}
-        ariaLabel={`Weighed pad mass with ${motorLabel}`}
+        // The name OPENS with the label's own words, then names the motor
+        // (audit 2026-09-22): the aria-label overrides the wired <label>, and
+        // "Weighed pad mass with J540R" dropped "this motor" / "every motor
+        // installed", so voice control could not say what it saw.
+        ariaLabel={`${labelText} (${motorLabel})`}
         invalid={stale}
         describedBy={lineId}
       />

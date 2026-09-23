@@ -62,7 +62,7 @@ const show = (measured: MeasuredFigures) => act(() => root.render(
 const field = (label: string) =>
   [...host.querySelectorAll('input')].find((i) => i.getAttribute('aria-label')?.startsWith(label))!;
 const massBox = () => field('Measured mass');
-const cgBox = () => field('Measured balance point');
+const cgBox = () => field('Measured CG from nose tip');
 
 /** Native setter + input event — how React sees a real keystroke. */
 const type = (input: HTMLInputElement, text: string) => act(() => {
@@ -99,6 +99,27 @@ describe('MeasuredMassBox — metric (the startup default: g and mm)', () => {
     show({ massKg: null, cgM: null });
     expect(massBox().getAttribute('placeholder')).toBe('1000');
     expect(cgBox().getAttribute('placeholder')).toBe('500');
+  });
+});
+
+/**
+ * Audit 2026-09-22: each box's aria-label overrides the <label> wired to it,
+ * and the CG box's dropped the visible words — "Measured balance point, …"
+ * under a label reading "Measured CG from nose tip" — so voice control's
+ * "click Measured CG" found nothing. A name must OPEN with what is shown.
+ */
+describe('MeasuredMassBox — the accessible names carry the visible labels', () => {
+  it('opens each name with the words of its own label', () => {
+    show({ massKg: null, cgM: null });
+    for (const id of ['measured-mass', 'measured-cg']) {
+      const input = host.querySelector<HTMLInputElement>(`#${id}`)!;
+      const label = host.querySelector(`label[for="${id}"]`)!;
+      // The label's words, without the unit chip that follows them.
+      const words = (label.firstChild?.textContent ?? '').trim();
+      expect(words.length).toBeGreaterThan(0);
+      expect(input.getAttribute('aria-label')!.startsWith(words), `${id}: ${input.getAttribute('aria-label')}`)
+        .toBe(true);
+    }
   });
 });
 

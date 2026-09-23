@@ -34,6 +34,7 @@ import {
 import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
+import { useFocusHandoff } from './components/useFocusHandoff.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
@@ -680,6 +681,17 @@ export function App() {
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
   }, [sessionConflict]);
   const [simulating, setSimulating] = useState(false);
+  /**
+   * The Results workspace's <main>, which Launch focuses, and what the polite
+   * flight announcer says (audit 2026-09-22). Launch switches tab in the same
+   * click, so the button pressed unmounts (Motors & Launch, Fly) or goes
+   * disabled (the vitals strip) and focus fell to <body>; and a finished flight
+   * was announced to nobody, so the app's central action gave no non-visual
+   * feedback at all. `seq` keys the spoken element, so a second flight to the
+   * same apogee is a DOM change a screen reader hears.
+   */
+  const resultsMainRef = useRef<HTMLElement>(null);
+  const [flightSaid, setFlightSaid] = useState({ seq: 0, text: '' });
   const [simError, setSimError] = useState<string | null>(null);
   /**
    * The file/transient note. Severity was added in 2026-08-23: the same widget
@@ -728,7 +740,18 @@ export function App() {
    * rules fighting a deliberate choice — it is manners, not mechanism.
    */
   const userSetDrawer = useRef(false);
-  const setDrawerByUser = (v: boolean) => { userSetDrawer.current = true; setStatsDrawer(v); };
+  /**
+   * The chip and Collapse replace each other, so a press hands focus to the
+   * one that appears (review of the audit 2026-09-22 branch, row 462): it fell
+   * to <body>, and neither button's aria-expanded was ever heard changing.
+   * Only a press — the automatic rules below never move focus.
+   */
+  const drawerFocus = useFocusHandoff<'chip' | 'collapse'>();
+  const setDrawerByUser = (v: boolean) => {
+    userSetDrawer.current = true;
+    drawerFocus.handTo(v ? 'collapse' : 'chip');
+    setStatsDrawer(v);
+  };
   /**
    * The breakpoint is LIVE now (2026-09-21). The initializer above ran once at
    * startup, so a window dragged from wide to narrow kept a drawer that
@@ -2182,9 +2205,12 @@ export function App() {
     if (!built || !primaryMountId) return;
     const primary = mountMotors[primaryMountId]!;
     setSimulating(true);
-    // Flying hands off to the Results workspace — land the user there.
+    // Flying hands off to the Results workspace — land the user there, focus
+    // included: on the Results <main>, before the flight blocks the thread,
+    // because the button just pressed is gone or disabled (see resultsMainRef).
     setTab('results');
     void afterPaint().then(() => {
+      resultsMainRef.current?.focus();
       try {
         // The probe, the auto-aero upgrade, the auto delay and the handle
         // protocol they share all live in services/flightRunner.ts, where a
@@ -2271,6 +2297,11 @@ export function App() {
         flownSinceSave.current = true;
         bumpDirty();
         setSimError(null);
+        setFlightSaid((prev) => ({
+          seq: prev.seq + 1,
+          text: `Flight complete — apogee ${fmtSi('distance', prefs.units.distance, res.summary.maxAltitude)}`
+            + ` ${prefs.units.distance}.`,
+        }));
       } catch (e) {
         setSimError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -3233,6 +3264,20 @@ export function App() {
    * carried a warning banner. Any provenance gap earns the mark now.
    */
   const apogeeStale = modelMatch === false || (changedSince?.length ?? 0) > 0;
+  /**
+   * WHY the ⚠ is there, in one sentence: the strip's tooltip AND, since the ⚠
+   * itself is aria-hidden, what a screen reader hears after the number (audit
+   * 2026-09-22) — it heard a stale apogee as current on Design and Motors &
+   * Launch. Null when the apogee is not stale. The last branch is for a
+   * provenance gap that is neither: say the flight may not be this design's,
+   * rather than nothing.
+   */
+  const apogeeStaleWhy = !apogeeStale || !lastRun ? null
+    : modelMatch === false
+      ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)} — not the model now selected. Press Launch to re-fly it.`
+      : changedSinceNonModel.length > 0
+        ? `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} — ${listAnd(changedSinceNonModel)} changed since. Press Launch to fly the current design.`
+        : `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} that may not match the design as it stands. Press Launch to fly the current design.`;
 
   // "Try Auto & re-fly" from the supersonic-flight alert: once the session
   // override has propagated (aeroMode now 'auto') and the engine handle has
@@ -3250,7 +3295,8 @@ export function App() {
     <div className={heroWide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={setDrawerEl}>
       <div className="stats-drawer-head">
         <span>All stats</span>
-        <button className="file-btn" onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
+        <button className="file-btn" aria-expanded={true} ref={drawerFocus.refFor('collapse')}
+          onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
       </div>
       <DesignStats
         info={built.info}
@@ -3881,18 +3927,19 @@ export function App() {
           </span>
           {lastApogee !== null && (
             <span className="vitals-item"
-              title={modelMatch === false
-                ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun?.aeroModel, lastRun?.rogersKbf)} — not the model now selected. Press Launch to re-fly it.`
-                : changedSinceNonModel.length > 0
-                  ? `Apogee of a flight from ${formatRunWhenProse(lastRun!.when)} — ${listAnd(changedSinceNonModel)} changed since. Press Launch to fly the current design.`
-                  : 'Apogee of the most recent flight'}>
+              title={apogeeStaleWhy ?? 'Apogee of the most recent flight'}>
               <span className="vitals-label">Apogee</span>
               <span className="vitals-value">
                 {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
                 {/* A model switch no longer throws the flight away — so the
                     number has to say when it belongs to a different model,
                     rather than being silently re-labelled under the new one. */}
-                {apogeeStale && <span className="vitals-stale" aria-hidden="true"> ⚠</span>}
+                {apogeeStaleWhy && (
+                  <>
+                    <span className="vitals-stale" aria-hidden="true"> ⚠</span>
+                    <span className="sr-only">{` — warning: ${apogeeStaleWhy}`}</span>
+                  </>
+                )}
               </span>
             </span>
           )}
@@ -3908,24 +3955,32 @@ export function App() {
         </div>
         )}
 
-        <div className="workspace-tabs" role="tablist" aria-label="Workspace">
-          <button role="tab" aria-selected={tab === 'fly'}
+        {/* A NAV with aria-current, not a tablist (audit 2026-09-22) — the
+            same call DragPanel made for its toggles on 2026-09-08. A tablist
+            promises tabpanels, aria-controls, one tab stop and arrow keys, and
+            this had none of them: NVDA announced "tab 1 of 3" (Fly is hidden on
+            a desktop) and Right Arrow then did nothing on the main navigation.
+            The workspaces are whole
+            pages — each has its own <main> — so "current page" is what these
+            buttons really are, and Tab reaches every one of them. */}
+        <nav className="workspace-tabs" aria-label="Workspace">
+          <button aria-current={tab === 'fly' ? 'page' : undefined}
             className={`tab-fly${tab === 'fly' ? ' active' : ''}`} onClick={() => setTab('fly')}>
             <Icon name="flame" size={13} /> Fly
           </button>
-          <button role="tab" aria-selected={tab === 'design'}
+          <button aria-current={tab === 'design' ? 'page' : undefined}
             className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>
             <Icon name="wrench" size={13} /> Design
           </button>
-          <button role="tab" aria-selected={tab === 'motors'} data-tour="motors-tab"
+          <button aria-current={tab === 'motors' ? 'page' : undefined} data-tour="motors-tab"
             className={tab === 'motors' ? 'active' : ''} onClick={() => setTab('motors')}>
             <Icon name="flame" size={13} /> Motors &amp; Launch
           </button>
-          <button role="tab" aria-selected={tab === 'results'}
+          <button aria-current={tab === 'results' ? 'page' : undefined}
             className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}>
             <Icon name="chart" size={13} /> Results
           </button>
-        </div>
+        </nav>
 
         {sessionNote && (
           <p className={`session-note${sessionNoteFading ? ' fading' : ''}`}>{sessionNote}</p>
@@ -3990,8 +4045,10 @@ export function App() {
                 title="Redo (Ctrl+Shift+Z or Ctrl+Y)">↪ Redo</button>
             </div>
             <div className="field" style={{ marginBottom: 8 }}>
-              <label>Rocket name</label>
-              <input value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
+              {/* Wired (audit 2026-09-22): the label reached nothing, so the box
+                  announced as "edit, <the design's name>", or "edit, blank". */}
+              <label htmlFor="rocket-name">Rocket name</label>
+              <input id="rocket-name" value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
             </div>
             <ComponentTree
               tree={tree}
@@ -4085,14 +4142,16 @@ export function App() {
                   title="Rotate the drawing 90° — nose up, the way it sits on the pad (viewing mode: drag and zoom pause while rotated)"
                   onClick={() => setVert2d((v) => !v)}>⟳ 90°</button>
               )}
-              <div className="view-toggle" role="tablist">
-                <button className={view === '2d' ? 'active' : ''} role="tab"
-                  aria-selected={view === '2d'} onClick={() => setView('2d')}>2D</button>
-                <button className={view === '3d' ? 'active' : ''} role="tab"
-                  aria-selected={view === '3d'} onClick={() => setView('3d')}>3D</button>
-                <button className={view === 'aft' ? 'active' : ''} role="tab"
+              {/* Toggle buttons in a named group, not tabs — see the workspace
+                  nav above and DragPanel's CP toggle (audit 2026-09-22). */}
+              <div className="view-toggle" role="group" aria-label="Drawing view">
+                <button className={view === '2d' ? 'active' : ''}
+                  aria-pressed={view === '2d'} onClick={() => setView('2d')}>2D</button>
+                <button className={view === '3d' ? 'active' : ''}
+                  aria-pressed={view === '3d'} onClick={() => setView('3d')}>3D</button>
+                <button className={view === 'aft' ? 'active' : ''}
                   title="Looking at the rocket from behind — clusters, pods and fin counts as they really sit"
-                  aria-selected={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
+                  aria-pressed={view === 'aft'} onClick={() => setView('aft')}>Aft</button>
               </div>
             </div>
             {/* data-vert raises the stage's height cap in ⟳90° mode ONLY:
@@ -4168,7 +4227,11 @@ export function App() {
               {built && (statsDrawer
                 ? (heroWide ? statsDrawerNode : null)
                 : (
-                  <button className="file-btn stats-drawer-chip" onClick={() => setDrawerByUser(true)}
+                  // aria-expanded on both halves of the drawer's disclosure
+                  // (audit 2026-09-22): this one only shows while it is shut,
+                  // and a press hands focus across — see drawerFocus.
+                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={drawerFocus.refFor('chip')}
+                    onClick={() => setDrawerByUser(true)}
                     title="Every design stat, with unit switches">▤ All stats</button>
                 ))}
               {mountSizes.length > 0 && (
@@ -4241,8 +4304,10 @@ export function App() {
         </div>
         )}
 
+        {/* <main>, like every other workspace (audit 2026-09-22): landmark
+            navigation found nothing on this tab. */}
         {tab === 'motors' && (
-        <div className="motors-layout">
+        <main className="motors-layout">
           <div className="panel motors-schematic">
             <h2>Rocket — motors drawn to scale</h2>
             <div className="rocket-stage">
@@ -4413,6 +4478,8 @@ export function App() {
                     </label>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
+                        // Named, not "multiplication x" (audit 2026-09-22).
+                        aria-label={`Remove ${mm.label} from ${m.name ?? 'Motor mount'}`}
                         onClick={() => {
                           setMountMotors((prev) => {
                             const next = { ...prev };
@@ -4669,11 +4736,11 @@ export function App() {
               onClear={clearConfig}
             />
           )}
-        </div>
+        </main>
         )}
 
         {tab === 'results' && (
-        <main className="results-column" data-tour="results-panel">
+        <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
           {shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
             <div className="file-note file-note-warn" role="alert">
               ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
@@ -4867,6 +4934,11 @@ export function App() {
       </div>
       <SiteBandFooter nav={mmrNav} />
       <NoticeBar notices={notices} />
+      {/* Always mounted, so the first "Flight complete" lands in a region that
+          already exists — see resultsMainRef. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {flightSaid.text && <span key={flightSaid.seq}>{flightSaid.text}</span>}
+      </div>
     </div>
   );
 }

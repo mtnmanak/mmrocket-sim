@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { useMenuPopup } from './useDialog.js';
+import { useDialog, useMenuPopup } from './useDialog.js';
 
 /**
  * The header's two disclosure popups — "Save As / Export ▾" and "Feedback".
@@ -20,7 +20,7 @@ import { useMenuPopup } from './useDialog.js';
  * user's cursor.
  */
 
-function Harness() {
+function Harness({ onPick }: { onPick?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   useMenuPopup(open, () => setOpen(false));
   return (
@@ -28,13 +28,43 @@ function Harness() {
       <button id="trigger" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         Save As / Export
       </button>
+      <input id="elsewhere" />
+      {/* Picking an item closes the popup, the way App's container onClick does. */}
       {open && (
-        <div className="file-menu" role="group" aria-label="Save As / Export">
-          <button>Save .ork</button>
+        <div className="file-menu" role="group" aria-label="Save As / Export"
+          onClick={() => setOpen(false)}>
+          <button onClick={onPick}>Save .ork</button>
           <button>Save .rkt</button>
         </div>
       )}
     </>
+  );
+}
+
+/** A header item that opens a dialog — Preferences, Scale, the Guide. */
+function DialogHarness() {
+  const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState(false);
+  useMenuPopup(open, () => setOpen(false));
+  return (
+    <>
+      <button id="trigger" onClick={() => setOpen((v) => !v)} aria-expanded={open}>Menu</button>
+      {open && (
+        <div className="file-menu" role="group" aria-label="Menu" onClick={() => setOpen(false)}>
+          <button onClick={() => setDialog(true)}>Preferences</button>
+        </div>
+      )}
+      {dialog && <Dialog onClose={() => setDialog(false)} />}
+    </>
+  );
+}
+
+function Dialog({ onClose }: { onClose: () => void }) {
+  const ref = useDialog<HTMLDivElement>(onClose);
+  return (
+    <div ref={ref} role="dialog" aria-label="Preferences" tabIndex={-1}>
+      <button id="in-dialog" onClick={onClose}>Close</button>
+    </div>
   );
 }
 
@@ -80,6 +110,52 @@ describe('useMenuPopup', () => {
     const trigger = container.querySelector<HTMLButtonElement>('#trigger')!;
     trigger.focus();
     act(() => trigger.click());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  /**
+   * Audit 2026-09-22: choosing an item unmounted the button that held focus,
+   * and nothing put it anywhere — the keyboard landed on <body>, with no
+   * visible focus and the screen reader's place lost.
+   */
+  it('choosing an item puts focus back on the trigger', () => {
+    act(() => root.render(<Harness />));
+    const trigger = container.querySelector<HTMLButtonElement>('#trigger')!;
+    trigger.focus();
+    act(() => trigger.click());
+    const item = container.querySelector<HTMLButtonElement>('.file-menu button')!;
+    act(() => item.focus());
+    act(() => item.click());
+    expect(container.querySelector('.file-menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('leaves focus alone when the pick (or an outside click) put it somewhere on purpose', () => {
+    let elsewhere: HTMLInputElement | null = null;
+    act(() => root.render(<Harness onPick={() => elsewhere?.focus()} />));
+    elsewhere = container.querySelector<HTMLInputElement>('#elsewhere');
+    const trigger = container.querySelector<HTMLButtonElement>('#trigger')!;
+    trigger.focus();
+    act(() => trigger.click());
+    const item = container.querySelector<HTMLButtonElement>('.file-menu button')!;
+    act(() => item.focus());
+    act(() => item.click());
+    expect(container.querySelector('.file-menu')).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('an item that opens a dialog: the dialog takes focus, and gives it back to the trigger', () => {
+    act(() => root.render(<DialogHarness />));
+    const trigger = container.querySelector<HTMLButtonElement>('#trigger')!;
+    trigger.focus();
+    act(() => trigger.click());
+    const item = container.querySelector<HTMLButtonElement>('.file-menu button')!;
+    act(() => item.focus());
+    act(() => item.click());
+    // The popup's cleanup ran first, so the dialog recorded the TRIGGER as
+    // what to return to — not <body>, which is what it would have seen.
+    expect(document.activeElement?.id).toBe('in-dialog');
+    act(() => container.querySelector<HTMLButtonElement>('#in-dialog')!.click());
     expect(document.activeElement).toBe(trigger);
   });
 

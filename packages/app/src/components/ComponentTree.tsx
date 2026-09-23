@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
@@ -41,6 +42,14 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
 }) {
   const selected = node.id === selectedId;
   const label = node.name ?? DISPLAY_NAME[node.type];
+  // Named by its label and badges, not by its content (audit 2026-09-22): a
+  // treeitem takes its name from everything inside it, so the selected row
+  // was announced as "Nose Move Nose up Move Nose down Duplicate Nose …".
+  const labelId = useId();
+  const isStage = node.type === 'stage';
+  const isMount = node['motorMount'] === true;
+  const labelledBy = [labelId, isStage && `${labelId}-stage`, isMount && `${labelId}-motor`]
+    .filter(Boolean).join(' ');
   return (
     <>
       {/* role="treeitem": `aria-selected` has no defined meaning on a bare
@@ -55,13 +64,14 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
         role="treeitem"
         aria-level={depth + 1}
         aria-selected={selected}
+        aria-labelledby={labelledBy}
         {...(node.children?.length ? { 'aria-expanded': true } : {})}
         {...rove(node.id!)}
       >
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
-        <span className="tree-label">{label}</span>
-        {node.type === 'stage' && <span className="tree-badge">stage</span>}
-        {node['motorMount'] === true && <span className="tree-badge">motor</span>}
+        <span className="tree-label" id={labelId}>{label}</span>
+        {isStage && <span className="tree-badge" id={`${labelId}-stage`}>stage</span>}
+        {isMount && <span className="tree-badge" id={`${labelId}-motor`}>motor</span>}
         {selected && (
           // Each aria-label names the COMPONENT as well as the action: the six
           // buttons repeat on every selected row, and a glyph alone announced
@@ -189,6 +199,31 @@ export function ComponentTree({
 
   /** The tree container, so arrow navigation can move focus with the selection. */
   const boxRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Wraps a structural action from a row's buttons so that, once it has
+   * rendered, focus goes back into the tree if the action took it away (audit
+   * 2026-09-22). Delete and Cut remove the row holding the pressed button, and
+   * Duplicate moves the selection to the copy, which unmounts the old row's
+   * buttons: focus fell to <body> and the keyboard lost its place. It lands on
+   * the tree's one tab stop — the new copy, or the root row once the selection
+   * is gone.
+   *
+   * The Move buttons need none of this, whatever the audit measured: the row
+   * keeps its buttons, and although a browser drops focus from a node that is
+   * moved, React's commit puts it back on any focused element still in the
+   * document (ComponentTree.test.tsx emulates the browser's drop to pin that).
+   *
+   * flushSync renders the action here, synchronously, so the rows can be
+   * queried; focus is only ever PUT BACK, never taken from somewhere else.
+   */
+  const keepFocus = (action: (id: string) => void) => (id: string) => {
+    flushSync(() => action(id));
+    const box = boxRef.current;
+    const active = document.activeElement;
+    if (!box || (active && active !== document.body && active.isConnected)) return;
+    box.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
+  };
   /**
    * The rows in the order they are DRAWN, root first — the order the arrows
    * move through. Every level is always shown (the rows are a flattened tree,
@@ -277,14 +312,14 @@ export function ComponentTree({
         {tree.components.map((n) => (
           <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId} rove={rove}
             soleStageId={tree.components.length === 1 ? tree.components[0]!.id ?? null : null}
-            onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
-            onCopy={onCopy} onCut={onCut} />
+            onSelect={onSelect} onMove={onMove} onDelete={keepFocus(onDelete)}
+            onDuplicate={keepFocus(onDuplicate)} onCopy={onCopy} onCut={keepFocus(onCut)} />
         ))}
       </div>
 
       <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {targets.map((t) => (
-          <button key={t.id} className="file-btn"
+          <button key={t.id} className="file-btn" aria-expanded={addOpen === t.id}
             onClick={() => setAddOpen(addOpen === t.id ? null : t.id)}>
             {t.label ? `+ Add to ${t.label}` : '+ Add component'}
           </button>

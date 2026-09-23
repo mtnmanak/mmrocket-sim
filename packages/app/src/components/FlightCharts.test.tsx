@@ -178,3 +178,51 @@ describe('FlightCharts — the Flight plots block', () => {
     });
   });
 });
+
+/**
+ * Audit 2026-09-22, row 463: each plot was a bare canvas — a screen reader got
+ * the heading and the legend's series name, never the curve, and nothing said
+ * the CSV beside it holds the same data.
+ */
+describe('FlightCharts — each chart is named, in words', () => {
+  const canvases = () => [...host.querySelectorAll('canvas')].filter((c) => c.getAttribute('role') === 'img');
+
+  it('names every plotted curve with its shape and points at the CSV', () => {
+    mount(() => Promise.resolve(fakeResult()));
+    const named = canvases().map((c) => c.getAttribute('aria-label') ?? '');
+    const altitude = named.find((n) => n.startsWith('Altitude'));
+    expect(altitude, named.join(' | ')).toBeDefined();
+    expect(altitude).toMatch(/^Altitude \(\w+\) over time, 0 s to 1 s\./);
+    expect(altitude).toContain('The Flight data (.csv) download above holds every timestep.');
+    expect(named.some((n) => n.startsWith('Velocity'))).toBe(true);
+  });
+
+  it('does not point at a download that is not offered', () => {
+    mount(undefined);
+    const named = canvases().map((c) => c.getAttribute('aria-label') ?? '');
+    expect(named.length).toBeGreaterThan(0);
+    for (const n of named) expect(n).not.toContain('.csv');
+  });
+});
+
+describe('FlightCharts — a refused download is not promised', () => {
+  it('drops the CSV sentence while the design has moved under the flight', () => {
+    // One result and one callback, so only the stale reason changes between renders.
+    const result = fakeResult();
+    const full = () => Promise.resolve(result);
+    const show = (staleReason: string | null) => act(() => root.render(
+      <PrefsProvider>
+        <FlightCharts result={result} onFullSeries={full} designName="Big Dog 4in" staleReason={staleReason} />
+      </PrefsProvider>,
+    ));
+    show('the weighed pad mass');
+    const named = [...host.querySelectorAll('canvas[role="img"]')].map((c) => c.getAttribute('aria-label') ?? '');
+    expect(named.length).toBeGreaterThan(0);
+    for (const n of named) expect(n).not.toContain('.csv');
+    // And back, on the same canvases — re-worded, not rebuilt.
+    const before = host.querySelector('canvas[role="img"]');
+    show(null);
+    expect(host.querySelector('canvas[role="img"]')?.getAttribute('aria-label')).toContain('Flight data (.csv)');
+    expect(host.querySelector('canvas[role="img"]')).toBe(before);
+  });
+});
