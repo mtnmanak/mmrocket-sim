@@ -748,7 +748,7 @@ describe('RASAero export', () => {
     expect(back.launch!.windAverage).toBeCloseTo(4.4704, 4);
   });
 
-  it('defaults <LaunchSite> fields: null pressure→0, null temperature→59', () => {
+  it('defaults <LaunchSite> fields: null pressure→0, null temperature at a sea-level site→59', () => {
     const xml = exportCdx1({ ...design, launch: { temperatureC: null, pressureHPa: null } });
     expect(xml).toContain('<Pressure>0</Pressure>'); // RASAero's own "unset"
     expect(xml).toContain('<Temperature>59</Temperature>'); // no unset in the format
@@ -2399,5 +2399,36 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
     expect(chute['deployAltitude']).toBeCloseTo(200, 3);
     expect(chute['diameter']).toBeCloseTo(0.3, 4);
     expect(chute['cd']).toBeCloseTo(0.8, 9);
+  });
+});
+
+/**
+ * A blank temperature flies the STANDARD temperature at the site altitude
+ * (atmosphere.ts padAir, since v0.122). RASAero's <Temperature> has no
+ * "unset", so the writer has to state one — and it stated 59 °F, sea level's,
+ * whatever the site. At 2,682 m that re-opened 15 °C too warm.
+ */
+describe('RASAero export — a blank temperature is the site’s standard one', () => {
+  const site = { name: 'Hi', tree: { components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+    { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive' },
+    { type: 'bodytube' as const, id: 'b', length: 0.9, outerRadius: 0.0508, thickness: 0.001 },
+  ] }] } };
+
+  it('writes about 27.6 °F at 2,682 m, and re-opens in the air the flight flew', async () => {
+    const { siteAirDensity } = await import('./recoverySizing.js');
+    const launch = { launchAltitudeM: 2682, temperatureC: null, pressureHPa: null };
+    const xml = exportCdx1({ ...site, launch });
+    const f = Number(/<Temperature>([^<]*)<\/Temperature>/.exec(xml)![1]);
+    expect(f).toBeCloseTo(27.62, 2); // 270.717 K; it was 59 °F
+    const back = importCdx1(xml).launch!;
+    expect(siteAirDensity(launch)).toBeCloseTo(0.9393, 4);
+    // The 59 °F file re-opened at 0.8824 kg/m³.
+    expect(siteAirDensity({ launchAltitudeM: back.launchAltitudeM!, temperatureC: back.temperatureC ?? null,
+      pressureHPa: back.pressureHPa ?? null })).toBeCloseTo(0.9393, 4);
+  });
+
+  it('still writes a typed temperature as typed', () => {
+    const xml = exportCdx1({ ...site, launch: { launchAltitudeM: 2682, temperatureC: 30, pressureHPa: null } });
+    expect(xml).toContain('<Temperature>86</Temperature>');
   });
 });

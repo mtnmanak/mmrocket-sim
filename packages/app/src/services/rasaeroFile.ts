@@ -5,7 +5,7 @@ import {
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import {
-  isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padPressureIssue, SITE_ALTITUDE_M_RANGE,
+  isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
@@ -2114,13 +2114,19 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('</RocketDesign>');
 
   // Launch site back to RASAero units (feet / °F / in-Hg / mph). Pressure 0 is
-  // RASAero's own "unset"; Temperature has no unset, so ISA null becomes 59 °F.
+  // RASAero's own "unset" (it reads back blank, the site's standard pressure).
+  // Temperature has no unset, so it states the temperature the flight FLIES —
+  // padAir: a typed one, else the standard one at the site altitude (audit
+  // 2026-09-22). A blank used to be written as 59 °F, sea level's, whatever the
+  // site: at 2,682 m that re-opened 15 °C too warm, 0.8824 kg/m³ against the
+  // 0.9393 flown. 59 °F is still what a sea-level site writes.
+  const padTempK = padAir(launch ?? {}).temperatureK;
   emit('<LaunchSite>');
   emit(`<Altitude>${fmt((launch?.launchAltitudeM ?? 0) * FT)}</Altitude>`);
   emit(`<Pressure>${launch ? (launch.pressureHPa != null ? fmt(launch.pressureHPa / INHG) : '0') : '29.92'}</Pressure>`);
   emit(`<RodAngle>${fmt(launch?.launchRodAngleDeg ?? 0)}</RodAngle>`);
   emit(`<RodLength>${launch?.launchRodLengthM != null ? fmt(launch.launchRodLengthM * FT) : '10'}</RodLength>`);
-  emit(`<Temperature>${launch?.temperatureC != null ? fmt(launch.temperatureC * 9 / 5 + 32) : '59'}</Temperature>`);
+  emit(`<Temperature>${fmt((padTempK - 273.15) * 9 / 5 + 32)}</Temperature>`);
   emit(`<WindSpeed>${fmt((launch?.windAverage ?? 0) * MPH)}</WindSpeed>`);
   emit('</LaunchSite>');
 
