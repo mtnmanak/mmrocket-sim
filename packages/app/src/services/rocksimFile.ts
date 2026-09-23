@@ -1414,27 +1414,48 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   }
   // Which configuration to open: the first that puts a motor on the launch
   // stage, which is the one that has to light first — importCdx1's choice.
+  // The reader cannot see the motor catalogue, so this is a first pick:
+  // importApply.planImport opens another when this one's motors cannot load
+  // and another's can (seam review of audit 2026-09-22 — 31 real designs,
+  // seven of them the owner's, opened on a simulation that could not fly).
   const bottomIdx = components.length - 1;
-  const flyable = configs.find((c) => Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx));
+  const motorsBottom = (c: OrkFlightConfig): boolean =>
+    Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx);
+  const flyable = configs.find(motorsBottom);
   const chosen = flyable ?? configs[0];
   const simLabel = (c: OrkFlightConfig): string => {
     const s = cfgSim.get(c)!;
     const quoted = s.name ? ` (“${s.name}”)` : '';
     return s.number === null ? `The motors listed outside the file's simulations${quoted}` : `Simulation ${s.number}${quoted}`;
   };
-  if (chosen && flyable && configs[0] && flyable !== configs[0]) {
-    notes.push(`${simLabel(configs[0])} in this file puts no motor on the launch stage, so it would not `
-      + `leave the pad. ${simLabel(chosen)} was opened instead — switch under Flight configurations.`);
-  } else if (chosen && !flyable && components.length > 1) {
-    const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
-    notes.push(`No simulation in this file puts a motor on ${bottomName}. ${simLabel(chosen)} was opened `
-      + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
-      + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.');
-  } else if (chosen && configs.length > 1) {
-    notes.push(`This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
-      + `different motor sets; each set is a flight configuration here. ${simLabel(chosen)} was opened `
-      + '— switch under Flight configurations.');
-  }
+  const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
+  /**
+   * The sentence saying which simulation was opened, as it reads when `c` is
+   * the one. For the reader's own pick it is exactly the three cases this
+   * wrote before planImport could re-pick; the fourth (`c` motors no bottom
+   * stage while another simulation does) is reachable only through that re-pick.
+   */
+  const openedNoteFor = (c: OrkFlightConfig): string | null => {
+    if (components.length > 1 && !motorsBottom(c)) {
+      return flyable
+        ? `${simLabel(c)} puts no motor on ${bottomName}. It was opened with its lowest stage's motors timed `
+          + `from launch, so ${bottomName} flies along unpowered — switch under Flight configurations to fly `
+          + 'one that motors it.'
+        : `No simulation in this file puts a motor on ${bottomName}. ${simLabel(c)} was opened `
+          + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
+          + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.';
+    }
+    if (configs[0] && !motorsBottom(configs[0]) && c !== configs[0]) {
+      return `${simLabel(configs[0])} in this file puts no motor on the launch stage, so it would not `
+        + `leave the pad. ${simLabel(c)} was opened instead — switch under Flight configurations.`;
+    }
+    if (configs.length > 1) {
+      return `This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
+        + `different motor sets; each set is a flight configuration here. ${simLabel(c)} was opened `
+        + '— switch under Flight configurations.';
+    }
+    return null;
+  };
   // RECOVERY IS NOT READ PER SIMULATION (audit 2026-09-22 review). Each
   // <SimulationResults> keeps its own event list as well as its motors, and
   // only the motors become the configuration: recovery is readDeploymentEvents'
@@ -1444,10 +1465,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // recovery came too: AeroTech/aerotech_warthog.rkt's simulation 1 (E15-4)
   // deploys at the ejection charge where the design says 122 m. Read with
   // plain xmlNum: these numbers are compared, never used.
-  const chosenSim = chosen ? cfgSim.get(chosen)?.number : null;
-  if (chosen && chosenSim != null) {
+  const recoveryNoteFor = (c: OrkFlightConfig): string | null => {
+    const simNumber = cfgSim.get(c)?.number;
+    if (simNumber == null) return null;
     const own = new Map<string, string>();
-    for (const ev of Array.from(simEls[chosenSim - 1]!.querySelectorAll('SimulationEvent'))) {
+    for (const ev of Array.from(simEls[simNumber - 1]!.querySelectorAll('SimulationEvent'))) {
       const serial = text(ev, ':scope > PartSerialNo');
       if (!serial || serial === '0' || own.has(serial)) continue;
       const node = serialToNode.get(serial);
@@ -1459,12 +1481,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         && a.deployAltitude === t.deployAltitude ? '' : `${node.name ?? node.type} ${t.says}`);
     }
     const differ = [...own.values()].filter(Boolean);
-    if (differ.length) {
-      notes.push(`${simLabel(chosen)} stored different recovery triggers from the ones read above: `
+    return differ.length
+      ? `${simLabel(c)} stored different recovery triggers from the ones read above: `
         + `${differ.join('; ')}. Recovery is not read per simulation, so every flight configuration here `
-        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.');
-    }
-  }
+        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.'
+      : null;
+  };
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const firstMotor: OrkMotorRef | undefined = Object.values(motors)[0];
   const chosenConfigId = chosen?.id ?? null;
@@ -1474,52 +1496,66 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // meaning, however many mounts carry it: a cluster built as separate mounts
   // carries one set each, and PELTZER_Swarm_JR.rkt's twelve E30 mounts gave
   // twelve identical lines (seam review of audit 2026-09-22).
-  const sentinelNotes = new Map<string, { ref: OrkMotorRef; mounts: number }>();
-  for (const ref of Object.values(motors)) {
-    const kind = sentinelRefs.get(ref);
-    if (!kind) continue;
-    const key = `${kind}|${ref.manufacturer}|${ref.designation}|${ref.delay}`;
-    const seen = sentinelNotes.get(key);
-    if (seen) seen.mounts++;
-    else sentinelNotes.set(key, { ref, mounts: 1 });
-  }
-  for (const { ref, mounts } of sentinelNotes.values()) {
-    const kind = sentinelRefs.get(ref);
-    const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
-    const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
-    if (kind === 'plugged') {
-      notes.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
-        + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
-    } else if (kind === 'every') {
-      // What the REFERENCE takes, never "loaded": 80 catalogue motors have no
-      // thrust curve anywhere, and for those the matcher loads nothing and says
-      // so right after this note. The reader cannot tell them apart — the
-      // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
-      notes.push(`${asks}which flies each listed delay in turn; `
-        + (Number.isFinite(ref.delay)
-          ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
-          : 'the only option the motor database lists is plugged, so it is taken plugged.'));
-    } else if (kind === 'every-auto') {
-      notes.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
-        + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
-        // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
-        // a browser pick, so the rest of a cluster built as separate mounts
-        // flies the provisional 0 s: the Cheetah probe with its G135R mount
-        // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
-        // Worded for any of them, since the primary may sit in another stage.
-        + (mounts > 1
-          ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
-            + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
-          : ''));
-    } else if (kind === 'every-unmatched') {
-      // Not "the database lists no delay": the motor is not in it, so nothing
-      // loads on the mount and there is no delay box to send the user to. The
-      // reference is kept for Save, plugged, with the flag for a .rkt's −1.
-      notes.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
-        + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
-        + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
+  const sentinelNotesFor = (c: OrkFlightConfig): string[] => {
+    const out: string[] = [];
+    const sentinelNotes = new Map<string, { ref: OrkMotorRef; mounts: number }>();
+    for (const ref of Object.values(c.motors)) {
+      const kind = sentinelRefs.get(ref);
+      if (!kind) continue;
+      const key = `${kind}|${ref.manufacturer}|${ref.designation}|${ref.delay}`;
+      const seen = sentinelNotes.get(key);
+      if (seen) seen.mounts++;
+      else sentinelNotes.set(key, { ref, mounts: 1 });
     }
+    for (const { ref, mounts } of sentinelNotes.values()) {
+      const kind = sentinelRefs.get(ref);
+      const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
+      const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
+      if (kind === 'plugged') {
+        out.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
+          + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
+      } else if (kind === 'every') {
+        // What the REFERENCE takes, never "loaded": 80 catalogue motors have no
+        // thrust curve anywhere, and for those the matcher loads nothing and says
+        // so right after this note. The reader cannot tell them apart — the
+        // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
+        out.push(`${asks}which flies each listed delay in turn; `
+          + (Number.isFinite(ref.delay)
+            ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
+            : 'the only option the motor database lists is plugged, so it is taken plugged.'));
+      } else if (kind === 'every-auto') {
+        out.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
+          + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
+          // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
+          // a browser pick, so the rest of a cluster built as separate mounts
+          // flies the provisional 0 s: the Cheetah probe with its G135R mount
+          // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
+          // Worded for any of them, since the primary may sit in another stage.
+          + (mounts > 1
+            ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
+              + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
+            : ''));
+      } else if (kind === 'every-unmatched') {
+        // Not "the database lists no delay": the motor is not in it, so nothing
+        // loads on the mount and there is no delay box to send the user to. The
+        // reference is kept for Save, plugged, with the flag for a .rkt's −1.
+        out.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
+          + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
+          + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
+      }
+    }
+    return out;
+  };
+  // Every configuration's own notes, the opened one's in `notes` — in the
+  // order they always came: which simulation, its recovery, its sentinels.
+  const configNotes: Record<string, string[]> = {};
+  const configSources: Record<string, string> = {};
+  for (const c of configs) {
+    configNotes[c.id] = [openedNoteFor(c), recoveryNoteFor(c), ...sentinelNotesFor(c)]
+      .filter((n): n is string => n !== null);
+    configSources[c.id] = simLabel(c);
   }
+  if (chosen) notes.push(...configNotes[chosen.id]!);
 
   // Last, because the engine-set and deployment readers above record into the
   // same map. No cause is claimed: none of the 843 readable corpus files carries
@@ -1546,6 +1582,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     ...(measured ? { measured } : {}),
     configs,
     chosenConfigId,
+    configSources,
+    configNotes,
   };
 }
 

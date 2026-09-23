@@ -226,6 +226,23 @@ export interface OrkImportResult extends OrkTreeImportResult {
    * declares none (legacy first-element reads).
    */
   chosenConfigId: string | null;
+  /**
+   * Where each configuration came from, for a sentence about it: "Simulation 8
+   * (“[J315R-8]”)". PRESENT ONLY WHERE THE READER CHOSE THE CONFIGURATION TO
+   * OPEN BY A RULE of its own — the .rkt reader, whose configurations are the
+   * file's stored simulations — and that is what lets importApply.planImport
+   * open a different one once the catalogue has been asked which motors load.
+   * A .ork names its own default, which is its author's choice, and is kept.
+   */
+  configSources?: Record<string, string>;
+  /**
+   * The reader's notes that describe ONE configuration as the opened one —
+   * which simulation was opened, its sentinel delays, its recovery triggers —
+   * keyed by configuration id, for every configuration. `notes` carries the
+   * chosen one's; planImport swaps them when it opens another, so the box never
+   * describes a simulation that is not on screen.
+   */
+  configNotes?: Record<string, string[]>;
 }
 
 // ============================ IMPORT ============================
