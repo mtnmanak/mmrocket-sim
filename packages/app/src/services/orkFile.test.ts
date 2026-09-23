@@ -746,6 +746,46 @@ describe('.ork launch conditions (simulations block)', () => {
   it('stays silent on plain average-wind files', () => {
     expect(importOrk(DESKTOP_SIM).notes.some((n) => n.includes('multilevel'))).toBe(false);
   });
+
+  // LONGITUDE (weather build, step 3). It moves no flight number, but it is
+  // the flight-data file's Longitude column and the weather lookup's place.
+  const launchWith = (longitudeDeg: number | null | undefined) => ({ ...DEFAULT_CONDITIONS, longitudeDeg });
+
+  it('imports a desktop file’s longitude', () => {
+    expect(importOrk(DESKTOP_SIM).launch!.longitudeDeg).toBe(-108.55);
+  });
+
+  it('writes the longitude, and a blank one as exactly the line every export carried before', () => {
+    const at = (l: number | null | undefined) => exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(l) });
+    expect(at(-119.355)).toContain('<launchlongitude>-119.355</launchlongitude>');
+    for (const blank of [null, undefined, NaN]) {
+      expect(at(blank), String(blank)).toContain('<launchlongitude>-80.6</launchlongitude>');
+    }
+  });
+
+  it('round-trips a longitude, and the default as the default', () => {
+    for (const lon of [-119.355, 151.2, -180, 180, 0]) {
+      const xml = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(lon) });
+      expect(importOrk(xml).launch!.longitudeDeg).toBe(lon);
+    }
+    const blank = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(null) });
+    expect(importOrk(blank).launch!.longitudeDeg).toBe(-80.6);
+  });
+
+  it('ALWAYS states it, so a file without one cannot keep the previous design’s', () => {
+    // App merges an open's launch over the panel's; a key left out survives.
+    const without = DESKTOP_SIM.replace('<launchlongitude>-108.55</launchlongitude>', '');
+    const launch = importOrk(without).launch!;
+    expect(Object.hasOwn(launch, 'longitudeDeg')).toBe(true);
+    expect(launch.longitudeDeg).toBeNull();
+    expect({ ...launchWith(-119), ...launch }.longitudeDeg).toBeNull();
+  });
+
+  it('brings a longitude outside ±180 inside, and says so in the file’s own number', () => {
+    const r = importOrk(DESKTOP_SIM.replace('-108.55</launchlongitude>', '-200</launchlongitude>'));
+    expect(r.launch!.longitudeDeg).toBe(-180);
+    expect(r.notes.some((n) => /launch longitude is -200°/.test(n) && /Longitude field/.test(n))).toBe(true);
+  });
 });
 
 describe('.ork launch conditions come from the CHOSEN configuration', () => {

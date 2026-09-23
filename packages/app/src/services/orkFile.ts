@@ -1,7 +1,7 @@
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
-  DEFAULT_TIME_STEP_S, importLaunchValue, LATITUDE_DEG_RANGE, PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE,
-  ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
+  DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
+  PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
@@ -1400,6 +1400,15 @@ function readLaunchConditions(
     launch.latitudeDeg = importLaunchValue(lat, LATITUDE_DEG_RANGE,
       { what: 'launch latitude', field: 'Latitude', show: deg }, notes);
   }
+  // ALWAYS written (weather build, step 3): App merges an open's launch over
+  // the panel's (`{ ...prev, ...imported.launch }`), so a file with no
+  // longitude that left the key out would inherit the PREVIOUS design's —
+  // a Nevada pad surviving into a Florida file. Blank (null) is what a file
+  // without one flies, the kernel's default.
+  const lon = num(condEl, 'launchlongitude', NaN);
+  launch.longitudeDeg = Number.isFinite(lon)
+    ? importLaunchValue(lon, LONGITUDE_DEG_RANGE, { what: 'launch longitude', field: 'Longitude', show: deg }, notes)
+    : null;
 
   const atmEl = condEl.querySelector(':scope > atmosphere');
   if (atmEl) {
@@ -2631,8 +2640,11 @@ export function exportOrk({
       emit(4, '<windmodeltype>Average</windmodeltype>');
       emit(4, `<launchaltitude>${launch.launchAltitudeM}</launchaltitude>`);
       emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
-      // We don't model longitude — the desktop's preference default.
-      emit(4, '<launchlongitude>-80.6</launchlongitude>');
+      // The Longitude field (weather build, step 3); a blank one writes what it
+      // flies, the kernel's and desktop's default −80.6 — the exact line every
+      // export carried before the field existed, so those files are unchanged.
+      emit(4, `<launchlongitude>${typeof launch.longitudeDeg === 'number' && Number.isFinite(launch.longitudeDeg)
+        ? launch.longitudeDeg : KERNEL_DEFAULT_LONGITUDE_DEG}</launchlongitude>`);
       emit(4, '<geodeticmethod>spherical</geodeticmethod>');
       // THE PAD AIR THE FLIGHT FLIES — padAir, the one reading the flight and
       // the recovery sizing already share. KELVIN / PASCAL on disk, and they

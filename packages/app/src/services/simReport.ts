@@ -1,6 +1,6 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { flownLongitudeDeg, type LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../App.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
@@ -1063,6 +1063,14 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   for (const k of ['launchAltitudeM', 'temperatureC', 'pressureHPa']) {
     if (l[k] != null && l[k] !== flown[k]) l[k] = flown[k];
   }
+  // A LONGITUDE THAT FLIES THE DEFAULT IS NO LONGITUDE (weather build, step
+  // 3). Blank, cleared, non-finite and the kernel's own −80.6 are one flight
+  // (`flownLongitudeDeg`, the predicate `kernelSimOptions` omits the key by),
+  // so they must be one key — and the absent spelling, which is what every run
+  // stored before the field used. The .ork writer states a blank as −80.6 and
+  // the reader keeps that number, so without this a design's own save and
+  // reopen would re-key every run it had flown.
+  if (flownLongitudeDeg(launch) === null) delete l.longitudeDeg;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at

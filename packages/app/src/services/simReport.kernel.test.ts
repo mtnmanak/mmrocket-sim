@@ -260,3 +260,36 @@ describe('the density-altitude readout describes the air the kernel flies', () =
     expect(Math.abs(isaAltitudeForDensity(rho0!) - densityAltitudeM(launch))).toBeLessThan(6);
   }, 30000);
 });
+
+/**
+ * LONGITUDE MOVES NO FLIGHT NUMBER (weather build, step 3) — the claim the
+ * Longitude field's help and the guide make, held in a script. The kernel
+ * places the pad at it (the flight data's λ), and nothing it computes depends
+ * on it: gravity and the Coriolis term read latitude only.
+ */
+describe('longitude moves no flight number', () => {
+  it('flies the default, 10° E and Black Rock to one apogee, top speed and flight time; only λ moves', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (longitudeDeg: number | null) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return rocket.simulate({
+        ...kernelSimOptions({
+          ...DEFAULT_CONDITIONS, windAverage: 4, windStdDev: 1, launchRodAngleDeg: 5, latitudeDeg: 40.65, longitudeDeg,
+        }),
+        randomSeed: 42, series: 'full',
+      });
+    };
+    const blank = fly(null);
+    const lambda0 = (r: typeof blank) => (r.series as unknown as Record<string, (number | null)[] | undefined>)['λ']?.[0];
+    for (const lon of [10, -119.355]) {
+      const moved = fly(lon);
+      expect(moved.summary.maxAltitude, `${lon}`).toBe(blank.summary.maxAltitude);
+      expect(moved.summary.maxVelocity, `${lon}`).toBe(blank.summary.maxVelocity);
+      expect(moved.summary.flightTime, `${lon}`).toBe(blank.summary.flightTime);
+      expect(lambda0(moved), `${lon}`).toBeCloseTo(lon, 6);
+    }
+    expect(lambda0(blank)).toBeCloseTo(-80.6, 6);
+  }, 60000);
+});

@@ -1517,11 +1517,23 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     const patches: Partial<LaunchConditions>[] = [
       { windAverage: 5 }, { windStdDev: 1 }, { launchRodAngleDeg: 10 },
       { launchRodLengthM: 2 }, { launchAltitudeM: 300 }, { temperatureC: 30 },
-      { pressureHPa: 900 }, { latitudeDeg: 40 },
+      { pressureHPa: 900 }, { latitudeDeg: 40 }, { longitudeDeg: -119.355 },
     ];
     for (const p of patches) {
       expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, ...p }), JSON.stringify(p)).not.toBe(base);
     }
+  });
+
+  // Weather build, step 3: blank, cleared, non-finite and the kernel's own
+  // −80.6 are one flight (kernelSimOptions omits the key for all four), and
+  // the .ork writer states a blank as −80.6, which its reader keeps.
+  it('folds a longitude that flies the default onto the key every stored run already has', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    for (const longitudeDeg of [null, -80.6, NaN, undefined]) {
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg)).toBe(base);
+    }
+    expect(base).not.toContain('longitude');
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg: -119.355 })).toContain('longitudeDeg=-119.355');
   });
 
   it('KEEPS the spelling every stored run already uses for a null REQUIRED field', () => {

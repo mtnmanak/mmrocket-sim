@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
   DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchPanel,
-  timeStepCostFactor, type LaunchConditions,
+  LONGITUDE_HELP, timeStepCostFactor, type LaunchConditions,
 } from './LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
 
@@ -550,5 +550,64 @@ describe('the density-altitude readout', () => {
       .toMatch(/^Density altitude/);
     // Not shaped like the two field helps, which other tests find by pattern.
     expect(DENSITY_ALTITUDE_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
+});
+
+/**
+ * LONGITUDE (weather build, step 3): a new OPTIONAL field that moves no flight
+ * number. Absent, cleared, non-finite and the kernel's own −80.6 all hand the
+ * kernel byte-identical options (the golden above), and the box shows what a
+ * blank flies rather than NaN or "0.000".
+ */
+describe('the longitude field', () => {
+  const lonInput = () => [...host.querySelectorAll('input')]
+    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'));
+
+  it('hands the kernel a longitude only when it would move something', () => {
+    for (const longitudeDeg of [undefined, null, NaN, -80.6]) {
+      expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg))
+        .not.toHaveProperty('launchLongitude');
+    }
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, longitudeDeg: -119.355 }).launchLongitude).toBe(-119.355);
+  });
+
+  it('shows the −80.6 a blank flies, for a session that predates the field — not NaN, and no crash', () => {
+    renderConditions({});
+    const input = lonInput();
+    expect(input, 'the Longitude input').toBeTruthy();
+    expect(input!.value).toBe('');
+    expect(input!.getAttribute('placeholder')).toBe('-80.6');
+    renderConditions({ longitudeDeg: -119.355 });
+    expect(lonInput()!.value).toBe('-119.355');
+  });
+
+  it('commits null — never undefined — when the box is cleared', () => {
+    renderConditions({ longitudeDeg: -119.355 });
+    const input = lonInput()!;
+    act(() => input.focus());
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(lastLaunch).not.toBeNull();
+    expect(Object.hasOwn(lastLaunch!, 'longitudeDeg')).toBe(true);
+    expect(lastLaunch!.longitudeDeg).toBeNull();
+  });
+
+  it('says which way is negative, and that it moves no flight number', () => {
+    renderConditions({});
+    const described = lonInput()!.getAttribute('aria-describedby');
+    expect(host.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(LONGITUDE_HELP);
+    expect(LONGITUDE_HELP).toMatch(/every US site is negative/);
+    expect(LONGITUDE_HELP).toMatch(/moves no flight number/);
+  });
+
+  it('sits beside Latitude in the two-column grid', () => {
+    renderConditions({});
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const at = (label: string) => cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith(label));
+    const lat = at('Latitude');
+    expect(lat % 2, 'Latitude opens a row').toBe(0);
+    expect(at('Longitude')).toBe(lat + 1);
   });
 });

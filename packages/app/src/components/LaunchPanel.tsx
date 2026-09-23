@@ -29,6 +29,23 @@ export interface LaunchConditions {
   pressureHPa: number | null;
   latitudeDeg: number;
   /**
+   * Launch-site longitude (°, east positive; weather build, step 3). Absent
+   * and null both mean blank, which flies `KERNEL_DEFAULT_LONGITUDE_DEG` —
+   * the kernel's own default and desktop OpenRocket's. It moves no flight
+   * number: it places the flight in the flight-data file's Longitude column
+   * (λ) and travels with the .ork. The weather lookup offers it, beside
+   * latitude, from the place it fetched for.
+   *
+   * OPTIONAL, never default-filled: a session or share link from before the
+   * field restores without it and flies exactly as before, and `stableJson`
+   * would read a filled-in key as an edit. Never `undefined` in state either —
+   * null is the blank the panel writes. Out of `REQUIRED_CONDITION_KEYS`
+   * (simReport.ts), and folded out of `conditionsKeyOf` when it flies the
+   * default (`flownLongitudeDeg`). A .CDX1 has no site coordinates, so a
+   * RASAero import keeps both latitude and longitude from the design before it.
+   */
+  longitudeDeg?: number | null;
+  /**
    * Integration time step (s), seeded from the .ork's own `<simulation>` and
    * clamped there to MIN_IMPORTED_TIME_STEP_S. Absent = the engine's default
    * (0.05 s, the same as desktop OpenRocket).
@@ -94,6 +111,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   // setting the kernel can fly, so clamping it at flight time would only make
   // the flight disagree, silently, with the number in the box.
   const air = padAir(l);
+  const longitude = flownLongitudeDeg(l);
   return {
     launchRodLength: l.launchRodLengthM,
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
@@ -103,6 +121,10 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
     temperature: air.standard ? undefined : air.temperatureK,
     pressure: air.standard ? undefined : air.pressurePa,
     launchLatitude: l.latitudeDeg,
+    // Only when it would move something: a blank (or the default itself) is
+    // left to the kernel's own −80.6, so every design saved before the field
+    // hands the kernel byte-identical options.
+    ...(longitude !== null ? { launchLongitude: longitude } : {}),
     // `!= null` covers BOTH absent and cleared: the panel's nullable fields
     // commit null when emptied, and null means the same thing absent does —
     // fly the engine's default.
@@ -162,7 +184,7 @@ export const DEFAULT_CONDITIONS: LaunchConditions = {
  * (those are atmosphere.ts's `PAD_*` / `SITE_ALTITUDE_M_RANGE`), in stored
  * units, `Infinity` for an open end. The panel's `numField` calls below read
  * them (the phone Fly screen's three fields still repeat the same literals),
- * and both importers clamp a file's value into them with a note — the same rule
+ * and the importers clamp a file's value into them with a note — the same rule
  * the .ork reader has applied to `<atmosphere>` since v0.105: a value the panel
  * refuses could not be seen, checked or re-entered.
  *
@@ -177,6 +199,31 @@ export const ROD_LENGTH_M_RANGE: readonly [number, number] = [0, Infinity];
 export const ROD_ANGLE_DEG_RANGE: readonly [number, number] = [-30, 30];
 export const WIND_MS_RANGE: readonly [number, number] = [0, Infinity];
 export const LATITUDE_DEG_RANGE: readonly [number, number] = [-90, 90];
+/** The Longitude field's bounds (°, east positive). The .ork reader clamps into it; the RASAero format has no longitude. */
+export const LONGITUDE_DEG_RANGE: readonly [number, number] = [-180, 180];
+
+/**
+ * The longitude a blank Longitude field flies (°): the kernel's own default
+ * (`OrkEngine.simulateJson`, `JsonLite.dbl(o, "launchLongitude", -80.60)`,
+ * l. 918), which is desktop OpenRocket's preference default too — Cape
+ * Canaveral. Mirrored here rather than exported from the engine package so
+ * the one place the app decides "this flies the default" can name it.
+ */
+export const KERNEL_DEFAULT_LONGITUDE_DEG = -80.6;
+
+/**
+ * The longitude the kernel is handed, or null when the flight is identical to
+ * leaving it blank — absent, cleared, not a finite number, or the default
+ * itself. ONE predicate for `kernelSimOptions` (which omits the key on null)
+ * and `conditionsKeyOf` (which folds it), so "does not move the flight" and
+ * "does not change the conditions" cannot disagree. The .ork writer states a
+ * blank as −80.6 and the reader keeps it as that typed number, so without the
+ * fold a design's own round trip would re-key every run it had flown.
+ */
+export function flownLongitudeDeg(l: Pick<LaunchConditions, 'longitudeDeg'>): number | null {
+  const x = l.longitudeDeg;
+  return typeof x === 'number' && Number.isFinite(x) && x !== KERNEL_DEFAULT_LONGITUDE_DEG ? x : null;
+}
 
 /**
  * An imported launch value clamped into the panel's `range`, with one import
@@ -232,7 +279,8 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
    * the box as a placeholder so the number is visible rather than merely
    * described.
    *
-   * Only the two atmosphere fields pass one. It is deliberately a placeholder
+   * The two atmosphere fields pass one, and Longitude passes the kernel's
+   * default. It is deliberately a placeholder
    * and not a committed value: blank stays LINKED to Site altitude, so moving
    * the pad from 500 ft to 5,000 ft re-reads both. Writing real numbers into
    * the boxes instead would freeze them at the old site's air the moment the
@@ -303,7 +351,10 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
       <NumField
         ariaLabel={symbol ? `${label} (${symbol})` : label}
         describedBy={help ? helpId : undefined}
-        value={value[field] === null ? undefined : toUi(value[field] as number)}
+        // `== null`, not `=== null`: an OPTIONAL field (Longitude) is absent
+        // from every session saved before it existed, and `toUi(undefined)`
+        // rendered NaN in the box.
+        value={value[field] == null ? undefined : toUi(value[field] as number)}
         step={step}
         min={uiMin}
         max={uiMax}
@@ -314,8 +365,10 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
         // which told the reader nothing and was the whole complaint. NumField
         // reads the figure back out of the placeholder for its own
         // arrow-key-from-blank behaviour, so the two agree by construction.
+        // A field with no unit quantity (Longitude, in plain degrees) shows its
+        // auto value as the number itself; `spec!` here used to throw for one.
         placeholder={autoStored !== undefined
-          ? fmtSi(spec!.quantity, symbol!, storedToSi(autoStored))
+          ? (spec && symbol ? fmtSi(spec.quantity, symbol, storedToSi(autoStored)) : String(autoStored))
           : nullable ? 'standard' : undefined}
         // The auto value passed EXPLICITLY as a number as well, in display
         // units. NumField otherwise digs it back out of the placeholder text
@@ -445,6 +498,17 @@ export const DENSITY_ALTITUDE_HELP =
   + 'launching from that altitude — the speed of sound and the motor’s pressure thrust still follow '
   + 'your real temperature and pressure. Dry air: humid air is slightly thinner, so on a muggy day '
   + 'the true figure is a few hundred feet higher.';
+
+/**
+ * Help for the Longitude field (weather build, step 3). Exported for the
+ * tests. The sign is the thing to say first: every US site is WEST, so
+ * negative, and a positive number typed from a map that prints "119.06 W"
+ * would put the flight in China.
+ */
+export const LONGITUDE_HELP =
+  'East is positive, west negative — every US site is negative. Blank flies −80.6°, the desktop '
+  + 'default. Longitude moves no flight number; it places the flight in the flight-data file’s '
+  + 'Longitude column and travels with the .ork.';
 
 /**
  * DENSITY ALTITUDE, as a readout in the grid (weather build, step 1).
@@ -582,6 +646,10 @@ export function LaunchPanel({
         {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
           isaPressurePa(value.launchAltitudeM) / 100)}
         {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
+        {/* Beside Latitude, its pair (weather build, step 3); Time step moves
+            down to a row of its own. Blank shows the −80.6 it flies. */}
+        {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
+          KERNEL_DEFAULT_LONGITUDE_DEG)}
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands
