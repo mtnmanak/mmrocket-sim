@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { TreeSchematic } from './TreeSchematic.js';
 import { importOrk } from '../services/orkFile.js';
@@ -42,15 +42,8 @@ const fixture = (name: string): ArrayBuffer => {
 
 let host: HTMLDivElement;
 let root: Root;
-let rectSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  // A real client rect, so the wheel zoom below does something (happy-dom lays
-  // everything out at 0x0).
-  rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
-    x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 240, width: 640, height: 240,
-    toJSON: () => ({}),
-  } as DOMRect);
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -58,7 +51,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  rectSpy.mockRestore();
 });
 
 /** FNV-1a, for the ruler gutters below. */
@@ -217,11 +209,19 @@ const hover = (label: string) => act(() => {
   el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false }));
 });
-const wheelIn = () => act(() => {
-  host.querySelector('svg')!.dispatchEvent(new WheelEvent('wheel', {
-    deltaY: -300, clientX: 300, clientY: 120, bubbles: true, cancelable: true,
-  }));
+/**
+ * One press of the + button: 1.5x about the drawing's centre. Not the wheel —
+ * happy-dom's WheelEvent drops clientX/clientY, so a synthetic wheel zoomed
+ * about NaN and this case pinned `translate(NaN NaN)`, a view no browser
+ * draws (review of the extraction). The snapshot that replaced it was written
+ * by the component as it stood BEFORE the extraction, and the extracted one
+ * reproduces it byte for byte, like every other case here.
+ */
+const zoomIn = () => act(() => {
+  (host.querySelector('button[aria-label="Zoom in"]') as HTMLButtonElement).click();
 });
+/** The zoomed group's transform, which must be a real one to be worth pinning. */
+const viewTransform = () => host.querySelector('svg > g[transform^="translate("]')?.getAttribute('transform');
 const noop = () => {};
 
 describe('the side view draws what it drew before the layout extraction', () => {
@@ -260,7 +260,8 @@ describe('the side view draws what it drew before the layout extraction', () => 
   });
   it('zoomed in (the fit-view ruler copy rides along)', () => {
     show(busy, { onSelect: noop, onPatchNode: noop, info: info() });
-    wheelIn();
+    zoomIn();
+    expect(viewTransform()).toMatch(/^translate\(-?\d+(\.\d+)? -?\d+(\.\d+)?\) scale\(1\.5\)$/);
     expect(drawn()).toMatchSnapshot();
   });
   it('the hero canvas: fill height, top reserve', () => {
