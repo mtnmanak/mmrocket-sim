@@ -9,7 +9,8 @@ import { useState } from 'react';
  * - While focused, keystrokes edit a local draft string. Every draft that
  *   parses to a valid number is committed live; invalid drafts ("e", "abc",
  *   a negative where negatives aren't allowed, out-of-range) show an error
- *   border and commit nothing.
+ *   border and commit nothing — except a draft over `max` with `clampToMax`,
+ *   which keeps the error border and commits `max`.
  * - Blur/Enter reformats from the last committed value; an invalid draft is
  *   simply discarded (the previous value survives).
  * - Unfocused display is capped at 3 decimals (display only — the stored
@@ -21,6 +22,7 @@ import { useState } from 'react';
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
   integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
+  clampToMax = false,
 }: {
   value: number | undefined;
   /** Called with each valid typed value; null only when nullable and cleared. */
@@ -68,18 +70,28 @@ export function NumField({
   invalid?: boolean;
   /** `aria-describedby`: the id of the line that explains the field's state. */
   describedBy?: string;
+  /**
+   * A typed value above `max` commits `max`, instead of nothing. The draft
+   * stays as typed and flagged invalid, so blur is what shows the stored value.
+   * For a count, where it matters because every draft commits live: typing
+   * "12" into a field capped at 8 goes through "1" first, and refusing the
+   * "12" left that 1 stored — twelve fins asked for, a ONE-fin set (review of
+   * audit 2026-09-22). Below `min`, fractions and junk are still refused.
+   */
+  clampToMax?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
 
-  const parse = (s: string): number | null => {
+  /** `capped` false: every check but the `max` one (see clampToMax). */
+  const parse = (s: string, capped = true): number | null => {
     const t = s.trim();
     if (t === '') return null;
     const v = Number(t);
     if (!Number.isFinite(v)) return null;
     if (lowBound !== undefined && v < lowBound) return null;
-    if (max !== undefined && v > max) return null;
+    if (capped && max !== undefined && v > max) return null;
     if (integer && !Number.isInteger(v)) return null;
     return v;
   };
@@ -104,6 +116,7 @@ export function NumField({
     }
     const v = parse(s);
     if (v !== null) onCommit(v);
+    else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max);
   };
 
   /**

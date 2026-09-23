@@ -5,6 +5,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
+import { sanitizeTree } from '../tree/sanitize.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
@@ -1230,7 +1231,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
 
   return {
     name,
-    tree: { name, components },
+    // The limits table (audit 2026-09-22), applied where its notes still reach
+    // the import banner: a <FinCount> of 70000 made the side view throw and took
+    // the whole app down, a <TubeCount> of 100000 held the 3D view for 19 s, and
+    // a <ShroudLineCount> of 1000000 made a 540 kg parachute. Each repair is
+    // named in one note.
+    tree: sanitizeTree({ name, components }, notes),
     motor: firstMotor,
     motors,
     ignored: [...ignored],

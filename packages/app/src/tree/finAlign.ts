@@ -1,4 +1,4 @@
-import { num } from './nodeNum.js';
+import { finCountOf } from './counts.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
@@ -36,9 +36,12 @@ const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
  * then rotated the straight set to an angle that is wrong for the set actually
  * on screen. Found by the audit as a drifted default, which is what it is: one
  * question, four answers, and only this one different.
+ *
+ * Since audit 2026-09-22 it is `finCountOf` (counts.ts), the one answer every
+ * view shares — which also caps it at the kernel's 8, so a set typed or read
+ * as 12 is aligned as the 8 fins that fly.
  */
-const countOf = (n: ComponentNode): number =>
-  Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3)));
+const countOf = (n: ComponentNode): number => finCountOf(n);
 
 /** Smallest circular distance between any fin of set A and any fin of set B. */
 function minClearance(rotA: number, countA: number, rotB: number, countB: number): number {

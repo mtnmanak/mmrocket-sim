@@ -3,7 +3,7 @@ import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, Stati
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
-import { DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef } from '../tree/schema.js';
+import { applyFieldLimit, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
@@ -517,6 +517,20 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         maxCount = tubeFinMaxCount(r, tubeFinBodyR);
       }
     }
+    // THE HARD LIMIT (audit 2026-09-22) — the same table the load boundary's
+    // sanitize pass applies (schema.ts `fieldLimit`), so a typed or dragged
+    // value can never be one a reopened file would have to repair. A count's
+    // ceiling goes on the field itself, which CLAMPS a typed count to it
+    // (NumField `clampToMax`, below): typing 12 fins stores 8 and flags the
+    // box until blur shows 8 (the kernel flies at most 8, and the app used to
+    // draw and export 12). Refusing it instead kept the "1" committed on the
+    // way to "12" — a one-fin set. Every other bound is enforced in `commit`
+    // below — a tube-fin length or shroud height of 0 at the slider's left
+    // stop failed the whole build.
+    const limit = fieldLimit(node.type, f.key);
+    if (f.unit === 'count' && limit?.hmax !== undefined) {
+      maxCount = Math.min(maxCount ?? Infinity, limit.hmax);
+    }
     // Shape parameter: capped per shape (haack tops out at 1/3 = LV-Haack,
     // matching the kernel's setShapeParameter clamp); blank = kernel default.
     if (f.key === 'shapeParameter') {
@@ -583,6 +597,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         : fromDisplay(ui);
       if (f.unit === 'count' && maxCount !== undefined) next = Math.min(next, maxCount);
       if (f.unit !== 'count' && maxSi !== undefined) next = Math.min(next, maxSi);
+      // Last, so it wins over the cross-field caps above: a tube-fin count the
+      // radius caps at 0 is still the kernel's minimum of 1.
+      if (limit) next = applyFieldLimit(limit, next);
       const patch: Partial<ComponentNode> = { [f.key]: next };
       // A hand-typed density is no longer the named material's density.
       if (f.key === 'density') patch['materialName'] = undefined;
@@ -621,6 +638,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           integer={f.unit === 'count'}
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
+          clampToMax={f.unit === 'count'}
           placeholder={autoPlaceholder}
           nullable
           onCommit={(v) => {

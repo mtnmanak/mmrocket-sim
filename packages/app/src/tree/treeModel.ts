@@ -26,6 +26,7 @@ import { resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
+import { sanitizeTree } from './sanitize.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -81,10 +82,17 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
  * (the desktop model — stage 0 on top, boosters after). Legacy flat trees
  * (pre-v0.009 sessions/files) are wrapped by normalizeTree at every load
  * boundary. The engine accepts both shapes.
+ *
+ * It is also THE load boundary's sanitize pass (audit 2026-09-22): every file,
+ * share link and restored session comes through here, so `sanitizeTree` runs
+ * here and nothing downstream sees a count, dimension or enum string outside
+ * the limits table in schema.ts. It is silent here — the importers run it
+ * first, with their own notes, so a repair a file needed is reported in the
+ * import banner and this second pass finds nothing left to do.
  */
 export function normalizeTree(tree: RocketTree): RocketTree {
   reseedIds(tree);
-  tree = resolveAbsolutePositions(tree);
+  tree = sanitizeTree(resolveAbsolutePositions(tree));
   if (tree.components.length === 0) {
     return { ...tree, components: [makeStage('Sustainer')] };
   }
@@ -1379,6 +1387,14 @@ export function engineTree(tree: RocketTree): RocketTree {
       } as ComponentNode;
     }
     let next: ComponentNode = n.children ? ({ ...n, children: walk(n.children, n) } as ComponentNode) : n;
+    // The panel's "Classic (from cross section)" option stores the EMPTY
+    // string, and the bridge validates any airfoilSection it is handed — so
+    // picking a section and then Classic again threw "Unknown airfoilSection
+    // ''" and failed the whole build (audit 2026-09-22). Empty means none.
+    if (typeof n['airfoilSection'] === 'string' && n['airfoilSection'].trim() === '') {
+      next = { ...next };
+      delete next['airfoilSection'];
+    }
     const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
     if (n.type === 'parachute' && dh > 0) {
       const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;

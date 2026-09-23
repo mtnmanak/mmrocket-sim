@@ -1,6 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { sanitizeTree } from '../tree/sanitize.js';
 import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
@@ -1502,7 +1503,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
   return {
-    name, tree: { name, components: stages },
+    // The limits table (audit 2026-09-22), applied where its notes still reach
+    // the import banner — a fin <Count> had a floor of 1 and no ceiling, and a
+    // negative <Span> failed the whole build. Each repair is named in one note.
+    name, tree: sanitizeTree({ name, components: stages }, notes),
     ...(firstMotor ? { motor: firstMotor } : {}), motors,
     ignored: [...ignored], notes,
     ...(launch ? { launch } : {}),

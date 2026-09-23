@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { CLUSTER_OPTIONS } from './cluster.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -213,7 +214,300 @@ const radMM = (key: string, label: string, step = 1, smax = 300): FieldDef =>
 const DENSITY: FieldDef = {
   key: 'density', label: 'Material density', unit: 'kg/m3', step: 10, smin: 0, smax: 3000,
 };
-const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: 8 };
+
+/**
+ * THE KERNEL'S FIN-COUNT RULE: 1 to 8, for every fin type. `FinSet.setFinCount`
+ * and `TubeFinSet.setFinCount` both clamp to it (FinSet.java:179-182,
+ * TubeFinSet.java:233-236), and desktop's four fin dialogs all bound their
+ * spinner to it (`new IntegerModel(component, "FinCount", 1, 8)`).
+ *
+ * Until audit 2026-09-22 the app did not: the tube-fin slider ran to 12, a
+ * typed count had no ceiling at all, every drawing looped the raw number and
+ * every export wrote it — so a 12-fin set was drawn, printed and exported as 12
+ * while the kernel flew 8. Measured by that audit: trapezoid sets of 8 and 12
+ * gave an identical kernel fin-set mass (19.584 g) and CP (0.34217 m), and 12
+ * tube fins printed an 8.66 mm OD against the 15.37 mm the kernel flew. Every
+ * DRAWING, the tube-fin geometry, the fin alignment and the rail and wake
+ * checks (mountAngle.ts) now read the count through `finCountOf` (counts.ts),
+ * so nothing stored can draw more than the kernel flies. The
+ * other readers — the exporters, the fin template and DXF labels, the
+ * interleave rotation for a second set — still read the node itself, and are
+ * kept honest by the two places a count is written: the panel's count field
+ * stops here, and the sanitize pass (sanitize.ts) repairs a file or a saved
+ * session that says more.
+ */
+export const KERNEL_MAX_FINS = 8;
+
+/**
+ * Line instances (launch lugs, rail buttons): the bridge's own ceiling —
+ * `ComponentFactory.applyLineInstances` clamps to 1..64 (ComponentFactory.java
+ * :904), whose comment says why: every mass and aero pass allocates one
+ * Coordinate per instance, so a file saying 100000000 would wedge the tab.
+ */
+export const KERNEL_MAX_LINE_INSTANCES = 64;
+
+/**
+ * Pod sets and boosters: the kernel has NO ceiling (PodSet/ParallelStage
+ * .setInstanceCount only refuse < 1), so this one is the app's. Every instance
+ * is a whole nose-body-fins chain in all three views and in the kernel, and 32
+ * is four times the panel slider's 8 — far above any real ring of pods — while
+ * keeping a hostile count from multiplying the drawing into the millions.
+ */
+export const MAX_ASSEMBLY_INSTANCES = 32;
+
+/**
+ * Parachute shroud lines. The kernel takes any count (Parachute.setLineCount
+ * has no clamp) and bills `lineCount × lineLength × line density` as mass, so a
+ * .rkt saying 1,000,000 lines made a 540 kg parachute (audit 2026-09-22). The
+ * largest count in the whole shipped parts catalogue is 24; 64 matches the
+ * line-instance ceiling above.
+ */
+export const MAX_SHROUD_LINES = 64;
+
+/**
+ * A protuberance's `count` is an area multiplier, never a loop — this is the
+ * ceiling the .ork reader already applied (orkFile.ts, `count <= 1000`),
+ * carried here so the panel and a restored session honour the same one.
+ */
+const MAX_PROTUBERANCE_COUNT = 1000;
+
+/**
+ * No dimension of a real rocket is a kilometre. A value past it is corrupt or
+ * hostile, and it is not harmless: the drawings size themselves to the part,
+ * and a clipped transition's clip search — `calculateClip` in shapeProfile.ts
+ * and the kernel's identical loop — never converges once the length reaches
+ * ~1e12 m, freezing the tab on first render (audit 2026-09-22). Capping it at
+ * the load boundary protects the kernel's copy, which the app cannot bound.
+ */
+export const MAX_DIMENSION_M = 1000;
+
+/**
+ * The smallest value stored for a dimension where ZERO fails the kernel build.
+ * Measured at audit 2026-09-22 on the shipped kernel: a tube-fin length of 0
+ * throws "The number NaN cannot be converted to a BigInt" from staticInfo, and
+ * a camera-shroud height of 0 with a blunt or domed end lowers to a strake with
+ * two coincident points and throws "Unknown format conversion: g" from
+ * buildTree; 1e-12 m builds in both. 0.1 mm is below any tube fin or shroud
+ * anyone builds, yet still reads as a number rather than as zero in millimetres
+ * and in inches (the panel shows three decimals), so the repair is visible.
+ */
+export const MIN_POSITIVE_DIMENSION_M = 0.0001;
+
+/** What a limit bounds, which decides how a note formats the number. */
+export type LimitKind = 'length' | 'mass' | 'density' | 'count';
+
+/**
+ * A HARD limit on a stored SI value — not a slider range. `smin`/`smax` on a
+ * FieldDef are where a slider stops; these are what a node may hold at all,
+ * enforced in two places that must agree: `PropertyPanel`'s `commit` (a typed
+ * or dragged value) and `sanitizeTree` (a file, a share link or a restored
+ * session, run inside `normalizeTree`).
+ */
+export interface FieldLimit {
+  kind: LimitKind;
+  /** Hard minimum (SI). A value below it is raised to it. */
+  hmin: number;
+  /** Hard maximum (SI). A value above it is lowered to it. */
+  hmax?: number;
+  /** For the import note: why the CEILING is where it is (quoted only when a value is over it). */
+  why?: string;
+  /** For the import note, where the component type has no FieldDef for the key. */
+  label?: string;
+}
+
+const LEN: FieldLimit = { kind: 'length', hmin: 0, hmax: MAX_DIMENSION_M };
+/** A length whose SIGN means something (sweep, overhang, offsets) — only its size is bounded. */
+const SIGNED_LEN: FieldLimit = { kind: 'length', hmin: -MAX_DIMENSION_M, hmax: MAX_DIMENSION_M };
+const POSITIVE_LEN: FieldLimit = { kind: 'length', hmin: MIN_POSITIVE_DIMENSION_M, hmax: MAX_DIMENSION_M };
+const MASS: FieldLimit = { kind: 'mass', hmin: 0 };
+const BULK: FieldLimit = { kind: 'density', hmin: 0 };
+const FINS: FieldLimit = {
+  kind: 'count', hmin: 1, hmax: KERNEL_MAX_FINS,
+  why: 'the most fins a set can have in OpenRocket, and so the most the simulation flies',
+};
+const LINE_INSTANCES: FieldLimit = {
+  kind: 'count', hmin: 1, hmax: KERNEL_MAX_LINE_INSTANCES,
+  why: 'the most the simulation places in a line', label: 'number of instances',
+};
+
+/**
+ * Every node key with a hard limit, whatever the component type. Some negative
+ * values the kernel does not survive: a negative fin height or root chord, a
+ * negative wall, lug length, streamer strip, chute line length or canopy / line
+ * density each throws "attempted to initialize an InertiaMatrix with a
+ * negative inertia value" and fails the whole build. Measured 2026-09-22 by a
+ * single-field fuzz of the five .ork fixtures in services/__fixtures__, every
+ * numeric element made negative in turn: 20 of 300 edits failed the build
+ * before this table and none after (zeros: 1 of 158 before, none after). The
+ * rest are a length, a radius or a mass that cannot be negative either. The
+ * kernel clamps some of them itself (MassComponent.setComponentMass,
+ * RocketComponent.setOverrideMass), but it FLIES others as given: in the same
+ * fuzz, 15 edits built and moved mass, CG or CP — a negative canopy diameter,
+ * shroud line count or line length (a negative line count subtracts mass), a
+ * negative root chord (which also changed the rocket's length), negative rail
+ * button diameters. Zero here moves those numbers, toward something physical;
+ * the panel has never accepted a negative dimension, and none of the 133 real
+ * designs checked on 2026-09-22 (the fixtures and the tester uploads) carries
+ * one. A lookupTable (null prototype): the keys it is asked about come off
+ * nodes a file wrote, and `constructor` must not resolve to Object.prototype's.
+ */
+const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
+  length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
+  outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
+  shoulderRadius: LEN, shoulderLength: LEN, shoulderThickness: LEN,
+  foreShoulderRadius: LEN, foreShoulderLength: LEN, aftShoulderRadius: LEN, aftShoulderLength: LEN,
+  diameter: LEN, spillHoleDiameter: LEN, lineLength: LEN, stripLength: LEN, stripWidth: LEN,
+  cordLength: LEN, width: LEN,
+  outerDiameter: LEN, innerDiameter: LEN, totalHeight: LEN, baseHeight: LEN, flangeHeight: LEN,
+  screwHeight: LEN,
+  tabHeight: LEN, tabLength: LEN, airfoilLeDiamond: LEN, airfoilTeDiamond: LEN, finLeRadius: LEN,
+  filletRadius: { ...LEN, label: 'fillet radius' },
+  nozzleExitDiameter: LEN, maxMotorLength: LEN,
+  sweep: SIGNED_LEN, tabOffset: SIGNED_LEN, motorOverhang: SIGNED_LEN,
+  instanceSeparation: { ...SIGNED_LEN, label: 'distance between instances' },
+  radiusOffset: SIGNED_LEN, radialPosition: SIGNED_LEN,
+  overrideCGX: { ...SIGNED_LEN, label: 'CG override' },
+  mass: MASS, overrideMass: { ...MASS, label: 'mass override' },
+  density: BULK,
+  surfaceDensity: { ...BULK, label: 'canopy material density' },
+  lineDensity: { ...BULK, label: 'line material density' },
+  filletDensity: { ...BULK, label: 'fillet material density' },
+  // A lug or ring set read from a .ork keeps its <instancecount> even where
+  // nothing draws or flies it; the bridge's ceiling bounds it all the same.
+  instanceCount: LINE_INSTANCES,
+});
+
+/**
+ * Type-specific limits, which win over LIMITS_BY_KEY. A lookupTable for the
+ * same reason: a restored session's `type` is whatever string it saved.
+ */
+const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<Record<string, FieldLimit>>({
+  trapezoidfinset: { finCount: FINS },
+  ellipticalfinset: { finCount: FINS },
+  freeformfinset: { finCount: FINS },
+  tubefinset: { finCount: FINS, length: POSITIVE_LEN },
+  fairing: { height: POSITIVE_LEN },
+  podset: {
+    instanceCount: { kind: 'count', hmin: 1, hmax: MAX_ASSEMBLY_INSTANCES, why: 'the most this app draws or flies' },
+  },
+  parallelstage: {
+    instanceCount: { kind: 'count', hmin: 1, hmax: MAX_ASSEMBLY_INSTANCES, why: 'the most this app draws or flies' },
+  },
+  parachute: {
+    lineCount: { kind: 'count', hmin: 0, hmax: MAX_SHROUD_LINES, why: 'more than any real parachute' },
+  },
+  protuberance: { count: { kind: 'count', hmin: 1, hmax: MAX_PROTUBERANCE_COUNT } },
+});
+
+/**
+ * The hard limit on `key` for a component of `type`, or undefined when the key
+ * has none. The ONE table the property panel's commit and the sanitize pass
+ * both read (audit 2026-09-22) — see FieldLimit.
+ */
+export function fieldLimit(type: EditorComponentType | string, key: string): FieldLimit | undefined {
+  const byType = LIMITS_BY_TYPE[type];
+  if (byType && Object.hasOwn(byType, key)) return byType[key];
+  return LIMITS_BY_KEY[key];
+}
+
+/**
+ * `value` brought inside `limit`: a count rounded to a whole number first (the
+ * .ork reader and the panel both round), then clamped. Identity for a value
+ * already inside — and for anything that is not a finite number, which every
+ * reader already treats as absent (nodeNum.num).
+ */
+export function applyFieldLimit(limit: FieldLimit, value: number): number {
+  if (!Number.isFinite(value)) return value;
+  let v = limit.kind === 'count' ? Math.round(value) : value;
+  if (v < limit.hmin) v = limit.hmin;
+  if (limit.hmax !== undefined && v > limit.hmax) v = limit.hmax;
+  return v;
+}
+
+/**
+ * The spelling-blind form: lower case, no underscores. It is the form desktop
+ * compares a file's text against — its enum match lowers the CONSTANT's name
+ * and drops the underscores (DocumentConfig.findEnum, IgnitionEvent.equals) —
+ * and the kernel bridge applies it to what we send (OrkEngine
+ * .separationEventOf, `name.toLowerCase().replace("_", "")`). This side
+ * applies it to the file's text too, so "ALTITUDE_ASCENDING", "Apogee" and
+ * "hex_blunt_base" all name a real value — where desktop, which compares the
+ * text as written, would warn and drop them.
+ */
+const enumForm = (s: string): string => s.trim().toLowerCase().replace(/_/g, '');
+
+/**
+ * The canonical spelling of `raw` among `values`, or null when it names none of
+ * them. The canonical spelling matters beyond the kernel: the panel's selects
+ * and every `=== 'apogee'` in the app compare it exactly.
+ */
+export function canonicalEnum(values: readonly string[], raw: string): string | null {
+  const want = enumForm(raw);
+  return values.find((v) => enumForm(v) === want) ?? null;
+}
+
+/**
+ * A string field the kernel bridge validates. An unknown value is imported
+ * verbatim by every reader, and three of these make the bridge THROW
+ * (ComponentFactory's airfoil switch, OrkEngine.separationEventOf,
+ * ComponentFactory's cluster lookup), which takes down the whole build — and for
+ * a separation in a NON-default flight configuration, only when that
+ * configuration is picked (audit 2026-09-22). The fix is desktop's: a value it
+ * cannot find is dropped with a warning and the default stands. Dropping the
+ * key IS the default here — every reader and the bridge read an absent key as
+ * `fallback`.
+ */
+export interface EnumLimit {
+  values: readonly string[];
+  /** What an absent key means, in words, for the note. */
+  fallback: string;
+}
+
+/** Stage separation triggers — exactly the kernel's set (OrkEngine.separationEventOf). */
+export const SEPARATION_EVENT_VALUES: readonly string[] = SEPARATION_EVENTS.map(([v]) => v);
+/** Ignition events — exactly the kernel's set (OrkEngine.ignitionEventOf). */
+export const IGNITION_EVENT_VALUES: readonly string[] = ['automatic', 'launch', 'ejectioncharge', 'burnout', 'never'];
+/**
+ * A motor's ignition event. Not in ENUM_LIMITS: it lives on the motor, not on
+ * a tree node, so the .ork reader applies it (sanitize.ts `ignitionEventOf`).
+ */
+export const IGNITION_EVENT_LIMIT: EnumLimit = {
+  values: IGNITION_EVENT_VALUES,
+  fallback: 'automatic ignition, desktop OpenRocket’s default',
+};
+
+const AIRFOIL: EnumLimit = {
+  values: AIRFOIL_SECTIONS.map(([v]) => v).filter((v) => v !== ''),
+  fallback: 'the classic cross-section drag',
+};
+const SEPARATION: EnumLimit = {
+  values: SEPARATION_EVENT_VALUES,
+  fallback: 'this stage’s ejection charge, desktop OpenRocket’s default',
+};
+
+/**
+ * The enum fields by component type — a lookupTable, keyed by a node's `type`.
+ *
+ * A recovery device's `deployEvent` is deliberately NOT here. The bridge never
+ * throws on one (ComponentFactory.deployEventOf flies any value it does not
+ * name as the ejection charge), and desktop 24.12 has a sixth value the app's
+ * menu lacks — LOWER_STAGE_SEPARATION, saved as "lowerstageseparation". A first
+ * cut of this table checked deploy events against the app's five and deleted
+ * that one, so a desktop file lost it on save; and an absent deployEvent does
+ * not mean one thing everywhere (the .ork writer reads it as ejection, the
+ * .CDX1 writer as apogee), which breaks the rule above. It stays as the file
+ * wrote it, the way it always has.
+ */
+export const ENUM_LIMITS: Record<string, Record<string, EnumLimit>> = lookupTable<Record<string, EnumLimit>>({
+  trapezoidfinset: { airfoilSection: AIRFOIL },
+  ellipticalfinset: { airfoilSection: AIRFOIL },
+  freeformfinset: { airfoilSection: AIRFOIL },
+  stage: { separationEvent: SEPARATION },
+  parallelstage: { separationEvent: SEPARATION },
+  innertube: { cluster: { values: CLUSTER_OPTIONS.map(([v]) => v), fallback: 'a single tube' } },
+});
+
+const FIN_COUNT: FieldDef = { key: 'finCount', label: 'Fin count', unit: 'count', smin: 1, smax: KERNEL_MAX_FINS };
 const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.5, smin: -15, smax: 15 };
 // Rotation of the whole set about the body axis (kernel FinSet/TubeFinSet
 // baseRotation) — lets straight fins sit BETWEEN tube fins (2026-08-05d).
@@ -514,7 +808,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     DENSITY,
   ],
   tubefinset: [
-    { ...FIN_COUNT, smax: 12 },
+    // FIN_COUNT's own 1..8, the kernel's (see KERNEL_MAX_FINS). This slider ran
+    // to 12 until audit 2026-09-22, and 9–12 drew tubes the kernel never flew.
+    FIN_COUNT,
     lenMM('length', 'Length', 1, 200),
     radMM('outerRadius', 'Outer radius', 0.5, 50),
     lenMM('thickness', 'Wall thickness', 0.1, 5),

@@ -7,6 +7,7 @@ import {
 import { clusterOffsets } from './cluster.js';
 import { finOutlineProblem } from './finOutline.js';
 import { num, numOpt } from './nodeNum.js';
+import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
 import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
@@ -117,7 +118,9 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
   };
 
   const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
-    const count = Math.max(1, Math.round(num(child, 'finCount', 3)));
+    // finCountOf, not the raw count: never more fins than the kernel flies
+    // (audit 2026-09-22 — see counts.ts).
+    const count = finCountOf(child);
     // Rows VALIDATED, not cast (2026-09-08). The cast this replaces trusted
     // whatever was on the node, so one malformed row put non-finite vertices
     // into the display mesh and into every export that shares it: measured on
@@ -246,7 +249,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         addFins(child, pStart, pLen, pRadius, xform);
       } else if (child.type === 'tubefinset') {
         // Ring of open tubes around the body, each tangent to the surface.
-        const count = Math.max(1, Math.round(num(child, 'finCount', 6)));
+        const count = finCountOf(child);
         const len = num(child, 'length', 0.1);
         const rt = tubeFinRadius(child, pRadius);
         const wall = Math.min(num(child, 'thickness', 0.0005), rt * 0.45);
@@ -311,7 +314,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const la = num(child, 'angleOffset', 0);
         const ld = pRadius + r;
         // Line instances (v0.089): copies march aft from the node's position.
-        const lugN = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const lugN = lineInstanceCount(child);
         const lugSep = num(child, 'instanceSeparation', 0);
         for (let li = 0; li < lugN; li++) {
           place(`lug${k++}`, geo.clone(), nodeColor(child, MAT.lug),
@@ -346,7 +349,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const bGeo = new THREE.CylinderGeometry(bd / 2, bd / 2, bh, 16);
         const ba = num(child, 'angleOffset', 0);
         const bdst = pRadius + bh / 2;
-        const bN = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const bN = lineInstanceCount(child);
         const bSep = num(child, 'instanceSeparation', 0);
         for (let li = 0; li < bN; li++) {
           // CylinderGeometry's axis is +y; rotating about X by the mount angle
@@ -398,7 +401,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const podLen = assemblyChainLength(child);
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
-        const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
+        const count = assemblyInstanceCount(child);
         const angleOffset = num(child, 'angleOffset', 0);
         maxR = Math.max(maxR, podRadius + assemblyBoundingRadius(child));
         for (const off of ringInstanceOffsets(count, podRadius, angleOffset)) {

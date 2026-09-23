@@ -3,6 +3,7 @@ import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@
 import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
+import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
 import { wheelNotches } from '../chartPanZoom.js';
 import { DISPLAY_NAME } from '../tree/schema.js';
 import {
@@ -825,8 +826,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * its fill at the wall, rolled it is a wire outline — but nothing is dropped
    * here, so nothing can pop.
    */
-  const finFactors = (n: ComponentNode, dfltCount = 3): FinInstance[] => {
-    const count = Math.max(1, Math.round(num(n, 'finCount', dfltCount)));
+  const finFactors = (n: ComponentNode): FinInstance[] => {
+    // finCountOf: the kernel's 1..8, never the raw count. A .rkt FinCount of
+    // 70,000 made the `Math.min(...ys)` spread below throw RangeError and took
+    // the whole app down (audit 2026-09-22).
+    const count = finCountOf(n);
     const base = num(n, 'rotation', 0) + roll;
     const out: FinInstance[] = [];
     for (let i = 0; i < count; i++) {
@@ -871,7 +875,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const podLen = assemblyChainLength(child);
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
-        const count = Math.max(1, Math.round(num(child, 'instanceCount', 2)));
+        const count = assemblyInstanceCount(child);
         for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
           // −y: the cross-section frame's +y is UP, and SVG y grows down.
           renderChain(podChain, podStart, baseY - off.y * ctx.scale);
@@ -1031,7 +1035,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         const X = ctx.x0 + start * ctx.scale;
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
-        const tubes = finFactors(child, 6);
+        const tubes = finFactors(child);
         const tubeClip = airframeClip(baseY, pRadius);
         for (const { p, near } of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
@@ -1189,7 +1193,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // clock angle, instance 0 forward and the rest marching AFT at
         // `instanceSeparation` spacing — the kernel's own convention
         // (RailButton.getInstanceOffsets), which the sim now flies too.
-        const liCount = Math.max(1, Math.round(num(child, 'instanceCount', 1)));
+        const liCount = lineInstanceCount(child);
         const liSep = num(child, 'instanceSeparation', 0);
         noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),
           ctx.x0 + (start + len + (liCount - 1) * liSep) * ctx.scale, Math.max(ySurf, yOut));

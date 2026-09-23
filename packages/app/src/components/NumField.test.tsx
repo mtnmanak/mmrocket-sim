@@ -129,6 +129,23 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([8]);
   });
 
+  it('clampToMax: a draft over max commits max, flagged until blur, instead of stranding the prefix', () => {
+    // Every draft commits live, so typing "12" into a field capped at 8 went
+    // through "1" first; refusing "12" then left that 1 as the stored value —
+    // twelve fins asked for, ONE fin set (review of audit 2026-09-22).
+    render({ value: 4, min: 1, max: 8, integer: true, clampToMax: true });
+    focus();
+    type('1');
+    type('12');
+    expect(commits).toEqual([1, 8]);
+    expect(input().value).toBe('12');
+    expect(input().getAttribute('aria-invalid')).toBe('true');
+    // Below min and fractions are still refused, not clamped.
+    type('0');
+    type('7.5');
+    expect(commits).toEqual([1, 8]);
+  });
+
   it('refuses a fraction when integer', () => {
     render({ value: 3, integer: true });
     type('3.5');
