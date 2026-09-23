@@ -66,23 +66,48 @@ export interface NoticeDismissers {
 }
 
 /**
- * Repairs applied to published thrust curves for the motors currently
- * loaded. thrustcurve.org carries manufacturer files with coincident time
+ * What the published thrust curves of the motors loaded needed, one entry per
+ * motor per kind, keyed by mount so loading another motor does not make them
+ * new to the bar.
+ *
+ * REPAIRS: thrustcurve.org carries manufacturer files with coincident time
  * points; the app mends them rather than refuse the motor, and says so here
  * so a silent fix never changes someone's numbers without telling them.
+ *
+ * AND ONE THING THAT IS NOT A REPAIR (the guide pass of audit 2026-09-22).
+ * Since v0.116 thrustcurve.ts appends its impulse note — the curve flown
+ * integrates more than 5 % off the motor's certified total — to the same
+ * `curveRepairs` list, and this printed every entry inside "<motor>: its
+ * published thrust curve needed repair before it could be flown (…). This is
+ * a fault in the motor file": a complete sentence in another's brackets,
+ * announcing a repair nothing made. The note already names the motor and says
+ * what it means for apogee, so it is shown as written. Told apart by shape,
+ * because stored sessions hold both kinds in that one list: repairSamples'
+ * entries are lower-case fragments ("dropped 2 duplicate data points"), the
+ * note is a sentence of its own. notices.test.ts holds both producers to that.
  */
-export function curveRepairNotes(assigned: NoticeInput['assigned']): string[] {
-  const out: string[] = [];
-  for (const [, mm] of assigned) {
-    const repairs = (mm.spec as { curveRepairs?: string[] }).curveRepairs;
-    if (repairs?.length) {
-      out.push(`${mm.spec.designation}: its published thrust curve needed repair `
-        + `before it could be flown (${repairs.join('; ')}). This is a fault in the `
-        + 'motor file, not in your design.');
+export function curveNotes(assigned: NoticeInput['assigned']): { id: string; text: string }[] {
+  const out: { id: string; text: string }[] = [];
+  for (const [mountId, mm] of assigned) {
+    const entries = (mm.spec as { curveRepairs?: string[] }).curveRepairs ?? [];
+    const repairs = entries.filter((e) => !isOwnSentence(e));
+    if (repairs.length) {
+      out.push({
+        id: `curve-repair:${mountId}`,
+        text: `${mm.spec.designation}: its published thrust curve needed repair `
+          + `before it could be flown (${repairs.join('; ')}). This is a fault in the `
+          + 'motor file, not in your design.',
+      });
+    }
+    for (const note of entries.filter(isOwnSentence)) {
+      out.push({ id: `curve-impulse:${mountId}`, text: note });
     }
   }
   return out;
 }
+
+/** A note written as a sentence of its own, not a repair fragment to bracket. */
+const isOwnSentence = (entry: string): boolean => /^[A-Z]/.test(entry);
 
 export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): Notice[] {
   const out: Notice[] = [];
@@ -102,8 +127,8 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   for (const f of input.motorFailures) {
     out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
   }
-  for (const [i, text] of curveRepairNotes(input.assigned).entries()) {
-    out.push({ id: `curve-repair:${i}`, severity: 'warn', text });
+  for (const { id, text } of curveNotes(input.assigned)) {
+    out.push({ id, severity: 'warn', text });
   }
   if (input.restoredByOlderBuild) {
     out.push({

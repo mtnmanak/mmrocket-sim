@@ -610,7 +610,10 @@ export type RepairedMotorSpec = MotorSpec & {
   /**
    * Plain-English repairs applied to the published curve before it could be
    * simulated. Present only when the file needed them; the UI shows it so a
-   * silent data fix never changes someone's numbers without saying so.
+   * silent data fix never changes someone's numbers without saying so. Since
+   * v0.116 fetchMotorSpec also appends `impulseNote`'s sentence here, which is
+   * not a repair: the repairs are lower-case fragments and the note a sentence
+   * of its own, and services/notices.ts shows each as what it is.
    */
   curveRepairs?: string[];
 };
@@ -1041,7 +1044,8 @@ export async function fetchMotorSpec(
 
   const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile);
   // Say when the curve flown disagrees with the motor's certification, in the
-  // channel the app already shows for curve repairs (App's fileNote). Found
+  // list the app already shows curve repairs from (services/notices.ts, which
+  // tells this sentence apart from a repair and shows it as written). Found
   // on the owner's own WM 4" Extreme / J460T flight: the cert file integrates
   // +5.3 % and the sim read 24 % over the altimeter while the same day's
   // other flight closed to 1 % (docs/research/metra-flights-2026-09-06.md).

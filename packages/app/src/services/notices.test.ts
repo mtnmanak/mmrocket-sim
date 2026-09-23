@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { designNotices, type NoticeDismissers, type NoticeInput } from './notices.js';
+import { impulseNote, repairSamples } from './thrustcurve.js';
 
 /**
  * THE NOTICE LIST (audit 2026-09-22, row 501 — extraction #5 of 8 September).
@@ -94,14 +95,66 @@ describe('designNotices', () => {
     expect(out.every((n) => n.onDismiss === undefined)).toBe(true);
   });
 
-  it('says a published curve was mended, naming the motor and every repair, as a warning', () => {
-    const repaired = spec('L1115', 75, { curveRepairs: ['put samples back into time order', 'dropped 2 duplicate data points'] });
-    const n = one({ assigned: [['mount', mm(repaired)]] });
-    expect(n).toMatchObject({ id: 'curve-repair:0', severity: 'warn' });
-    expect(n.text).toBe('L1115: its published thrust curve needed repair before it could be flown'
-      + ' (put samples back into time order; dropped 2 duplicate data points). This is a fault in the'
-      + ' motor file, not in your design.');
-    expect(n.onDismiss).toBeUndefined();
+  describe('what a loaded motor\'s published curve needed', () => {
+    it('says a curve was mended, naming the motor and every repair, as a warning', () => {
+      const repaired = spec('L1115', 75, { curveRepairs: ['put samples back into time order', 'dropped 2 duplicate data points'] });
+      const n = one({ assigned: [['mount', mm(repaired)]] });
+      expect(n).toMatchObject({ id: 'curve-repair:mount', severity: 'warn' });
+      expect(n.text).toBe('L1115: its published thrust curve needed repair before it could be flown'
+        + ' (put samples back into time order; dropped 2 duplicate data points). This is a fault in the'
+        + ' motor file, not in your design.');
+      expect(n.onDismiss).toBeUndefined();
+    });
+
+    it('reads repairSamples\' own words as a repair', () => {
+      // Two readings at one instant that disagree: the repair keeps both.
+      const { repairs } = repairSamples([
+        { time: 0, thrust: 0 }, { time: 0.5, thrust: 5 }, { time: 0.5, thrust: 6 }, { time: 1, thrust: 0 },
+      ]);
+      expect(repairs).toEqual(['separated 1 sample sharing t=0.5 s']);
+      const n = one({ assigned: [['mount', mm(spec('F39', 24, { curveRepairs: repairs }))]] });
+      expect(n.text).toBe('F39: its published thrust curve needed repair before it could be flown'
+        + ' (separated 1 sample sharing t=0.5 s). This is a fault in the motor file, not in your design.');
+    });
+
+    /**
+     * NOT A REPAIR (the guide pass of audit 2026-09-22). thrustcurve.ts appends
+     * the impulse note — "the curve flown integrates N % off the certified
+     * total" — to the same `curveRepairs` list, and the list was printed as
+     * "<motor>: its published thrust curve needed repair before it could be
+     * flown (The thrust curve flown for … ). This is a fault in the motor
+     * file": a sentence inside another's brackets, claiming a repair nothing
+     * made and a fault the note itself does not allege.
+     */
+    it('says an impulse that disagrees with the certification in its own words, not as a repair', () => {
+      const note = impulseNote({ designation: 'J460T', totImpulseNs: 10 },
+        [{ time: 0, thrust: 0 }, { time: 1, thrust: 20 }, { time: 2, thrust: 0 }])!;
+      expect(note).toMatch(/^The thrust curve flown for J460T integrates to 20 N·s, \+100\.0 %/);
+      const n = one({ assigned: [['mount', mm(spec('J460T', 54, { curveRepairs: [note] }))]] });
+      expect(n).toMatchObject({ id: 'curve-impulse:mount', severity: 'warn', text: note });
+      expect(n.text).not.toContain('needed repair');
+      expect(n.text).not.toContain('fault in the motor file');
+    });
+
+    it('says each in its own words when a curve needed both', () => {
+      const note = impulseNote({ designation: 'J460T', totImpulseNs: 10 },
+        [{ time: 0, thrust: 0 }, { time: 1, thrust: 20 }, { time: 2, thrust: 0 }])!;
+      const out = designNotices(quiet({
+        assigned: [['mount', mm(spec('J460T', 54, { curveRepairs: ['put samples back into time order', note] }))]],
+      }), dismissers());
+      expect(out.map((n) => [n.id, n.text])).toEqual([
+        ['curve-repair:mount', 'J460T: its published thrust curve needed repair before it could be flown'
+          + ' (put samples back into time order). This is a fault in the motor file, not in your design.'],
+        ['curve-impulse:mount', note],
+      ]);
+    });
+
+    it('keys each motor\'s notices by its mount, so loading another does not make them new', () => {
+      const repaired = (d: string) => mm(spec(d, 29, { curveRepairs: ['put samples back into time order'] }));
+      const out = designNotices(quiet({ assigned: [['booster', repaired('H128')], ['sustainer', repaired('G80')]] }),
+        dismissers());
+      expect(out.map((n) => n.id)).toEqual(['curve-repair:booster', 'curve-repair:sustainer']);
+    });
   });
 
   it('names a design restored from an older build as INFORMATION — the bar must not open for it', () => {
@@ -200,7 +253,7 @@ describe('designNotices', () => {
       runsCapped: { evicted: 2, unsaved: 0 },
     }), dismissers());
     expect(out.map((n) => n.id)).toEqual([
-      'build-error', 'motor-failed:mount', 'curve-repair:0', 'stale-session', 'timestep-migrated',
+      'build-error', 'motor-failed:mount', 'curve-repair:mount', 'stale-session', 'timestep-migrated',
       'pad-mass-moved', 'nozzle-oversize:sus', 'file-note', 'runs-evicted',
     ]);
   });
