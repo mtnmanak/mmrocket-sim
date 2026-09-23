@@ -1,10 +1,12 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
 import type { LaunchConditions } from './LaunchPanel.js';
+import { useOnline } from '../services/net.js';
 import { formatValidTime } from '../services/openMeteo.js';
 import {
   fieldProvenance, staleness, WEATHER_CREDIT, type ApplyKey, type WeatherSnapshot,
 } from '../services/weatherSnapshot.js';
-import { altitudeText, fieldText } from './weatherText.js';
+import { WEATHER_OFFLINE_TITLE } from './WeatherButton.js';
+import { altitudeText, fieldText, sourceHeading, sourceWord } from './weatherText.js';
 
 /**
  * WHERE THE APPLIED WEATHER CAME FROM, under the Launch panel's grid (weather
@@ -27,6 +29,10 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   onChange: (v: LaunchConditions) => void;
 }) {
   const { prefs } = usePrefs();
+  // Fetch again opens the same dialog ☁ Get weather does, whose every request
+  // fails offline — so it greys out with the same reason (review of
+  // 2026-09-23: it was the one way into the dialog that stayed live offline).
+  const online = useOnline();
   const alt = (m: number) => altitudeText(prefs.units.distance, m);
   const stale = staleness(launch, weather);
   const fetched = new Date(weather.retrievedAt);
@@ -34,7 +40,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
     ? fetched.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
   return (
     <div className="weather-strip" role="status" data-weather="strip">
-      {weather.endpoint === 'archive' ? 'ERA5 weather for ' : 'Forecast for '}
+      {sourceHeading(weather.endpoint)}{' '}
       <strong>{weather.place.label}</strong> · {formatValidTime(weather.validUnix, weather.timezone)} · fetched {fetchedText}
       {' '}
       <button type="button" className="file-btn" onClick={onUndo}
@@ -54,9 +60,13 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
       )}
       {stale && (
         <p className="weather-stale" data-weather="stale">
-          These came from the forecast for {alt(stale.forAltitudeM)}; Site altitude is now {alt(stale.nowAltitudeM)}.
+          These came from the {sourceWord(weather.endpoint)} for {alt(stale.forAltitudeM)}; Site altitude is
+          now {alt(stale.nowAltitudeM)}.
           {' '}
-          {onFetchAgain && <button type="button" className="file-btn" onClick={onFetchAgain}>Fetch again</button>}
+          {onFetchAgain && (
+            <button type="button" className="file-btn" onClick={onFetchAgain} disabled={!online}
+              title={online ? undefined : WEATHER_OFFLINE_TITLE}>Fetch again</button>
+          )}
           {' '}
           <button type="button" className="file-btn"
             onClick={() => onChange({ ...launch, temperatureC: null, pressureHPa: null })}>
@@ -68,20 +78,29 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   );
 }
 
-/** Which source each weather-set field names in its provenance line. */
-const SOURCE: Readonly<Record<ApplyKey, string>> = {
-  temperatureC: 'forecast', pressureHPa: 'forecast', windAverage: 'forecast',
-  launchAltitudeM: 'terrain model', latitudeDeg: 'weather place', longitudeDeg: 'weather place',
-};
+/**
+ * Which source each weather-set field names in its provenance line: the air
+ * and the wind come from the forecast — or the ERA5 reanalysis, for an old
+ * enough date — the ground height from the terrain model, and the place from
+ * whatever chose it.
+ */
+function sourceOf(key: ApplyKey, weather: WeatherSnapshot): string {
+  switch (key) {
+    case 'temperatureC': case 'pressureHPa': case 'windAverage': return sourceWord(weather.endpoint);
+    case 'launchAltitudeM': return 'terrain model';
+    case 'latitudeDeg': case 'longitudeDeg': return 'weather place';
+  }
+}
 
 /**
  * One field's provenance line — "forecast", or "edited — forecast said
- * 22.9 °C" once the user has changed it — or undefined for a field the
- * weather did not set.
+ * 22.9 °C" once the user has changed it ("reanalysis" for an ERA5 date) — or
+ * undefined for a field the weather did not set.
  */
 export function provenanceText(launch: LaunchConditions, weather: WeatherSnapshot | null | undefined, key: ApplyKey,
     units: Parameters<typeof fieldText>[2]): string | undefined {
   const p = fieldProvenance(launch, weather ?? null, key);
-  if (p === null) return undefined;
-  return p.kind === 'forecast' ? SOURCE[key] : `edited — ${SOURCE[key]} said ${fieldText(key, p.said, units)}`;
+  if (p === null || !weather) return undefined;
+  const source = sourceOf(key, weather);
+  return p.kind === 'forecast' ? source : `edited — ${source} said ${fieldText(key, p.said, units)}`;
 }

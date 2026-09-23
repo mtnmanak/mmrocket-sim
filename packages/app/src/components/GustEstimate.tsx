@@ -22,8 +22,12 @@ import type { LaunchConditions } from './LaunchPanel.js';
 export function GustEstimate({ value, onChange, forecastWind }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
-  /** The applied forecast hour's mean wind and gust (m/s), or null when there is none. */
-  forecastWind: { meanMs: number; gustMs: number } | null;
+  /**
+   * The applied hour's mean wind and gust (m/s), or null when there is none.
+   * `source` is what the copy calls them: "forecast" unless the hour came from
+   * the ERA5 archive, the weather as it was ("reanalysis").
+   */
+  forecastWind: { meanMs: number; gustMs: number; source?: 'forecast' | 'reanalysis' } | null;
 }) {
   const { prefs } = usePrefs();
   const lineId = `${useId()}-gust`;
@@ -39,6 +43,7 @@ export function GustEstimate({ value, onChange, forecastWind }: {
   const speed = (ms: number) => `${num(ms)} ${sym}`;
   const gust = speed(forecastWind.gustMs);
   const warn = est.convective;
+  const source = forecastWind.source ?? 'forecast';
   const extras = (
     <>
       {warn && (
@@ -56,9 +61,9 @@ export function GustEstimate({ value, onChange, forecastWind }: {
       {...(warn ? { 'data-caution': 'gust-convective' } : {})}>
       {meanMatches && !applied && (
         <button type="button" className="file-btn" aria-describedby={lineId}
-          title="Works out σ from the forecast’s gust and average wind. Nothing changes until you click."
+          title={`Works out σ from the ${source}’s gust and average wind. Nothing changes until you click.`}
           onClick={() => onChange({ ...value, windStdDev: est.sigmaMs })}>
-          Estimate from forecast gust
+          Estimate from {source} gust
         </button>
       )}
       <span id={lineId} role="status">
@@ -67,7 +72,7 @@ export function GustEstimate({ value, onChange, forecastWind }: {
         )}
         {meanMatches && applied && (
           <>
-            Wind gusts σ is an estimate from the forecast: ({num(forecastWind.gustMs)} − {speed(forecastWind.meanMs)})
+            Wind gusts σ is an estimate from the {source}: ({num(forecastWind.gustMs)} − {speed(forecastWind.meanMs)})
             {/* Capped, the division's own result is printed and then the cap:
                 "= 1 m/s" after "(6 − 1 m/s) ÷ 3" would be an equation that
                 does not add up. Two decimals, so a quotient just over the
@@ -80,7 +85,7 @@ export function GustEstimate({ value, onChange, forecastWind }: {
         )}
         {!meanMatches && applied && (
           <>
-            Wind gusts σ, {speed(est.sigmaMs)}, was estimated against the forecast’s {speed(forecastWind.meanMs)} average;
+            Wind gusts σ, {speed(est.sigmaMs)}, was estimated against the {source}’s {speed(forecastWind.meanMs)} average;
             Wind avg now reads {speed(value.windAverage)}.
           </>
         )}

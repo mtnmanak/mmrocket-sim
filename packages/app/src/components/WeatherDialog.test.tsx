@@ -144,6 +144,30 @@ describe('the weather dialog', () => {
     expect(context).toMatch(/Density altitude 0 m → /);
   });
 
+  // A date more than 92 days back is answered by the ERA5 archive: the weather
+  // as it was, which no heading, column or note may call a forecast (spec
+  // §3.1; review of 2026-09-23). The real archive capture for Black Rock.
+  it('calls an ERA5 answer a reanalysis, never a forecast', async () => {
+    render({
+      launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 1190 },
+      route: (u) => (u.includes('/v1/elevation') ? { body: fixture('elevation-blackrock.json') }
+        : u.startsWith('https://archive-api.open-meteo.com/v1/archive?') ? { body: fixture('archive-blackrock-2025-06-14.json') }
+          : { status: 404, body: { reason: `unexpected ${u}` } }),
+    });
+    typeInto(q('input[aria-label="Place"]'), '40.87, -119.06');
+    await click(button('Search'));
+    typeInto(q('input[type="date"]'), '2025-06-14');
+    await click(button('Fetch'));
+    choose(q('.weather-when select'), String(Date.UTC(2025, 5, 14, 21) / 1000));
+    await settle();
+    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun');
+    expect([...host.querySelectorAll('.weather-review thead th')].at(-1)!.textContent).toBe('Reanalysis');
+    expect(row('windAverage')!.textContent).toContain('(reanalysis at 10 m / 33 ft)');
+    expect(q('.weather-context')!.textContent).toMatch(/Reanalysis grid point [\d.]+ km from your site\./);
+    // The archive tag is the one place the word may appear: "…not a forecast".
+    expect(q('.weather-review')!.textContent!.replace(WEATHER_DIALOG_COPY.archive, '')).not.toMatch(/forecast/i);
+  });
+
   it('applies only the ticked rows, in one write, and never σ', async () => {
     await reviewGerlach({ ...DEFAULT_CONDITIONS, windStdDev: 0.7 });
     await click(q('input[aria-label="Apply Wind avg"]'));

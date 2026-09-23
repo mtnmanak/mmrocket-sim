@@ -13,6 +13,7 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { WeatherButton } from './WeatherButton.js';
 import { provenanceText, WeatherStrip } from './WeatherStrip.js';
+import { sourceWord } from './weatherText.js';
 
 export interface LaunchConditions {
   launchRodLengthM: number;
@@ -762,8 +763,8 @@ export function LaunchPanel({
   // from. From the snapshot's FETCHED values, whether or not the wind was
   // applied; the chip itself decides whether Wind avg still matches.
   const fetched = weather?.fetched;
-  const forecastWind = typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
-    ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs } : null;
+  const forecastWind = weather && typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
+    ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs, source: sourceWord(weather.endpoint) } : null;
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false, help?: string, autoStored?: number, absentStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}

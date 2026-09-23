@@ -759,6 +759,41 @@ describe('applied weather in the Launch panel', () => {
     expect(calls).toEqual(['undo', 'dismiss']);
   });
 
+  // The ERA5 archive is the weather as it was, not a forecast (spec §3.1;
+  // review of 2026-09-23): nothing that names the source may say "forecast".
+  it('calls an ERA5 answer a reanalysis — in the strip, the stale line, each field and the σ chip', () => {
+    const ERA5: WeatherSnapshot = { ...SNAP, endpoint: 'archive', validUnix: Date.UTC(2025, 5, 14, 21) / 1000 };
+    renderWeather(APPLIED, ERA5);
+    expect(strip()!.textContent).toMatch(/^ERA5 reanalysis for Gerlach, Nevada, US · 2:00 PM PDT, Sat 14 Jun/);
+    expect(provenance('temperatureC')).toBe('reanalysis');
+    expect(provenance('windAverage')).toBe('reanalysis');
+    expect(provenance('launchAltitudeM')).toBe('terrain model');
+    expect(host.querySelector('.gust-estimate button')!.textContent).toBe('Estimate from reanalysis gust');
+    renderWeather({ ...APPLIED, temperatureC: 30, launchAltitudeM: 1524 }, ERA5);
+    expect(provenance('temperatureC')).toBe('edited — reanalysis said 23.3 °C');
+    expect(host.querySelector('[data-weather="stale"]')!.textContent)
+      .toMatch(/^These came from the reanalysis for 1,202 m;/);
+    expect(host.querySelector('[data-weather="strip"]')!.textContent).not.toMatch(/forecast/i);
+  });
+
+  // Offline, the strip's Fetch again greys out with the same reason ☁ Get
+  // weather gives: it opens the same dialog, whose every request would fail.
+  it('greys out the stale line’s Fetch again offline, with the reason', () => {
+    renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
+    const again = () => btn('Fetch again')! as HTMLButtonElement;
+    expect(again().disabled).toBe(false);
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    try {
+      expect(again().disabled).toBe(true);
+      expect(again().title).toBe('Needs a connection — the weather comes from Open-Meteo. Everything else works offline.');
+      act(() => again().click());
+      expect(calls).toEqual([]);
+    } finally {
+      act(() => { window.dispatchEvent(new Event('online')); });
+    }
+    expect(again().disabled).toBe(false);
+  });
+
   // Step 4: the chip is a full-width row of the grid, right under the wind
   // pair. The grid is a fixed two columns, so σ must be a RIGHT cell (an odd
   // index) for the chip to start a clean row — a mechanism, not a warning.

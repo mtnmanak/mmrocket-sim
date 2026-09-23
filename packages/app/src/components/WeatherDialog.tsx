@@ -15,7 +15,7 @@ import { WEATHER_CREDIT, type WeatherPatch, type WeatherSnapshot } from '../serv
 import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
-import { altitudeText, farText, FIELD_LABEL, fieldText } from './weatherText.js';
+import { altitudeText, capitalise, farText, FIELD_LABEL, fieldText, sourceHeading, sourceWord } from './weatherText.js';
 
 /**
  * ☁ GET WEATHER (weather build, step 3): fetch one hour's forecast for one
@@ -288,6 +288,7 @@ export function WeatherDialog({
   const alt = (m: number) => altitudeText(units.distance, m);
   const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units);
   const offerSite = launch.latitudeDeg !== DEFAULT_CONDITIONS.latitudeDeg && flownLongitudeDeg(launch) !== null;
+  const source = sourceWord(answer?.endpoint ?? 'forecast');
   const applicableKeys = new Set(proposal ? applicable(proposal).map((r) => r.key) : []);
 
   return (
@@ -403,8 +404,10 @@ export function WeatherDialog({
 
         {proposal && answer && place && (
           <div className="weather-review">
+            {/* Every label that names the source reads `source`: an ERA5 answer is
+                the weather as it was, and saying "forecast" over it is wrong. */}
             <h3>
-              Forecast for {place.label} · {formatValidTime(proposal.sample.unix, answer.timezone)}
+              {sourceHeading(answer.endpoint)} {place.label} · {formatValidTime(proposal.sample.unix, answer.timezone)}
             </h3>
             {answer.endpoint === 'archive' && <p className="weather-small">{WEATHER_DIALOG_COPY.archive}</p>}
             <table>
@@ -413,7 +416,7 @@ export function WeatherDialog({
                   <th scope="col"><span className="sr-only">Apply</span></th>
                   <th scope="col"><span className="sr-only">Field</span></th>
                   <th scope="col">Now</th>
-                  <th scope="col">Forecast</th>
+                  <th scope="col">{capitalise(source)}</th>
                 </tr>
               </thead>
               <tbody>
@@ -440,7 +443,7 @@ export function WeatherDialog({
                       <td>
                         {r.value !== null ? fmt(r.key, r.value) : '—'}
                         {r.key === 'windAverage' && r.value !== null
-                          && <span className="weather-small"> (forecast at 10 m / 33 ft)</span>}
+                          && <span className="weather-small"> ({source} at 10 m / 33 ft)</span>}
                         {r.key === 'latitudeDeg' && place.townCentre
                           && <span className="weather-small"> ({place.label} — town centre)</span>}
                         {r.refusal && (
@@ -473,7 +476,7 @@ export function WeatherDialog({
                   once this wind is applied; Apply never sets σ.</li>
               )}
               {proposal.gridDistanceM !== null && (
-                <li>Forecast grid point {farText(units.distance, proposal.gridDistanceM)} from your site.</li>
+                <li>{capitalise(source)} grid point {farText(units.distance, proposal.gridDistanceM)} from your site.</li>
               )}
               <li>Density altitude {alt(densityAltitudeM(launch))} → {alt(densityAfter(launch, patch))}.</li>
             </ul>

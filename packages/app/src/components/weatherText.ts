@@ -1,4 +1,5 @@
 import { fmtAltitude, fmtSi, type UnitSelection } from '../prefs/units.js';
+import type { Endpoint } from '../services/openMeteo.js';
 import type { ApplyKey } from '../services/weatherSnapshot.js';
 
 /**
@@ -41,6 +42,26 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): 
     case 'longitudeDeg':
       return `${Number(stored.toFixed(5))}°`.replace(/^-/, '−');
   }
+}
+
+/**
+ * WHAT THE FETCHED NUMBERS ARE, as every label names them: a forecast — or,
+ * for a date the ERA5 archive answers, a reanalysis, the weather as it was
+ * (weather build, step 3; review of 2026-09-23). The first build said
+ * "forecast" in the review, the wind note, the strip's stale line and each
+ * field's provenance whatever the endpoint, so a re-fly of a 2019 flight read
+ * as a forecast for it. One word per endpoint, read by all of them.
+ */
+export function sourceWord(endpoint: Endpoint): 'forecast' | 'reanalysis' {
+  return endpoint === 'archive' ? 'reanalysis' : 'forecast';
+}
+
+/** "Forecast" / "Reanalysis" — a source word opening a line or a column. */
+export const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** The review's and the strip's heading, before the place: "Forecast for" or "ERA5 reanalysis for". */
+export function sourceHeading(endpoint: Endpoint): string {
+  return endpoint === 'archive' ? 'ERA5 reanalysis for' : 'Forecast for';
 }
 
 /** The panel's own label for each field the weather can write. */
