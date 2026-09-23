@@ -18,6 +18,52 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   Log-only (stderr); zero physics/goldens impact. Found by the staging golden
   scenarios (2026-07-03, Phase 3 Release B).
 
+### rocketcomponent/FreeformFinSet.java (audit 2026-09-22)
+- **Why:** the same TeaVM `%g` gap, in the one place it could still be reached.
+  `setPoints` refuses an outline that crosses or touches itself (a repeated point does it)
+  and rolls back to the previous outline — on a fin set the bridge has just built, the
+  constructor's DEFAULT fin — and reports the refusal through two `log.warn(String.format(
+  "... (%g, %g) ..."))` lines in `intersects(int)`. On the JVM that logged and the build
+  "succeeded" with a fin the design does not draw; under TeaVM the log line itself threw
+  `UnknownFormatConversionException: Unknown format conversion: g` out of `buildTree`, which
+  refused the build but named nothing. The two runtimes DISAGREED outright, and difftest never
+  saw it because no golden ran the path. Audit 2026-09-22, "Degenerate values fail the whole
+  build" (the kernel half; the app-side sanitize is separate).
+- **Change (three lines changed in place, one block appended):** the two log lines `%g` →
+  `%s` with `Double.toString(...)`, exactly as in BasicEventSimulationEngine; `if
+  (intersects())` in `setPoints(ArrayList, boolean)` → `if (outlineRefused = intersects())`
+  (the same single call); and a `private boolean outlineRefused` + `public boolean
+  isOutlineRefused()` appended after upstream's last line. Nothing is inserted above line 609,
+  so every line number upstream has — and the app's comments cite (`tree/finOutline.ts`,
+  `position.ts`, `solidMesh.ts`, `FinPointsEditor.tsx`) — still holds in the carved copy.
+- **The bridge half (not a patch — `api/ComponentFactory.java`):** the freeformfinset case
+  now calls `setOutline(fins, pts, node)`, which runs `setPoints` and throws
+  `Fin set "<name>": its outline crosses or touches itself, so it cannot be simulated.
+  Redraw it in the fin editor.` when `isOutlineRefused()`. Deliberately NOT "roll back like
+  the desktop": a design that silently flies the default fin while drawing its own is the
+  worse outcome, and it is what the plain `%g` → `%s` alone would have produced in the
+  browser — the app's kernel-agreement test (`finOutline.test.ts`, "rejects what buildTree
+  dies on") pins the refusal. A DIVERGENCE from desktop's silent substitution, in the bridge,
+  in all three aero models.
+- **Oracle:** new goldens `freeform.outline.valid/crossing/repeated`
+  (`freeformRefusalScenarios()`, appended at the end). **Before the fix difftest FAILED on
+  exactly the two refused lines** — JVM `freeform.outline.crossing.info|0.575|...` (the
+  default fin: its tip runs 25 mm aft of its root, so the rocket reads 0.575 m against the
+  valid outline's 0.55 m) against TeaVM `freeform.outline.crossing.refused|Unknown format
+  conversion: g`. After: both runtimes print the same named refusal; differential 377 → 380
+  lines, clean (252 bit-identical, 128 within tolerance), and all 377 existing lines — the
+  freeform and fillet goldens included — are bit-identical to before.
+- **Behavioural guard:** `packages/engine/src/freeformOutline.test.ts` (the named message for
+  a crossing and a repeated-point outline, the id fallback, and a valid outline still
+  building at its own length). The first two fail against the pre-fix artifact.
+- **Artifact:** md5 `dafd535038530da83eacef3083d33f19` → `ee941192e22db85624dd5ed9fd0a03fb`;
+  `isOutlineRefused` 0 → 4 occurrences and the `between (%s` format string present.
+- **Other `%g` left in the kernel, recorded not changed:** `FinSet.getPointDescr` (`%6.4g`;
+  upstream marks it "for debugging", and only `toDebugDetail` calls it) and
+  `BoundingBox.toString` (`%g`) — debug and `toString` output only; a grep of the carved
+  sources, the patches and the bridge found no build or simulate path calling either. Same fix
+  if one ever becomes reachable.
+
 ### rocketcomponent/FlightConfigurationId.java + motor/MotorConfigurationId.java
 - **Why:** TeaVM 0.15's `java.util.UUID` is string-backed; it lacks `UUID(long, long)`,
   `getMostSignificantBits()`, and `compareTo` — all used by these two key classes.
@@ -688,7 +734,8 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   break the v0.069 parity proof that "OpenRocket — Extended Barrowman" computes what it
   computes with the nozzle deleted. Eric's standing ruling, 2026-08-25. Ways back for a
   user: pick Classic EB, or clear the stage's nozzle (which drops the drag half too).
-- **Once per THRUSTING STAGE, not once per motor.** `AxialStage.nozzleExitDiameter` is
+- **Once per THRUSTING STAGE (per stage INSTANCE since 2026-09-22 — see the next bullet),
+  not once per motor.** `AxialStage.nozzleExitDiameter` is
   defined app-side as the cluster's single equivalent nozzle with the exit AREAS summed
   (the `FIELDS.stage` entry in `packages/app/src/tree/schema.ts` — NOT `model/schema.ts`,
   which has never existed; corrected 2026-09-08 in the patch javadoc, this bullet and
@@ -698,8 +745,15 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   nozzle area per stage INSTANCE. Two mounts on one stage are de-duplicated by stage number,
   the way `applyThrustState` builds its thrusting-stage set. (This overrules the kernel
   reader's per-motor recommendation; the physics and inputs readers were right.)
-- **⚠ THE TWO HALVES WILL DISAGREE BY THE INSTANCE COUNT ONCE PARALLEL STAGES REACH THE
-  BRIDGE.** The drag half applies the subtraction inside its per-component loop and then
+- **RESOLVED 2026-09-22 (code review E2) — the halves now agree per stage INSTANCE.** This
+  half multiplies each credited stage's term by `stage.getComponentLocations().length`, so
+  an N-instance `ParallelStage` gets N areas, as the drag half always charged it; on a
+  parallel stage the field therefore means ONE strap-on's equivalent exit. The throw below
+  is gone for a `parallelstage` and kept for a `podset` (which is not a stage and never
+  receives the field). Entry, goldens and measurements: "Correctness fixes" at the end of
+  this ledger. The history this bullet recorded until then, kept because it is why the
+  throw existed: **⚠ THE TWO HALVES WILL DISAGREE BY THE INSTANCE COUNT ONCE PARALLEL STAGES
+  REACH THE BRIDGE.** The drag half applies the subtraction inside its per-component loop and then
   scales: `total += instanceCount * cd` (`BarrowmanCalculator.java` patch :1121), so an
   N-instance `ParallelStage` removes N nozzle areas of base drag. This half de-duplicates by
   `stage.getStageNumber()`, which is ONE number for the whole `ParallelStage`, so it adds
@@ -1219,6 +1273,198 @@ aerodynamic model.
   +59.8 % at M2.00**. That is the method behaving correctly, and it means the body's own
   known subsonic drag bias now propagates into the protuberance instead of being masked
   at one point — one fix to the body will fix both.
+
+### masscalc/MassCalculation.java + rocketcomponent/RingComponent.java — an OFF-AXIS mount carries its parallel-axis ROLL inertia (code review E1, 2026-09-22)
+
+- **Why:** an inner tube placed off the centreline on its own (`radialPosition` ≠ 0 — the
+  desktop "split cluster", one tube per motor, is the everyday case) contributed NO
+  transport term to roll inertia, neither for the motor in it nor for the tube itself.
+  Two holes, one per half:
+  - **Motor** — `MassCalculation.calculateMountData` puts the motor's CM on the mount's
+    PARENT axis (`clusterLocalCM` has y = z = 0) and adds `eachMass * d²` per instance,
+    but only inside `if( 1 < instanceCount )` ("more than 1 motor => motors are not at
+    the centerline"). `InnerTube.getInstanceOffsets()` carries the radial shift for every
+    cluster count, so a single off-axis mount's offset was right there and was skipped.
+  - **Tube** — `RingComponent.getRotationalUnitInertia` is the ring's own
+    `(ro² + ri²)/2` and nothing else, while `getComponentCG` puts a single tube's mass on
+    the parent axis and a cluster's at the MEAN of its offsets. So a single off-axis tube
+    missed `m·r²` and a cluster's tubes missed their spread about the mean — the second
+    one in EVERY cluster, including the ones built with the cluster dropdown.
+  Upstream 24.12 has both holes byte for byte; this is an inherited defect, not a
+  regression. Found by the 19 September code review
+  (`docs/testing/review-2026-09-19-engine-app-physics.md` E1), verified and measured in
+  `docs/testing/response-2026-09-21a.md` §1 (roll inertia 52.7 % low, peak roll rate
+  6.2 % over, apogee 1.3 % on that sitting's motor-dominated split cluster). Ruled by Eric
+  in `docs/testing/issues-2026-09-22a.md`: *"fix all the issues found in the code-review"*
+  — that review's E1, whose own measured omission is `2 × (m_tube + m_motor) × 0.03²`, i.e.
+  both halves.
+- **The measured symptom, from the goldens this entry added** (`inertia.offaxis.*`, before
+  the fix): `split` (two tubes at ±30 mm) printed the SAME seven numbers as `centre` (the
+  same two tubes on the axis), bit for bit, while `double` — the identical geometry built
+  as one 'double' cluster — carried its motors' `2 × 0.35 × 0.03²` = 6.3e-4 kg·m². And
+  `ring3`'s DRY roll inertia equalled `ring3zero`'s (the same cluster at clusterScale 0)
+  to the last digit: the tubes' spread was never charged.
+- **Change, `MassCalculation` (the motor half, extends the v0.088 patch):** the guard is
+  gone; every instance gets `eachMass * hypot(y, z)²`. The N > 1 path runs exactly the
+  expression it always ran, and a centreline mount's single offset is (0, 0, 0), so the
+  added term is `eachMass * 0² = +0.0` and `clusterIr` is bit-identical by construction.
+- **Change, `RingComponent` (the tube half, NEW patch — promoted from carved):**
+  `getRotationalUnitInertia` returns `own + instanceSpreadUnitInertia()` — the per-unit-mass
+  `Σ|d_i − ref|² / N` of the instance offsets' lateral components — and returns `own`
+  UNTOUCHED when the spread is exactly 0.0 (a structural guard, not `own + 0.0`). The
+  spread is 0.0 for every centering ring, bulkhead, coupler and engine block (their
+  offsets are the inherited single ZERO, or a RadiusRingComponent line pattern along x
+  only) and for every centreline tube.
+- **The modelling choice, stated because it is one:** `ref` is the lateral point
+  `getComponentCG()` ALREADY reports — (0, 0) for one instance, the mean of the offsets for
+  several — and the motor half's reference is the mount's parent axis, where
+  `clusterLocalCM` already sits. So both halves add ROLL inertia and nothing else: no CG
+  moves, and no pitch/yaw term appears through `rebase()`. Rejected: moving a single
+  tube's CG out to its offset (the `MassObject` convention). That is exact inside a pod
+  set, but it also adds `m·z²` to Iyy and `m·y²` to Izz through `rebase()` — and the
+  stepper uses Iyy for BOTH pitch and yaw, so a tube's pitch/yaw inertia would depend on
+  which way round the body it was clocked. Outside the ruling, and not an improvement.
+- **Known residuals, recorded rather than modelled:** (a) the terms are about the mount's
+  PARENT axis, so a tube that is off the axis INSIDE an off-axis pod set is charged
+  `m(D² + d²)` for pod offset D and tube offset d, missing the `2m·D·d` cross term —
+  shared with upstream's own cluster motors in pods, and `calculateMotors` applies no
+  instance ROTATION to a pod's children, so the motor half could not be exact there
+  without a wider rewrite; (b) an off-axis motor's thrust still makes no moment
+  (upstream's own `TODO: HIGH` on `RK4SimulationStepper.calculateThrust`); (c) the pitch
+  spread of a RadiusRingComponent LINE pattern (rings strung along x) is still missing
+  from Iyy — the same species on the other axis, upstream, untouched here.
+- **Divergence from upstream:** YES, deliberate, in ALL THREE aerodynamic models — masscalc
+  has no carrier for the model flags, exactly as the v0.088 entry above records. It makes
+  the app's mass model disagree with desktop OpenRocket 24.12 on purpose for any design
+  with an off-axis tube — and a cluster's tubes ARE off-axis tubes, so that is EVERY
+  cluster with a non-zero spacing, the ones built with the cluster dropdown included (the
+  tube half; their motors already had the term). Roll inertia is printed in All stats, so
+  under Classic Extended Barrowman too those designs now show a figure desktop 24.12 does
+  not. **Copy that must say so:** the user guide's "If you want the 24.12 model's own
+  answers" list (How It Works: Physics & Math) names what Classic Extended Barrowman does
+  NOT switch off — the fixed turbulence seed, the v0.088 override inertia, the streamlined
+  protuberance — and this belongs beside the v0.088 item. The guide is release copy, not a
+  kernel file, so the wording rides in this package's return (audit 2026-09-22); until it
+  lands, that paragraph overstates parity for every clustered design.
+- **Oracle:** the before/after `goldenJvm` diff (difftest compares JVM with TeaVM and has no
+  baseline). **All 355 pre-existing lines are bit-identical** — including
+  `cluster.ring3.*` and `flight.cluster.ring3`: no pre-existing golden prints a cluster's
+  Ixx, and that one cluster flight is vertical, windless and uncanted, so its roll moment
+  is exactly 0 and `momZ / Ixx` is 0 whatever Ixx is. The prediction in the 21 September
+  verification that the tube half "moves existing cluster goldens" did not hold. Movement
+  is confined to the new `inertia.offaxis.split/double/single/ring3` and
+  `flight.offaxis.split.canted`; `centre` and `ring3zero` did not move. **Checked as
+  arithmetic, not as "the number changed":** `split − centre` Ixx = 6.472473436682075e-4
+  against `2 × (0.009581857593448866 + 0.35) × 0.03²` = 6.47247343668208e-4; the dry
+  difference 1.72473436682077e-5 against `2 × 0.009581857593448866 × 0.03²`;
+  `single − centre-of-one` likewise at one mount; `ring3 − ring3zero` = 3.4555816514730e-4
+  against `3 (m_t + m_m) r²` with `r = 2·ro/√3`; and `split` equals `double` in Ixx
+  (0.0022048313168307873) and dry Ixx to the last printed digit.
+- **User-visible, measured** on the golden fixture (98 mm airframe, two 31 mm mounts at
+  ±30 mm, 0.35 kg motors), through the shipped wrapper and the TeaVM artifact: loaded roll
+  inertia **1.5575839731625798e-3 → 2.2048313168307873e-3 kg·m²** (the old value 29.4 %
+  low), dry **1.4839964731625797e-3 → 1.5012438168307874e-3** (1.1 % low). Mass, CG and
+  pitch inertia unchanged bit for bit. With 0.5° of fin cant the roll is quasi-steady (a
+  steady roll rate does not depend on inertia) and max roll rate moves 7.98266 → 7.98173
+  rad/s, apogee +0.0001 m; with a 0.4 s, 800 N burn per motor and 2° of cant, max roll
+  rate **166.534 → 164.595 rad/s** (the old value 1.2 % over) and apogee 867.222 →
+  867.203 m. The verification's own motor-dominated case is the one quoted above (52.7 %).
+  **A cluster built with the dropdown moves too, by the tube half alone** (the goldens,
+  before → after, same airframe): `ring3` — three 31 mm tubes touching, 3-ring, 0.35 kg
+  motors — loaded roll inertia 1.9329567027852556e-3 → 1.94216486793256e-3 kg·m²
+  (+0.48 %), dry 1.4862254527852556e-3 → 1.49543361793256e-3 (+0.62 %); `double` at
+  ±30 mm, loaded 2.1875839731625795e-3 → 2.2048313168307873e-3 (+0.79 %), dry +1.16 %.
+  Small, because a paper tube is light against its motor, but no longer bit-identical to
+  desktop for any spaced cluster.
+- **Goldens:** `offAxisInertiaScenarios()`, appended at the END of the roster (difftest
+  compares by line index). Differential **355 → 362 lines**, JVM↔TeaVM clean (235
+  bit-identical, 127 within the existing tolerances).
+- **Behavioural guards:** `packages/engine/src/rollInertia.test.ts`, 6 tests — the split's
+  loaded and dry increments as parallel-axis arithmetic on masses the kernel reports, the
+  split equal to the double cluster, the single asymmetric mount, the 3-ring cluster's
+  tube spread, a centreline design pinned to its pre-fix values with `toBe`, and the split
+  and double FLYING identically with canted fins. Five of the six fail against the pre-fix
+  artifact; the centreline pin passes on both, which is its job.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,743,381 → 2,751,636 bytes, md5
+  `bef15ae395e45b0d271946d3234082fa` → `dec183bb5dd8d3cae8a0e857e97377a1`.
+  `instanceSpreadUnitInertia` 0 → 2 in the artifact (TeaVM links it only if something calls
+  it, so the count is the proof the tube half is really in). The Gradle log said
+  `teavmClasses UP-TO-DATE` while `compileJava` recompiled — the grep, not the log, is the
+  evidence.
+- **Upstreamable:** yes, both halves — an upstream arithmetic bug, confined to one guard and
+  one accessor.
+
+### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half always was (code review E2, 2026-09-22)
+
+- **Why:** `calculatePressureThrust` (feature #5 above) de-duplicated its term by
+  `stage.getStageNumber()` and stopped there. That is ONE number for a whole
+  `ParallelStage`, so N strap-ons collected one nozzle's worth of pressure thrust while
+  `MotorClusterState` flew N curves (`motorCount = mount.getComponentLocations().length`) and
+  the power-on base-drag half removed N nozzle areas (`BarrowmanCalculator.calculateBaseCD`,
+  `total += instanceCount * cd`). Found by the 19 September code review
+  (`docs/testing/review-2026-09-19-engine-app-physics.md` E2): through the raw API at ~86 kPa,
+  two instances of a 32 N motor behind a 10 mm exit flew 65.203822 N where per-instance
+  accounting gives 66.407645 N. v0.136 made that input THROW in `OrkRocket.buildTree`
+  (`assertNoAssemblyNozzle`) rather than fly it short; this entry is the arithmetic that lets
+  the throw go. Ruled in `docs/testing/issues-2026-09-22a.md` with the rest of the review.
+- **The definition, stated because the feature #5 bullet said it had to be ruled first:**
+  per INSTANCE — on a parallel stage the field is ONE strap-on's equivalent exit. That is what
+  it already meant to the drag half, so choosing it changes one half, not both; the other
+  reading (the assembly's total) would have meant rewriting the drag half's per-component
+  subtraction. The app has no nozzle field on a parallel stage yet (`FIELDS.parallelstage`
+  carries none; `applyStageNozzles` writes top-level stages), so no user file carries either
+  reading today.
+- **Change:** after the stage-number de-dup, the credited stage's term is multiplied by
+  `stage.getComponentLocations().length` — the accessor `MotorClusterState` reads on the
+  MOUNT for `motorCount`, here read on the stage, so an enclosing assembly's multiplicity
+  counts the way the motors' curve thrust counts it. The multiply is STRUCTURAL: skipped when
+  the count is 1, which it always is for a serial stage (its parent is the `Rocket`), so every
+  path the app can reach runs exactly the arithmetic it ran before. `orkEngine.ts`: the guard
+  is now `assertNoPodSetNozzle` — a `podset` is still refused (it is not an `AxialStage`,
+  `ComponentFactory` never hands it the field, and its pods burn as part of the enclosing
+  stage, so the value would be dropped without a word); a `parallelstage` is accepted.
+- **Divergence from upstream:** none new — pressure thrust is a feature patch that upstream
+  does not have; gated, as before, to Rogers Kbf / Supersonic.
+- **Oracle:** the before/after `goldenJvm` diff. Goldens `flight.pthrust.para1..3`
+  (`parallelPressureThrustScenarios()`, appended at the end: a motorless core with N = 1, 2, 3
+  strap-ons, each a 32 N plateau motor behind a 10 mm exit, Kbf, the 1,400 m / 303.15 K /
+  86,000 Pa pad, cut at 3 s). **367 of 377 lines bit-identical** — every pre-existing line and
+  all five `para1` lines (the N = 1 path takes no multiply). Movement is confined to `para2` and
+  `para3`, and it checks as arithmetic: `para2.sample.5` reads P = 86015.92597998893 Pa and
+  thrust 66.40474372372645 N, which is `2 × 32 + 2 × (π × 0.005²) × (101325 − P)` to the last
+  digit; before the fix the same row read 65.20237145593025 N, `64 +` ONE term. Altitude at the
+  3 s cut: `para2` 234.335 → 237.920 m, `para3` 264.015 → 278.388 m. Differential 362 → 377
+  lines, JVM↔TeaVM clean (250 bit-identical, 127 within tolerance).
+- **User-visible:** none today. No app path puts a nozzle exit on a parallel stage (above), so
+  the only way to reach the old or the new arithmetic is the raw engine API, where the old one
+  now cannot be reached at all. When the queued parallel-stage nozzle field lands, it gets the
+  per-instance reading both halves share.
+- **Known residual, FOUND while doing this and NOT fixed here (outside E2):** the drag half
+  subtracts the nozzle area from EVERY base in the stage — each `SymmetricComponent` whose aft
+  radius exceeds the next one's fore radius, pods included, since a pod's `getStage()` is the
+  enclosing stage — so a stage with more than one base per instance recovers more than one
+  nozzle area, while this half charges exactly one. **Reachable in the app today:** a serial
+  stage carrying a pod set, with the stage's nozzle exit set, under Kbf/Supersonic. Measured
+  through the shipped wrapper at Mach 0.3 (29 mm airframe, 20 mm exit, two 24 mm pods):
+  power-off base CD 0.13170 → power-on 0.11604 without pods (reduction 0.015660, one area);
+  with the pods 0.17680 → 0.12982 (reduction 0.046980, exactly THREE areas — core plus two
+  pods). Same species as E2, on the drag side, and pre-existing; it moves reachable numbers,
+  so it belongs on the board (Tier 1: a wrong number reaching users) and in `open-items.md`,
+  not in this entry. **It was NOT on either when this entry was written** — the package that
+  found it could not write the local-only `docs/` folder, so its return (audit 2026-09-22,
+  package A8) hands the row over for filing. Until a board row exists, this bullet is the
+  only record; whoever files it should replace this sentence with the row's pointer.
+- **Behavioural guard:** `packages/engine/src/pressureThrust.test.ts`, *"credits a parallel
+  stage one nozzle area per strap-on"* — for N = 1, 2, 3, every plateau row bit-exact against
+  `N × 32 + N × term` and, for N > 1, NOT equal to the pre-fix `N × 32 + term`. It fails
+  against the pre-fix artifact (65.20240478887837 read where 66.40480957775674 is due) and
+  passes after. *"still refuses a nozzle exit diameter on a pod set"* keeps the other half of
+  the v0.136 guard pinned.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,751,636 → 2,755,268 bytes (the harness
+  scenario is most of it), md5 `dec183bb5dd8d3cae8a0e857e97377a1` →
+  `dafd535038530da83eacef3083d33f19`. `getComponentLocations` 13 → 14 occurrences — the new
+  call site in `calculatePressureThrust`, which is the proof the change is in the build.
+- **Upstreamable:** n/a — upstream has no pressure-thrust term.
 
 ## Rules
 

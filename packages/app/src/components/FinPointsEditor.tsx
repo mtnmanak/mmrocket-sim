@@ -118,9 +118,8 @@ export function FinPointsEditor({ points, onChange }: {
    * Commit an edited point array, unless the edit is what breaks the outline.
    *
    * A self-intersecting or duplicate-point outline is not a cosmetic problem
-   * here: the kernel reports it through a Java `%g` format TeaVM does not
-   * implement, so `OrkRocket.buildTree` throws `Unknown format conversion: g`
-   * and App.tsx blanks the whole design — no mass, CG, CP, stability, stats,
+   * here: the kernel refuses it, so `OrkRocket.buildTree` throws (naming the
+   * fin set) and App.tsx blanks the whole design — no mass, CG, CP, stability, stats,
    * exports or Launch — until the user undoes an edit that looked fine on the
    * canvas. See tree/finOutline.ts for the mechanism and the kernel citation.
    *

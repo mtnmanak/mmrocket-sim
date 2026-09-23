@@ -48,11 +48,201 @@ public final class GoldenMain {
         lineInstanceScenarios();
         bodyRatioOverrideScenarios();
         pressureThrustScenarios();
+        offAxisInertiaScenarios();
+        parallelPressureThrustScenarios();
+        freeformRefusalScenarios();
+    }
+
+    /**
+     * A REFUSED FREEFORM OUTLINE (audit 2026-09-22) - the one path where the two
+     * runtimes used to DISAGREE outright rather than by an ulp. FreeformFinSet
+     * refuses an outline that crosses or touches itself; on the JVM it logged that
+     * with a %g format and rolled back to the default fin (so the build "succeeded"
+     * with a fin the design does not draw), while TeaVM, which has no %g, threw
+     * "Unknown format conversion: g" out of the same log line. Nothing here ran the
+     * path, so difftest never saw the split. Both runtimes must now print the same
+     * bridge refusal, naming the fin set, and the valid outline must still build.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     */
+    private static void freeformRefusalScenarios() {
+        String[][] cases = {
+                //  tag         points (JSON)
+                { "valid", "[[0,0],[0.02,0.03],[0.045,0.03],[0.06,0]]" },
+                { "crossing", "[[0,0],[0.02,0.03],[0.005,0.02],[0.06,0]]" },
+                { "repeated", "[[0,0],[0.02,0.03],[0.02,0.03],[0.06,0]]" },
+        };
+        for (String[] c : cases) {
+            String json = "{\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.02,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.4,\"outerRadius\":0.02,\"thickness\":0.001,\"children\":["
+                    + "  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"name\":\"Fins\",\"finCount\":3,\"thickness\":0.003,"
+                    + "   \"points\":" + c[1] + "}"
+                    + "]}]}";
+            String tag = "freeform.outline." + c[0];
+            int r;
+            try {
+                r = api.OrkEngine.buildRocket(json);
+            } catch (IllegalArgumentException e) {
+                System.out.println(tag + ".refused|" + e.getMessage());
+                continue;
+            }
+            lineStaticInfo(tag + ".info", api.OrkEngine.getStaticInfo(r));
+        }
+    }
+
+    /**
+     * OFF-AXIS ROLL INERTIA (code review E1, fixed 2026-09-22) - an inner tube placed
+     * off the centreline, and the motor in it, must carry the parallel-axis term the
+     * same geometry gets when it is built as a cluster.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * The airframe is a 98 mm body with 31 mm mounts, each flying a 0.35 kg motor.
+     * Columns: mass, massEmpty, cg, Ixx, Iyy, IxxEmpty, IyyEmpty. The rows are built
+     * so the arithmetic can be checked by hand rather than merely noticed moving:
+     *   centre    - two mounts both ON the axis: the reference, bit-identical to 24.12.
+     *   split     - the desktop "split cluster", one mount at +30 mm and one at -30 mm.
+     *               Ixx - centre.Ixx == 2 (m_tube + m_motor) 0.03^2, and every other
+     *               column equals centre's: the fix adds roll inertia and nothing else.
+     *   double    - the same two tubes as ONE 'double' cluster at +/-30 mm. Must equal
+     *               split in every column (to rounding): two ways of building one rocket.
+     *   single    - one mount only, off the axis at 30 mm: the asymmetric case.
+     *   ring3 / ring3zero - a '3-ring' cluster at its natural separation and at
+     *               clusterScale 0 (all three tubes on the axis). The dry Ixx
+     *               difference is the TUBES' spread, which upstream never charged.
+     * flight.offaxis.split.canted flies `split` with 0.5 degrees of fin cant, so the
+     * roll equation - the one consumer of Ixx - runs on the new inertia in both runtimes.
+     * The behavioural guards are in packages/engine/src/rollInertia.test.ts: difftest
+     * compares JVM against TeaVM with no stored baseline (LEDGER 2026-08-25b).
+     */
+    private static void offAxisInertiaScenarios() {
+        final double d = 0.03;
+        final double ro = 0.0155;
+        final String split = mountJson("m1", ",\"radialPosition\":" + d + ",\"radialDirection\":0") + ","
+                + mountJson("m2", ",\"radialPosition\":" + d + ",\"radialDirection\":" + Math.PI);
+        String[][] cases = {
+                //  tag            mounts (JSON)                                              fin cant (rad)
+                { "centre", mountJson("m1", ",\"radialPosition\":0") + "," + mountJson("m2", ",\"radialPosition\":0"), "0" },
+                { "split", split, "0" },
+                { "double", mountJson("m1", ",\"cluster\":\"double\",\"clusterScale\":" + (d / ro) + ",\"clusterRotation\":0"), "0" },
+                { "single", mountJson("m1", ",\"radialPosition\":" + d + ",\"radialDirection\":0"), "0" },
+                { "ring3", mountJson("m1", ",\"cluster\":\"3-ring\",\"clusterScale\":1.0,\"clusterRotation\":0"), "0" },
+                { "ring3zero", mountJson("m1", ",\"cluster\":\"3-ring\",\"clusterScale\":0,\"clusterRotation\":0"), "0" },
+                { "split.canted", split, Double.toString(0.5 * Math.PI / 180.0) },
+        };
+        for (String[] c : cases) {
+            String json = "{\"name\":\"OffAxis\",\"components\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.25,\"aftRadius\":0.049,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.9,\"outerRadius\":0.049,\"thickness\":0.0012,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.14,\"tipChord\":0.07,\"sweep\":0.07,"
+                    + "   \"height\":0.09,\"thickness\":0.003,\"cant\":" + c[2] + "},"
+                    + c[1] + ","
+                    + "  {\"type\":\"parachute\",\"diameter\":0.9}"
+                    + "]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            for (String id : c[1].contains("\"m2\"") ? new String[] { "m1", "m2" } : new String[] { "m1" }) {
+                api.OrkEngine.setMotorById(r, id, "M29", 0.029, 0.2,
+                        new double[] { 0, 0.05, 1.9, 2.0 },
+                        new double[] { 0, 160.0, 160.0, 0 },
+                        new double[] { 0.35, 0.345, 0.155, 0.15 },
+                        0.1, 8.0);
+            }
+            if (c[0].endsWith(".canted")) {
+                java.util.Map<String, Object> summary = asMap(api.JsonLite.parseObject(
+                        api.OrkEngine.simulateJson(r, "{\"rodLength\":1.5}")).get("summary"));
+                line("flight.offaxis." + c[0],
+                        api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                        api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                        api.JsonLite.dbl(summary, "timeToApogee", Double.NaN));
+                continue;
+            }
+            java.util.Map<String, Object> info = api.JsonLite.parseObject(api.OrkEngine.getStaticInfo(r));
+            line("inertia.offaxis." + c[0],
+                    api.JsonLite.dbl(info, "mass", Double.NaN),
+                    api.JsonLite.dbl(info, "massEmpty", Double.NaN),
+                    api.JsonLite.dbl(info, "cg", Double.NaN),
+                    api.JsonLite.dbl(info, "rotationalInertia", Double.NaN),
+                    api.JsonLite.dbl(info, "longitudinalInertia", Double.NaN),
+                    api.JsonLite.dbl(info, "rotationalInertiaEmpty", Double.NaN),
+                    api.JsonLite.dbl(info, "longitudinalInertiaEmpty", Double.NaN));
+        }
+    }
+
+    /** A 31 mm motor-mount inner tube for offAxisInertiaScenarios; `extra` is raw JSON. */
+    private static String mountJson(String id, String extra) {
+        return "{\"type\":\"innertube\",\"id\":\"" + id + "\",\"length\":0.2,\"outerRadius\":0.0155,"
+                + "\"thickness\":0.0005,\"density\":1000,\"motorMount\":true" + extra
+                + ",\"position\":{\"method\":\"bottom\",\"offset\":0}}";
+    }
+
+    /**
+     * PRESSURE THRUST ON A PARALLEL STAGE (code review E2, fixed 2026-09-22) - the
+     * term is charged once per stage INSTANCE, as the power-on base-drag half always
+     * charged its nozzle area, not once per stage NUMBER (one number for a whole
+     * ParallelStage).
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * A motorless core carrying N strap-ons (N = 1, 2, 3), each flying a 32 N plateau
+     * motor behind a 10 mm exit, under Rogers Kbf from the conditionsScenarios pad
+     * (1400 m / 303.15 K / 86000 Pa), cut at 3 s so the whole run is on the plateau.
+     * Each sample row is (time, P, thrust), so the arithmetic checks by hand:
+     *   thrust == N * 32 + N * (PI * 0.005^2) * (101325 - P).
+     * N = 1 takes the structural no-multiply path; before the fix N = 2 and N = 3
+     * read N * 32 + ONE term. The behavioural guard, bit-exact at every plateau row,
+     * is packages/engine/src/pressureThrust.test.ts.
+     */
+    private static void parallelPressureThrustScenarios() {
+        for (int n = 1; n <= 3; n++) {
+            String json = "{\"name\":\"StrapOns\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":["
+                    + "{\"type\":\"nosecone\",\"length\":0.2,\"aftRadius\":0.029,\"thickness\":0.002},"
+                    + "{\"type\":\"bodytube\",\"length\":0.8,\"outerRadius\":0.029,\"thickness\":0.001,\"density\":950,\"children\":["
+                    + "  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.15,\"tipChord\":0.08,\"sweep\":0.07,\"height\":0.10,\"thickness\":0.003},"
+                    + "  {\"type\":\"parachute\",\"diameter\":0.6},"
+                    + "  {\"type\":\"parallelstage\",\"id\":\"boost\",\"instanceCount\":" + n + ",\"nozzleExitDiameter\":0.010,"
+                    + "   \"radiusMethod\":\"relative\",\"radiusOffset\":0,\"angleOffset\":0,\"angleMethod\":\"relative\","
+                    + "   \"separationEvent\":\"burnout\",\"separationDelay\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":["
+                    + "    {\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.0155,\"thickness\":0.002},"
+                    + "    {\"type\":\"bodytube\",\"id\":\"bmount\",\"length\":0.3,\"outerRadius\":0.0155,\"thickness\":0.0005,\"density\":950,\"motorMount\":true}"
+                    + "  ]}"
+                    + "]}]}]}";
+            int r = api.OrkEngine.buildRocket(json);
+            api.OrkEngine.setMotorById(r, "bmount", "CONST32", 0.029, 0.2,
+                    new double[] { 0, 0.001, 3.999, 4.0 },
+                    new double[] { 0, 32.0, 32.0, 0 },
+                    new double[] { 0.35, 0.3499, 0.1501, 0.15 },
+                    0.1, 8.0);
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            String result = api.OrkEngine.simulateJson(r, "{\"rodLength\":1.0,\"launchAltitude\":1400,"
+                    + "\"temperature\":303.15,\"pressure\":86000,\"maxTime\":3,\"series\":\"full\"}");
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(result);
+            java.util.Map<String, Object> summary = asMap(parsed.get("summary"));
+            line("flight.pthrust.para" + n,
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN));
+            java.util.Map<String, Object> series = api.JsonLite.obj(parsed, "series");
+            java.util.List<?> time = (java.util.List<?>) series.get("time");
+            java.util.List<?> pressure = (java.util.List<?>) series.get("P");
+            java.util.List<?> thrust = (java.util.List<?>) series.get("thrust");
+            for (int i = 5; i <= 20; i += 5) {
+                if (time != null && pressure != null && thrust != null && i < thrust.size()) {
+                    line("flight.pthrust.para" + n + ".sample." + i,
+                            ((Number) time.get(i)).doubleValue(),
+                            ((Number) pressure.get(i)).doubleValue(),
+                            ((Number) thrust.get(i)).doubleValue());
+                }
+            }
+        }
     }
 
     /**
      * RASAero PRESSURE THRUST (feature #5, 2026-09-08) - F(h) = F_curve(t) +
-     * A_exit x (101325 - P(h)), added once per thrusting stage in
+     * A_exit x (101325 - P(h)), added once per thrusting stage (per stage INSTANCE
+     * since 2026-09-22 - see parallelPressureThrustScenarios) in
      * RK4SimulationStepper.calculateThrust.
      *
      * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two

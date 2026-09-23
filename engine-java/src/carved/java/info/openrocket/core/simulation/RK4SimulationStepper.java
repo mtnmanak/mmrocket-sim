@@ -358,26 +358,62 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 
 	/**
 	 * PATCH (see engine-java/patches/LEDGER.md, RASAero feature #5, 2026-09-08).
-	 * The ambient pressure a thrust curve is ASSUMED to have been measured at (Pa).
+	 * The ambient pressure a published thrust curve is ASSUMED to be referenced to (Pa).
 	 * <p>
-	 * RASAero's stated convention (Chuck Rogers, "RASAero II Comparison with MESOS
-	 * 293K Flight Data", slide 12: "rasp.eng Motor Data is Assumed to be a Sea Level
-	 * Thrust Curve"), and the only convention the data supports: a RASP .eng file
-	 * carries no test-site field, so nothing else could be filled in. A curve that
-	 * was really shot at altitude is overstated by a CONSTANT offset - the app
-	 * already carries that bias today, and this term neither adds to it nor removes
-	 * it; it supplies only the exact SLOPE above the pad. Deliberately NOT the
-	 * launch site's own pressure (that would zero the term at t = 0 by definition,
-	 * wrong for a sea-level curve flown from a high pad) and NOT the model's own
-	 * back-computed sea level (ExtendedISAModel(alt, T, P) extrapolates the DAY's
-	 * weather to sea level, which is not a test stand).
+	 * <b>It stays an assumption, and the app should say so</b> - Eric's ruling,
+	 * 2026-09-09: <i>"we have no first hand knowledge about where each motor was
+	 * actually tested"</i>. What changed that day is not the word but the JUSTIFICATION
+	 * behind it. It used to rest solely on RASAero's own hedge ("rasp.eng Motor Data
+	 * is <i>Assumed</i> to be a Sea Level Thrust Curve", Chuck Rogers, "RASAero II
+	 * Comparison with MESOS 293K Flight Data", slide 12) while the app's own copy
+	 * stated it as fact. The assumption now rests on a certification RULE:
+	 * <ul>
+	 * <li><b>NFPA 1125 requires it.</b> Reported by thrustcurve.org's certification
+	 * page as "Testing must be done at, or corrected to, sea level and a temperature
+	 * of 20&deg;C (68&deg;F)", and corroborated INDEPENDENTLY by a certifying body's
+	 * own governing document - see below. The code itself is paywalled and has not
+	 * been read directly; both sources attribute the requirement to it.</li>
+	 * <li><b>NAR enforces it by site selection.</b> NAR S&amp;T Motor Testing Manual
+	 * &sect;1.5: "Until and unless satisfactory and accurate procedures are developed
+	 * and documented in this manual for correcting results from tests at other
+	 * altitudes to sea level conditions <i>as required by NFPA 1125</i>, all test
+	 * sites must be at an altitude that is within 500 feet of mean sea level (MSL)."
+	 * So NAR does not correct - it tests within 500 ft of MSL, worth at most ~1,825 Pa
+	 * against sea level, about 0.9 N on a 1 inch exit.</li>
+	 * <li><b>And it corrects when it must.</b> NAR certification document for the
+	 * AeroTech G77R, Remarks: "Data taken at 5850 feet ASL and corrected to sea
+	 * level." The form carries "Elevation (ft)" and "Test Temp (&deg;C)" fields;
+	 * observed values 20, 50, 500 and 5850 ft.</li>
+	 * <li>&sect;8.3.3 of the same manual gives the temperature half: motors are held to
+	 * "a temperature of 20&ordm;C + 5&ordm;C" as "specified by NFPA 1125", thermally
+	 * conditioned if local conditions fall outside it.</li>
+	 * </ul>
+	 * <b>Why it is still only an assumption.</b> The rule binds CERTIFICATION testing,
+	 * and no file records where it was actually fired, so the app cannot verify any
+	 * individual curve - it relies on the rule. Concretely:
+	 * only 36.5% of the curves this app flies are certification files - 52.0% are
+	 * user-contributed and 11.5% come from the manufacturer (counted from
+	 * thrustcurve.org's own {@code source} tag over the 1,948 bundled simulator
+	 * files). A RASP .eng file has no test-site field, so a contributed curve carries
+	 * no way to know. What ties them back is that the app already screens every curve
+	 * against the motor's CERTIFIED total impulse (the v0.116 check), and those
+	 * certified figures are sea-level-referenced by the requirement above.
+	 * <p>
+	 * A curve that really was shot at altitude and never corrected is overstated by a
+	 * CONSTANT offset - the app already carries that bias, and this term neither adds
+	 * to it nor removes it; it supplies only the exact SLOPE above the pad.
+	 * Deliberately NOT the launch site's own pressure (that would zero the term at
+	 * t = 0 by definition, wrong for a sea-level curve flown from a high pad) and NOT
+	 * the model's own back-computed sea level (ExtendedISAModel(alt, T, P)
+	 * extrapolates the DAY's weather to sea level, which is not a test stand).
 	 */
 	private static final double PRESSURE_THRUST_REFERENCE_PRESSURE = 101325.0;
 
 	/**
 	 * PATCH (see engine-java/patches/LEDGER.md, RASAero feature #5, 2026-09-08):
 	 * the RASAero pressure-thrust correction, {@code A_exit * (P_ref - P(h))},
-	 * summed ONCE PER THRUSTING STAGE.
+	 * summed ONCE PER THRUSTING STAGE INSTANCE - once for a serial stage, N times for
+	 * an N-instance parallel stage (audit 2026-09-22, code review E2).
 	 * <p>
 	 * Gates, in the order they are cheapest to fail:
 	 * <ol>
@@ -402,20 +438,41 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * <li><b>Burning.</b> Only while the motor's CURVE thrust is above zero - the
 	 * same predicate {@code AbstractSimulationStepper.applyThrustState} uses for the
 	 * drag half, so both halves switch on and off at the same sub-step. RASAero
-	 * applies its term before ignition and after burnout as well (Chuck confirmed
-	 * the artefact, TRF 194463 #17/#19); that is a deliberate deviation.</li>
+	 * MEASURED to do the same (2026-09-08 evening): across 8,515 rows outside the
+	 * burn, in paired RASAero runs of two designs with the nozzle on and off, the
+	 * difference is 0.00000000 N. This bullet previously called our gate "a
+	 * deliberate deviation" on the strength of an unchecked report that RASAero
+	 * applies its term before ignition and after burnout (TRF 194463 #17/#19); it
+	 * is not a deviation. See patches/LEDGER.md and
+	 * docs/research/rasaero-pressure-thrust-measured-2026-09-08.md.</li>
 	 * </ol>
 	 * <p>
-	 * ONCE PER STAGE, not once per motor: {@code AxialStage.nozzleExitDiameter} is
-	 * defined app-side as the single equivalent nozzle of the whole cluster, with the
-	 * exit AREAS summed (the {@code FIELDS.stage} entry in
-	 * packages/app/src/tree/schema.ts, and RASAero's own manual p.50), so multiplying
-	 * by {@code MotorClusterState.motorCount} would count a cluster twice. It also
-	 * keeps this half consistent with the drag half, which subtracts one nozzle area
-	 * per stage INSTANCE. Two mounts on one stage are therefore de-duplicated by
-	 * stage number, the way {@code applyThrustState} builds its thrusting-stage set.
+	 * ONCE PER STAGE INSTANCE, not once per motor: {@code
+	 * AxialStage.nozzleExitDiameter} is defined app-side as the single equivalent
+	 * nozzle of the whole cluster, with the exit AREAS summed (the {@code FIELDS.stage}
+	 * entry in packages/app/src/tree/schema.ts, and RASAero's own manual p.50), so
+	 * multiplying by {@code MotorClusterState.motorCount} would count a cluster twice.
+	 * Two mounts on one stage are therefore de-duplicated by stage number, the way
+	 * {@code applyThrustState} builds its thrusting-stage set.
 	 * <p>
-	 * Three caveats, recorded rather than modelled (all three are in the LEDGER too):
+	 * PER INSTANCE, because that is what the drag half already does: it subtracts
+	 * the area from each aft base and then scales, {@code total += instanceCount *
+	 * cd}, so an N-instance {@code ParallelStage} recovers N areas of base drag. For
+	 * a serial stage N is 1 and nothing changes; for a parallel stage the field
+	 * therefore means ONE strap-on's equivalent exit, in both halves. Until
+	 * 2026-09-22 this half dedup'd by {@code getStageNumber()} - ONE number for a
+	 * whole ParallelStage - and stopped there, so it charged one area however many
+	 * strap-ons burned: measured through the raw API at ~86 kPa, two instances of a
+	 * 32 N motor with a 10 mm exit flew 65.203822 N against the 66.407645 N
+	 * per-instance accounting gives (code review E2). v0.136 made that path throw
+	 * in {@code OrkRocket.buildTree} instead; the throw is gone for parallel stages
+	 * because the arithmetic is right now. The instance count is
+	 * {@code stage.getComponentLocations().length} - the accessor
+	 * {@code MotorClusterState} reads on the MOUNT for {@code motorCount}, here read
+	 * on the stage - so it carries every enclosing assembly's multiplicity exactly
+	 * as the motors' curve thrust does.
+	 * <p>
+	 * Two caveats, recorded rather than modelled (both are in the LEDGER too):
 	 * <ul>
 	 * <li><b>Tail-off.</b> The full geometric exit area assumes a full-flowing
 	 * nozzle. During tail-off the flow separates and {@code A_e * dP} overstates.
@@ -427,13 +484,6 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * exactly the same shape (its gate is the stage's thrusting flag), so the two
 	 * halves stay consistent; correcting it would mean scaling by the burning
 	 * fraction, in both halves at once.</li>
-	 * <li><b>Parallel stages.</b> {@code getStageNumber()} is ONE number for a whole
-	 * {@code ParallelStage}, so this half charges one area however many strap-on
-	 * instances burn, while the drag half removes one per INSTANCE
-	 * ({@code total += instanceCount * cd}). Not reachable today - the JS bridge has
-	 * no PodSet/ParallelStage build path - and it must be resolved in the same
-	 * sitting that bridge lands, either by multiplying here or by redefining the
-	 * field as per-instance and changing the drag half.</li>
 	 * </ul>
 	 *
 	 * @param status          the current simulation status
@@ -489,7 +539,16 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 			creditedStages.add(stageNumber);
 			// Same expression as the drag half's nozzle area, so the two halves
 			// cannot disagree about what a diameter means.
-			sum += Math.PI * MathUtil.pow2(exitDiameter / 2.0) * deficit;
+			double term = Math.PI * MathUtil.pow2(exitDiameter / 2.0) * deficit;
+			// One area per INSTANCE of the stage, as the drag half charges it (see
+			// the javadoc). Structural, not arithmetic: a serial stage has exactly
+			// one location, so on every path the app can reach today no operation
+			// is added and the sum is bit-identical to the pre-2026-09-22 kernel.
+			int stageInstances = stage.getComponentLocations().length;
+			if (stageInstances != 1) {
+				term *= stageInstances;
+			}
+			sum += term;
 		}
 		return sum;
 	}
