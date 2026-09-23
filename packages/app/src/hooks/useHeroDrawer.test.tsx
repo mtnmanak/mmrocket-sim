@@ -141,7 +141,7 @@ describe('useHeroDrawer — the breakpoint', () => {
    * Every narrow window's Design tab carried the drawer the owner's 2026-08-23
    * ruling keeps shut there.
    */
-  it('…and leaves it shut one pixel narrower, where it would cover the drawing', () => {
+  it('…and leaves it shut one pixel narrower, as the owner’s 2026-08-23 ruling has it', () => {
     width = 980;
     const h = mount();
     expect(h.current.wide).toBe(false);

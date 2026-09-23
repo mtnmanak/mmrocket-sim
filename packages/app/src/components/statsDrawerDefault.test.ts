@@ -12,10 +12,10 @@ const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
 /**
  * "All stats" opens by default on a desktop and stays closed on anything
  * narrower (the owner, 2026-08-23). The breakpoint is 981px because that is where
- * the hero-canvas layout starts; below it the drawer covers most of the
- * drawing. The JS check and the CSS layout must agree — if they drift, the
- * drawer opens on a viewport laid out for a phone, which is the exact problem
- * it was closed to avoid.
+ * the hero-canvas layout starts: above it the drawer overlays the canvas, below
+ * it (since 2026-09-21) it is a block under the canvas. The JS check and the
+ * CSS layout must agree — if they drift, the hook opens and places the drawer
+ * for one layout while the stylesheet draws the other.
  *
  * WHAT IS BEHAVIOUR NOW (audit 2026-09-22, row 477). This file was regexes over
  * App.tsx as well as the stylesheet. The drawer moved into hooks/useHeroDrawer.ts

@@ -31,8 +31,8 @@ const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
  *  - THE RULE is below: `.panel-head` must wrap. The stylesheet is the only
  *    place that can say so, and nothing in this suite lays out a pixel.
  *  - THE CLASS is behaviour now (audit 2026-09-22, row 477). This file read
- *    App.tsx, DragPanel.tsx and SimResults.tsx for the markup, because the app
- *    had no full-render harness; App.render.test.tsx ("the panel header rows")
+ *    App.tsx, DragPanel.tsx and SimResults.tsx for the markup, written before
+ *    any test rendered App; App.render.test.tsx ("the panel header rows")
  *    mounts App and finds all four header rows as drawn — Components and
  *    Rocket on Design, Drag analysis on Results, the Launch report after a
  *    flight — each carrying `.panel-head` and no inline flex. Mutation-checked:

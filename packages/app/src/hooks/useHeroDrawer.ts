@@ -7,11 +7,12 @@ import { useFocusHandoff } from '../components/useFocusHandoff.js';
  * is open, where it sits, and how much of the canvas it may take.
  *
  * Extracted from App.tsx in the 2026-09-22 audit (row 501 — the UI hooks of
- * extraction #8, 8 September). Its only test was statsDrawerDefault.test.ts,
- * a regex over App's text for the 981px literal; useHeroDrawer.test.tsx now
- * renders it at each side of the breakpoint, drags the window across it,
- * collapses a short canvas and measures the drawer, and App.render.test.tsx
- * reads the stage App draws with it.
+ * extraction #8, 8 September). In App its wiring was held only by regexes
+ * over App's text — statsDrawerDefault.test.ts for the 981px literal,
+ * appA11y.test.ts for the focus handoff; useHeroDrawer.test.tsx now renders it
+ * at each side of the breakpoint, drags the window across it, collapses a
+ * short canvas and measures the drawer, and App.render.test.tsx reads the
+ * stage App draws with it.
  *
  * The rules for WHEN the drawer puts itself away on a short canvas are
  * components/heroDrawer.ts's (drawerAutoState), tested there; this hook is the
@@ -21,8 +22,8 @@ import { useFocusHandoff } from '../components/useFocusHandoff.js';
 /**
  * Where the hero-canvas layout starts. MUST be the query styles.css lays the
  * canvas out at (`@media (min-width: 981px)`) — statsDrawerDefault.test.ts
- * holds the stylesheet to this constant. If they drift, the drawer opens over
- * a viewport laid out for a phone, the exact problem it was closed to avoid.
+ * holds the stylesheet to this constant. If they drift, this hook opens and
+ * places the drawer for one layout while the stylesheet draws the other.
  */
 export const HERO_WIDE_QUERY = '(min-width: 981px)';
 
@@ -86,11 +87,13 @@ export function useHeroDrawer(): HeroDrawer {
    * S1 stats drawer over the hero canvas.
    * "All stats" starts OPEN on a desktop and closed on anything narrower
    * (the owner, 2026-08-23: "there is enough screen real estate"). 981px is the
-   * breakpoint where the hero-canvas layout kicks in — below it the drawer
-   * overlays most of the drawing, which is why it defaulted closed for
-   * everyone. Session state, not a stored preference: collapsing it still
-   * sticks for as long as you are working, and nobody's saved choice is
-   * stomped because there was never one to stomp.
+   * breakpoint where the hero-canvas layout kicks in. When that ruling was
+   * made the drawer overlaid most of the drawing below it, which is why it
+   * had defaulted closed for everyone; since 2026-09-21 it is a block under
+   * the canvas there instead, and the ruling still keeps it closed. Session
+   * state, not a stored preference: collapsing it still sticks for as long as
+   * you are working, and nobody's saved choice is stomped because there was
+   * never one to stomp.
    */
   const [open, setOpen] = useState(wideNow);
   /**
