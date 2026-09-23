@@ -325,6 +325,11 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   // Trailing on purpose (Stage B): existing spreadsheet imports keep their
   // column positions; runs stored before the field export an empty cell.
   ['Flight config', (r) => r.flightConfig ?? ''],
+  // Trailing for the same reason, after it (weather build, 2026-09-22): the
+  // dry-air density altitude the run flew in, stored at launch. A run flown
+  // before the field, or a stored value that is not a number, is an empty cell.
+  [`Density altitude (${sym('distance', 'm')})`,
+    (r) => cv('distance', typeof r.densityAltitudeM === 'number' ? r.densityAltitudeM : null)],
   ];
 }
 

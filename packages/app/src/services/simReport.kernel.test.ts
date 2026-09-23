@@ -4,7 +4,8 @@ import type { FlightSeries } from '@online-openrocket/engine';
 import { buildSimRun, rodExitFromSeries } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
-import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
+import { densityAltitudeM, isaAltitudeForDensity } from './atmosphere.js';
 
 /**
  * Simulation warnings and landing drift, end-to-end through the REAL kernel
@@ -236,5 +237,26 @@ describe('launch-rod exit is read at the crossing, not at the end of the step', 
     });
     const eventT = result.events!.find((e) => e.type === 'LAUNCHROD')!.time;
     expect(run.timeToRodDeparture!).toBeLessThan(eventT);
+  }, 30000);
+});
+
+/**
+ * DENSITY ALTITUDE against the kernel (weather build, step 1). The readout is
+ * computed analytically from `padAir`; the kernel interpolates the same
+ * profile on a 500 m grid. So the density the kernel actually flies at the pad
+ * must read, through the same inverse, within a few metres of the readout —
+ * which is the claim the guide makes ("up to about 16 ft").
+ */
+describe('the density-altitude readout describes the air the kernel flies', () => {
+  it('agrees with the kernel’s own pad density to within 6 m (4,000 ft, 95 °F)', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35 };
+    const rocket = OrkRocket.buildTree(tree(true));
+    rocket.setMotorById('mount', C6);
+    const result = rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
+    const rho0 = (result.series as unknown as Record<string, (number | null)[] | undefined>)['ρ']?.[0];
+    expect(typeof rho0, 'the full series carries air density').toBe('number');
+    expect(Math.abs(isaAltitudeForDensity(rho0!) - densityAltitudeM(launch))).toBeLessThan(6);
   }, 30000);
 });

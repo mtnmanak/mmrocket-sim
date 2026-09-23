@@ -200,6 +200,21 @@ export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: n
 }
 
 /**
+ * An ALTITUDE for reading, not for editing: whole metres, feet or yards, and
+ * two decimals of a kilometre or a mile. The density-altitude readout's
+ * formatter, and the one a readout that can sit at or cross zero should use.
+ *
+ * Why not `fmtSi`'s own ladder: it grows decimals as a value shrinks, so a
+ * readout sitting exactly on its site altitude of 0 printed "0.000", and float
+ * noise either side of it "-0.000". With a fixed `digits`, `fmtSi` goes through
+ * `Number(x.toFixed(d))`, which turns −0 (and anything that rounds to it) into
+ * a plain "0"; a non-finite value is "—", as everywhere.
+ */
+export function fmtAltitude(symbol: string, si: number): string {
+  return fmtSi('distance', symbol, si, symbol === 'km' || symbol === 'mi' ? 2 : 0);
+}
+
+/**
  * A value ALREADY IN ITS DISPLAY UNIT, rounded to `places` decimals — or to
  * `sig` significant figures wherever `places` would leave fewer — with
  * trailing zeros stripped. The integer part is never rounded away: 1219 at

@@ -4,8 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, timeStepCostFactor,
-  type LaunchConditions,
+  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchPanel,
+  timeStepCostFactor, type LaunchConditions,
 } from './LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
 
@@ -473,5 +473,82 @@ describe('Launch is disabled until a motor is assigned', () => {
     const b = launchBtn();
     expect(b!.disabled).toBe(false);
     expect(b!.title).toBe('Simulate the flight');
+  });
+});
+
+/**
+ * THE ONE CONSTRUCTION MUST NOT MOVE (weather build, 2026-09-22). Every new
+ * launch field is spread into kernelSimOptions only when it changes the flight,
+ * so what the kernel is handed for an existing design stays byte-identical
+ * through the whole build. Captured from the code BEFORE step 1 changed
+ * anything; any drift here re-flies every design in every user's history.
+ */
+describe('kernelSimOptions is byte-identical for every existing design', () => {
+  it('matches the golden captured before the weather build', () => {
+    expect(JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS))).toBe(
+      '{"launchRodLength":1,"launchRodAngle":0,"windAverage":0,"windStdDeviation":0,'
+      + '"launchAltitude":0,"launchLatitude":28.61}');
+    expect(JSON.stringify(kernelSimOptions({
+      ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, windAverage: 4, windStdDev: 1,
+      launchRodAngleDeg: 5, latitudeDeg: 40.65, timeStepS: 0.02,
+    }))).toBe(
+      '{"launchRodLength":1,"launchRodAngle":0.08726646259971647,"windAverage":4,"windStdDeviation":1,'
+      + '"launchAltitude":1219.2,"temperature":308.15,"pressure":87510.54501623093,"launchLatitude":40.65,'
+      + '"timeStep":0.02}');
+  });
+});
+
+/**
+ * DENSITY ALTITUDE (weather build, step 1): a readout of the air the flight
+ * flies, beside Site altitude. Worked numbers in services/atmosphere.test.ts.
+ */
+describe('the density-altitude readout', () => {
+  const readout = () => host.querySelector('[data-readout="density-altitude"]');
+  const shown = () => readout()?.querySelector('output');
+
+  afterEach(() => { localStorage.clear(); });
+
+  it('reads the site altitude, muted, when both air fields are blank', () => {
+    renderConditions({});
+    expect(readout(), 'the readout').toBeTruthy();
+    // "0", never fmtSi's ladder "0.000".
+    expect(shown()!.textContent).toBe('0');
+    expect(shown()!.className).toContain('readout-muted');
+
+    renderConditions({ launchAltitudeM: 1219.2 });
+    expect(shown()!.textContent).toBe('1219');
+    expect(shown()!.className).toContain('readout-muted');
+    expect(shown()!.textContent).not.toMatch(/vs site/);
+  });
+
+  it('reads a hot day at a 4,000 ft field, with the difference from the site', () => {
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
+    expect(shown()!.textContent).toBe('2171 (+952 vs site)');
+    expect(shown()!.className).not.toContain('readout-muted');
+    // The same air in feet: 7,122 ft, 3,122 above the 4,000 ft site.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
+    expect(shown()!.textContent).toBe('7122 (+3122 vs site)');
+  });
+
+  it('goes negative, unclamped, on an altimeter setting — beside the caution that names it', () => {
+    const caution = renderConditions({ launchAltitudeM: 1190, pressureHPa: 1013.25 });
+    expect(caution).not.toBeNull();
+    expect(shown()!.textContent).toMatch(/^-284 /);
+  });
+
+  it('is a readout, not an input, and its help reaches a screen reader', () => {
+    renderConditions({});
+    const out = shown()!;
+    expect(readout()!.querySelector('input')).toBeNull();
+    const help = host.querySelector(`#${CSS.escape(out.getAttribute('aria-describedby')!)}`);
+    expect(help?.textContent).toBe(DENSITY_ALTITUDE_HELP);
+    expect(help?.textContent).toMatch(/Dry air/);
+    expect(host.querySelector(`#${CSS.escape(out.getAttribute('aria-labelledby')!)}`)?.textContent)
+      .toMatch(/^Density altitude/);
+    // Not shaped like the two field helps, which other tests find by pattern.
+    expect(DENSITY_ALTITUDE_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
   });
 });

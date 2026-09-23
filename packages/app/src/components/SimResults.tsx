@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi } from '../prefs/units.js';
+import { fmtAltitude, fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
@@ -419,6 +419,13 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
+              {/* The air this run flew, as the Launch panel's readout showed it at
+                  launch (SimRun.densityAltitudeM). Stored runs are untrusted
+                  JSON and older ones lack the field: no number, no row. */}
+              {typeof run.densityAltitudeM === 'number' && Number.isFinite(run.densityAltitudeM) && (
+                <Row label="Density altitude" value={fmtAltitude(prefs.units.distance, run.densityAltitudeM)}
+                  quantity="distance" />
+              )}
               <Row label="Motor diameter" value={`${run.motorDiameterMm} mm`} />
               <Row label="Manufacturer" value={run.manufacturer || '—'} />
               <Row label="Motor type" value={run.motorType || '—'} />

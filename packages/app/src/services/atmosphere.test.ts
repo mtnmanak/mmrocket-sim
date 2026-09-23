@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import {
+  densityAltitudeM,
+  isaAltitudeForDensity,
   isaPressurePa,
   isaTemperatureK,
   ISA_TOP_M,
@@ -9,8 +12,10 @@ import {
   PAD_PRESSURE_SEA_LEVEL_MARGIN,
   PAD_PRESSURE_SITE_M,
   PAD_TEMP_C_RANGE,
+  R_AIR,
   SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
+import { siteAirDensity } from './recoverySizing.js';
 
 const FT = 3.28084;
 const INHG = 33.8639; // mbar per in-Hg — RASAero's launch-site pressure unit
@@ -359,5 +364,97 @@ describe('padAir — one reading of the pad for the flight and the sizing', () =
     // not happening.
     expect(padPressureIssue({ launchAltitudeM: 1500, pressureHPa: 1013.25 * 33.8639 })).toBeNull();
     expect(padPressureIssue({ launchAltitudeM: 1500, pressureHPa: 1013 })).toBe('sea-level');
+  });
+});
+
+/**
+ * DENSITY ALTITUDE (weather build, step 1) — every figure below was worked by
+ * hand from the app's own constants (R 287.053, g 9.80665, ISA 288.15 K /
+ * 101,325 Pa) and is the number the readout, the launch report and the saved
+ * runs show. The inverse is exact, so a standard day must read its own site.
+ */
+describe('isaAltitudeForDensity — the ISA profile, inverted', () => {
+  const rhoAt = (h: number) => isaPressurePa(h) / (R_AIR * isaTemperatureK(h));
+
+  it('reads standard sea-level density as sea level — 1.22499946, not 1.225', () => {
+    expect(rhoAt(0)).toBeCloseTo(1.22499946, 8);
+    expect(Math.abs(isaAltitudeForDensity(rhoAt(0)))).toBeLessThan(1e-9);
+  });
+
+  it('round-trips the profile through every layer to well under a micrometre', () => {
+    for (const h of [0, 600, 1219.2, 2682, 5000, 10000, 11000, 15000, 20000, 25000, 40000]) {
+      expect(Math.abs(isaAltitudeForDensity(rhoAt(h)) - h), `h ${h} m`).toBeLessThan(1e-6);
+    }
+  });
+
+  it('answers NaN for air that does not exist, rather than a figure', () => {
+    for (const rho of [0, -1, NaN, Infinity]) expect(isaAltitudeForDensity(rho)).toBeNaN();
+  });
+});
+
+describe('densityAltitudeM — the pad air the flight flies, as an altitude', () => {
+  const FEET = 0.3048;
+  const da = (launchAltitudeM: number, temperatureC: number | null, pressureHPa: number | null) =>
+    densityAltitudeM({ launchAltitudeM, temperatureC, pressureHPa });
+
+  it('reads the worked example: a 4,000 ft field on a 95 °F day is 7,122 ft', () => {
+    // p = 101325·(280.2252/288.15)^5.255877 = 87,510.55 Pa (the blank, from
+    // the site); ρ = 87,510.55 / (287.053·308.15) = 0.989318; ρ/ρ0 0.807607.
+    const h = da(1219.2, 35, null);
+    expect(h).toBeCloseTo(2170.81, 2);
+    expect(h / FEET).toBeCloseTo(7122.1, 1);
+    // The same air typed as a pressure instead of left for the site to fill.
+    expect(da(1219.2, 35, 875.105)).toBeCloseTo(2170.82, 1);
+  });
+
+  it('matches the hand-worked table, including below sea level and above 11 km', () => {
+    const cases: Array<[number, number | null, number | null, number]> = [
+      [0, 30, null, 525.46],
+      // A cold sea-level day is denser than a standard one: NEGATIVE, not clamped.
+      [0, -20, null, -1369.64],
+      // An altimeter setting typed as the station pressure at 1,190 m.
+      [1190, null, 1013.25, -284.34],
+      // The audit's 2,682 m / 30 °C case (ρ 0.83878).
+      [2682, 30, null, 3774.75],
+      // 300 hPa is above 11 km: layered, where the troposphere alone says 12,142.7.
+      [0, 60, 300, 11941.60],
+      [0, -60, 1100, -4181.69],
+      // 5,000 ft on a 90 °F day.
+      [1524, 32.2222, null, 2449.60],
+    ];
+    for (const [h, t, p, want] of cases) {
+      expect(da(h, t, p), `${h} m, ${t} °C, ${p} hPa`).toBeCloseTo(want, 1);
+    }
+  });
+
+  it('is exactly the site altitude with both fields blank — a standard day reads its own site', () => {
+    for (const h of [0, 600, 1219.2, 2682, 5000, 10000]) {
+      expect(Math.abs(da(h, null, null) - h), `h ${h} m`).toBeLessThan(1e-6);
+    }
+    // The altitude is clamped the way the flight clamps it.
+    expect(da(20000, null, null)).toBeCloseTo(10000, 6);
+  });
+
+  it('reads the fields the way the flight does: an out-of-envelope value is blank', () => {
+    // 34,313 hPa (hPa typed into RASAero's in-Hg field) flies as the site's
+    // standard day, so that is what the readout must describe.
+    expect(da(1500, null, 1013.25 * INHG)).toBeCloseTo(1500, 6);
+  });
+
+  it('describes the same air the kernel is handed and the recovery sizing divides', () => {
+    // One reading of the pad, three readers: for every blank/typed combination
+    // at three sites, padAir's density = siteAirDensity = p/(R·T) of what
+    // kernelSimOptions hands the kernel whenever either field is typed.
+    for (const h of [0, 1190, 2682]) {
+      for (const [t, p] of [[null, null], [25, null], [null, 850], [25, 850]] as const) {
+        const l = { ...DEFAULT_CONDITIONS, launchAltitudeM: h, temperatureC: t, pressureHPa: p };
+        const air = padAir(l);
+        const rho = air.pressurePa / (R_AIR * air.temperatureK);
+        expect(siteAirDensity(l)).toBe(rho);
+        const o = kernelSimOptions(l);
+        if (t !== null || p !== null) expect(o.pressure! / (R_AIR * o.temperature!)).toBe(rho);
+        expect(densityAltitudeM(l)).toBe(isaAltitudeForDensity(rho));
+      }
+    }
   });
 });

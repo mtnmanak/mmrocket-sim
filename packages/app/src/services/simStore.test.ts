@@ -4,6 +4,8 @@ import {
   addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite,
   runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
+import { IMPERIAL_UNITS } from '../prefs/units.js';
+import { densityAltitudeM } from './atmosphere.js';
 import type { SimRun } from './simReport.js';
 
 /**
@@ -387,5 +389,31 @@ describe('a stored run’s recovery weight', () => {
     const { headers } = runsToTable([mkRun('a')]);
     expect(headers).toContain('Recovery weight (kg)');
     expect(headers.some((h) => /burnout mass/i.test(h))).toBe(false);
+  });
+});
+
+/**
+ * DENSITY ALTITUDE (weather build, step 1): the air each run flew, stored at
+ * launch. The column trails even "Flight config", so every column a
+ * spreadsheet import already keys on keeps its position.
+ */
+describe('the density-altitude column', () => {
+  it('is the last column, in the user’s distance unit', () => {
+    // The 4,000 ft / 95 °F worked example, as buildSimRun stores it.
+    const da = densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null });
+    const { headers, rows } = runsToTable([mkRun('a', { densityAltitudeM: da })], IMPERIAL_UNITS);
+    expect(headers.at(-1)).toBe('Density altitude (ft)');
+    // 2,170.810 m is 7,122.08 ft (the build spec said 7,122.07; re-measured).
+    expect(rows[0]!.at(-1)).toBe(7122.08);
+    expect(headers.at(-2)).toBe('Flight config');
+  });
+
+  it('is an empty cell for a run flown before the field, and for a stored value that is not a number', () => {
+    const { rows } = runsToTable([
+      mkRun('old'),
+      mkRun('bad', { densityAltitudeM: 'x' as unknown as number }),
+    ], IMPERIAL_UNITS);
+    expect(rows[0]!.at(-1)).toBe('');
+    expect(rows[1]!.at(-1)).toBe('');
   });
 });

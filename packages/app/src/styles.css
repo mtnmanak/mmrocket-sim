@@ -942,6 +942,31 @@ html {
   box-sizing: border-box;
 }
 
+/* A READOUT in a field grid (the Launch panel's density altitude): the same box
+   metrics as an input, so the grid rows line up, but visibly not editable — a
+   dashed outline on the plain panel surface rather than an input's filled box.
+   Tokens only, so every theme (Daylight and high contrast included) gets it. */
+.field output {
+  display: block;
+  font-size: 13px;
+  padding: 5px 7px;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The readout while it says nothing the neighbouring box does not (density
+   altitude with both air fields blank IS the site altitude). */
+.field output.readout-muted {
+  color: var(--text-muted);
+}
+
+.readout-delta {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
 .field input.field-slider {
   padding: 0;
   border: none;
@@ -3290,7 +3315,8 @@ select.unit-chip:hover {
   }
 
   .field input,
-  .field select {
+  .field select,
+  .field output {
     font-size: 14px;
   }
 
@@ -3480,6 +3506,13 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .file-menu {
   border-width: 2px;
   border-style: solid;
+  border-color: var(--border);
+}
+
+/* The density-altitude readout keeps its DASHED edge in Daylight — the dash is
+   what says "not editable" — and only thickens it like every other hairline. */
+.viz-root[data-contrast='high'] .field output {
+  border-width: 2px;
   border-color: var(--border);
 }
 

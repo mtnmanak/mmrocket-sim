@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPERIAL_UNITS, INITIAL_UNITS, METRIC_UNITS, UNITS,
-  fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
+  fmtAltitude, fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
 } from './units.js';
 
 describe('unit conversions (factors from desktop UnitGroup 24.12)', () => {
@@ -117,6 +117,29 @@ describe('fmtSi — the app’s single SI display formatter', () => {
     // well-meant "keep the decimals" change — so it is pinned.
     expect(fmtSi('length', 'm', 0.0001, 3)).toBe('0');
     expect(fmtSi('length', 'm', 0.0005, 3)).toBe('0.001');
+  });
+});
+
+describe('fmtAltitude — a readout that can sit on, or cross, zero', () => {
+  // The density-altitude readout sits EXACTLY on the site altitude of 0 at the
+  // default conditions; fmtSi's own ladder printed that as "0.000", and the
+  // float noise either side of it as "-0.000".
+  it('prints zero, and noise around zero, as a plain 0', () => {
+    expect(fmtAltitude('ft', 0)).toBe('0');
+    expect(fmtAltitude('ft', -3e-12)).toBe('0');
+    expect(fmtAltitude('m', -0)).toBe('0');
+  });
+
+  it('gives whole feet and metres, and two decimals of a kilometre or a mile', () => {
+    expect(fmtAltitude('ft', 2170.81)).toBe('7122');
+    expect(fmtAltitude('m', 2170.81)).toBe('2171');
+    expect(fmtAltitude('km', 2170.81)).toBe('2.17');
+    expect(fmtAltitude('mi', 2170.81)).toBe('1.35');
+    expect(fmtAltitude('m', -284.34)).toBe('-284');
+  });
+
+  it('prints an em dash for a value that is not a number', () => {
+    expect(fmtAltitude('ft', NaN)).toBe('—');
   });
 });
 

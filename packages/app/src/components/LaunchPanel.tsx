@@ -1,10 +1,10 @@
 import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtAltitude, fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import {
-  isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue,
-  SITE_ALTITUDE_M_RANGE,
+  densityAltitudeM, isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir,
+  padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from '../services/atmosphere.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
@@ -427,6 +427,65 @@ export const SITE_TEMPERATURE_HELP =
   + 'raises the speed of sound, which moves both apogee and the Mach numbers.';
 
 /**
+ * Help for the density-altitude readout. Exported for the tests, which assert
+ * on the same string the panel renders.
+ *
+ * Deliberately NOT shaped like the two atmosphere helps above (no "Filled in
+ * from your Site altitude" opening, no "falling 6.5", no "STATION pressure"):
+ * the tests find those two by exactly those patterns, and this is a readout,
+ * not a field that fills itself in. The per-degree figure is re-measured: at a
+ * 4,000 ft field it is 105 ft per °C on a 95 °F day and 114 on a standard one.
+ */
+export const DENSITY_ALTITUDE_HELP =
+  'How thin the pad’s air is, stated as an altitude: the height at which a standard day has air '
+  + 'this dense. Worked out from the Temperature and Station pressure the flight uses — typed, or '
+  + 'filled in from your Site altitude — so with both boxes blank it equals your site altitude, and a '
+  + 'hot afternoon or a low barometer pushes it up (roughly 110 ft, 33 m, for each °C at a 4,000 ft '
+  + 'field). A readout, not a setting: the flight already flies this air. It is not the same as '
+  + 'launching from that altitude — the speed of sound and the motor’s pressure thrust still follow '
+  + 'your real temperature and pressure. Dry air: humid air is slightly thinner, so on a muggy day '
+  + 'the true figure is a few hundred feet higher.';
+
+/**
+ * DENSITY ALTITUDE, as a readout in the grid (weather build, step 1).
+ *
+ * An `<output>`, not a read-only input or a NumField: nothing here is
+ * editable, and a box that looks typeable and refuses the keyboard is the
+ * worse lie. It moves no flight number — it DESCRIBES the air `padAir` hands
+ * the kernel (services/atmosphere.ts `densityAltitudeM`), so it follows a
+ * typed field, a blank one filled from the site, and the envelope, exactly as
+ * the flight does.
+ *
+ * Muted when both fields are blank, because it then says nothing the Site
+ * altitude box does not: it IS the (clamped) site altitude. The delta is
+ * measured from `padAir`'s clamped altitude, never the stored one, which can
+ * be NaN or outside the field's range after an import.
+ */
+function DensityAltitudeReadout({ value }: { value: LaunchConditions }) {
+  const { prefs } = usePrefs();
+  const id = useId();
+  const labelId = `${id}-label`;
+  const helpId = `${id}-help`;
+  const sym = prefs.units.distance;
+  const air = padAir(value);
+  const da = densityAltitudeM(value);
+  const delta = fmtAltitude(sym, da - air.altitudeM);
+  return (
+    <div className="field field-readout" title={DENSITY_ALTITUDE_HELP} data-readout="density-altitude">
+      <label id={labelId}>Density altitude <UnitChip quantity="distance" /></label>
+      <span id={helpId} className="sr-only">{DENSITY_ALTITUDE_HELP}</span>
+      <output aria-labelledby={labelId} aria-describedby={helpId} aria-live="off"
+        className={air.standard ? 'readout-muted' : undefined}>
+        {fmtAltitude(sym, da)}
+        {delta !== '0' && delta !== '—'
+          ? <span className="readout-delta"> ({da > air.altitudeM ? '+' : ''}{delta} vs site)</span>
+          : null}
+      </output>
+    </div>
+  );
+}
+
+/**
  * Live caution when a TYPED station pressure is really an altimeter setting.
  *
  * Down from three branches to one (2026-09-08b). The other two fired when a
@@ -504,7 +563,12 @@ export function LaunchPanel({
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
-        {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
+        {/* Beside Site altitude on purpose: its "(+952 vs site)" delta is read
+            against the box next to it, and with both air fields blank the two
+            show the same number. (Weather build, step 1, 2026-09-22. Latitude
+            moved down a row to make the pair; the grid is a fixed two columns,
+            so every insertion keeps the cells after it in their pairs.) */}
+        <DensityAltitudeReadout value={value} />
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
@@ -517,6 +581,7 @@ export function LaunchPanel({
             words, sentence case, the same shape as "Site altitude" beside it. */}
         {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
           isaPressurePa(value.launchAltitudeM) / 100)}
+        {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands

@@ -974,7 +974,7 @@ describe('runsToCsv', () => {
     expect(cells(r2!)[cells(h2!).indexOf('Sim warnings')]).toBe('');
   });
 
-  it('ends with the "Flight config" column (Stage B) — blank on runs without one', () => {
+  it('keeps the "Flight config" column trailing (Stage B) — blank on runs without one', () => {
     const cells = (s: string) => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
     const run = buildSimRun({
       result: fakeResult(), info, motor, meta: { label: 'C6-5' },
@@ -984,7 +984,11 @@ describe('runsToCsv', () => {
     const [header, row] = runsToCsv([run]).split('\n');
     const hc = cells(header!);
     // Trailing on purpose: existing spreadsheet imports keep their columns.
-    expect(hc[hc.length - 1]).toBe('Flight config');
+    // The one column after it is the density altitude (weather build,
+    // 2026-09-22), appended behind it by the same rule, so every column up to
+    // and including this one keeps its position.
+    expect(hc[hc.length - 2]).toBe('Flight config');
+    expect(hc[hc.length - 1]).toMatch(/^Density altitude/);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({
@@ -1625,5 +1629,32 @@ describe('the launch report says when thrust was corrected for ambient pressure'
     const i = run.comments.split(' | ').findIndex((c) => c.startsWith('Thrust was corrected'));
     // A statement about the model, not a judgement on the rocket.
     expect(run.commentLevels?.[i]).toBe('info');
+  });
+});
+
+/**
+ * DENSITY ALTITUDE on the run (weather build, step 1). Derived from the launch
+ * conditions, so it must NOT become a launch condition: a field in
+ * LaunchConditions would enter conditionsKeyOf and move every stored key.
+ */
+describe('a run stores the density altitude it flew in', () => {
+  it('records the worked example: 4,000 ft, 95 °F, pressure blank → 2,170.81 m', () => {
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null },
+      rocketName: 'x', execMs: 1,
+    });
+    expect(run.densityAltitudeM).toBeCloseTo(2170.81, 2);
+  });
+
+  it('is display-only: no launch condition carries it, so no conditions key moves', () => {
+    expect(Object.keys(DEFAULT_CONDITIONS).some((k) => /density/i.test(k))).toBe(false);
+    const run = buildSimRun({
+      result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'x', execMs: 1,
+    });
+    expect(run.conditionsKey).toBe(conditionsKeyOf(DEFAULT_CONDITIONS));
+    expect(run.conditionsKey).not.toMatch(/density/i);
+    expect(run.densityAltitudeM).toBe(0);
   });
 });

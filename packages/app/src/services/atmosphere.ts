@@ -376,3 +376,71 @@ export function padAir(launch: PadConditions): PadAir {
     standard: tC === null && pHPa === null,
   };
 }
+
+/**
+ * Standard (ISA) density at the base of each layer (kg/m³) — `p/(R·T)` of the
+ * table above, so the inverse below is read off the SAME profile the forward
+ * lookups use. Sea level comes out 1.22499946, not the rounded 1.225: that is
+ * what 101,325 Pa and 288.15 K give with this R, and hard-coding 1.225 would
+ * put a standard day's density altitude 0.04 m off its own site.
+ */
+const ISA_BASE_RHO: readonly number[] = ISA_LAYERS.map((l) => l.basePa / (R_AIR * l.baseK));
+
+/**
+ * The ISA altitude (m) whose STANDARD density is `rho` — the inverse of the
+ * profile, layer by layer. NaN for a density that is not a finite positive
+ * number, so no caller can print a figure for air that does not exist.
+ *
+ * LAYERED, like `isaPressurePa`, and for the same reason: the Station pressure
+ * field accepts 300 hPa at any site, which is thin enough to sit above 11 km,
+ * and a troposphere-only inverse reads that air 201 m wrong (12,142.7 m
+ * against 11,941.6 m at 60 °C / 300 hPa).
+ *
+ * NOT CLAMPED AT SEA LEVEL, which is why it does not go through `layerAt`
+ * (that clamps h < 0): a cold day at a sea-level field is denser than a
+ * standard sea-level day, and its density altitude is genuinely negative —
+ * −1,369.6 m at −20 °C. Air denser than sea level is read off the
+ * troposphere's own formula, extended below 0.
+ *
+ * In a lapsing layer ρ = ρb·(T/Tb)^−(g/(L·R)+1), so
+ * T = Tb·(ρ/ρb)^(−1/(g/(L·R)+1)) and h = hb + (T − Tb)/L; in an isothermal
+ * one ρ = ρb·e^(−g·(h−hb)/(R·T)), so h = hb + (R·T/g)·ln(ρb/ρ).
+ */
+export function isaAltitudeForDensity(rho: number): number {
+  if (!(rho > 0) || !Number.isFinite(rho)) return NaN;
+  let i = 0;
+  while (i < ISA_LAYERS.length - 1 && ISA_BASE_RHO[i + 1]! >= rho) i++;
+  const l = ISA_LAYERS[i]!;
+  const rb = ISA_BASE_RHO[i]!;
+  if (Math.abs(l.lapseKPerM) < 1e-9) return l.baseM + (R_AIR * l.baseK / G0) * Math.log(rb / rho);
+  const t = l.baseK * Math.pow(rho / rb, -1 / (G0 / (l.lapseKPerM * R_AIR) + 1));
+  return l.baseM + (t - l.baseK) / l.lapseKPerM;
+}
+
+/**
+ * DENSITY ALTITUDE (m) of the pad air the flight flies — the altitude at which
+ * a standard day has air this dense. DISPLAY ONLY: the Launch panel shows it,
+ * and each run stores the figure it flew in (`SimRun.densityAltitudeM`).
+ *
+ * Read through `padAir`, never off the stored fields, so it describes the air
+ * the kernel is actually handed: a blank field filled from the site altitude,
+ * an out-of-envelope one read as blank, the altitude clamped. With both fields
+ * blank it is therefore the (clamped) site altitude exactly, which is the
+ * property a reader checks it by.
+ *
+ * DRY air — `p/(R·T)` with the dry-air constant, the convention the US
+ * National Weather Service's density-altitude formula uses. Humid air is a
+ * little thinner, so on a muggy day the true figure is higher.
+ *
+ * Never fed back into anything that flies. It is not "the altitude the flight
+ * behaves as if launched from": the speed of sound follows the pad's real
+ * temperature and a motor's pressure thrust its real pressure, and above the
+ * pad a typed temperature lapses to 216.65 K at 11 km rather than following a
+ * standard day's profile. Nor is it corrected to the kernel's own interpolated
+ * density (a 500 m grid, within about 16 ft here) — that would break "a
+ * standard day reads its own site altitude".
+ */
+export function densityAltitudeM(launch: PadConditions): number {
+  const air = padAir(launch);
+  return isaAltitudeForDensity(air.pressurePa / (R_AIR * air.temperatureK));
+}

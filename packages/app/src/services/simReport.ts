@@ -5,7 +5,7 @@ import type { MountMotor } from '../App.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
-import { padFieldsAsFlown } from './atmosphere.js';
+import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
@@ -537,6 +537,18 @@ export interface SimRun {
   motorSetKey?: string;
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
+  /**
+   * Dry-air DENSITY ALTITUDE of the pad air this run flew (m) — the Launch
+   * panel's readout, frozen at launch (services/atmosphere.ts
+   * `densityAltitudeM`). STORED rather than derived when shown, because the
+   * launch conditions move on after the run and the run's own air is what the
+   * report and the saved-runs table describe. Display only: it is derived from
+   * the conditions already hashed into `conditionsKey`, so it adds nothing to
+   * any provenance check. Absent on runs flown before the field existed (the
+   * report then shows no row and the table an empty cell); stored runs are
+   * untrusted JSON, so readers test `typeof === 'number'` as well.
+   */
+  densityAltitudeM?: number;
   /**
    * The stages that flew a nozzle exit diameter AND a motor — and, because
    * only v0.119 and later write it, THE PHYSICS-REVISION STAMP for the
@@ -1524,6 +1536,7 @@ export function buildSimRun(input: {
   nozzleStages?: string[];
 }): FreshSimRun {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages } = input;
+  const da = densityAltitudeM(launch);
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');
@@ -1937,6 +1950,9 @@ export function buildSimRun(input: {
     // does not, so a matching run of a nozzle design always carries it.
     ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
+    // Only when finite — a NaN would reach localStorage as null and read back
+    // as "no figure" anyway; absent says that honestly from the start.
+    ...(Number.isFinite(da) ? { densityAltitudeM: da } : {}),
     comments: comments.join(COMMENT_SEP),
     commentLevels: levels,
   };
