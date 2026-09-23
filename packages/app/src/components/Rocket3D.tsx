@@ -8,6 +8,7 @@ import {
   downloadImage, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
 } from '../services/schematicExport.js';
+import { safeName } from '../services/fileName.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import {
   formatStability, hasAerodynamicForce, shownCp, shownStability, stabilityState,
@@ -455,7 +456,10 @@ export function Rocket3D({ tree, info, motors, exportData, onError }: {
         st.gl.render(st.scene, st.camera);
       }
       const blob = await encoding;
-      downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+      // safeName, not an inline copy of its regex: the copy had no fallback,
+      // so a design named in Cyrillic saved "_-3d.png" and an empty name
+      // "-3d.png" (AUDIT row 399, the last of the three copies).
+      downloadImage(blob, `${safeName(exportData.name)}-3d.${IMAGE_FORMAT_EXT[format]}`);
     } catch (e) {
       onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)} — try a smaller width.`);
     }
