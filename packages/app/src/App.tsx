@@ -4702,7 +4702,14 @@ export function App() {
               // count the mass figures carry, not the cluster alone.
               const count = mountMotorCount(tree, m.id!);
               const countNote = mountCountNote(tree, m.id!);
-              const isSustainerMount = stIdx === 0;
+              // The auto-delay box goes on the PRIMARY's card only — the one
+              // mount flightRunner writes the rounded optimum onto (audit
+              // 2026-09-22, row 356). It used to show on every sustainer-stage
+              // card, so a strap-on or a second core mount carried a ticked
+              // "auto (optimal)" that flew its spec delay. Still sustainer-only,
+              // as before: a booster that is primary only because nothing above
+              // it is loaded yet does not grow the box.
+              const autoDelayOffered = stIdx === 0 && m.id === primaryMountId;
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -4795,7 +4802,7 @@ export function App() {
                           />
                           plugged
                         </label>
-                        {isSustainerMount && (
+                        {autoDelayOffered && (
                           <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
                             <input
                               type="checkbox"

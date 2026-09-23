@@ -182,17 +182,36 @@ export function stageIndexOf(tree: RocketTree, id: string): number {
 
 /**
  * The mount the hardware is carried on: the topmost-stage mount among
- * `mountIds` THAT ARE STILL IN THE TREE; ties keep the given (assignment /
- * file) order; null when none remain. An id the tree no longer has is dropped
- * BEFORE sorting — `stageIndexOf` returns −1 for it, which would otherwise
- * sort a deleted mount above the sustainer (a stale `mountMotors` record is
- * never pruned when its mount is removed). App's `primaryMountId`, the
- * pad-mass field's gate, the export gate, the .ork attach-on-open and the
- * session migration all use it (v0.118).
+ * `mountIds` THAT ARE STILL IN THE TREE; within a stage the CORE's mounts
+ * before a pod set's, and a pod set's before a strap-on's; remaining ties keep
+ * the given (assignment / file) order; null when none remain. An id the tree
+ * no longer has is dropped BEFORE sorting — `stageIndexOf` returns −1 for it,
+ * which would otherwise sort a deleted mount above the sustainer (a stale
+ * `mountMotors` record is never pruned when its mount is removed). App's
+ * `primaryMountId`, the pad-mass field's gate, the export gate, the .ork
+ * attach-on-open and the session migration all use it (v0.118).
+ *
+ * WHY THE CORE RANKS FIRST (audit 2026-09-22, row 356). A pod set and a
+ * strap-on ring live INSIDE the core's stage, so `stageIndexOf` ties them with
+ * the core, and assignment order used to decide — a strap-on motor picked
+ * before the core's became THE motor. The auto delay was then written onto the
+ * strap-ons while the core's card said "(auto delay)" — measured through the
+ * kernel on a C6 core with a ring of two C6 strap-ons, the strap-on picked
+ * first and auto ticked on both cards: the core flew its 3 s spec delay and
+ * 253.7 m, where the core on auto flies 4 s and 257.9 m — and a weighed pad
+ * mass rode the strap-ons and separated with them. A strap-on ranks last because it can leave; a pod
+ * set stays with the core but is still not its motor. Assignment order still
+ * settles a tie between two core mounts (a central mount and a ring), which is
+ * the behaviour the guide states.
  */
 export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): string | null {
   const inTree = mountIds.filter((id) => stageIndexOf(tree, id) !== -1);
-  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b))[0] ?? null;
+  const rank = (id: string): number => {
+    const up = ancestorsOf(tree, id);
+    return up.some((a) => a.type === 'parallelstage') ? 2 : up.some((a) => a.type === 'podset') ? 1 : 0;
+  };
+  // Array.prototype.sort is stable, so equal keys keep the given order.
+  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b) || rank(a) - rank(b))[0] ?? null;
 }
 
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {

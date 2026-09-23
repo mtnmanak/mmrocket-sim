@@ -561,6 +561,58 @@ describe('primaryMountOf — the mount the weighed hardware is carried on', () =
     expect(primaryMountOf(staged, [])).toBeNull();
   });
 
+  /**
+   * A pod set and a strap-on ring sit INSIDE the core's stage, so the stage
+   * index ties them with the core, and assignment order used to pick: a
+   * strap-on motor picked first became the primary, took the auto delay and
+   * carried the weighed pad mass away when it separated (audit 2026-09-22,
+   * row 356).
+   */
+  it('ranks the core’s mounts before a pod set’s, and a pod set’s before a strap-on’s', () => {
+    const ring = (type: 'podset' | 'parallelstage', id: string, mountId: string): ComponentNode => ({
+      type, id, instanceCount: 2,
+      children: [{
+        type: 'bodytube', id: `${id}-bt`, length: 0.2,
+        children: [{ type: 'innertube', id: mountId, motorMount: true } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode);
+    const withRings: RocketTree = {
+      name: 'rings',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer',
+          children: [{
+            type: 'bodytube', id: 'b0', length: 0.3, children: [
+              ring('parallelstage', 'straps', 'strap'),
+              ring('podset', 'pods', 'pod'),
+              { type: 'innertube', id: 'central', motorMount: true } as ComponentNode,
+              { type: 'innertube', id: 'ring', motorMount: true, cluster: '3-ring' } as ComponentNode,
+            ],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster',
+          children: [{
+            type: 'bodytube', id: 'b1', length: 0.2, motorMount: true,
+            children: [ring('parallelstage', 'bstraps', 'bstrap')],
+          } as ComponentNode],
+        } as ComponentNode,
+      ],
+    };
+    // Whatever order they were assigned in, the core wins its stage…
+    expect(primaryMountOf(withRings, ['strap', 'pod', 'central'])).toBe('central');
+    expect(primaryMountOf(withRings, ['pod', 'strap', 'central'])).toBe('central');
+    // …a pod set beats a strap-on…
+    expect(primaryMountOf(withRings, ['strap', 'pod'])).toBe('pod');
+    expect(primaryMountOf(withRings, ['strap'])).toBe('strap');
+    // …and the stage still comes first: a sustainer strap-on outranks the booster.
+    expect(primaryMountOf(withRings, ['b1', 'bstrap', 'strap'])).toBe('strap');
+    expect(primaryMountOf(withRings, ['bstrap', 'b1'])).toBe('b1');
+    // Two CORE mounts still tie on assignment order, as the guide says.
+    expect(primaryMountOf(withRings, ['strap', 'ring', 'central'])).toBe('ring');
+    expect(primaryMountOf(withRings, ['strap', 'central', 'ring'])).toBe('central');
+  });
+
   it('ignores a mount id the tree no longer has', () => {
     // stageIndexOf returns −1 for a deleted mount, and nothing prunes a
     // mountMotors record when its mount is removed — unfiltered, the stale id
