@@ -15,7 +15,9 @@ import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, dec
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
-import { PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
+import {
+  isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
+} from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
 // Re-export: rocksimFile.ts (and historical callers) import it from here.
@@ -71,7 +73,9 @@ export interface OrkTreeImportResult {
   /**
    * Launch conditions from the file's FIRST <simulation>'s <conditions> —
    * only the fields the file actually carried (temperature/pressure are set
-   * to null when the file declares the ISA standard atmosphere).
+   * to null when the file declares the ISA standard atmosphere, and one of
+   * the two is when it alone is exactly the site-altitude standard: a blank
+   * this app's writer had to state, see readLaunchConditions).
    */
   launch?: Partial<LaunchConditions>;
   /**
@@ -1418,6 +1422,27 @@ function readLaunchConditions(
             + 'atmosphere instead — set the station pressure under Launch conditions if you know it.');
         }
       }
+      // ONE value that is exactly the site's standard is a BLANK this app wrote
+      // (weather design review, 2026-09-22). The format is both-or-ISA, so the
+      // writer states a blank temperature or pressure as the standard value at
+      // the site altitude — padAir's, at full precision — and without this the
+      // app's own round trip turned the user's blank into a typed number. Kept
+      // blank, it flies the identical value (padAir fills a blank with exactly
+      // that standard), so no flown number moves; it only stays blank in the
+      // panel, following the site altitude if that is edited. Exactly one: a
+      // file stating BOTH standard values typed them, and keeps them. Only
+      // against the file's own <launchaltitude> — without one, the panel's
+      // altitude stays, and its standard is not the file's.
+      const siteAltM = launch.launchAltitudeM;
+      if (typeof siteAltM === 'number') {
+        const isStd = (v: number, std: number): boolean => Math.abs(v - std) <= 1e-9 * Math.abs(std);
+        const tStd = typeof launch.temperatureC === 'number' && isStd(tK, isaTemperatureK(siteAltM));
+        const pStd = typeof launch.pressureHPa === 'number' && isStd(pPa, isaPressurePa(siteAltM));
+        if (tStd !== pStd) {
+          if (tStd) launch.temperatureC = null;
+          else launch.pressureHPa = null;
+        }
+      }
     }
   }
 
@@ -2569,14 +2594,25 @@ export function exportOrk({
       // We don't model longitude — the desktop's preference default.
       emit(4, '<launchlongitude>-80.6</launchlongitude>');
       emit(4, '<geodeticmethod>spherical</geodeticmethod>');
-      if (launch.temperatureC === null && launch.pressureHPa === null) {
+      // THE PAD AIR THE FLIGHT FLIES — padAir, the one reading the flight and
+      // the recovery sizing already share. KELVIN / PASCAL on disk, and they
+      // are the values AT THE PAD: desktop builds ExtendedISAModel(launch
+      // altitude, T, P) from them. Desktop stores both-or-ISA, so a blank one
+      // has to be written as something, and it was SEA LEVEL's (15 °C,
+      // 1013.25 hPa) while the flight fills a blank from the site altitude
+      // (since v0.122): at 2,682 m with only 30 °C typed, the file re-opened
+      // — here and in desktop — at 1.1644 kg/m³ against the 0.83878 flown
+      // (weather design review, 2026-09-22). Full precision, so the reader
+      // can recognise the site-standard value it wrote and keep it blank (see
+      // readLaunchConditions). Both blank (or out of the panel's envelope,
+      // which padAir flies as blank) is the ISA marker, as before.
+      const air = padAir(launch);
+      if (air.standard) {
         emit(4, '<atmosphere model="isa"/>');
       } else {
-        // KELVIN / PASCAL on disk. The desktop stores both-or-ISA, so a
-        // single custom value fills the other with the ISA sea-level standard.
         emit(4, '<atmosphere model="extendedisa">');
-        emit(5, `<basetemperature>${(launch.temperatureC ?? 15) + 273.15}</basetemperature>`);
-        emit(5, `<basepressure>${(launch.pressureHPa ?? 1013.25) * 100}</basepressure>`);
+        emit(5, `<basetemperature>${air.temperatureK}</basetemperature>`);
+        emit(5, `<basepressure>${air.pressurePa}</basepressure>`);
         emit(4, '</atmosphere>');
       }
       // The step we ACTUALLY FLEW, so a file exported from here reproduces the
