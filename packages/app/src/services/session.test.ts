@@ -418,3 +418,48 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
     expect(sessionSaveFailing()).toBe(false);
   });
 });
+
+/**
+ * WHERE APPLIED WEATHER CAME FROM (weather build, step 3) survives a reload,
+ * is dropped when it does not check out, and never touches the design.
+ */
+describe('the weather provenance record in the session', () => {
+  const snapshot = () => ({
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' },
+    grid: { latitudeDeg: 40.66386, longitudeDeg: -119.35593 },
+    demElevationM: 1202, forAltitudeM: 1202, timezone: 'America/Los_Angeles',
+    validUnix: Date.UTC(2026, 8, 26, 21) / 1000, retrievedAt: '2026-09-22T18:00:00.000Z',
+    fetched: { temperatureC: 23.3, pressureHPa: 877.2, windSpeedMs: 1.75, windGustMs: 4.6, windFromDeg: 294 },
+    applied: { temperatureC: 23.3, pressureHPa: 877.2 },
+    before: { temperatureC: null, pressureHPa: null },
+  } as const);
+
+  it('round-trips a well-formed record', () => {
+    saveSessionDebounced({ ...state(), weather: snapshot() as never });
+    vi.runAllTimers();
+    expect(loadSession()!.weather).toEqual(snapshot());
+  });
+
+  it('drops a malformed one — and nothing else', () => {
+    saveSessionDebounced({ ...state(), weather: { ...snapshot(), applied: { windStdDev: 2 } } as never });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s).not.toHaveProperty('weather');
+    expect(s.launch.windAverage).toBe(2);
+  });
+
+  it('a session from before the feature loads with none, and its design fingerprint is unchanged', () => {
+    saveNow();
+    const s = loadSession()!;
+    expect(s.weather).toBeUndefined();
+    const snap = (x: typeof s): DesignSnapshot => ({
+      tree: x.tree, mountMotors: {}, launch: x.launch, maxMotorLengthByStage: {}, savedConfigs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null },
+    });
+    saveSessionDebounced({ ...state(), weather: snapshot() as never });
+    vi.runAllTimers();
+    // The record is provenance, not design: carrying one changes no fingerprint.
+    expect(designFingerprint(snap(loadSession()!))).toBe(designFingerprint(snap(s)));
+  });
+});

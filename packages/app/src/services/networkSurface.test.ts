@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { NETWORK_HOSTS } from './net.js';
+import { NETWORK_FEATURES, NETWORK_HOSTS } from './net.js';
 
 /**
  * THE APP'S NETWORK SURFACE, HELD AGAINST THE SOURCE (weather build,
@@ -69,5 +69,32 @@ describe('the network surface', () => {
 
   it('lists bare https origins only', () => {
     for (const h of NETWORK_HOSTS) expect(origin(h)).toBe(h);
+  });
+});
+
+/**
+ * The user guide's "What needs the network" paragraph is the promise the app
+ * makes about what leaves the browser. It must name every host, and its count
+ * ("Five things …") must be the number of features that reach out.
+ */
+describe('the guide’s network paragraph', () => {
+  const guide = readFileSync(join(here, '..', '..', 'user-guide.md'), 'utf8');
+  const paragraph = guide.split('\n').find((l) => l.startsWith('**What needs the network')) ?? '';
+  const COUNT = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+
+  it('exists', () => {
+    expect(paragraph).not.toBe('');
+  });
+
+  it('names every host the app reaches out to', () => {
+    for (const h of NETWORK_HOSTS) {
+      const host = new URL(h).host.replace(/^www\./, '');
+      expect(paragraph, host).toContain(host);
+    }
+  });
+
+  it('counts the features that reach out', () => {
+    const word = COUNT[NETWORK_FEATURES.length];
+    expect(paragraph).toContain(`${word} things in the app itself ever reach out`);
   });
 });

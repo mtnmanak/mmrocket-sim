@@ -4,6 +4,7 @@ import type { MountMotor, SavedConfig } from '../App.js';
 import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
+import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -75,6 +76,16 @@ export interface SessionState {
    * (services/hardwareMass.ts).
    */
   measured?: MeasuredFigures;
+  /**
+   * Where the applied weather came from (weather build, step 3) — the strip,
+   * each field's "forecast" line, Undo and (step 4) the gust estimate read it,
+   * so it has to survive a reload. PROVENANCE, not design: it is outside the
+   * design fingerprint (`dirtyState.ts`), and written only while there is one,
+   * so a session from before the feature round-trips unchanged. A malformed
+   * record is dropped on load (`validWeatherSnapshot`); what it describes
+   * lives in `launch` and flies either way.
+   */
+  weather?: WeatherSnapshot | null;
   /**
    * The design fingerprint as of the last save or import (v0.091+) — what is
    * on disk. Compared against the live design to decide whether opening
@@ -304,6 +315,13 @@ export function loadSession(): SessionState | null {
       s.timeStepClampedFromS = s.launch.timeStepS;
       s.launch = { ...s.launch, timeStepS: MIN_IMPORTED_TIME_STEP_S };
       s.timeStepWasClamped = true;
+    }
+    // localStorage is anything's to write: a provenance record that does not
+    // check out is dropped rather than put a wrong "forecast said" beside a field.
+    if (s.weather !== undefined) {
+      const w = validWeatherSnapshot(s.weather);
+      if (w) s.weather = w;
+      else delete s.weather;
     }
     return s;
   } catch {

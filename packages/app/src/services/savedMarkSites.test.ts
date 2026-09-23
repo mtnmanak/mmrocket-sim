@@ -195,7 +195,9 @@ describe('App hands the tested units what their fixes depend on', () => {
     expect(start).toBeGreaterThan(-1);
     const call = src.slice(start, src.indexOf('});', start));
     expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
-    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs]);');
+    // `weather` (weather build, step 3): where applied weather came from rides
+    // in the same payload, outside the design snapshot, so it is a dependency too.
+    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs, weather]);');
     expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
   });
 

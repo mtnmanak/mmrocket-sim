@@ -967,6 +967,226 @@ html {
   font-size: 11.5px;
 }
 
+/* --- Weather (☁ Get weather, weather build step 3) ---
+   The dialog is the Scale/Preferences card, wider for its review table; the
+   strip and the per-field provenance live in the Launch panel. Tokens only, so
+   Daylight and high contrast follow. */
+.weather-dialog {
+  max-width: 600px;
+}
+
+.weather-dialog-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weather-dialog-head h2 {
+  flex: 1;
+}
+
+.weather-intro {
+  margin-top: 0;
+}
+
+.weather-place,
+.weather-place-alt,
+.weather-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+
+.weather-dialog input[type='text'],
+.weather-dialog input[type='date'],
+.weather-dialog select {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.weather-place input[type='text'] {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.weather-dialog label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.weather-small {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 2px 0;
+}
+
+.weather-note,
+.weather-error {
+  font-size: 12.5px;
+  margin: 6px 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 3px;
+  border-left: 3px solid var(--status-warn);
+  background: color-mix(in srgb, var(--status-warn) 10%, transparent);
+  color: var(--text-secondary);
+}
+
+.weather-error {
+  border-left-color: var(--status-serious);
+  background: color-mix(in srgb, var(--status-serious) 10%, transparent);
+}
+
+.weather-places {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+
+.weather-places li {
+  margin: 2px 0;
+}
+
+.weather-chosen {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.weather-review h3 {
+  font-size: 13px;
+  margin: 12px 0 4px;
+  color: var(--text-primary);
+}
+
+.weather-review table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-review th,
+.weather-review td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.weather-review thead th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.weather-row-refused td,
+.weather-row-refused th {
+  color: var(--text-muted);
+}
+
+.weather-refusal {
+  display: block;
+  font-size: 11.5px;
+  color: var(--status-warn);
+}
+
+.weather-altitude {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  margin: 8px 0;
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weather-altitude legend {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.weather-context {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.weather-actions {
+  margin-top: 10px;
+}
+
+.weather-credit {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 10px 0 0;
+}
+
+.weather-credit a {
+  color: inherit;
+}
+
+/* The Launch panel's heading is a .panel-head (below), which wraps: on a phone
+   the ☁ button drops under the title instead of leaving the panel. Its h2 loses
+   its bottom margin there, so the grid gets the gap back here. */
+.panel-head + .field-grid {
+  margin-top: 10px;
+}
+
+/* Where the applied weather came from, under the Launch panel's grid. */
+.weather-strip {
+  margin: 0.6rem 0 0;
+  padding: 0.45rem 0.65rem;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 3px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.weather-strip .file-btn {
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.weather-strip a {
+  color: inherit;
+}
+
+.weather-stale {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+}
+
+/* One field's provenance under its box: "forecast", or what the forecast said. */
+.field-provenance {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* The phone Fly screen's ☁ button and, once weather is applied, its credit. */
+.fly-weather {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.fly-weather a {
+  color: inherit;
+}
+
 .field input.field-slider {
   padding: 0;
   border: none;

@@ -6,9 +6,12 @@ import {
   densityAltitudeM, isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir,
   padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from '../services/atmosphere.js';
+import { APPLY_KEYS, type ApplyKey, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
+import { WeatherButton } from './WeatherButton.js';
+import { provenanceText, WeatherStrip } from './WeatherStrip.js';
 
 export interface LaunchConditions {
   launchRodLengthM: number;
@@ -265,7 +268,9 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
  * closure so the phone Fly screen (S4) renders the SAME conversion and
  * validation for its three field-side conditions instead of a copy.
  */
-export function LaunchField({ label, field, value, onChange, stepStored, min, max, nullable = false, autoStored, help }: {
+export function LaunchField({
+  label, field, value, onChange, stepStored, min, max, nullable = false, autoStored, help, provenance,
+}: {
   label: string;
   field: keyof LaunchConditions;
   value: LaunchConditions;
@@ -306,6 +311,12 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
    * as the box — and LaunchPanel.test.tsx reads the help off `.field[title]`.
    */
   help?: string;
+  /**
+   * Where this field's number came from, when applied weather set it
+   * (weather build, step 3): "forecast", or "edited — forecast said 22.9 °C"
+   * once the user has changed it. A line under the box; absent otherwise.
+   */
+  provenance?: string;
 }) {
   const { prefs } = usePrefs();
   // Unique per instance: LaunchField renders in the Launch panel AND on the
@@ -384,6 +395,7 @@ export function LaunchField({ label, field, value, onChange, stepStored, min, ma
           onChange({ ...value, [field]: fromUi(ui) });
         }}
       />
+      {provenance ? <span className="field-provenance" data-provenance={field}>{provenance}</span> : null}
     </div>
   );
 }
@@ -589,7 +601,7 @@ export function PadPressureCaution({ value }: { value: LaunchConditions }) {
 }
 
 export function LaunchPanel({
-  value, onChange, onLaunch, simulating, canLaunch, lastRun,
+  value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherUndo, onWeatherDismiss,
 }: {
   value: LaunchConditions;
   onChange: (v: LaunchConditions) => void;
@@ -609,17 +621,36 @@ export function LaunchPanel({
    * number the user cares about: how many seconds they are about to wait.
    */
   lastRun?: { ms: number; timeStepS?: number } | null;
+  /**
+   * Where applied weather came from (weather build, step 3) — App's session
+   * state, never the design's. Drives the strip under the grid and the
+   * "forecast" line under each field it set. Null/absent: nothing applied, or
+   * dismissed.
+   */
+  weather?: WeatherSnapshot | null;
+  /** Opens App's ☁ Get weather dialog; no button without it. */
+  onGetWeather?: () => void;
+  /** The strip's Undo: puts back what the applied fields held (App, functionally). */
+  onWeatherUndo?: () => void;
+  /** The strip's Dismiss: keeps the values, drops the provenance. */
+  onWeatherDismiss?: () => void;
 }) {
+  const { prefs } = usePrefs();
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false, help?: string, autoStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
       stepStored={stepStored} min={min} max={max} nullable={nullable}
-      autoStored={autoStored} help={help} />
+      autoStored={autoStored} help={help}
+      provenance={weather && (APPLY_KEYS as readonly string[]).includes(key)
+        ? provenanceText(value, weather, key as ApplyKey, prefs.units) : undefined} />
   );
 
   return (
     <div className="panel">
-      <h2>Launch conditions</h2>
+      <div className="panel-head">
+        <h2 style={{ flex: 1 }}>Launch conditions</h2>
+        {onGetWeather && <WeatherButton onClick={onGetWeather} />}
+      </div>
       <div className="field-grid">
         {/* Open-ended bounds pass no max: the field has none to enforce. */}
         {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
@@ -663,6 +694,12 @@ export function LaunchPanel({
             measurable accuracy. */}
         {numField('Time step (s)', 'timeStepS', 0.01, PANEL_TIME_STEP_FLOOR_S, 1, true)}
       </div>
+      {/* Not a .field-caution: the tests (and a reader) take the FIRST caution
+          as the one about what was typed. */}
+      {weather && (
+        <WeatherStrip weather={weather} launch={value} onChange={onChange}
+          onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()} onFetchAgain={onGetWeather} />
+      )}
       <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch}

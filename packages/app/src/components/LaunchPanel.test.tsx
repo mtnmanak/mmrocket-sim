@@ -8,6 +8,7 @@ import {
   LONGITUDE_HELP, timeStepCostFactor, type LaunchConditions,
 } from './LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -609,5 +610,99 @@ describe('the longitude field', () => {
     const lat = at('Latitude');
     expect(lat % 2, 'Latitude opens a row').toBe(0);
     expect(at('Longitude')).toBe(lat + 1);
+  });
+});
+
+/**
+ * ☁ GET WEATHER in the panel (weather build, step 3): the button, the strip
+ * that says where applied weather came from, the per-field provenance line
+ * and the stale-altitude note. The dialog itself is WeatherDialog.test.tsx.
+ */
+describe('applied weather in the Launch panel', () => {
+  const SNAP: WeatherSnapshot = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search', townCentre: true },
+    grid: { latitudeDeg: 40.66386, longitudeDeg: -119.35593 },
+    demElevationM: 1202, forAltitudeM: 1202, timezone: 'America/Los_Angeles',
+    validUnix: Date.UTC(2026, 8, 26, 21) / 1000, retrievedAt: '2026-09-22T18:00:00.000Z',
+    fetched: { temperatureC: 23.3, pressureHPa: 877.2, windSpeedMs: 1.75, windGustMs: 4.6, windFromDeg: 294 },
+    applied: { temperatureC: 23.3, pressureHPa: 877.2, windAverage: 1.75, launchAltitudeM: 1202 },
+    before: { temperatureC: null, pressureHPa: null, windAverage: 0, launchAltitudeM: 0 },
+  };
+  const APPLIED: LaunchConditions = {
+    ...DEFAULT_CONDITIONS, temperatureC: 23.3, pressureHPa: 877.2, windAverage: 1.75, launchAltitudeM: 1202,
+  };
+  let calls: string[];
+  function renderWeather(value: LaunchConditions, weather: WeatherSnapshot | null, withButton = true) {
+    calls = [];
+    lastLaunch = null;
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <LaunchPanel value={value} onChange={(v) => { lastLaunch = v; }} onLaunch={() => {}} simulating={false}
+            canLaunch weather={weather}
+            onGetWeather={withButton ? () => { calls.push('get'); } : undefined}
+            onWeatherUndo={() => { calls.push('undo'); }} onWeatherDismiss={() => { calls.push('dismiss'); }} />
+        </PrefsProvider>,
+      );
+    });
+  }
+  const strip = () => host.querySelector('[data-weather="strip"]');
+  const provenance = (field: string) => host.querySelector(`[data-provenance="${field}"]`)?.textContent ?? null;
+  const btn = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+
+  it('offers ☁ Get weather… in the heading, greyed out offline with the reason', () => {
+    renderWeather(DEFAULT_CONDITIONS, null);
+    const b = host.querySelector<HTMLButtonElement>('.panel-head .weather-btn')!;
+    expect(b.textContent).toBe('☁ Get weather…');
+    expect(b.title).toMatch(/^Fetch one hour’s forecast/);
+    act(() => b.click());
+    expect(calls).toEqual(['get']);
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    expect(b.disabled).toBe(true);
+    expect(b.title).toBe('Needs a connection — the weather comes from Open-Meteo. Everything else works offline.');
+    act(() => { window.dispatchEvent(new Event('online')); });
+    renderWeather(DEFAULT_CONDITIONS, null, false);
+    expect(host.querySelector('.weather-btn')).toBeNull();
+  });
+
+  it('says where the numbers came from, credits Open-Meteo and GeoNames, and is not a caution', () => {
+    renderWeather(APPLIED, SNAP);
+    expect(strip()!.getAttribute('role')).toBe('status');
+    expect(strip()!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep · fetched 22 Sep/);
+    const links = [...strip()!.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/']);
+    expect(strip()!.classList.contains('field-caution')).toBe(false);
+    expect(host.querySelector('.field-caution')).toBeNull();
+    expect(host.querySelector('[data-weather="stale"]')).toBeNull();
+  });
+
+  it('marks each field the weather set, and what the forecast said once it is edited', () => {
+    renderWeather(APPLIED, SNAP);
+    expect(provenance('temperatureC')).toBe('forecast');
+    expect(provenance('launchAltitudeM')).toBe('terrain model');
+    expect(provenance('windStdDev')).toBeNull();
+    expect(provenance('latitudeDeg')).toBeNull();
+    renderWeather({ ...APPLIED, temperatureC: 30 }, SNAP);
+    expect(provenance('temperatureC')).toBe('edited — forecast said 23.3 °C');
+    renderWeather(APPLIED, null);
+    expect(provenance('temperatureC')).toBeNull();
+  });
+
+  it('says so when the Site altitude moves under the applied air, and offers both fixes', () => {
+    renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
+    const stale = host.querySelector('[data-weather="stale"]')!;
+    expect(stale.textContent).toMatch(/^These came from the forecast for 1,202 m; Site altitude is now 1,524 m\./);
+    act(() => btn('Fetch again')!.click());
+    expect(calls).toEqual(['get']);
+    act(() => btn('Clear both — standard air for 1,524 m')!.click());
+    expect(lastLaunch).toMatchObject({ temperatureC: null, pressureHPa: null, launchAltitudeM: 1524, windAverage: 1.75 });
+  });
+
+  it('routes Undo and Dismiss to App', () => {
+    renderWeather(APPLIED, SNAP);
+    act(() => btn('Undo')!.click());
+    act(() => btn('Dismiss')!.click());
+    expect(calls).toEqual(['undo', 'dismiss']);
   });
 });

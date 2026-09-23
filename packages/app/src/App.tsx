@@ -134,6 +134,8 @@ import {
   planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
+import { WeatherDialog } from './components/WeatherDialog.js';
+import { applyProposal, undoApply, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
@@ -590,6 +592,27 @@ export function App() {
    */
   const launchRef = useRef(launch);
   launchRef.current = launch;
+  /**
+   * Where the applied weather came from (weather build, step 3) — SESSION
+   * state beside `launch`, never part of the design: the fields it set are
+   * ordinary launch conditions. Kept across ✕ New, which keeps the launch
+   * conditions it describes; dropped when an opened design brings its own
+   * (applyImported), since it would then describe numbers no longer there.
+   */
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(session?.weather ?? null);
+  const [showWeather, setShowWeather] = useState(false);
+  /** ☁ Apply: ONE functional write — never from a render-captured `launch` (AUDIT row 304). */
+  const applyWeather = (patch: Parameters<typeof applyProposal>[1], snapshot: WeatherSnapshot) => {
+    setLaunch((prev) => applyProposal(prev, patch));
+    setWeather(snapshot);
+  };
+  /** The strip's Undo: each applied field back, unless it has been edited since. */
+  const undoWeather = () => {
+    const snap = weather;
+    if (!snap) return;
+    setLaunch((prev) => undoApply(prev, snap));
+    setWeather(null);
+  };
   /**
    * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
    * bare FlightResult with no link to `lastRun`, so selecting a row in the
@@ -1078,6 +1101,10 @@ export function App() {
       // Not part of the design fingerprint, but the only copy of a
       // configuration-less import's unresolved motors (audit 2026-09-22).
       unmatchedRefs,
+      // Not part of the design either: where applied weather came from.
+      // Written only while there is some, so an older session's payload is
+      // unchanged until weather is applied.
+      ...(weather ? { weather } : {}),
       // The build that PARSED this design, not the one writing the file — see
       // parsedByVersion. writeNow spreads `pending` AFTER its own
       // `appVersion: APP_VERSION`, so this value is the one that reaches
@@ -1086,7 +1113,7 @@ export function App() {
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  }, [designSnapshot, dirtyTick, unmatchedRefs]);
+  }, [designSnapshot, dirtyTick, unmatchedRefs, weather]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
@@ -2878,6 +2905,9 @@ export function App() {
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setMaxMotorLen, setLaunch, setMeasured,
       setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt, markSaved,
     });
+    // An opened design (a share link included) that brings launch conditions
+    // of its own has replaced the ones the weather record describes.
+    if (imported.launch) setWeather(null);
     // This design has now been through THIS build's importer, so the session
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
@@ -3586,6 +3616,10 @@ export function App() {
       {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
       {tourOpen && <FirstRunTour onSetTab={setTab} onClose={closeTour} />}
       {showChangelog && <ChangelogDialog onClose={() => setShowChangelog(false)} />}
+      {showWeather && (
+        <WeatherDialog launch={launch} initialPlace={weather?.place ?? null}
+          onApply={applyWeather} onClose={() => setShowWeather(false)} />
+      )}
       {showScale && (
         <ScaleDialog
           tree={tree}
@@ -4008,6 +4042,8 @@ export function App() {
             // The same provenance the vitals strip's ⚠ and the Results note
             // read — this screen replaces the strip on a phone.
             changedSince={changedSinceNonModel}
+            onGetWeather={() => setShowWeather(true)}
+            weather={weather}
           />
         )}
 
@@ -4717,7 +4753,9 @@ export function App() {
 
           <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             canLaunch={!!built && !!primaryMountId}
-            lastRun={simCostRef} />
+            lastRun={simCostRef}
+            weather={weather} onGetWeather={() => setShowWeather(true)}
+            onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} />
 
           {/* Last row of the grid, full width (`.config-panel` spans
               `1 / -1` wherever auto-placement drops it). It sat second, above

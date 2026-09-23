@@ -203,4 +203,44 @@ describe('FlyScreen', () => {
       expect(labels).not.toContain('Recovery weight');
     });
   });
+
+  /**
+   * ☁ GET WEATHER on the phone (weather build, step 3, owner decision D3
+   * default): the same App dialog as the Launch panel's. The Fly screen gets
+   * no gust estimate and no σ field — a bulk write of σ is never offered.
+   */
+  describe('the weather button', () => {
+    it('opens App’s weather dialog, and is absent without it', () => {
+      mount();
+      expect(host.querySelector('.weather-btn')).toBeNull();
+      let asked = 0;
+      mount({ onGetWeather: () => { asked++; } });
+      const btn = host.querySelector<HTMLButtonElement>('.weather-btn')!;
+      expect(btn.textContent).toBe('☁ Get weather…');
+      act(() => btn.click());
+      expect(asked).toBe(1);
+    });
+
+    it('greys out offline and says why', () => {
+      mount({ onGetWeather: () => {} });
+      act(() => { window.dispatchEvent(new Event('offline')); });
+      const btn = host.querySelector<HTMLButtonElement>('.weather-btn')!;
+      expect(btn.disabled).toBe(true);
+      expect(btn.title).toMatch(/^Needs a connection/);
+      act(() => { window.dispatchEvent(new Event('online')); });
+      expect(host.querySelector<HTMLButtonElement>('.weather-btn')!.disabled).toBe(false);
+    });
+
+    it('credits Open-Meteo once weather is applied, and offers no σ or gust estimate', () => {
+      mount({
+        onGetWeather: () => {},
+        weather: { place: { label: 'Gerlach, Nevada, US' } } as never,
+      });
+      const links = Array.from(host.querySelectorAll('.fly-weather a')).map((a) => a.getAttribute('href'));
+      expect(links).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/']);
+      expect(host.querySelector('.gust-estimate')).toBeNull();
+      const labels = Array.from(host.querySelectorAll('input')).map((i) => i.getAttribute('aria-label') ?? '');
+      expect(labels.some((l) => l.startsWith('Wind gusts'))).toBe(false);
+    });
+  });
 });

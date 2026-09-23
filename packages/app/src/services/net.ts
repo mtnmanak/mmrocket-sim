@@ -8,8 +8,9 @@ import { useEffect, useState } from 'react';
  * cancel, and a JSON read that is capped by size and reports every way a
  * request can fail as one typed error.
  *
- * `networkSurface.test.ts` holds the host list against the source, so a new
- * outside host cannot be fetched without being listed here.
+ * `networkSurface.test.ts` holds the host list against the source and the
+ * user guide's "What needs the network" paragraph, so a new outside host
+ * cannot be fetched without being listed here and named there.
  */
 
 /**
@@ -27,6 +28,21 @@ export const NETWORK_HOSTS: readonly string[] = [
   'https://archive-api.open-meteo.com',
   'https://geocoding-api.open-meteo.com',
 ];
+
+/**
+ * The things in the app that reach the network, as the user guide counts them
+ * ("Five things in the app itself ever reach out", Files, Units, and Offline
+ * Use). `networkSurface.test.ts` holds the guide's count word to this list's
+ * length and its paragraph to naming every host above, so a new feature that
+ * reaches out cannot ship without the guide saying so.
+ */
+export const NETWORK_FEATURES = [
+  'the version badge',
+  'the site navigation band',
+  '↻ Check thrustcurve.org',
+  'a thrust-curve download',
+  '☁ Get weather',
+] as const;
 
 /** A request's deadline, merged with the caller's own cancellation. */
 export interface Deadline {

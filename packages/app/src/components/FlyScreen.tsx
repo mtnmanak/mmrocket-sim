@@ -5,8 +5,10 @@ import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.j
 import {
   formatRunWhenProse, formatStability, hasAerodynamicForce, listAnd, shownStability, type SimRun,
 } from '../services/simReport.js';
+import { WEATHER_CREDIT, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
 import { LaunchField, type LaunchConditions } from './LaunchPanel.js';
+import { WeatherButton } from './WeatherButton.js';
 import { stabilityGlyphClass } from './StatTiles.js';
 import { TreeSchematic } from './TreeSchematic.js';
 
@@ -19,7 +21,7 @@ import { TreeSchematic } from './TreeSchematic.js';
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunch, simulating, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
-  staleModel, changedSince }: {
+  staleModel, changedSince, onGetWeather, weather }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -61,6 +63,15 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
    * tiles disagreed with each other (audit 2026-09-22).
    */
   changedSince?: readonly string[] | null;
+  /**
+   * Opens App's ☁ Get weather dialog (weather build, step 3) — the pad is
+   * where a phone user wants the day's weather. The same dialog and the same
+   * Apply as the Launch panel's; σ is never among what it writes, here or
+   * there, and this screen offers no gust estimate.
+   */
+  onGetWeather?: () => void;
+  /** Applied weather, for its credit line — Open-Meteo's licence asks for one wherever its numbers are shown. */
+  weather?: WeatherSnapshot | null;
 }) {
   const { prefs } = usePrefs();
   const stab = info && hasAerodynamicForce(info)
@@ -170,6 +181,19 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             <LaunchField label="Wind avg" field="windAverage" value={launch}
               onChange={onLaunchChange} stepStored={0.5} min={0} />
           </div>
+          {(onGetWeather || weather) && (
+            <div className="fly-weather">
+              {onGetWeather && <WeatherButton onClick={onGetWeather} />}
+              {weather && (
+                <span>
+                  Weather for {weather.place.label} —{' '}
+                  <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
+                  {' · '}
+                  <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
+                </span>
+              )}
+            </div>
+          )}
 
           {canCompare && (
             <button className="fly-compare" onClick={onCompare}
