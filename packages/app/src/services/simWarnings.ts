@@ -36,11 +36,14 @@ const HIGH_SPEED_DEPLOYMENT = 'Recovery device opened faster than the simulator�
  *
  * A lookupTable (null prototype), and both reads below take own keys only:
  * the key formatWarningText reads is whatever follows "[Warning." at the front
- * of the text, and the app's own rail sentence opens with the rail button's
- * NAME. On a plain object a button named `[Warning.constructor]` found Object
- * itself here, and the warning read "function Object() { [native code] } — at
- * 0° is in line with …"; `toString`, `valueOf`, `hasOwnProperty` and
- * `__proto__` did the same (AUDIT row 238).
+ * of the text, and the app's own rail sentence opened with the rail button's
+ * NAME, bare. On a plain object a button named `[Warning.constructor]` found
+ * Object itself here, and the warning read "function Object() { [native code]
+ * } — at 0° is in line with …"; `toString`, `valueOf`, `hasOwnProperty` and
+ * `__proto__` did the same (AUDIT row 238). The rail sentence now quotes the
+ * name, which also stops a REAL key (`[Warning.NO_RECOVERY_DEVICE]`) putting a
+ * kernel label in front of it; this table stays safe for any text that still
+ * reaches it with a key it does not hold.
  */
 export const WARNING_LABEL: Record<string, string> = lookupTable({
   // Flight-event warnings (BasicEventSimulationEngine / RK4SimulationStepper)
@@ -141,8 +144,10 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
  * and `wakeShadowWarnings` in tree/mountAngle.ts — and they arrive as finished
  * sentences carrying no token, so they fall through unchanged. One thing that
  * costs them: `stripBrackets` eats a LEADING bracketed token, and a part a user
- * named "[cam]" is a bracketed token. The wake sentence quotes its part names
- * for that reason; simWarnings.test.ts pins both halves.
+ * named "[cam]" is a bracketed token — one named `[Warning.NO_RECOVERY_DEVICE]`
+ * also gets that key's label. Both sentences quote their part names for that
+ * reason (the rail one since AUDIT row 238); simWarnings.test.ts pins both
+ * halves, and mountAngle.test.ts the rail names.
  */
 export function formatWarningText(text: string): string {
   const m = /^\[Warning\.([^\]]+)\]/.exec(text);

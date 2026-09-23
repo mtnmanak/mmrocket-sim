@@ -6,6 +6,7 @@ import {
   wakeShadowWarnings, WAKE_REACH_HEIGHTS,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
+import { formatWarningText } from '../services/simWarnings.js';
 
 const D = (deg: number) => (deg * Math.PI) / 180;
 const asDeg = (rad: number) => Math.round(((reducePi(rad) * 180) / Math.PI) * 1e6) / 1e6;
@@ -166,6 +167,34 @@ describe('rail interference', () => {
     expect(w[0]).toContain('"Booster"');
     expect(w[0]).not.toContain('"parallelstage"');
   });
+
+  /**
+   * AUDIT row 238, the half the lookupTable fix did not reach. Both rail
+   * sentences opened with the button's name BARE, and formatWarningText reads
+   * a leading `[Warning.X]` as a kernel token: it strips it and, for a real
+   * key, puts that key's label in front. So a .ork whose rail button was named
+   * `[Warning.NO_RECOVERY_DEVICE]` showed "No recovery device — the rocket
+   * comes down ballistic — at 0° is in line with …", a false safety label on
+   * the strip and in the launch report, and `[cam]` lost its name. Quoted, as
+   * the wake sentence always was, the name is text and nothing else.
+   */
+  it.each(['[Warning.NO_RECOVERY_DEVICE]', '[Warning.DISCONTINUITY]', '[Warning.constructor]', '[cam]'])(
+    'shows a button named %s as its name, with no kernel label',
+    (name) => {
+      const onFin = warn([FINS3, { type: 'railbutton', id: 'r1', name, angleOffset: 0 }]);
+      const onShroud = warn([
+        { type: 'railbutton', id: 'r1', name, angleOffset: D(180) },
+        { type: 'fairing', id: 'sh', name: 'GoPro', angleOffset: D(180) },
+      ]);
+      for (const w of [...onFin, ...onShroud]) {
+        expect(w.startsWith(`"${name}" at `)).toBe(true);
+        // What the Design strip and the launch report show: the sentence, unchanged.
+        expect(formatWarningText(w)).toBe(w);
+      }
+      expect(onFin).toHaveLength(1);
+      expect(onShroud).toHaveLength(1);
+    },
+  );
 
   it('tests every instance of a pod set, not just the node\'s own angle', () => {
     // A 3-up pod ring clocked 30° off puts instances at 30, 150 and −90. The

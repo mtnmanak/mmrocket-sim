@@ -147,7 +147,8 @@ describe('formatWarningText (static warnings from staticInfo)', () => {
    * The trap this pins is `stripBrackets`: it removes a LEADING bracketed token,
    * which is the whole point for a kernel message, but a user is free to name a
    * part "[cam]". A sentence that opened with a bare part name would lose it.
-   * The wake sentence QUOTES the name for exactly this reason.
+   * The wake sentence QUOTES the name for exactly this reason, and since AUDIT
+   * row 238 so do the rail sentences (mountAngle.test.ts pins those).
    */
   it('passes an app-side geometric sentence through untouched', () => {
     const wake = '"Camera shroud" at 0° sits 220 mm ahead of a fin of "Fins" — 11 times its '
@@ -166,9 +167,10 @@ describe('formatWarningText (static warnings from staticInfo)', () => {
  * AUDIT row 238. WARNING_LABEL was a plain object literal, so a key that is
  * also an Object.prototype member found the prototype's value at both reads —
  * and formatWarningText's key is whatever follows "[Warning." at the front of
- * the text, which the app's own rail sentence fills with a rail button's name.
- * A button named `[Warning.constructor]` showed "function Object() { [native
- * code] } — …". Each of these keys must now read as an unknown key does.
+ * the text, which the app's own rail sentence filled with a rail button's name
+ * until it quoted it. A button named `[Warning.constructor]` showed "function
+ * Object() { [native code] } — …". Each of these keys must now read as an
+ * unknown key does.
  */
 describe('a warning key that is also an Object.prototype member', () => {
   const PROTO_KEYS = ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'];
