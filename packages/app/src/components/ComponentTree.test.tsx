@@ -326,3 +326,135 @@ describe('the Add buttons are disclosures (audit 2026-09-22, row 462)', () => {
     expect(host.querySelector('.add-menu')).not.toBeNull();
   });
 });
+
+/**
+ * WHERE Add and Paste may put a part (audit 2026-09-22, Tests row 479). The
+ * targets come from the selection — the selected part when it holds children,
+ * its parent, and its stage — and every list is the schema's containment
+ * rule, which is the kernel's: a part offered where the kernel refuses it
+ * builds a design that throws on build (schema.ts CONTAINMENT). None of this
+ * had a test.
+ */
+describe('the Add and Paste targets follow the selection and the containment rules', () => {
+  const RICH = {
+    name: 'Two-stage',
+    components: [
+      {
+        id: 's1', type: 'stage', name: 'Sustainer',
+        children: [
+          { id: 'n1', type: 'nosecone', name: 'Nose', length: 0.1, aftRadius: 0.02 },
+          { id: 't1', type: 'transition', name: 'Shoulder', length: 0.03, foreRadius: 0.02, aftRadius: 0.025 },
+          {
+            id: 'b1', type: 'bodytube', name: 'Airframe', length: 0.3, outerRadius: 0.025,
+            children: [
+              { id: 'f1', type: 'trapezoidfinset', name: 'Fins', finCount: 3 },
+              {
+                id: 'p1', type: 'podset', name: 'Pods', instanceCount: 2,
+                children: [{ id: 'pb', type: 'bodytube', name: 'Pod tube', length: 0.1, outerRadius: 0.01 }],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 's2', type: 'stage', name: 'Booster',
+        children: [{ id: 'b2', type: 'bodytube', name: 'Booster tube', length: 0.2, outerRadius: 0.025 }],
+      },
+    ],
+  } as unknown as RocketTree;
+
+  let added: [string, string][];
+  let pasted: string[];
+  const render = (selectedId: string | null, clipboard: Record<string, unknown> | null = null) => {
+    added = [];
+    pasted = [];
+    act(() => root.render(
+      <ComponentTree
+        tree={RICH} selectedId={selectedId} onSelect={() => {}} onMove={() => {}}
+        onDelete={() => {}} onDuplicate={() => {}} onAddStage={() => {}}
+        onAdd={(parent, type) => added.push([parent, type])}
+        clipboard={clipboard as never}
+        onCopy={() => {}} onCut={() => {}} onPaste={(id) => pasted.push(id)}
+      />,
+    ));
+  };
+  const buttons = (re: RegExp) => [...host.querySelectorAll<HTMLButtonElement>('button')]
+    .filter((b) => re.test(b.textContent ?? ''));
+  const labels = (re: RegExp) => buttons(re).map((b) => b.textContent);
+  const menuItems = () => [...host.querySelectorAll('.add-menu .add-menu-item')]
+    .map((b) => (b.textContent ?? '').replace(/^\S+\s/, ''));
+
+  it('with nothing selected, adds to the first stage and offers no Paste', () => {
+    render(null, { id: 'x', type: 'bodytube', name: 'Spare tube' });
+    expect(labels(/^\+ Add (to|component)/)).toEqual(['+ Add component']);
+    act(() => { buttons(/^\+ Add component$/)[0]!.click(); });
+    expect(menuItems()).toEqual(['Nose cone', 'Body tube', 'Transition']);
+    act(() => { buttons(/^. Body tube$/)[0]!.click(); });
+    expect(added).toEqual([['stage', 'bodytube']]);
+    expect(labels(/Paste into/)).toEqual([]);
+  });
+
+  it('a stage offers only itself', () => {
+    render('s2');
+    expect(labels(/^\+ Add to/)).toEqual(['+ Add to Booster']);
+  });
+
+  it('a part directly on the stage offers itself (if it holds parts) and the stage, never the stage twice', () => {
+    render('n1');
+    expect(labels(/^\+ Add to/)).toEqual(['+ Add to Nose', '+ Add to Sustainer']);
+    render('b2');
+    expect(labels(/^\+ Add to/)).toEqual(['+ Add to Booster tube', '+ Add to Booster']);
+  });
+
+  it('a part that holds nothing offers its parent and its stage, not itself', () => {
+    render('f1');
+    expect(labels(/^\+ Add to/)).toEqual(['+ Add to Airframe', '+ Add to Sustainer']);
+  });
+
+  it('inside a pod set, offers the part, the pod set and the stage the pods ride on', () => {
+    render('pb');
+    expect(labels(/^\+ Add to/)).toEqual(['+ Add to Pod tube', '+ Add to Pods', '+ Add to Sustainer']);
+    act(() => { buttons(/^\+ Add to Pods$/)[0]!.click(); });
+    // A pod set holds its own axial chain, exactly like a stage.
+    expect(menuItems()).toEqual(['Nose cone', 'Body tube', 'Transition']);
+  });
+
+  it('each menu is that parent\'s containment list, and adds to that parent', () => {
+    render('n1');
+    act(() => { buttons(/^\+ Add to Nose$/)[0]!.click(); });
+    // No fins, no pods on a nose cone: the kernel refuses them there.
+    expect(menuItems()).toEqual(['Parachute', 'Streamer', 'Shock cord', 'Mass component']);
+    act(() => { buttons(/^. Parachute$/)[0]!.click(); });
+    expect(added).toEqual([['n1', 'parachute']]);
+
+    render('t1');
+    act(() => { buttons(/^\+ Add to Shoulder$/)[0]!.click(); });
+    // Freeform is the ONE fin set a transition takes.
+    expect(menuItems()).toContain('Freeform fins');
+    expect(menuItems()).not.toContain('Trapezoidal fins');
+  });
+
+  it('offers Paste only into a target whose containment list takes the clipboard\'s type', () => {
+    const trapFins = { id: 'c', type: 'trapezoidfinset', name: 'Copied fins' };
+    // Selected fins: targets Airframe (takes fins) and Sustainer (does not).
+    render('f1', trapFins);
+    expect(labels(/Paste into/)).toEqual(['⎗ Paste into Airframe']);
+    act(() => { buttons(/Paste into Airframe/)[0]!.click(); });
+    expect(pasted).toEqual(['b1']);
+    // A transition refuses trapezoidal fins and takes freeform ones.
+    render('t1', trapFins);
+    expect(labels(/Paste into/)).toEqual([]);
+    render('t1', { id: 'c', type: 'freeformfinset', name: 'Copied fins' });
+    expect(labels(/Paste into/)).toEqual(['⎗ Paste into Shoulder']);
+    // A body tube pastes onto a stage, not into a nose cone.
+    render('n1', { id: 'c', type: 'bodytube', name: 'Spare tube' });
+    expect(labels(/Paste into/)).toEqual(['⎗ Paste into Sustainer']);
+  });
+
+  it('names what is on the clipboard and how to paste it', () => {
+    render(null, { id: 'c', type: 'parachute', name: 'Main chute' });
+    expect(host.textContent).toContain('Clipboard: ☂ Main chute — select a destination component, then Paste.');
+    render(null, { id: 'c', type: 'parachute' });
+    expect(host.textContent).toContain('Clipboard: ☂ Parachute');
+  });
+});
