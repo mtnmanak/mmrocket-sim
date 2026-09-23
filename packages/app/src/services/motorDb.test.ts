@@ -3,7 +3,8 @@ import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
   isBlackPowder,
-  manufacturersForMount, nearestCommonClass, propellantsForMount, rangesForMount, sortMotors,
+  manufacturerMatches, manufacturersForMount, matchDbMotor, nearestCommonClass, PROPELLANT_CODES,
+  propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
 
 describe('bundled motor database', () => {
@@ -207,6 +208,426 @@ describe('findDbMotor (.ork motor matching)', () => {
   it('returns null for fantasy motors', () => {
     expect(findDbMotor('Z9999-XX')).toBeNull();
     expect(findDbMotor('')).toBeNull();
+  });
+
+  /**
+   * A PREFIX MAY NOT CUT A NUMBER IN TWO (audit 2026-09-23). RockSim's
+   * “G115-WT” — Cesaroni's 38 mm G115 — began with AeroTech's 29 mm “G11”, and
+   * six RockSim files in the owner's collection opened on the G11: Apogee's
+   * Katana-38mm.rkt flew to 0.2 m, and flies 117.0 m on the G115. Every case
+   * below is a reference from that collection or the tester uploads, with what
+   * the bare prefix used to pick.
+   */
+  it('never matches by cutting a number in two', () => {
+    const des = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr)?.designation ?? null;
+    expect(des('G115-WT', 'Cesaroni Technology Inc.')).not.toBe('G11');
+    expect(des('G118-BS', 'CTI')).not.toBe('G11');
+    expect(des('G117WH', 'Cesaroni Technology Inc.')).not.toBe('G11');
+    expect(des('I800-Vmax', 'Cesaroni Technology Inc.')).not.toBe('I80');   // RATT's
+    expect(des('H55', 'unknown')).toBe('H55W');                             // was the 38 mm H550ST
+    expect(des('J100', 'HYPER')).toBeNull();                                // was Loki's J1000-LW
+    // The catalogue's own short common names now find their own rows.
+    expect(des('G8', 'AeroTech')).toBe('G8ST');                             // was the G80T
+    expect(des('H13', 'AeroTech')).toBe('H13ST');                           // was the H130W
+    expect(des('I59', 'AeroTech')).toBe('I59WN');                           // was the I599N
+  });
+
+  it('still takes a delay or propellant suffix on either side', () => {
+    expect(findDbMotor('h128')?.designation).toBe('H128W');
+    expect(findDbMotor('H128W-14A')?.designation).toBe('H128W');
+    expect(findDbMotor('I224-15A')?.designation).toBe('381I224-15A');
+    expect(findDbMotor('G80T-7', 29, undefined, 'AeroTech')?.designation).toBe('G80T');
+    // A delay glued to AeroTech's propellant letter: the cut falls between a
+    // letter and a digit, not inside a number. The first form of the guard
+    // barred ANY digit after the cut and lost these (review of the audit).
+    expect(findDbMotor('H128W14A', undefined, undefined, 'AeroTech')?.designation).toBe('H128W');
+    expect(findDbMotor('H128W14')?.designation).toBe('H128W');
+    // Nor may a bare impulse letter begin a designation: it has no number to cut.
+    expect(findDbMotor('H')).toBeNull();
+  });
+
+  /**
+   * BY COMMON NAME AND PROPELLANT (audit 2026-09-23). Cesaroni's catalogue
+   * designation carries no propellant, so a file's “G115-WT” found nothing once
+   * it stopped finding the G11. Every reference below is from the owner's
+   * RockSim collection or the tester uploads.
+   */
+  describe('a Cesaroni motor named by common name and propellant code', () => {
+    const find = (d: string, mfr = 'Cesaroni Technology Inc.') => findDbMotor(d, undefined, undefined, mfr);
+
+    it('finds the one the file names — dash, no dash, spelled out, with a delay', () => {
+      expect(find('G115-WT')?.designation).toBe('141G115-13A');         // Katana-38mm.rkt, 38 mm White Thunder
+      expect(find('G118-BS', 'CTI')?.designation).toBe('159G118-15A');
+      expect(find('G118BS')?.designation).toBe('159G118-15A');
+      expect(find('G117WH')?.designation).toBe('142G117-11A');          // White
+      expect(find('I800-Vmax')?.designation).toBe('419I800-15A');
+      expect(find('H125-Classic', 'CTI')?.designation).toBe('266H125-12A');
+      expect(find('I165 C-Star')?.designation).toBe('518I165-17A');
+      expect(find('I165CS')?.designation).toBe('518I165-17A');
+      expect(find('H110-WH-14A', 'CTI')?.designation).toBe('269H110-14A');
+      expect(find('N2501-WH-P', 'CTI')?.designation).toBe('15227N2501-P'); // ThreeCarbYen-2018.CDX1
+      // Cesaroni's own name wins over another maker's bare designation.
+      expect(find('G125-RL', 'CTI')?.designation).toBe('159G125-14A');   // was SkyR's G125
+    });
+
+    it('picks between two rows of one common name by the propellant, never by catalogue order', () => {
+      // Classic 312 Ns and Skidmark 220 Ns: the first-listed took both until now.
+      expect(find('H160-CL', 'CTI')?.designation).toBe('312H160-12A');
+      expect(find('H160-SK', 'CTI')?.designation).toBe('220H160-14A');
+      expect(find('F36-BS', 'CTI')?.designation).toBe('51F36-14A');
+      expect(find('F36-SS', 'CTI')?.designation).toBe('41F36-11A');
+      expect(find('H255-BS', 'CTI')?.designation).toBe('315H255-14A');
+      expect(find('H255-WT', 'CTI')?.designation).toBe('229H255-14A');
+    });
+
+    it('matches nothing it cannot confirm: a propellant that disagrees, or none named', () => {
+      // The only Cesaroni G69 is Skidmark; the only E31 White Thunder. The
+      // first assertion here was `.not.toBe('Cesaroni')`, which passed on
+      // SkyR's 29 mm G69 hybrid — what it resolved to in a simulation of five of
+      // the owner's files (review of the audit). Nothing is the answer, with
+      // the maker or without.
+      expect(find('G69-Classic')).toBeNull();
+      expect(findDbMotor('G69-Classic')).toBeNull();
+      expect(find('E31WH')).toBeNull();
+      expect(find('G107WH')).toBeNull();                                // the only G107 is White Thunder
+      expect(find('H123A')).toBeNull();                                 // “A” names no propellant
+      // AeroTech's glued propellant letter is not a Cesaroni code: F52T stays F52T, never F52C.
+      expect(findDbMotor('F52T-8', undefined, undefined, 'AeroTech')?.designation).toBe('F52T');
+      // A common name is not cut short of a digit either.
+      expect(find('G1150-WT')?.designation).not.toBe('141G115-13A');
+    });
+
+    it('reads “DT” as a Dual Thrust propellant, which no common name carries twice', () => {
+      // Wildman_2stage.rkt's sustainer: its booster loaded and this did not, so
+      // the design flew the booster alone, 2375.5 m against RockSim's 7679.2.
+      expect(find('L640-DT')?.designation).toBe('2772L640-P');
+      expect(find('L640 Dual Thrust')?.designation).toBe('2772L640-P');
+      expect(find('K590-DT')?.designation).toBe('2398K590-15A');
+      const dual = new Map<string, number>();
+      for (const m of MOTOR_DB.filter((r) => /\/dual thrust$/i.test(r.propInfo ?? ''))) {
+        const k = `${m.manufacturerAbbrev} ${m.commonName}`;
+        dual.set(k, (dual.get(k) ?? 0) + 1);
+      }
+      expect([...dual].filter(([, n]) => n > 1)).toEqual([]);
+    });
+
+    it('names only propellants the shipped catalogue carries', () => {
+      const carried = new Set(MOTOR_DB.map((m) => m.propInfo));
+      for (const [code, names] of Object.entries(PROPELLANT_CODES)) {
+        for (const name of names) expect(carried.has(name), `${code} → ${name}`).toBe(true);
+      }
+    });
+
+    /**
+     * Loki's and AMW's codes are the ones their OWN designations carry — pinned
+     * here, so a catalogue refresh that gives a code a second meaning fails.
+     */
+    it('reads Loki’s and AMW’s codes as their own designations write them', () => {
+      const own = (mfr: string, code: (d: string) => string | undefined) => {
+        const seen = new Map<string, Set<string>>();
+        for (const m of MOTOR_DB.filter((r) => r.manufacturerAbbrev === mfr && r.propInfo)) {
+          const c = code(m.designation)?.toLowerCase();
+          if (c) seen.set(c, (seen.get(c) ?? new Set<string>()).add(m.propInfo!));
+        }
+        return seen;
+      };
+      const loki = own('Loki', (d) => /([A-Z]{2})$/.exec(d)?.[1]);
+      const amw = own('AMW', (d) => /^([A-Z]{2})-\d/.exec(d)?.[1]);
+      for (const seen of [loki, amw]) {
+        for (const [code, props] of seen) {
+          for (const p of props) expect(PROPELLANT_CODES[code], `${code} → ${p}`).toContain(p);
+        }
+      }
+      expect([...loki.keys()].sort()).toEqual(['ct', 'ib', 'lb', 'lc', 'lr', 'lw', 'sf']);
+      expect([...amw.keys()].sort()).toEqual(['bb', 'gg', 'rr', 'sk', 'st', 'wt', 'ww']);
+    });
+  });
+
+  /**
+   * THE REVIEW OF AUDIT 2026-09-23. Each case is a reviewer's measured
+   * finding, or a reference from the owner's RockSim collection.
+   */
+  describe('the order of the matches, and what a file’s maker decides', () => {
+    const find = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr);
+
+    it('a propellant after a full designation has to be the row’s own', () => {
+      // “F36-11A” is the Smoky Sam's designation; the BS after it is not.
+      expect(find('F36-11A-BS', 'Cesaroni')?.designation).toBe('51F36-14A');
+      expect(find('H255-14A-BS', 'Cesaroni')?.designation).toBe('315H255-14A');
+      expect(find('K650-16A-PK', 'Cesaroni')?.propInfo).toBe('Pink');
+      // A row that records no propellant cannot contradict one: Cesaroni's old
+      // H153 is the Classic reload the owner's file names — unless it is a
+      // hybrid, which burns no solid propellant at all (G69-Classic, above).
+      expect(find('H153-Classic', 'Cesaroni Technology Inc.')?.designation).toBe('H153');
+    });
+
+    it('a full designation outranks a common name and a propellant', () => {
+      // Two Skidmark H123s: the file's “H123-14A” IS the 38 mm one's designation.
+      expect(find('H123-14A-SK', 'Cesaroni')?.designation).toBe('232H123-14A');
+      expect(find('H123-14A-SK')?.designation).toBe('232H123-14A');
+      // Both AeroTech E6s are Blue Thunder; “E6” is the designation of one.
+      expect(find('E6 Blue Thunder', 'AeroTech')?.designation).toBe('E6');
+      expect(find('E6-RCT Blue Thunder', 'AeroTech')?.designation).toBe('E6-RCT');
+    });
+
+    it('a match the letters confirm outranks one they only follow', () => {
+      // AeroTech's H135W is a prefix of “H135WH”, but only Cesaroni's H135 is White.
+      expect(find('H135WH')?.designation).toBe('217H135-12A');
+      expect(find('H135WH', 'unknown')?.designation).toBe('217H135-12A');
+      expect(find('K1000SK')?.designation).toBe('SK-54-2550');          // not KBA's K1000S
+      expect(find('J280SS')?.designation).toBe('716J280-16A');          // not Kosdon's J280S
+    });
+
+    it('the delay a designation names picks between two rows that tie', () => {
+      // Only the 38 mm H123 lists a 14 s delay.
+      expect(find('H123-SK-14A', 'Cesaroni')?.designation).toBe('232H123-14A');
+    });
+
+    it('with nothing to pick between two, takes the first and says there were two', () => {
+      // Pinned: all seven corpus references to H123-SK are the 29 mm motor
+      // (stored burnout 1.53 s, the end of 176H123-12A's curve), and an overlay
+      // marking it out of production would otherwise flip them silently.
+      const got = matchDbMotor('H123-SK', undefined, undefined, 'CTI')!;
+      expect(got.motor.designation).toBe('176H123-12A');
+      expect(got.rivals.map((m) => m.designation)).toEqual(['232H123-14A']);
+      expect(matchDbMotor('G115-WT', undefined, undefined, 'Cesaroni Technology Inc.')!.rivals).toEqual([]);
+    });
+
+    it('separators between letters do not make two designations', () => {
+      // Loki writes “M900-LR” and “K527LR”; RockSim files write the other.
+      expect(find('M900LR', 'Loki')?.designation).toBe('M900-LR');     // was RATT's 64 mm M900 hybrid, +18 % impulse
+      expect(find('G80LW', 'Loki')?.designation).toBe('G80-LW');       // was Estes's G80
+      expect(find('J525LW', 'Loki')?.designation).toBe('J525-LW');
+      expect(find('J326LR', 'Loki')?.designation).toBe('J-326-LR');
+      expect(find('K527-LR', 'Loki')?.designation).toBe('K527LR');
+      expect(find('K2050-ST', 'Aerotech')?.designation).toBe('K2050ST');
+      // …but a dash between two digits is kept: “G115-13A” is no G11513A.
+      expect(find('G11513A')).toBeNull();
+      // …and so is a slash: AeroTech's “G79W/L” is the single-use LMS motor,
+      // “G79W-L” the RMS reload at its long delay (the nozzle database's row).
+      expect(find('G79W-L', 'AeroTech')?.designation).toBe('G79W');
+      expect(find('G79W/L', 'AeroTech')?.designation).toBe('G79W/L');
+    });
+
+    it('a maker that catalogues the common name keeps the reference', () => {
+      // An exact designation from another maker used to win: bare “G69” filed
+      // under Cesaroni resolved to SkyR's 29 mm hybrid, and “J270” under
+      // Hypertek to Ellis's.
+      expect(find('G69', 'Cesaroni')?.designation).toBe('117G69-14A');
+      expect(find('J270', 'Hypertek')?.manufacturerAbbrev).toBe('Hypertek');
+      expect(find('G80', 'A')?.designation).toBe('G80T');               // OpenRocket's “A” is AeroTech
+      // A maker with that common name but no row the rest agrees with: nothing.
+      expect(find('M3000LR', 'Loki')).toBeNull();                       // Loki's only M3000 is Loki White
+      // The file's maker's ONLY row of that name, the rest unread: taken.
+      expect(find('G80NBT', 'Aerotech')?.designation).toBe('G80T');
+      expect(matchDbMotor('G80NBT', undefined, undefined, 'Aerotech')!.tier).toBe(4);
+      // …and never by common name without the maker (then Estes's “G80” is a
+      // designation the name begins with, tier 3, as before), nor where the
+      // maker has two: AMW's K700 is Black Bear and Blue Baboon at one impulse.
+      expect(matchDbMotor('G80NBT')!.tier).toBe(3);
+      expect(find('K700XX', 'AMW')).toBeNull();
+      // A maker with no such common name falls through to whoever has it.
+      expect(find('K1075-SK', 'Cesaroni Technology Inc.')?.designation).toBe('2245K1075-P');
+      expect(find('J240-RL', 'AeroTech')?.designation).toBe('806J240-16A');
+    });
+
+    it('pairs OpenRocket’s own names for the makers', () => {
+      for (const [file, abbrev] of [['CSR', 'Cesaroni'], ['CS', 'Cesaroni'], ['HT', 'Hypertek'],
+        ['AT', 'AeroTech'], ['A-RMS', 'AeroTech'], ['AT-RCS', 'AeroTech'], ['RCS-AT', 'AeroTech'],
+        ['EM', 'Ellis'], ['AW', 'AMW'], ['LR', 'Loki'], ['RTW', 'RATT'], ['SRS', 'SkyR'],
+        ['Kosdon by AeroTech', 'KBA']] as const) {
+        expect(manufacturerMatches(file, abbrev), `${file} → ${abbrev}`).toBe(true);
+      }
+      // …and none of the short ones pairs with a maker it is not.
+      expect(manufacturerMatches('CS', 'Contrail')).toBe(false);
+      expect(manufacturerMatches('AT', 'Apogee')).toBe(false);
+      // Four of the owner's files name Cesaroni's I170 under “CSR”, which
+      // resolved to AeroTech's 54 mm I170G; eight Public Missiles 54 mm designs
+      // name Hypertek's J150 under “HT”, which resolved to Cesaroni's 38 mm J150.
+      expect(find('I170', 'CSR')?.designation).toBe('382I170-14A');
+      expect(find('J150', 'HT')?.manufacturerAbbrev).toBe('Hypertek');
+      expect(find('J250', 'HT')?.manufacturerAbbrev).toBe('Hypertek');
+    });
+  });
+});
+
+/**
+ * THE SECOND REVIEW OF AUDIT 2026-09-23. Each case is a reviewer's measured
+ * finding: a spelling the matcher lost, or never had.
+ */
+describe('findDbMotor — the second review of the audit', () => {
+  const find = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr);
+
+  /**
+   * RockSim's own EngineCode for a Cesaroni reload puts the total impulse
+   * first. 38 such references in 30 of the owner's files (LOC MAGNUM 329.rkt,
+   * Katana-38mm.rkt, Peregrine.rkt, Wildman/Demon98.ork …) matched nothing.
+   */
+  it('reads RockSim’s impulse-first Cesaroni form, and holds the row to the impulse it states', () => {
+    expect(find('217-H135-WH-12A', 'CTI')?.designation).toBe('217H135-12A');
+    expect(find('24-E22-SS-13A', 'CTI')?.designation).toBe('24E22-13A');
+    expect(find('819-J354-WH-16A', 'Cesaroni Technology')?.designation).toBe('819J354-16A');
+    expect(find('949-J150-MY-P')?.designation).toBe('949J150-P');
+    // A row whose own designation carries the prefix first: not SkyR's 128 Ns
+    // G69 hybrid, within 10 % of 117 Ns and exactly “G69”.
+    expect(find('117-G69')?.designation).toBe('117G69-14A');
+    expect(find('217H135-WH-12A', 'CTI')?.designation).toBe('217H135-12A');   // glued
+    // The impulse picks between two rows of one common name.
+    expect(find('176-H123-SK-12A', 'CTI')?.designation).toBe('176H123-12A');
+    expect(find('232-H123-SK-14A', 'CTI')?.designation).toBe('232H123-14A');
+    // …and one that disagrees with it matches nothing.
+    expect(find('300-H135-WH-12A', 'CTI')).toBeNull();
+    // Unchanged: White is not White Thunder, and AeroTech's H135W is not White.
+    expect(find('26-E31-WH-15A', 'CTI')).toBeNull();
+    expect(find('217-H135-WH-12A', 'AT')).toBeNull();
+  });
+
+  /**
+   * KBA and Kosdon each catalogue an I170. “A maker that catalogues the common
+   * name keeps the reference” sent “I170S” under Kosdon to Kosdon's Dirty
+   * Harry I170DH, 433 Ns against the 374 of KBA's I170S — the designation the
+   * file wrote — and “I170DH” under KBA the other way.
+   */
+  it('another maker’s exact designation beats the file’s maker’s guess', () => {
+    expect(find('I170S', 'Kosdon')?.manufacturerAbbrev).toBe('KBA');
+    expect(find('I170S-P', 'KOSDON/AT')?.manufacturerAbbrev).toBe('KBA');
+    expect(find('I170-S', 'KOS')?.manufacturerAbbrev).toBe('KBA');
+    expect(find('I170DH', 'KBA')?.designation).toBe('I170DH');
+    expect(find('I170DH-11', 'K-AT')?.designation).toBe('I170DH');
+    expect(find('I170-11', 'KBA')?.designation).toBe('I170DH');     // the only I170 with an 11 s delay
+    // One maker to a file, as to desktop OpenRocket: the open says nothing of it.
+    expect(manufacturerMatches('Kosdon', 'KBA')).toBe(true);
+    expect(manufacturerMatches('KBA', 'Kosdon')).toBe(true);
+    expect(manufacturerMatches('Klima', 'KBA')).toBe(false);
+    // A bare common name is both, and said to be.
+    const both = matchDbMotor('I170', undefined, undefined, 'Kosdon by AeroTech')!;
+    expect([both.motor, ...both.rivals].map((m) => m.designation).sort()).toEqual(['I170DH', 'I170S']);
+    // Another maker's exact designation beats the file's maker's tier-4 guess
+    // outside that family too: AeroTech's H135W, not Cesaroni's H135 White.
+    expect(find('H135W', 'Cesaroni')?.manufacturerAbbrev).toBe('AeroTech');
+    // The guess stands where nobody else's row IS the designation.
+    expect(find('G80NBT', 'Aerotech')?.designation).toBe('G80T');
+    expect(find('G69', 'Cesaroni')?.designation).toBe('117G69-14A');
+    expect(find('G69-Classic', 'Cesaroni')).toBeNull();
+  });
+
+  /**
+   * Only a designation could take a delay, so a common name followed by one
+   * matched nothing unless the digit split the first audit removed made it a
+   * prefix (“i150-1” of “i150-11a”) — and the removal lost those too.
+   */
+  it('takes a common name followed by a delay alone, after a designation followed by one', () => {
+    expect(find('I150-1', 'Cesaroni Technology Inc.')?.designation).toBe('465I150-11A');
+    expect(find('I150-1')?.designation).toBe('465I150-11A');     // was Ellis's 38 mm I150
+    expect(find('H42-1', 'CTI')?.designation).toBe('186H42-10A');
+    expect(find('D10-3', 'AeroTech')?.designation).toBe('D10W');
+    expect(find('L1090-P', 'AeroTech')?.designation).toBe('L1090W');
+    expect(find('G115 13A', 'CTI')?.designation).toBe('141G115-13A');
+    // A designation and a delay first: Apogee's D10 is “D10”; AeroTech's is D10W.
+    expect(find('D10-3')?.manufacturerAbbrev).toBe('Apogee');
+    expect(find('B6-4', 'Quest')?.designation).toBe('B6');         // not the B6W
+    // …and the maker before either: AeroTech's own G80 is the G80T.
+    expect(find('G80-7', 'AeroTech')?.designation).toBe('G80T');
+  });
+
+  /**
+   * A space between two digits is the common name and a delay, not the dash
+   * of a designation that carries one: “A8 3” equalled Quest's out-of-production
+   * “A8-3” exactly, and outranked Estes's A8 with nothing on screen.
+   */
+  it('a space before a delay is not a designation’s dash', () => {
+    // Estes's A8 is the designation and the delay; Quest's A8-3 is a common
+    // name and a delay, and ranks after it, as it did before the equality.
+    expect(find('A8 3')?.manufacturerAbbrev).toBe('Estes');
+    expect(find('B4 4')?.manufacturerAbbrev).toBe('Estes');
+    // Two rows reached alike are said to be two.
+    const l1090 = matchDbMotor('L1090 P')!;
+    expect(l1090.motor.designation).toBe('L1090W');                  // was Cesaroni's 75 mm OOP 4815L1090-P
+    expect(l1090.rivals.map((m) => m.designation)).toContain('4815L1090-P');
+    expect(find('B4 4', 'Quest')?.designation).toBe('B4');
+  });
+
+  it('a catalogue designation with no digit still takes a delay', () => {
+    expect(find('MICRO_MAXX_II-1', 'Quest')?.designation).toBe('MICRO_MAXX_II');
+    expect(find('MICRO_MAXX_II1', 'Quest')?.designation).toBe('MICRO_MAXX_II');
+    expect(find('MICRO_MAXX-1', 'Quest')?.designation).toBe('MICRO_MAXX');
+    expect(find('MICRO_MAXX_II black powder')?.designation).toBe('MICRO_MAXX_II');
+    expect(find('Micro Maxx II', 'Quest')?.designation).toBe('MICRO_MAXX_II');
+    // A bare word still begins nothing.
+    expect(find('MICRO', 'Quest')).toBeNull();
+  });
+
+  /**
+   * RockSim's EngineVendors.dat and RASAero's engine codes, not only
+   * OpenRocket's table: most of the corpus is RockSim files.
+   */
+  it('pairs the makers’ codes RockSim and RASAero write', () => {
+    for (const [file, abbrev] of [['A-WL', 'AeroTech'], ['AT-SU', 'AeroTech'], ['AT-EJ', 'AeroTech'],
+      ['A-J', 'AeroTech'], ['AT-MWL', 'AeroTech'], ['GM', 'Gorilla'], ['TRM', 'Kosdon'], ['KTRM', 'Kosdon'],
+      ['KOS-TRM', 'Kosdon'], ['Kosdon-by-Aerot', 'KBA'], ['Kosdon-by-Aerot', 'Kosdon']] as const) {
+      expect(manufacturerMatches(file, abbrev), `${file} → ${abbrev}`).toBe(true);
+    }
+    // RockSim files A-M under AeroTech and AM under AMW; both read “am”, so it
+    // stays with AMW, whose name it begins.
+    expect(manufacturerMatches('A-M', 'AeroTech')).toBe(false);
+    // Six Public Missiles files name AeroTech's H70 under A-WL: it was RATT's hybrid.
+    expect(find('H70', 'A-WL')?.designation).toBe('H70W');
+    expect(find('G40', 'A-WL')?.designation).toBe('G40W');           // was Estes's G40
+    expect(find('E15', 'A-WL')?.manufacturerAbbrev).toBe('AeroTech'); // was RV's E15
+  });
+});
+
+/**
+ * THE THIRD REVIEW OF AUDIT 2026-09-23: lookups the self-match sweep found
+ * resolving to their own row at v0.138 (db35f1f) that the first two reviews
+ * lost. Each is back on the row v0.138 gave it.
+ */
+describe('findDbMotor — the third review of the audit', () => {
+  const find = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr);
+
+  /**
+   * A name for Kosdon or KBA pairs with both (second review), and catalogue
+   * order then gave a bare “I170” under Kosdon to KBA's I170S (374 Ns, no
+   * propellant recorded) where v0.138 found Kosdon's own I170DH (433 Ns). The
+   * maker the file names outright wins the tie; the other is named beside it.
+   */
+  it('a bare I170 is the named maker’s, with the other maker’s named beside it', () => {
+    for (const mfr of ['Kosdon', 'KOS', 'KOSDON/AT', 'KOSDON/AEROTECH', 'Kosdon by AeroTech', 'Kosdon-by-Aerot', 'TRM']) {
+      const m = matchDbMotor('I170', undefined, undefined, mfr)!;
+      expect(m.motor.designation, mfr).toBe('I170DH');
+      expect(m.rivals.map((r) => r.designation), mfr).toEqual(['I170S']);
+    }
+    for (const mfr of ['KBA', 'K-AT']) expect(find('I170', mfr)?.designation, mfr).toBe('I170S');
+    // Still one maker to the open note.
+    expect(manufacturerMatches('Kosdon by AeroTech', 'KBA')).toBe(true);
+    expect(manufacturerMatches('Kosdon-by-Aerot', 'KBA')).toBe(true);
+  });
+
+  it('reads AeroTech’s G142 with its numeric propellant glued on', () => {
+    expect(find('G1428222ALF')?.designation).toBe('G142');
+    expect(find('G1428222ALF', 'AeroTech')?.designation).toBe('G142');
+    // Only the whole of the row's own propellant: a number cut short is refused.
+    expect(find('G1428222')).toBeNull();
+    expect(find('G115-WT')?.designation).toBe('141G115-13A');     // not AeroTech's G11
+  });
+
+  /**
+   * RockSim writes AeroTech as “A-M”, which reads as AMW's “AM”, and AMW
+   * catalogues an I285, K535, K560, K700, L1300, M1350 and M1850: “a maker that
+   * catalogues the common name keeps the reference” shut AeroTech's row out
+   * even where the reference spells out a propellant only it carries.
+   */
+  it('a propellant written out that the maker’s rows contradict lets another maker’s row in', () => {
+    for (const [ref, des] of [['I285Redline', 'I285R'], ['K560WhiteLightning', 'K560W'],
+      ['K700WhiteLightning', 'K700W'], ['L1300Redline', 'L1300R'], ['M1850WhiteLightning', 'M1850W'],
+      ['K535WhiteLightning', 'HP-K535W'], ['M1350WhiteLightning', 'M1350W']] as const) {
+      expect(find(ref, 'A-M')?.designation, ref).toBe(des);
+    }
+    // The maker's own propellant keeps its row.
+    expect(find('I285-GG', 'A-M')?.designation).toBe('GG-38-390');
+    // A code is not enough (second review), and nobody's G69 is Classic.
+    expect(find('217-H135-WH-12A', 'AT')).toBeNull();
+    expect(find('G69-Classic', 'Cesaroni')).toBeNull();
   });
 });
 

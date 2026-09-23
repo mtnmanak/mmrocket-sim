@@ -1,5 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num } from '../tree/nodeNum.js';
+import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designationText.js';
 
 /**
  * A stage mass/CG override that STILL CONTAINS a motor's weight, and putting
@@ -76,8 +77,9 @@ import { num } from '../tree/nodeNum.js';
  *
  *   MEASURED on `PePe2.CDX1` (2026-09-08). Eight simulations, each with its
  *   own stated launch weight for the same airframe-plus-motor: 47 lb with
- *   N5800-CS (which the catalogue does not have, so the stage imports marked),
- *   24.2 lb with M1297W, 19.7 lb with K510. Open it and switch to simulation 6
+ *   N5800-CS (which the matcher could not find until audit 2026-09-23, so the
+ *   stage imported marked), 24.2 lb with M1297W, 19.7 lb with K510. Open it
+ *   and switch to simulation 6
  *   and v0.120 wrote 47 − 10.22 = 36.78 lb as "airframe" against that
  *   simulation's own ~13.98 lb, flew the rocket at 47.0 lb against the file's
  *   own 24.2 (+94 %), called it 'info', and spent the mark so no later route
@@ -170,9 +172,28 @@ export const stageLength = (st: ComponentNode | undefined): number =>
  * header carries the file's own designation), so the test for "this IS the
  * motor the file named" has to be the same test that put it there. Case and
  * surrounding space are ignored; a leading `HP-` and a Cesaroni impulse prefix
- * are stripped, so the file's “N5800-CS” still matches the catalogue's
- * “5800N5800-CS”; and a delay suffix on either side is tolerated, so “I224” in
- * the file matches “I224-15A” in the catalogue.
+ * are stripped, so the catalogue's “381I224-15A” compares as “I224-15A”; and a
+ * delay suffix on either side is tolerated, so “I224” in the file matches
+ * “I224-15A” in the catalogue. (This said the file's “N5800-CS” matched the
+ * catalogue's “5800N5800-CS”; the catalogue row is “20146N5800-P”, and it
+ * never did.) Separators between letters are dropped, as the matcher's rank 0
+ * drops them ({@link looseDesignation}): Loki's “K1127-LB” is RockSim's
+ * “K1127LB”, and until the second review of audit 2026-09-23 a stage weight
+ * saved under one was cleared, as a different motor's, when the other loaded.
+ *
+ * WHAT IT DOES NOT MIRROR (audit 2026-09-23): findDbMotor's match by common
+ * name and propellant code — “N5800-CS” to 20146N5800-P, Cesaroni's N5800
+ * C-Star. That needs the row's propellant, which a string compare cannot see.
+ * A fresh import never marks such a motor now (the importer finds it and backs
+ * it out), but a design saved from an import before then still carries the
+ * mark, and when that motor loads on it this reads as a different motor: the
+ * overrides are cleared with a warning instead of the motor being taken out.
+ * The safe side — nothing is counted twice — though not the exact figure. Nor
+ * does it mirror the matcher's leave for a catalogue designation with no digit
+ * in it (Quest's “MICRO_MAXX_II”) to begin a longer one: here either side may
+ * be the short one, and “MICRO_MAXX” would begin “MICRO_MAXX_II”, another
+ * motor. A mark naming a Quest Micro Maxx with a delay is cleared, not backed
+ * out.
  *
  * THE PREFIX MATCH MAY NOT CUT A NUMBER IN HALF (2026-09-08, from review). It
  * was `x.startsWith(y) || y.startsWith(x)` with no floor at all, so “M1297W”
@@ -183,7 +204,13 @@ export const stageLength = (st: ComponentNode | undefined): number =>
  * with another digit, so the guard is exactly that: the character after the
  * prefix in the longer string must not be a digit. No pair in the shipped
  * 1,155-row catalogue was affected either way; this closes the shape, not a
- * reported bug.
+ * reported bug. findDbMotor itself did not carry the guard until audit
+ * 2026-09-23, so for two weeks this "mirror" had it while the matcher sent
+ * RockSim's “G115-WT” to AeroTech's G11. Both carry it now, in the form the
+ * review of that audit settled on: the cut may not fall BETWEEN TWO DIGITS,
+ * but may fall between a letter and a digit — “H128W” begins “H128W14A”, a
+ * delay glued to AeroTech's propellant letter, which “no digit after the cut”
+ * refused — and a short side with no digit in it begins nothing.
  *
  * Kept as string comparison rather than a `findDbMotor` call so this module
  * stays free of the 1,155-row catalogue — `orkFile.ts` imports it, and the
@@ -191,13 +218,13 @@ export const stageLength = (st: ComponentNode | undefined): number =>
  */
 export function namesSameMotor(a: string, b: string): boolean {
   const norm = (d: string): string =>
-    d.trim().toLowerCase().replace(/^hp-/, '').replace(/^\d+(?=[a-o]\d)/, '');
+    looseDesignation(d.trim().toLowerCase().replace(/^hp-/, '').replace(IMPULSE_PREFIX, ''));
   const x = norm(a);
   const y = norm(b);
   if (x === '' || y === '') return false;
   if (x === y) return true;
   const [short, long] = x.length < y.length ? [x, y] : [y, x];
-  return long.startsWith(short) && !/\d/.test(long.charAt(short.length));
+  return prefixWithoutSplit(short, long);
 }
 
 /**
@@ -290,9 +317,17 @@ export function reconcileIncludedMotor(
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',
+      // "MATCHED NO MOTOR ... WHEN THE FILE WAS IMPORTED", not "is not in the
+      // motor database" (audit 2026-09-23): a mark written before the matcher
+      // read Cesaroni's propellant codes can name a motor it finds now — PePe2's
+      // “N5800-CS” is the 20146N5800-P — and namesSameMotor, catalogue-free,
+      // cannot tell that that is the motor loaded. Clearing is still the safe
+      // side there. Nor "was not in the motor database": the 20146N5800-P was
+      // (second review), and the matcher cannot tell a motor the catalogue lacks
+      // from one it misread — the wording motorMatch uses for the same reason.
       note: `“${name}”: ${what} that still holds ${who}, and the motor loaded on that stage now is `
-        + `“${motor.designation}”. ${who} is not in the motor database, so its weight cannot be taken `
-        + `back out of that figure, and flying it under “${motor.designation}” would carry two motors’ `
+        + `“${motor.designation}”. ${who} matched no motor in the motor database when the file was imported, so `
+        + `that figure still carries its weight, and flying it under “${motor.designation}” would carry two motors’ `
         + 'weight. The stage’s mass and CG overrides have been cleared and it is back on its computed '
         + 'geometry. Type what the stage weighs without a motor under Overrides. A RASAero file states a launch weight '
         + `per simulation, and this one belongs to the simulation that named ${who}.`,
@@ -404,8 +439,8 @@ export function reconcileIncludedMotor(
  *
  *  - APPLYING A FLIGHT CONFIGURATION. A RASAero file's simulations often name
  *    different motors, and only the applied one is matched at open. Open
- *    `PePe2.CDX1` (simulation 1 names N5800-CS, which the catalogue does not
- *    have, over a stated 47 lb), switch to simulation 6 (M1297W, catalogued,
+ *    `PePe2.CDX1` (simulation 1 names N5800-CS, which the matcher could not
+ *    find until audit 2026-09-23, over a stated 47 lb), switch to simulation 6 (M1297W, catalogued,
  *    10.22 lb) and the stage weighed 57.2 lb against that simulation's own
  *    24.2 lb — +136 %, in one click, with nothing on screen. (That switch
  *    mounts a motor the stated weight never held, so what it now gets is the

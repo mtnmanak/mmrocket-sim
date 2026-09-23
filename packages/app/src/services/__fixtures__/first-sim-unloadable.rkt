@@ -2,11 +2,14 @@
   <FileVersion>4</FileVersion>
   <!--
     A RockSim file whose FIRST stored simulation names a motor this app's
-    catalogue does not have (J240-RL, as in the owner's Level2-PELTZER.rkt), whose
-    second names another it does not have, and whose third flies an Estes C6 on
-    RockSim's "every delay" run. Hand-written for importApply.repick.test.ts
-    (seam review of audit 2026-09-22): the reader opens simulation 1, and the
-    open must show simulation 3 instead.
+    catalogue does not have, whose second names another it does not have, and
+    whose third flies an Estes C6 on RockSim's "every delay" run. Hand-written
+    for importApply.repick.test.ts (seam review of audit 2026-09-22): the reader
+    opens simulation 1, and the open must show simulation 3 instead.
+
+    The first was J240-RL, from the owner's Level2-PELTZER.rkt, until audit
+    2026-09-23 taught the matcher Cesaroni's propellant codes: that is
+    Cesaroni's 54 mm J240 Red Lightning, and it loads now. ZQ240-RL is made up.
   -->
   <DesignInformation>
     <RocketDesign>
@@ -51,11 +54,11 @@
   </DesignInformation>
   <SimulationResultsList>
     <SimulationResults>
-      <SimulationName>[J240-RL-None] </SimulationName>
+      <SimulationName>[ZQ240-RL-None] </SimulationName>
       <Stage3Engines>
         <EngineSet>
           <EngineCount>1</EngineCount>
-          <EngineCode>J240-RL</EngineCode>
+          <EngineCode>ZQ240-RL</EngineCode>
           <IgnitionDelay>0.</IgnitionDelay>
           <EngineMfg>AeroTech</EngineMfg>
           <MountSerialNo>7</MountSerialNo>

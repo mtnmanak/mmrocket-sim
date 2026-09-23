@@ -1,7 +1,8 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, findDbMotor, isHighPower, type MotorDbEntry,
+  displayDesignation, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
+  type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
@@ -130,6 +131,18 @@ export interface MotorMatchResult {
    * when the file has another configuration that flies (importApply.planImport).
    */
   missing?: 'database' | 'curve';
+  /**
+   * Said at the open even though a motor loaded, because the match was not a
+   * confirmed one ({@link unconfirmedMatchNote}): another maker's motor than
+   * the file names, one of several that match equally well, or an
+   * out-of-production row for a file that names no maker. Worded as a record
+   * of the match — what the file said and what it loaded as — so it stays true
+   * after the user loads another motor (the stale "Motor: … loaded" line Big
+   * Dog reported was a claim about the mount, not about the open). `motor`
+   * carries it too (MountMotor.openNote), so applying the configuration it
+   * belongs to says it again.
+   */
+  openNote?: string;
 }
 
 /** Injection points, so the network and the catalog can be stubbed in tests. */
@@ -220,26 +233,33 @@ export async function matchImportedMotor(
   const fileIdentity = fileMotorIdentity(ref);
 
   // RockSim refs carry no motor diameter (0) — match by designation only.
-  const dbMatch = findDb(
-    ref.designation,
-    ref.diameter > 0 ? ref.diameter * 1000 : undefined,
-    undefined,
-    ref.manufacturer,
-  );
+  const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
+  const dbMatch = findDb(ref.designation, diameterMm, undefined, ref.manufacturer);
   if (dbMatch) {
     try {
       const spec = await fetchSpec(dbMatch, ref.delay);
+      // The file's maker is written back beside the row's designation only when
+      // it IS the row's maker (review of audit 2026-09-23): "Cesaroni Technology
+      // Inc." beside AMW's "2245K1075-P" names no motor, and desktop OpenRocket
+      // filters on the maker strictly (ThrustCurveMotorSetDatabase.findMotors),
+      // so a Save wrote a motor desktop cannot find. The row's own maker goes
+      // out instead (App: `orkManufacturer ?? manufacturer`).
+      const identity: Partial<MotorMeta> = { ...fileIdentity };
+      if (namesOtherMaker(ref, dbMatch)) delete identity.orkManufacturer;
       // A reference flagged for auto delay (the RockSim reader's "every delay"
       // on a motor that lists no numeric delay) starts on "Auto (optimal)",
       // exactly as the motor browser starts a fresh pick of it: flown first at
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
       const motor = mountMotorFromDb(dbMatch, spec, ref.delay, ignition,
-        ref.autoDelay ? { ...fileIdentity, autoDelay: true } : fileIdentity);
+        ref.autoDelay ? { ...identity, autoDelay: true } : identity);
       const delayTag = ref.autoDelay ? ' (auto delay)'
         : `-${Number.isFinite(ref.delay) ? String(ref.delay) : 'P'}`;
+      const openNote = unconfirmedMatchNote(ref, dbMatch,
+        matchDbMotor(ref.designation, diameterMm, undefined, ref.manufacturer));
       return {
-        motor,
+        motor: openNote ? { ...motor, openNote } : motor,
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
+        ...(openNote ? { openNote } : {}),
       };
     } catch {
       // No curve to be had — reported below, never substituted.
@@ -258,5 +278,89 @@ export async function matchImportedMotor(
       missing: 'curve',
     };
   }
-  return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`, missing: 'database' };
+  return { note: `Motor “${ref.designation}” matched no motor in the motor database — pick one via Browse motor database.`, missing: 'database' };
+}
+
+/** A manufacturer a file actually names — not empty, and not our reader's or writer's sentinel. */
+function namedMaker(ref: OrkMotorRef): string | null {
+  const m = ref.manufacturer?.trim();
+  return m && !/^(unknown|custom)$/i.test(m) ? m : null;
+}
+
+/** Does the file name a maker, and one that is not this row's? */
+function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
+  return namedMaker(ref) !== null && !manufacturerMatches(ref.manufacturer, db.manufacturerAbbrev);
+}
+
+/**
+ * A catalogue row as the open note names it: maker, designation, size, impulse,
+ * propellant. The diameter to a tenth of a millimetre, not as stored: ten rows
+ * carry float noise (Jambol's and Ultra's 13.000000000000002 mm), and the note
+ * printed it (second review of audit 2026-09-23). The RAW designation when
+ * another row in the same note would read the same — AeroTech's HP-H45W and
+ * H45W both display as “H45W”, and the note named “AeroTech H45W” twice.
+ */
+function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m]): string {
+  const facts = [`${Number(m.diameter.toFixed(1))} mm`, `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
+    ...(m.propInfo ? [m.propInfo] : []), ...(isAvailable(m) ? [] : ['out of production'])];
+  const shown = displayDesignation(m.designation, m.manufacturerAbbrev);
+  const twin = all.some((o) => o !== m && o.manufacturerAbbrev === m.manufacturerAbbrev
+    && displayDesignation(o.designation, o.manufacturerAbbrev) === shown);
+  return `${m.manufacturerAbbrev} ${twin ? m.designation : shown} (${facts.join(', ')})`;
+}
+
+/**
+ * One open note for a motor that `mounts` mounts carry — a cluster built as
+ * separate mounts — said once, with the count (the rule the .rkt reader's
+ * sentinel notes follow): PELTZER_Swarm_JR.rkt's twelve F32 mounts gave twelve
+ * identical three-sentence warnings. Every note {@link unconfirmedMatchNote}
+ * writes opens with `Motor “<designation>”`, and the count goes after it.
+ */
+export function withMountCount(note: string, mounts: number): string {
+  return mounts > 1 ? note.replace(/^(Motor “[^”]*”)/, `$1 (${mounts} mounts)`) : note;
+}
+
+/**
+ * The open's sentence for a motor that loaded but was not CONFIRMED by the
+ * file (review of audit 2026-09-23): the file names another maker than the
+ * row's (“K1075-SK” filed under Cesaroni opens on AMW's Skidmark K1075); the
+ * file's name runs on past the maker's common name in letters the matcher
+ * cannot read (“G80NBT” under AeroTech opens on the G80T, AeroTech's only
+ * G80); other rows match exactly as well (“H123-SK”: Cesaroni's 29 mm and
+ * 38 mm Skidmark H123); or the file names no maker and the row, matched short of its full
+ * designation, is out of production (“H55” opens on AeroTech's H55W). Until
+ * then each of those loaded in silence — the import note reports only motor
+ * problems, and the mount card shows a common name and a delay.
+ *
+ * `how` is the matcher's own account of the pick; it is used only when it
+ * picked this same row, so a stubbed lookup (tests) gets the maker check alone.
+ */
+export function unconfirmedMatchNote(
+  ref: OrkMotorRef, db: MotorDbEntry, how: DbMotorMatch | null,
+): string | undefined {
+  const firm = how && how.motor.motorId === db.motorId ? how : null;
+  const other = namesOtherMaker(ref, db);
+  // Tier 4 only: the maker's only row of a common name, the rest unread. A
+  // full designation with letters after it (tier 3) is left silent — in the
+  // corpus those are makers' own suffixes, Estes's “A10T” (13 mm), Quest's
+  // “A6Q”, Ellis's “I150EM”, RATT's “H70H”, and 48 files would have opened
+  // with a warning (55 sentences) for motors they name correctly.
+  const unread = firm?.tier === 4;
+  const oopGuess = namedMaker(ref) === null && !isAvailable(db) && (firm?.tier ?? 0) > 0;
+  const rivals = firm?.rivals ?? [];
+  if (!other && !unread && !oopGuess && rivals.length === 0) return undefined;
+  const named = [db, ...rivals];
+  const row = describeRow(db, named);
+  const opened = other
+    ? `Motor “${ref.designation}”: the file names ${namedMaker(ref)!}, but it loaded as ${row} — the motor the database matched to it.`
+    : unread
+      ? `Motor “${ref.designation}” matched no motor in the database exactly; it loaded as the closest, ${row}.`
+      : oopGuess
+        ? `Motor “${ref.designation}”: the file names no manufacturer, and it loaded as ${row} — the motor the database matched to it.`
+        : `Motor “${ref.designation}” loaded as ${row}.`;
+  const shown = rivals.slice(0, 3).map((r) => describeRow(r, named));
+  const more = rivals.length > shown.length ? `; and ${rivals.length - shown.length} more` : '';
+  const also = rivals.length === 0 ? ''
+    : ` ${rivals.length === 1 ? 'Another motor matches' : `${rivals.length} other motors match`} it as well: ${shown.join('; ')}${more}.`;
+  return `${opened}${also} Check it is the motor you fly, or pick another via Browse motor database.`;
 }
