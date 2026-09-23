@@ -1,4 +1,5 @@
 import type { EngineWarning } from '@online-openrocket/engine';
+import { lookupTable } from './xmlUtil.js';
 
 /**
  * Plain-language presentation of the kernel's simulation warnings.
@@ -32,8 +33,19 @@ const HIGH_SPEED_DEPLOYMENT = 'Recovery device opened faster than the simulator�
  * whose geometry warnings the stepper folds into the flight's WarningSet.
  * Keys are l10n keys, NOT constant names (DIAMETER_DISCONTINUITY emits
  * "Warning.DISCONTINUITY" — the key is "DISCONTINUITY").
+ *
+ * A lookupTable (null prototype), and both reads below take own keys only:
+ * the key formatWarningText reads is whatever follows "[Warning." at the front
+ * of the text, and the app's own rail sentence opened with the rail button's
+ * NAME, bare. On a plain object a button named `[Warning.constructor]` found
+ * Object itself here, and the warning read "function Object() { [native code]
+ * } — at 0° is in line with …"; `toString`, `valueOf`, `hasOwnProperty` and
+ * `__proto__` did the same (AUDIT row 238). The rail sentence now quotes the
+ * name, which also stops a REAL key (`[Warning.NO_RECOVERY_DEVICE]`) putting a
+ * kernel label in front of it; this table stays safe for any text that still
+ * reaches it with a key it does not hold.
  */
-export const WARNING_LABEL: Record<string, string> = {
+export const WARNING_LABEL: Record<string, string> = lookupTable({
   // Flight-event warnings (BasicEventSimulationEngine / RK4SimulationStepper)
   NO_RECOVERY_DEVICE: 'No recovery device — the rocket comes down ballistic',
   RECOVERY_LAUNCH_ROD: 'Recovery device deployed while still on the launch guide',
@@ -80,7 +92,7 @@ export const WARNING_LABEL: Record<string, string> = {
   LISTENERS_AFFECTED: 'Simulation listeners may have affected the results',
   FILE_INVALID_PARAMETER: 'A design parameter was invalid and has been ignored',
   OBJ_ZERO_THICKNESS: 'A component has zero wall thickness',
-};
+});
 
 /** A warning at this priority is a flight-safety failure, not a note. */
 function isHighPriority(w: EngineWarning): boolean {
@@ -109,7 +121,7 @@ export interface FormattedWarning {
 
 /** One warning in the app's voice; unknown keys fall back to the raw text. */
 export function formatWarning(w: EngineWarning): FormattedWarning {
-  const label = WARNING_LABEL[w.key];
+  const label = Object.hasOwn(WARNING_LABEL, w.key) ? WARNING_LABEL[w.key] : undefined;
   const detail = stripBrackets(w.message ?? '');
   if (label === undefined) {
     // Unknown key (new kernel warning, or "Other"): the stripped message IS
@@ -132,12 +144,15 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
  * and `wakeShadowWarnings` in tree/mountAngle.ts — and they arrive as finished
  * sentences carrying no token, so they fall through unchanged. One thing that
  * costs them: `stripBrackets` eats a LEADING bracketed token, and a part a user
- * named "[cam]" is a bracketed token. The wake sentence quotes its part names
- * for that reason; simWarnings.test.ts pins both halves.
+ * named "[cam]" is a bracketed token — one named `[Warning.NO_RECOVERY_DEVICE]`
+ * also gets that key's label. Both sentences quote their part names for that
+ * reason (the rail one since AUDIT row 238); simWarnings.test.ts pins both
+ * halves, and mountAngle.test.ts the rail names.
  */
 export function formatWarningText(text: string): string {
   const m = /^\[Warning\.([^\]]+)\]/.exec(text);
-  const label = m?.[1] !== undefined ? WARNING_LABEL[m[1]] : undefined;
+  const key = m?.[1];
+  const label = key !== undefined && Object.hasOwn(WARNING_LABEL, key) ? WARNING_LABEL[key] : undefined;
   const rest = stripBrackets(text);
   if (label === undefined) return rest || text;
   return rest ? `${label} — ${rest}` : label;

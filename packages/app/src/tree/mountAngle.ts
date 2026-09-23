@@ -37,8 +37,8 @@ const isFinSet = (n: ComponentNode): boolean => n.type.endsWith('finset');
  *
  * HALF-OPEN, and the docstring said `(−π, π]` until 2026-09-08:
  * `reducePi(Math.PI)` returns −π, not +π. `defaultParams('railbutton')` sets
- * `angleOffset: Math.PI`, so the clash warning reads "Rail button at -180° is
- * in line with …" — measured, verbatim. Cosmetic, because `angleGap` takes
+ * `angleOffset: Math.PI`, so the clash warning reads `"Rail button" at -180°
+ * is in line with …` — measured, verbatim. Cosmetic, because `angleGap` takes
  * `Math.abs`; recorded because the range is what every caller reasons from.
  */
 export function reducePi(a: number): number {
@@ -283,17 +283,24 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
       }
     }
 
+    // The button's name is QUOTED, like every other name in these sentences
+    // (AUDIT row 238). Bare at the front, it was read as a kernel token:
+    // formatWarningText strips a leading `[Warning.X]` and puts that key's
+    // label in its place, so a rail button a .ork named
+    // `[Warning.NO_RECOVERY_DEVICE]` read "No recovery device — the rocket
+    // comes down ballistic — at 0° is in line with …", and one named "[cam]"
+    // lost its name.
     for (const b of frame.buttons) {
       for (const f of frame.fins) {
         const g = angleGap(b.angle, f.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push(`${b.name} at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`);
+          out.push(`"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`);
         }
       }
       for (const o of frame.others) {
         const g = angleGap(b.angle, o.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push(`${b.name} at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`);
+          out.push(`"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`);
         }
       }
     }
@@ -490,8 +497,8 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
         if (!(nearest <= s.window)) continue;
         const mm = Math.round(gap * 1000);
         const heights = Number((gap / s.height).toFixed(1));
-        // The name is QUOTED, unlike the rail sentences: `stripBrackets`
-        // (simWarnings.ts ll. 73–75) strips a LEADING bracketed token from
+        // The name is QUOTED, as the rail sentences' are since AUDIT row 238:
+        // `stripBrackets` (simWarnings.ts) strips a LEADING bracketed token from
         // every warning string, so a part someone called "[cam]" would lose its
         // name if the sentence opened with it bare.
         out.push(

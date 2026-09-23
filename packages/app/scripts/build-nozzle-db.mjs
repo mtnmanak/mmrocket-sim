@@ -51,15 +51,26 @@
  * row also keeps the source's own inch figure, because that is the number a
  * reader can check against the drawing. Rows are sorted deterministically so a
  * regeneration diffs cleanly. Provenance is mandatory on every row.
+ *
+ * RUN ONLY AS THE ENTRY POINT (AUDIT row 480, 2026-09-23). The work used to
+ * run at module top level: importing this file ran the extractor over
+ * `docs/RCS Schematics`, read motors.json, wrote nozzles.json, and exited
+ * when that folder was missing, as it is on CI and on the laptop. So the
+ * body that composes the tested helpers into rows could not be tested at
+ * all. `main()` now does the reading and the writing, and runs only when
+ * this file is the entry point. The composition is `buildNozzleDb` and its
+ * three stages, exported, and build-nozzle-db.test.mjs drives them on
+ * synthetic documents. A check that refuses the build throws
+ * `BuildRefused`, which main() prints line by line before exiting 1, the
+ * output the `process.exit(1)` at each check used to give.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The unit conversion, the store-page reader, the LIST OF MATERIAL row readers,
 // the measured merge and the source-file list live in nozzle-db-helpers.mjs,
-// where nozzle-db.test.mjs can pin them: this script runs its work at import
-// and needs the document set.
+// where nozzle-db.test.mjs pins them. What composes them into rows is below.
 import {
   basePartNo, equivalent, exitFromDescription, inToM, medusaOpening, mergeMeasured, nozzleRow,
   readSpecPage, round6, sourceDocuments, throatFromDescription,
@@ -70,40 +81,23 @@ const OUT = join(here, '..', 'src', 'data', 'nozzles.json');
 const MOTORS = join(here, '..', 'src', 'data', 'motors.json');
 const EXTRACTOR = join(here, 'extract-nozzle-pdfs.py');
 
-// ---------------------------------------------------------------- the source
-
-const argv = process.argv.slice(2);
-const flag = (name) => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-const REPORT = argv.includes('--report');
-const source = flag('--source') ?? process.env.RCS_SCHEMATICS
-  ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics');
-// Loki's instruction sheets are TRANSCRIBED below (LOKI_SHEETS), so the build
-// does not need this folder to run; it is read only for the `generated` date,
-// which has to move when a sheet does.
-const lokiSource = flag('--loki') ?? process.env.LOKI_DATA
-  ?? join(here, '..', '..', '..', 'docs', 'Loki Data');
-if (!existsSync(source)) {
-  console.error(`No RCS document set at ${source}.`);
-  console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
-  process.exit(1);
+/**
+ * A build that refuses to write, and why: one line per problem. main() prints
+ * the lines to stderr and exits 1, as each check used to with
+ * `process.exit(1)`; a test can catch it instead.
+ */
+export class BuildRefused extends Error {
+  constructor(lines) {
+    super(lines.join('\n'));
+    this.name = 'BuildRefused';
+    this.lines = lines;
+  }
 }
-
-const python = process.env.PYTHON ?? 'python';
-const raw = JSON.parse(execFileSync(python, [EXTRACTOR, source], {
-  encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-}));
 
 // ------------------------------------------------------- reading a spec page
 
-// readSpecPage: nozzle-db-helpers.mjs.
-const specByPart = new Map();
-for (const page of raw.specPages) {
-  if (!page.productCode) continue;
-  specByPart.set(page.productCode.toUpperCase(), readSpecPage(page));
-}
+// readSpecPage: nozzle-db-helpers.mjs. The index by part number is built per run,
+// in aerotechDrawingRows below, as is the one for the nozzle drawings.
 
 // --------------------------------------------------- reading a nozzle drawing
 
@@ -121,31 +115,6 @@ function drawingPart(d) {
   const f = /\((q-\w+|isp[\w-]+|0\d{4}[\w-]*)\)/i.exec(d.file)
     ?? /_(0\d{4})_/.exec(d.file) ?? /[-_](0\d{4})\b/.exec(d.file);
   return f ? { partNo: f[1].toUpperCase(), fromFilename: true } : { partNo: null, fromFilename: false };
-}
-
-const drawingByPart = new Map();
-for (const d of raw.nozzleDrawings) {
-  const { partNo, fromFilename } = drawingPart(d);
-  if (!partNo) continue;
-  // "KLMN MOLDED NOZZLE, WITH 1.750" EXIT / .734" THROAT" — a title block that
-  // states the geometry outright. Only the 01800-3 drawing does, and it is
-  // exactly the part the dash rule would otherwise get wrong.
-  const titleExit = /([\d.]+)"\s*EXIT/i.exec(d.text);
-  const titleThroat = /([\d.]+)"\s*THROAT/i.exec(d.text);
-  const rec = {
-    file: d.file,
-    partNo,
-    partFromFilename: fromFilename,
-    statesDashNumberRule: d.statesDashNumberRule,
-    titleExitIn: titleExit ? Number(titleExit[1]) : undefined,
-    titleThroatIn: titleThroat ? Number(titleThroat[1]) : undefined,
-    callouts: d.callouts,
-    // "01550-1 NOZZLE DRILLED .313"" — the drawing's own dash-number table.
-    dashThroatIn: Object.fromEntries(d.dashRows.map(([p, v]) => [p.toUpperCase(), Number(v)])),
-  };
-  // Two of the drawings are byte-different downloads of the same sheet; keep
-  // the first and let the duplicate corroborate rather than overwrite.
-  if (!drawingByPart.has(partNo)) drawingByPart.set(partNo, rec);
 }
 
 // ------------------------------------------- reading an assembly LOM nozzle row
@@ -171,8 +140,11 @@ for (const d of raw.nozzleDrawings) {
  * cross-check, never promoted to an answer, because the callouts are bare
  * leader-line numbers with no indication of which feature they dimension (the
  * 01800-3 sheet prints both the 1.750 exit and a 2.774 outside diameter).
+ *
+ * `docs` is the run's two indexes by part number, `specByPart` and
+ * `drawingByPart`, which aerotechDrawingRows builds from the extractor output.
  */
-function resolvePart(partNo, descriptions) {
+function resolvePart(partNo, descriptions, { specByPart, drawingByPart }) {
   const key = partNo.toUpperCase();
   const base = basePartNo(key);
   const exact = specByPart.get(key);
@@ -282,10 +254,6 @@ function resolvePart(partNo, descriptions) {
 
 // ------------------------------------------------------ the motor catalogue
 
-const motorsDb = JSON.parse(readFileSync(MOTORS, 'utf8'));
-const AEROTECH = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'AeroTech');
-const byMotorId = new Map(motorsDb.motors.map((m) => [m.motorId, m]));
-
 const displayDesignation = (d) => d.replace(/^HP-/i, '');
 /** "RMS-98/20480" and the folder "RMS-98-20480 High Power" both reduce to "98-20480". */
 const caseKey = (s) => (String(s ?? '').match(/\d+/g) ?? []).join('-');
@@ -326,13 +294,15 @@ function designationCandidates(raw) {
  * taken from the drawing's own folder ("RMS-29-180 High Power") and compared
  * with the catalogue's `caseInfo` ("RMS-29/180"). 322 of the 323 matches agree
  * on it, which is the strongest evidence available that the join is right.
+ *
+ * `aerotech` is the catalogue's AeroTech motors.
  */
-function findMotor(designation, diameterMm, caseFolder, preferSingleUse = false) {
+function findMotor(aerotech, designation, diameterMm, caseFolder, preferSingleUse = false) {
   const wantCase = caseKey(caseFolder);
   for (const cand of designationCandidates(designation)) {
     const want = cand.toLowerCase();
     const scored = [];
-    for (const m of AEROTECH) {
+    for (const m of aerotech) {
       if (diameterMm && Math.abs(m.diameter - diameterMm) > 1.5) continue;
       const rawD = m.designation.toLowerCase();
       const dispD = displayDesignation(m.designation).toLowerCase();
@@ -365,313 +335,357 @@ function findMotor(designation, diameterMm, caseFolder, preferSingleUse = false)
 
 // -------------------------------------------------------------- build it up
 
-/** Every distinct nozzle part number, with the descriptions it was seen under. */
-const partDescriptions = new Map();
-const perDrawing = [];
-const unresolved = [];
-
-// A SHEET AT A FAMILY ROOT HAS NO CASE FOLDER, so it has no casing size to
-// filter the catalogue join by — which would let a same-named motor of another
-// size win. None exists today; the build refuses rather than guesses if one
-// ever appears (2026-09-13, from review).
-const rootLevel = raw.assemblies.filter((a) => a.atFamilyRoot).map((a) => a.file);
-if (rootLevel.length > 0) {
-  console.error('These drawings sit at a document-family root, so their casing size cannot be read:');
-  for (const f of rootLevel) console.error(`  ${f}`);
-  console.error('Put each in a casing-size subfolder, or give findMotor another way to get the diameter.');
-  process.exit(1);
-}
-
-for (const asm of raw.assemblies) {
-  const folder = asm.caseFolder;
-  const { row, why } = nozzleRow(asm);
-  if (!row) { unresolved.push({ file: asm.file, why }); continue; }
-  // A PART NUMBER WITH A REVISION IN IT BLEEDS INTO THE DESCRIPTION.
-  // The DMS sheets write the part cell as "01912 REV. 'C'", and the
-  // extractor's row regex takes the first token as the part and everything
-  // after it as the description — so the description came out as
-  // "REV. 'C' 'G' MOLDED CASE (NOZZLE DRILLED .234\")" when the sheet's own
-  // DESCRIPTION cell is only the part from 'G' onwards. The part number is
-  // still right and no number moved, but `lomDescription` is offered as
-  // verbatim and was not (2026-09-13, found by reading the drawings back).
-  // Stripped here rather than in the extractor, which stays deliberately dumb.
-  row.desc = row.desc.replace(/^REV\.\s*'[A-Z]'\s*/i, '');
-  const part = row.part.toUpperCase();
-  if (!partDescriptions.has(part)) partDescriptions.set(part, []);
-  partDescriptions.get(part).push(row.desc);
-  perDrawing.push({ asm, folder, row, part });
-}
-
-const parts = new Map();
-for (const [part, descs] of partDescriptions) {
-  parts.set(part, { ...resolvePart(part, descs), usedByDrawings: descs.length });
-}
-// Nozzles AeroTech publish that no drawing in this set puts on a motor — the
-// Quest Q-JET inserts, the Enerjet spares, the 54 mm hybrid nozzle, the small
-// 24 mm 01100. They belong in the parts table anyway: someone building an
-// experimental motor picks a nozzle by part number, and a part left out of the
-// table looks like a part with no data.
-for (const [part, page] of specByPart) {
-  if (parts.has(part)) continue;
-  // 01919-1 is on the Single-Throat Nozzles shelf but is an ABS ADAPTER that
-  // bonds a 1 in nozzle into a fibreglass case — it has no throat, no exit and
-  // no business in a nozzle table.
-  if (page.throatIn === undefined && page.exitIn === undefined && !page.multi) continue;
-  const p = resolvePart(part, []);
-  parts.set(part, { ...p, usedByDrawings: 0, weightG: page.weightG, odIn: page.odIn });
-}
-
-// ------------------------------------------------------------ the motor rows
-
-const rows = [];
-const unmatched = [];
-/** Sheets whose stated throat contradicts the mould their part number names. */
-const contradicted = [];
-for (const { asm, folder, row, part } of perDrawing) {
-  const p = parts.get(part);
-  const isDms = asm.docFamily === 'dms';
-  // A reloadable folder is a case family ("RMS-29-180 High Power"); a DMS
-  // folder is just the casing size ("29mm", "152mm"). Both give a diameter,
-  // which is all this is for, but only the first can tie-break the catalogue
-  // join — a DMS motor has no reload case for `caseInfo` to agree with.
-  const diameterFromFolder = isDms
-    ? Number(/^(\d+)\s*mm/i.exec(folder)?.[1]) || null
-    : Number(/(\d\d)[-/ ]/.exec(folder.replace(/RMS\s*&\s*LMS/i, 'RMS'))?.[1]) || null;
-  const found = findMotor(asm.designationFromFile, diameterFromFolder, folder, isDms);
-
-  // Throat: this motor's own drawing wins over the part's nominal.
-  const throatIn = throatFromDescription(row.desc) ?? p.throatDiameterIn;
-  let exitIn = p.exitDiameterIn;
-  let exitSource = p.exitSource;
-  let exitConfidence = p.exitConfidence;
-  let contradictedNote;
-  let medusa;
-
-  if (p.medusa && p.exitSource === 'medusa') {
-    const open = medusaOpening(row.desc);
-    const g = p.medusa;
-    if (open) {
-      const n = open.outerCount ?? 0;
-      const centerExit = g.centerExitIn;
-      // Four decimals of an inch is 2.5 microns — well inside the +/- .005 in
-      // the drawings' own title blocks call for, and it keeps a derived number
-      // from printing 16 digits of false precision.
-      exitIn = Math.round(equivalent(centerExit, ...Array(n).fill(g.outerExitIn)) * 1e4) / 1e4;
-      exitSource = 'medusa-open-throats';
-      exitConfidence = open.outerCountAssumed ? 'medium' : 'high';
-      medusa = {
-        openOuterThroats: n,
-        outerCountAssumed: Boolean(open.outerCountAssumed),
-        centerExitIn: centerExit,
-        outerExitIn: g.outerExitIn,
-        centerThroatIn: open.centerThroatIn ?? g.centerThroatIn,
-        outerThroatIn: open.outerThroatIn,
-      };
-    } else {
-      // SAY WHY, like every other exit-less row (2026-09-14, from review). This branch
-      // dropped the exit silently, so a Medusa whose description no pattern could read
-      // shipped with `exitSource: 'none'` and NO explanation — in a file whose stated rule is
-      // that every absence names its reason (`NO_EXIT_NOTES` covers 01680/01912/01600,
-      // `cutNote` covers K76WN-P). I65W-PS was the one row in the whole file with an
-      // unexplained blank; the `DRILL TO` fix above means nothing reaches here today, which
-      // is exactly when a fallback is worth writing down rather than after it bites.
-      exitSource = 'none'; exitConfidence = 'none';
-      contradictedNote = `The nozzle is a Medusa, but this sheet's description `
-        + `(${JSON.stringify(row.desc)}) does not state which throats are opened in any form `
-        + `this build understands, so the equivalent exit area cannot be derived. `
-        + `Reported rather than guessed: assuming centre-only would publish a number the sheet does not support.`;
-    }
+/**
+ * The AeroTech half, one row per DRAWING: each assembly sheet's LIST OF
+ * MATERIAL nozzle row, its part resolved against the store pages and the
+ * nozzle drawings, and the sheet joined to `aerotech` (the catalogue's
+ * AeroTech motors). Several sheets can describe one motor; oneRowPerMotor
+ * below decides between them. `raw` is extract-nozzle-pdfs.py's output.
+ * Throws BuildRefused for a sheet whose casing size cannot be read.
+ */
+export function aerotechDrawingRows(raw, aerotech) {
+  const specByPart = new Map();
+  for (const page of raw.specPages) {
+    if (!page.productCode) continue;
+    specByPart.set(page.productCode.toUpperCase(), readSpecPage(page));
   }
 
-  // A Medusa's throat is the equivalent of the throats it opens, not one hole.
-  const throatEquivIn = medusa
-    ? equivalent(medusa.centerThroatIn ?? 0, ...Array(medusa.openOuterThroats).fill(medusa.outerThroatIn ?? 0))
-    : throatIn;
+  const drawingByPart = new Map();
+  for (const d of raw.nozzleDrawings) {
+    const { partNo, fromFilename } = drawingPart(d);
+    if (!partNo) continue;
+    // "KLMN MOLDED NOZZLE, WITH 1.750" EXIT / .734" THROAT" — a title block that
+    // states the geometry outright. Only the 01800-3 drawing does, and it is
+    // exactly the part the dash rule would otherwise get wrong.
+    const titleExit = /([\d.]+)"\s*EXIT/i.exec(d.text);
+    const titleThroat = /([\d.]+)"\s*THROAT/i.exec(d.text);
+    const rec = {
+      file: d.file,
+      partNo,
+      partFromFilename: fromFilename,
+      statesDashNumberRule: d.statesDashNumberRule,
+      titleExitIn: titleExit ? Number(titleExit[1]) : undefined,
+      titleThroatIn: titleThroat ? Number(titleThroat[1]) : undefined,
+      callouts: d.callouts,
+      // "01550-1 NOZZLE DRILLED .313"" — the drawing's own dash-number table.
+      dashThroatIn: Object.fromEntries(d.dashRows.map(([p, v]) => [p.toUpperCase(), Number(v)])),
+    };
+    // Two of the drawings are byte-different downloads of the same sheet; keep
+    // the first and let the duplicate corroborate rather than overwrite.
+    if (!drawingByPart.has(partNo)) drawingByPart.set(partNo, rec);
+  }
+  const docs = { specByPart, drawingByPart };
 
-  /**
-   * A SHEET THAT DRILLS A THROAT NARROWER THAN THE PART'S OWN MOULD, which
-   * means the sheet is not describing that mould at all. (2026-09-08, from
-   * review.)
-   *
-   * A dash number DRILLS — AeroTech's own printed rule — and drilling only ever
-   * makes a throat bigger. So when a motor's LIST OF MATERIAL says ".500\"
-   * DRILLED" against a part whose own drawing title block reads "NET MOLDED
-   * .734\" THROAT", the two cannot both be about the same piece of hardware,
-   * and the exit that came off that title block is not this motor's exit.
-   *
-   * L400W-PS is the case and, before this, the only one: its sheet calls out
-   * 01800-3 ".500\" DRILLED" while `rcs_018003_nozzle_dwg.pdf` is the 1.750 in
-   * / .734 in net-moulded second mould (revision "FUTURE B REDESIGNED FOR NET
-   * MOLDED EXIT/THROAT 03/11/03"). The file shipped 1.750 in at confidence
-   * "high" on a motor whose exit AREA is then 3.78x too large — about 23 N of
-   * phantom thrust at a 20 kPa deficit on a 400 N motor, all of it on the up
-   * side of apogee. `throatVariesAcrossSheets: [0.5, 0.734]` on the part had
-   * already recorded the contradiction and nothing acted on it.
-   *
-   * WHAT IT FALLS BACK TO, and why that is the reading rather than a guess: the
-   * base 01800 sheet prints the dash table "01800-1 NOZZLE DRILLED .413 Dt x
-   * .900 De / 01800-2 NOZZLE DRILLED .594 Dt x .900 De", so a ".500 DRILLED"
-   * 98 mm nozzle sits squarely between two documented dash numbers of the BASE
-   * mould, whose exit is 0.900 in. Independent physical check: at 0.900 in the
-   * expansion ratio is 3.24, inside this line's 1.96-7.55 band, where 1.750 in
-   * gives 12.25 — 62 % above anything else AeroTech make. And the propellant
-   * arithmetic agrees: ~2.4 kg of White Lightning over ~12.8 s through .500 in
-   * is 1,500 kg/s/m2 of throat, which is N1000W's 1,540 (the other long-burn W
-   * in this family); through .734 in it would be 697, half of any of them.
-   *
-   * Graded LOW even so, and labelled: the number is inferred from the base
-   * mould's dash table rather than printed against this motor.
-   */
-  if (
-    exitIn !== undefined
-    && (exitSource === 'drawing-title' || exitSource === 'spec-page')
-    && p.throatDiameterIn !== undefined
-    && throatIn !== undefined
-    && throatIn < p.throatDiameterIn - 0.002
-  ) {
-    const baseExit = parts.get(p.basePartNo ?? '')?.exitDiameterIn;
-    contradicted.push(`${asm.designationFromFile} (${part}): sheet drills ${throatIn} in, part moulds `
-      + `${p.throatDiameterIn} in — exit ${exitIn} in dropped${baseExit !== undefined ? `, base ${baseExit} in used` : ''}`);
-    exitIn = baseExit;
-    exitSource = baseExit === undefined ? 'none' : 'base-spec-page';
-    exitConfidence = baseExit === undefined ? 'none' : 'low';
-    contradictedNote = baseExit === undefined
-      ? undefined
-      : `This sheet drills the throat to ${throatIn} in, narrower than the ${p.throatDiameterIn} in `
-        + `${part}'s own drawing moulds — a dash number only ever enlarges a throat, so this motor is not `
-        + `using that mould. The base ${p.basePartNo ?? part} exit is used instead.`;
+  /** Every distinct nozzle part number, with the descriptions it was seen under. */
+  const partDescriptions = new Map();
+  const perDrawing = [];
+  const unresolved = [];
+
+  // A SHEET AT A FAMILY ROOT HAS NO CASE FOLDER, so it has no casing size to
+  // filter the catalogue join by — which would let a same-named motor of another
+  // size win. None exists today; the build refuses rather than guesses if one
+  // ever appears (2026-09-13, from review).
+  const rootLevel = raw.assemblies.filter((a) => a.atFamilyRoot).map((a) => a.file);
+  if (rootLevel.length > 0) {
+    throw new BuildRefused([
+      'These drawings sit at a document-family root, so their casing size cannot be read:',
+      ...rootLevel.map((f) => `  ${f}`),
+      'Put each in a casing-size subfolder, or give findMotor another way to get the diameter.',
+    ]);
   }
 
-  /**
-   * A NOZZLE THE SHEET SAYS WAS CUT SHORTER HAS NO KNOWN EXIT. (2026-09-13,
-   * with the DMS drawings.)
-   *
-   * K76WN-P's row reads "54MM HYBRID NOZZLE .313" DT CUT TO 1.395" LONG". A
-   * converging-diverging nozzle widens continuously from the throat to the exit
-   * plane, so cutting the bell SHORTER moves the exit plane back up the cone
-   * and the exit is SMALLER than the mould's — by an amount only the drawing's
-   * own half-angle could give, and that is not on this sheet.
-   *
-   * Carrying the base 0.812 in across would therefore publish a number that is
-   * too BIG, which is the direction that adds thrust the motor does not make
-   * and overstates apogee. The dash-number rule does not cover this: a dash
-   * number drills the throat and leaves the moulded exit alone, whereas this
-   * says the moulded part itself was shortened. So the exit is dropped and the
-   * reason is recorded. The throat still stands — it is stated outright.
-   *
-   * Deliberately narrow: it fires only on CUT/SHORTENED/TRIMMED language about
-   * the nozzle's LENGTH. "CUT" appears nowhere else in the 375 sheets' nozzle
-   * rows.
-   */
-  // `[^.]*` was wrong and silently matched nothing: the descriptions are full
-  // of decimal inches ("CUT TO 1.395" LONG"), so a dot-excluding gap can never
-  // reach the word LONG. Bounded any-character instead.
-  const cutShorter = /\b(?:CUT|SHORTENED|TRIMMED)\b[\s\S]{0,30}?\bLONG\b|\bCUT\s+(?:DOWN|BACK)\b/i.exec(row.desc);
-  let cutNote;
-  if (exitIn !== undefined && cutShorter) {
-    cutNote = `This sheet says the nozzle was ${cutShorter[0]} — the moulded ${part.replace(/-.*$/, '')} `
-      + `exit of ${exitIn} in is the FULL bell's, and a bell cut shorter exits narrower than that by an `
-      + 'amount the sheet does not give. Published as unknown rather than as a number that would be too '
-      + 'large, since an overstated exit adds thrust the motor does not make.';
-    exitIn = undefined;
-    exitSource = 'none';
-    exitConfidence = 'none';
+  for (const asm of raw.assemblies) {
+    const folder = asm.caseFolder;
+    const { row, why } = nozzleRow(asm);
+    if (!row) { unresolved.push({ file: asm.file, why }); continue; }
+    // A PART NUMBER WITH A REVISION IN IT BLEEDS INTO THE DESCRIPTION.
+    // The DMS sheets write the part cell as "01912 REV. 'C'", and the
+    // extractor's row regex takes the first token as the part and everything
+    // after it as the description — so the description came out as
+    // "REV. 'C' 'G' MOLDED CASE (NOZZLE DRILLED .234\")" when the sheet's own
+    // DESCRIPTION cell is only the part from 'G' onwards. The part number is
+    // still right and no number moved, but `lomDescription` is offered as
+    // verbatim and was not (2026-09-13, found by reading the drawings back).
+    // Stripped here rather than in the extractor, which stays deliberately dumb.
+    row.desc = row.desc.replace(/^REV\.\s*'[A-Z]'\s*/i, '');
+    const part = row.part.toUpperCase();
+    if (!partDescriptions.has(part)) partDescriptions.set(part, []);
+    partDescriptions.get(part).push(row.desc);
+    perDrawing.push({ asm, folder, row, part });
   }
 
-  /**
-   * A THROAT WIDER THAN THE MOULDED EXIT means the divergent section is gone.
-   *
-   * G69N-P: nozzle 01400, whose moulded geometry is a .104 in throat opening
-   * to a .250 in exit — SPADED .313 in. A .313 in bore through a .250 in exit
-   * removes the bell entirely, so the exit plane IS the bore. The motor makes
-   * the case: 72 N average over 1.88 s on Warp 9, a propellant that only burns
-   * that slowly at the low chamber pressure a huge throat gives.
-   *
-   * The alternative reading — exit unchanged at .250 in — is geometrically
-   * impossible, so this is not a choice between two stories. It is still only
-   * "medium": the number is inferred from the bore rather than printed.
-   */
-  if (exitIn !== undefined && throatEquivIn !== undefined && throatEquivIn > exitIn + 1e-6) {
-    exitIn = throatEquivIn;
-    exitSource = 'throat-bored-through';
-    exitConfidence = 'medium';
+  const parts = new Map();
+  for (const [part, descs] of partDescriptions) {
+    parts.set(part, { ...resolvePart(part, descs, docs), usedByDrawings: descs.length });
+  }
+  // Nozzles AeroTech publish that no drawing in this set puts on a motor — the
+  // Quest Q-JET inserts, the Enerjet spares, the 54 mm hybrid nozzle, the small
+  // 24 mm 01100. They belong in the parts table anyway: someone building an
+  // experimental motor picks a nozzle by part number, and a part left out of the
+  // table looks like a part with no data.
+  for (const [part, page] of specByPart) {
+    if (parts.has(part)) continue;
+    // 01919-1 is on the Single-Throat Nozzles shelf but is an ABS ADAPTER that
+    // bonds a 1 in nozzle into a fibreglass case — it has no throat, no exit and
+    // no business in a nozzle table.
+    if (page.throatIn === undefined && page.exitIn === undefined && !page.multi) continue;
+    const p = resolvePart(part, [], docs);
+    parts.set(part, { ...p, usedByDrawings: 0, weightG: page.weightG, odIn: page.odIn });
   }
 
-  const rec = {
-    ...(found ? { motorId: found.entry.motorId } : {}),
-    manufacturer: 'AeroTech',
-    designation: asm.designationFromFile,
-    ...(found ? { catalogDesignation: found.entry.designation, commonName: found.entry.commonName } : {}),
-    // What a reader should understand the drawing to be OF. For a reloadable
-    // motor that is the reload case; for a DMS motor there is no case to name,
-    // so it says what the sheet actually is.
-    caseFamily: isDms ? `${folder} DMS (single-use)` : folder,
-    docFamily: isDms ? 'dms' : 'reloadable',
-    ...(found ? { casingDiameterMm: found.entry.diameter } : {}),
-    nozzlePartNo: part,
-    ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
-    // ROUNDED FIRST, then converted (2026-09-08, from review). Taking the
-    // metres from the full-precision Medusa equivalent while publishing the
-    // inches to four decimals put the two units 1e-6 m apart on eight rows —
-    // physically nothing (0.0001 in is 2.5 microns, well inside the drawings'
-    // own +/- .005) but enough that the units cross-check could not be exact,
-    // and an exact check is the only one that catches a real unit drift.
-    ...(throatEquivIn !== undefined
-      ? {
-        throatDiameterM: round6(inToM(Math.round(throatEquivIn * 1e4) / 1e4)),
-        throatDiameterIn: Math.round(throatEquivIn * 1e4) / 1e4,
+  // ------------------------------------------------------------ the motor rows
+
+  const rows = [];
+  const unmatched = [];
+  /** Sheets whose stated throat contradicts the mould their part number names. */
+  const contradicted = [];
+  for (const { asm, folder, row, part } of perDrawing) {
+    const p = parts.get(part);
+    const isDms = asm.docFamily === 'dms';
+    // A reloadable folder is a case family ("RMS-29-180 High Power"); a DMS
+    // folder is just the casing size ("29mm", "152mm"). Both give a diameter,
+    // which is all this is for, but only the first can tie-break the catalogue
+    // join — a DMS motor has no reload case for `caseInfo` to agree with.
+    const diameterFromFolder = isDms
+      ? Number(/^(\d+)\s*mm/i.exec(folder)?.[1]) || null
+      : Number(/(\d\d)[-/ ]/.exec(folder.replace(/RMS\s*&\s*LMS/i, 'RMS'))?.[1]) || null;
+    const found = findMotor(aerotech, asm.designationFromFile, diameterFromFolder, folder, isDms);
+
+    // Throat: this motor's own drawing wins over the part's nominal.
+    const throatIn = throatFromDescription(row.desc) ?? p.throatDiameterIn;
+    let exitIn = p.exitDiameterIn;
+    let exitSource = p.exitSource;
+    let exitConfidence = p.exitConfidence;
+    let contradictedNote;
+    let medusa;
+
+    if (p.medusa && p.exitSource === 'medusa') {
+      const open = medusaOpening(row.desc);
+      const g = p.medusa;
+      if (open) {
+        const n = open.outerCount ?? 0;
+        const centerExit = g.centerExitIn;
+        // Four decimals of an inch is 2.5 microns — well inside the +/- .005 in
+        // the drawings' own title blocks call for, and it keeps a derived number
+        // from printing 16 digits of false precision.
+        exitIn = Math.round(equivalent(centerExit, ...Array(n).fill(g.outerExitIn)) * 1e4) / 1e4;
+        exitSource = 'medusa-open-throats';
+        exitConfidence = open.outerCountAssumed ? 'medium' : 'high';
+        medusa = {
+          openOuterThroats: n,
+          outerCountAssumed: Boolean(open.outerCountAssumed),
+          centerExitIn: centerExit,
+          outerExitIn: g.outerExitIn,
+          centerThroatIn: open.centerThroatIn ?? g.centerThroatIn,
+          outerThroatIn: open.outerThroatIn,
+        };
+      } else {
+        // SAY WHY, like every other exit-less row (2026-09-14, from review). This branch
+        // dropped the exit silently, so a Medusa whose description no pattern could read
+        // shipped with `exitSource: 'none'` and NO explanation — in a file whose stated rule is
+        // that every absence names its reason (`NO_EXIT_NOTES` covers 01680/01912/01600,
+        // `cutNote` covers K76WN-P). I65W-PS was the one row in the whole file with an
+        // unexplained blank; the `DRILL TO` fix above means nothing reaches here today, which
+        // is exactly when a fallback is worth writing down rather than after it bites.
+        exitSource = 'none'; exitConfidence = 'none';
+        contradictedNote = `The nozzle is a Medusa, but this sheet's description `
+          + `(${JSON.stringify(row.desc)}) does not state which throats are opened in any form `
+          + `this build understands, so the equivalent exit area cannot be derived. `
+          + `Reported rather than guessed: assuming centre-only would publish a number the sheet does not support.`;
       }
-      : {}),
-    exitSource,
-    exitConfidence,
-    // Why a row is only "medium", in the file rather than in a commit message.
-    // The dash-number rule is AeroTech's, printed on 14 of the 23 nozzle
-    // drawing files; where their own sheet for this family does not print it, the
-    // carry-across rests on the wider convention plus the fact that when the
-    // 98 mm family DOES change an exit, the description says so outright
-    // ("/1.75" EXIT"). Sound, but inferred — so it is labelled, not hidden.
-    // ONE FIELD, EVERY REASON THAT APPLIES (2026-09-13, from review).
-    //
-    // These five were five separate conditional spreads of the SAME key, so a
-    // row that tripped two rules kept only the last one's explanation and lost
-    // the other without a word — in the field whose entire job is to say why a
-    // number is not simply read off a drawing. No row trips two today, which is
-    // exactly why nobody would have noticed the first one that did.
-    ...(() => {
-      const notes = [
-        exitSource === 'base-spec-page' && exitConfidence === 'medium'
-          ? 'Exit carried from the base part under the dash-number rule, which this family\'s own drawing does not print.' : null,
-        medusa?.outerCountAssumed
-          ? 'The sheet gives a drilled throat with no count, so only the centre throat is taken as open — the moulded state. If outer throats were also opened the exit area is larger.' : null,
-        exitSource === 'throat-bored-through'
-          ? `The sheet opens the throat to ${throatEquivIn} in, wider than this nozzle's ${p.exitDiameterIn} in moulded exit, so the divergent section is bored away and the exit plane is the bore itself.` : null,
-        contradictedNote ?? null,
-        cutNote ?? null,
-      ].filter(Boolean);
-      return notes.length ? { confidenceNote: notes.join(' ') } : {};
-    })(),
-    ...(medusa ? { medusa } : {}),
-    provenance: {
-      assemblyDrawing: asm.file,
-      lomDescription: row.desc,
-      // The drawing's own title block agrees with the filename's designation
-      // (the sheet often omits the delay tag, so the stem is what is checked).
-      designationOnSheet: asm.designationOnSheet ? 'exact' : asm.designationStemOnSheet ? 'stem' : 'no',
-      // The document that actually gave THIS row's exit — not the part's
-      // best document. The N1000W's 1.750 in comes off its own assembly sheet,
-      // and pointing at the base part's store page (which says 0.900 in) would
-      // send a reader to a number that contradicts the row.
-      exitFrom: exitSource === 'assembly-description' ? asm.file
-        : exitSource === 'drawing-title' ? p.provenance.drawing
-          : exitSource === 'medusa-open-throats'
-            ? `${p.provenance.baseSpecPage ?? p.provenance.specPage} (geometry) + ${asm.file} (throats opened)`
-            : p.provenance.specPage ?? p.provenance.baseSpecPage ?? p.provenance.drawing ?? asm.file,
-      matchedVia: found?.via,
-      caseAgrees: found ? found.caseAgrees : undefined,
-    },
-  };
-  rows.push(rec);
-  if (!found) unmatched.push({ file: asm.file, designation: asm.designationFromFile });
+    }
+
+    // A Medusa's throat is the equivalent of the throats it opens, not one hole.
+    const throatEquivIn = medusa
+      ? equivalent(medusa.centerThroatIn ?? 0, ...Array(medusa.openOuterThroats).fill(medusa.outerThroatIn ?? 0))
+      : throatIn;
+
+    /**
+     * A SHEET THAT DRILLS A THROAT NARROWER THAN THE PART'S OWN MOULD, which
+     * means the sheet is not describing that mould at all. (2026-09-08, from
+     * review.)
+     *
+     * A dash number DRILLS — AeroTech's own printed rule — and drilling only ever
+     * makes a throat bigger. So when a motor's LIST OF MATERIAL says ".500\"
+     * DRILLED" against a part whose own drawing title block reads "NET MOLDED
+     * .734\" THROAT", the two cannot both be about the same piece of hardware,
+     * and the exit that came off that title block is not this motor's exit.
+     *
+     * L400W-PS is the case and, before this, the only one: its sheet calls out
+     * 01800-3 ".500\" DRILLED" while `rcs_018003_nozzle_dwg.pdf` is the 1.750 in
+     * / .734 in net-moulded second mould (revision "FUTURE B REDESIGNED FOR NET
+     * MOLDED EXIT/THROAT 03/11/03"). The file shipped 1.750 in at confidence
+     * "high" on a motor whose exit AREA is then 3.78x too large — about 23 N of
+     * phantom thrust at a 20 kPa deficit on a 400 N motor, all of it on the up
+     * side of apogee. `throatVariesAcrossSheets: [0.5, 0.734]` on the part had
+     * already recorded the contradiction and nothing acted on it.
+     *
+     * WHAT IT FALLS BACK TO, and why that is the reading rather than a guess: the
+     * base 01800 sheet prints the dash table "01800-1 NOZZLE DRILLED .413 Dt x
+     * .900 De / 01800-2 NOZZLE DRILLED .594 Dt x .900 De", so a ".500 DRILLED"
+     * 98 mm nozzle sits squarely between two documented dash numbers of the BASE
+     * mould, whose exit is 0.900 in. Independent physical check: at 0.900 in the
+     * expansion ratio is 3.24, inside this line's 1.96-7.55 band, where 1.750 in
+     * gives 12.25 — 62 % above anything else AeroTech make. And the propellant
+     * arithmetic agrees: ~2.4 kg of White Lightning over ~12.8 s through .500 in
+     * is 1,500 kg/s/m2 of throat, which is N1000W's 1,540 (the other long-burn W
+     * in this family); through .734 in it would be 697, half of any of them.
+     *
+     * Graded LOW even so, and labelled: the number is inferred from the base
+     * mould's dash table rather than printed against this motor.
+     */
+    if (
+      exitIn !== undefined
+      && (exitSource === 'drawing-title' || exitSource === 'spec-page')
+      && p.throatDiameterIn !== undefined
+      && throatIn !== undefined
+      && throatIn < p.throatDiameterIn - 0.002
+    ) {
+      const baseExit = parts.get(p.basePartNo ?? '')?.exitDiameterIn;
+      contradicted.push(`${asm.designationFromFile} (${part}): sheet drills ${throatIn} in, part moulds `
+        + `${p.throatDiameterIn} in — exit ${exitIn} in dropped${baseExit !== undefined ? `, base ${baseExit} in used` : ''}`);
+      exitIn = baseExit;
+      exitSource = baseExit === undefined ? 'none' : 'base-spec-page';
+      exitConfidence = baseExit === undefined ? 'none' : 'low';
+      contradictedNote = baseExit === undefined
+        ? undefined
+        : `This sheet drills the throat to ${throatIn} in, narrower than the ${p.throatDiameterIn} in `
+          + `${part}'s own drawing moulds — a dash number only ever enlarges a throat, so this motor is not `
+          + `using that mould. The base ${p.basePartNo ?? part} exit is used instead.`;
+    }
+
+    /**
+     * A NOZZLE THE SHEET SAYS WAS CUT SHORTER HAS NO KNOWN EXIT. (2026-09-13,
+     * with the DMS drawings.)
+     *
+     * K76WN-P's row reads "54MM HYBRID NOZZLE .313" DT CUT TO 1.395" LONG". A
+     * converging-diverging nozzle widens continuously from the throat to the exit
+     * plane, so cutting the bell SHORTER moves the exit plane back up the cone
+     * and the exit is SMALLER than the mould's — by an amount only the drawing's
+     * own half-angle could give, and that is not on this sheet.
+     *
+     * Carrying the base 0.812 in across would therefore publish a number that is
+     * too BIG, which is the direction that adds thrust the motor does not make
+     * and overstates apogee. The dash-number rule does not cover this: a dash
+     * number drills the throat and leaves the moulded exit alone, whereas this
+     * says the moulded part itself was shortened. So the exit is dropped and the
+     * reason is recorded. The throat still stands — it is stated outright.
+     *
+     * Deliberately narrow: it fires only on CUT/SHORTENED/TRIMMED language about
+     * the nozzle's LENGTH. "CUT" appears nowhere else in the 375 sheets' nozzle
+     * rows.
+     */
+    // `[^.]*` was wrong and silently matched nothing: the descriptions are full
+    // of decimal inches ("CUT TO 1.395" LONG"), so a dot-excluding gap can never
+    // reach the word LONG. Bounded any-character instead.
+    const cutShorter = /\b(?:CUT|SHORTENED|TRIMMED)\b[\s\S]{0,30}?\bLONG\b|\bCUT\s+(?:DOWN|BACK)\b/i.exec(row.desc);
+    let cutNote;
+    if (exitIn !== undefined && cutShorter) {
+      cutNote = `This sheet says the nozzle was ${cutShorter[0]} — the moulded ${part.replace(/-.*$/, '')} `
+        + `exit of ${exitIn} in is the FULL bell's, and a bell cut shorter exits narrower than that by an `
+        + 'amount the sheet does not give. Published as unknown rather than as a number that would be too '
+        + 'large, since an overstated exit adds thrust the motor does not make.';
+      exitIn = undefined;
+      exitSource = 'none';
+      exitConfidence = 'none';
+    }
+
+    /**
+     * A THROAT WIDER THAN THE MOULDED EXIT means the divergent section is gone.
+     *
+     * G69N-P: nozzle 01400, whose moulded geometry is a .104 in throat opening
+     * to a .250 in exit — SPADED .313 in. A .313 in bore through a .250 in exit
+     * removes the bell entirely, so the exit plane IS the bore. The motor makes
+     * the case: 72 N average over 1.88 s on Warp 9, a propellant that only burns
+     * that slowly at the low chamber pressure a huge throat gives.
+     *
+     * The alternative reading — exit unchanged at .250 in — is geometrically
+     * impossible, so this is not a choice between two stories. It is still only
+     * "medium": the number is inferred from the bore rather than printed.
+     */
+    if (exitIn !== undefined && throatEquivIn !== undefined && throatEquivIn > exitIn + 1e-6) {
+      exitIn = throatEquivIn;
+      exitSource = 'throat-bored-through';
+      exitConfidence = 'medium';
+    }
+
+    const rec = {
+      ...(found ? { motorId: found.entry.motorId } : {}),
+      manufacturer: 'AeroTech',
+      designation: asm.designationFromFile,
+      ...(found ? { catalogDesignation: found.entry.designation, commonName: found.entry.commonName } : {}),
+      // What a reader should understand the drawing to be OF. For a reloadable
+      // motor that is the reload case; for a DMS motor there is no case to name,
+      // so it says what the sheet actually is.
+      caseFamily: isDms ? `${folder} DMS (single-use)` : folder,
+      docFamily: isDms ? 'dms' : 'reloadable',
+      ...(found ? { casingDiameterMm: found.entry.diameter } : {}),
+      nozzlePartNo: part,
+      ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
+      // ROUNDED FIRST, then converted (2026-09-08, from review). Taking the
+      // metres from the full-precision Medusa equivalent while publishing the
+      // inches to four decimals put the two units 1e-6 m apart on eight rows —
+      // physically nothing (0.0001 in is 2.5 microns, well inside the drawings'
+      // own +/- .005) but enough that the units cross-check could not be exact,
+      // and an exact check is the only one that catches a real unit drift.
+      ...(throatEquivIn !== undefined
+        ? {
+          throatDiameterM: round6(inToM(Math.round(throatEquivIn * 1e4) / 1e4)),
+          throatDiameterIn: Math.round(throatEquivIn * 1e4) / 1e4,
+        }
+        : {}),
+      exitSource,
+      exitConfidence,
+      // Why a row is only "medium", in the file rather than in a commit message.
+      // The dash-number rule is AeroTech's, printed on 14 of the 23 nozzle
+      // drawing files; where their own sheet for this family does not print it, the
+      // carry-across rests on the wider convention plus the fact that when the
+      // 98 mm family DOES change an exit, the description says so outright
+      // ("/1.75" EXIT"). Sound, but inferred — so it is labelled, not hidden.
+      // ONE FIELD, EVERY REASON THAT APPLIES (2026-09-13, from review).
+      //
+      // These five were five separate conditional spreads of the SAME key, so a
+      // row that tripped two rules kept only the last one's explanation and lost
+      // the other without a word — in the field whose entire job is to say why a
+      // number is not simply read off a drawing. No row trips two today, which is
+      // exactly why nobody would have noticed the first one that did.
+      ...(() => {
+        const notes = [
+          exitSource === 'base-spec-page' && exitConfidence === 'medium'
+            ? 'Exit carried from the base part under the dash-number rule, which this family\'s own drawing does not print.' : null,
+          medusa?.outerCountAssumed
+            ? 'The sheet gives a drilled throat with no count, so only the centre throat is taken as open — the moulded state. If outer throats were also opened the exit area is larger.' : null,
+          exitSource === 'throat-bored-through'
+            ? `The sheet opens the throat to ${throatEquivIn} in, wider than this nozzle's ${p.exitDiameterIn} in moulded exit, so the divergent section is bored away and the exit plane is the bore itself.` : null,
+          contradictedNote ?? null,
+          cutNote ?? null,
+        ].filter(Boolean);
+        return notes.length ? { confidenceNote: notes.join(' ') } : {};
+      })(),
+      ...(medusa ? { medusa } : {}),
+      provenance: {
+        assemblyDrawing: asm.file,
+        lomDescription: row.desc,
+        // The drawing's own title block agrees with the filename's designation
+        // (the sheet often omits the delay tag, so the stem is what is checked).
+        designationOnSheet: asm.designationOnSheet ? 'exact' : asm.designationStemOnSheet ? 'stem' : 'no',
+        // The document that actually gave THIS row's exit — not the part's
+        // best document. The N1000W's 1.750 in comes off its own assembly sheet,
+        // and pointing at the base part's store page (which says 0.900 in) would
+        // send a reader to a number that contradicts the row.
+        exitFrom: exitSource === 'assembly-description' ? asm.file
+          : exitSource === 'drawing-title' ? p.provenance.drawing
+            : exitSource === 'medusa-open-throats'
+              ? `${p.provenance.baseSpecPage ?? p.provenance.specPage} (geometry) + ${asm.file} (throats opened)`
+              : p.provenance.specPage ?? p.provenance.baseSpecPage ?? p.provenance.drawing ?? asm.file,
+        matchedVia: found?.via,
+        caseAgrees: found ? found.caseAgrees : undefined,
+      },
+    };
+    rows.push(rec);
+    if (!found) unmatched.push({ file: asm.file, designation: asm.designationFromFile });
+  }
+  return { parts, perDrawing, rows, unresolved, unmatched, contradicted };
 }
 
 /**
@@ -733,136 +747,145 @@ const label = (f) => (NEWER.test(f) ? 0 : OLDER.test(f) ? 2 : 1);
 const nozzleRevisionDate = (asm) => (asm.revisions ?? [])
   .filter((r) => r.mentionsNozzle && r.isoDate)
   .reduce((newest, r) => (newest === null || r.isoDate > newest ? r.isoDate : newest), null);
-const revisionByFile = new Map(raw.assemblies.map((a) => [a.file, nozzleRevisionDate(a)]));
-const revDate = (f) => revisionByFile.get(f) ?? '';
 
-const grouped = new Map();
-for (const r of rows) {
-  const key = r.motorId ?? `raw:${r.caseFamily}/${r.designation}`;
-  if (!grouped.has(key)) grouped.set(key, []);
-  grouped.get(key).push(r);
-}
+/**
+ * The drawing rows collapsed to ONE ROW PER MOTOR (above), sorted by
+ * designation and case. `assemblies` is the extractor's, for the sheets'
+ * dated revision blocks.
+ */
+export function oneRowPerMotor(rows, assemblies) {
+  const revisionByFile = new Map(assemblies.map((a) => [a.file, nozzleRevisionDate(a)]));
+  const revDate = (f) => revisionByFile.get(f) ?? '';
 
-const motorRows = [];
-for (const group of grouped.values()) {
-  const drawings = group.map((r) => r.provenance.assemblyDrawing).sort();
-  // A SHEET WITH NO EXIT IS NOT A SECOND NOZZLE. (2026-09-08, from review.)
-  // `undefined` counted as a distinct member of this Set, so a group holding
-  // one sheet that states an exit and one that does not read as two published
-  // OPTIONS: the row would be marked `exitAmbiguous` and its note would offer
-  // the reader "<part> undefined in" as the alternative. Only sheets that
-  // actually state an exit can disagree about one. No group in the current
-  // document set mixes the two — J615ST-20A, the one exitless motor, is
-  // exitless on every sheet — so this changes no number today; it stops a
-  // future aerospike or blank sheet from making a nonsense row.
-  const exits = [...new Set(group.map((r) => r.exitDiameterM).filter((v) => v !== undefined))];
-  const pick = [...group].sort((a, b) => {
-    // ...and it can never be the PRIMARY while a sibling states one. The row's
-    // whole job is to carry an exit diameter (2026-09-08, from review).
-    const ea = a.exitDiameterM === undefined ? 1 : 0;
-    const eb = b.exitDiameterM === undefined ? 1 : 0;
-    if (ea !== eb) return ea - eb;
-    const ra = revDate(a.provenance.assemblyDrawing);
-    const rb = revDate(b.provenance.assemblyDrawing);
-    if (ra !== rb) return rb.localeCompare(ra); // newest dated nozzle revision first
-    const la = label(a.provenance.assemblyDrawing);
-    const lb = label(b.provenance.assemblyDrawing);
-    if (la !== lb) return la - lb;
-    const na = group.filter((g) => g.exitDiameterM === a.exitDiameterM).length;
-    const nb = group.filter((g) => g.exitDiameterM === b.exitDiameterM).length;
-    if (na !== nb) return nb - na;
-    return a.provenance.assemblyDrawing.localeCompare(b.provenance.assemblyDrawing);
-  })[0];
-
-  const { assemblyDrawing, ...prov } = pick.provenance;
-  const out = { ...pick, provenance: { ...prov, assemblyDrawings: drawings } };
-
-  // 0.002 in is below the +/- .005 the drawings themselves specify, so two
-  // numbers closer than that are the same throat written two ways (0.615 on a
-  // single-throat sheet against the Medusa equivalent 0.6153), not a variant.
-  const throats = [...new Set(group.map((r) => r.throatDiameterIn).filter((v) => v !== undefined))]
-    .sort((a, b) => a - b);
-  const distinct = throats.filter((t, i) => i === 0 || t - throats[i - 1] > 0.002);
-  if (distinct.length > 1) out.throatVariants = distinct;
-
-  if (exits.length > 1) {
-    out.exitAmbiguous = true;
-    // NEVER "high" WHEN TWO PUBLISHED SHEETS DISAGREE. (2026-09-08, from
-    // review.) `exitAmbiguous` said so, but `exitConfidence` — the field a
-    // consumer filters on — still read "high", so a caller that trusted the
-    // grade would pick one of two numbers up as settled. Between the K1100T's
-    // two options there is 43 % of the exit area and therefore 43 % of the
-    // pressure-thrust term; on I300T-L the two differ by 2.47x in area. A
-    // dated revision on the winning sheet is real evidence and is recorded in
-    // `exitPickedBy`, but it still describes AeroTech's CURRENT hardware, not
-    // necessarily the reload kit in the user's hand.
-    out.exitPickedBy = revDate(pick.provenance.assemblyDrawing) ? 'dated-revision'
-      : label(pick.provenance.assemblyDrawing) !== 1 ? 'sheet-label' : 'majority-of-sheets';
-    if (out.exitConfidence === 'high') out.exitConfidence = 'medium';
-    // ONE LIST, DESCRIBED ONCE. (2026-09-08, from review.) The prose note and
-    // `alternatives` were built from two separate dedupes of the same rows —
-    // a Map, which keeps the LAST row for a repeated part number, against a
-    // findIndex filter, which keeps the FIRST. Where one part number appeared
-    // twice in a group with different exits (a Medusa part whose exit is
-    // resolved per motor is the way that happens), the sentence a user reads
-    // and the list a consumer reads would name the same part with two
-    // different numbers. The note is now written FROM the list it describes,
-    // so they cannot disagree.
-    //
-    // Deduped at all because several delay variants of the same motor show the
-    // same alternative part, and listing it three times reads like three
-    // nozzles.
-    out.alternatives = group
-      .filter((r) => r.exitDiameterM !== undefined && r.exitDiameterM !== pick.exitDiameterM)
-      .filter((r, i, xs) => xs.findIndex((y) => y.nozzlePartNo === r.nozzlePartNo) === i)
-      .map((r) => ({
-        nozzlePartNo: r.nozzlePartNo,
-        exitDiameterM: r.exitDiameterM,
-        exitDiameterIn: r.exitDiameterIn,
-        throatDiameterM: r.throatDiameterM,
-        assemblyDrawing: r.provenance.assemblyDrawing,
-        lomDescription: r.provenance.lomDescription,
-      }));
-    const others = out.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`);
-    // APPEND, NEVER ASSIGN (2026-09-14, from review) — a LATENT fix, and the record of what
-    // it is and is not matters, because the review that prompted it got the mechanism wrong.
-    //
-    // This was `out.confidenceNote = ...`, which would silently destroy whatever the "one
-    // field, every reason that applies" block above had built — the identical defect that
-    // block was written to fix, in the same field, one commit later.
-    //
-    // THE REVIEW CLAIMED IT WAS LIVE ON EIGHT SHIPPED ROWS (I115W-M, I117FJ-M, I215R-M,
-    // I229T-M, I300T-14A, I599N-P, K1100T-L, M650W-P), reasoning that each carries
-    // `exitSource: 'base-spec-page'` at `medium` and so had the dash-number sentence
-    // generated and then overwritten. IT DID NOT. Those rows read `medium` only BECAUSE of
-    // the downgrade three lines above; at row-build time they were `high`, so the sentence —
-    // whose condition is `base-spec-page && medium` — was never generated for them at all.
-    // Proved by making this change and regenerating: the notes on all eight are byte-identical
-    // and only I65W-PS moved. The 24-vs-0 split the review measured is real and has a
-    // different cause: the dash sentence marks a family whose own drawing does not print the
-    // rule, which is what `high` vs `medium` encodes at ROW level, and the ambiguity downgrade
-    // is about something else entirely. Those eight are correctly without it.
-    //
-    // So this changes no published note today. It is still right: `cutNote` and
-    // `contradictedNote` are set per row and CAN coexist with ambiguity, and either would
-    // have been destroyed here without a word. A field that accumulates reasons must be
-    // written in one place and appended to everywhere else — the row that trips two rules is
-    // always the one nobody tested.
-    const ambiguityNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
-      + `${pick.exitDiameterIn} in against ${others.join(', ')}). `
-      + (out.exitPickedBy === 'dated-revision'
-        ? `The one used here is the one that sheet's own dated revision block calls current (${revDate(pick.provenance.assemblyDrawing)}); `
-        : out.exitPickedBy === 'sheet-label'
-          ? "The one used here is the one AeroTech's own sheet name calls the newer; "
-          : 'The one used here is the one more sheets show; ')
-      + 'check which nozzle is in your reload kit before trusting the exit area.';
-    out.confidenceNote = out.confidenceNote
-      ? `${out.confidenceNote} ${ambiguityNote}`
-      : ambiguityNote;
+  const grouped = new Map();
+  for (const r of rows) {
+    const key = r.motorId ?? `raw:${r.caseFamily}/${r.designation}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(r);
   }
-  motorRows.push(out);
+
+  const motorRows = [];
+  for (const group of grouped.values()) {
+    const drawings = group.map((r) => r.provenance.assemblyDrawing).sort();
+    // A SHEET WITH NO EXIT IS NOT A SECOND NOZZLE. (2026-09-08, from review.)
+    // `undefined` counted as a distinct member of this Set, so a group holding
+    // one sheet that states an exit and one that does not read as two published
+    // OPTIONS: the row would be marked `exitAmbiguous` and its note would offer
+    // the reader "<part> undefined in" as the alternative. Only sheets that
+    // actually state an exit can disagree about one. No group in the current
+    // document set mixes the two — J615ST-20A, the one exitless motor, is
+    // exitless on every sheet — so this changes no number today; it stops a
+    // future aerospike or blank sheet from making a nonsense row.
+    const exits = [...new Set(group.map((r) => r.exitDiameterM).filter((v) => v !== undefined))];
+    const pick = [...group].sort((a, b) => {
+      // ...and it can never be the PRIMARY while a sibling states one. The row's
+      // whole job is to carry an exit diameter (2026-09-08, from review).
+      const ea = a.exitDiameterM === undefined ? 1 : 0;
+      const eb = b.exitDiameterM === undefined ? 1 : 0;
+      if (ea !== eb) return ea - eb;
+      const ra = revDate(a.provenance.assemblyDrawing);
+      const rb = revDate(b.provenance.assemblyDrawing);
+      if (ra !== rb) return rb.localeCompare(ra); // newest dated nozzle revision first
+      const la = label(a.provenance.assemblyDrawing);
+      const lb = label(b.provenance.assemblyDrawing);
+      if (la !== lb) return la - lb;
+      const na = group.filter((g) => g.exitDiameterM === a.exitDiameterM).length;
+      const nb = group.filter((g) => g.exitDiameterM === b.exitDiameterM).length;
+      if (na !== nb) return nb - na;
+      return a.provenance.assemblyDrawing.localeCompare(b.provenance.assemblyDrawing);
+    })[0];
+
+    const { assemblyDrawing, ...prov } = pick.provenance;
+    const out = { ...pick, provenance: { ...prov, assemblyDrawings: drawings } };
+
+    // 0.002 in is below the +/- .005 the drawings themselves specify, so two
+    // numbers closer than that are the same throat written two ways (0.615 on a
+    // single-throat sheet against the Medusa equivalent 0.6153), not a variant.
+    const throats = [...new Set(group.map((r) => r.throatDiameterIn).filter((v) => v !== undefined))]
+      .sort((a, b) => a - b);
+    const distinct = throats.filter((t, i) => i === 0 || t - throats[i - 1] > 0.002);
+    if (distinct.length > 1) out.throatVariants = distinct;
+
+    if (exits.length > 1) {
+      out.exitAmbiguous = true;
+      // NEVER "high" WHEN TWO PUBLISHED SHEETS DISAGREE. (2026-09-08, from
+      // review.) `exitAmbiguous` said so, but `exitConfidence` — the field a
+      // consumer filters on — still read "high", so a caller that trusted the
+      // grade would pick one of two numbers up as settled. Between the K1100T's
+      // two options there is 43 % of the exit area and therefore 43 % of the
+      // pressure-thrust term; on I300T-L the two differ by 2.47x in area. A
+      // dated revision on the winning sheet is real evidence and is recorded in
+      // `exitPickedBy`, but it still describes AeroTech's CURRENT hardware, not
+      // necessarily the reload kit in the user's hand.
+      out.exitPickedBy = revDate(pick.provenance.assemblyDrawing) ? 'dated-revision'
+        : label(pick.provenance.assemblyDrawing) !== 1 ? 'sheet-label' : 'majority-of-sheets';
+      if (out.exitConfidence === 'high') out.exitConfidence = 'medium';
+      // ONE LIST, DESCRIBED ONCE. (2026-09-08, from review.) The prose note and
+      // `alternatives` were built from two separate dedupes of the same rows —
+      // a Map, which keeps the LAST row for a repeated part number, against a
+      // findIndex filter, which keeps the FIRST. Where one part number appeared
+      // twice in a group with different exits (a Medusa part whose exit is
+      // resolved per motor is the way that happens), the sentence a user reads
+      // and the list a consumer reads would name the same part with two
+      // different numbers. The note is now written FROM the list it describes,
+      // so they cannot disagree.
+      //
+      // Deduped at all because several delay variants of the same motor show the
+      // same alternative part, and listing it three times reads like three
+      // nozzles.
+      out.alternatives = group
+        .filter((r) => r.exitDiameterM !== undefined && r.exitDiameterM !== pick.exitDiameterM)
+        .filter((r, i, xs) => xs.findIndex((y) => y.nozzlePartNo === r.nozzlePartNo) === i)
+        .map((r) => ({
+          nozzlePartNo: r.nozzlePartNo,
+          exitDiameterM: r.exitDiameterM,
+          exitDiameterIn: r.exitDiameterIn,
+          throatDiameterM: r.throatDiameterM,
+          assemblyDrawing: r.provenance.assemblyDrawing,
+          lomDescription: r.provenance.lomDescription,
+        }));
+      const others = out.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`);
+      // APPEND, NEVER ASSIGN (2026-09-14, from review) — a LATENT fix, and the record of what
+      // it is and is not matters, because the review that prompted it got the mechanism wrong.
+      //
+      // This was `out.confidenceNote = ...`, which would silently destroy whatever the "one
+      // field, every reason that applies" block above had built — the identical defect that
+      // block was written to fix, in the same field, one commit later.
+      //
+      // THE REVIEW CLAIMED IT WAS LIVE ON EIGHT SHIPPED ROWS (I115W-M, I117FJ-M, I215R-M,
+      // I229T-M, I300T-14A, I599N-P, K1100T-L, M650W-P), reasoning that each carries
+      // `exitSource: 'base-spec-page'` at `medium` and so had the dash-number sentence
+      // generated and then overwritten. IT DID NOT. Those rows read `medium` only BECAUSE of
+      // the downgrade three lines above; at row-build time they were `high`, so the sentence —
+      // whose condition is `base-spec-page && medium` — was never generated for them at all.
+      // Proved by making this change and regenerating: the notes on all eight are byte-identical
+      // and only I65W-PS moved. The 24-vs-0 split the review measured is real and has a
+      // different cause: the dash sentence marks a family whose own drawing does not print the
+      // rule, which is what `high` vs `medium` encodes at ROW level, and the ambiguity downgrade
+      // is about something else entirely. Those eight are correctly without it.
+      //
+      // So this changes no published note today. It is still right: `cutNote` and
+      // `contradictedNote` are set per row and CAN coexist with ambiguity, and either would
+      // have been destroyed here without a word. A field that accumulates reasons must be
+      // written in one place and appended to everywhere else — the row that trips two rules is
+      // always the one nobody tested.
+      const ambiguityNote = `AeroTech publish two nozzles for this motor (${pick.nozzlePartNo} `
+        + `${pick.exitDiameterIn} in against ${others.join(', ')}). `
+        + (out.exitPickedBy === 'dated-revision'
+          ? `The one used here is the one that sheet's own dated revision block calls current (${revDate(pick.provenance.assemblyDrawing)}); `
+          : out.exitPickedBy === 'sheet-label'
+            ? "The one used here is the one AeroTech's own sheet name calls the newer; "
+            : 'The one used here is the one more sheets show; ')
+        + 'check which nozzle is in your reload kit before trusting the exit area.';
+      out.confidenceNote = out.confidenceNote
+        ? `${out.confidenceNote} ${ambiguityNote}`
+        : ambiguityNote;
+    }
+    motorRows.push(out);
+  }
+  motorRows.sort((a, b) => a.designation.localeCompare(b.designation) || a.caseFamily.localeCompare(b.caseFamily));
+  return motorRows;
 }
-motorRows.sort((a, b) => a.designation.localeCompare(b.designation) || a.caseFamily.localeCompare(b.caseFamily));
 
 /**
  * Why a part has no exit diameter. Stated per part, because "no number" and
@@ -1245,701 +1268,819 @@ function lokiBandLabel(casingMm, nozzleNo) {
   return `${casingMm} mm, ${range} = ${b.exitIn.toFixed(3)} in`;
 }
 
-const LOKI = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'Loki');
-
-// `commonName` is the join key: it is what Loki's sheets print once the hyphen
-// is dropped ("J-525" -> "J525"), and it is unique across all 60 Loki rows in
-// the bundled catalogue. The designation is not usable — the catalogue appends
-// the propellant ("J525-LW", "HP-G69-SF") and the sheets never do.
-const lokiByCommon = new Map();
-for (const m of LOKI) {
-  if (lokiByCommon.has(m.commonName)) {
-    throw new Error(`Loki commonName ${m.commonName} is not unique in the catalogue — the join key has to change.`);
-  }
-  lokiByCommon.set(m.commonName, m);
-}
-
-// Sheet readings per motor. A motor printed on two sheets — L930 and M1882 are,
-// on the 2005 instruction sheet and again on the 2013 reload-kit sheet — keeps
-// both files as provenance and has to agree with itself.
-const lokiFromSheet = new Map();
-const lokiSheetProblems = [];
-for (const { file, rows: sheetRows } of LOKI_SHEETS) {
-  for (const [common, nozzleNo, printedThroatIn] of sheetRows) {
-    // The number IS the throat in 64ths — Loki's own definition — so the
-    // printed decimal is a rounding of it, and a disagreement wider than that
-    // rounding means one of the two was misread.
-    if (Math.abs(nozzleNo / 64 - printedThroatIn) > 0.001) {
-      lokiSheetProblems.push(`${file} ${common}: #${nozzleNo} is ${(nozzleNo / 64).toFixed(4)} in, sheet prints ${printedThroatIn}`);
+/**
+ * The Loki rows, from Loki's own tables: each motor in `loki` (the
+ * catalogue's Loki motors) takes the nozzle its instruction sheet in `sheets`
+ * names, else the one Loki's case column gives, and the exit that number's
+ * band gives. Throws BuildRefused when the sheet readings do not hold
+ * together, or a sheet disagrees with the case column.
+ */
+export function lokiMotorRows(loki, sheets = LOKI_SHEETS) {
+  // `commonName` is the join key: it is what Loki's sheets print once the hyphen
+  // is dropped ("J-525" -> "J525"), and it is unique across all 60 Loki rows in
+  // the bundled catalogue. The designation is not usable — the catalogue appends
+  // the propellant ("J525-LW", "HP-G69-SF") and the sheets never do.
+  const lokiByCommon = new Map();
+  for (const m of loki) {
+    if (lokiByCommon.has(m.commonName)) {
+      throw new Error(`Loki commonName ${m.commonName} is not unique in the catalogue — the join key has to change.`);
     }
-    const prev = lokiFromSheet.get(common);
-    if (prev && prev.nozzleNo !== nozzleNo) {
-      lokiSheetProblems.push(`${common}: ${prev.files.join(', ')} say #${prev.nozzleNo}, ${file} says #${nozzleNo}`);
-    }
-    if (prev) prev.files.push(file);
-    else lokiFromSheet.set(common, { nozzleNo, printedThroatIn, files: [file] });
+    lokiByCommon.set(m.commonName, m);
   }
-}
-for (const common of lokiFromSheet.keys()) {
-  if (!lokiByCommon.has(common)) {
-    lokiSheetProblems.push(`${common}: read off a sheet, but the catalogue has no Loki motor by that name`);
-  }
-}
 
-// THE CROSS-CHECK, run rather than asserted: every sheet reading against Loki's
-// own per-case commercial throat column, wherever both exist.
-const lokiSheetVsTable = [...lokiFromSheet]
-  .map(([common, read]) => {
-    const m = lokiByCommon.get(common);
-    const stated = m?.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
-    return stated === undefined ? null : {
-      commonName: common,
-      caseInfo: m.caseInfo,
-      sheetNozzleNo: read.nozzleNo,
-      caseTableNozzleNo: stated,
-      agrees: stated === read.nozzleNo,
-      sheets: read.files,
-    };
-  })
-  .filter((x) => x !== null)
-  .sort((a, b) => a.commonName.localeCompare(b.commonName));
-
-const lokiRows = [];
-for (const m of LOKI) {
-  const read = lokiFromSheet.get(m.commonName);
-  const fromTable = m.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
-  const nozzleNo = read?.nozzleNo ?? fromTable;
-  // No sheet and no case in Loki's own column: nothing published at all. No
-  // row, and the motor is named in `uncovered` instead — the same treatment as
-  // an AeroTech motor whose reload kit has no assembly drawing.
-  if (nozzleNo === undefined) continue;
-
-  const throatIn = Math.round((nozzleNo / 64) * 1e4) / 1e4;
-  const exitIn = lokiBand(m.diameter, nozzleNo)?.exitIn;
-  const fromSheet = read !== undefined;
-
-  lokiRows.push({
-    motorId: m.motorId,
-    manufacturer: 'Loki',
-    designation: m.designation,
-    catalogDesignation: m.designation,
-    commonName: m.commonName,
-    caseFamily: m.caseInfo ?? 'no case stated',
-    casingDiameterMm: m.diameter,
-    // Loki publish no nozzle part numbers; the ENGRAVED NUMBER is the part's
-    // identity, and checking it is what the instruction sheet tells a flyer to
-    // do before every flight. So that is what this field carries.
-    nozzlePartNo: `#${nozzleNo}`,
-    ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
-    throatDiameterM: round6(inToM(throatIn)),
-    throatDiameterIn: throatIn,
-    exitSource: exitIn === undefined ? 'none' : fromSheet ? 'loki-sheet' : 'loki-case-table',
-    exitConfidence: exitIn === undefined ? 'none' : fromSheet ? 'high' : 'medium',
-    ...(exitIn === undefined
-      ? {
-        confidenceNote: `Loki publish no exit-diameter band for ${m.diameter} mm — their ${m.diameter} mm `
-          + 'hardware is listed as "Historical Information Only — Not In Production" and the exit table '
-          + `stops at 76 mm. The throat is known (#${nozzleNo}); the exit is not.`,
+  // Sheet readings per motor. A motor printed on two sheets — L930 and M1882 are,
+  // on the 2005 instruction sheet and again on the 2013 reload-kit sheet — keeps
+  // both files as provenance and has to agree with itself.
+  const lokiFromSheet = new Map();
+  const lokiSheetProblems = [];
+  for (const { file, rows: sheetRows } of sheets) {
+    for (const [common, nozzleNo, printedThroatIn] of sheetRows) {
+      // The number IS the throat in 64ths — Loki's own definition — so the
+      // printed decimal is a rounding of it, and a disagreement wider than that
+      // rounding means one of the two was misread.
+      if (Math.abs(nozzleNo / 64 - printedThroatIn) > 0.001) {
+        lokiSheetProblems.push(`${file} ${common}: #${nozzleNo} is ${(nozzleNo / 64).toFixed(4)} in, sheet prints ${printedThroatIn}`);
       }
-      : !fromSheet
+      const prev = lokiFromSheet.get(common);
+      if (prev && prev.nozzleNo !== nozzleNo) {
+        lokiSheetProblems.push(`${common}: ${prev.files.join(', ')} say #${prev.nozzleNo}, ${file} says #${nozzleNo}`);
+      }
+      if (prev) prev.files.push(file);
+      else lokiFromSheet.set(common, { nozzleNo, printedThroatIn, files: [file] });
+    }
+  }
+  for (const common of lokiFromSheet.keys()) {
+    if (!lokiByCommon.has(common)) {
+      lokiSheetProblems.push(`${common}: read off a sheet, but the catalogue has no Loki motor by that name`);
+    }
+  }
+
+  // THE CROSS-CHECK, run rather than asserted: every sheet reading against Loki's
+  // own per-case commercial throat column, wherever both exist.
+  const lokiSheetVsTable = [...lokiFromSheet]
+    .map(([common, read]) => {
+      const m = lokiByCommon.get(common);
+      const stated = m?.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
+      return stated === undefined ? null : {
+        commonName: common,
+        caseInfo: m.caseInfo,
+        sheetNozzleNo: read.nozzleNo,
+        caseTableNozzleNo: stated,
+        agrees: stated === read.nozzleNo,
+        sheets: read.files,
+      };
+    })
+    .filter((x) => x !== null)
+    .sort((a, b) => a.commonName.localeCompare(b.commonName));
+
+  const lokiRows = [];
+  for (const m of loki) {
+    const read = lokiFromSheet.get(m.commonName);
+    const fromTable = m.caseInfo ? lokiCommercialThroat(m.caseInfo) : undefined;
+    const nozzleNo = read?.nozzleNo ?? fromTable;
+    // No sheet and no case in Loki's own column: nothing published at all. No
+    // row, and the motor is named in `uncovered` instead — the same treatment as
+    // an AeroTech motor whose reload kit has no assembly drawing.
+    if (nozzleNo === undefined) continue;
+
+    const throatIn = Math.round((nozzleNo / 64) * 1e4) / 1e4;
+    const exitIn = lokiBand(m.diameter, nozzleNo)?.exitIn;
+    const fromSheet = read !== undefined;
+
+    lokiRows.push({
+      motorId: m.motorId,
+      manufacturer: 'Loki',
+      designation: m.designation,
+      catalogDesignation: m.designation,
+      commonName: m.commonName,
+      caseFamily: m.caseInfo ?? 'no case stated',
+      casingDiameterMm: m.diameter,
+      // Loki publish no nozzle part numbers; the ENGRAVED NUMBER is the part's
+      // identity, and checking it is what the instruction sheet tells a flyer to
+      // do before every flight. So that is what this field carries.
+      nozzlePartNo: `#${nozzleNo}`,
+      ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
+      throatDiameterM: round6(inToM(throatIn)),
+      throatDiameterIn: throatIn,
+      exitSource: exitIn === undefined ? 'none' : fromSheet ? 'loki-sheet' : 'loki-case-table',
+      exitConfidence: exitIn === undefined ? 'none' : fromSheet ? 'high' : 'medium',
+      ...(exitIn === undefined
         ? {
-          confidenceNote: 'No instruction sheet for this motor is on disk. The nozzle is the one Loki\'s own '
-            + `"Commercial Nozzle throat" column gives for the ${m.caseInfo} case (#${nozzleNo}); every one of `
-            + `the ${lokiSheetVsTable.length} motors whose sheet IS on disk agrees with that column, but this `
-            + 'row is the column and not the sheet.',
+          confidenceNote: `Loki publish no exit-diameter band for ${m.diameter} mm — their ${m.diameter} mm `
+            + 'hardware is listed as "Historical Information Only — Not In Production" and the exit table '
+            + `stops at 76 mm. The throat is known (#${nozzleNo}); the exit is not.`,
+        }
+        : !fromSheet
+          ? {
+            confidenceNote: 'No instruction sheet for this motor is on disk. The nozzle is the one Loki\'s own '
+              + `"Commercial Nozzle throat" column gives for the ${m.caseInfo} case (#${nozzleNo}); every one of `
+              + `the ${lokiSheetVsTable.length} motors whose sheet IS on disk agrees with that column, but this `
+              + 'row is the column and not the sheet.',
+          }
+          : {}),
+      // Loki's own published note about custom exits, on the rows it applies to.
+      // Only where an exit was actually published: a row with no figure has
+      // nothing for the note to qualify.
+      ...(exitIn !== undefined && m.diameter === LOKI_CUSTOM_EXIT_CASING_MM
+        ? {
+          customExitNote: `Loki will machine a 76 mm exit out to ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in on request `
+            + `(their own note, for a machining fee). This is their STANDARD ${exitIn} in. If yours was `
+            + `machined out, type it — ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in is `
+            + `${Math.round(((LOKI_CUSTOM_EXIT_MAX_IN / exitIn) ** 2 - 1) * 100)} % more exit AREA.`,
         }
         : {}),
-    // Loki's own published note about custom exits, on the rows it applies to.
-    // Only where an exit was actually published: a row with no figure has
-    // nothing for the note to qualify.
-    ...(exitIn !== undefined && m.diameter === LOKI_CUSTOM_EXIT_CASING_MM
-      ? {
-        customExitNote: `Loki will machine a 76 mm exit out to ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in on request `
-          + `(their own note, for a machining fee). This is their STANDARD ${exitIn} in. If yours was `
-          + `machined out, type it — ${LOKI_CUSTOM_EXIT_MAX_IN.toFixed(1)} in is `
-          + `${Math.round(((LOKI_CUSTOM_EXIT_MAX_IN / exitIn) ** 2 - 1) * 100)} % more exit AREA.`,
-      }
-      : {}),
-    provenance: {
-      lomDescription: fromSheet
-        ? `Nozzle Size #${nozzleNo} ${read.printedThroatIn.toFixed(3)}" (instruction sheet table)`
-        : `Commercial Nozzle throat #${nozzleNo} for the ${m.caseInfo} case (Tech Info table)`,
-      matchedVia: m.commonName,
-      ...(exitIn !== undefined
-        ? { exitFrom: `${LOKI_TECH_INFO}: ${lokiBandLabel(m.diameter, nozzleNo)}` }
-        : {}),
-      assemblyDrawings: fromSheet
-        ? [...read.files.map((f) => `Loki instruction sheet "${f}" (docs/Loki Data)`), LOKI_TECH_INFO]
-        : [LOKI_TECH_INFO],
-    },
-  });
-}
-
-// A misread sheet is a wrong exit AREA on a live motor, so it stops the build
-// rather than shipping. The two checks it covers — the engraved number against
-// the throat the same cell prints, and a motor that appears on two sheets
-// against itself — are the only two places the transcription above can be
-// checked without the paper.
-if (lokiSheetProblems.length > 0) {
-  console.error('Loki sheet readings do not hold together:');
-  for (const p of lokiSheetProblems) console.error(`  ${p}`);
-  process.exit(1);
-}
-const lokiDisagree = lokiSheetVsTable.filter((x) => !x.agrees);
-if (lokiDisagree.length > 0) {
-  console.error('A Loki instruction sheet disagrees with Loki\'s own commercial-throat column:');
-  for (const d of lokiDisagree) {
-    console.error(`  ${d.commonName} (${d.caseInfo}): sheet #${d.sheetNozzleNo}, table #${d.caseTableNozzleNo}`);
+      provenance: {
+        lomDescription: fromSheet
+          ? `Nozzle Size #${nozzleNo} ${read.printedThroatIn.toFixed(3)}" (instruction sheet table)`
+          : `Commercial Nozzle throat #${nozzleNo} for the ${m.caseInfo} case (Tech Info table)`,
+        matchedVia: m.commonName,
+        ...(exitIn !== undefined
+          ? { exitFrom: `${LOKI_TECH_INFO}: ${lokiBandLabel(m.diameter, nozzleNo)}` }
+          : {}),
+        assemblyDrawings: fromSheet
+          ? [...read.files.map((f) => `Loki instruction sheet "${f}" (docs/Loki Data)`), LOKI_TECH_INFO]
+          : [LOKI_TECH_INFO],
+      },
+    });
   }
-  process.exit(1);
-}
 
-// ONE table, two manufacturers, one sort — so the file still diffs cleanly and
-// nothing downstream has to know there are two sources behind it.
-/**
- * EVERY DMS ROW IS OF A SINGLE-USE MOTOR, asserted rather than assumed.
- *
- * "DMS Motor Designs" is AeroTech's single-use line, so a row built from one of
- * those sheets that lands on a RELOADABLE catalogue motor is a mis-join — and
- * the catalogue has both forms of several motors (H550ST the RMS-38/360 reload
- * against HP-H550ST the DMS), so this is a live way to get it wrong rather than
- * a theoretical one. All 40 matched DMS rows satisfy it today.
- *
- * This is also the reason the app's own `findDbMotor` legitimately disagrees on
- * one of them: it has no notion of which document family a row came from, so
- * given "H550ST-14A" it returns the reload. `nozzle-db.test.mjs` documents that
- * narrowly instead of failing on it — see its join section.
- */
-const dmsMisjoined = motorRows
-  .filter((m) => m.docFamily === 'dms' && m.motorId)
-  .filter((m) => byMotorId.get(m.motorId)?.type !== 'SU')
-  .map((m) => `${m.designation} -> ${m.catalogDesignation} (type ${byMotorId.get(m.motorId)?.type})`);
-if (dmsMisjoined.length > 0) {
-  console.error('A DMS single-use drawing matched a motor the catalogue does not call single-use:');
-  for (const d of dmsMisjoined) console.error(`  ${d}`);
-  process.exit(1);
+  // A misread sheet is a wrong exit AREA on a live motor, so it stops the build
+  // rather than shipping. The two checks it covers — the engraved number against
+  // the throat the same cell prints, and a motor that appears on two sheets
+  // against itself — are the only two places the transcription above can be
+  // checked without the paper.
+  if (lokiSheetProblems.length > 0) {
+    throw new BuildRefused([
+      'Loki sheet readings do not hold together:',
+      ...lokiSheetProblems.map((p) => `  ${p}`),
+    ]);
+  }
+  const lokiDisagree = lokiSheetVsTable.filter((x) => !x.agrees);
+  if (lokiDisagree.length > 0) {
+    throw new BuildRefused([
+      'A Loki instruction sheet disagrees with Loki\'s own commercial-throat column:',
+      ...lokiDisagree.map((d) => `  ${d.commonName} (${d.caseInfo}): sheet #${d.sheetNozzleNo}, table #${d.caseTableNozzleNo}`),
+    ]);
+  }
+  return { lokiRows, lokiFromSheet, lokiSheetVsTable };
 }
-
-motorRows.push(...lokiRows);
 
 /**
- * MEASURED NOZZLES, MERGED — and until 2026-09-13 they were not.
- *
- * `MEASURED_NOZZLES` was written on 2026-09-08 as the documented landing place
- * for a nozzle nobody publishes, and `gaps.Loki` told the owner to put his
- * caliper readings there. It was emitted as `measured` in the JSON and NEVER
- * MERGED INTO `motors`, so a row put there would have reached the file and not
- * the app: `nozzleDb.ts` reads `motors` and nothing else. The escape hatch was
- * a hole. Found 2026-09-13, the day before Eric measures the two 54/4000
- * one-time-use nozzles (L2050LW, M1378LR) that are the last closeable Loki gap.
- *
- * The merge and its two rules (a measurement never replaces a published row;
- * provenance is mandatory) are `mergeMeasured` in nozzle-db-helpers.mjs, where
- * nozzle-db.test.mjs runs it on a synthetic entry — so the path is exercised
- * before the first real measurement lands rather than on the day it does.
- * (Today no measured entry collides with anything.)
+ * THE COMPOSITION: the extractor's output and the motor catalogue in,
+ * nozzles.json's document out, with what the run report prints beside it.
+ * Nothing here reads or writes a file: `mtimeMs({ root, file })` gives a
+ * source document's modification time for the `generated` date, and main()
+ * stats the real one. The three tables are parameters so a test can run a
+ * small synthetic set without the shipped observations and sheets failing it.
+ * Throws BuildRefused where the build would otherwise write a file it cannot
+ * vouch for.
  */
-const { rows: measuredRows, problems: measuredProblems } = mergeMeasured(MEASURED_NOZZLES, motorsDb.motors, motorRows);
-if (measuredProblems.length > 0) {
-  console.error('MEASURED_NOZZLES cannot be merged:');
-  for (const p of measuredProblems) console.error(`  ${p}`);
-  process.exit(1);
-}
-motorRows.push(...measuredRows);
-motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
-  || a.designation.localeCompare(b.designation)
-  || a.caseFamily.localeCompare(b.caseFamily));
+export function buildNozzleDb({
+  raw, motorsDb, mtimeMs,
+  lokiSheets = LOKI_SHEETS, observations = DMS_SHEET_OBSERVATIONS, measured = MEASURED_NOZZLES,
+}) {
+  const AEROTECH = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'AeroTech');
+  const byMotorId = new Map(motorsDb.motors.map((m) => [m.motorId, m]));
+  const { parts, perDrawing, rows, unresolved, unmatched, contradicted } = aerotechDrawingRows(raw, AEROTECH);
+  const motorRows = oneRowPerMotor(rows, raw.assemblies);
+  const LOKI = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'Loki');
+  const { lokiRows, lokiFromSheet, lokiSheetVsTable } = lokiMotorRows(LOKI, lokiSheets);
 
-const observationProblems = [];
-for (const ob of DMS_SHEET_OBSERVATIONS) {
-  for (const des of ob.motors) {
-    const row = motorRows.find((m) => m.designation === des);
-    if (!row) { observationProblems.push(`${des}: named in DMS_SHEET_OBSERVATIONS but has no row`); continue; }
-    const actual = ob.field === 'exit' ? (row.exitDiameterIn ?? null)
-      : ob.field === 'throat' ? (row.throatDiameterIn ?? null)
-        : ob.field === 'exitSource' ? row.exitSource : undefined;
-    if (actual === undefined) { observationProblems.push(`${des}: unknown observation field "${ob.field}"`); continue; }
-    if (actual !== ob.published) {
-      observationProblems.push(`${des}: the observation says this file publishes ${JSON.stringify(ob.published)} `
-        + `for ${ob.field}, but it publishes ${JSON.stringify(actual)}`);
-    }
-    // CHECK THE OTHER HALF TOO (2026-09-14, from review). Only `published` was compared, and
-    // every one of these observations is a claim about TWO numbers: what the drawing says
-    // (`onSheet`) and what we publish (`published`). The entry that had to be withdrawn was
-    // wrong in its `published` half, so the check written in response covers exactly the
-    // failure that had already happened and nothing else — and for K76WN-P and I40N-P the
-    // assertion reduces to `null === null`, which passes even if the observation were attached
-    // to a completely different part. `onSheet` is the half a mistyped verification input
-    // corrupts, which is precisely how the withdrawn entry got here.
-    if (ob.onSheet !== undefined) {
-      if (typeof ob.onSheet !== 'number' || !Number.isFinite(ob.onSheet) || ob.onSheet <= 0) {
-        observationProblems.push(`${des}: onSheet is ${JSON.stringify(ob.onSheet)}, which is not a dimension`);
-      } else if (ob.published !== null && Math.abs(ob.onSheet - ob.published) < 1e-9) {
-        // If the two agree there is no observation to make: these entries exist only to
-        // record a difference between the drawing and the file.
-        observationProblems.push(`${des}: onSheet and published are the same number `
-          + `(${ob.onSheet}), so there is nothing for this observation to observe`);
+  // ONE table, two manufacturers, one sort — so the file still diffs cleanly and
+  // nothing downstream has to know there are two sources behind it.
+  /**
+   * EVERY DMS ROW IS OF A SINGLE-USE MOTOR, asserted rather than assumed.
+   *
+   * "DMS Motor Designs" is AeroTech's single-use line, so a row built from one of
+   * those sheets that lands on a RELOADABLE catalogue motor is a mis-join — and
+   * the catalogue has both forms of several motors (H550ST the RMS-38/360 reload
+   * against HP-H550ST the DMS), so this is a live way to get it wrong rather than
+   * a theoretical one. All 40 matched DMS rows satisfy it today.
+   *
+   * This is also the reason the app's own `findDbMotor` legitimately disagrees on
+   * one of them: it has no notion of which document family a row came from, so
+   * given "H550ST-14A" it returns the reload. `nozzle-db.test.mjs` documents that
+   * narrowly instead of failing on it — see its join section.
+   */
+  const dmsMisjoined = motorRows
+    .filter((m) => m.docFamily === 'dms' && m.motorId)
+    .filter((m) => byMotorId.get(m.motorId)?.type !== 'SU')
+    .map((m) => `${m.designation} -> ${m.catalogDesignation} (type ${byMotorId.get(m.motorId)?.type})`);
+  if (dmsMisjoined.length > 0) {
+    throw new BuildRefused([
+      'A DMS single-use drawing matched a motor the catalogue does not call single-use:',
+      ...dmsMisjoined.map((d) => `  ${d}`),
+    ]);
+  }
+
+  motorRows.push(...lokiRows);
+
+  /**
+   * MEASURED NOZZLES, MERGED — and until 2026-09-13 they were not.
+   *
+   * `MEASURED_NOZZLES` was written on 2026-09-08 as the documented landing place
+   * for a nozzle nobody publishes, and `gaps.Loki` told the owner to put his
+   * caliper readings there. It was emitted as `measured` in the JSON and NEVER
+   * MERGED INTO `motors`, so a row put there would have reached the file and not
+   * the app: `nozzleDb.ts` reads `motors` and nothing else. The escape hatch was
+   * a hole. Found 2026-09-13, the day before Eric measures the two 54/4000
+   * one-time-use nozzles (L2050LW, M1378LR) that are the last closeable Loki gap.
+   *
+   * The merge and its two rules (a measurement never replaces a published row;
+   * provenance is mandatory) are `mergeMeasured` in nozzle-db-helpers.mjs, where
+   * nozzle-db.test.mjs runs it on a synthetic entry — so the path is exercised
+   * before the first real measurement lands rather than on the day it does.
+   * (Today no measured entry collides with anything.)
+   */
+  const { rows: measuredRows, problems: measuredProblems } = mergeMeasured(measured, motorsDb.motors, motorRows);
+  if (measuredProblems.length > 0) {
+    throw new BuildRefused([
+      'MEASURED_NOZZLES cannot be merged:',
+      ...measuredProblems.map((p) => `  ${p}`),
+    ]);
+  }
+  motorRows.push(...measuredRows);
+  motorRows.sort((a, b) => a.manufacturer.localeCompare(b.manufacturer)
+    || a.designation.localeCompare(b.designation)
+    || a.caseFamily.localeCompare(b.caseFamily));
+
+  const observationProblems = [];
+  for (const ob of observations) {
+    for (const des of ob.motors) {
+      const row = motorRows.find((m) => m.designation === des);
+      if (!row) { observationProblems.push(`${des}: named in DMS_SHEET_OBSERVATIONS but has no row`); continue; }
+      const actual = ob.field === 'exit' ? (row.exitDiameterIn ?? null)
+        : ob.field === 'throat' ? (row.throatDiameterIn ?? null)
+          : ob.field === 'exitSource' ? row.exitSource : undefined;
+      if (actual === undefined) { observationProblems.push(`${des}: unknown observation field "${ob.field}"`); continue; }
+      if (actual !== ob.published) {
+        observationProblems.push(`${des}: the observation says this file publishes ${JSON.stringify(ob.published)} `
+          + `for ${ob.field}, but it publishes ${JSON.stringify(actual)}`);
+      }
+      // CHECK THE OTHER HALF TOO (2026-09-14, from review). Only `published` was compared, and
+      // every one of these observations is a claim about TWO numbers: what the drawing says
+      // (`onSheet`) and what we publish (`published`). The entry that had to be withdrawn was
+      // wrong in its `published` half, so the check written in response covers exactly the
+      // failure that had already happened and nothing else — and for K76WN-P and I40N-P the
+      // assertion reduces to `null === null`, which passes even if the observation were attached
+      // to a completely different part. `onSheet` is the half a mistyped verification input
+      // corrupts, which is precisely how the withdrawn entry got here.
+      if (ob.onSheet !== undefined) {
+        if (typeof ob.onSheet !== 'number' || !Number.isFinite(ob.onSheet) || ob.onSheet <= 0) {
+          observationProblems.push(`${des}: onSheet is ${JSON.stringify(ob.onSheet)}, which is not a dimension`);
+        } else if (ob.published !== null && Math.abs(ob.onSheet - ob.published) < 1e-9) {
+          // If the two agree there is no observation to make: these entries exist only to
+          // record a difference between the drawing and the file.
+          observationProblems.push(`${des}: onSheet and published are the same number `
+            + `(${ob.onSheet}), so there is nothing for this observation to observe`);
+        }
+      }
+      // An observation must name the part it is about, so it cannot silently survive the row
+      // being re-keyed to a different nozzle.
+      if (ob.partNo !== undefined && row.nozzlePartNo !== ob.partNo) {
+        observationProblems.push(`${des}: the observation is about part ${ob.partNo}, but this row's `
+          + `nozzle is ${JSON.stringify(row.nozzlePartNo)}`);
       }
     }
-    // An observation must name the part it is about, so it cannot silently survive the row
-    // being re-keyed to a different nozzle.
-    if (ob.partNo !== undefined && row.nozzlePartNo !== ob.partNo) {
-      observationProblems.push(`${des}: the observation is about part ${ob.partNo}, but this row's `
-        + `nozzle is ${JSON.stringify(row.nozzlePartNo)}`);
-    }
   }
-}
-if (observationProblems.length > 0) {
-  console.error('DMS_SHEET_OBSERVATIONS does not describe the rows this build produced:');
-  for (const o of observationProblems) console.error(`  ${o}`);
-  process.exit(1);
-}
+  if (observationProblems.length > 0) {
+    throw new BuildRefused([
+      'DMS_SHEET_OBSERVATIONS does not describe the rows this build produced:',
+      ...observationProblems.map((o) => `  ${o}`),
+    ]);
+  }
 
-/**
- * Which motors a no-exit part affects, and the DMS observation check — BOTH RUN AFTER EVERY
- * ROW EXISTS (moved here 2026-09-14, from review).
- *
- * They used to sit immediately after the AeroTech loop, while `motorRows` still held ONLY
- * AeroTech rows: Loki's are pushed further down and the measured ones after those. So an
- * observation naming a Loki motor reported "named in DMS_SHEET_OBSERVATIONS but has no row"
- * and exited 1 on a file that does contain the row, and a NO_EXIT_NOTES entry for a Loki or
- * measured part silently produced no "Affects ..." sentence at all — a check that fails on
- * good data, and a check that passes by finding nothing. Neither could bite today because
- * every entry in both tables is AeroTech's, which is precisely why they would have bitten
- * the first person to add a Loki one.
- *
- * ONE PASS, ONE MAP (2026-09-14, from review). `noExitAffects(p.partNo)` was called twice per
- * part — once for the length test and once for the join — so every no-exit part scanned all
- * of `motorRows` twice.
- */
-const affectedByPart = new Map();
-for (const m of motorRows) {
-  if (!m.nozzlePartNo) continue;
-  if (!affectedByPart.has(m.nozzlePartNo)) affectedByPart.set(m.nozzlePartNo, []);
-  affectedByPart.get(m.nozzlePartNo).push(m.designation);
-}
-for (const list of affectedByPart.values()) list.sort();
-const noExitAffects = (partNo) => affectedByPart.get(partNo) ?? [];
+  /**
+   * Which motors a no-exit part affects, and the DMS observation check — BOTH RUN AFTER EVERY
+   * ROW EXISTS (moved here 2026-09-14, from review).
+   *
+   * They used to sit immediately after the AeroTech loop, while `motorRows` still held ONLY
+   * AeroTech rows: Loki's are pushed further down and the measured ones after those. So an
+   * observation naming a Loki motor reported "named in DMS_SHEET_OBSERVATIONS but has no row"
+   * and exited 1 on a file that does contain the row, and a NO_EXIT_NOTES entry for a Loki or
+   * measured part silently produced no "Affects ..." sentence at all — a check that fails on
+   * good data, and a check that passes by finding nothing. Neither could bite today because
+   * every entry in both tables is AeroTech's, which is precisely why they would have bitten
+   * the first person to add a Loki one.
+   *
+   * ONE PASS, ONE MAP (2026-09-14, from review). `noExitAffects(p.partNo)` was called twice per
+   * part — once for the length test and once for the join — so every no-exit part scanned all
+   * of `motorRows` twice.
+   */
+  const affectedByPart = new Map();
+  for (const m of motorRows) {
+    if (!m.nozzlePartNo) continue;
+    if (!affectedByPart.has(m.nozzlePartNo)) affectedByPart.set(m.nozzlePartNo, []);
+    affectedByPart.get(m.nozzlePartNo).push(m.designation);
+  }
+  for (const list of affectedByPart.values()) list.sort();
+  const noExitAffects = (partNo) => affectedByPart.get(partNo) ?? [];
 
-const partRows = [...parts.values()]
-  .map((p) => {
-    const affects = noExitAffects(p.partNo);
+  const partRows = [...parts.values()]
+    .map((p) => {
+      const affects = noExitAffects(p.partNo);
+      return {
+        ...p,
+        ...(p.exitDiameterIn !== undefined ? { exitDiameterM: round6(inToM(p.exitDiameterIn)) } : {}),
+        ...(p.throatDiameterIn !== undefined ? { throatDiameterM: round6(inToM(p.throatDiameterIn)) } : {}),
+        ...(NO_EXIT_NOTES[p.partNo]
+          ? { note: NO_EXIT_NOTES[p.partNo] + (affects.length ? ` Affects ${affects.join(', ')}.` : '') }
+          : {}),
+      };
+    })
+    .sort((a, b) => a.partNo.localeCompare(b.partNo));
+
+  /**
+   * AN INDEPENDENT CHECK, and what it does and does not settle.
+   *
+   * TWELVE of the 312 certification letters in the set are Tripoli forms that
+   * print "Nozzle Throat Diameter (in)" and "Nozzle Exit Cone Diameter (in)" —
+   * measured by the certifying body, not stated by the maker. Every one is a
+   * 1997-2001 test on a 98 mm motor. THREE of the twelve are Kosdon-by-AeroTech
+   * motors with no row in this database at all, so the comparison that actually
+   * happens is over NINE.
+   *
+   * THE THROATS AGREE EXACTLY wherever the motor still uses the same part
+   * (M1939W .844, N2000W 1.000, K458W .413, L952W .594, L1500T .734, M2400T
+   * .844), which is real corroboration that the LIST OF MATERIAL descriptions
+   * are being read correctly.
+   *
+   * THE EXITS DO NOT, and the reason is on the drawing: `rcs_018003_nozzle_dwg`
+   * carries "FUTURE B REDESIGNED FOR NET MOLDED EXIT/THROAT 03/11/03". Before
+   * that the 98 mm exits ran about 0.7 in wider than the throat (.734 -> 1.40,
+   * .844 -> 1.58, 1.000 -> 1.750); after it the "M" mould is a flat 1.750 in and
+   * the base mould a flat 0.900 in. The Tripoli numbers describe hardware that
+   * stopped being made two decades ago and whose certifications expired in
+   * 2001-2006. So they are recorded, compared and reported — never used. If a
+   * future comparison starts DISAGREEING ON THROATS, the extraction has broken.
+   */
+  const certCheck = (raw.certNozzles ?? []).map((c) => {
+    const stem = c.designation.replace(/\s*\(.*\)$/, '');
+    // The fallback strips the letter's plugged-delay suffix ("-P", "-PS") so a
+    // letter can still find a sheet that writes the motor without it. It was
+    // written /-P S?$/ — a literal "-P", a SPACE, then an optional S — which
+    // matches nothing any letter is called, so the fallback silently degraded to
+    // a plain startsWith on the full stem (2026-09-08, from review). All twelve
+    // letters in the current set resolve on the EXACT branch above (the three
+    // that do not are Kosdon-by-AeroTech motors with no row here at all), so
+    // fixing the pattern moves no number in the file today; it makes the
+    // fallback work the first time a letter and a sheet disagree about the
+    // suffix, which is the case it was written for.
+    const row = motorRows.find((r) => r.designation === stem)
+      ?? motorRows.find((r) => r.designation.startsWith(stem.replace(/-PS?$/, '')));
     return {
-      ...p,
-      ...(p.exitDiameterIn !== undefined ? { exitDiameterM: round6(inToM(p.exitDiameterIn)) } : {}),
-      ...(p.throatDiameterIn !== undefined ? { throatDiameterM: round6(inToM(p.throatDiameterIn)) } : {}),
-      ...(NO_EXIT_NOTES[p.partNo]
-        ? { note: NO_EXIT_NOTES[p.partNo] + (affects.length ? ` Affects ${affects.join(', ')}.` : '') }
-        : {}),
+      designation: c.designation,
+      certFile: c.file,
+      testDate: c.testDate,
+      certifiedUntil: c.certifiedUntil,
+      certThroatIn: c.throatIn,
+      certExitIn: c.exitIn,
+      dbNozzlePartNo: row?.nozzlePartNo,
+      dbThroatIn: row?.throatDiameterIn,
+      dbExitIn: row?.exitDiameterIn,
+      throatAgrees: row?.throatDiameterIn !== undefined
+        ? Math.abs(row.throatDiameterIn - c.throatIn) <= 0.006 : undefined,
+      exitAgrees: row?.exitDiameterIn !== undefined
+        ? Math.abs(row.exitDiameterIn - c.exitIn) <= 0.006 : undefined,
     };
-  })
-  .sort((a, b) => a.partNo.localeCompare(b.partNo));
+  }).sort((a, b) => a.designation.localeCompare(b.designation));
 
-/**
- * AN INDEPENDENT CHECK, and what it does and does not settle.
- *
- * TWELVE of the 312 certification letters in the set are Tripoli forms that
- * print "Nozzle Throat Diameter (in)" and "Nozzle Exit Cone Diameter (in)" —
- * measured by the certifying body, not stated by the maker. Every one is a
- * 1997-2001 test on a 98 mm motor. THREE of the twelve are Kosdon-by-AeroTech
- * motors with no row in this database at all, so the comparison that actually
- * happens is over NINE.
- *
- * THE THROATS AGREE EXACTLY wherever the motor still uses the same part
- * (M1939W .844, N2000W 1.000, K458W .413, L952W .594, L1500T .734, M2400T
- * .844), which is real corroboration that the LIST OF MATERIAL descriptions
- * are being read correctly.
- *
- * THE EXITS DO NOT, and the reason is on the drawing: `rcs_018003_nozzle_dwg`
- * carries "FUTURE B REDESIGNED FOR NET MOLDED EXIT/THROAT 03/11/03". Before
- * that the 98 mm exits ran about 0.7 in wider than the throat (.734 -> 1.40,
- * .844 -> 1.58, 1.000 -> 1.750); after it the "M" mould is a flat 1.750 in and
- * the base mould a flat 0.900 in. The Tripoli numbers describe hardware that
- * stopped being made two decades ago and whose certifications expired in
- * 2001-2006. So they are recorded, compared and reported — never used. If a
- * future comparison starts DISAGREEING ON THROATS, the extraction has broken.
- */
-const certCheck = (raw.certNozzles ?? []).map((c) => {
-  const stem = c.designation.replace(/\s*\(.*\)$/, '');
-  // The fallback strips the letter's plugged-delay suffix ("-P", "-PS") so a
-  // letter can still find a sheet that writes the motor without it. It was
-  // written /-P S?$/ — a literal "-P", a SPACE, then an optional S — which
-  // matches nothing any letter is called, so the fallback silently degraded to
-  // a plain startsWith on the full stem (2026-09-08, from review). All twelve
-  // letters in the current set resolve on the EXACT branch above (the three
-  // that do not are Kosdon-by-AeroTech motors with no row here at all), so
-  // fixing the pattern moves no number in the file today; it makes the
-  // fallback work the first time a letter and a sheet disagree about the
-  // suffix, which is the case it was written for.
-  const row = motorRows.find((r) => r.designation === stem)
-    ?? motorRows.find((r) => r.designation.startsWith(stem.replace(/-PS?$/, '')));
-  return {
-    designation: c.designation,
-    certFile: c.file,
-    testDate: c.testDate,
-    certifiedUntil: c.certifiedUntil,
-    certThroatIn: c.throatIn,
-    certExitIn: c.exitIn,
-    dbNozzlePartNo: row?.nozzlePartNo,
-    dbThroatIn: row?.throatDiameterIn,
-    dbExitIn: row?.exitDiameterIn,
-    throatAgrees: row?.throatDiameterIn !== undefined
-      ? Math.abs(row.throatDiameterIn - c.throatIn) <= 0.006 : undefined,
-    exitAgrees: row?.exitDiameterIn !== undefined
-      ? Math.abs(row.exitDiameterIn - c.exitIn) <= 0.006 : undefined,
-  };
-}).sort((a, b) => a.designation.localeCompare(b.designation));
-
-/**
- * The newest mtime among the source documents this build actually read, as a
- * date. It was `new Date()` — the clock — which made a rebuild from identical
- * inputs produce a different artifact every day, so a re-run for any reason
- * showed a diff whether or not anything had changed. Falls back to the clock
- * only if nothing can be stat'ed, which cannot happen on a run that got this
- * far (the extractor read all of them).
- *
- * EVERY family, since 2026-09-22: the list joined every assembly to "Motor
- * Assembly Drawings", so the DMS sheets were looked for where they are not and
- * the Loki sheets were not looked for at all, and neither could move the date
- * (`sourceDocuments` in nozzle-db-helpers.mjs, where the join is tested).
- */
-const sourceDate = (() => {
-  const roots = { rcs: source, loki: lokiSource };
-  let newest = 0;
-  for (const { root, file } of sourceDocuments(raw, LOKI_SHEETS.map((x) => x.file))) {
-    try { newest = Math.max(newest, statSync(join(roots[root], file)).mtimeMs); } catch { /* moved or renamed */ }
-  }
-  return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
-})();
-
-/**
- * COVERAGE, COUNTED PER CASING DIAMETER — because a diameter is what people
- * make claims about. (2026-09-08, from review.)
- *
- * v0.120's release note said this database covers "every 98 mm motor". It does
- * not. AeroTech have 32 in-production 98 mm motors in the bundled catalogue and
- * 28 of them have a row here. The four without one are M1305M, M1340W,
- * N1975W-PS and O5500X-PS, and what they have in common is which FOLDER their
- * paperwork sits in: this pipeline reads `Motor Assembly Drawings`, AeroTech
- * file the DMS single-use motors under `DMS Motor Designs` (51 PDFs, 29 mm to
- * 152 mm) and M1305M has only an instruction sheet.
- *
- * The two 98 mm DMS sheets opened on 2026-09-08 are in the SAME format this
- * script already parses, nozzle line and part number included — M1340W-PS
- * reads "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M — so the
- * gap is reachable by pointing the extractor at that folder too. Not done here:
- * reading a new document family adds rows to a shipped data file, which is a
- * decision about what the app tells people, not a defect fix. Recorded so the
- * decision can be taken deliberately.
- *
- * The claim was written by hand from a spot check, and nothing in the repo
- * could disagree with it. This block is COMPUTED from the same motors.json
- * every other count comes from and it NAMES what is missing, so the next
- * person quoting a coverage figure reads one off instead of counting, and a
- * catalogue refresh moves the figure with it.
- */
-/**
- * PER MANUFACTURER since 2026-09-13, because there are now two of them and one
- * table keyed by casing diameter alone would have added AeroTech's 38 mm motors
- * to Loki's and reported a coverage figure for neither.
- *
- * `withExitDiameter` is counted apart from `withNozzleRow` (2026-09-13). A row
- * is not a number: J615ST-20A has a row and no exit because an aerospike has no
- * exit plane, and Loki's N3800 has a row with a known #64 throat and no exit
- * because Loki's exit table stops at 76 mm. Quoting "has a row" as coverage of
- * the thing the app actually needs would overstate both.
- */
-const coverageFor = (motors) => {
-  const have = new Map(motorRows.filter((m) => m.motorId).map((m) => [m.motorId, m]));
-  const by = new Map();
-  for (const m of motors) {
-    // In production only: coverage of motors nobody can buy is not the claim
-    // anyone means, and `uncovered` below lists the retired ones regardless.
-    if (m.availability === 'OOP') continue;
-    if (!by.has(m.diameter)) {
-      by.set(m.diameter, { inProduction: 0, withNozzleRow: 0, withExitDiameter: 0, missing: [] });
+  /**
+   * The newest mtime among the source documents this build actually read, as a
+   * date. It was `new Date()` — the clock — which made a rebuild from identical
+   * inputs produce a different artifact every day, so a re-run for any reason
+   * showed a diff whether or not anything had changed. Falls back to the clock
+   * only if nothing can be stat'ed, which cannot happen on a run that got this
+   * far (the extractor read all of them).
+   *
+   * EVERY family, since 2026-09-22: the list joined every assembly to "Motor
+   * Assembly Drawings", so the DMS sheets were looked for where they are not and
+   * the Loki sheets were not looked for at all, and neither could move the date
+   * (`sourceDocuments` in nozzle-db-helpers.mjs, where the join is tested).
+   */
+  const sourceDate = (() => {
+    let newest = 0;
+    for (const doc of sourceDocuments(raw, lokiSheets.map((x) => x.file))) {
+      try { newest = Math.max(newest, mtimeMs(doc)); } catch { /* moved or renamed */ }
     }
-    const e = by.get(m.diameter);
-    e.inProduction++;
-    const row = have.get(m.motorId);
-    if (row) {
-      e.withNozzleRow++;
-      if (row.exitDiameterM !== undefined) e.withExitDiameter++;
-    } else e.missing.push(m.designation);
-  }
-  return Object.fromEntries([...by.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([mm, e]) => [String(mm), { ...e, missing: e.missing.sort() }]));
-};
+    return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
+  })();
 
-// Figures quoted in `gaps.AeroTechSingleUse`, counted rather than written down
-// — the last hand-written coverage claim in this file ("every 98 mm motor")
-// was wrong by four motors.
-const dmsWithExit = motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined
-  && m.motorId && byMotorId.get(m.motorId)?.availability !== 'OOP').length;
-const uncoveredInProd = (() => {
-  const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
-  return AEROTECH.filter((m) => m.availability !== 'OOP' && !have.has(m.motorId)).length;
-})();
-
-const db = {
-  generated: sourceDate,
-  source: 'AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables',
-  sourceNote: 'docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.',
-  catalogueGenerated: motorsDb.generated,
-  rule: 'A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech\'s own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 "M" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.',
-  counts: {
-    assemblyDrawings: raw.assemblies.length,
-    nozzlePartResolved: perDrawing.length,
-    distinctNozzleParts: partRows.length,
-    // TWO counts, not one (2026-09-08, from review). `partsWithExit` was
-    // 101 of 102 while only 81 rows actually carry `exitDiameterIn` — the
-    // other 20 are Medusa parts whose exit depends on how many outer throats
-    // the motor's own sheet opens, so it is resolved PER MOTOR and there is
-    // nothing in the parts table to read. One number covering both told a
-    // reader of that table it would find an exit on 101 rows when 21 have none.
-    partsWithExitDiameter: partRows.filter((p) => p.exitDiameterIn !== undefined).length,
-    partsResolvedPerMotor: partRows.filter((p) => p.exitSource === 'medusa').length,
-    motorsWithExit: motorRows.filter((m) => m.exitDiameterM !== undefined).length,
-    motorsMatchedToCatalogue: motorRows.filter((m) => m.motorId).length,
-    // THE NUMBER THE GUIDE QUOTES, DERIVED (2026-09-14, from review). The guide said "278
-    // motors you can load" as hand-typed prose with nothing behind it, and the paragraph's
-    // own components (221 AeroTech + 54 Loki) sum to 275, because three of the covered motors
-    // are out of production and the sentence never said so. Neither `motorsWithExit` (287, all
-    // rows) nor `motorsMatchedToCatalogue` (287, ignoring the exit) is that figure: a motor a
-    // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is now
-    // counted here, so the guide can quote a build-derived value the way the coverage block
-    // already forced everything else to - the 287 this replaced survived exactly because
-    // nothing computed it.
-    motorsLoadableWithExit: motorRows.filter((m) => m.motorId && m.exitDiameterM !== undefined).length,
-    // The honest coverage figure — AND IT IS PER MANUFACTURER, because it was
-    // not, and that broke the moment a second manufacturer arrived.
-    //
-    // It was written in v0.120 as "every row whose motor is in production",
-    // over `catalogueAeroTechInProduction`, which was right while AeroTech
-    // were the only source. v0.127 added 55 Loki rows to the same array and the
-    // numerator silently picked them up — the release printed
-    // "of the IN-PRODUCTION AeroTech 244 (89.7 % of 272)" using a numerator
-    // that already contained Loki. Nothing noticed until 2026-09-13, when the
-    // DMS drawings pushed it to 284 and the line read 104.4 % OF ITS OWN
-    // DENOMINATOR. A percentage over 100 is the only reason this was caught,
-    // which is a poor way to find out.
-    //
-    // Two named fields now, each over its own catalogue total, and
-    // `coverage.byManufacturer` is the authority either way.
-    aerotechMatched: motorRows.filter((m) => m.manufacturer === 'AeroTech' && m.motorId).length,
-    lokiMatched: motorRows.filter((m) => m.manufacturer === 'Loki' && m.motorId).length,
-    aerotechMatchedInProduction: motorRows.filter((m) => m.manufacturer === 'AeroTech' && m.motorId
-      && byMotorId.get(m.motorId)?.availability !== 'OOP').length,
-    lokiMatchedInProduction: motorRows.filter((m) => m.manufacturer === 'Loki' && m.motorId
-      && byMotorId.get(m.motorId)?.availability !== 'OOP').length,
-    motorsWithTwoNozzleOptions: motorRows.filter((m) => m.exitAmbiguous).length,
-    catalogueMotors: motorsDb.motors.length,
-    catalogueAeroTech: AEROTECH.length,
-    catalogueAeroTechInProduction: AEROTECH.filter((m) => m.availability !== 'OOP').length,
-    // The two AeroTech document families, counted apart. "assemblyDrawings"
-    // above is both of them together, which is why these exist.
-    reloadableDrawings: raw.assemblies.filter((a) => a.docFamily !== 'dms').length,
-    dmsDrawings: raw.assemblies.filter((a) => a.docFamily === 'dms').length,
-    dmsRows: motorRows.filter((m) => m.docFamily === 'dms').length,
-    dmsRowsWithExit: motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined).length,
-    dmsInProductionWithExit: dmsWithExit,
-    lokiSheetsRead: LOKI_SHEETS.length,
-    lokiMotorsOnASheet: lokiFromSheet.size,
-    lokiRows: lokiRows.length,
-    lokiRowsWithExit: lokiRows.filter((m) => m.exitDiameterM !== undefined).length,
-    lokiRowsFromCaseTable: lokiRows.filter((m) => m.exitSource === 'loki-case-table').length,
-    catalogueLoki: LOKI.length,
-    catalogueLokiInProduction: LOKI.filter((m) => m.availability !== 'OOP').length,
-  },
-  gaps: {
-    Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR ("we can leave them as unknown and, if we get the data, we can update the database") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed "Historical Information Only — Not In Production", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads "Single Use") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in \`uncovered\`.`,
-    Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
-    AeroTechSingleUse: `AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the "Motor Assembly Drawings" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from "DMS Motor Designs": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth ${dmsWithExit} more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral ("adding a document family is a decision rather than a fix") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: ${uncoveredInProd} in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in \`uncovered\`.`,
-  },
-  coverage: {
-    note: 'What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the rows this catalogue does not mark OOP; "withNozzleRow" is how many have a row here and "withExitDiameter" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki\'s published exit table). Every motor short of a row is named, and named again in `uncovered`.',
-    byManufacturer: {
-      AeroTech: { byCasingDiameterMm: coverageFor(AEROTECH) },
-      Loki: { byCasingDiameterMm: coverageFor(LOKI) },
-    },
-  },
-  // Which AeroTech motors are NOT here, grouped by the case they belong to.
-  // Computed rather than written down, so it cannot go stale against a
-  // motors.json refresh, and stated in the file because "no row" and "no data"
-  // look identical to a consumer that cannot see this list.
-  //
-  // THE DIAMETER IS PART OF THE KEY (2026-09-08, from review). Grouped by case
-  // alone, the three uncovered 98 mm single-use motors (M1340W, N1975W-PS,
-  // O5500X-PS) sat unlabelled inside a 75-strong "single-use" list, so a reader
-  // checking "does this cover the 98 mm motors?" could not see them and the
-  // "every 98 mm motor" claim went unchallenged. A motor's casing size is the
-  // first thing anyone asks this list about, so it is in the heading.
-  uncovered: (() => {
-    const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+  /**
+   * COVERAGE, COUNTED PER CASING DIAMETER — because a diameter is what people
+   * make claims about. (2026-09-08, from review.)
+   *
+   * v0.120's release note said this database covers "every 98 mm motor". It does
+   * not. AeroTech have 32 in-production 98 mm motors in the bundled catalogue and
+   * 28 of them have a row here. The four without one are M1305M, M1340W,
+   * N1975W-PS and O5500X-PS, and what they have in common is which FOLDER their
+   * paperwork sits in: this pipeline reads `Motor Assembly Drawings`, AeroTech
+   * file the DMS single-use motors under `DMS Motor Designs` (51 PDFs, 29 mm to
+   * 152 mm) and M1305M has only an instruction sheet.
+   *
+   * The two 98 mm DMS sheets opened on 2026-09-08 are in the SAME format this
+   * script already parses, nozzle line and part number included — M1340W-PS
+   * reads "NOZZLE ( KLMN 98MM) .734" I.D. /1.75" EXIT", part 01800-3M — so the
+   * gap is reachable by pointing the extractor at that folder too. Not done here:
+   * reading a new document family adds rows to a shipped data file, which is a
+   * decision about what the app tells people, not a defect fix. Recorded so the
+   * decision can be taken deliberately.
+   *
+   * The claim was written by hand from a spot check, and nothing in the repo
+   * could disagree with it. This block is COMPUTED from the same motors.json
+   * every other count comes from and it NAMES what is missing, so the next
+   * person quoting a coverage figure reads one off instead of counting, and a
+   * catalogue refresh moves the figure with it.
+   */
+  /**
+   * PER MANUFACTURER since 2026-09-13, because there are now two of them and one
+   * table keyed by casing diameter alone would have added AeroTech's 38 mm motors
+   * to Loki's and reported a coverage figure for neither.
+   *
+   * `withExitDiameter` is counted apart from `withNozzleRow` (2026-09-13). A row
+   * is not a number: J615ST-20A has a row and no exit because an aerospike has no
+   * exit plane, and Loki's N3800 has a row with a known #64 throat and no exit
+   * because Loki's exit table stops at 76 mm. Quoting "has a row" as coverage of
+   * the thing the app actually needs would overstate both.
+   */
+  const coverageFor = (motors) => {
+    const have = new Map(motorRows.filter((m) => m.motorId).map((m) => [m.motorId, m]));
     const by = new Map();
-    for (const m of [...AEROTECH, ...LOKI]) {
-      if (have.has(m.motorId)) continue;
-      const key = `${m.manufacturerAbbrev} ${m.diameter} mm ${m.caseInfo || 'single-use (no reload case)'}`;
-      if (!by.has(key)) by.set(key, []);
-      by.get(key).push(m.designation);
+    for (const m of motors) {
+      // In production only: coverage of motors nobody can buy is not the claim
+      // anyone means, and `uncovered` below lists the retired ones regardless.
+      if (m.availability === 'OOP') continue;
+      if (!by.has(m.diameter)) {
+        by.set(m.diameter, { inProduction: 0, withNozzleRow: 0, withExitDiameter: 0, missing: [] });
+      }
+      const e = by.get(m.diameter);
+      e.inProduction++;
+      const row = have.get(m.motorId);
+      if (row) {
+        e.withNozzleRow++;
+        if (row.exitDiameterM !== undefined) e.withExitDiameter++;
+      } else e.missing.push(m.designation);
     }
     return Object.fromEntries([...by.entries()]
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([k, v]) => [k, v.sort()]));
-  })(),
-  measured: MEASURED_NOZZLES,
-  crossCheck: {
-    note: 'Tripoli certification letters that print a measured throat and exit. All are 1997-2001 tests on 98 mm motors, predating AeroTech\'s 2003 "REDESIGNED FOR NET MOLDED EXIT/THROAT" revision, so the throats corroborate this database and the exits describe the older hardware. Comparison only — never an input.',
-    tripoli: certCheck,
-    // The second independent check in this file, and the one the whole Loki
-    // section rests on: every motor whose instruction sheet is on disk, read
-    // from the sheet, against the "Commercial Nozzle throat" Loki publish for
-    // that case. Two documents, no shared step. Recorded rather than only
-    // asserted so a reader can see the agreement instead of taking it on trust
-    // — and the build refuses to write this file if any row says `agrees:
-    // false`.
-    dmsSheetObservations: {
-      note: `The ${motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined).length} `
-        + `DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other `
-        + `than the code that built them, and each of those exits was then attacked by a second reader `
-        + `told to refute it. NONE was refuted. (There are `
-        + `${motorRows.filter((m) => m.docFamily === 'dms').length} DMS rows in all; the rest publish no `
-        + `exit, so there was no exit to check.) These are the differences between what the drawings show `
-        + `and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number `
-        + `and is never an input here.`,
-      rows: DMS_SHEET_OBSERVATIONS,
-    },
-    lokiSheetAgainstCaseTable: {
-      note: `${lokiSheetVsTable.filter((x) => x.agrees).length} of ${lokiSheetVsTable.length} instruction-sheet readings agree with Loki's own per-case commercial-throat column. A disagreement fails the build.`,
-      rows: lokiSheetVsTable,
-    },
-  },
-  nozzles: partRows,
-  motors: motorRows,
-};
+      .sort((a, b) => a[0] - b[0])
+      .map(([mm, e]) => [String(mm), { ...e, missing: e.missing.sort() }]));
+  };
 
-writeFileSync(OUT, `${JSON.stringify(db, null, 1)}\n`);
+  // Figures quoted in `gaps.AeroTechSingleUse`, counted rather than written down
+  // — the last hand-written coverage claim in this file ("every 98 mm motor")
+  // was wrong by four motors.
+  const dmsWithExit = motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined
+    && m.motorId && byMotorId.get(m.motorId)?.availability !== 'OOP').length;
+  const uncoveredInProd = (() => {
+    const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+    return AEROTECH.filter((m) => m.availability !== 'OOP' && !have.has(m.motorId)).length;
+  })();
+
+  const db = {
+    generated: sourceDate,
+    source: 'AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables',
+    sourceNote: 'docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.',
+    catalogueGenerated: motorsDb.generated,
+    rule: 'A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech\'s own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 "M" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.',
+    counts: {
+      assemblyDrawings: raw.assemblies.length,
+      nozzlePartResolved: perDrawing.length,
+      distinctNozzleParts: partRows.length,
+      // TWO counts, not one (2026-09-08, from review). `partsWithExit` was
+      // 101 of 102 while only 81 rows actually carry `exitDiameterIn` — the
+      // other 20 are Medusa parts whose exit depends on how many outer throats
+      // the motor's own sheet opens, so it is resolved PER MOTOR and there is
+      // nothing in the parts table to read. One number covering both told a
+      // reader of that table it would find an exit on 101 rows when 21 have none.
+      partsWithExitDiameter: partRows.filter((p) => p.exitDiameterIn !== undefined).length,
+      partsResolvedPerMotor: partRows.filter((p) => p.exitSource === 'medusa').length,
+      motorsWithExit: motorRows.filter((m) => m.exitDiameterM !== undefined).length,
+      motorsMatchedToCatalogue: motorRows.filter((m) => m.motorId).length,
+      // THE NUMBER THE GUIDE QUOTES, DERIVED (2026-09-14, from review). The guide said "278
+      // motors you can load" as hand-typed prose with nothing behind it, and the paragraph's
+      // own components (221 AeroTech + 54 Loki) sum to 275, because three of the covered motors
+      // are out of production and the sentence never said so. Neither `motorsWithExit` (287, all
+      // rows) nor `motorsMatchedToCatalogue` (287, ignoring the exit) is that figure: a motor a
+      // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is now
+      // counted here, so the guide can quote a build-derived value the way the coverage block
+      // already forced everything else to - the 287 this replaced survived exactly because
+      // nothing computed it.
+      motorsLoadableWithExit: motorRows.filter((m) => m.motorId && m.exitDiameterM !== undefined).length,
+      // The honest coverage figure — AND IT IS PER MANUFACTURER, because it was
+      // not, and that broke the moment a second manufacturer arrived.
+      //
+      // It was written in v0.120 as "every row whose motor is in production",
+      // over `catalogueAeroTechInProduction`, which was right while AeroTech
+      // were the only source. v0.127 added 55 Loki rows to the same array and the
+      // numerator silently picked them up — the release printed
+      // "of the IN-PRODUCTION AeroTech 244 (89.7 % of 272)" using a numerator
+      // that already contained Loki. Nothing noticed until 2026-09-13, when the
+      // DMS drawings pushed it to 284 and the line read 104.4 % OF ITS OWN
+      // DENOMINATOR. A percentage over 100 is the only reason this was caught,
+      // which is a poor way to find out.
+      //
+      // Two named fields now, each over its own catalogue total, and
+      // `coverage.byManufacturer` is the authority either way.
+      aerotechMatched: motorRows.filter((m) => m.manufacturer === 'AeroTech' && m.motorId).length,
+      lokiMatched: motorRows.filter((m) => m.manufacturer === 'Loki' && m.motorId).length,
+      aerotechMatchedInProduction: motorRows.filter((m) => m.manufacturer === 'AeroTech' && m.motorId
+        && byMotorId.get(m.motorId)?.availability !== 'OOP').length,
+      lokiMatchedInProduction: motorRows.filter((m) => m.manufacturer === 'Loki' && m.motorId
+        && byMotorId.get(m.motorId)?.availability !== 'OOP').length,
+      motorsWithTwoNozzleOptions: motorRows.filter((m) => m.exitAmbiguous).length,
+      catalogueMotors: motorsDb.motors.length,
+      catalogueAeroTech: AEROTECH.length,
+      catalogueAeroTechInProduction: AEROTECH.filter((m) => m.availability !== 'OOP').length,
+      // The two AeroTech document families, counted apart. "assemblyDrawings"
+      // above is both of them together, which is why these exist.
+      reloadableDrawings: raw.assemblies.filter((a) => a.docFamily !== 'dms').length,
+      dmsDrawings: raw.assemblies.filter((a) => a.docFamily === 'dms').length,
+      dmsRows: motorRows.filter((m) => m.docFamily === 'dms').length,
+      dmsRowsWithExit: motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined).length,
+      dmsInProductionWithExit: dmsWithExit,
+      lokiSheetsRead: lokiSheets.length,
+      lokiMotorsOnASheet: lokiFromSheet.size,
+      lokiRows: lokiRows.length,
+      lokiRowsWithExit: lokiRows.filter((m) => m.exitDiameterM !== undefined).length,
+      lokiRowsFromCaseTable: lokiRows.filter((m) => m.exitSource === 'loki-case-table').length,
+      catalogueLoki: LOKI.length,
+      catalogueLokiInProduction: LOKI.filter((m) => m.availability !== 'OOP').length,
+    },
+    gaps: {
+      Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR ("we can leave them as unknown and, if we get the data, we can update the database") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed "Historical Information Only — Not In Production", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads "Single Use") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in \`uncovered\`.`,
+      Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
+      AeroTechSingleUse: `AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the "Motor Assembly Drawings" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from "DMS Motor Designs": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth ${dmsWithExit} more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral ("adding a document family is a decision rather than a fix") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: ${uncoveredInProd} in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in \`uncovered\`.`,
+    },
+    coverage: {
+      note: 'What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the rows this catalogue does not mark OOP; "withNozzleRow" is how many have a row here and "withExitDiameter" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki\'s published exit table). Every motor short of a row is named, and named again in `uncovered`.',
+      byManufacturer: {
+        AeroTech: { byCasingDiameterMm: coverageFor(AEROTECH) },
+        Loki: { byCasingDiameterMm: coverageFor(LOKI) },
+      },
+    },
+    // Which AeroTech motors are NOT here, grouped by the case they belong to.
+    // Computed rather than written down, so it cannot go stale against a
+    // motors.json refresh, and stated in the file because "no row" and "no data"
+    // look identical to a consumer that cannot see this list.
+    //
+    // THE DIAMETER IS PART OF THE KEY (2026-09-08, from review). Grouped by case
+    // alone, the three uncovered 98 mm single-use motors (M1340W, N1975W-PS,
+    // O5500X-PS) sat unlabelled inside a 75-strong "single-use" list, so a reader
+    // checking "does this cover the 98 mm motors?" could not see them and the
+    // "every 98 mm motor" claim went unchallenged. A motor's casing size is the
+    // first thing anyone asks this list about, so it is in the heading.
+    uncovered: (() => {
+      const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+      const by = new Map();
+      for (const m of [...AEROTECH, ...LOKI]) {
+        if (have.has(m.motorId)) continue;
+        const key = `${m.manufacturerAbbrev} ${m.diameter} mm ${m.caseInfo || 'single-use (no reload case)'}`;
+        if (!by.has(key)) by.set(key, []);
+        by.get(key).push(m.designation);
+      }
+      return Object.fromEntries([...by.entries()]
+        .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+        .map(([k, v]) => [k, v.sort()]));
+    })(),
+    measured,
+    crossCheck: {
+      note: 'Tripoli certification letters that print a measured throat and exit. All are 1997-2001 tests on 98 mm motors, predating AeroTech\'s 2003 "REDESIGNED FOR NET MOLDED EXIT/THROAT" revision, so the throats corroborate this database and the exits describe the older hardware. Comparison only — never an input.',
+      tripoli: certCheck,
+      // The second independent check in this file, and the one the whole Loki
+      // section rests on: every motor whose instruction sheet is on disk, read
+      // from the sheet, against the "Commercial Nozzle throat" Loki publish for
+      // that case. Two documents, no shared step. Recorded rather than only
+      // asserted so a reader can see the agreement instead of taking it on trust
+      // — and the build refuses to write this file if any row says `agrees:
+      // false`.
+      dmsSheetObservations: {
+        note: `The ${motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined).length} `
+          + `DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other `
+          + `than the code that built them, and each of those exits was then attacked by a second reader `
+          + `told to refute it. NONE was refuted. (There are `
+          + `${motorRows.filter((m) => m.docFamily === 'dms').length} DMS rows in all; the rest publish no `
+          + `exit, so there was no exit to check.) These are the differences between what the drawings show `
+          + `and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number `
+          + `and is never an input here.`,
+        rows: observations,
+      },
+      lokiSheetAgainstCaseTable: {
+        note: `${lokiSheetVsTable.filter((x) => x.agrees).length} of ${lokiSheetVsTable.length} instruction-sheet readings agree with Loki's own per-case commercial-throat column. A disagreement fails the build.`,
+        rows: lokiSheetVsTable,
+      },
+    },
+    nozzles: partRows,
+    motors: motorRows,
+  };
+  return { db, certCheck, contradicted, unresolved, unmatched, lokiSheetVsTable };
+}
 
 // ------------------------------------------------------------------ report
 
-const c = db.counts;
-const pct = (n, d) => `${((n / d) * 100).toFixed(1)} %`;
-console.log(`assembly drawings parsed          ${c.assemblyDrawings}`);
-console.log(`  reloadable / DMS single-use     ${c.reloadableDrawings} / ${c.dmsDrawings}`);
-console.log(`  nozzle part resolved            ${c.nozzlePartResolved} (${pct(c.nozzlePartResolved, c.assemblyDrawings)})`);
-console.log(`distinct nozzle parts             ${c.distinctNozzleParts}`);
-console.log(`  with an exit diameter           ${c.partsWithExitDiameter}`);
-console.log(`  exit resolved per motor         ${c.partsResolvedPerMotor} (Medusa: depends which throats the motor opens)`);
-console.log(`motors (rows)                     ${motorRows.length}`);
-// PER MANUFACTURER (2026-09-13, from review). This printed
-// `motorsMatchedToCatalogue` — EVERY maker's rows — as a percentage of
-// `catalogueAeroTech`: the same Loki-contamination bug fixed in the counts
-// block above, one line away, in the same commit, and missed. It read
-// "287 (93.5 % of AeroTech)" when AeroTech's own figure is 231/307 = 75.2 %.
-console.log(`  matched into motors.json        ${c.motorsMatchedToCatalogue} (${pct(c.motorsMatchedToCatalogue, c.catalogueMotors)} of all ${c.catalogueMotors})`);
-console.log(`    AeroTech                      ${c.aerotechMatched} (${pct(c.aerotechMatched, c.catalogueAeroTech)} of ${c.catalogueAeroTech})`);
-console.log(`    Loki                          ${c.lokiMatched} (${pct(c.lokiMatched, c.catalogueLoki)} of ${c.catalogueLoki})`);
-console.log(`  of the IN-PRODUCTION AeroTech   ${c.aerotechMatchedInProduction} (${pct(c.aerotechMatchedInProduction, c.catalogueAeroTechInProduction)} of ${c.catalogueAeroTechInProduction})`);
-console.log(`  of the IN-PRODUCTION Loki       ${c.lokiMatchedInProduction} (${pct(c.lokiMatchedInProduction, c.catalogueLokiInProduction)} of ${c.catalogueLokiInProduction})`);
-console.log(`  with an exit diameter           ${c.motorsWithExit}`);
-// ONE POPULATION PER HEADING (2026-09-14, from review). This loop counted ALL rows while
-// printed as an indented subdivision of "with an exit diameter", so the report read
-// `with an exit diameter 287` over `high 238 / medium 48 / low 1 / none 10` - 238+48+1 = 287,
-// and the 10 "none" rows are exactly the ones that heading EXCLUDES. A reader totalling the
-// indented lines got 297 under a heading of 287. Same mixed-population fault fixed three
-// lines above, in the same block, in the same commit.
-for (const conf of ['high', 'medium', 'low', 'per-motor']) {
-  const n = motorRows.filter((m) => m.exitDiameterM !== undefined && m.exitConfidence === conf).length;
-  if (n) console.log(`    confidence ${conf.padEnd(10)}      ${n}`);
-}
-const noExitRows = motorRows.filter((m) => m.exitDiameterM === undefined).length;
-if (noExitRows) console.log(`  with NO exit diameter           ${noExitRows} (each reason is in the part's note)`);
-console.log(`  two nozzle options published    ${c.motorsWithTwoNozzleOptions}`);
-for (const m of motorRows.filter((x) => x.exitAmbiguous)) {
-  console.log(`    ${m.designation.padEnd(11)} ${m.nozzlePartNo} ${m.exitDiameterIn} in`
-    + ` vs ${m.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`).join(', ')}`);
-}
-const tAgree = certCheck.filter((x) => x.throatAgrees === true).length;
-const tSeen = certCheck.filter((x) => x.throatAgrees !== undefined).length;
-console.log(`\nTripoli cross-check (1997-2001 tests)  ${certCheck.length} letters carry a measured nozzle`);
-console.log(`  throat agrees                   ${tAgree}/${tSeen}`);
-console.log(`  exit agrees                     ${certCheck.filter((x) => x.exitAgrees === true).length}/${certCheck.filter((x) => x.exitAgrees !== undefined).length}  (the 2003 net-moulded redesign — see crossCheck.note)`);
-if (contradicted.length) {
-  console.log(`\nsheet throat contradicts the part's own mould (${contradicted.length}):`);
-  for (const t of contradicted) console.log(`  ${t}`);
-}
-if (unresolved.length) {
-  console.log(`\nno nozzle row (${unresolved.length}):`);
-  for (const u of unresolved) console.log(`  ${u.file} — ${u.why}`);
-}
-if (unmatched.length) {
-  console.log(`\nnot in motors.json (${unmatched.length}):`);
-  for (const u of unmatched) console.log(`  ${u.designation}  (${u.file})`);
-}
-// Per casing diameter, because "covers every N mm motor" is the claim people
-// make about this file and it has to be readable off the run that produced it
-// (2026-09-08, from review — v0.120's note claimed all 98 mm and was four short).
-for (const [maker, cov] of Object.entries(db.coverage.byManufacturer)) {
-  console.log(`\nin-production ${maker} coverage, by casing diameter`);
-  for (const [mm, e] of Object.entries(cov.byCasingDiameterMm)) {
-    console.log(`  ${`${mm} mm`.padEnd(8)} ${String(e.withExitDiameter).padStart(3)} with an exit`
-      + ` of ${String(e.inProduction).padEnd(3)}`
-      + (e.withNozzleRow !== e.withExitDiameter ? ` (${e.withNozzleRow} rows)` : '')
-      + (e.missing.length ? `  no row: ${e.missing.join(' ')}` : '  (all)'));
+/** The run report, from buildNozzleDb's result. */
+function printReport({ db, certCheck, contradicted, unresolved, unmatched, lokiSheetVsTable }, { outPath, report }) {
+  const motorRows = db.motors;
+  const partRows = db.nozzles;
+  const c = db.counts;
+  const pct = (n, d) => `${((n / d) * 100).toFixed(1)} %`;
+  console.log(`assembly drawings parsed          ${c.assemblyDrawings}`);
+  console.log(`  reloadable / DMS single-use     ${c.reloadableDrawings} / ${c.dmsDrawings}`);
+  console.log(`  nozzle part resolved            ${c.nozzlePartResolved} (${pct(c.nozzlePartResolved, c.assemblyDrawings)})`);
+  console.log(`distinct nozzle parts             ${c.distinctNozzleParts}`);
+  console.log(`  with an exit diameter           ${c.partsWithExitDiameter}`);
+  console.log(`  exit resolved per motor         ${c.partsResolvedPerMotor} (Medusa: depends which throats the motor opens)`);
+  console.log(`motors (rows)                     ${motorRows.length}`);
+  // PER MANUFACTURER (2026-09-13, from review). This printed
+  // `motorsMatchedToCatalogue` — EVERY maker's rows — as a percentage of
+  // `catalogueAeroTech`: the same Loki-contamination bug fixed in the counts
+  // block above, one line away, in the same commit, and missed. It read
+  // "287 (93.5 % of AeroTech)" when AeroTech's own figure is 231/307 = 75.2 %.
+  console.log(`  matched into motors.json        ${c.motorsMatchedToCatalogue} (${pct(c.motorsMatchedToCatalogue, c.catalogueMotors)} of all ${c.catalogueMotors})`);
+  console.log(`    AeroTech                      ${c.aerotechMatched} (${pct(c.aerotechMatched, c.catalogueAeroTech)} of ${c.catalogueAeroTech})`);
+  console.log(`    Loki                          ${c.lokiMatched} (${pct(c.lokiMatched, c.catalogueLoki)} of ${c.catalogueLoki})`);
+  console.log(`  of the IN-PRODUCTION AeroTech   ${c.aerotechMatchedInProduction} (${pct(c.aerotechMatchedInProduction, c.catalogueAeroTechInProduction)} of ${c.catalogueAeroTechInProduction})`);
+  console.log(`  of the IN-PRODUCTION Loki       ${c.lokiMatchedInProduction} (${pct(c.lokiMatchedInProduction, c.catalogueLokiInProduction)} of ${c.catalogueLokiInProduction})`);
+  console.log(`  with an exit diameter           ${c.motorsWithExit}`);
+  // ONE POPULATION PER HEADING (2026-09-14, from review). This loop counted ALL rows while
+  // printed as an indented subdivision of "with an exit diameter", so the report read
+  // `with an exit diameter 287` over `high 238 / medium 48 / low 1 / none 10` - 238+48+1 = 287,
+  // and the 10 "none" rows are exactly the ones that heading EXCLUDES. A reader totalling the
+  // indented lines got 297 under a heading of 287. Same mixed-population fault fixed three
+  // lines above, in the same block, in the same commit.
+  for (const conf of ['high', 'medium', 'low', 'per-motor']) {
+    const n = motorRows.filter((m) => m.exitDiameterM !== undefined && m.exitConfidence === conf).length;
+    if (n) console.log(`    confidence ${conf.padEnd(10)}      ${n}`);
   }
-}
+  const noExitRows = motorRows.filter((m) => m.exitDiameterM === undefined).length;
+  if (noExitRows) console.log(`  with NO exit diameter           ${noExitRows} (each reason is in the part's note)`);
+  console.log(`  two nozzle options published    ${c.motorsWithTwoNozzleOptions}`);
+  for (const m of motorRows.filter((x) => x.exitAmbiguous)) {
+    console.log(`    ${m.designation.padEnd(11)} ${m.nozzlePartNo} ${m.exitDiameterIn} in`
+      + ` vs ${m.alternatives.map((a) => `${a.nozzlePartNo} ${a.exitDiameterIn} in`).join(', ')}`);
+  }
+  const tAgree = certCheck.filter((x) => x.throatAgrees === true).length;
+  const tSeen = certCheck.filter((x) => x.throatAgrees !== undefined).length;
+  console.log(`\nTripoli cross-check (1997-2001 tests)  ${certCheck.length} letters carry a measured nozzle`);
+  console.log(`  throat agrees                   ${tAgree}/${tSeen}`);
+  console.log(`  exit agrees                     ${certCheck.filter((x) => x.exitAgrees === true).length}/${certCheck.filter((x) => x.exitAgrees !== undefined).length}  (the 2003 net-moulded redesign — see crossCheck.note)`);
+  if (contradicted.length) {
+    console.log(`\nsheet throat contradicts the part's own mould (${contradicted.length}):`);
+    for (const t of contradicted) console.log(`  ${t}`);
+  }
+  if (unresolved.length) {
+    console.log(`\nno nozzle row (${unresolved.length}):`);
+    for (const u of unresolved) console.log(`  ${u.file} — ${u.why}`);
+  }
+  if (unmatched.length) {
+    console.log(`\nnot in motors.json (${unmatched.length}):`);
+    for (const u of unmatched) console.log(`  ${u.designation}  (${u.file})`);
+  }
+  // Per casing diameter, because "covers every N mm motor" is the claim people
+  // make about this file and it has to be readable off the run that produced it
+  // (2026-09-08, from review — v0.120's note claimed all 98 mm and was four short).
+  for (const [maker, cov] of Object.entries(db.coverage.byManufacturer)) {
+    console.log(`\nin-production ${maker} coverage, by casing diameter`);
+    for (const [mm, e] of Object.entries(cov.byCasingDiameterMm)) {
+      console.log(`  ${`${mm} mm`.padEnd(8)} ${String(e.withExitDiameter).padStart(3)} with an exit`
+        + ` of ${String(e.inProduction).padEnd(3)}`
+        + (e.withNozzleRow !== e.withExitDiameter ? ` (${e.withNozzleRow} rows)` : '')
+        + (e.missing.length ? `  no row: ${e.missing.join(' ')}` : '  (all)'));
+    }
+  }
 
-// Loki, whose whole section rests on two documents agreeing (2026-09-13).
-console.log(`\nLoki: ${c.lokiSheetsRead} instruction sheets read, ${c.lokiMotorsOnASheet} motors named on one`);
-console.log(`  rows written                    ${c.lokiRows} of ${c.catalogueLoki} catalogued Loki motors`);
-console.log(`    with an exit diameter         ${c.lokiRowsWithExit}`);
-console.log(`    nozzle from the case table    ${c.lokiRowsFromCaseTable} (no sheet on disk for these)`);
-console.log(`  sheet vs Loki's own case table  ${lokiSheetVsTable.filter((x) => x.agrees).length}/${lokiSheetVsTable.length} agree`);
+  // Loki, whose whole section rests on two documents agreeing (2026-09-13).
+  console.log(`\nLoki: ${c.lokiSheetsRead} instruction sheets read, ${c.lokiMotorsOnASheet} motors named on one`);
+  console.log(`  rows written                    ${c.lokiRows} of ${c.catalogueLoki} catalogued Loki motors`);
+  console.log(`    with an exit diameter         ${c.lokiRowsWithExit}`);
+  console.log(`    nozzle from the case table    ${c.lokiRowsFromCaseTable} (no sheet on disk for these)`);
+  console.log(`  sheet vs Loki's own case table  ${lokiSheetVsTable.filter((x) => x.agrees).length}/${lokiSheetVsTable.length} agree`);
 
-// DMS, added 2026-09-13 — the folder that sat unread for five days.
-console.log(`
+  // DMS, added 2026-09-13 — the folder that sat unread for five days.
+  console.log(`
 AeroTech DMS single-use: ${c.dmsDrawings} sheets read`);
-console.log(`  rows written                    ${c.dmsRows}`);
-console.log(`    with an exit diameter         ${c.dmsRowsWithExit}`);
-console.log(`    IN PRODUCTION, with an exit   ${c.dmsInProductionWithExit}`);
+  console.log(`  rows written                    ${c.dmsRows}`);
+  console.log(`    with an exit diameter         ${c.dmsRowsWithExit}`);
+  console.log(`    IN PRODUCTION, with an exit   ${c.dmsInProductionWithExit}`);
 
-const uncoveredTotal = Object.values(db.uncovered).reduce((a, v) => a + v.length, 0);
-// `uncovered` has held BOTH makers since v0.127, so this label was wrong too —
-// it printed 80 under an "AeroTech" heading when AeroTech's own count is 76
-// (2026-09-13, from review). Same shape as the percentage above: a figure that
-// grew a second manufacturer and kept its old name.
-// GROUPED, NOT PREFIX-MATCHED-AND-SUBTRACTED (2026-09-14, from review). This filtered on
-// `k.startsWith('AeroTech')` and called the REMAINDER Loki - correct only while exactly two
-// makers exist, and `db.gaps` already names Cesaroni as a live gap. The first third
-// manufacturer would have had its motors printed as Loki's: the identical fault the comment
-// two lines up describes, reintroduced one line below it. The key's first token IS the
-// manufacturer, so group by it and let a new maker appear on its own line.
-const uncoveredByMaker = new Map();
-for (const [k, v] of Object.entries(db.uncovered)) {
-  const maker = k.split(/[\s/]/)[0];
-  uncoveredByMaker.set(maker, (uncoveredByMaker.get(maker) ?? 0) + v.length);
-}
-const uncoveredBreakdown = [...uncoveredByMaker.entries()]
-  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-  .map(([maker, n]) => `${maker} ${n}`).join(', ');
-console.log(`
+  const uncoveredTotal = Object.values(db.uncovered).reduce((a, v) => a + v.length, 0);
+  // `uncovered` has held BOTH makers since v0.127, so this label was wrong too —
+  // it printed 80 under an "AeroTech" heading when AeroTech's own count is 76
+  // (2026-09-13, from review). Same shape as the percentage above: a figure that
+  // grew a second manufacturer and kept its old name.
+  // GROUPED, NOT PREFIX-MATCHED-AND-SUBTRACTED (2026-09-14, from review). This filtered on
+  // `k.startsWith('AeroTech')` and called the REMAINDER Loki - correct only while exactly two
+  // makers exist, and `db.gaps` already names Cesaroni as a live gap. The first third
+  // manufacturer would have had its motors printed as Loki's: the identical fault the comment
+  // two lines up describes, reintroduced one line below it. The key's first token IS the
+  // manufacturer, so group by it and let a new maker appear on its own line.
+  const uncoveredByMaker = new Map();
+  for (const [k, v] of Object.entries(db.uncovered)) {
+    const maker = k.split(/[\s/]/)[0];
+    uncoveredByMaker.set(maker, (uncoveredByMaker.get(maker) ?? 0) + v.length);
+  }
+  const uncoveredBreakdown = [...uncoveredByMaker.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([maker, n]) => `${maker} ${n}`).join(', ');
+  console.log(`
 Motors with no nozzle row  ${uncoveredTotal} (${uncoveredBreakdown})`);
-for (const [k, v] of Object.entries(db.uncovered).slice(0, 6)) {
-  console.log(`  ${k.padEnd(28)} ${String(v.length).padStart(3)}  ${v.slice(0, 6).join(' ')}${v.length > 6 ? ' ...' : ''}`);
+  for (const [k, v] of Object.entries(db.uncovered).slice(0, 6)) {
+    console.log(`  ${k.padEnd(28)} ${String(v.length).padStart(3)}  ${v.slice(0, 6).join(' ')}${v.length > 6 ? ' ...' : ''}`);
+  }
+  const rest = Object.entries(db.uncovered).slice(6);
+  if (rest.length) console.log(`  ${'(and)'.padEnd(28)} ${String(rest.reduce((a, [, v]) => a + v.length, 0)).padStart(3)}  across ${rest.length} more cases`);
+
+  console.log(`\nWrote ${motorRows.length} motors and ${partRows.length} nozzle parts to ${outPath}`);
+
+  if (report) {
+    console.log('\n--- parts ---');
+    for (const p of partRows) {
+      console.log(`${p.partNo.padEnd(12)} exit ${String(p.exitDiameterIn ?? '-').padEnd(7)} throat ${String(p.throatDiameterIn ?? '-').padEnd(7)} ${p.exitSource}/${p.exitConfidence}${p.exitOnDrawing === false ? '  [NOT ON DRAWING]' : ''}`);
+    }
+    console.log('\n--- motors with an alternative geometry ---');
+    for (const m of motorRows.filter((x) => x.alternatives)) {
+      console.log(`${m.designation}  ${m.nozzlePartNo} exit ${m.exitDiameterIn} vs ${JSON.stringify(m.alternatives)}`);
+    }
+  }
 }
-const rest = Object.entries(db.uncovered).slice(6);
-if (rest.length) console.log(`  ${'(and)'.padEnd(28)} ${String(rest.reduce((a, [, v]) => a + v.length, 0)).padStart(3)}  across ${rest.length} more cases`);
 
-console.log(`\nWrote ${motorRows.length} motors and ${partRows.length} nozzle parts to ${OUT}`);
+// ------------------------------------------------------------- the command
 
-if (REPORT) {
-  console.log('\n--- parts ---');
-  for (const p of partRows) {
-    console.log(`${p.partNo.padEnd(12)} exit ${String(p.exitDiameterIn ?? '-').padEnd(7)} throat ${String(p.throatDiameterIn ?? '-').padEnd(7)} ${p.exitSource}/${p.exitConfidence}${p.exitOnDrawing === false ? '  [NOT ON DRAWING]' : ''}`);
+/** `--name <value>` from the command line, or undefined. */
+const flagIn = (argv, name) => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+};
+
+/**
+ * Extract, compose, and only then write. Returns the process exit code: 0
+ * written; 1 no document set, or a build that refused (nothing written).
+ * Every path, the Python and the extractor itself are parameters, so the
+ * test can run it on synthetic documents into a scratch folder.
+ */
+export function main({
+  argv = process.argv.slice(2),
+  source = flagIn(argv, '--source') ?? process.env.RCS_SCHEMATICS
+    ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics'),
+  // Loki's instruction sheets are TRANSCRIBED above (LOKI_SHEETS), so the build
+  // does not need this folder to run; it is read only for the `generated` date,
+  // which has to move when a sheet does.
+  lokiSource = flagIn(argv, '--loki') ?? process.env.LOKI_DATA
+    ?? join(here, '..', '..', '..', 'docs', 'Loki Data'),
+  report = argv.includes('--report'),
+  outPath = OUT,
+  motorsPath = MOTORS,
+  python = process.env.PYTHON ?? 'python',
+  extract = (dir) => JSON.parse(execFileSync(python, [EXTRACTOR, dir], {
+    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  })),
+} = {}) {
+  if (!existsSync(source)) {
+    console.error(`No RCS document set at ${source}.`);
+    console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
+    return 1;
   }
-  console.log('\n--- motors with an alternative geometry ---');
-  for (const m of motorRows.filter((x) => x.alternatives)) {
-    console.log(`${m.designation}  ${m.nozzlePartNo} exit ${m.exitDiameterIn} vs ${JSON.stringify(m.alternatives)}`);
+  const raw = extract(source);
+  const motorsDb = JSON.parse(readFileSync(motorsPath, 'utf8'));
+  const roots = { rcs: source, loki: lokiSource };
+  const mtimeMs = ({ root, file }) => statSync(join(roots[root], file)).mtimeMs;
+  let built;
+  try {
+    built = buildNozzleDb({ raw, motorsDb, mtimeMs });
+  } catch (err) {
+    if (!(err instanceof BuildRefused)) throw err;
+    for (const line of err.lines) console.error(line);
+    return 1;
   }
+  writeFileSync(outPath, `${JSON.stringify(built.db, null, 1)}\n`);
+  printReport(built, { outPath, report });
+  return 0;
+}
+
+/**
+ * Whether node was asked to run THIS file. The other scripts compare
+ * `resolve(argv[1])` with `import.meta.url` and nothing else, but node loads
+ * the entry module from its REAL path (`fs.realpathSync`, unless
+ * --preserve-symlinks-main): run through a junction or a symlink, argv[1]
+ * names the link and import.meta.url the target, the two differ, and the
+ * build did nothing and exited 0 — silently, on the one generator CI cannot
+ * run (review of AUDIT row 480). So the real path is compared too, and only
+ * for an argv[1] with this file's own name: under a test runner argv[1] is
+ * the runner, and importing this file must touch no file at all
+ * (build-nozzle-db.test.mjs blocks every node:fs call while it imports it).
+ */
+function isEntryPoint() {
+  const invoked = process.argv[1];
+  const self = fileURLToPath(import.meta.url);
+  if (!invoked) return false;
+  if (resolve(invoked) === self) return true;
+  if (basename(invoked) !== basename(self)) return false;
+  try {
+    return realpathSync(invoked) === self;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  process.exitCode = main();
 }

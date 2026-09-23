@@ -183,6 +183,37 @@ describe('the 3D image export', () => {
 });
 
 /**
+ * AUDIT row 399. The 3D snapshot built its filename from an inline copy of
+ * safeName's regex with none of its fallback, so a design named entirely in
+ * Cyrillic (or emoji) saved "_-3d.png", the same name for every such design,
+ * and an unnamed one "-3d.png". The 2D export and every other download already
+ * went through safeName.
+ */
+describe('the 3D image export filename', () => {
+  const savedAs = async (name: string): Promise<string> => {
+    act(() => root.render(
+      <PrefsProvider><Rocket3D tree={TREE} info={null} exportData={{ name } as never} /></PrefsProvider>,
+    ));
+    const done = startExport();
+    await act(async () => { finishEncode(new Blob(['x'])); await done; });
+    expect(downloadImage).toHaveBeenCalledTimes(1);
+    return vi.mocked(downloadImage).mock.calls[0]![1];
+  };
+
+  it('keeps an ASCII name', async () => {
+    expect(await savedAs('WM Goblin')).toBe('WM_Goblin-3d.png');
+  });
+
+  it.each([
+    ['all Cyrillic', 'Ракета'],
+    ['all emoji', '🚀🚀'],
+    ['empty', ''],
+  ])('falls back to "rocket" for a name that is %s', async (_what, name) => {
+    expect(await savedAs(name)).toBe('rocket-3d.png');
+  });
+});
+
+/**
  * Audit 2026-09-22: the 3D canvas had no accessible name — a screen reader met
  * an unlabelled canvas between the camera buttons and the "drag to rotate"
  * caption. The name rides on the Canvas wrapper div (the stand-in above
