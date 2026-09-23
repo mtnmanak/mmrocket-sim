@@ -16,19 +16,27 @@
 // on, and every deviation from the recommended sets names the sites that forced it.
 //
 // Deliberately NOT enabled, with the measured reason:
-//   - type-aware typescript-eslint configs: they need a full program build, too slow
-//     for a gate that is meant to fail before `npm test` does
-//   - @typescript-eslint/no-non-null-assertion: 2,902 hits (576 outside tests),
-//     load-bearing under the base tsconfig's noUncheckedIndexedAccess. The figure
-//     read "~284" until 2026-09-08, which was 10x low — a reader sizing the cleanup
-//     off it would have budgeted an afternoon for a week. Re-measure before acting
-//     on it: npx eslint . --rule '{"@typescript-eslint/no-non-null-assertion":"error"}'
+//   - the type-aware typescript-eslint CONFIGS (recommendedTypeChecked and up):
+//     six type-aware RULES are on, in their own block below, each at 0 hits;
+//     recommendedTypeCheckedOnly would add 22 more, none of them measured here
+//   - @typescript-eslint/no-non-null-assertion: 4,108 hits (626 outside tests) on
+//     2026-09-22, up from 2,902 / 576 on 2026-09-08 as the suites grew; load-bearing
+//     under the base tsconfig's noUncheckedIndexedAccess. The figure read "~284"
+//     until 2026-09-08, which was 10x low — a reader sizing the cleanup off it would
+//     have budgeted an afternoon for a week. Re-measure before acting on it:
+//     npx eslint . --rule '{"@typescript-eslint/no-non-null-assertion":"error"}'
 //   - the React-Compiler rules shipped in eslint-plugin-react-hooks v6/v7
 //     (set-state-in-effect, purity, immutability, …): only rules-of-hooks and
 //     exhaustive-deps are wired up, because those are the two the source already
 //     writes suppression comments for
 //   - react-refresh/only-export-components: 10 of 35 .tsx modules deliberately export
 //     both a component and its helpers so the helpers can be unit-tested
+//   - eslint-plugin-jsx-a11y: not installed. Size it with one warn-only run
+//     before deciding (audit 2026-09-22)
+//   - Prettier: it would rewrite every line and wreck `git blame` on a history this
+//     project reads constantly (the CHANGELOG and the audits cite commits)
+// (tsconfig.base.json records the one compiler flag declined the same way,
+// exactOptionalPropertyTypes.)
 //
 // The file extension is .mjs because the root package.json has no "type": "module".
 
@@ -36,6 +44,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
+import { fileURLToPath } from 'node:url';
 
 export default tseslint.config(
   {
@@ -230,6 +239,56 @@ export default tseslint.config(
         message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
           + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
       }))],
+    },
+  },
+
+  {
+    // ─── Type-aware rules (audit 2026-09-22, Step C) ───
+    // The failures a syntax-only lint cannot see, because they turn on a TYPE:
+    //   no-floating-promises   an async call nobody awaits or catches. A
+    //                          rejection there is a button that silently does
+    //                          nothing — the defect the 2026-09-22 audit found in
+    //                          the STL/print-pack and image exports.
+    //   no-misused-promises    an async function handed to something that ignores
+    //                          its promise (an onClick). JSX attributes stay
+    //                          CHECKED: `() => { void f(); }` is the marker that
+    //                          says f reports its own failures, and the one
+    //                          handler that is written inline carries a reasoned
+    //                          disable (PropertyPanel's print export).
+    //   await-thenable, only-throw-error, restrict-plus-operands   free (0 hits).
+    //   switch-exhaustiveness-check   a switch over a union that neither lists
+    //                          every member nor has a default. The two it found
+    //                          were benign; orkFile's emitNode now LISTS 'stage'
+    //                          rather than taking a default, so a component type
+    //                          added later fails here instead of silently
+    //                          dropping out of saved .ork files.
+    // Measured 2026-09-22 at 3918947 + this package: 3 floating, 4 misused and
+    // 2 non-exhaustive, all fixed first (the audit's a7756c5 counts were 6/4/2;
+    // two App.tsx sites had been fixed since).
+    //
+    // COST: the parser now builds a TypeScript program per project. `npx eslint .`
+    // went from 7.6 s to 20.1 s here (median of three, same machine and tree; a
+    // cold first run took 34.6 s) — about 2.6x, the ratio the audit measured at
+    // a7756c5 (4.9 s to 12.6 s). CI runs it after `npm run typecheck`, which
+    // has built the engine's dist/index.d.ts that the app imports; run locally
+    // WITHOUT that build, engine imports resolve to error types and these rules
+    // see less. Each file's program is its own tsconfig project: tsconfig.app,
+    // tsconfig.test or packages/engine's (packages/app/tsconfig.json says why).
+    files: ['packages/*/src/**/*.{ts,tsx}'],
+    languageOptions: {
+      // Not import.meta.dirname: that needs Node 20.11, and the README promises 20.
+      parserOptions: { projectService: true, tsconfigRootDir: fileURLToPath(new URL('.', import.meta.url)) },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/only-throw-error': 'error',
+      // only-throw-error is no-throw-literal with the type information to see
+      // through a variable; running both reports one throw twice.
+      'no-throw-literal': 'off',
+      '@typescript-eslint/restrict-plus-operands': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: true }],
     },
   },
 

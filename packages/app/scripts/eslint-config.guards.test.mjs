@@ -13,6 +13,9 @@
  *   - A private `typeof n[k] === 'number' ? n[k] : fb` reader passes NaN, where
  *     tree/nodeNum.ts is the one reader (audit 2026-09-22).
  *
+ * It also pins that the type-aware rules (no-floating-promises and friends)
+ * still resolve for shipped source, its tests and the engine.
+ *
  * Each rule is read from the config ESLint actually resolves for a real file,
  * then run on a probe with the typescript-eslint parser alone, so no type
  * program is built. (Named eslint-config.*, not eslint.config.*: vitest's
@@ -74,6 +77,18 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       "  return typeof n['length'] === 'number' ? (n['length'] as number) : 0;",
       '}',
     ].join('\n'), rules)).toEqual(['no-restricted-syntax@3', 'no-restricted-syntax@5']);
+  });
+
+  it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {
+    // Resolution only: the rules themselves need a type program, which the
+    // lint run builds. A files glob that stopped covering one of these would
+    // switch no-floating-promises off there with 0 problems reported.
+    const TYPED = ['@typescript-eslint/no-floating-promises', '@typescript-eslint/no-misused-promises'];
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/App.session.test.tsx',
+      'packages/engine/src/index.ts']) {
+      const rules = await rulesFor(rel, TYPED);
+      expect(TYPED.map((r) => rules[r][0]), rel).toEqual([2, 2]);
+    }
   });
 
   it('leaves ordinary type narrowing alone', async () => {

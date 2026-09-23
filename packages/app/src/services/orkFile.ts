@@ -2472,6 +2472,12 @@ export function exportOrk({
         close(t);
         break;
       }
+      // The loop at the foot of exportOrk writes each stage itself and hands
+      // only its children here. Listed, not left to a `default`, so a type
+      // added to the union later fails lint on this switch
+      // (switch-exhaustiveness-check) instead of vanishing from saved files.
+      case 'stage':
+        break;
     }
   };
 

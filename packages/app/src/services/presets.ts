@@ -291,6 +291,10 @@ export function presetPatch(
       own('surfaceDensity', surf?.density);
       break;
     }
+    // No other type has a catalogue (KIND_FOR_TYPE), so a pick carries only
+    // the identity and mass set above.
+    default:
+      break;
   }
   return patch;
 }

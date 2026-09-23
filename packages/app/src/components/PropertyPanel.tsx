@@ -806,6 +806,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             title={offer?.kind === 'split'
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
               : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
+            // eslint-disable-next-line @typescript-eslint/no-misused-promises -- every await is inside the try below, whose catch reports into exportNote, so the promise React drops cannot reject
             onClick={async () => {
               // Every await below can reject — the mesher, the print-pack
               // builder, a lazily loaded chunk offline — and a rejection here
