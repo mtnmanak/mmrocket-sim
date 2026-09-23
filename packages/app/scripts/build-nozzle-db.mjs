@@ -266,8 +266,11 @@ const caseKey = (s) => (String(s ?? '').match(/\d+/g) ?? []).join('-');
  *   "D13-10W"    -> D13W           (the delay sits INSIDE the small-motor name)
  *   "C3.4-PT"    -> C3.4T          (plugged; the P is not part of the name)
  *   "G33-5J"     -> G33J, then G33 (some are catalogued with no propellant letter)
+ * Exported for its test (build-nozzle-db.test.mjs): with the D13-10W rule off,
+ * 21 small single-use motors lost their row's catalogue match and every other
+ * test stayed green (claim check of the v0.141 notes).
  */
-function designationCandidates(raw) {
+export function designationCandidates(raw) {
   const out = [raw];
   let m = /^([A-Z]+[\d.]+)-(\d+)([A-Z/]+)$/.exec(raw);
   if (m) { out.push(m[1] + m[3]); out.push(m[1]); }
@@ -295,9 +298,9 @@ function designationCandidates(raw) {
  * with the catalogue's `caseInfo` ("RMS-29/180"). 322 of the 323 matches agree
  * on it, which is the strongest evidence available that the join is right.
  *
- * `aerotech` is the catalogue's AeroTech motors.
+ * `aerotech` is the catalogue's AeroTech motors. Exported for its test.
  */
-function findMotor(aerotech, designation, diameterMm, caseFolder, preferSingleUse = false) {
+export function findMotor(aerotech, designation, diameterMm, caseFolder, preferSingleUse = false) {
   const wantCase = caseKey(caseFolder);
   for (const cand of designationCandidates(designation)) {
     const want = cand.toLowerCase();

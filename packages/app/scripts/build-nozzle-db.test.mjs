@@ -412,6 +412,47 @@ describe('the Loki rows', () => {
   });
 });
 
+describe("the join from a drawing's name to the catalogue", () => {
+  // Nothing above exercises these: switching the D13-10W rule off dropped 21
+  // small AeroTech motors' catalogue match with every other test green (claim
+  // check of the v0.141 notes).
+  it("reads each way AeroTech write a designation in a drawing's name", async () => {
+    const { designationCandidates } = await builder();
+    expect(designationCandidates('N4000W-PS')).toEqual(['N4000W-PS', 'N4000W']);
+    expect(designationCandidates('G54W-L')).toEqual(['G54W-L', 'G54W']);
+    expect(designationCandidates('D13-10W')).toEqual(['D13-10W', 'D13W', 'D13']);
+    expect(designationCandidates('C3.4-PT')).toEqual(['C3.4-PT', 'C3.4T', 'C3.4']);
+    expect(designationCandidates('G33-5J')).toEqual(['G33-5J', 'G33J', 'G33']);
+  });
+
+  it('finds the catalogue motor a small-motor drawing means, delay or plug inside the name', async () => {
+    const { findMotor } = await builder();
+    const at = [
+      { designation: 'D13W', commonName: 'D13', diameter: 18, caseInfo: null, type: 'SU', availability: 'regular' },
+      { designation: 'C3.4T', commonName: 'C3.4', diameter: 18, caseInfo: null, type: 'SU', availability: 'regular' },
+      { designation: 'D10W', commonName: 'D10', diameter: 18, caseInfo: null, type: 'SU', availability: 'regular' },
+    ];
+    expect(findMotor(at, 'D13-10W', 18, '18mm')).toMatchObject({ entry: at[0], via: 'D13W' });
+    expect(findMotor(at, 'C3.4-PT', 18, '18mm')).toMatchObject({ entry: at[1], via: 'C3.4T' });
+    // The casing size gates it: the same name at 29 mm is no motor here.
+    expect(findMotor(at, 'D13-10W', 29, '29mm')).toBeNull();
+  });
+
+  it("breaks a tie by the drawing's own case family, and says when it could not", async () => {
+    const { findMotor } = await builder();
+    const at = [
+      { designation: 'H100W', commonName: 'H100', diameter: 29, caseInfo: 'RMS-29/180', type: 'reload', availability: 'regular' },
+      { designation: 'H100W', commonName: 'H100', diameter: 29, caseInfo: 'RMS-29/240', type: 'reload', availability: 'regular' },
+    ];
+    expect(findMotor(at, 'H100W-M', 29, 'RMS-29-240 High Power'))
+      .toMatchObject({ entry: at[1], caseAgrees: true, ambiguous: false });
+    expect(findMotor(at, 'H100W-M', 29, 'RMS-29-180 High Power'))
+      .toMatchObject({ entry: at[0], caseAgrees: true, ambiguous: false });
+    expect(findMotor(at, 'H100W-M', 29, 'RMS-29-360 High Power'))
+      .toMatchObject({ caseAgrees: false, ambiguous: true });
+  });
+});
+
 // ------------------------------------------------------------ the whole file
 
 describe('buildNozzleDb, the whole composition', () => {
