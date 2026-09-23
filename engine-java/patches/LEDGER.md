@@ -920,6 +920,114 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   `RK4SimulationStepper.java` against the new release and re-apply the helper plus the five
   lines in `calculateThrust`; the insertion touches nothing upstream is likely to move.
 
+### models/wind/MultiLevelPinkNoiseWindModel.java — winds aloft through the engine API: a SEEDED `addWindLevel` (kernel pass 2, audit 2026-09-22)
+
+Not a RASAero gap: this is desktop OpenRocket 24.12's OWN multi-level ("winds aloft") wind
+model, made reachable. It sits here because it is default-off in the same sense as the
+features above — absent its new input, every flight is bit-identical.
+
+- **Why:** the class was carved with the rest of `models/wind` on day one, but nothing
+  constructed it — `simulateJson` built the single-level `PinkNoiseWindModel` unconditionally —
+  so TeaVM dead-code-eliminated it: **`MultiLevelPinkNoiseWindModel` 0 occurrences in the
+  artifact at `3918947`**. Exposing it takes a bridge switch (below) and this patch, because
+  upstream's `addWindLevel` builds each level's `PinkNoiseWindModel` with the no-arg
+  constructor, which seeds from `new Random().nextInt()`: a different turbulence stream on
+  every run, and a different one on the JVM and under TeaVM, so a multi-level flight with any
+  standard deviation could be neither reproduced nor differentially tested. (Desktop does seed
+  its single-level model from the simulation's `randomSeed` — `SimulationOptions` line 89 —
+  and this bridge has done the same since Phase 0; only the multi-level levels are unseeded
+  upstream.)
+- **Change (appended below upstream's last method, so every upstream line keeps its
+  number):** `addWindLevel(double altitude, double speed, double direction, double
+  standardDeviation, int seed)` — upstream's four-argument body with `new
+  PinkNoiseWindModel(seed)` for `new PinkNoiseWindModel()` and σ always applied. Same setter
+  order — direction, average, THEN σ, which matters: `PinkNoiseWindModel.setAverage` rescales σ
+  to hold the turbulence intensity, so σ must be set last to land as given — the same
+  binary-search insertion, the same duplicate-altitude refusal.
+- **Why a patch and not a shim:** the seed is a private final of `PinkNoiseWindModel`, set only
+  by its constructor, and the level list is private to `MultiLevelPinkNoiseWindModel`. The only
+  no-patch route is a same-package helper reaching into `LevelWindModel`'s protected `model`
+  field to swap each level's model after upstream has built it — replacing upstream state behind
+  its back. The appended overload is the smaller change, and the visible one.
+- **The bridge half (not a patch — `api/OrkEngine.windModelFor`):** desktop's `WindModelType`
+  switch, driven by the options JSON (the bridge builds `SimulationConditions` directly and never
+  constructs a `SimulationOptions`). No `windLevels`, or an empty list → the single-level model,
+  built by exactly the calls in exactly the order it always was. A non-empty `windLevels` →
+  `MultiLevelPinkNoiseWindModel`: the constructor's default level (built from the preferences
+  shim's unseeded average model) cleared; each level's altitude, speed and direction required
+  finite, σ too when given (a NaN crosses JSON as null, so a missing number and a non-finite one
+  both refuse, naming `windLevels[i]`, and neither can fly as a default); a non-object entry
+  refused; the levels sorted by altitude; level k seeded `randomSeed ^ (k * 0x9E3779B9)`; and
+  `windAltitudeReference` `"MSL"` (the default, desktop's) or `"AGL"`, anything else refused.
+  The lowest level takes `randomSeed` itself, so ONE level carrying the single-level speed, σ
+  and direction π/2 IS the single-level flight, bit for bit; the golden-ratio multiplier keeps
+  neighbouring levels off adjacent `java.util.Random` seeds, whose first draws are correlated.
+  `windAverage` / `windStdDeviation` are ignored on that path, as desktop ignores its average
+  model while the multi-level one is selected. TypeScript: `SimulationOptions.windLevels` /
+  `windAltitudeReference` and the exported `WindLevel`; `assertWindLevels` refuses non-finite
+  values, a negative speed or σ (the kernel would silently turn a negative speed into a wind
+  from the opposite side), a repeated altitude and an unknown reference — naming the level —
+  before anything crosses.
+- **Direction convention, stated because it is easy to get backwards:** the direction the wind
+  blows FROM, clockwise from north (desktop's table tooltip: 0 = from the north, 90° = from the
+  east). `PinkNoiseWindModel`'s vector `speed × (sin d, cos d, 0)` points that way, and the
+  stepper ADDS it to the rocket's velocity to get airspeed. The single-level model has only ever
+  flown its default d = π/2.
+- **Divergences from desktop:** (a) seeding — desktop's multi-level turbulence is random per
+  run, ours is a function of `randomSeed`; (b) an EMPTY level list flies the single-level wind,
+  where desktop's model with no levels would fly calm (`getWindVelocity` returns
+  `Coordinate.ZERO`) — here absent and empty are the same request. Interpolation (the VECTOR,
+  linear in altitude), holding the end levels' values outside the table, and the altitude
+  reference are desktop's code, unchanged.
+- **Scope: engine API only.** No app control sets `windLevels`, so every flight the app flies
+  takes the unchanged single-level branch — **no user-visible number moves.** The `.ork` importer
+  does not read desktop's multi-level wind block either; both are app work for whoever builds
+  the UI.
+- **Oracle:** the before/after `goldenJvm` diff, the before side rebuilt from `b4916b0`'s own
+  source in a scratch export (and reproducing the recorded post-nozzle-fix baseline
+  byte-for-byte). Goldens `windLevelScenarios()`, appended at the END (difftest compares by line
+  index): the `conditionsScenarios` C6 rocket and 1,400 m / 303.15 K / 86 kPa pad, seed 7, cut
+  at 8 s; columns maxAltitude, maxVelocity, timeToApogee and the horizontal drift at apogee.
+  **All 395 pre-existing lines bit-identical; 395 → 400 lines, additions only.**
+  `flight.conditions.windlevels.single` reprints the existing windy flight (365.4237143564062 m,
+  as `flight.conditions.summary`), and `…one` — the same wind as one level at 0 m — equals it in
+  EVERY column, drift 75.83418675209836 m included. `…shear` (three turbulent levels veering with
+  height) 368.384 m, drift 55.620 m. `windlevels.steady.msl` / `.agl` — steady levels, calm at
+  0 m and 4 m/s at 300 m: measured from sea level the whole flight sits above the top level in a
+  steady 4 m/s (apogee 363.547 m, drift 77.763 m); measured from the pad it starts calm and builds
+  (371.597 m, 43.661 m). Differential **395 → 400 lines**, JVM↔TeaVM clean (265 bit-identical,
+  135 within tolerance — the five new lines all within it; `flight.conditions.*` take the
+  turbulent tolerance, as the existing windy flight does, the steady pair the flight tolerance).
+  Drift is taken AT APOGEE and as a distance on purpose: a scratch probe of the final per-axis
+  position at the 8 s cut, after the chute-opening transient, FAILED the differential — `single`
+  Px 74.00589 vs 74.00901 m, 4.2e-5 relative, over the 1e-5 turbulent budget, and Py 1.9e-4
+  relative on a 0.018 m crosswind; the steady pair's Py 6.1e-9 (`msl`) and 1.3e-6 (`agl`)
+  relative against the 1e-9 flight budget. (The probe's line names fell outside difftest's
+  `flight.conditions` prefix, so its turbulent rows were re-judged against the 1e-5 budget by
+  hand: `single` fails it, `shear` — 5e-7 and 7e-7 — would not.) The tolerances were not
+  touched, and the probe was reverted before the artifact above was built.
+- **Behavioural guards:** `packages/engine/src/windLevels.test.ts`, 7 tests — one level equal
+  to the single-level flight bit for bit (at 0 m and at 5,000 m, with `windAverage` set to
+  something else to prove it ignored) and an empty list equal to no list; the recorded `Vw`
+  checked ROW BY ROW against the kernel's own vector interpolation over a whole sea-level flight
+  whose wind swings from east to west between 100 and 250 m (and nearly vanishes at 175 m, where
+  interpolating speed and direction separately would read 8 m/s), with `θw` held on each side;
+  MSL by default, explicit `'MSL'` identical, AGL calm on the pad and building; seeds by altitude
+  rank, so a reversed list is the same flight; each level its own stream (two identical levels
+  bracketing the flight do NOT reproduce the single-level stream), reproducible per seed and
+  moved by another; and the refusals, in the wrapper and in the raw kernel. Against the pre-change
+  wrapper and artifact (`b4916b0`) **6 of the 7 fail**; the sort-order pin passes on both, by
+  construction (the old kernel flew both lists calm).
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,766,975 → 2,800,664 bytes, md5
+  `e04d4a5aa19e3ee46bf4c8545cc4baae` → `b60202a9c44e4feeb8b2b0dc6f26d178`.
+  `MultiLevelPinkNoiseWindModel` **0 → 139** occurrences, `LevelWindModel` 0 → 18,
+  `OrkEngine_windModelFor` 0 → 2, both `addWindLevel` overloads linked
+  (`…_addWindLevel` / `…_addWindLevel0`, 0 → 2 each) — the grep, not Gradle's `UP-TO-DATE`, is
+  the evidence. Upstream's CSV import (`importLevelsFromCSV`, `FileReader`) stays unlinked: 0.
+- **Upstreamable:** arguably — desktop's multi-level runs are not reproducible run to run for
+  exactly this reason, and passing the simulation's `randomSeed` through a seeded overload is
+  the fix there too.
+
 ## Performance patches (behaviour-preserving — bit-identical goldens REQUIRED)
 
 Added 2026-08-26 after a beta tester reported 40-second flights and repeated

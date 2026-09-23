@@ -52,6 +52,107 @@ public final class GoldenMain {
         parallelPressureThrustScenarios();
         freeformRefusalScenarios();
         podNozzleBaseDragScenarios();
+        windLevelScenarios();
+    }
+
+    /**
+     * WINDS ALOFT (kernel pass 2, audit 2026-09-22) - desktop's multi-level wind
+     * model (MultiLevelPinkNoiseWindModel) through simulateJson's "windLevels",
+     * which it had never been: the class was carved but dead-code-eliminated from
+     * the artifact (0 occurrences) because nothing constructed it.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * The conditionsScenarios rocket and pad (C6, 1400 m / 303.15 K / 86000 Pa,
+     * seed 7, cut at 8 s for the reason given there). Columns: maxAltitude,
+     * maxVelocity, timeToApogee, and the horizontal drift at apogee (driftAtApogee).
+     *   single - the conditionsScenarios single-level wind, reprinted: it must
+     *            equal flight.conditions.summary in its first three columns.
+     *   one    - the same wind as ONE level at 0 m, direction PI/2: the lowest
+     *            level is seeded with randomSeed itself, so this must equal
+     *            `single` in EVERY column, bit for bit.
+     *   shear  - three turbulent levels veering with height (MSL).
+     *   steady.msl / steady.agl - two steady (sigma 0) levels, 0 m/s at 0 m and
+     *            4 m/s at 300 m. Measured from sea level the whole flight is
+     *            above the top level (a steady 4 m/s); measured from the pad it
+     *            starts calm and builds - so the two must differ, and msl must
+     *            drift further.
+     * `flight.conditions.*` rows take difftest's turbulent tolerance (as the
+     * existing windy flight does); the steady ones take the flight tolerance.
+     * The behavioural guards are packages/engine/src/windLevels.test.ts.
+     */
+    private static void windLevelScenarios() {
+        String reference = "{\"name\":\"Ref\",\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002,\"shape\":\"ogive\"},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30}"
+                + "]}]}";
+        String pad = "\"rodLength\":1.2,\"rodAngle\":0.087,\"launchAltitude\":1400,"
+                + "\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7,\"maxTime\":8";
+        String halfPi = Double.toString(Math.PI / 2);
+        String[][] cases = {
+                //  tag                            wind options (JSON members)
+                { "conditions.windlevels.single", "\"windAverage\":3.0,\"windStdDeviation\":0.6" },
+                { "conditions.windlevels.one",
+                        "\"windLevels\":[{\"altitude\":0,\"speed\":3.0,\"direction\":" + halfPi + ",\"standardDeviation\":0.6}]" },
+                { "conditions.windlevels.shear",
+                        "\"windLevels\":[{\"altitude\":1400,\"speed\":1.0,\"direction\":" + halfPi + ",\"standardDeviation\":0.2},"
+                                + "{\"altitude\":1600,\"speed\":6.0,\"direction\":2.0,\"standardDeviation\":0.8},"
+                                + "{\"altitude\":2000,\"speed\":12.0,\"direction\":" + Math.PI + ",\"standardDeviation\":1.5}]" },
+                { "windlevels.steady.msl",
+                        "\"windLevels\":[{\"altitude\":0,\"speed\":0,\"direction\":" + halfPi + "},"
+                                + "{\"altitude\":300,\"speed\":4.0,\"direction\":" + halfPi + "}]" },
+                { "windlevels.steady.agl",
+                        "\"windLevels\":[{\"altitude\":0,\"speed\":0,\"direction\":" + halfPi + "},"
+                                + "{\"altitude\":300,\"speed\":4.0,\"direction\":" + halfPi + "}],"
+                                + "\"windAltitudeReference\":\"AGL\"" },
+        };
+        for (String[] c : cases) {
+            int r = api.OrkEngine.buildRocket(reference);
+            api.OrkEngine.setMotorById(r, "mount", "C6", 0.018, 0.070,
+                    new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                    new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                    new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                    0.035, 5.0);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.simulateJson(r, "{" + pad + "," + c[1] + "}"));
+            java.util.Map<String, Object> summary = api.JsonLite.obj(parsed, "summary");
+            line("flight." + c[0],
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "maxVelocity", Double.NaN),
+                    api.JsonLite.dbl(summary, "timeToApogee", Double.NaN),
+                    driftAtApogee(api.JsonLite.obj(parsed, "series")));
+        }
+    }
+
+    /**
+     * Horizontal distance from the pad (m) at the highest altitude sample - the
+     * wind's own signature on a flight. Taken AT APOGEE, before deployment, and as
+     * a distance rather than per axis: at the 8 s cut the chute-opening transient
+     * amplifies the runtimes' ULP noise past difftest's turbulent tolerance, and a
+     * near-zero crosswind component is noise-dominated in relative terms. Both
+     * were measured failing (Px 4e-5, Py 2e-4 relative) before this was chosen;
+     * the tolerances were not touched.
+     */
+    private static double driftAtApogee(java.util.Map<String, Object> series) {
+        java.util.List<?> alt = (java.util.List<?>) series.get("altitude");
+        java.util.List<?> px = (java.util.List<?>) series.get("Px");
+        java.util.List<?> py = (java.util.List<?>) series.get("Py");
+        if (alt == null || px == null || py == null || alt.isEmpty()) {
+            return Double.NaN;
+        }
+        int top = 0;
+        for (int i = 1; i < alt.size(); i++) {
+            if (((Number) alt.get(i)).doubleValue() > ((Number) alt.get(top)).doubleValue()) {
+                top = i;
+            }
+        }
+        double x = ((Number) px.get(top)).doubleValue();
+        double y = ((Number) py.get(top)).doubleValue();
+        return Math.sqrt(x * x + y * y);
     }
 
     /**

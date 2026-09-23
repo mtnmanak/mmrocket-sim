@@ -16,7 +16,9 @@ import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.masscalc.RigidBody;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
 import info.openrocket.core.models.gravity.WGSGravityModel;
+import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
 import info.openrocket.core.models.wind.PinkNoiseWindModel;
+import info.openrocket.core.models.wind.WindModel;
 import info.openrocket.core.motor.IgnitionEvent;
 import info.openrocket.core.motor.Manufacturer;
 import info.openrocket.core.motor.Motor;
@@ -881,12 +883,16 @@ public final class OrkEngine {
     /**
      * Full-featured simulation entry point. Options JSON (all optional):
      * { rodLength, rodAngle, rodDirection, windAverage, windStdDeviation,
+     *   windLevels: [{altitude, speed, direction, standardDeviation}...],
+     *   windAltitudeReference: "MSL" (default) | "AGL",
      *   launchAltitude, launchLatitude, launchLongitude,
      *   temperature (K, launch-site), pressure (Pa, launch-site),
      *   timeStep, maxTime, randomSeed,
      *   series: "summary" (default) | "full" — see appendBranchSeries }
      * Custom temperature/pressure switch the atmosphere to an ISA model based
-     * at the launch site; otherwise standard ISA is used.
+     * at the launch site; otherwise standard ISA is used. A non-empty
+     * windLevels switches the wind from the single-level model to desktop's
+     * multi-level one - see windModelFor.
      */
     @JSExport
     public static String simulateJson(int rocketHandle, String optionsJson) {
@@ -931,12 +937,7 @@ public final class OrkEngine {
         aeroCalc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
         aeroCalc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
         int randomSeed = (int) JsonLite.dbl(o, "randomSeed", 42);
-        // Seeded explicitly: the no-arg PinkNoiseWindModel constructor seeds
-        // from new Random().nextInt() — nondeterministic across runs.
-        PinkNoiseWindModel wind = new PinkNoiseWindModel(randomSeed);
-        wind.setAverage(JsonLite.dbl(o, "windAverage", 0));
-        wind.setStandardDeviation(JsonLite.dbl(o, "windStdDeviation", 0));
-        conditions.setWindModel(wind);
+        conditions.setWindModel(windModelFor(o, randomSeed));
         conditions.setAerodynamicCalculator(aeroCalc);
         conditions.setMassCalculator(new MassCalculator());
         conditions.setTimeStep(timeStep > 0 ? timeStep : 0.05);
@@ -954,6 +955,101 @@ public final class OrkEngine {
     }
 
     // ---------- helpers ----------
+
+    /**
+     * The flight's wind model - desktop's WindModelType switch, driven by the
+     * options JSON instead of a SimulationOptions (this bridge builds the
+     * SimulationConditions directly, so it never constructs one).
+     * <p>
+     * AVERAGE (no "windLevels", or an empty list): the single-level
+     * PinkNoiseWindModel every flight has always had, built by exactly the calls
+     * in exactly the order it always was, so every existing flight is
+     * bit-identical by construction. Seeded explicitly: the no-arg
+     * PinkNoiseWindModel constructor seeds from new Random().nextInt(), which is
+     * nondeterministic across runs.
+     * <p>
+     * MULTI_LEVEL (a non-empty "windLevels"): desktop OpenRocket 24.12's own
+     * MultiLevelPinkNoiseWindModel - winds aloft. Each level is {altitude (m),
+     * speed (m/s), direction (rad), standardDeviation (m/s, default 0)}, in
+     * PinkNoiseWindModel's units and convention: d is the direction the wind
+     * blows FROM, clockwise from north (desktop's table: 0 = from the north,
+     * PI/2 = from the east), and the model's vector is speed * (sin d, cos d, 0),
+     * which the stepper ADDS to the rocket's velocity to get its airspeed. The
+     * single-level model has only ever flown its default d = PI/2.
+     * Between two levels the velocity VECTOR is interpolated linearly in
+     * altitude; below the lowest and above the highest it is held at that level's
+     * value (desktop's getWindVelocity, unchanged). "windAltitudeReference" says
+     * which altitude the levels are: "MSL" (desktop's default) or "AGL" (above
+     * the pad). windAverage / windStdDeviation are ignored on this path, as
+     * desktop ignores its average model while the multi-level one is selected.
+     * <p>
+     * SEEDS - OURS, NOT DESKTOP'S. Desktop seeds every level from
+     * new Random().nextInt(), so its multi-level turbulence differs run to run.
+     * Here the levels are sorted by altitude and level k gets
+     * randomSeed ^ (k * 0x9E3779B9): the lowest level carries randomSeed itself,
+     * so ONE level is the single-level model's own noise stream - the same
+     * flight, bit for bit, which the engine tests pin - and the multiplier keeps
+     * neighbouring levels off adjacent java.util.Random seeds, whose first draws
+     * are correlated. Needs the seeded addWindLevel overload (patches/, LEDGER).
+     */
+    private static WindModel windModelFor(Map<String, Object> o, int randomSeed) {
+        Object raw = o.get("windLevels");
+        if (!(raw instanceof List) || ((List<?>) raw).isEmpty()) {
+            PinkNoiseWindModel wind = new PinkNoiseWindModel(randomSeed);
+            wind.setAverage(JsonLite.dbl(o, "windAverage", 0));
+            wind.setStandardDeviation(JsonLite.dbl(o, "windStdDeviation", 0));
+            return wind;
+        }
+        List<Map<String, Object>> rows = JsonLite.objList(o, "windLevels");
+        if (rows.size() != ((List<?>) raw).size()) {
+            throw new IllegalArgumentException(
+                    "windLevels: every level must be an object {altitude, speed, direction, standardDeviation}");
+        }
+        double[][] levels = new double[rows.size()][];
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            double[] level = {
+                    JsonLite.dbl(row, "altitude", Double.NaN),
+                    JsonLite.dbl(row, "speed", Double.NaN),
+                    JsonLite.dbl(row, "direction", Double.NaN),
+                    JsonLite.dbl(row, "standardDeviation", 0),
+            };
+            for (double v : level) {
+                // A NaN/Infinity crosses JSON as null, so a missing number and a
+                // non-finite one both land here - and neither may fly as a default.
+                if (Double.isNaN(v) || Double.isInfinite(v)) {
+                    throw new IllegalArgumentException("windLevels[" + i
+                            + "]: altitude, speed and direction must be finite numbers"
+                            + " (standardDeviation too, when given)");
+                }
+            }
+            levels[i] = level;
+        }
+        java.util.Arrays.sort(levels, (a, b) -> Double.compare(a[0], b[0]));
+
+        String reference = JsonLite.str(o, "windAltitudeReference", "MSL");
+        WindModel.AltitudeReference ref;
+        if ("MSL".equals(reference)) {
+            ref = WindModel.AltitudeReference.MSL;
+        } else if ("AGL".equals(reference)) {
+            ref = WindModel.AltitudeReference.AGL;
+        } else {
+            throw new IllegalArgumentException("windAltitudeReference must be \"MSL\" or \"AGL\", not \"" + reference + "\"");
+        }
+
+        MultiLevelPinkNoiseWindModel wind = new MultiLevelPinkNoiseWindModel();
+        // The constructor seeds one level at 0 m from the preferences' average
+        // model (unseeded, and calm in this build's preferences shim); desktop's
+        // own dialog replaces it the same way.
+        wind.clearLevels();
+        for (int k = 0; k < levels.length; k++) {
+            // Throws on a repeated altitude, naming it - upstream's own check.
+            wind.addWindLevel(levels[k][0], levels[k][1], levels[k][2], levels[k][3],
+                    randomSeed ^ (k * 0x9E3779B9));
+        }
+        wind.setAltitudeReference(ref);
+        return wind;
+    }
 
     private static final class RocketCtx {
         final Rocket rocket;
