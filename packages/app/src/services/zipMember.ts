@@ -55,6 +55,7 @@ import { Inflate, strFromU8 } from 'fflate';
  * 64 MiB clears that four times over while still bounding one allocation to
  * something a browser tab survives. Raise it only against a measured real
  * file, never to make a crafted one open.
+ * @internal Exported for services/orkFileHardening.test.ts and services/rocksimFileHardening.test.ts; no other module imports it.
  */
 export const MAX_ZIP_MEMBER_BYTES = 64 * 1024 * 1024;
 

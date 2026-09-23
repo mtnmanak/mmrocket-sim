@@ -61,6 +61,7 @@ export interface BatchMountOption {
  * a near-full extra flight per combination. `replacedMountId` is the cluster
  * mount the split removed: its assigned motor is not aboard the split tree,
  * and leaving it in the set double-counted its burn in that same bound.
+ * @internal Exported for components/BatchSimulate.test.tsx; no other module imports it.
  */
 export function batchProbeCutoff(
   probeTree: RocketTree,
@@ -161,6 +162,7 @@ export interface BatchWeighed {
  * expression nozzleFollow reads).
  *
  * Null means "fly with no nozzle", which is what every candidate did before.
+ * @internal Exported for components/BatchSimulate.test.tsx; no other module imports it.
  */
 export function batchStageExit(input: {
   candidateId: string;
@@ -197,7 +199,10 @@ export function batchMotorIds(
   return Object.fromEntries(Object.entries(motors).map(([id, mm]) => [id, mm.meta.motorId ?? mm.meta.exMotorId]));
 }
 
-/** A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id. */
+/**
+ * A candidate's identity spelled the way MountMotor identities are: EX entries by their ex: id.
+ * @internal Exported for components/BatchSimulate.test.tsx; no other module imports it.
+ */
 export function candidateIdentity(entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>): string {
   return motorIdentity({ exMotorId: entry.motorId.startsWith('ex:') ? entry.motorId : undefined, manufacturer: entry.manufacturerAbbrev }, entry.designation);
 }
@@ -210,7 +215,10 @@ export function isWeighedCandidate(
     || (!weighed.pinned && `${entry.manufacturerAbbrev}/${entry.designation}` === weighed.identity);
 }
 
-/** The spec a candidate flies: shifted by the weighed hardware ONLY when it is the weighed motor on the weighed mount. Delay is not part of the identity. */
+/**
+ * The spec a candidate flies: shifted by the weighed hardware ONLY when it is the weighed motor on the weighed mount. Delay is not part of the identity.
+ * @internal Exported for components/BatchSimulate.test.tsx; no other module imports it.
+ */
 export function batchFlownSpec(
   entry: Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>, spec: MotorSpec,
   targetMountId: string, weighed: BatchWeighed | undefined,

@@ -75,6 +75,7 @@ export interface CatalogueOverlay {
  * state for a motor thrustcurve.org has dropped. With no overlay it returns
  * `base` itself, so identity checks against MOTOR_DB (allClasses' fast path)
  * keep working.
+ * @internal Exported for services/catalogueOverlay.test.ts; no other module imports it.
  */
 export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | null): MotorDbEntry[] {
   if (!overlay || (!overlay.added.length && !overlay.changed.length && !overlay.removed.length)) return base;
@@ -132,6 +133,7 @@ export function subscribeCatalogue(fn: () => void): () => void {
  * (Jambol's whole line, and Ultra's) behind the "include out-of-production"
  * checkbox and labelled them as discontinued. 'occasional' means produced
  * intermittently, not gone; only 'OOP' is out of production.
+ * @internal Exported for components/BatchSimulate.sweep.test.tsx; no other module imports it.
  */
 export const isAvailable = (m: Pick<MotorDbEntry, 'availability'>): boolean =>
   m.availability !== 'OOP';

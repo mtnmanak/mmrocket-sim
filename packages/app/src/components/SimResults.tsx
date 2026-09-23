@@ -444,6 +444,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
  * Cesaroni H255-14A"), and its `manufacturer` is those makers joined with "+",
  * so the prefix printed every maker twice. A combination stored before then
  * ("3× H128W + 3× H255-14A") names none of them and keeps its prefix.
+ * @internal Exported for services/batchSweep.test.ts; no other module imports it.
  */
 export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig'>): string {
   if (!r.manufacturer) return r.motor;

@@ -191,6 +191,7 @@ interface DragState {
  *  - `keepBelow` preserves the bottom padding and the bottom callout lane,
  *    exactly what a symmetric layout gives them, so the rocket can never be
  *    pushed down onto its own CP callout.
+ * @internal Exported for components/centrelineY.test.ts; no other module imports it.
  */
 export function centrelineY({ h, gutY, pad, lanes, halfDrawn, topReserve }: {
   h: number; gutY: number; pad: number; lanes: number; halfDrawn: number; topReserve: number;
