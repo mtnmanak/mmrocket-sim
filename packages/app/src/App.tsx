@@ -76,7 +76,7 @@ import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
-import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
+import { cdx1RodAimNote, exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -2676,7 +2676,9 @@ export function App() {
    * where — "I did a save as a CDX1 and I don't know where it went" is a
    * tester's own sentence, and silence is what made it possible.
    */
-  const download = async (content: string | Uint8Array, ext: string, suffix = '') => {
+  // `lost`: one sentence naming what the format could not carry, appended to
+  // the saved line — said once the file exists, never for a cancelled save.
+  const download = async (content: string | Uint8Array, ext: string, suffix = '', lost?: string | null) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
     // Same convention as the flight-data and run-history CSVs (SimResults).
@@ -2695,11 +2697,11 @@ export function App() {
         // file, a revoked permission. Reporting a plain success there would
         // send the user looking in the folder they picked.
         ? `Couldn't write to the folder you chose (${out.fellBack}) — `
-          + `“${out.name}” went to your browser's download folder instead.`
-        : `Saved “${out.name}” to your browser's download folder.`,
+          + `“${out.name}” went to your browser's download folder instead.${lost ? ` ${lost}` : ''}`
+        : `Saved “${out.name}” to your browser's download folder.${lost ? ` ${lost}` : ''}`,
       out.fellBack ? 'warn' : 'info');
     } else if (out.kind === 'saved') {
-      setFileNote(`Saved “${out.name}”.`);
+      setFileNote(`Saved “${out.name}”.${lost ? ` ${lost}` : ''}`);
     }
     // 'cancelled' says nothing — the user pressed Cancel, and an app that
     // reports on that is an app that nags.
@@ -2814,7 +2816,9 @@ export function App() {
         // motor names its own database lacks; flipping it back is one line
         // there.
         motors: exportMotorsMap(),
-      }), 'CDX1');
+        // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
+        // saved line says so when the tilted rod was aimed off the wind.
+      }), 'CDX1', '', cdx1RodAimNote(launch));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }

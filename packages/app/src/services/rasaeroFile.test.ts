@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { applyStageNozzles } from '../tree/treeModel.js';
-import { CDX1_ENGINE_EXPORT, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { CDX1_ENGINE_EXPORT, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
 
@@ -301,6 +301,16 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(r.launch!.launchRodAngleDeg).toBe(0);
     expect(r.launch!.windAverage).toBe(0);
     expect(r.launch!.pressureHPa).toBeNull(); // unset → explicit ISA, never absent
+  });
+
+  // Weather build, step 2: the format has no rod direction, so a RASAero rail
+  // leans into the wind — stated as aim 0, so an opened .CDX1 cannot keep the
+  // Rod aim of the design open before it.
+  it('opens the launch site at Rod aim 0, over the aim of the design before it', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    expect(Object.hasOwn(r.launch!, 'launchRodAimDeg')).toBe(true);
+    expect(r.launch!.launchRodAimDeg).toBe(0);
+    expect({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90, ...r.launch }.launchRodAimDeg).toBe(0);
   });
 
   it('reports what the ARCAS import dropped, and invents no motors', () => {
@@ -746,6 +756,24 @@ describe('RASAero export', () => {
     expect(back.launch!.launchRodAngleDeg).toBeCloseTo(5, 6);
     expect(back.launch!.launchRodLengthM).toBeCloseTo(3.6576, 4);
     expect(back.launch!.windAverage).toBeCloseTo(4.4704, 4);
+  });
+
+  // …and a save says what it cannot carry, only when that loses a flight.
+  it('says a Rod aim was not saved — only when the tilted rod is aimed off the wind', () => {
+    expect(cdx1RodAimNote({ launchRodAngleDeg: 5, launchRodAimDeg: 90 })).toBe(
+      "RASAero has no rod direction, so this file's launch rail points straight into the wind; "
+      + 'Rod aim (90°) was not saved.');
+    expect(cdx1RodAimNote({ launchRodAngleDeg: 5, launchRodAimDeg: -180 })).toMatch(/Rod aim \(180°\)/);
+    expect(cdx1RodAimNote({ launchRodAngleDeg: 5, launchRodAimDeg: (15 * Math.PI / 180) / (Math.PI / 180) }))
+      .toMatch(/Rod aim \(15°\)/);
+    for (const l of [
+      { launchRodAngleDeg: 5, launchRodAimDeg: 0 }, { launchRodAngleDeg: 5 },
+      { launchRodAngleDeg: 0, launchRodAimDeg: 90 }, { launchRodAngleDeg: 5, launchRodAimDeg: 360 },
+    ]) expect(cdx1RodAimNote(l), JSON.stringify(l)).toBeNull();
+    // The file itself is the same either way: <LaunchSite> has no direction.
+    const at = (launchRodAimDeg: number) => exportCdx1({
+      ...design, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg } });
+    expect(at(90)).toBe(at(0));
   });
 
   it('defaults <LaunchSite> fields: null pressure→0, null temperature at a sea-level site→59', () => {

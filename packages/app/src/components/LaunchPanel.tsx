@@ -153,9 +153,9 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
     // the wind. At aim 0, or with a vertical rod, the key is absent and every
     // design hands the kernel the bytes it always did (LaunchPanel.test's
     // golden). That guard is load-bearing, not tidiness: a vertical rod aimed
-    // 37° flies an apogee different in the eighth figure (327.76024201749783 m
-    // against 327.7602449449038 m, spec §2.6), because the launch
-    // quaternion's product rounds.
+    // 37° is NOT the same flight bit for bit — the launch quaternion's product
+    // rounds — and on the reference C6 at 4 m/s, σ 1, apogee moves 3 µm
+    // (327.76024201749783 m against 327.7602449449038 m, re-measured).
     ...(aim !== null ? { launchRodDirection: KERNEL_WIND_FROM_RAD + (aim * Math.PI) / 180 } : {}),
     // Only when it would move something: a blank (or the default itself) is
     // left to the kernel's own −80.6, so every design saved before the field
@@ -253,19 +253,44 @@ export function normalizeRodAimDeg(x: number): number {
 }
 
 /**
- * The aim the kernel is handed (°, normalised), or null when the flight is
- * identical to aim 0: absent, not a finite number, a whole turn, or a rod that
- * is not tilted (a vertical rod has no direction). ONE predicate for
- * `kernelSimOptions` (which omits `launchRodDirection` on null) and
- * `conditionsKeyOf` (which folds the key on null), so "does not move the
- * flight" and "does not change the conditions" cannot disagree (decision D9).
+ * A Rod aim as the flight, the conditions key and the .ork all use it:
+ * normalised into (−180, 180] and rounded to a billionth of a degree. NaN for
+ * a non-finite one.
+ *
+ * The rounding is what makes an aim one number however it got here.
+ * Normalising alone is lossy — `(x % 360 + 360) % 360` passes through 360.1,
+ * so 0.1° comes out 0.10000000000002274 and 33.3° as 33.30000000000001
+ * (measured) — and the .ork stores the rod's COMPASS direction, 90° + aim,
+ * whose arithmetic loses the same low bits. Unrounded, a saved 0.1° reopened
+ * as 0.10000000000002274: a number the user never typed, which the panel,
+ * the next save and every share link would then carry. Rounded, it reopens as
+ * saved (orkFile.test pins both the value and the flight). A billionth of a
+ * degree is far below anything a rod can be set to, and far above that
+ * arithmetic's error.
+ */
+export function canonicalRodAimDeg(x: number): number {
+  if (!Number.isFinite(x)) return NaN;
+  const r = Math.round(normalizeRodAimDeg(x) * 1e9) / 1e9;
+  // The rounding can land on −180 (from −179.9999999999…), which is 180; and
+  // −0 is 0.
+  return r === -180 ? 180 : r === 0 ? 0 : r;
+}
+
+/**
+ * The aim the kernel is handed (°, `canonicalRodAimDeg`), or null when the
+ * flight is identical to aim 0: absent, not a finite number, a whole turn, or
+ * a rod that is not tilted (a vertical rod has no direction). ONE predicate
+ * for `kernelSimOptions` (which omits `launchRodDirection` on null) and
+ * `conditionsKeyOf` (which folds the key on null and hashes this value
+ * otherwise), so "does not move the flight" and "does not change the
+ * conditions" cannot disagree (decision D9).
  */
 export function flownRodAimDeg(l: Pick<LaunchConditions, 'launchRodAimDeg' | 'launchRodAngleDeg'>): number | null {
   const a = l.launchRodAimDeg;
   if (typeof a !== 'number' || !Number.isFinite(a)) return null;
   if (!(Number.isFinite(l.launchRodAngleDeg) && l.launchRodAngleDeg !== 0)) return null;
-  const n = normalizeRodAimDeg(a);
-  return Math.abs(n) < 1e-9 ? null : n;
+  const n = canonicalRodAimDeg(a);
+  return n === 0 ? null : n;
 }
 
 /**

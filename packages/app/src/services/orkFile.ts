@@ -1,6 +1,7 @@
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
-  DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
+  canonicalRodAimDeg, DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE,
+  LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
@@ -1390,6 +1391,38 @@ function readLaunchConditions(
       { what: 'wind gust standard deviation', field: 'Wind gusts σ', show: ms }, notes);
   }
 
+  // ROD AIM (weather build, step 2): the rod's lean relative to the wind.
+  // Desktop stores the rod's COMPASS direction and uses it only when
+  // <launchintowind> is false; true — and ABSENT, which 24.12 reads as its
+  // preference default (decision D7), as every 15.03/23.09 file is — points
+  // the rod at the wind's own direction (SimulationOptions.getLaunchRodDirection),
+  // which is aim 0 whatever <launchroddirection> says. Units differ on disk:
+  // the rod direction is DEGREES (the saver multiplies by 360/2π), the wind's
+  // RADIANS, and the <wind model="average"> block beats the legacy
+  // <winddirection> as it does in desktop's handler, which reads the block
+  // last. The app's wind always blows from the east, so what travels is the
+  // rod's angle TO the wind, not either bearing. A negative average wind is
+  // NOT folded in as a half-turn (weather spec A4): the aim is measured from
+  // the direction the file states.
+  //
+  // ALWAYS written, like longitude: App merges an open's launch over the
+  // panel's, so a file that left the key out would inherit the previous
+  // design's aim. Measured on the 36 local .ork files (2026-09-23): the 27
+  // that carry a <simulation> — each into the wind, or manual at 90° against
+  // a π/2 wind — all open at 0; the other 9 carry no launch conditions at all,
+  // so they change none of the panel's, this field included.
+  const iw = text(condEl, ':scope > launchintowind');
+  const intoWind = iw === null || iw.trim().toLowerCase() === 'true';
+  let aim = 0;
+  if (!intoWind) {
+    const rodDeg = num(condEl, 'launchroddirection', 90);
+    let windRad = windEl ? num(windEl, 'direction', NaN) : NaN;
+    if (Number.isNaN(windRad)) windRad = num(condEl, 'winddirection', Math.PI / 2);
+    const a = canonicalRodAimDeg(rodDeg - (windRad * 180) / Math.PI);
+    if (Number.isFinite(a)) aim = a;
+  }
+  launch.launchRodAimDeg = aim;
+
   const alt = num(condEl, 'launchaltitude', NaN);
   if (!Number.isNaN(alt)) {
     launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
@@ -2603,6 +2636,11 @@ export function exportOrk({
     // 0 or 1 — mirror it so old desktops recover the same stddev).
     const turb = launch.windAverage !== 0 ? launch.windStdDev / launch.windAverage
       : launch.windStdDev !== 0 ? 1 : 0;
+    // The Rod aim as the flight and the reader see it (canonicalRodAimDeg).
+    // 90° + aim loses low bits, and the reader's own rounding takes them
+    // back off, so the aim reopens as the same number.
+    const aimDeg = typeof launch.launchRodAimDeg === 'number' ? canonicalRodAimDeg(launch.launchRodAimDeg) : NaN;
+    const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
     writeConfigs.forEach((c, i) => {
       // "uptodate" only when we are actually writing results — and the caller
       // has already vouched that the design, motors and conditions have not
@@ -2621,12 +2659,20 @@ export function exportOrk({
       emit(3, '<conditions>');
       emit(4, `<configid>${escapeXml(c.id)}</configid>`);
       emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
-      // Desktop defaults for options we don't model: launch into wind, and
-      // rod/wind direction (rod direction is DEGREES on disk, 90 = π/2 rad).
-      emit(4, '<launchintowind>true</launchintowind>');
+      // ROD AIM (weather build, step 2) as desktop spells a rod's direction.
+      // At aim 0 — absent, NaN or a whole turn too — "launch into the wind"
+      // and the rod direction desktop saves beside it: exactly the two lines
+      // every export carried before the field, so those files and share links
+      // are byte-identical. Any other aim turns the automatic aiming off and
+      // states the rod's COMPASS direction (DEGREES on disk, 90 = π/2 rad):
+      // the app's wind is from the east (π/2, written below and never
+      // changed), so the rod leans at 90° + aim — the same angle to the wind
+      // the panel shows, and the one desktop then flies. Written even with a
+      // vertical rod, so the setting survives until the rod is tilted.
+      emit(4, `<launchintowind>${manualRod ? 'false' : 'true'}</launchintowind>`);
       // Rod angle is DEGREES on disk (the saver multiplies by 180/π).
       emit(4, `<launchrodangle>${launch.launchRodAngleDeg}</launchrodangle>`);
-      emit(4, '<launchroddirection>90.0</launchroddirection>');
+      emit(4, `<launchroddirection>${manualRod ? (((90 + aimDeg) % 360) + 360) % 360 : '90.0'}</launchroddirection>`);
       emit(4, `<windaverage>${launch.windAverage}</windaverage>`);
       emit(4, `<windturbulence>${turb}</windturbulence>`);
       // Wind direction is RADIANS on disk (unlike the rod elements — the

@@ -4,8 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions, LaunchField,
-  LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
+  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions,
+  LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
@@ -804,6 +804,23 @@ describe('the rod-aim field', () => {
     expect(normalizeRodAimDeg(540)).toBe(180);
     expect(normalizeRodAimDeg(270)).toBe(-90);
     expect(normalizeRodAimDeg(-450)).toBe(-90);
+  });
+
+  // Normalising passes through 360.1, which alone turns 0.1 into
+  // 0.10000000000002274; the flight, the key and the .ork use the aim rounded
+  // to 1e-9°, so it flies — and reopens as — the number typed.
+  it('flies the aim as typed, not normalisation’s last-bit noise', () => {
+    expect(normalizeRodAimDeg(0.1)).not.toBe(0.1);
+    expect(canonicalRodAimDeg(0.1)).toBe(0.1);
+    expect(canonicalRodAimDeg(33.3)).toBe(33.3);
+    expect(canonicalRodAimDeg(-0.1)).toBe(-0.1);
+    expect(canonicalRodAimDeg(-179.99999999999997)).toBe(180);
+    expect(Object.is(canonicalRodAimDeg(-0), 0)).toBe(true);
+    expect(Object.is(canonicalRodAimDeg(-1e-12), 0)).toBe(true);
+    expect(canonicalRodAimDeg(NaN)).toBeNaN();
+    expect(flownRodAimDeg({ launchRodAngleDeg: 5, launchRodAimDeg: 0.1 })).toBe(0.1);
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 0.1 }).launchRodDirection)
+      .toBe(Math.PI / 2 + (0.1 * Math.PI) / 180);
   });
 
   it('flies an aim only when the rod is tilted and the aim is off the wind', () => {

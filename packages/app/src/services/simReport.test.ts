@@ -1557,6 +1557,11 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 })).toContain('launchRodAimDeg=90');
     expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 }))
       .not.toBe(conditionsKeyOf({ ...tilted, launchRodAimDeg: -90 }));
+    // Hashed as flown: 540, −180 and 180 are one rod direction, one flight.
+    for (const same of [540, -180]) {
+      expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: same }), String(same))
+        .toBe(conditionsKeyOf({ ...tilted, launchRodAimDeg: 180 }));
+    }
   });
 
   it('KEEPS the spelling every stored run already uses for a null REQUIRED field', () => {

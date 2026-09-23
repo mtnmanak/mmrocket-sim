@@ -1078,7 +1078,12 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   // key — the absent spelling every run stored before the field has. Without
   // this, the .ork reader writing 0 into each design it opens would re-key
   // every run in the history, and so would typing an aim onto a vertical rod.
-  if (flownRodAimDeg(launch) === null) delete l.launchRodAimDeg;
+  // An aim that DOES fly is hashed as flown (normalised, and rounded to 1e-9°
+  // by `canonicalRodAimDeg`): 540 and 180 are one flight, and so are a typed
+  // 15° and the same aim back from the .ork's compass arithmetic.
+  const aim = flownRodAimDeg(launch);
+  if (aim === null) delete l.launchRodAimDeg;
+  else l.launchRodAimDeg = aim;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at
