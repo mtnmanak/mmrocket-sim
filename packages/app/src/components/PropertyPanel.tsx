@@ -3,7 +3,9 @@ import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, Stati
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
-import { applyFieldLimit, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef } from '../tree/schema.js';
+import {
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef,
+} from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
@@ -597,6 +599,18 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       const dflt = RAILBUTTON_DEFAULTS[f.key];
       if (dflt !== undefined) {
         autoValue = toDisplay(dflt);
+        autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
+      }
+    }
+    // Every other blank that flies ONE known value — a new fin set's cant (0), a
+    // new canopy's lines (6), a set saved with no fin count (3) — shows it and
+    // steps from it the same way (seam review of audit 2026-09-22; schema.ts
+    // `blankValue`). A blank with no such figure keeps no base, so NumField's
+    // spinner stays inert on it, as the audit made it.
+    if (typeof raw !== 'number' && autoValue === undefined && autoPlaceholder === undefined) {
+      const blank = blankValue(node.type, f.key);
+      if (blank !== undefined) {
+        autoValue = toDisplay(blank);
         autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
       }
     }
