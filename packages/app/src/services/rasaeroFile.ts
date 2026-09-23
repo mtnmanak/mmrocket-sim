@@ -2155,8 +2155,19 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const ev = String(c['deployEvent'] ?? 'apogee');
     return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
   };
+  /*
+   * A field the chute leaves blank is written as what the kernel FLIES for it
+   * (audit 2026-09-22): ComponentFactory's 0.3 m diameter, Parachute.DEFAULT_CD
+   * 0.8, and DeploymentConfiguration's 200 m deploy altitude. This writer had
+   * its own 0.9 m, Cd 0.75 and 150 m, so a blank-altitude main re-opened 50 m
+   * lower on a canopy three times the size — and the sort below ranked a
+   * blank altitude as 0 m while it flies at 200.
+   */
+  const KERNEL_CHUTE_DIAMETER_M = 0.3;
+  const KERNEL_CHUTE_CD = 0.8;
+  const KERNEL_DEPLOY_ALTITUDE_M = 200;
   chutes.sort((a, b) => eventRank(a) - eventRank(b)
-    || nnum(b, 'deployAltitude', 0) - nnum(a, 'deployAltitude', 0));
+    || nnum(b, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) - nnum(a, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M));
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.
@@ -2165,12 +2176,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const ev = c ? String(c['deployEvent'] ?? 'apogee') : 'none';
     const evType = ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None';
     return {
-      altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', 150) * FT : 0),
+      altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) * FT : 0),
       deviceType: c ? 'Parachute' : 'None',
       event: c && evType !== 'None' ? 'True' : 'False',
-      size: fmt(c ? nnum(c, 'diameter', 0.9) * IN : 0),
+      size: fmt(c ? nnum(c, 'diameter', KERNEL_CHUTE_DIAMETER_M) * IN : 0),
       eventType: c ? evType : 'None',
-      cd: fmt(c ? nnum(c, 'cd', 0.75) : 0),
+      cd: fmt(c ? nnum(c, 'cd', KERNEL_CHUTE_CD) : 0),
     };
   });
   emit('<Recovery>');

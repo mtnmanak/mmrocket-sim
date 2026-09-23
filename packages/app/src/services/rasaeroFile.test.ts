@@ -2366,3 +2366,38 @@ describe('RASAero export — booster fins are located on the whole booster body'
     expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
   });
 });
+
+/**
+ * Audit 2026-09-22 row 396. A chute that leaves a field blank FLIES the
+ * kernel's value for it (ComponentFactory: diameter 0.3 m; Parachute.DEFAULT_CD
+ * 0.8; DeploymentConfiguration's 200 m), so that is what the .CDX1 must carry.
+ * The writer filled 0.9 m, Cd 0.75 and 150 m instead, so a blank-altitude
+ * main re-opened 50 m lower, on a canopy three times the size.
+ */
+describe('RASAero export — a blank recovery field writes what the kernel flies', () => {
+  const bare = {
+    name: 'R',
+    tree: { components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+      { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive' },
+      { type: 'bodytube' as const, id: 'b', length: 0.9, outerRadius: 0.0508, thickness: 0.001, children: [
+        { type: 'trapezoidfinset' as const, id: 'f', finCount: 3, rootChord: 0.15, tipChord: 0.07, sweep: 0.05,
+          height: 0.11, thickness: 0.004, position: { method: 'bottom' as const, offset: 0 } },
+        { type: 'parachute' as const, id: 'p', deployEvent: 'altitude' },
+      ] },
+    ] }] },
+  };
+
+  it('writes 200 m, 0.3 m and Cd 0.8', () => {
+    const xml = exportCdx1(bare);
+    expect(xml).toContain('<Altitude1>656.168</Altitude1>'); // 200 m in ft
+    expect(xml).toContain('<Size1>11.811</Size1>'); // 0.3 m in in
+    expect(xml).toContain('<CD1>0.8</CD1>');
+  });
+
+  it('re-opens at the altitude, size and Cd it flew', () => {
+    const chute = flatten(importCdx1(exportCdx1(bare)).tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['deployAltitude']).toBeCloseTo(200, 3);
+    expect(chute['diameter']).toBeCloseTo(0.3, 4);
+    expect(chute['cd']).toBeCloseTo(0.8, 9);
+  });
+});
