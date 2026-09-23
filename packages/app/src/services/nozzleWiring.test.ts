@@ -255,6 +255,6 @@ describe('App feeds the pressure-thrust provenance stamp', () => {
     // `hasNozzle: false` passed by mistake would disable the guard silently.
     expect(app()).toContain('hasNozzle: stagesWithNozzle(tree).length > 0,');
     expect(readFileSync(join(here, 'orkFlightData.ts'), 'utf8')).toContain(
-      'if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) continue;');
+      'if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) return null;');
   });
 });

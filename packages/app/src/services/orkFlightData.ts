@@ -74,13 +74,92 @@ export interface FlightDataForExportInput {
   primaryMountOf: (mountIds: readonly string[]) => string | null;
 }
 
+/**
+ * The motors a stored run flew, read from the configuration it names — when
+ * the run still describes that configuration as it stands in every way but
+ * its delay: this design, these conditions, this model and kernel, these
+ * motors. null for a run that does not. A run with no configuration id
+ * describes the working set of a design that has none (`activeConfigId`
+ * null); `flightDataForExport` writes no such run, `flownAutoDelays` reads one.
+ */
+function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, MountMotor][] | null {
+  const {
+    savedConfigs, activeConfigId, assigned, mountIds, designKey, conditionsKey, model, hasNozzle,
+    motorSetKeyOf, hardwareDeltaKg,
+  } = input;
+  const cfg = r.flightConfigId ? savedConfigs.find((c) => c.id === r.flightConfigId) : undefined;
+  if (r.flightConfigId ? !cfg : activeConfigId !== null) return null;
+  if (r.designKey !== designKey) return null;
+  if (r.conditionsKey !== conditionsKey) return null;
+  // The model too. Without this a run the app itself marks "flown on a
+  // different model" would be written into the file as that configuration's
+  // up-to-date result — the exact authoritative-looking wrong number this
+  // guard exists to prevent. UNKNOWN (a run predating the field) is a refusal
+  // here, as everywhere the numbers travel.
+  if (runMatchesModel(r, model) !== true) return null;
+  // And the kernel's own physics. A run of a nozzle-bearing design flown
+  // before v0.119 carries no pressure-thrust stamp, and none of the three
+  // keys above can see a kernel change.
+  if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) return null;
+  // The motor set is compared against the CONFIGURATION's own motors, not the
+  // live working set: a user who has since switched configurations must still
+  // be able to export the results of the others.
+  //
+  // Filtered by the current mounts, the same predicate as `assigned`: since
+  // the write-back (configSync) a configuration's `motors` is the working set
+  // verbatim and can hold a stale id that the run's key — stamped from
+  // `assigned` — never had. Refusal is the safe direction, but a needless one
+  // loses that configuration's stored result from the file.
+  const active = !cfg || cfg.id === activeConfigId;
+  const cfgMotors: [string, MountMotor][] = active
+    ? [...assigned]
+    : Object.entries(cfg.motors).filter(([id]) => mountIds.includes(id));
+  // The hardware term is the ACTIVE configuration's: a non-active
+  // configuration's stored run keeps matching only if it flew with no
+  // hardware, and refusal is the safe direction for numbers written into a
+  // file — the same rule the model check above applies to UNKNOWN.
+  if (r.motorSetKey !== motorSetKeyOf(cfgMotors, active ? hardwareDeltaKg : 0)) return null;
+  return cfgMotors;
+}
+
+/**
+ * WHAT AN AUTO-DELAY PRIMARY FLEW, per configuration (`''` for a design with
+ * none) — the delay a Save writes for it (seam review of audit 2026-09-22).
+ *
+ * Auto (optimal) is this app's own setting; neither a .ork nor a .rkt can hold
+ * it, and a Save wrote the motor's PROVISIONAL first-flight delay: the
+ * longest listed, or 0 s for a motor that lists no numeric delay: on the
+ * Cheetah probe a KBA G135R, loaded on Auto from RockSim's −1, flew 11 s and
+ * deployed at 0.87 m/s, and reopened from either file at 0 s, deploying at
+ * burnout at 250.9 m/s. The
+ * delay its newest flight of the design as it stands flew — the rounded
+ * optimum, `SimRun.delayS` — is what it flies, and so what the file says; a
+ * primary with no such flight gets no entry, and the Save says so instead. A
+ * flag of this app's own in the .ork was the other way, and was not taken:
+ * desktop OpenRocket warns on an element it does not know and would still fly
+ * the provisional delay.
+ */
+export function flownAutoDelays(input: FlightDataForExportInput): Record<string, number> {
+  const out = lookupTable<number>({});
+  for (const r of input.runs) {
+    const key = r.flightConfigId ?? '';
+    // Newest-first: the first run that still describes the design is the one.
+    if (key in out) continue;
+    const cfgMotors = describedMotors(r, input);
+    if (!cfgMotors) continue;
+    const primaryId = input.primaryMountOf(cfgMotors.map(([id]) => id));
+    const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
+    if (primary?.meta.autoDelay === true && Number.isFinite(r.delayS)) out[key] = r.delayS;
+  }
+  return out;
+}
+
 export function flightDataForExport(
   input: FlightDataForExportInput,
 ): Record<string, OrkExportFlightData> {
-  const {
-    runs, savedConfigs, activeConfigId, assigned, mountIds,
-    designKey, conditionsKey, model, hasNozzle, motorSetKeyOf, hardwareDeltaKg, primaryMountOf,
-  } = input;
+  const { runs, primaryMountOf } = input;
+  // What each auto-delay primary's <delay> will say (App writes the same).
+  const autoDelays = flownAutoDelays(input);
   // No prototype: keyed by configuration id, file-sourced text. A default id
   // of `constructor` found Object there, was skipped as already written, and
   // saved as notsimulated (audit 2026-09-22).
@@ -88,50 +167,26 @@ export function flightDataForExport(
   for (const r of runs) {
     // Newest-first, so the first qualifying run per config wins.
     if (!r.flightConfigId || out[r.flightConfigId]) continue;
-    if (!savedConfigs.some((c) => c.id === r.flightConfigId)) continue;
-    if (r.designKey !== designKey) continue;
-    if (r.conditionsKey !== conditionsKey) continue;
-    // The model too. Without this a run the app itself marks "flown on a
-    // different model" would be written into the file as that configuration's
-    // up-to-date result — the exact authoritative-looking wrong number this
-    // guard exists to prevent. UNKNOWN (a run predating the field) is a refusal
-    // here, as everywhere the numbers travel.
-    if (runMatchesModel(r, model) !== true) continue;
-    // And the kernel's own physics. A run of a nozzle-bearing design flown
-    // before v0.119 carries no pressure-thrust stamp, and none of the three
-    // keys above can see a kernel change.
-    if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) continue;
-    // The motor set is compared against the CONFIGURATION's own motors, not the
-    // live working set: a user who has since switched configurations must still
-    // be able to export the results of the others.
-    const cfg = savedConfigs.find((c) => c.id === r.flightConfigId)!;
-    // Filtered by the current mounts, the same predicate as `assigned`: since
-    // the write-back (configSync) a configuration's `motors` is the working set
-    // verbatim and can hold a stale id that the run's key — stamped from
-    // `assigned` — never had. Refusal is the safe direction, but a needless one
-    // loses that configuration's stored result from the file.
-    const cfgMotors: [string, MountMotor][] = cfg.id === activeConfigId
-      ? [...assigned]
-      : Object.entries(cfg.motors).filter(([id]) => mountIds.includes(id));
-    // The hardware term is the ACTIVE configuration's: a non-active
-    // configuration's stored run keeps matching only if it flew with no
-    // hardware, and refusal is the safe direction for numbers written into a
-    // file — the same rule the model check above applies to UNKNOWN.
-    if (r.motorSetKey !== motorSetKeyOf(cfgMotors, cfg.id === activeConfigId ? hardwareDeltaKg : 0)) continue;
+    const cfgMotors = describedMotors(r, input);
+    if (!cfgMotors) continue;
     // And the delay the run FLEW. The key carries each motor's SPEC delay —
-    // the one this file's `<delay>` will name — never an auto-delay optimum,
-    // which is only known after flying (simReport's motorSetKeyOf). So an
-    // auto-delay run matched its configuration and its flight was written
-    // under a delay it never flew: measured on the starter rocket on the default
-    // model (classic + Kbf; audit 2026-09-22), an Estes C6 set to 3 s that auto
-    // flew at 5 s went into the file deploying at 3.81 m/s, where the 3 s motor
-    // the file names deploys at 16.81 m/s. The run's `delayS` is the PRIMARY's
-    // — the only mount auto delay writes — so it is read against this
-    // configuration's own primary. An optimum that rounded to the spec delay
-    // flew exactly what the file says, and is written.
+    // never an auto-delay optimum, which is only known after flying
+    // (simReport's motorSetKeyOf). So an auto-delay run matched its
+    // configuration and its flight was written under a delay it never flew:
+    // measured on the starter rocket on the default model (classic + Kbf;
+    // audit 2026-09-22), an Estes C6 set to 3 s that auto flew at 5 s went into
+    // the file deploying at 3.81 m/s, where the 3 s motor the file named
+    // deploys at 16.81 m/s. The run's `delayS` is the PRIMARY's — the only
+    // mount auto delay writes — so it is read against the delay the file's
+    // <delay> names for this configuration's own primary: its spec delay, or,
+    // on Auto, the one its newest flight flew (flownAutoDelays), which is now
+    // what the file says.
     const primaryId = primaryMountOf(cfgMotors.map(([id]) => id));
     const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
-    if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
+    if (!primary) continue;
+    const named = primary.meta.autoDelay === true
+      ? autoDelays[r.flightConfigId] ?? primary.spec.ejectionDelay : primary.spec.ejectionDelay;
+    if (r.delayS !== named) continue;
     out[r.flightConfigId] = summaryOf(r);
   }
   return out;

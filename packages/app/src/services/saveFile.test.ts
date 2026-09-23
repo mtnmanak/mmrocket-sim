@@ -207,7 +207,7 @@ describe('saveOutcomeNote — the save line, and the losses under it', () => {
 
   it('App hands the .rkt writer’s losses to the save line', () => {
     const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
-    expect(app).toMatch(/exportRkt\(\{[^}]*notes: losses \}\)/);
+    expect(app).toMatch(/exportRkt\(\{[^}]*notes: losses,?\s*\}\)/);
     expect(app).toContain("await download(xml, 'rkt', '', losses);");
     expect(app).toContain('const said = saveOutcomeNote(out, losses);');
   });

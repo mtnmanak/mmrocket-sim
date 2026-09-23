@@ -9,8 +9,9 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { finCountOf } from '../tree/counts.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
-import { shapeParamDefault } from './orkFile.js';
-import type { OrkExportMotor, OrkFlightConfig, OrkImportResult, OrkMotorRef } from './orkFile.js';
+import {
+  autoDelaySaveNote, shapeParamDefault, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+} from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
 import { defaultDelay } from './thrustcurve.js';
@@ -2640,6 +2641,21 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     }
     notes?.push(...lostIgnition);
     const rktIgnitionDelay = (id: string): number => writtenIgnition.get(id) ?? 0;
+    // AUTO DELAY BACK AS RockSim's "EVERY DELAY" (seam review of audit
+    // 2026-09-22). A motor whose listing gives no numeric delay (KBA's letter
+    // codes) is loaded on Auto from RockSim's −1 (rktEveryDelay), and a Save
+    // wrote its provisional 0 s, which reopened as a charge at burnout. −1
+    // reads back as Auto; a motor that lists delays would read −1 back as its
+    // longest instead, so it keeps the delay App hands over and the Save says
+    // so (autoDelaySaveNote).
+    const everyDelay = (m: OrkExportMotor): boolean => m.rktEveryDelay === true
+      || (m.autoDelay === true && rktEveryDelay(m.designation, m.manufacturer ?? 'unknown')?.autoDelay === true);
+    for (const i of [0, 1, 2]) {
+      for (const [, m] of stageMotors[i]!) {
+        const said = everyDelay(m) ? null : autoDelaySaveNote(m, '.rkt');
+        if (said) notes?.push(said);
+      }
+    }
     // RockSim names a simulation by its motors, the stage that leaves the pad
     // first: one bracket per stage, a cluster's motors comma-separated inside
     // it, "-P" for plugged ("-*" for a kept "every delay" −1, as RockSim names
@@ -2655,7 +2671,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     const copiesOf = (id: string): number[] => mountCopies.get(id) ?? [nodeSerial.get(id) ?? -1];
     const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.flatMap(([id, m]) => {
       const ign = rktIgnitionDelay(id);
-      const entry = `${m.designation}-${m.rktEveryDelay ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+      const entry = `${m.designation}-${everyDelay(m) ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
       return copiesOf(id).map(() => entry);
     }).join(', ')}] `).join('');
     emit(`<SimulationName>${esc(simName)}</SimulationName>`);
@@ -2683,8 +2699,9 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
           // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
           // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
           // A reference nothing loaded that the file gave RockSim's "every delay"
-          // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay).
-          emit(`<EjectionDelay>${m.rktEveryDelay ? RKT_EVERY_DELAY
+          // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay), and
+          // so does an Auto motor with no numeric delay (everyDelay above).
+          emit(`<EjectionDelay>${everyDelay(m) ? RKT_EVERY_DELAY
             : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
           emit('</EngineSet>');
         }

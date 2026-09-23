@@ -146,8 +146,10 @@ describe('only a full-fidelity save clears the unsaved-changes mark (App-only ab
     // The picker can sit open indefinitely with the user editing behind it; a
     // mark taken after the await would bless those edits as saved. planOrkSave
     // is tested in importApply.test.ts; that App calls it FIRST is not.
+    // No await between the two: the Auto-delay write-back (seam review of
+    // audit 2026-09-22) put a few synchronous lines there.
     expect(app()).toMatch(
-      /const \{ savedConfigs: synced, mark \} = planOrkSave\(snapshotNow\(\), unmatchedRefs\);[\s\S]{0,600}?await download\(exportOrk/);
+      /const \{ savedConfigs: synced, mark \} = planOrkSave\(snapshotNow\(\), unmatchedRefs\);(?:(?!await )[\s\S]){0,1500}?await download\(exportOrk/);
   });
 
   it('the lossy exports do NOT mark', () => {

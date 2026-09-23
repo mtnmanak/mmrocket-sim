@@ -66,7 +66,7 @@ import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
+import { autoDelaySaveNote, exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -101,7 +101,9 @@ import {
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
-import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
+import {
+  flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
+} from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -2459,7 +2461,15 @@ export function App() {
   }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
-  const toExportMotor = (mm: MountMotor): OrkExportMotor => {
+  /**
+   * `primaryAuto`: set for a configuration's PRIMARY mount, with the delay its
+   * newest flight of the design flew on Auto (flownAutoDelaysNow), if any. An
+   * Auto primary is written at that delay — what it flies — rather than its
+   * provisional first flight, which a Save used to write and a reopen then
+   * flew (seam review of audit 2026-09-22); with no such flight it keeps the
+   * provisional delay and the Save says so (autoDelaySaveNote).
+   */
+  const toExportMotor = (mm: MountMotor, primaryAuto?: { flownS: number | undefined }): OrkExportMotor => {
     // EX motors: the file gets the REAL manufacturer from the imported
     // .eng/.rse, never the "EX" browser badge (the desktop would hunt for a
     // manufacturer literally named EX and lose the motor), and never a
@@ -2482,6 +2492,7 @@ export function App() {
     // <type> per the desktop Motor.Type names: the file's own value verbatim
     // when the motor came from a .ork, else mapped from the thrustcurve
     // catalog type; omitted (never guessed) when neither is known.
+    const auto = mm.meta.autoDelay === true;
     const type = mm.meta.orkType
       ?? (mm.meta.type === 'SU' ? 'single'
         : mm.meta.type === 'reload' ? 'reload'
@@ -2497,7 +2508,9 @@ export function App() {
       ...(!ex && mm.meta.orkDigest ? { digest: mm.meta.orkDigest } : {}),
       diameter: mm.spec.diameter,
       length: mm.spec.length,
-      delay: mm.spec.ejectionDelay,
+      delay: (auto ? primaryAuto?.flownS : undefined) ?? mm.spec.ejectionDelay,
+      ...(auto ? { autoDelay: true as const } : {}),
+      ...(auto && primaryAuto ? { autoDelayFrom: primaryAuto.flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
       ignitionEvent: mm.ignition.event,
       ignitionDelay: mm.ignition.delay,
       // The weighed pad mass rides out with the motor it was weighed with; the
@@ -2533,10 +2546,10 @@ export function App() {
     return out;
   };
 
-  const exportMotorsMap = (): Record<string, OrkExportMotor> => {
+  const exportMotorsMap = (flown: Record<string, number> = {}): Record<string, OrkExportMotor> => {
     const motors: Record<string, OrkExportMotor> = {};
     for (const [id, mm] of assigned) {
-      motors[id] = toExportMotor(mm);
+      motors[id] = toExportMotor(mm, id === primaryMountId ? { flownS: flown[activeConfigId ?? ''] } : undefined);
     }
     // Motors the import could not resolve ride back out VERBATIM on any mount
     // that still has nothing on it. Without this the file the user saved came
@@ -2574,8 +2587,7 @@ export function App() {
    * file desktop OpenRocket renders indistinguishably from a fresh result. This
    * is the adapter that hands them the app's state.
    */
-  const flightDataForExport = useCallback((): Record<string, OrkExportFlightData> => (
-    flightDataForExportPure({
+  const flightExportInput = useCallback((): FlightDataForExportInput => ({
       runs,
       savedConfigs,
       activeConfigId,
@@ -2598,9 +2610,17 @@ export function App() {
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
-    })
-  ), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
+  }), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
+  const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
+  /**
+   * The delay each Auto primary's newest flight of the design flew, by
+   * configuration id ('' for none) — what a .ork, a .rkt and a share link
+   * write for it (orkFlightData.flownAutoDelays), from the same input the
+   * results above are judged on, so a file never names one delay and carries
+   * the flight of another.
+   */
+  const flownAutoDelaysNow = (): Record<string, number> => flownAutoDelays(flightExportInput());
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2609,7 +2629,9 @@ export function App() {
    * defaults to state; onSaveOrk passes the set it has just written the
    * working set back into, so the file and the mark agree.
    */
-  const exportConfigs = (configs: SavedConfig[] = savedConfigs): OrkExportConfig[] => configs.map((c) => ({
+  const exportConfigs = (
+    configs: SavedConfig[] = savedConfigs, flown: Record<string, number> = {},
+  ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
     // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
     // for any mount this configuration could not match, so a preset the user
@@ -2619,8 +2641,11 @@ export function App() {
     motors: padMassOnPrimaryOnly({
       ...Object.fromEntries(
         Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
-      ...Object.fromEntries(
-        Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+      ...(() => {
+        const primary = primaryMountOf(tree, Object.keys(c.motors));
+        return Object.fromEntries(Object.entries(c.motors).map(([id, mm]) =>
+          [id, toExportMotor(mm, id === primary ? { flownS: flown[c.id] } : undefined)]));
+      })(),
     }, tree),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
@@ -2703,13 +2728,21 @@ export function App() {
       // over the synced set (importApply.planOrkSave says why).
       const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
       if (synced !== savedConfigs) setSavedConfigs(synced);
+      // Every Auto primary at the delay it flew, and a line for each the file
+      // cannot carry that way (autoDelaySaveNote) — once per motor, though the
+      // active configuration's goes through both maps.
+      const flown = flownAutoDelaysNow();
+      const motors = exportMotorsMap(flown);
+      const configs = exportConfigs(synced, flown);
+      const losses = [...new Set([...Object.values(motors), ...configs.flatMap((c) => Object.values(c.motors))]
+        .map((m) => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
       // WITH launch: the .ork's first <simulation> carries the pad and weather,
       // so the file (and the desktop app) round-trips the whole flight setup.
       const out = await download(exportOrk({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-        configs: exportConfigs(synced), activeConfigId, measured,
+        name: tree.name ?? 'My Rocket', tree, motors, launch,
+        configs, activeConfigId, measured,
         flightData: flightDataForExport(),
-      }), 'ork');
+      }), 'ork', '', losses);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (out.kind !== 'cancelled') markSaved(mark);
@@ -2756,7 +2789,9 @@ export function App() {
         collect(tree.components);
       }
       const losses: string[] = [];
-      const xml = exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo, notes: losses });
+      const xml = exportRkt({
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,
+      });
       await download(xml, 'rkt', '', losses);
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -3052,12 +3087,13 @@ export function App() {
    */
   const onCopyShareLink = async () => {
     try {
+      const flown = flownAutoDelaysNow();
       const xml = exportOrk({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
         // Included so a share link reproduces exactly what saving the file
         // reproduces — the recipient sees the sender's weighed build, which is
         // the rocket the "Build allowance" in the tree belongs to.
-        configs: exportConfigs(), activeConfigId, measured,
+        configs: exportConfigs(savedConfigs, flown), activeConfigId, measured,
         // Same rule: a link must open to the same file a save would write.
         flightData: flightDataForExport(),
       });

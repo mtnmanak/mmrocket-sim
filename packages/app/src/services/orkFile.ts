@@ -1591,6 +1591,35 @@ export interface OrkExportMotor {
   padMassKg?: number;
   /** An unmatched reference's RockSim "every delay" (OrkMotorRef.rktEveryDelay): .rkt writes −1. */
   rktEveryDelay?: true;
+  /**
+   * The motor is on Auto (optimal) delay (MotorMeta.autoDelay), which neither
+   * format can hold. A .rkt writes RockSim's "every delay" (−1) for a motor
+   * whose listing gives no numeric delay, which its reader loads on Auto again;
+   * everywhere else the file carries `delay`.
+   */
+  autoDelay?: true;
+  /**
+   * Where the PRIMARY's `delay` came from when it is on Auto: the delay its
+   * newest flight of the design as it stands flew (orkFlightData's
+   * flownAutoDelays), or — no such flight — its provisional first flight.
+   * Unset on every other mount, which flies the delay in its field
+   * (flightRunner re-flies the primary only), so saving that loses nothing.
+   */
+  autoDelayFrom?: 'flown' | 'provisional';
+}
+
+/**
+ * The Save note for an Auto-delay primary written as a fixed delay — said,
+ * because the file reopens flying that delay, not Auto's. null when there is
+ * nothing to say (not the primary, or not on Auto).
+ */
+export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): string | null {
+  if (!m.autoDelay || !m.autoDelayFrom) return null;
+  const has = `“${m.designation}” is on Auto (optimal) delay, which a ${format} has no setting for`;
+  return m.autoDelayFrom === 'flown'
+    ? `${has}: it is saved at ${m.delay} s, the delay its last flight here flew, and reopens fixed at that.`
+    : `${has}, and no flight of the design as it stands says what Auto flies: it is saved at its provisional `
+      + `${m.delay} s, and reopens fixed at that. Launch, then save, to keep the delay Auto flies.`;
 }
 
 /** One flight configuration to write (Stage B) — the stable id from import. */

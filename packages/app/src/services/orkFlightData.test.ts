@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flightDataForExport, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
+import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import type { SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 
@@ -248,5 +248,42 @@ describe('flightDataForExport — the flown delay must be the one the file names
   it('writes a plugged motor’s run — Infinity is the delay it flew and the one the file names', () => {
     const plugged = withDelay(Infinity);
     expect(ids({ runs: [{ ...RUN, delayS: Infinity } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
+  });
+});
+
+/**
+ * AUTO DELAY THROUGH A SAVE (seam review of audit 2026-09-22). Neither a .ork
+ * nor a .rkt can hold "Auto (optimal)", and a Save wrote the motor's
+ * provisional first-flight delay — 0 s for a motor that lists no numeric
+ * delay, which reopened firing at burnout. The delay the Auto primary's newest
+ * flight of the design as it stands flew is what the file now names, and the
+ * flight data written beside it is that flight's.
+ */
+describe('flownAutoDelays — what an Auto primary flew, and what the file names', () => {
+  const auto = (spec: number): MountMotor =>
+    ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: spec }, meta: { ...MOTOR.meta, autoDelay: true } }) as MountMotor;
+
+  it('takes the delay the newest matching flight of an Auto primary flew', () => {
+    // Provisional 3 s; the flight re-flew at the optimum, 7 s.
+    const input = base({ assigned: [['m1', auto(3)]] });
+    expect(flownAutoDelays(input)).toEqual({ c1: 7 });
+    // And the file, now naming 7 s, carries that flight's results.
+    expect(Object.keys(flightDataForExport(input))).toEqual(['c1']);
+    const newer = { ...RUN, id: 'r0', delayS: 6 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [newer, RUN], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 6 });
+  });
+
+  it('reads a design with no configurations from its configuration-less flights', () => {
+    const loose = { ...RUN, flightConfigId: undefined } as unknown as SimRun;
+    expect(flownAutoDelays(base({ runs: [loose], savedConfigs: [], activeConfigId: null, assigned: [['m1', auto(0)]] })))
+      .toEqual({ '': 7 });
+    // Not while a configuration is on screen: that flight was not of this set.
+    expect(flownAutoDelays(base({ runs: [loose], assigned: [['m1', auto(0)]] }))).toEqual({});
+  });
+
+  it('names nothing for a primary not on Auto, or with no flight of the design as it stands', () => {
+    expect(flownAutoDelays(base())).toEqual({});
+    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], designKey: 'design-B' }))).toEqual({});
+    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], motorSetKeyOf: () => 'set-B' }))).toEqual({});
   });
 });

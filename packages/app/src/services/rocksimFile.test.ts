@@ -7,7 +7,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktEveryDelay } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
-import { refToExportMotor } from './motorMatch.js';
+import { matchImportedMotor, refToExportMotor } from './motorMatch.js';
 import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
@@ -1419,6 +1419,59 @@ describe('RockSim ejection-delay sentinels', () => {
     // KBA G135R, G82W, H130W, H225R ("M") and K400S ("S,M,L") at the 2026-09-22 catalogue.
     expect(auto).toBeGreaterThan(0);
     expect(rktEveryDelay('ZQ9999X', 'Estes')).toBeNull();
+  });
+
+  /**
+   * AUTO DELAY THROUGH A SAVE (seam review of audit 2026-09-22). The G135R the
+   * reader loads on Auto flew 11 s on the Cheetah probe and deployed at
+   * 0.87 m/s; saved, it went out as <EjectionDelay>0</EjectionDelay> and
+   * reopened deploying at burnout, 250.9 m/s. Written back as −1, it reads back
+   * on Auto. A motor that LISTS delays would read −1 back as its longest, so it
+   * keeps its delay, and the Save says what the file cannot hold.
+   */
+  it('writes an Auto motor that lists no numeric delay back as −1, which reopens on Auto', async () => {
+    const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>'])
+      .replace('<EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>', '<EngineCode>G135R</EngineCode><EngineMfg>KBA</EngineMfg>'));
+    const ref = Object.values(r.motors)[0]!;
+    const loaded = (await matchImportedMotor(ref)).motor!;
+    expect(loaded.meta.autoDelay).toBe(true);
+    // What App's toExportMotor hands the writer for that primary, with no flight yet.
+    const notes: string[] = [];
+    const xml = exportRkt({
+      name: 'Cheetah', tree: r.tree, notes,
+      motors: { [ref.mountId!]: {
+        designation: loaded.spec.designation, manufacturer: loaded.meta.orkManufacturer ?? loaded.meta.manufacturer,
+        diameter: loaded.spec.diameter, length: loaded.spec.length, delay: loaded.spec.ejectionDelay,
+        autoDelay: true, autoDelayFrom: 'provisional',
+      } },
+    });
+    expect(xml).toContain('<EjectionDelay>-1</EjectionDelay>');
+    expect(xml).toContain('<SimulationName>[G135R-*] </SimulationName>');
+    expect(notes).toEqual([]);
+    const again = Object.values(importRkt(xml).motors)[0]!;
+    expect(again.autoDelay).toBe(true);
+    expect((await matchImportedMotor(again)).motor!.meta.autoDelay).toBe(true);
+  });
+
+  it('keeps a listed-delay Auto motor’s delay — flown or provisional — and says so', () => {
+    const r = importRkt(rkt(['<EjectionDelay>5.</EjectionDelay>']));
+    const id = Object.values(r.motors)[0]!.mountId!;
+    const c6 = (delay: number, autoDelayFrom: 'flown' | 'provisional'): OrkExportMotor => ({
+      designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay, autoDelay: true, autoDelayFrom,
+    });
+    const flown: string[] = [];
+    expect(exportRkt({ name: 'C', tree: r.tree, notes: flown, motors: { [id]: c6(5, 'flown') } }))
+      .toContain('<EjectionDelay>5</EjectionDelay>');
+    expect(flown).toEqual(['“C6” is on Auto (optimal) delay, which a .rkt has no setting for: it is saved at 5 s, '
+      + 'the delay its last flight here flew, and reopens fixed at that.']);
+    const provisional: string[] = [];
+    expect(exportRkt({ name: 'C', tree: r.tree, notes: provisional, motors: { [id]: c6(7, 'provisional') } }))
+      .toContain('<EjectionDelay>7</EjectionDelay>');
+    expect(provisional).toEqual([expect.stringMatching(/no flight of the design as it stands says what Auto flies: it is saved at its provisional 7 s/)]);
+    // A mount auto does not re-fly flies the delay in its field: nothing is lost, nothing is said.
+    const other: string[] = [];
+    exportRkt({ name: 'C', tree: r.tree, notes: other, motors: { [id]: { ...c6(7, 'provisional'), autoDelayFrom: undefined } } });
+    expect(other).toEqual([]);
   });
 
   it('notes each motor once, however many mounts carry it', () => {
