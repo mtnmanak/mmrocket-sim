@@ -2853,4 +2853,50 @@ describe('.ork <atmosphere> carries the pad air the flight flies', () => {
     expect(back.pressureHPa).toBeCloseTo(1013.25, 9);
     expect(back.temperatureC).toBeCloseTo(20, 9);
   });
+
+  /*
+   * Audit 2026-09-22 review: the reader first INFERRED a blank from a value
+   * equal to the site's standard, which also blanked typed values — at sea
+   * level, a typed 1013.25 hPa (desktop's own default pressure) beside 20 °C,
+   * or a typed 15 °C beside 1000 hPa. The writer now names the field it filled.
+   */
+  const atSeaLevel = (temperatureC: number | null, pressureHPa: number | null) =>
+    ({ ...site(temperatureC, pressureHPa), launchAltitudeM: 0 });
+
+  it('names the field it filled in a blank="…" attribute, and only then', () => {
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) }))
+      .toContain('<atmosphere model="extendedisa" blank="pressure">');
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(null, 700) }))
+      .toContain('<atmosphere model="extendedisa" blank="temperature">');
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(20, 800) }))
+      .toContain('<atmosphere model="extendedisa">');
+  });
+
+  it('keeps a TYPED value that happens to be the site standard', () => {
+    for (const [t, p] of [[20, 1013.25], [15, 1000]] as const) {
+      const back = importOrk(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(t, p) })).launch!;
+      expect(back.temperatureC).toBeCloseTo(t, 9);
+      expect(back.pressureHPa).toBeCloseTo(p, 9);
+    }
+  });
+
+  it('keeps desktop’s default pressure beside a typed temperature at sea level', () => {
+    // Desktop writes no marker: 101325 Pa there is a value, not a blank.
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(20, 1013.25) })
+      .replace(/ blank="[a-z]+"/, '');
+    expect(importOrk(xml).launch!.pressureHPa).toBeCloseTo(1013.25, 9);
+  });
+
+  it('keeps the blank at sea level, where the standard is a round number', () => {
+    const back = importOrk(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(20, null) })).launch!;
+    expect(back.pressureHPa).toBeNull();
+    expect(back.temperatureC).toBeCloseTo(20, 9);
+  });
+
+  it('never throws away a number the marker sits beside but the writer did not fill', () => {
+    // A hand-edited value under a stale marker is a value.
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) })
+      .replace(/<basepressure>[^<]*<\/basepressure>/, '<basepressure>75000</basepressure>');
+    expect(importOrk(xml).launch!.pressureHPa).toBeCloseTo(750, 9);
+  });
 });

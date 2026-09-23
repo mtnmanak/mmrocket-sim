@@ -74,8 +74,9 @@ export interface OrkTreeImportResult {
    * Launch conditions from the file's FIRST <simulation>'s <conditions> —
    * only the fields the file actually carried (temperature/pressure are set
    * to null when the file declares the ISA standard atmosphere, and one of
-   * the two is when it alone is exactly the site-altitude standard: a blank
-   * this app's writer had to state, see readLaunchConditions).
+   * the two is when <atmosphere blank="…"> names it and it is exactly the
+   * site-altitude standard: a blank this app's writer had to state, see
+   * readLaunchConditions).
    */
   launch?: Partial<LaunchConditions>;
   /**
@@ -1422,26 +1423,31 @@ function readLaunchConditions(
             + 'atmosphere instead — set the station pressure under Launch conditions if you know it.');
         }
       }
-      // ONE value that is exactly the site's standard is a BLANK this app wrote
-      // (weather design review, 2026-09-22). The format is both-or-ISA, so the
-      // writer states a blank temperature or pressure as the standard value at
-      // the site altitude — padAir's, at full precision — and without this the
-      // app's own round trip turned the user's blank into a typed number. Kept
+      // A BLANK THIS APP WROTE (weather design review, 2026-09-22). The format
+      // is both-or-ISA, so the writer states a blank temperature or pressure
+      // as the standard value at the site altitude — padAir's, at full
+      // precision — and names it in blank="temperature" or blank="pressure"
+      // on <atmosphere>, an attribute desktop ignores (its conditions handler
+      // reads only model=) and drops on its own save. Without this the app's
+      // own round trip turned the user's blank into a typed number. Kept
       // blank, it flies the identical value (padAir fills a blank with exactly
       // that standard), so no flown number moves; it only stays blank in the
-      // panel, following the site altitude if that is edited. Exactly one: a
-      // file stating BOTH standard values typed them, and keeps them. Only
-      // against the file's own <launchaltitude> — without one, the panel's
-      // altitude stays, and its standard is not the file's.
+      // panel, following the site altitude if that is edited. The MARKER
+      // decides, not the value (audit 2026-09-22 review): inferring a blank
+      // from a value equal to the site's standard also blanked TYPED ones —
+      // 1013.25 hPa beside 20 °C at sea level, which is desktop's own default
+      // pressure too. The value is still checked, so a marker left beside a
+      // hand-edited number cannot throw that number away; and only against
+      // the file's own <launchaltitude> — without one, the panel's altitude
+      // stays, and its standard is not the file's.
+      const blank = atmEl.getAttribute('blank');
       const siteAltM = launch.launchAltitudeM;
       if (typeof siteAltM === 'number') {
         const isStd = (v: number, std: number): boolean => Math.abs(v - std) <= 1e-9 * Math.abs(std);
-        const tStd = typeof launch.temperatureC === 'number' && isStd(tK, isaTemperatureK(siteAltM));
-        const pStd = typeof launch.pressureHPa === 'number' && isStd(pPa, isaPressurePa(siteAltM));
-        if (tStd !== pStd) {
-          if (tStd) launch.temperatureC = null;
-          else launch.pressureHPa = null;
-        }
+        if (blank === 'temperature' && typeof launch.temperatureC === 'number'
+          && isStd(tK, isaTemperatureK(siteAltM))) launch.temperatureC = null;
+        if (blank === 'pressure' && typeof launch.pressureHPa === 'number'
+          && isStd(pPa, isaPressurePa(siteAltM))) launch.pressureHPa = null;
       }
     }
   }
@@ -2602,15 +2608,20 @@ export function exportOrk({
       // 1013.25 hPa) while the flight fills a blank from the site altitude
       // (since v0.122): at 2,682 m with only 30 °C typed, the file re-opened
       // — here and in desktop — at 1.1644 kg/m³ against the 0.83878 flown
-      // (weather design review, 2026-09-22). Full precision, so the reader
-      // can recognise the site-standard value it wrote and keep it blank (see
-      // readLaunchConditions). Both blank (or out of the panel's envelope,
-      // which padAir flies as blank) is the ISA marker, as before.
+      // (weather design review, 2026-09-22). Full precision, and the filled
+      // one named in blank="…" — the field padAir filled, whether the user
+      // left it blank or typed a value it flies as blank — so the reader keeps
+      // it blank (see readLaunchConditions). Both blank (or out of the panel's
+      // envelope) is the ISA marker, as before.
       const air = padAir(launch);
       if (air.standard) {
         emit(4, '<atmosphere model="isa"/>');
       } else {
-        emit(4, '<atmosphere model="extendedisa">');
+        const flownAsTyped = (v: number | null | undefined, scale: number, offset: number, flown: number): boolean =>
+          typeof v === 'number' && flown === v * scale + offset;
+        const blank = !flownAsTyped(launch.temperatureC, 1, 273.15, air.temperatureK) ? 'temperature'
+          : !flownAsTyped(launch.pressureHPa, 100, 0, air.pressurePa) ? 'pressure' : null;
+        emit(4, `<atmosphere model="extendedisa"${blank ? ` blank="${blank}"` : ''}>`);
         emit(5, `<basetemperature>${air.temperatureK}</basetemperature>`);
         emit(5, `<basepressure>${air.pressurePa}</basepressure>`);
         emit(4, '</atmosphere>');
