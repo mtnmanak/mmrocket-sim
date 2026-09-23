@@ -100,7 +100,7 @@ const FLOAT_TOL = 1e-9;
  * row changed and the row diff has already seen it), and `source` (a fixed description
  * string). A difference confined to these is what `dateOnly` means.
  */
-export const IGNORED_TOP_LEVEL = ['generated', 'catalogueGenerated', 'count', 'motors', 'files', 'source'];
+const IGNORED_TOP_LEVEL = ['generated', 'catalogueGenerated', 'count', 'motors', 'files', 'source'];
 
 /**
  * How stale the SHIPPED catalogue may get before a date-only refresh is worth a pull
@@ -132,7 +132,7 @@ export const MAX_ROWS = 40;
  * truncated fetch. It WARNS rather than refusing: a genuine mass availability update must
  * still reach a human.
  */
-export const MASS_CHANGE_WARN_FRACTION = 0.25;
+const MASS_CHANGE_WARN_FRACTION = 0.25;
 
 /**
  * GitHub rejects a pull-request body over 65,536 characters ("body is too long"). Render
@@ -243,7 +243,7 @@ export function diffCurves(beforeCurves, afterCurves) {
 }
 
 /** Shape of a curve bundle, for the headline line. `bytes` is passed in by the caller. */
-export function curveStats(curvesDoc, bytes = 0) {
+function curveStats(curvesDoc, bytes = 0) {
   const curves = curvesDoc?.curves ?? {};
   let files = 0;
   let points = 0;
@@ -403,7 +403,7 @@ export function renderCommitMessage(summary) {
 }
 
 /** stdout, in check-upstream.mjs's voice: aligned labels, one measured line each. */
-export function renderPlain(summary) {
+function renderPlain(summary) {
   const c = summary.catalogue;
   const s = summary.curves.stats;
   const age = Number.isFinite(summary.dates.shippedAgeDays)

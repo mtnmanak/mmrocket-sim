@@ -26,7 +26,7 @@
  */
 
 /** Normalise a manufacturer string to a bare comparison token. */
-export const normRaw = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+const normRaw = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 /**
  * Spelling -> canonical key.

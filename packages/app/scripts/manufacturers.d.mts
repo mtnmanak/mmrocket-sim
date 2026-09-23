@@ -5,7 +5,6 @@
  * (tsconfig has no allowJs, so the .mjs needs this beside it). Declarations
  * only — keep in step with the .mjs.
  */
-export const normRaw: (s: unknown) => string;
 export const ALIASES: Readonly<Record<string, string>>;
 export const DISPLAY: Readonly<Record<string, string>>;
 export const mfrKey: (s: unknown) => string;
