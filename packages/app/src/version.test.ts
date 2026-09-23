@@ -12,9 +12,11 @@ const here = dirname(fileURLToPath(import.meta.url));
  * The release tooling reads these two files as TEXT, not by importing them,
  * so their shape is a contract (audit 2026-09-22, row 510, which moved the
  * changelog out of version.ts). The deploy workflow's version-pairing step and
- * scripts/package-dist.mjs match APP_VERSION with the first pattern; the
- * release script prepends an entry by matching the second and finding the
- * array's opening line. A reformat that still type-checks would break them.
+ * scripts/package-dist.mjs match APP_VERSION with the first pattern. The
+ * release helper bumps APP_VERSION by matching the second, and writes the new
+ * entry directly after the array's opening line, found byte for byte. That
+ * helper is kept outside this repo, so this is the only place here that says
+ * what it depends on. A reformat that still type-checks would break them.
  */
 describe('version.ts and changelog.ts keep the shape the release tooling reads', () => {
   const versionTs = readFileSync(join(here, 'version.ts'), 'utf8');
@@ -30,7 +32,7 @@ describe('version.ts and changelog.ts keep the shape the release tooling reads',
     expect(versionTs).not.toMatch(/^import /m);
   });
 
-  it("changelog.ts opens the array on the release script's anchor line, once", () => {
+  it("changelog.ts opens the array on the release helper's anchor line, once", () => {
     const anchor = '\nexport const CHANGELOG: ChangelogEntry[] = [\n';
     expect(changelogTs.split(anchor)).toHaveLength(2);
   });

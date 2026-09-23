@@ -11,11 +11,12 @@
  * and the drag-table export (services/dragTable.ts) all import APP_VERSION
  * at startup, and while the CHANGELOG array sat beside it — 461,213 bytes of
  * this file at v0.140 — every one of them pulled all of it into the entry
- * chunk the app must download and parse before it draws. Add nothing here
- * that startup does not need. And keep APP_VERSION's line in exactly its
- * present shape: the deploy workflow's version-pairing step,
- * scripts/package-dist.mjs and the release tooling read it from this file's
- * text, not by importing it (version.test.ts pins the shape).
+ * chunk the app must load and parse before it draws. Add nothing here that
+ * startup does not need. And keep APP_VERSION's line in exactly its present
+ * shape: the deploy workflow's version-pairing step and
+ * scripts/package-dist.mjs read it from this file's text, not by importing
+ * it, and so does the release helper that bumps it, which is kept outside
+ * this repo (version.test.ts pins the shape).
  *
  * Release checklist: merge or close any open motors-refresh PR and rebuild
  * nozzles.json if the catalogue moved (2026-09-19 — `check-upstream` flags a

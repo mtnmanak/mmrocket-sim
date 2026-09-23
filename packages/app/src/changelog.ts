@@ -6,17 +6,20 @@
  * It lived in version.ts until audit 2026-09-22, row 510: everything that
  * imported APP_VERSION at startup carried this whole array with it into the
  * entry chunk — 461 KB of source at v0.140, growing with every release. Here,
- * reached only through ChangelogDialog, which App.tsx lazy-loads, it arrives
- * in a chunk of its own the first time the badge is clicked. Import it from
- * nothing that runs at startup; App.lazyDialogs.test.tsx fails if App's first
- * render loads it.
+ * reached only through ChangelogDialog, which App.tsx lazy-loads, it is in a
+ * chunk of its own that the page loads the first time the badge is clicked.
+ * Import it from nothing that runs at startup: App.lazyDialogs.test.tsx fails
+ * if the app's startup loads it, and the build fails if the entry chunk
+ * carries it (scripts/lazy-chunks.mjs).
  *
  * Releasing: prepend the new entry at the top of CHANGELOG — the checklist is
  * in version.ts's header, and version.test.ts holds the pairing rules (the
  * newest entry IS APP_VERSION, one entry per release). The array's opening
- * line is an anchor: release tooling finds
+ * line is an anchor: the release helper that writes the entry finds
  * `export const CHANGELOG: ChangelogEntry[] = [` byte for byte, on a line of
- * its own, to prepend an entry after it. Keep it exactly as written.
+ * its own, and inserts the entry directly after it. That helper is kept
+ * outside this repo — nothing in it writes this file — so version.test.ts is
+ * the only place here that shows the line matters. Keep it exactly as written.
  */
 
 export interface ChangelogEntry {

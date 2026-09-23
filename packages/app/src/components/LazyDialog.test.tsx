@@ -24,7 +24,7 @@ function Harness({ Dialog }: { Dialog: DialogType }) {
     <>
       <button id="opener" onClick={() => setOpen(true)}>Guide</button>
       {open && (
-        <LazyDialog label="User guide" onClose={() => setOpen(false)}>
+        <LazyDialog label="User guide" className="guide-dialog panel" onClose={() => setOpen(false)}>
           <Dialog onClose={() => setOpen(false)} />
         </LazyDialog>
       )}
@@ -71,13 +71,16 @@ async function waitFor(pred: () => boolean, what: string): Promise<void> {
 }
 
 describe('LazyDialog — while the dialog downloads', () => {
-  it('stands in with the same name, modal and busy, and takes focus', () => {
+  it('stands in with the same name and box, modal and busy, and takes focus', () => {
     const { Dialog } = gatedGuide();
     act(() => root.render(<Harness Dialog={Dialog} />));
     open();
     const [standIn, ...more] = dialogs();
     expect(more).toHaveLength(0);
     expect(standIn!.getAttribute('aria-label')).toBe('User guide');
+    // The guide's own 960 px box, not the 520 px preferences one (from review).
+    expect(standIn!.className).toBe('guide-dialog panel');
+    expect(standIn!.querySelector('.guide-header'), 'the stand-in, not the guide').toBeNull();
     expect(standIn!.getAttribute('aria-modal')).toBe('true');
     expect(standIn!.getAttribute('aria-busy')).toBe('true');
     expect(standIn!.querySelector('[role="status"]')?.textContent).toBe('Loading the user guide…');
@@ -105,11 +108,11 @@ describe('LazyDialog — when the dialog arrives', () => {
     act(() => root.render(<Harness Dialog={Dialog} />));
     open();
     arrive();
-    await waitFor(() => host.querySelector('.guide-dialog') !== null, 'the guide to arrive');
+    await waitFor(() => host.querySelector('.guide-header') !== null, 'the guide to arrive');
 
     const [guide, ...more] = dialogs();
     expect(more, 'the stand-in is gone').toHaveLength(0);
-    expect(guide!.classList.contains('guide-dialog')).toBe(true);
+    expect(guide!.querySelector('.guide-header')).not.toBeNull();
     expect(guide!.getAttribute('aria-label')).toBe('User guide');
     expect(guide!.getAttribute('aria-modal')).toBe('true');
     expect(guide!.hasAttribute('aria-busy')).toBe(false);
@@ -131,12 +134,15 @@ describe('LazyDialog — when the dialog arrives', () => {
     act(() => root.render(<Harness Dialog={Dialog} />));
     open();
     arrive();
-    await waitFor(() => host.querySelector('.guide-dialog') !== null, 'the guide to arrive');
+    await waitFor(() => host.querySelector('.guide-header') !== null, 'the guide to arrive');
     press('Escape');
     expect(dialogs()).toHaveLength(0);
 
     open(); // no download this time, so no stand-in in between
-    expect(dialogs().map((d) => d.className)).toEqual(['guide-dialog panel']);
+    // The stand-in shares the guide's box, so it is told apart by what is in it.
+    expect(dialogs()).toHaveLength(1);
+    expect(dialogs()[0]!.querySelector('.guide-header')).not.toBeNull();
+    expect(dialogs()[0]!.hasAttribute('aria-busy')).toBe(false);
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Close user guide');
     press('Escape');
     expect(dialogs()).toHaveLength(0);
@@ -159,12 +165,18 @@ describe('LazyDialog — when the download fails', () => {
     expect(notice!.getAttribute('aria-label')).toBe('User guide');
     expect(notice!.getAttribute('aria-modal')).toBe('true');
     expect(notice!.hasAttribute('aria-busy')).toBe(false);
+    expect(notice!.className).toBe('guide-dialog panel');
     expect(notice!.textContent).toContain('The user guide could not be downloaded.');
     expect([...notice!.querySelectorAll('button')].map((b) => b.textContent))
       .toEqual(['✕ Close', '↻ Reload the page']);
     expect(notice!.contains(document.activeElement)).toBe(true);
     expect(opener().isConnected, 'the page behind is still there').toBe(true);
-    expect(logged).toHaveBeenCalled();
+    // The boundary's own line, not React's: React's development build logs any
+    // error a boundary catches, so a bare toHaveBeenCalled passed with the
+    // boundary's logging deleted (from review).
+    expect(logged).toHaveBeenCalledWith('User guide failed to open:',
+      expect.objectContaining({ message: expect.stringContaining('dynamically imported module') }),
+      expect.any(String));
 
     press('Escape');
     expect(dialogs()).toHaveLength(0);

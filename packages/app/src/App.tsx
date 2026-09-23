@@ -47,11 +47,14 @@ const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ de
  * The user guide (data/userGuide.ts) and the changelog (changelog.ts) are the
  * two biggest texts in the app — 270 KB and 461 KB of source at v0.140, and
  * both grow every release — and nothing on the design or flight screens reads
- * either (audit 2026-09-22, row 510). Lazy, so each arrives in a chunk of its
- * own the first time it opens; LazyDialog stands in while it downloads.
+ * either (audit 2026-09-22, row 510). Lazy, so each is a chunk of its own that
+ * the page loads the first time it opens (the service worker precaches it with
+ * the rest of the build); LazyDialog stands in, in the real dialog's box and
+ * under its name, while it loads, and catches a chunk that fails to download.
  * Nothing that loads at startup may import either dialog or its text, or the
  * chunk folds back into the entry: App.lazyDialogs.test.tsx checks that the
- * first render does not load them.
+ * app's startup does not load them, and the build fails if the entry chunk
+ * carries them (scripts/lazy-chunks.mjs).
  */
 const GuideDialog = lazy(() => import('./components/GuideDialog.js').then((m) => ({ default: m.GuideDialog })));
 const ChangelogDialog = lazy(() => import('./components/ChangelogDialog.js').then((m) => ({ default: m.ChangelogDialog })));
@@ -3117,13 +3120,13 @@ export function App() {
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && (
-        <LazyDialog label="User guide" onClose={() => setShowGuide(false)}>
+        <LazyDialog label="User guide" className="guide-dialog panel" onClose={() => setShowGuide(false)}>
           <GuideDialog onClose={() => setShowGuide(false)} />
         </LazyDialog>
       )}
       {tour.open && <FirstRunTour onSetTab={setTab} onClose={tour.close} />}
       {showChangelog && (
-        <LazyDialog label="Changelog" onClose={() => setShowChangelog(false)}>
+        <LazyDialog label="Changelog" className="prefs-dialog panel" onClose={() => setShowChangelog(false)}>
           <ChangelogDialog onClose={() => setShowChangelog(false)} />
         </LazyDialog>
       )}
