@@ -44,8 +44,6 @@ html {
      chartTheme.ts (SERIES/SERIES_DARK); do not wire "the velocity color"
      from here. */
   --series-1: #2a78d6;
-  --series-2: #1baf7a;
-  --series-3: #eda100;
   /* Status TEXT, so AA (4.5:1) on every light surface AND on the 2D stage's
      gradient, where the CP and stability callouts are drawn (audit
      2026-09-22). They were #008300 / #a06b00 / #e34948: 3.20–3.95:1 for the
@@ -97,8 +95,6 @@ html {
   --text-secondary: #c0beb5;
   --text-muted: #94918a;
   --series-1: #5a9be0; /* lifted for dark; see the light block's note — not chart-slot-synced */
-  --series-2: #3cc492;
-  --series-3: #f0b23c;
   --status-good: #4dbd4d;
   --status-warn: #e0a53d;
   --status-serious: #f0716f;
@@ -1137,9 +1133,12 @@ html {
   letter-spacing: 0.07em;
 }
 
+/* Chart legends read as instrument readouts — full strength since v0.076
+   (10.5px at 0.8 opacity was part of the lines-hard-to-see report). */
 .chart-panel .u-legend {
   font-size: 11px;
   color: var(--text-secondary);
+  opacity: 1;
 }
 
 /* The plot area itself sits one level INTO the panel — charts read as
@@ -2947,13 +2946,6 @@ html {
   color: var(--status-warn);
 }
 
-/* Chart legends read as instrument readouts — full strength since v0.076
-   (10.5px at 0.8 opacity was part of the lines-hard-to-see report). */
-.chart-panel .u-legend {
-  font-size: 11px;
-  opacity: 1;
-}
-
 /* Point readout popup (chartTooltip.ts). Lives inside uPlot's `over`, which
    is the element panZoomPlugin binds wheel and pointer gestures to — hence
    pointer-events: none, so the box can never swallow a pan or a zoom. The
@@ -3439,8 +3431,6 @@ select.unit-chip:hover {
   --text-secondary: #141414;
   --text-muted: #2e2e2e;
   --series-1: #0b4ea2;
-  --series-2: #00665c;
-  --series-3: #8a5000;
   --status-good: #005c00;
   --status-warn: #6b4a00;
   --status-serious: #b00016;
@@ -3472,7 +3462,6 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .rocket-stage,
 .viz-root[data-contrast='high'] .field input,
 .viz-root[data-contrast='high'] .field select,
-.viz-root[data-contrast='high'] .field textarea,
 .viz-root[data-contrast='high'] .fin-table input,
 .viz-root[data-contrast='high'] .color-swatch,
 .viz-root[data-contrast='high'] .prefs-dialog,
@@ -3599,8 +3588,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .panel,
 .viz-root[data-contrast='high'] .file-menu,
 .viz-root[data-contrast='high'] .prefs-dialog,
-.viz-root[data-contrast='high'] .add-menu,
-.viz-root[data-contrast='high'] .motor-dialog {
+.viz-root[data-contrast='high'] .add-menu {
   box-shadow: none;
 }
 
@@ -3634,9 +3622,11 @@ select.unit-chip:hover {
   color: #ffffff;
 }
 
-/* Modal scrims: opaque enough that the dialog wins over what's behind it. */
+/* Modal scrims: opaque enough that the dialog wins over what's behind it.
+   .prefs-overlay is the dialogs' backdrop, .modal-backdrop the confirmation
+   modals' (Modal.tsx). */
 .viz-root[data-contrast='high'] .prefs-overlay,
-.viz-root[data-contrast='high'] .modal-overlay {
+.viz-root[data-contrast='high'] .modal-backdrop {
   background: rgba(0, 0, 0, 0.72);
 }
 
@@ -3962,7 +3952,7 @@ select.unit-chip:hover {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
-  border-top: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.25));
+  border-top: 1px solid var(--border);
   padding-top: 10px;
 }
 .recovery-object:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
