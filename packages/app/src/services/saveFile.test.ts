@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { downloadBlob, saveFile, saveOutcomeNote } from './saveFile.js';
 
 /**
@@ -186,7 +183,9 @@ describe('saveFile — the download fallback (Firefox, Safari)', () => {
  * WHAT A SAVE COULD NOT CARRY, SAID UNDER THE SAVE LINE (seam review of audit
  * 2026-09-22). A .rkt cannot say every ignition event this app flies; the
  * writer names each one it had to change, and the note is where the user reads
- * it — as a warning, since the file reopens flying differently.
+ * it — as a warning, since the file reopens flying differently. App handing the
+ * writer's losses to this line is App.save.test.tsx's, with App mounted and a
+ * .rkt saved (audit 2026-09-22, row 477); it was a regex over App.tsx here.
  */
 describe('saveOutcomeNote — the save line, and the losses under it', () => {
   const loss = '“K250W” is set never to light. RockSim times … so the .rkt lights it 0 s after launch.';
@@ -203,12 +202,5 @@ describe('saveOutcomeNote — the save line, and the losses under it', () => {
       .toEqual({ text: `Saved “R.rkt”.\n${loss}`, severity: 'warn' });
     expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt' }, [loss, loss])!.text.split('\n')).toHaveLength(3);
     expect(saveOutcomeNote({ kind: 'cancelled' }, [loss])).toBeNull();
-  });
-
-  it('App hands the .rkt writer’s losses to the save line', () => {
-    const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
-    expect(app).toMatch(/exportRkt\(\{[^}]*notes: losses,?\s*\}\)/);
-    expect(app).toContain("await download(xml, 'rkt', '', losses);");
-    expect(app).toContain('const said = saveOutcomeNote(out, losses);');
   });
 });

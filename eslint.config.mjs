@@ -94,6 +94,20 @@ const UNREFUSED_TYPEOF_NUMBER = [
   unrefused(typeofNumber('/^===?$/'), `:has(> ${NAN_REFUSER})`),
   unrefused(typeofNumber('/^!==?$/'), `:has(> UnaryExpression[operator='!']:has(> ${NAN_REFUSER}))`),
 ].join(', ');
+// Both shapes as no-restricted-syntax options. Named because a later block
+// that adds entries of its own for one file REPLACES the rule's options there,
+// so it has to carry these along (App.tsx's markSaved block).
+const NUMBER_READ_RESTRICTIONS = [{
+  selector: LONE_TYPEOF_NUMBER,
+  message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), which the kernel reads '
+    + 'as absent. Read the field with num / numOpt / numOrNull from tree/nodeNum.ts.',
+}, {
+  selector: UNREFUSED_TYPEOF_NUMBER,
+  message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), and nothing else in this '
+    + '&& / || refuses them (a bound or Number.isFinite beside an === test, or one negated beside a !== '
+    + 'test). Read the field with num / numOpt / numOrNull '
+    + 'from tree/nodeNum.ts; if it is not a design number, say why in an eslint-disable-next-line comment.',
+}];
 
 export default tseslint.config(
   {
@@ -338,16 +352,33 @@ export default tseslint.config(
       //    too (canopyVent's diameter, rocksimFile's shape parameter, the
       //    panel's field value); what is left is a discriminator, the load
       //    clamp's walk (sanitize), or a value validated where it was set.
-      'no-restricted-syntax': ['error', {
-        selector: LONE_TYPEOF_NUMBER,
-        message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), which the kernel reads '
-          + 'as absent. Read the field with num / numOpt / numOrNull from tree/nodeNum.ts.',
-      }, {
-        selector: UNREFUSED_TYPEOF_NUMBER,
-        message: 'typeof-number accepts NaN and Infinity (typeof NaN is "number"), and nothing else in this '
-          + '&& / || refuses them (a bound or Number.isFinite beside an === test, or one negated beside a !== '
-          + 'test). Read the field with num / numOpt / numOrNull '
-          + 'from tree/nodeNum.ts; if it is not a design number, say why in an eslint-disable-next-line comment.',
+      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS],
+    },
+  },
+
+  {
+    // App.tsx's `markSaved` (hooks/useDesignDirty.ts) clears the unsaved-work
+    // guard, so every place that names it is a place the Open prompt and ✕ New's
+    // question can be silenced. Three may: a .ork save, an import and ✕ New —
+    // each carries a disable with its reason, and reportUnusedDisableDirectives
+    // fails any that stops suppressing a site. Any other reference (a call, a
+    // hand-off to a child or a hook, a rename) is an error here. WHY LINT: a new
+    // mark is an absence no behavioural test can see unless it drives that
+    // action. App.save.test.tsx presses every Save As / Export entry and the
+    // flight actions; a mark on Launch passed every test before those
+    // were added, and one on the weather dialog's Apply, which no App test
+    // presses, still does (AUDIT row 477, review of its fix — the count over
+    // App.tsx's text in savedMarkSites.test.ts had been removed). The
+    // shorthand destructuring from useDesignDirty is where App takes it, so it
+    // is not a site. This block's no-restricted-syntax REPLACES the typeof-number
+    // block's options for App.tsx, so it carries them along.
+    files: ['packages/app/src/App.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, {
+        selector: "Identifier[name='markSaved']:not(ObjectPattern > Property[shorthand=true] > Identifier)",
+        message: 'markSaved clears the unsaved-work guard, so the next Open or ✕ New discards without asking. '
+          + 'Only a full-fidelity save (.ork), an import and ✕ New may mark; a new site needs '
+          + '`// eslint-disable-next-line no-restricted-syntax -- <why this action may mark>`.',
       }],
     },
   },

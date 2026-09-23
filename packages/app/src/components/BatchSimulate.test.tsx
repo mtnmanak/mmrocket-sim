@@ -555,7 +555,8 @@ describe('batchStageExit — the nozzle one candidate flies', () => {
    * mount it dropped out of every candidate's stage sum. The rule itself never
    * looked at the id's form, so these held before that fix too: they pin that
    * an ex: id is served like any other. The fix — the ids App hands over — is
-   * tested against nozzleFollow in services/batchSweep.test.ts (batchMotorIds).
+   * tested against nozzleFollow in services/batchSweep.test.ts (batchMotorIds),
+   * and App handing the dialog those ids in App.render.test.tsx (row 477).
    */
   it('flies the typed exit for the imported motor it was typed for, by its ex: id', () => {
     expect(batchStageExit({
@@ -576,16 +577,5 @@ describe('batchStageExit — the nozzle one candidate flies', () => {
       ...base, candidateId: 'm1', ownExitM: 0.03,
       otherParts: [{ count: 1, exitDiameterM: 0.04 }],
     })).toBeCloseTo(0.05, 12);
-  });
-});
-
-describe('App hands the sweep the ids the nozzle database is keyed on', () => {
-  const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
-
-  // What batchMotorIds reads — an EX motor by its ex: id, as nozzleFollow does —
-  // is flown against nozzleFollow itself in services/batchSweep.test.ts. This
-  // pins that App builds the prop through it rather than an inline copy.
-  it('builds the ids through batchMotorIds, not an inline copy of the expression', () => {
-    expect(app).toContain('assignedMotorIds={batchMotorIds(mountMotors)}');
   });
 });

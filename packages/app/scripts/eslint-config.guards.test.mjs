@@ -1,5 +1,5 @@
 /**
- * The repo-root eslint.config.mjs refuses two things in browser source, and this
+ * The repo-root eslint.config.mjs refuses three things in browser source, and this
  * pins that it still does. A lint rule's config is easy to break silently: a
  * later block can switch a rule off for a glob that happens to cover src/, a
  * selector can be edited into one that matches nothing, and `npx eslint .` then
@@ -19,6 +19,9 @@
  *     return, an arrow body — and, since that row's review, as one operand of
  *     && or || too, unless the same chain has a bound or a Number.isFinite /
  *     Number.isInteger to refuse NaN.
+ *   - A `markSaved` in App.tsx beyond the three reasoned sites (a .ork save, an
+ *     import, ✕ New). It clears the unsaved-work guard, and a mark added to an
+ *     action no test drives is invisible to every behavioural test (row 477).
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
  * still resolve for shipped source, its tests and the engine.
@@ -128,6 +131,33 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@5',
       'no-restricted-syntax@6', 'no-restricted-syntax@7',
     ]);
+  });
+
+  it('refuses a markSaved in App.tsx without a reasoned disable, and still refuses the reader there', async () => {
+    // AUDIT row 477: where App may clear the unsaved-work guard is held here,
+    // not by a count over App.tsx's text. The block REPLACES the reader
+    // options for App.tsx, so the reader shape must still fire there (line 11).
+    const rules = await rulesFor('packages/app/src/App.tsx', READER);
+    expect(lint([
+      'declare const useDesignDirty: () => Record<string, (m?: string) => void>;',
+      'const { markSaved, markFlown } = useDesignDirty(); // where App takes it: not a site',
+      "export const onLaunch = () => { markFlown(); markSaved('m'); };",
+      'export const sinks = { mark: markSaved };',
+      'const { markSaved: ms } = useDesignDirty();',
+      'export const onSaveOrk = () => {',
+      '  // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything',
+      "  markSaved('m');",
+      "  ms('m');",
+      '};',
+      "export const r = (n: { [k: string]: unknown }, k: string): number => typeof n[k] === 'number' ? (n[k] as number) : 0;",
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@5', 'no-restricted-syntax@11',
+    ]);
+    // App.tsx only: the hook that defines it, and the tests, are not sites App decides.
+    const elsewhere = "export const f = (markSaved: (m: string) => void) => markSaved('m');";
+    for (const rel of ['packages/app/src/hooks/useDesignDirty.ts', 'packages/app/src/App.save.test.tsx']) {
+      expect(lint(elsewhere, await rulesFor(rel, READER)), rel).toEqual([]);
+    }
   });
 
   it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {

@@ -22,9 +22,11 @@ import { APP_VERSION } from './version.js';
  * re-runs, and what its layout and gates put on screen. The behavioural
  * replacements for the regexes statsDrawerDefault.test.ts, panelHeadWrap.test.ts
  * and noticeBarPhoneLift.test.ts used to run over App.tsx's text, and for some
- * of those in nozzleWiring.test.ts, primaryMount.test.ts and appA11y.test.ts
- * (audit 2026-09-22, row 477). The same harness as App.session.test.tsx: the
- * real TeaVM kernel, the bundled starter motor, fetch stubbed to fail as offline.
+ * of those in nozzleWiring.test.ts, primaryMount.test.ts, BatchSimulate.test.tsx
+ * and appA11y.test.ts (audit 2026-09-22, row 477). The rest of those, and
+ * savedMarkSites.test.ts's, are App.a11y, App.save and App.nozzle.test.tsx.
+ * The same harness as App.session.test.tsx: the real TeaVM kernel, the bundled
+ * starter motor, fetch stubbed to fail as offline.
  *
  * The five spies below pass straight through to the real functions. Each is
  * called, on the Design tab, by exactly ONE of App's memos — which is what
@@ -64,6 +66,22 @@ vi.mock('./components/TreeSchematic.js', async (importOriginal) => {
     TreeSchematic: (p: SchematicProps) => {
       if (p.fillHeight) heroSchematic = p;
       return <real.TreeSchematic {...p} />;
+    },
+  };
+});
+/**
+ * The batch dialog, passed through the same way, so a test can read what App
+ * hands it (the loaded motors' nozzle-database ids).
+ */
+type BatchProps = Parameters<typeof import('./components/BatchSimulate.js').BatchSimulate>[0];
+let batchDialog: BatchProps | null = null;
+vi.mock('./components/BatchSimulate.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/BatchSimulate.js')>();
+  return {
+    ...real,
+    BatchSimulate: (p: BatchProps) => {
+      batchDialog = p;
+      return <real.BatchSimulate {...p} />;
     },
   };
 });
@@ -152,6 +170,7 @@ const starterStored = (): boolean => {
 
 beforeEach(() => {
   heroSchematic = null;
+  batchDialog = null;
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
@@ -429,6 +448,20 @@ describe('a v0.117 session\'s weighed pad mass', () => {
   }, 30000);
 });
 
+/** The starter rocket with a two-pod set on its body tube, the pods' mount `pod-mmt`. */
+const podTree = (t: RocketTree): RocketTree => {
+  const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+  return addChild(t, body.id!, {
+    type: 'podset', id: 'pods', name: 'Side pods', instanceCount: 2, children: [{
+      type: 'bodytube', id: 'pod-bt', name: 'Pod tube', length: 0.1, outerRadius: 0.01, thickness: 0.0005,
+      children: [{
+        type: 'innertube', id: 'pod-mmt', name: 'Pod MMT', motorMount: true,
+        length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+      } as ComponentNode],
+    } as ComponentNode],
+  } as ComponentNode);
+};
+
 /**
  * A WEIGHING SAVED ON A POD'S RECORD MOVES TO THE CORE'S, AND SAYS SO (audit
  * 2026-09-22, row 356). A session saved with a pod motor picked before the
@@ -439,18 +472,6 @@ describe('a v0.117 session\'s weighed pad mass', () => {
  */
 describe('a session\'s pad mass saved under a pod picked first', () => {
   it('is moved onto the core motor\'s record, and the bar names both mounts', async () => {
-    const podTree = (t: RocketTree): RocketTree => {
-      const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
-      return addChild(t, body.id!, {
-        type: 'podset', id: 'pods', name: 'Side pods', instanceCount: 2, children: [{
-          type: 'bodytube', id: 'pod-bt', name: 'Pod tube', length: 0.1, outerRadius: 0.01, thickness: 0.0005,
-          children: [{
-            type: 'innertube', id: 'pod-mmt', name: 'Pod MMT', motorMount: true,
-            length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
-          } as ComponentNode],
-        } as ComponentNode],
-      } as ComponentNode);
-    };
     const probe = podTree(defaultTree());
     const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;
     const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
@@ -471,6 +492,69 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
     }).mountMotors;
     expect(stored[core.id!]?.padMassKg).toBe(0.25);
     expect('padMassKg' in stored['pod-mmt']!).toBe(false);
+  }, 30000);
+
+  /**
+   * And in every stored flight configuration, or applying one saved with the
+   * pod picked first would orphan the weighing again (App's savedConfigs
+   * restore). primaryMount.test.ts held both of App's calls as string matches.
+   * Here only configuration B — not the one on screen — carries it on the pod.
+   */
+  it('is moved in a flight configuration that is not the active one, too', async () => {
+    const probe = podTree(defaultTree());
+    const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const weighed = { ...c6, padMassKg: 0.25, padMassWeighedWith: 'weighed-set' };
+    const onCore = { 'pod-mmt': c6, [core.id!]: weighed };
+    await seedStarterSession({
+      edit: () => probe,
+      over: {
+        mountMotors: onCore,
+        savedConfigs: [
+          { id: 'A', name: 'A', isDefault: true, motors: onCore },
+          // The pod's record first, as above.
+          { id: 'B', name: 'B', isDefault: false, motors: { 'pod-mmt': weighed, [core.id!]: c6 } },
+        ],
+        activeConfigId: 'A',
+      },
+    });
+    await mountApp();
+    await settle(50);
+    window.dispatchEvent(new Event('pagehide'));
+    const b = (JSON.parse(localStorage.getItem(SESSION_KEY)!) as {
+      savedConfigs: { id: string; motors: Record<string, { padMassKg?: number }> }[];
+    }).savedConfigs.find((c) => c.id === 'B')!;
+    expect(b.motors[core.id!]?.padMassKg).toBe(0.25);
+    expect('padMassKg' in b.motors['pod-mmt']!).toBe(false);
+  }, 30000);
+});
+
+/**
+ * THE AUTO DELAY BOX GOES ON THE PRIMARY'S CARD (audit 2026-09-22, row 356).
+ * flightRunner writes the rounded optimum onto the primary mount alone, so the
+ * working "auto (optimal)" box is that card's; any other card whose motor
+ * carries the flag gets a box saying it applies to the top motor only, so it
+ * can be unticked (treeModel.autoDelayBox, tested in primaryMount.test.ts).
+ * It used to show "auto (optimal)" on every sustainer-stage card, over a pod
+ * that flew its spec delay. primaryMount.test.ts held App's call as a string
+ * match.
+ */
+describe('the Auto delay box on a motor card', () => {
+  it('is "auto (optimal)" on the core\'s card and "auto — top motor only" on the pods\'', async () => {
+    const probe = podTree(defaultTree());
+    const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const auto = { ...c6, meta: { ...c6.meta, autoDelay: true } };
+    await seedStarterSession({ edit: () => probe, over: { mountMotors: { 'pod-mmt': auto, [core.id!]: auto } } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    const box = (mountName: string) => [...host.querySelectorAll('.mount-card')]
+      .find((c) => c.querySelector('label')?.firstChild?.textContent === mountName)
+      ?.querySelector('input[type="checkbox"]:checked')?.parentElement?.textContent?.trim();
+    // The ticked box on each card — "plugged" is the other checkbox, unticked here.
+    expect(box(core.name!)).toBe('auto (optimal)');
+    expect(box('Pod MMT')).toBe('auto — top motor only');
   }, 30000);
 });
 
@@ -633,6 +717,28 @@ describe('the Batch simulate button', () => {
     // renders nothing — the original "nothing happens".
     await act(async () => { b.click(); });
     expect(host.querySelector('[role="dialog"][aria-label="Batch simulate motors"]')).not.toBeNull();
+  }, 30000);
+
+  /**
+   * The dialog is handed each loaded motor by the id the nozzle database is
+   * keyed on — an imported EX motor by its ex: id, the expression the
+   * nozzle-follow rule reads (batchSweep.batchMotorIds, flown against it in
+   * batchSweep.test.ts). App read `motorId` alone until the 2026-09-22 audit,
+   * which kept every EX motor out of the sweep's nozzle rule on both sides;
+   * BatchSimulate.test.tsx held App's call as a string match.
+   */
+  it('hands the dialog an imported motor by its ex: id', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const { motorId: _catalogue, ...meta } = c6.meta;
+    await seedStarterSession({
+      edit: () => tree,
+      over: { mountMotors: { [mount]: { ...c6, meta: { ...meta, manufacturer: 'EX', exMotorId: 'ex:test-c6' } } } },
+    });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    await act(async () => { batchButton(host).click(); });
+    expect(batchDialog?.assignedMotorIds).toEqual({ [mount]: 'ex:test-c6' });
   }, 30000);
 });
 

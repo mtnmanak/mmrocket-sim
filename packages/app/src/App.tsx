@@ -841,8 +841,12 @@ export function App() {
    * the starter motor lands; a restore that moved a pad mass onto the ranked
    * primary stays as saved as it was stored), the flown-since-save flag and
    * `dirty` itself, tested there by behaviour (audit 2026-09-22, row 501).
-   * WHICH actions may call `markSaved` is App's to decide, and
-   * savedMarkSites.test.ts holds it to three: a .ork save, an import and ✕ New.
+   * WHICH actions may call `markSaved` is App's to decide: three — a .ork
+   * save, an import and ✕ New. The lint gate holds the sites (eslint.config.mjs
+   * refuses any other `markSaved` in this file; each of the three carries a
+   * reasoned disable), and App.save.test.tsx drives every Save As / Export
+   * entry and the flight actions to show none of the others clears the guard
+   * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
     dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
@@ -939,6 +943,7 @@ export function App() {
     // must not ask about it. Same reasoning as seeding a first visit clean.
     // The mark is the plan's, taken over exactly the values just set, not from
     // state, which has not re-rendered.
+    // eslint-disable-next-line no-restricted-syntax -- ✕ New: an empty design is not work to lose
     markSaved(mark);
   };
 
@@ -2223,6 +2228,7 @@ export function App() {
       }), 'ork', '', losses);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
+      // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
       if (out.kind !== 'cancelled') markSaved(mark);
       return out;
     } catch (e) {
@@ -2390,7 +2396,9 @@ export function App() {
     applyImportPlan(plan, {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setMaxMotorLen, setLaunch, setMeasured,
-      setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt, markSaved,
+      setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt,
+      // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
+      markSaved,
     });
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.
