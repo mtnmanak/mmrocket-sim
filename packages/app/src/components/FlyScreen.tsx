@@ -190,6 +190,15 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
                   <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
                   {' · '}
                   <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
+                  {/* A searched place's name is GeoNames data, shown right here,
+                      so it carries their credit too — as the Launch panel's
+                      strip does. */}
+                  {weather.place.method === 'search' && (
+                    <>
+                      {' · Place search: '}
+                      <a href={WEATHER_CREDIT.places.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.places.text}</a>
+                    </>
+                  )}
                 </span>
               )}
             </div>

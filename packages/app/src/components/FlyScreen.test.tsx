@@ -231,13 +231,21 @@ describe('FlyScreen', () => {
       expect(host.querySelector<HTMLButtonElement>('.weather-btn')!.disabled).toBe(false);
     });
 
-    it('credits Open-Meteo once weather is applied, and offers no σ or gust estimate', () => {
+    it('credits Open-Meteo once weather is applied (GeoNames too for a searched place), and offers no σ or gust estimate', () => {
       mount({
         onGetWeather: () => {},
-        weather: { place: { label: 'Gerlach, Nevada, US' } } as never,
+        weather: { place: { label: '40.870, −119.060', method: 'coordinates' } } as never,
       });
-      const links = Array.from(host.querySelectorAll('.fly-weather a')).map((a) => a.getAttribute('href'));
-      expect(links).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/']);
+      const links = () => Array.from(host.querySelectorAll('.fly-weather a')).map((a) => a.getAttribute('href'));
+      expect(links()).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/']);
+      // A place a search found is GeoNames data on screen: their credit joins.
+      mount({
+        onGetWeather: () => {},
+        weather: { place: { label: 'Gerlach, Nevada, US', method: 'search' } } as never,
+      });
+      expect(links()).toEqual([
+        'https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/',
+      ]);
       expect(host.querySelector('.gust-estimate')).toBeNull();
       const labels = Array.from(host.querySelectorAll('input')).map((i) => i.getAttribute('aria-label') ?? '');
       expect(labels.some((l) => l.startsWith('Wind gusts'))).toBe(false);
