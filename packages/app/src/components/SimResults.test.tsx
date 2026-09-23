@@ -131,6 +131,26 @@ describe('SimRunDetails — where the raw flight data went', () => {
   });
 });
 
+describe('SimRunDetails — the Motors row (audit 2026-09-22, row 351)', () => {
+  const motorsCell = () => Array.from(host.querySelectorAll('tr'))
+    .find((tr) => tr.querySelector('.simdet-label')?.textContent === 'Motors')
+    ?.querySelectorAll('td')[1]?.textContent;
+  const showAll = () => {
+    const btn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Show all details')!;
+    act(() => { btn.click(); });
+  };
+
+  it('counts every motor firing together without calling it a cluster — three pods are not one', () => {
+    // The stored count takes in pod sets and strap-on rings now, so a design
+    // with one motor in each of three pods used to read "3 (cluster)".
+    render(<SimRunDetails run={{ ...run(), motorCount: 3 }} />);
+    showAll();
+    expect(motorsCell()).toBe('3 firing together');
+    render(<SimRunDetails run={{ ...run(), motorCount: 1 }} />);
+    expect(motorsCell()).toBe('1');
+  });
+});
+
 describe('SimRunDetails — comment levels stay on their own comments (audit 2026-09-22)', () => {
   const lines = () => [...host.querySelectorAll('p.simdet-comments')]
     .map((p) => ({ text: p.textContent ?? '', red: p.classList.contains('stability-bad') }));

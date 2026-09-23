@@ -579,7 +579,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <h2 style={{ flex: 1 }}>
             Batch simulate — every motor that fits
-            {motorCount > 1 && <span className="motor-db-meta"> cluster mount: each candidate fires ×{motorCount}</span>}
+            {motorCount > 1 && <span className="motor-db-meta"> each candidate fires ×{motorCount} on this mount</span>}
           </h2>
           <button className="file-btn" onClick={onClose} disabled={running}>✕ Close</button>
         </div>

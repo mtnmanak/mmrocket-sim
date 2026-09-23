@@ -2318,9 +2318,10 @@ export function App() {
           meta: {
             ...primary.meta,
             // What the kernel flew on the primary mount — the cluster times any
-            // enclosing pod set or strap-on ring, as the report's Motors row and
-            // the CSV's 'Motors (cluster)' column mean it (audit 2026-09-22,
-            // row 351: a motor in a three-pod set was recorded as one).
+            // enclosing pod set or strap-on ring (audit 2026-09-22, row 351: a
+            // motor in a three-pod set was recorded as one). The report's
+            // Motors row says "firing together"; the CSV column keeps its old
+            // 'Motors (cluster)' header so a sheet keyed on it still reads.
             motorCount: mountMotorCount(tree, primaryMountId),
           },
           launch,
