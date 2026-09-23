@@ -13,7 +13,7 @@ import { classLabel } from './services/motorDb.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { nozzleOversize } from './services/nozzleCheck.js';
 import { designMatchKeyOf } from './services/simReport.js';
-import { defaultTree, motorMounts } from './tree/treeModel.js';
+import { addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
 
@@ -427,5 +427,89 @@ describe('the workspace a first load lands on', () => {
     viewport(800);
     const host = await mountApp();
     expect(current(host)).toMatch(/Design/);
+  }, 30000);
+});
+
+/** A workspace tab, pressed. */
+async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+  const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
+    .find((x) => x.textContent?.trim() === name);
+  if (!b) throw new Error(`no tab "${name}"`);
+  await act(async () => { b.click(); });
+}
+
+/**
+ * BATCH SIMULATE SAYS WHY IT IS OFF, AND ASKS FOR A MOUNT, NOT A MOTOR. Owner
+ * reports 2026-09-01b: first *"when I click the button, nothing happens"* — it
+ * was disabled, his design being staged, and a disabled button gives no click
+ * feedback; then, once the reason was on screen, *"it says this rocket has no
+ * motor mount, but the rocket clearly has a 75mm motor mount"* — the gate read
+ * the ASSIGNED motors, so a mount with nothing loaded had "no mount", and the
+ * feature that exists to FIND a motor was unavailable on exactly the designs it
+ * is for. statsDrawerDefault.test.ts held both as regexes over App.tsx.
+ */
+describe('the Batch simulate button', () => {
+  const batchButton = (host: HTMLElement) => button(host, 'Batch simulate motors…');
+
+  it('on a staged rocket is off, and says why ON SCREEN, not only in a tooltip', async () => {
+    await seedStarterSession({ edit: (t) => addStage(t).tree });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    const b = batchButton(host);
+    expect(b.disabled).toBe(true);
+    const reason = /^Batch simulation is not available here: (.+)\.$/.exec(b.title)?.[1];
+    expect(reason).toBeTruthy();
+    // The same reason, as visible text beside the button.
+    expect(host.textContent).toContain(`Batch simulation is not available here — ${reason}.`);
+    expect(reason).toBe('the motor combinations explode on a staged rocket');
+  }, 30000);
+
+  it('on a rocket with a mount and NO motor loaded is on, and opens the batch dialog', async () => {
+    await seedStarterSession({ over: { mountMotors: {} } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    const b = batchButton(host);
+    expect(b.disabled).toBe(false);
+    expect(host.textContent).not.toContain('Batch simulation is not available here');
+    // The dialog opens on the same condition, or the button enables and then
+    // renders nothing — the original "nothing happens".
+    await act(async () => { b.click(); });
+    expect(host.querySelector('[role="dialog"][aria-label="Batch simulate motors"]')).not.toBeNull();
+  }, 30000);
+});
+
+/**
+ * A PANEL'S HEADER ROW WRAPS (reported 2026-09-01: "the new scale button pushes
+ * the redo button out of the components panel"). Four panel headers share
+ * `.panel-head`, whose rule wraps (panelHeadWrap.test.ts checks the rule);
+ * here each is found in the app as drawn — Components and Rocket on Design,
+ * Drag analysis on Results, and the Launch report once a flight has flown —
+ * carrying the class and no inline flex of its own.
+ */
+describe('the panel header rows', () => {
+  const headOf = (host: HTMLElement, title: string): HTMLElement => {
+    const h2 = [...host.querySelectorAll('h2')].find((h) => h.textContent?.trim().startsWith(title));
+    if (!h2) throw new Error(`no panel "${title}"`);
+    return h2.parentElement!;
+  };
+  const expectWrapping = (row: HTMLElement, title: string) => {
+    expect(row.className, title).toBe('panel-head');
+    expect(row.getAttribute('style') ?? '', title).not.toMatch(/display:\s*flex/);
+  };
+
+  it('carry .panel-head, on every panel that has one', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    expectWrapping(headOf(host, 'Components'), 'Components');
+    expectWrapping(headOf(host, 'Rocket'), 'Rocket');
+    await act(async () => {
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+    });
+    await waitFor(() => [...host.querySelectorAll('h2')].some((h) => h.textContent?.startsWith('Launch report')),
+      'the launch report');
+    expectWrapping(headOf(host, 'Launch report'), 'Launch report');
+    expectWrapping(headOf(host, 'Drag analysis'), 'Drag analysis');
   }, 30000);
 });

@@ -84,45 +84,18 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // hooks/useHeroDrawer.test.tsx's (heroStageStyle).
   });
 
-  /**
-   * Owner report, 2026-09-01b: *"'batch simulate motors' appears to be broken,
-   * when I click the button, nothing happens."* It was disabled, not broken —
-   * his design is staged. A disabled button gives no click feedback, so the
-   * reason has to be ON SCREEN, not in a `title` nobody hovers.
+  /*
+   * THE BATCH-SIMULATE GATE (owner reports 2026-09-01b: "when I click the
+   * button, nothing happens" — disabled, with the reason only in a tooltip;
+   * then "no motor mount" on a rocket with a 75mm mount, because the gate read
+   * the ASSIGNED motors) was two cases of regexes over App.tsx here. They are
+   * behaviour now (audit 2026-09-22, row 477), in App.render.test.tsx's "the
+   * Batch simulate button": a staged rocket shows the button off and the same
+   * reason on screen as in its title; a rocket with a mount and no motor shows
+   * it on, and it opens the dialog. Mutation-checked: the gate back on
+   * `!!primaryMountId` fails the second, the visible sentence removed fails
+   * the first.
    */
-  it('the batch-simulate button says WHY it is unavailable, visibly', () => {
-    const app = read('../App.tsx');
-    // One expression decides both the disabled state and the explanation, so
-    // the button cannot gain a disabled case with no reason attached.
-    expect(app).toContain('const blocked = batchUnavailableReason({');
-    expect(app).toContain('disabled={!!blocked}');
-    // And the reason is rendered, not merely put in a tooltip.
-    expect(app).toContain('Batch simulation is not available here — {blocked}.');
-  });
-
-  /**
-   * Owner report, 2026-09-01b, after v0.094 put the reason on screen: *"there is
-   * a note … that says 'Batch simulation is not available here — this rocket has
-   * no motor mount', but the rocket clearly has a 75mm motor mount."*
-   *
-   * He was right, and the visible reason is what exposed it. The gate was wired
-   * to `primaryMountId`, which is the topmost mount **with a motor assigned** —
-   * so a design with a mount and nothing loaded reported "no motor mount" and
-   * the whole feature was unavailable. Batch simulation exists to FIND a motor,
-   * so requiring one already chosen was backwards, and it made the feature
-   * unavailable on exactly the designs it is for: two of his own single-stage
-   * `.ork` files import with `motors: []`.
-   */
-  it('the batch gate asks for a motor MOUNT, not an assigned motor', () => {
-    const app = read('../App.tsx');
-    expect(app).toContain('hasMount: mounts.length > 0');
-    // The panel itself must open on the same condition, or the button enables
-    // and then renders nothing — which is the original "nothing happens".
-    expect(app).toContain('showBatch && built && mounts.length > 0 && !isStaged');
-    // And it must not have drifted back to the assigned-motor list.
-    expect(app).not.toContain('hasMount: !!primaryMountId');
-    expect(app).not.toContain('showBatch && built && primaryMountId');
-  });
 
   it('the fixed notice bar reserves its own space instead of covering the footer', () => {
     // NoticeBar publishes its measured height; the footer band and the hero
@@ -134,7 +107,9 @@ describe('stats-drawer default and the desktop breakpoint', () => {
     // its own explanation, and a naive match would find that instead.
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(css).toContain('calc(10px + var(--notice-h, 0px))');
-    expect(read('../components/NoticeBar.tsx')).toContain("setProperty('--notice-h'");
+    // That NoticeBar publishes it — and takes it back when the bar goes — is
+    // behaviour, in NoticeBar.test.tsx ("publishes its measured height"),
+    // which fails if the write is removed; this file used to regex for it.
     // The default MUST live on :root, not on .viz-root. NoticeBar publishes
     // the measured height as an inline style on <html>; a declaration on
     // .viz-root would beat that inherited value for the whole app subtree and
