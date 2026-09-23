@@ -1,6 +1,6 @@
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import { flownLongitudeDeg, type LaunchConditions } from '../components/LaunchPanel.js';
+import { flownLongitudeDeg, flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../App.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
@@ -1071,6 +1071,14 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   // the reader keeps that number, so without this a design's own save and
   // reopen would re-key every run it had flown.
   if (flownLongitudeDeg(launch) === null) delete l.longitudeDeg;
+  // A ROD AIM THAT FLIES AS AIM 0 IS NO AIM (weather build, step 2; decision
+  // D9). Absent, 0, a whole turn, NaN, and ANY aim on a vertical rod hand the
+  // kernel no rodDirection at all (`flownRodAimDeg`, the predicate
+  // `kernelSimOptions` spreads it by), so they are one flight and must be one
+  // key — the absent spelling every run stored before the field has. Without
+  // this, the .ork reader writing 0 into each design it opens would re-key
+  // every run in the history, and so would typing an aim onto a vertical rod.
+  if (flownRodAimDeg(launch) === null) delete l.launchRodAimDeg;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at
@@ -1385,6 +1393,9 @@ function lastFinite(arr: (number | null)[] | undefined): number | null {
  * velocity to get airspeed (AbstractSimulationStepper), so the air mass
  * itself moves toward −x = west and the rocket drifts downwind to compass
  * 270°. Verified against a real windy sim in simReport.kernel.test.ts.
+ * Rod aim (weather build, step 2) turns the ROD about that wind, never the
+ * wind itself, so this stays true at every aim; the same file pins it to the
+ * engine's KERNEL_WIND_FROM_RAD + 180°.
  */
 export const WIND_BLOWS_TOWARD_DEG = 270;
 

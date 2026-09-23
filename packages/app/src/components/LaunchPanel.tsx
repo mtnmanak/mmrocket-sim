@@ -1,4 +1,4 @@
-import { DEFAULT_TIME_STEP_S, type SimulationOptions } from '@online-openrocket/engine';
+import { DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type SimulationOptions } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtAltitude, fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
@@ -17,6 +17,27 @@ import { provenanceText, WeatherStrip } from './WeatherStrip.js';
 export interface LaunchConditions {
   launchRodLengthM: number;
   launchRodAngleDeg: number;
+  /**
+   * Which way a tilted rod leans RELATIVE TO THE WIND, in degrees (weather
+   * build, step 2): 0 = straight into the wind — how every flight flew before
+   * the field existed — 180 = downwind, +90 = to your right as you face into
+   * the wind. Stored as typed, inside `ROD_AIM_DEG_RANGE`; `flownRodAimDeg`
+   * normalises it. It acts only while Rod angle is not 0.
+   *
+   * Built by turning the ROD, never the wind (`kernelSimOptions`): the
+   * kernel's wind always blows from the east, so the landing bearing's
+   * "downwind" (simReport's WIND_BLOWS_TOWARD_DEG) stays true whatever the aim.
+   *
+   * OPTIONAL, and absent means 0: a session or share link from before the
+   * field restores without it and flies exactly as before. Never default-filled
+   * on restore — `stableJson` would read the new key as an edit and mark every
+   * restored design dirty. Out of `REQUIRED_CONDITION_KEYS` (simReport.ts), and
+   * folded out of `conditionsKeyOf` whenever it does not move the flight
+   * (`flownRodAimDeg`). The .ork reader ALWAYS writes it (0 for a file with no
+   * manual rod direction), and so does the .CDX1 reader, so an opened file never
+   * inherits the previous design's aim.
+   */
+  launchRodAimDeg?: number;
   windAverage: number;
   /** Gusts: standard deviation (m/s). */
   windStdDev: number;
@@ -116,6 +137,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   // the flight disagree, silently, with the number in the box.
   const air = padAir(l);
   const longitude = flownLongitudeDeg(l);
+  const aim = flownRodAimDeg(l);
   return {
     launchRodLength: l.launchRodLengthM,
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
@@ -125,6 +147,16 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
     temperature: air.standard ? undefined : air.temperatureK,
     pressure: air.standard ? undefined : air.pressurePa,
     launchLatitude: l.latitudeDeg,
+    // Rod aim turns the ROD about the kernel's fixed wind (from π/2, the
+    // east): into the wind is a rod direction equal to the wind's, and the aim
+    // is added to that. Only when it moves the flight — a tilted rod aimed off
+    // the wind. At aim 0, or with a vertical rod, the key is absent and every
+    // design hands the kernel the bytes it always did (LaunchPanel.test's
+    // golden). That guard is load-bearing, not tidiness: a vertical rod aimed
+    // 37° flies an apogee different in the eighth figure (327.76024201749783 m
+    // against 327.7602449449038 m, spec §2.6), because the launch
+    // quaternion's product rounds.
+    ...(aim !== null ? { launchRodDirection: KERNEL_WIND_FROM_RAD + (aim * Math.PI) / 180 } : {}),
     // Only when it would move something: a blank (or the default itself) is
     // left to the kernel's own −80.6, so every design saved before the field
     // hands the kernel byte-identical options.
@@ -186,9 +218,10 @@ export const DEFAULT_CONDITIONS: LaunchConditions = {
 /**
  * THE PANEL'S OWN BOUNDS for the launch fields that are not the pad's air
  * (those are atmosphere.ts's `PAD_*` / `SITE_ALTITUDE_M_RANGE`), in stored
- * units, `Infinity` for an open end. The panel's `numField` calls below read
- * them (the phone Fly screen's three fields still repeat the same literals),
- * and the importers clamp a file's value into them with a note — the same rule
+ * units, `Infinity` for an open end. The panel's `numField` calls below and
+ * the phone Fly screen's four fields read them (the Fly screen repeated the
+ * literals until the weather build's step 2 gave it Rod aim), and the
+ * importers clamp a file's value into them with a note — the same rule
  * the .ork reader has applied to `<atmosphere>` since v0.105: a value the panel
  * refuses could not be seen, checked or re-entered.
  *
@@ -205,6 +238,35 @@ export const WIND_MS_RANGE: readonly [number, number] = [0, Infinity];
 export const LATITUDE_DEG_RANGE: readonly [number, number] = [-90, 90];
 /** The Longitude field's bounds (°, east positive). The .ork reader clamps into it; the RASAero format has no longitude. */
 export const LONGITUDE_DEG_RANGE: readonly [number, number] = [-180, 180];
+
+/**
+ * The Rod aim field's bounds (°; decision D1: signed, −180…180). The .ork
+ * reader normalises a file's aim into it; the RASAero format has no rod
+ * direction.
+ */
+export const ROD_AIM_DEG_RANGE: readonly [number, number] = [-180, 180];
+
+/** Any angle (°) as its equivalent in (−180, 180] — so −180 reads as 180, and 540 as 180. */
+export function normalizeRodAimDeg(x: number): number {
+  const a = ((x % 360) + 360) % 360;
+  return a > 180 ? a - 360 : a;
+}
+
+/**
+ * The aim the kernel is handed (°, normalised), or null when the flight is
+ * identical to aim 0: absent, not a finite number, a whole turn, or a rod that
+ * is not tilted (a vertical rod has no direction). ONE predicate for
+ * `kernelSimOptions` (which omits `launchRodDirection` on null) and
+ * `conditionsKeyOf` (which folds the key on null), so "does not move the
+ * flight" and "does not change the conditions" cannot disagree (decision D9).
+ */
+export function flownRodAimDeg(l: Pick<LaunchConditions, 'launchRodAimDeg' | 'launchRodAngleDeg'>): number | null {
+  const a = l.launchRodAimDeg;
+  if (typeof a !== 'number' || !Number.isFinite(a)) return null;
+  if (!(Number.isFinite(l.launchRodAngleDeg) && l.launchRodAngleDeg !== 0)) return null;
+  const n = normalizeRodAimDeg(a);
+  return Math.abs(n) < 1e-9 ? null : n;
+}
 
 /**
  * The longitude a blank Longitude field flies (°): the kernel's own default
@@ -257,6 +319,7 @@ export function importLaunchValue(
 const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; storedToSI: number; storedOffset?: number }>> = {
   launchRodLengthM: { quantity: 'length', storedToSI: 1 },
   launchRodAngleDeg: { quantity: 'angle', storedToSI: Math.PI / 180 },
+  launchRodAimDeg: { quantity: 'angle', storedToSI: Math.PI / 180 },
   windAverage: { quantity: 'windspeed', storedToSI: 1 },
   windStdDev: { quantity: 'windspeed', storedToSI: 1 },
   launchAltitudeM: { quantity: 'distance', storedToSI: 1 },
@@ -267,10 +330,10 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
 /**
  * One unit-aware launch-condition field. Extracted from LaunchPanel's local
  * closure so the phone Fly screen (S4) renders the SAME conversion and
- * validation for its three field-side conditions instead of a copy.
+ * validation for its four field-side conditions instead of a copy.
  */
 export function LaunchField({
-  label, field, value, onChange, stepStored, min, max, nullable = false, autoStored, help, provenance,
+  label, field, value, onChange, stepStored, min, max, nullable = false, autoStored, absentStored, help, provenance,
 }: {
   label: string;
   field: keyof LaunchConditions;
@@ -293,6 +356,16 @@ export function LaunchField({
    * altitude changed — the same stale-number trap in a new place.
    */
   autoStored?: number;
+  /**
+   * What an ABSENT value of a non-nullable OPTIONAL field means, in stored
+   * units — shown in the box as that VALUE, not as a placeholder. Rod aim
+   * passes 0: a design saved before the field has no key and flies aim 0, and
+   * the box should say "0", as Rod angle's does. A placeholder would not do:
+   * `fmtSi`'s default ladder prints 0 as "0.000", and a greyed hint reads as
+   * "blank", which a non-nullable field never is. Nothing is written until the
+   * user commits a value, so showing it dirties nothing.
+   */
+  absentStored?: number;
   /**
    * Field help — the sentence a short label cannot hold: "Station pressure"
    * says WHAT the field wants, the help says what leaving it blank actually
@@ -365,12 +438,14 @@ export function LaunchField({
         describedBy={help ? helpId : undefined}
         // `== null`, not `=== null`: an OPTIONAL field is absent (undefined)
         // from every session saved before it existed, and absent reads as
-        // blank. Longitude, the one optional field today, has no unit spec, so
-        // toUi hands undefined straight back and its box was blank either way;
-        // a field WITH a spec (step 2's planned Rod aim) would convert
-        // undefined to NaN, which the box shows as "—" instead of blank.
-        // LaunchPanel.test pins it on a spec'd field.
-        value={value[field] == null ? undefined : toUi(value[field] as number)}
+        // blank — or, for a non-nullable one given `absentStored` (Rod aim),
+        // as the value absent means. Longitude has no unit spec, so toUi hands
+        // undefined straight back and its box was blank either way; a field
+        // WITH a spec would convert undefined to NaN, which the box shows as
+        // "—" instead. LaunchPanel.test pins both.
+        value={value[field] == null
+          ? (!nullable && absentStored !== undefined ? toUi(absentStored) : undefined)
+          : toUi(value[field] as number)}
         step={step}
         min={uiMin}
         max={uiMax}
@@ -519,6 +594,20 @@ export const DENSITY_ALTITUDE_HELP =
   + 'the true figure is a few hundred feet higher.';
 
 /**
+ * Help for the Rod aim field (weather build, step 2). Exported for the tests.
+ * The sign convention is measured, not asserted: the wind blows from the east
+ * (KERNEL_WIND_FROM_RAD), so facing into it faces east and your right is
+ * south — and a +90° aim lands a calm-air flight to the south
+ * (simReport.kernel.test.ts). The last sentence is the identity
+ * packages/engine/src/rodDirection.test.ts measures: +5° aimed 180° flies as −5°.
+ */
+export const ROD_AIM_HELP =
+  'Which way the rod leans, measured from straight into the wind: 0° (the default) leans it into the '
+  + 'wind, 180° downwind, ±90° across it — positive to your right as you face into the wind. It only '
+  + 'matters when Rod angle is not 0; a vertical rod has no direction. A negative Rod angle already '
+  + 'leans the rod downwind, the same as adding 180° here.';
+
+/**
  * Help for the Longitude field (weather build, step 3). Exported for the
  * tests. The sign is the thing to say first: every US site is WEST, so
  * negative, and a positive number typed from a map that prints "119.06 W"
@@ -650,10 +739,10 @@ export function LaunchPanel({
   const forecastWind = typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
     ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs } : null;
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
-      min?: number, max?: number, nullable = false, help?: string, autoStored?: number) => (
+      min?: number, max?: number, nullable = false, help?: string, autoStored?: number, absentStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
       stepStored={stepStored} min={min} max={max} nullable={nullable}
-      autoStored={autoStored} help={help}
+      autoStored={autoStored} absentStored={absentStored} help={help}
       provenance={weather && (APPLY_KEYS as readonly string[]).includes(key)
         ? provenanceText(value, weather, key as ApplyKey, prefs.units) : undefined} />
   );
@@ -665,23 +754,35 @@ export function LaunchPanel({
         {onGetWeather && <WeatherButton onClick={onGetWeather} />}
       </div>
       <div className="field-grid">
-        {/* Open-ended bounds pass no max: the field has none to enforce. */}
-        {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
+        {/* THE ORDER IS THE LAYOUT. `.field-grid` is a fixed two columns, so
+            cells pair off in the order written here (weather build, spec §0.4,
+            decision D8; LaunchPanel.test pins it):
+              Rod angle        | Rod aim
+              Wind avg         | Wind gusts σ
+              [gust chip, full width — only with an applied forecast]
+              Rod length       | Site altitude
+              Temperature      | Station pressure
+              Density altitude | Time step
+              Latitude         | Longitude
+            Rod aim sits beside the Rod angle it only matters with. σ must stay
+            a RIGHT-hand cell, so the chip's full-width row under it starts
+            clean. Step 1 had put Density altitude beside Site altitude; this
+            order moves it under the Temperature and Station pressure it is
+            worked out from, and its "(+952 vs site)" still names what it is
+            measured against.
+            Open-ended bounds pass no max: the field has none to enforce. */}
         {numField('Rod angle', 'launchRodAngleDeg', 1, ...ROD_ANGLE_DEG_RANGE)}
+        {/* Non-nullable, and absent (every design saved before the field)
+            shows the 0 it flies — as a value, never fmtSi's "0.000". */}
+        {numField('Rod aim', 'launchRodAimDeg', 15, ...ROD_AIM_DEG_RANGE, false, ROD_AIM_HELP, undefined, 0)}
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
         {/* The gust-to-σ chip (weather build, step 4): directly under the wind
             pair, full width, and only here — never inside LaunchField, which the
-            Fly screen shares. σ above is the grid's RIGHT cell, so this row
-            starts clean; a test pins that parity. */}
+            Fly screen shares. */}
         <GustEstimate value={value} onChange={onChange} forecastWind={forecastWind} />
+        {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
-        {/* Beside Site altitude on purpose: its "(+952 vs site)" delta is read
-            against the box next to it, and with both air fields blank the two
-            show the same number. (Weather build, step 1, 2026-09-22. Latitude
-            moved down a row to make the pair; the grid is a fixed two columns,
-            so every insertion keeps the cells after it in their pairs.) */}
-        <DensityAltitudeReadout value={value} />
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
@@ -691,14 +792,10 @@ export function LaunchPanel({
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
-            words, sentence case, the same shape as "Site altitude" beside it. */}
+            words, sentence case, the same shape as "Site altitude" above it. */}
         {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
           isaPressurePa(value.launchAltitudeM) / 100)}
-        {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
-        {/* Beside Latitude, its pair (weather build, step 3); Time step moves
-            down to a row of its own. Blank shows the −80.6 it flies. */}
-        {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
-          KERNEL_DEFAULT_LONGITUDE_DEG)}
+        <DensityAltitudeReadout value={value} />
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands
@@ -711,6 +808,11 @@ export function LaunchPanel({
             of frozen tab on a file this release exists to make fast) for no
             measurable accuracy. */}
         {numField('Time step (s)', 'timeStepS', 0.01, PANEL_TIME_STEP_FLOOR_S, 1, true)}
+        {numField('Latitude (°)', 'latitudeDeg', 1, ...LATITUDE_DEG_RANGE)}
+        {/* Beside Latitude, its pair (weather build, step 3). Blank shows the
+            −80.6 it flies. */}
+        {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
+          KERNEL_DEFAULT_LONGITUDE_DEG)}
       </div>
       {/* Not a .field-caution: the tests (and a reader) take the FIRST caution
           as the one about what was typed. */}

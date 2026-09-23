@@ -1518,6 +1518,7 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
       { windAverage: 5 }, { windStdDev: 1 }, { launchRodAngleDeg: 10 },
       { launchRodLengthM: 2 }, { launchAltitudeM: 300 }, { temperatureC: 30 },
       { pressureHPa: 900 }, { latitudeDeg: 40 }, { longitudeDeg: -119.355 },
+      { launchRodAngleDeg: 5, launchRodAimDeg: 90 },
     ];
     for (const p of patches) {
       expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, ...p }), JSON.stringify(p)).not.toBe(base);
@@ -1534,6 +1535,28 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     }
     expect(base).not.toContain('longitude');
     expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, longitudeDeg: -119.355 })).toContain('longitudeDeg=-119.355');
+  });
+
+  // Weather build, step 2 (decision D9): an aim that does not move the flight
+  // — 0, absent, null or NaN, or any aim with a vertical rod — hashes as the
+  // key every run stored before the field has. The .ork reader writes 0 into
+  // every design it opens, and a vertical rod ignores its aim by construction
+  // (kernelSimOptions sends no rodDirection), so neither may re-key a run.
+  it('folds a Rod aim that does not move the flight onto the key every stored run already has', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    for (const launchRodAimDeg of [0, -0, 360, NaN, undefined, null as unknown as number, 90, 180]) {
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, launchRodAimDeg }), String(launchRodAimDeg)).toBe(base);
+    }
+    expect(base).not.toContain('launchRodAimDeg');
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 };
+    const tiltedKey = conditionsKeyOf(tilted);
+    for (const launchRodAimDeg of [0, 360, NaN, undefined]) {
+      expect(conditionsKeyOf({ ...tilted, launchRodAimDeg }), String(launchRodAimDeg)).toBe(tiltedKey);
+    }
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 })).not.toBe(tiltedKey);
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 })).toContain('launchRodAimDeg=90');
+    expect(conditionsKeyOf({ ...tilted, launchRodAimDeg: 90 }))
+      .not.toBe(conditionsKeyOf({ ...tilted, launchRodAimDeg: -90 }));
   });
 
   it('KEEPS the spelling every stored run already uses for a null REQUIRED field', () => {

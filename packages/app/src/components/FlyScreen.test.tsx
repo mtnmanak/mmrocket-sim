@@ -78,6 +78,19 @@ describe('FlyScreen', () => {
     expect(host.querySelector('.fly-name')?.textContent).toBe('Field Bird');
   });
 
+  // Weather build, step 2 (decision D2): the pad-side conditions are the four
+  // someone standing at the rail changes — Rod aim among them, beside the Rod
+  // angle it only matters with — in the panel's own bounds.
+  it('offers the four pad-side launch conditions, Rod aim beside Rod angle', () => {
+    mount();
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>('.fly-conditions input'));
+    expect(inputs.map((i) => (i.getAttribute('aria-label') ?? '').replace(/ \(.*\)$/, '')))
+      .toEqual(['Rod angle', 'Rod aim', 'Rod length', 'Wind avg']);
+    // A design from before the field: the aim reads 0, not blank or NaN.
+    expect(inputs[1]!.value).toBe('0');
+    expect(inputs[1]!.getAttribute('aria-describedby')).toBeTruthy();
+  });
+
   it('never lies before the first flight — dashes, not zeros', () => {
     mount({ run: null });
     const values = Array.from(host.querySelectorAll('.fly-stat .stat-value')).map((el) => el.textContent);

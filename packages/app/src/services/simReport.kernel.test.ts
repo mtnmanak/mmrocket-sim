@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { FlightSeries } from '@online-openrocket/engine';
-import { buildSimRun, rodExitFromSeries } from './simReport.js';
+import { buildSimRun, extractLandingDrift, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
@@ -292,4 +292,46 @@ describe('longitude moves no flight number', () => {
     }
     expect(lambda0(blank)).toBeCloseTo(-80.6, 6);
   }, 60000);
+});
+
+/**
+ * ROD AIM (weather build, step 2), end to end through `kernelSimOptions` and
+ * the real kernel. In calm air a tilted rod is the only thing that moves the
+ * rocket sideways, so the landing bearing IS the rod's lean: the aim is
+ * measured from straight into the wind, which blows from the east
+ * (KERNEL_WIND_FROM_RAD), so 0 leans east (90°), +90 — to your right as you
+ * face into the wind — leans south (180°), 180 west, −90 north. That is the
+ * sign convention the field's help states, held against the physics.
+ */
+describe('Rod aim turns a tilted rod’s lean about the wind', () => {
+  it('lands a calm-air flight toward the side the rod leans: 0 → E, +90 → S, 180 → W, −90 → N', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launchRodAimDeg: number) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return extractLandingDrift(rocket.simulate({
+        ...kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 10, launchRodAimDeg }),
+        randomSeed: 42,
+      }).series);
+    };
+    const off = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
+    const drifts: number[] = [];
+    for (const [aim, bearing] of [[0, 90], [90, 180], [180, 270], [-90, 0]] as const) {
+      const d = fly(aim);
+      expect(d.bearingDeg, `aim ${aim}`).not.toBeNull();
+      expect(off(d.bearingDeg!, bearing), `aim ${aim}: bearing ${d.bearingDeg}`).toBeLessThan(15);
+      drifts.push(d.distanceM!);
+    }
+    // One rod, turned: the same distance whichever way it points.
+    expect(Math.max(...drifts) - Math.min(...drifts)).toBeLessThan(0.02 * Math.max(...drifts));
+  }, 60000);
+
+  // The aim turns the ROD, never the wind, so the landing label's "downwind"
+  // stays the kernel's own: from KERNEL_WIND_FROM_RAD, toward that plus 180°.
+  it('keeps the landing label’s "downwind" true: the wind still blows toward 270°', async () => {
+    const { KERNEL_WIND_FROM_RAD } = await import('@online-openrocket/engine');
+    expect(WIND_BLOWS_TOWARD_DEG).toBe((KERNEL_WIND_FROM_RAD * 180 / Math.PI + 180) % 360);
+    expect(WIND_BLOWS_TOWARD_DEG).toBe(270);
+  });
 });

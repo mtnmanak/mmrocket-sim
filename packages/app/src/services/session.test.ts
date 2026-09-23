@@ -10,7 +10,8 @@ import {
 } from './session.js';
 import { APP_VERSION } from '../version.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
+import { conditionsKeyOf } from './simReport.js';
 import type { MountMotor } from '../App.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor } from './motorDb.js';
@@ -184,6 +185,37 @@ describe('a saved design reads saved after the autosave round trip (audit 2026-0
       activeConfigId: s.activeConfigId!, measured: s.measured!,
     };
     expect('motorCase' in reloaded.mountMotors['m1']!.meta!).toBe(false);
+    expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
+  });
+});
+
+/**
+ * ROD AIM (weather build, step 2) is OPTIONAL, and absent means 0. A session
+ * saved before the field restores with no key — nothing fills one in — so the
+ * design is the same design (fingerprint, conditions key) and flies the same
+ * flight (no rodDirection reaches the kernel). A default-fill here would mark
+ * every restored design unsaved, which is the trap the field's doc names.
+ */
+describe('a session saved before Rod aim', () => {
+  it('restores with no aim, the same fingerprint and conditions key, and flies no rod direction', () => {
+    // A tilted rod, so "no rod direction" is the aim's doing, not the rod's.
+    const launch = { ...state().launch, launchRodAngleDeg: 5 };
+    const snap: DesignSnapshot = {
+      ...state(), launch, mountMotors: {}, maxMotorLengthByStage: {}, savedConfigs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null },
+    };
+    const mark = designFingerprint(snap);
+    saveSessionDebounced({ ...snap, savedMark: mark });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s.launch).not.toHaveProperty('launchRodAimDeg');
+    expect(kernelSimOptions(s.launch)).not.toHaveProperty('launchRodDirection');
+    expect(conditionsKeyOf(s.launch)).toBe(conditionsKeyOf(launch));
+    const reloaded: DesignSnapshot = {
+      tree: s.tree, mountMotors: s.mountMotors!, launch: s.launch,
+      maxMotorLengthByStage: s.maxMotorLengthByStage!, savedConfigs: s.savedConfigs!,
+      activeConfigId: s.activeConfigId!, measured: s.measured!,
+    };
     expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
   });
 });

@@ -4,8 +4,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, kernelSimOptions, LaunchField, LaunchPanel,
-  LONGITUDE_HELP, timeStepCostFactor, type LaunchConditions,
+  DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions, LaunchField,
+  LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
+  type LaunchConditions,
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
@@ -497,6 +498,23 @@ describe('kernelSimOptions is byte-identical for every existing design', () => {
       + '"launchAltitude":1219.2,"temperature":308.15,"pressure":87510.54501623093,"launchLatitude":40.65,'
       + '"timeStep":0.02}');
   });
+
+  // Weather build, step 2: a Rod aim that leaves the flight as it was — 0,
+  // the absent key of every design saved before the field, NaN, or any aim
+  // with a vertical rod — hands the kernel the same bytes as the golden.
+  it('is unchanged by a Rod aim that does not move the flight', () => {
+    const golden = JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS));
+    for (const launchRodAimDeg of [0, -0, 360, NaN, Infinity, 90, 180]) {
+      // Rod angle 0 (the default): a vertical rod has no direction.
+      expect(JSON.stringify(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAimDeg })), String(launchRodAimDeg))
+        .toBe(golden);
+    }
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4 };
+    for (const launchRodAimDeg of [0, -0, 360, -720, NaN, 1e-12]) {
+      expect(JSON.stringify(kernelSimOptions({ ...tilted, launchRodAimDeg })), String(launchRodAimDeg))
+        .toBe(JSON.stringify(kernelSimOptions(tilted)));
+    }
+  });
 });
 
 /**
@@ -763,5 +781,115 @@ describe('applied weather in the Launch panel', () => {
     const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
     expect(sigma % 2).toBe(1);
     expect(host.querySelector('.gust-estimate')).toBeNull();
+  });
+});
+
+/**
+ * ROD AIM (weather build, step 2): the rod's lean measured from straight into
+ * the wind. It moves the flight only through `rodDirection`, and only when the
+ * rod is tilted and aimed away from the wind — every other case hands the
+ * kernel the golden above, byte for byte.
+ */
+describe('the rod-aim field', () => {
+  const aimInput = () => [...host.querySelectorAll('input')]
+    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Rod aim'));
+
+  it('normalises any angle into (−180°, 180°]', () => {
+    expect(ROD_AIM_DEG_RANGE).toEqual([-180, 180]);
+    expect(normalizeRodAimDeg(0)).toBe(0);
+    expect(normalizeRodAimDeg(90)).toBe(90);
+    expect(normalizeRodAimDeg(-90)).toBe(-90);
+    expect(normalizeRodAimDeg(180)).toBe(180);
+    expect(normalizeRodAimDeg(-180)).toBe(180);
+    expect(normalizeRodAimDeg(540)).toBe(180);
+    expect(normalizeRodAimDeg(270)).toBe(-90);
+    expect(normalizeRodAimDeg(-450)).toBe(-90);
+  });
+
+  it('flies an aim only when the rod is tilted and the aim is off the wind', () => {
+    for (const l of [
+      DEFAULT_CONDITIONS,
+      { ...DEFAULT_CONDITIONS, launchRodAimDeg: 0 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 0, launchRodAimDeg: 90 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: NaN },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 360 },
+      { ...DEFAULT_CONDITIONS, launchRodAngleDeg: NaN, launchRodAimDeg: 90 },
+    ]) {
+      expect(flownRodAimDeg(l), JSON.stringify(l)).toBeNull();
+      expect(kernelSimOptions(l), JSON.stringify(l)).not.toHaveProperty('launchRodDirection');
+    }
+  });
+
+  it('hands the kernel the wind’s own direction plus the aim, in radians', () => {
+    const at = (launchRodAimDeg: number) =>
+      kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg }).launchRodDirection;
+    expect(at(180)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(540)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(-180)).toBe(Math.PI / 2 + Math.PI);
+    expect(at(90)).toBe(Math.PI / 2 + Math.PI / 2);
+    expect(at(-90)).toBe(Math.PI / 2 - Math.PI / 2);
+    // A negative rod angle is a real, different setting, still aimed.
+    expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: -5, launchRodAimDeg: 90 }).launchRodDirection)
+      .toBe(Math.PI);
+  });
+
+  it('shows 0 for a design saved before the field — not blank, "0.000" or NaN — and writes nothing', () => {
+    renderConditions({});
+    const input = aimInput();
+    expect(input, 'the Rod aim input').toBeTruthy();
+    expect(input!.value).toBe('0');
+    expect(input!.getAttribute('aria-label')).toBe('Rod aim (°)');
+    expect(lastLaunch).toBeNull();
+    renderConditions({ launchRodAngleDeg: 5, launchRodAimDeg: 135 });
+    expect(aimInput()!.value).toBe('135');
+  });
+
+  it('commits a typed aim in degrees, and refuses one outside ±180°', () => {
+    renderConditions({ launchRodAngleDeg: 5 });
+    const input = aimInput()!;
+    const type = (text: string) => {
+      act(() => input.focus());
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    type('-90');
+    expect(lastLaunch!.launchRodAimDeg).toBe(-90);
+    lastLaunch = null;
+    type('200');
+    expect(lastLaunch).toBeNull();
+  });
+
+  it('says what 0 means, which way is positive, and that a vertical rod ignores it', () => {
+    renderConditions({});
+    const described = aimInput()!.getAttribute('aria-describedby');
+    expect(host.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(ROD_AIM_HELP);
+    expect(ROD_AIM_HELP).toMatch(/0° \(the default\) leans it into the wind/);
+    expect(ROD_AIM_HELP).toMatch(/positive to your right as you face into the wind/);
+    expect(ROD_AIM_HELP).toMatch(/only matters when Rod angle is not 0/);
+    // Not shaped like the atmosphere helps, which other tests find by pattern.
+    expect(ROD_AIM_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
+
+  /**
+   * THE GRID ORDER (spec §0.4, decision D8). `.field-grid` is a fixed two
+   * columns, so the order of its children IS the layout: Rod angle beside the
+   * Rod aim it is read with, the wind pair, then Rod length beside Site
+   * altitude, the air, Density altitude beside Time step, and the site's
+   * coordinates last. σ must stay a RIGHT-hand cell so the gust chip's
+   * full-width row under it starts clean (the weather tests pin the chip).
+   */
+  it('lays the panel out in the two-column order, with σ in the right-hand cell', () => {
+    renderConditions({});
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const order = ['Rod angle', 'Rod aim', 'Wind avg', 'Wind gusts σ', 'Rod length', 'Site altitude',
+      'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude'];
+    expect(cells.map((c) => {
+      const text = c.querySelector('label')?.textContent ?? '';
+      return order.find((o) => text.startsWith(o)) ?? text;
+    })).toEqual(order);
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
   });
 });
