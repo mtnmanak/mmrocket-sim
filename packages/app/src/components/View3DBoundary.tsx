@@ -11,7 +11,9 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
  * newer deploy replaced is not a 404 on this host: Cloudflare Pages answers
  * any unknown path with index.html, 200 text/html (measured on the live site
  * 2026-09-23), and Safari — every iPhone and iPad browser with it — rejects
- * the import with "'text/html' is not a valid JavaScript MIME type." Missed,
+ * the import with "'text/html' is not a valid JavaScript MIME type." (WebKit
+ * since July 2026 adds " for module script '<url>'", which this matches too;
+ * both measured in Playwright's WebKit by the late claim check). Missed,
  * that case showed "could not be shown" with no reload button, where a reload
  * is the only cure (claim check of the v0.141 notes).
  */
