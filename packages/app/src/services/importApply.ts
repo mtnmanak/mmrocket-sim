@@ -166,8 +166,10 @@ interface FlyablePick {
  * the file won each mount, and afterwards opened on a first simulation whose
  * motor is not in the database (Level2-PELTZER's J240-RL): no motor loaded, no
  * primary mount, Launch unavailable, and a note sending the user to Browse
- * motor database while six of its seven configurations fly. 36 of the 594
- * multi-configuration corpus files open that way.
+ * motor database while six of its seven configurations fly. Swept offline over
+ * the 593 multi-configuration .rkt files in the owner's RockSim corpus and the
+ * tester uploads, 36 opened that way; with this all 36 open on one that can
+ * leave the pad, and the 6 still opening with no motor have none that could.
  *
  * So: when the reader's pick puts nothing loadable on the stage that lifts off
  * (its own lowest motorised stage) and another configuration does, open the
