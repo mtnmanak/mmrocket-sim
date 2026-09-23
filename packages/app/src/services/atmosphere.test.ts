@@ -316,12 +316,24 @@ describe('what the blank temperature costs', () => {
 describe('padAir — one reading of the pad for the flight and the sizing', () => {
   it('fills each blank field from the SITE altitude, independently', () => {
     const h = 2682;
-    expect(padAir({ launchAltitudeM: h, temperatureC: 30, pressureHPa: null }))
-      .toEqual({ altitudeM: h, temperatureK: 303.15, pressurePa: isaPressurePa(h), standard: false });
-    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: 730 }))
-      .toEqual({ altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: 73000, standard: false });
-    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: null }))
-      .toEqual({ altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: isaPressurePa(h), standard: true });
+    // The two *FromSite flags (weather build, step 3) say which half was the
+    // site's fill — the weather review's "(standard for …)" note reads them.
+    expect(padAir({ launchAltitudeM: h, temperatureC: 30, pressureHPa: null })).toEqual({
+      altitudeM: h, temperatureK: 303.15, pressurePa: isaPressurePa(h), standard: false,
+      temperatureFromSite: false, pressureFromSite: true,
+    });
+    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: 730 })).toEqual({
+      altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: 73000, standard: false,
+      temperatureFromSite: true, pressureFromSite: false,
+    });
+    expect(padAir({ launchAltitudeM: h, temperatureC: null, pressureHPa: null })).toEqual({
+      altitudeM: h, temperatureK: isaTemperatureK(h), pressurePa: isaPressurePa(h), standard: true,
+      temperatureFromSite: true, pressureFromSite: true,
+    });
+    // An out-of-envelope value is flown as the site's, so it is flagged as such.
+    expect(padAir({ launchAltitudeM: h, temperatureC: 99, pressureHPa: 730 })).toMatchObject({
+      temperatureFromSite: true, pressureFromSite: false, standard: false,
+    });
   });
 
   it('reads NaN and absent as blank, never as a number', () => {

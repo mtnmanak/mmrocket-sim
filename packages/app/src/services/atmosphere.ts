@@ -344,8 +344,18 @@ export interface PadAir {
    * bit-identical to every release before v0.122; the two numbers above are
    * the same profile evaluated analytically (the kernel interpolates it on a
    * 500 m grid, within 0.06 % on density over this altitude range).
+   * Always `temperatureFromSite && pressureFromSite`.
    */
   standard: boolean;
+  /**
+   * The temperature above is the site's STANDARD one: the field is blank, or
+   * holds a value `padAir` flies as blank (weather build, step 3). The weather
+   * review marks such a "now" value "(standard for 3,904 ft)", so a reader
+   * can tell the app's fill from a number they typed.
+   */
+  temperatureFromSite: boolean;
+  /** As `temperatureFromSite`, for the station pressure. */
+  pressureFromSite: boolean;
 }
 
 /**
@@ -374,6 +384,8 @@ export function padAir(launch: PadConditions): PadAir {
     temperatureK: tC !== null ? tC + 273.15 : isaTemperatureK(altitudeM),
     pressurePa: pHPa !== null ? pHPa * 100 : isaPressurePa(altitudeM),
     standard: tC === null && pHPa === null,
+    temperatureFromSite: tC === null,
+    pressureFromSite: pHPa === null,
   };
 }
 
