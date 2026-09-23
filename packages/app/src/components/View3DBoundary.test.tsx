@@ -97,6 +97,8 @@ describe('the 3D view’s error boundary — a chunk that failed to download', (
     expect(isChunkLoadError(new TypeError(CHROME))).toBe(true);
     expect(isChunkLoadError(new TypeError('error loading dynamically imported module: https://x/a.js'))).toBe(true);
     expect(isChunkLoadError(new TypeError('Importing a module script failed.'))).toBe(true);
+    // Safari, for a chunk a newer deploy replaced: this host answers with index.html.
+    expect(isChunkLoadError(new TypeError("'text/html' is not a valid JavaScript MIME type."))).toBe(true);
     expect(isChunkLoadError(new Error('Unable to preload CSS for /assets/Rocket3D.css'))).toBe(true);
     const named = new Error('Loading chunk 7 failed.');
     named.name = 'ChunkLoadError';

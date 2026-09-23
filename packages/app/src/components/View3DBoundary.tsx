@@ -6,11 +6,19 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
  * Firefox "error loading dynamically imported module", Safari "Importing a
  * module script failed", Vite's preload helper "Unable to preload CSS", and a
  * `ChunkLoadError` by name. Only a real Error counts.
+ *
+ * Safari has a second wording, for the commoner of the two causes. A chunk a
+ * newer deploy replaced is not a 404 on this host: Cloudflare Pages answers
+ * any unknown path with index.html, 200 text/html (measured on the live site
+ * 2026-09-23), and Safari — every iPhone and iPad browser with it — rejects
+ * the import with "'text/html' is not a valid JavaScript MIME type." Missed,
+ * that case showed "could not be shown" with no reload button, where a reload
+ * is the only cure (claim check of the v0.141 notes).
  */
 export function isChunkLoadError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === 'ChunkLoadError') return true;
-  return /dynamically imported module|Importing a module script failed|Unable to preload CSS/i
+  return /dynamically imported module|Importing a module script failed|is not a valid JavaScript MIME type|Unable to preload CSS/i
     .test(err.message);
 }
 
