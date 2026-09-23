@@ -1,0 +1,125 @@
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import type { RocketTree } from '@online-openrocket/engine';
+import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
+import {
+  equivalentExitDiameterM, followNozzle, stageMotorKey, type StageMotors,
+} from '../services/nozzleFollow.js';
+import { applyStageNozzles, findNode } from '../tree/treeModel.js';
+
+/**
+ * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
+ *
+ * Two reports, one cause: the field was treated as a property of the ROCKET
+ * when it is a property of the MOTOR. Unloading a motor left its exit
+ * diameter behind ("there is no motor loaded, how can there be an exit
+ * diameter?"), and loading a motor whose published exit disagreed raised a
+ * warning the user had to notice and click, "which could cause a very big
+ * issue if they load a motor with a very disparate exit diameter from the
+ * previous motor but fail to see the warning and fly it on the old motor's
+ * exit diameter."
+ *
+ * WHY THE DECISION IS HERE AND NOT IN NozzleField. The rule is "when the
+ * motors CHANGE", and only App can tell a motor change from a file being
+ * opened — a `.ork` or RASAero file arrives with a nozzle AND the motor it
+ * was typed for, and replacing that on load would throw away the very case
+ * the do-not-overwrite rule was written for. So this keeps a per-stage record
+ * of the loadout it last saw: a stage not in it yet is SEEDED and left alone
+ * (that is an open, a restore, a new design), and only a stage whose loadout
+ * has changed under a record is acted on.
+ *
+ * A stage id cannot collide across two opens — ids are minted `c<N>` from a
+ * counter that only ever increases within a page load — so a newly opened
+ * design is always seeded, never mistaken for an edit of the last one.
+ *
+ * Moved out of App.tsx in the 2026-09-22 audit so it can be driven by a test.
+ */
+
+/** What a stage's nozzle was cleared from, for the field's note. */
+export interface NozzleCleared { previousLabel: string; previousM: number }
+
+/** The published-exit lookup; injectable so a test can hold it open. */
+export type NozzleLookup = (motorId: string | undefined) => Promise<Pick<NozzleEntry, 'exitDiameterM'> | null>;
+
+export function useNozzleFollow(opts: {
+  /** `stageMotors(tree, assigned)` — the trigger: this fires on a new loadout. */
+  loadout: StageMotors[];
+  /** The history hook's latest-tree mirror and its no-undo-step writer. */
+  treeRef: MutableRefObject<RocketTree>;
+  writeTree: (next: RocketTree) => void;
+  lookup?: NozzleLookup;
+}): {
+  /** Per stage id: the nozzle this cleared, and whose it was. */
+  cleared: Record<string, NozzleCleared>;
+} {
+  const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
+  const seen = useRef(new Map<string, { key: string; label: string }>());
+  const [cleared, setCleared] = useState<Record<string, NozzleCleared>>({});
+  useEffect(() => {
+    let live = true;
+    // The tree the loadout was computed from; the decision reads the stage's
+    // current value off it.
+    const tree = treeRef.current;
+    void (async () => {
+      const acted = loadout.filter((s) => {
+        const was = seen.current.get(s.stageId);
+        return was !== undefined && was.key !== stageMotorKey(s);
+      });
+      // Record what we have seen BEFORE any await, so a second render landing
+      // mid-lookup cannot act on the same change twice.
+      const previous = new Map(seen.current);
+      for (const s of loadout) {
+        seen.current.set(s.stageId, {
+          key: stageMotorKey(s),
+          label: s.motors[0]?.label ?? '',
+        });
+      }
+      // Stages the tree no longer has: drop them, or a deleted-then-recreated
+      // id would inherit a loadout it never had.
+      for (const id of [...seen.current.keys()]) {
+        if (!loadout.some((s) => s.stageId === id)) seen.current.delete(id);
+      }
+      if (acted.length === 0) return;
+
+      const updates: Record<string, number> = {};
+      const clearedNow: Record<string, NozzleCleared> = {};
+      const forgotten: string[] = [];
+      for (const s of acted) {
+        const entries = await Promise.all(s.motors.map((m) => lookup(m.motorId)));
+        const node = findNode(tree, s.stageId);
+        const was = previous.get(s.stageId);
+        const act = followNozzle({
+          hadMotorsBefore: (was?.key ?? '') !== '',
+          previousLabel: was?.label ?? '',
+          currentValueM: typeof node?.['nozzleExitDiameter'] === 'number' ? node['nozzleExitDiameter'] : null,
+          publishedM: equivalentExitDiameterM(s.motors.map((m, i) => ({
+            count: m.count,
+            exitDiameterM: entries[i]?.exitDiameterM ?? null,
+          }))),
+        });
+        if (act.kind === 'set') { updates[s.stageId] = act.exitDiameterM; forgotten.push(s.stageId); }
+        else if (act.kind === 'clear') {
+          updates[s.stageId] = 0; // applyStageNozzles deletes the key on 0
+          clearedNow[s.stageId] = { previousLabel: act.previousLabel, previousM: act.previousM };
+        } else forgotten.push(s.stageId);
+      }
+      if (!live) return;
+      // `writeTree`, NOT `setTree`: this is a consequence of a motor change,
+      // and motors do not live in the tree, so they are not on the undo stack.
+      // Pushing an undo entry here would let one Ctrl+Z put the PREVIOUS
+      // motor's exit diameter back under the motor that is actually loaded —
+      // and the effect would not correct it, because the loadout has not
+      // changed. That is the exact state this whole block exists to prevent.
+      if (Object.keys(updates).length > 0) writeTree(applyStageNozzles(treeRef.current, updates));
+      if (Object.keys(clearedNow).length > 0 || forgotten.length > 0) {
+        setCleared((prev) => {
+          const next = { ...prev, ...clearedNow };
+          for (const id of forgotten) delete next[id];
+          return next;
+        });
+      }
+    })();
+    return () => { live = false; };
+    // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
+  }, [loadout, treeRef, writeTree, lookup]);
+  return { cleared };
+}
