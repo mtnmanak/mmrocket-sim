@@ -281,8 +281,12 @@ export const MAX_ASSEMBLY_INSTANCES = 32;
  * allocates on each pass, and a canopy's lines are no such thing: one integer,
  * multiplied into the mass, drawn by nothing. So 64 clamped a count the kernel
  * flies faithfully, and the one design over it in the owner's 939-file RockSim
- * corpus — Black-Brant-IV-24mm.rkt, 66 lines — was told it had "more than any
- * real parachute" and flew two lines light (seam review of audit 2026-09-22).
+ * corpus — Black-Brant-IV-24mm.rkt, 66 lines — was stored at 64 and told it had
+ * "more than any real parachute" (seam review of audit 2026-09-22). No number
+ * moved there: that file's KnownMass overrides the chute's mass. And its 66 is
+ * very likely a typo for 6 — the part is an 18" plastic hexagon, which the
+ * corpus carries 27 more times at 6 or 8 lines — but a file's plausible count
+ * is flown as written, not called impossible, and a typo is the user's to fix.
  * 256 is over ten times the most any parachute in the shipped parts catalogue
  * has (24; the corpus tops out at 20 bar that 66), and the 540 kg file's
  * 600 mm canopy weighs 0.157 kg at it (0.054 kg at the old 64).

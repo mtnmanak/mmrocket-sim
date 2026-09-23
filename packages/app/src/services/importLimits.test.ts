@@ -89,8 +89,9 @@ describe('.rkt — counts', () => {
    * for lugs and rail buttons (ComponentFactory.applyLineInstances), which
    * allocate a Coordinate per instance. A canopy's lines are one integer the
    * kernel multiplies into the mass (Parachute.setLineCount has no clamp), so
-   * the one real design over 64 — Black-Brant-IV-24mm.rkt's 66 — was told its
-   * parachute had "more than any real parachute" and flew two lines short.
+   * the one real design over 64 — Black-Brant-IV-24mm.rkt's 66 — was stored at
+   * 64 and told its parachute had "more than any real parachute" (its KnownMass
+   * override kept the mass unchanged; see MAX_SHROUD_LINES in schema.ts).
    */
   it('a ShroudLineCount of 66 is kept, and the kernel weighs every line', () => {
     const chuteOf = (lines: number) => importRkt(rkt('<Parachute><Name>Chute</Name><Dia>457</Dia>'
