@@ -9,7 +9,7 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
-import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
+import type { OrkExportMotor, OrkFlightConfig, OrkImportResult, OrkMotorRef } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
 import { defaultDelay } from './thrustcurve.js';
@@ -151,7 +151,7 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 // ============================ IMPORT ============================
 
-export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkTreeImportResult {
+export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -1238,13 +1238,17 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // the app can auto-load them from the bundled motor database. Real RockSim
   // files often carry STALE serial links (renumbered after edits) — fall
   // back to the first motor mount of the EngineSet's stage.
-  const motors: Record<string, OrkMotorRef> = {};
-  let firstMotor: OrkMotorRef | undefined;
   /** Refs whose <EjectionDelay> was a RockSim sentinel, for the import note below. */
   const sentinelRefs = new Map<OrkMotorRef, 'plugged' | 'every' | 'every-unknown'>();
-  for (const engineSet of Array.from(doc.querySelectorAll('EngineSet'))) {
+  /** Stage index (0 = sustainer) of each mount, for the launch keying below. */
+  const stageOfMount = new Map<string, number>();
+  components.forEach((s, i) => {
+    for (const m of mountsIn(s.children ?? [])) if (m.id) stageOfMount.set(m.id, i);
+  });
+  /** One <EngineSet> as a motor reference on its mount, or null when it names none. */
+  const readEngineSet = (engineSet: Element): OrkMotorRef | null => {
     const code = text(engineSet, ':scope > EngineCode');
-    if (!code) continue;
+    if (!code) return null;
     const mountSerial = text(engineSet, ':scope > MountSerialNo');
     let mount = mountSerial ? serialToNode.get(mountSerial) : undefined;
     if (!mount || mount['motorMount'] !== true) {
@@ -1253,7 +1257,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       const stageIdx = slotMatch ? 3 - Number(slotMatch[1]) : 0;
       mount = mountsIn(components[stageIdx]?.children ?? [])[0];
     }
-    if (!mount?.id) continue;
+    if (!mount?.id) return null;
     // RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
     // from liftoff. Dropping it entirely (what we did before) made every .rkt
     // motor {automatic, 0}, which on an upper stage means the stage below's
@@ -1299,11 +1303,114 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     };
     if (read === 'plugged') sentinelRefs.set(ref, 'plugged');
     else if (read === 'every') sentinelRefs.set(ref, fromCatalogue === null ? 'every-unknown' : 'every');
-    motors[mount.id] = ref;
-    firstMotor = firstMotor ?? ref;
+    return ref;
+  };
+
+  /*
+   * ONE CONFIGURATION PER STORED SIMULATION (audit 2026-09-22), the way
+   * importCdx1 reads a .CDX1's <Simulation>s. A .rkt keeps its motors inside
+   * each <SimulationResults>, and a file's simulations disagree: 581 of the 600
+   * corpus files with more than one engine-bearing simulation name different
+   * motors in at least two. Every <EngineSet> in the file used to go into ONE
+   * map, the last simulation to name a mount winning, so Estes/Loadstar.rkt (11
+   * simulations) opened as a B6 booster under a B4 sustainer — a pairing none
+   * of its simulations flies — and nothing said which simulation was used.
+   *
+   * Two departures from importCdx1, both for RockSim's shape. Simulations with
+   * the SAME motor set fold into one configuration (RockSim files repeat a
+   * simulation freely — Loadstar's [B6-6] six times, and one corpus file has
+   * 186 engine-bearing simulations), keeping the first one's number and name.
+   * And engine sets outside any <SimulationResults> — where this app's own
+   * .rkt export wrote them until the same audit — read as one more set, first.
+   */
+  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  const simGroups: { number: number | null; name: string | null; sets: Element[] }[] = [];
+  const loose = Array.from(doc.querySelectorAll('EngineSet')).filter((e) => !e.closest('SimulationResults'));
+  if (loose.length) simGroups.push({ number: null, name: null, sets: loose });
+  simEls.forEach((s, i) => {
+    const sets = Array.from(s.querySelectorAll('EngineSet'));
+    if (sets.length) {
+      simGroups.push({ number: i + 1, name: text(s, ':scope > SimulationName'), sets });
+    }
+  });
+  const configs: OrkFlightConfig[] = [];
+  /** Per configuration: the simulation it came from (file order, 1-based; null = outside any). */
+  const cfgSim = new Map<OrkFlightConfig, { number: number | null; name: string | null }>();
+  const seenSets = new Map<string, OrkFlightConfig>();
+  let engineSims = 0;
+  for (const g of simGroups) {
+    const cfgMotors: Record<string, OrkMotorRef> = {};
+    for (const es of g.sets) {
+      const ref = readEngineSet(es);
+      if (ref?.mountId) cfgMotors[ref.mountId] = ref;
+    }
+    const entries = Object.entries(cfgMotors);
+    if (entries.length === 0) continue;
+    engineSims++;
+    const stageOf = (mountId: string): number => stageOfMount.get(mountId) ?? 0;
+    // Which motor lights at launch — importCdx1's rule. Keyed per mount on the
+    // TREE's bottom stage above, a simulation that motors only the sustainer
+    // of a two-stage file (Loadstar's [B6-6]) left it on 'burnout' of a
+    // booster that never burns, and the kernel aborted "no motors ignited".
+    // Its lowest motorized stage lights at launch instead; its IgnitionDelay,
+    // measured from the burnout of a stage that does not fly, goes with it.
+    const lowest = Math.max(...entries.map(([id]) => stageOf(id)));
+    if (lowest !== components.length - 1) {
+      for (const [id, r] of entries) {
+        if (stageOf(id) === lowest) {
+          r.ignitionEvent = 'launch';
+          r.ignitionDelay = 0;
+        }
+      }
+    }
+    const key = entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
+      r.ignitionEvent ?? '', r.ignitionDelay ?? ''].join('|')).sort().join('\n');
+    if (seenSets.has(key)) continue;
+    const name = g.name?.trim() || null;
+    const cfg: OrkFlightConfig = {
+      id: g.number === null ? 'rocksim-design' : `rocksim-sim-${g.number}`,
+      // RockSim names a simulation the user never named after its motors,
+      // "[A8-0] [A8-5] ", and that would go stale here the moment a motor is
+      // changed. Such a name is not kept, so configLabel names the
+      // configuration from its motors, live, as desktop does an unnamed one;
+      // the note below still quotes it. A name typed in RockSim is kept.
+      name: name && !/^(\[[^\]]*\]\s*)+$/.test(name) ? name : null,
+      isDefault: configs.length === 0,
+      motors: cfgMotors, deployments: {}, separations: {},
+    };
+    seenSets.set(key, cfg);
+    cfgSim.set(cfg, { number: g.number, name });
+    configs.push(cfg);
   }
-  // One note per motor that IS loaded — a file repeats its engine sets once per
-  // stored simulation, and only the last one per mount survives above.
+  // Which configuration to open: the first that puts a motor on the launch
+  // stage, which is the one that has to light first — importCdx1's choice.
+  const bottomIdx = components.length - 1;
+  const flyable = configs.find((c) => Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx));
+  const chosen = flyable ?? configs[0];
+  const simLabel = (c: OrkFlightConfig): string => {
+    const s = cfgSim.get(c)!;
+    const quoted = s.name ? ` (“${s.name}”)` : '';
+    return s.number === null ? `The motors listed outside the file's simulations${quoted}` : `Simulation ${s.number}${quoted}`;
+  };
+  if (chosen && flyable && configs[0] && flyable !== configs[0]) {
+    notes.push(`${simLabel(configs[0])} in this file puts no motor on the launch stage, so it would not `
+      + `leave the pad. ${simLabel(chosen)} was opened instead — switch under Flight configurations.`);
+  } else if (chosen && !flyable && components.length > 1) {
+    const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
+    notes.push(`No simulation in this file puts a motor on ${bottomName}. ${simLabel(chosen)} was opened `
+      + `with its lowest motor igniting at launch, so ${bottomName} flies along unpowered. Delete that `
+      + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.');
+  } else if (chosen && configs.length > 1) {
+    notes.push(`This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
+      + `different motor sets; each set is a flight configuration here. ${simLabel(chosen)} was opened `
+      + '— switch under Flight configurations.');
+  }
+  const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
+  const firstMotor: OrkMotorRef | undefined = Object.values(motors)[0];
+  const chosenConfigId = chosen?.id ?? null;
+
+  // One note per motor that IS loaded — the opened configuration's, however
+  // many stored simulations repeat its engine sets.
   for (const ref of Object.values(motors)) {
     const kind = sentinelRefs.get(ref);
     if (kind === 'plugged') {
@@ -1346,6 +1453,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     ignored: [...ignored],
     notes,
     ...(measured ? { measured } : {}),
+    configs,
+    chosenConfigId,
   };
 }
 

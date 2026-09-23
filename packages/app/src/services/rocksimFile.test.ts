@@ -2130,3 +2130,124 @@ describe('.rkt export writes its motors where RockSim keeps them', () => {
     expect(xml).not.toContain('<EngineSet>');
   });
 });
+
+/**
+ * Audit 2026-09-22 row 382 — a .rkt carries one motor set PER STORED
+ * SIMULATION, and they disagree (581 of the 600 corpus files with more than
+ * one engine-bearing simulation). Every <EngineSet> in the file used to be
+ * merged into one map, the last simulation to name a mount winning:
+ * Estes/Loadstar.rkt (11 simulations) opened as a B6 booster under a B4
+ * sustainer, a pairing none of its simulations flies, and nothing said which
+ * simulation was used. Shaped on Loadstar: sustainer mount serial 7, booster 14.
+ */
+describe('.rkt simulations become flight configurations', () => {
+  type Eng = { slot: 2 | 3; code: string; delay: number };
+  const sim = (name: string, engines: Eng[]) => `<SimulationResults><SimulationName>${name}</SimulationName>
+      <Stage1Engines></Stage1Engines>
+      ${[2, 3].map((slot) => `<Stage${slot}Engines>${engines.filter((e) => e.slot === slot).map((e) =>
+        `<EngineSet><EngineCount>1</EngineCount><EngineCode>${e.code}</EngineCode><IgnitionDelay>0.</IgnitionDelay>`
+        + `<EngineMfg>Estes</EngineMfg><MountSerialNo>${e.slot === 3 ? 7 : 14}</MountSerialNo>`
+        + `<EjectionDelay>${e.delay}.</EjectionDelay></EngineSet>`).join('')}</Stage${slot}Engines>`).join('')}
+    </SimulationResults>`;
+  const loadstar = (sims: string[]) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Loadstar</Name><StageCount>2</StageCount>
+    <Stage3Parts><BodyTube><Name>Upper</Name><OD>24.8</OD><ID>24.1</ID><Len>200</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube></Stage3Parts>
+    <Stage2Parts><BodyTube><Name>Lower</Name><OD>24.8</OD><ID>24.1</ID><Len>150</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>14</SerialNo></BodyTube></Stage2Parts>
+    </RocketDesign></DesignInformation>
+    <SimulationResultsList>${sims.join('')}</SimulationResultsList></RockSimDocument>`;
+  const LOADSTAR = loadstar([
+    sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    sim('[B6-0] [B6-6] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B6-6] ', [{ slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B6-6] ', [{ slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B4-4] ', [{ slot: 3, code: 'B4', delay: 4 }]),
+  ]);
+  const byStage = (r: ReturnType<typeof importRkt>, motors: Record<string, { designation: string; delay: number }>) => {
+    const [sus, boo] = r.tree.components.map((s) => s.children![0]!.id!);
+    return [boo ? motors[boo]?.designation : undefined, motors[sus!]?.designation];
+  };
+
+  it('opens ONE simulation’s motors, never a mix of several', () => {
+    const r = importRkt(LOADSTAR);
+    // The old merge: B6 booster (last to name serial 14) under a B4 sustainer.
+    expect(byStage(r, r.motors)).toEqual(['A8', 'A8']);
+    expect(r.chosenConfigId).toBe(r.configs[0]!.id);
+    expect(Object.values(r.motors).map((m) => m.delay).sort()).toEqual([0, 5]);
+  });
+
+  it('keeps every distinct motor set as a configuration, repeats folded, in file order', () => {
+    const r = importRkt(LOADSTAR);
+    // Ids by the simulation each came from — the sixth, a repeat of the fourth, folds away.
+    expect(r.configs.map((c) => c.id)).toEqual(
+      ['rocksim-sim-1', 'rocksim-sim-2', 'rocksim-sim-3', 'rocksim-sim-4', 'rocksim-sim-6']);
+    // RockSim's own motor-derived names are not kept: they would go stale on the
+    // first motor change, where configLabel's live one does not.
+    expect(r.configs.map((c) => c.name)).toEqual([null, null, null, null, null]);
+    expect(r.configs.map((c) => byStage(r, c.motors))).toEqual(
+      [['A8', 'A8'], ['B6', 'A8'], ['B6', 'B6'], [undefined, 'B6'], [undefined, 'B4']]);
+    expect(r.configs.filter((c) => c.isDefault)).toHaveLength(1);
+    expect(r.configs[0]!.isDefault).toBe(true);
+  });
+
+  it('keeps a simulation name the user typed in RockSim', () => {
+    const r = importRkt(loadstar([
+      sim('Club launch, calm', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+      sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(r.configs.map((c) => c.name)).toEqual(['Club launch, calm', null]);
+  });
+
+  it('says which simulation was opened', () => {
+    const note = importRkt(LOADSTAR).notes.find((n) => /RockSim simulations/.test(n));
+    expect(note).toMatch(/6 RockSim simulations with motors/);
+    expect(note).toMatch(/5 different motor sets/);
+    expect(note).toMatch(/Simulation 1 \(“\[A8-0\] \[A8-5\]”\) was opened/);
+  });
+
+  it('lights a sustainer-only simulation at launch, so its configuration can fly', () => {
+    // The upper stage's 'burnout' waits on a booster that never burns — the
+    // kernel aborts "no motors ignited" (the same trap importCdx1 closed).
+    const r = importRkt(LOADSTAR);
+    const b4 = Object.values(r.configs[4]!.motors)[0]!;
+    expect(b4.ignitionEvent).toBe('launch');
+    expect(b4.ignitionDelay).toBe(0);
+    // A full stack keeps the burnout timer on the upper stage.
+    const [sus] = r.tree.components.map((s) => s.children![0]!.id!);
+    expect(r.configs[0]!.motors[sus!]!.ignitionEvent).toBe('burnout');
+  });
+
+  it('opens the first simulation that motors the launch stage, and says why', () => {
+    const r = importRkt(loadstar([
+      sim('[B4-4] ', [{ slot: 3, code: 'B4', delay: 4 }]),
+      sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(byStage(r, r.motors)).toEqual(['B6', 'A8']);
+    expect(r.chosenConfigId).toBe(r.configs[1]!.id);
+    expect(r.notes.join(' ')).toMatch(/Simulation 1 \(“\[B4-4\]”\) in this file puts no motor on the launch stage/);
+    expect(r.notes.join(' ')).toMatch(/Simulation 2 \(“\[B6-0\] \[A8-5\]”\) was opened instead/);
+  });
+
+  it('adds no note, and one configuration, when every simulation flies the same motors', () => {
+    const r = importRkt(loadstar([
+      sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+      sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(r.configs).toHaveLength(1);
+    expect(r.notes.some((n) => /RockSim simulations/.test(n))).toBe(false);
+  });
+
+  it('reads engine sets written outside any simulation (this app’s own exports before the fix)', () => {
+    const xml = loadstar([]).replace('</Stage2Parts>', '</Stage2Parts><Stage3Engines><EngineSet>'
+      + '<EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg><MountSerialNo>7</MountSerialNo>'
+      + '<EjectionDelay>5</EjectionDelay><IgnitionDelay>0</IgnitionDelay></EngineSet></Stage3Engines>'
+      + '<Stage2Engines><EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>'
+      + '<MountSerialNo>14</MountSerialNo><EjectionDelay>0</EjectionDelay></EngineSet></Stage2Engines>');
+    const r = importRkt(xml);
+    expect(r.configs).toHaveLength(1);
+    expect(r.configs[0]!.name).toBeNull();
+    expect(byStage(r, r.motors)).toEqual(['C6', 'C6']);
+  });
+});
