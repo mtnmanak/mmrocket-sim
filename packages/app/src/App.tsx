@@ -386,13 +386,19 @@ export function App() {
     () => normalizeTree(session?.tree ?? defaultTree()));
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
-  // so they may name refs declared further down: `spendSpentMarks` (a tree off
-  // the stack under the motors mounted now) and the flight-holds-a-handle gate.
+  // so they may name what is declared further down. A tree off the stack is
+  // flown under the motors mounted NOW, which are not on the stack, so its
+  // nozzle is re-decided for them (`restoreNozzleFollow`) and its stated launch
+  // weight reconciled (`spendSpentMarks`); `blocked` is the
+  // flight-holds-a-handle gate.
   const {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
-    onRestore: (t) => spendSpentMarks.current(t),
+    onRestore: (t) => {
+      restoreNozzleFollow(t);
+      return spendSpentMarks.current(t);
+    },
     blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1162,7 +1168,9 @@ export function App() {
   // and why it is decided here rather than in NozzleField, are in
   // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
   const stageMotorLoadout = useMemo(() => stageMotors(tree, assigned), [tree, assigned]);
-  const { cleared: nozzleCleared, seed: seedNozzleFollow } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+  const {
+    cleared: nozzleCleared, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
+  } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with

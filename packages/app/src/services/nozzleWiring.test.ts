@@ -132,6 +132,26 @@ describe('a configuration switch keeps the nozzle the configuration states', () 
 });
 
 /**
+ * WHAT APP HANDS THE NOZZLE-FOLLOW HOOK (audit 2026-09-22, from review). The
+ * two tests above show the switch plan keeps the stated nozzle WHEN it is
+ * given the hook's seed, and useNozzleFollow.test.tsx shows an undone state
+ * gets the loaded motor's exit WHEN `onRestore` hands it to `restoring` — the
+ * "(the defect, reproduced)" cases are what each looks like without. Neither
+ * can see App do the handing, so it is held here until App renders in a test.
+ */
+describe('App wires the nozzle-follow hook into the switch and the history', () => {
+  it('passes the hook’s seed to the configuration switch (audit row 279)', () => {
+    const src = app();
+    expect(src).toContain('cleared: nozzleCleared, seed: seedNozzleFollow, restoring: restoreNozzleFollow,');
+    expect(src).toMatch(/applyConfigSwitchPlan\(plan, savedConfigs, \{\s+seedNozzleFollow,/);
+  });
+
+  it('hands every tree coming off the undo stack to the hook before it is written', () => {
+    expect(app()).toMatch(/onRestore: \(t\) => \{\s+restoreNozzleFollow\(t\);\s+return spendSpentMarks\.current\(t\);/);
+  });
+});
+
+/**
  * The two places App has to spend the nozzle exit diameter (2026-09-08), both
  * of which are absences that no other test in the suite can see.
  *

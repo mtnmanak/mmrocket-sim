@@ -24,8 +24,9 @@ import { applyStageNozzles, findNode } from '../tree/treeModel.js';
  * was typed for, and replacing that on load would throw away the very case
  * the do-not-overwrite rule was written for. So this keeps a per-stage record
  * of the loadout it last saw: a stage not in it yet is SEEDED and left alone
- * (that is an open, a restore, a new design), and only a stage whose loadout
- * has changed under a record is acted on.
+ * (that is an open, a session restored at load, a new design), and only a stage
+ * whose loadout has changed under a record is acted on. A state coming back
+ * off the undo stack brings its own record with it (`restoring`, below).
  *
  * A stage id cannot collide across two opens — ids are minted `c<N>` from a
  * counter that only ever increases within a page load — so a newly opened
@@ -36,6 +37,9 @@ import { applyStageNozzles, findNode } from '../tree/treeModel.js';
 
 /** What a stage's nozzle was cleared from, for the field's note. */
 export interface NozzleCleared { previousLabel: string; previousM: number }
+
+/** One stage's loadout as the follow bookkeeping records it. */
+interface Seen { key: string; label: string }
 
 /** The published-exit lookup; injectable so a test can hold it open. */
 export type NozzleLookup = (motorId: string | undefined) => Promise<Pick<NozzleEntry, 'exitDiameterM'> | null>;
@@ -56,9 +60,28 @@ export function useNozzleFollow(opts: {
    * swap. See `seed` below.
    */
   seed: (stages: readonly StageMotors[]) => void;
+  /**
+   * Call with a tree coming BACK off the undo / redo stack, before it is
+   * written — App's `onRestore`. See `restoring` below.
+   */
+  restoring: (t: RocketTree) => void;
 } {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
-  const seen = useRef(new Map<string, { key: string; label: string }>());
+  const seen = useRef(new Map<string, Seen>());
+  /**
+   * Per stage, the loadout the nozzle IN THE TREE was decided for. The same as
+   * `seen` except while a lookup is pending, when the tree still carries the
+   * previous loadout's nozzle. Replaced, never mutated, so the stamps below can
+   * share one copy between every tree that carried it.
+   */
+  const decided = useRef<ReadonlyMap<string, Seen>>(new Map());
+  /**
+   * Every tree this has seen live → `decided` as it stood while that tree was
+   * the live one: what each of its stages' nozzles belongs to. The undo stack
+   * keeps the trees themselves, so a restored tree finds its own stamp here.
+   * Weak, so a tree dropped off the stack takes its stamp with it.
+   */
+  const stamps = useRef(new WeakMap<RocketTree, ReadonlyMap<string, Seen>>());
   const [cleared, setCleared] = useState<Record<string, NozzleCleared>>({});
   const mounted = useRef(true);
   useEffect(() => {
@@ -85,6 +108,18 @@ export function useNozzleFollow(opts: {
       for (const id of [...seen.current.keys()]) {
         if (!loadout.some((s) => s.stageId === id)) seen.current.delete(id);
       }
+      // A stage seen for the first time carries a nozzle decided for what is
+      // loaded now (the file's own, the new design's); a stage that has gone,
+      // goes. An ACTED stage keeps its old record until its decision lands.
+      const firstSight = loadout.filter((s) => !previous.has(s.stageId));
+      const gone = [...decided.current.keys()].filter((id) => !seen.current.has(id));
+      if (firstSight.length > 0 || gone.length > 0) {
+        const next = new Map(decided.current);
+        for (const s of firstSight) next.set(s.stageId, seen.current.get(s.stageId)!);
+        for (const id of gone) next.delete(id);
+        decided.current = next;
+      }
+      stamps.current.set(treeRef.current, decided.current);
       if (acted.length === 0) return;
 
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
@@ -104,8 +139,11 @@ export function useNozzleFollow(opts: {
       const updates: Record<string, number> = {};
       const clearedNow: Record<string, NozzleCleared> = {};
       const forgotten: string[] = [];
+      const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {
-        if (seen.current.get(s.stageId)?.key !== stageMotorKey(s)) continue;
+        const current = seen.current.get(s.stageId);
+        if (current?.key !== stageMotorKey(s)) continue;
+        nowDecided.set(s.stageId, current);
         // The stage as it stands NOW, not when the lookup started.
         const node = findNode(treeRef.current, s.stageId);
         const was = previous.get(s.stageId);
@@ -126,11 +164,14 @@ export function useNozzleFollow(opts: {
       }
       // `writeTree`, NOT `setTree`: this is a consequence of a motor change,
       // and motors do not live in the tree, so they are not on the undo stack.
-      // Pushing an undo entry here would let one Ctrl+Z put the PREVIOUS
-      // motor's exit diameter back under the motor that is actually loaded —
-      // and the effect would not correct it, because the loadout has not
-      // changed. That is the exact state this whole block exists to prevent.
+      // Pushing an undo entry here would make this write the first thing Ctrl+Z
+      // takes back, putting the PREVIOUS motor's exit diameter under the motor
+      // that is actually loaded. It is not the only way back there: every state
+      // already on the stack was recorded under the previous motor too, which
+      // is what `restoring` below is for.
+      decided.current = nowDecided;
       if (Object.keys(updates).length > 0) writeTree(applyStageNozzles(treeRef.current, updates));
+      stamps.current.set(treeRef.current, decided.current);
       if (Object.keys(clearedNow).length > 0 || forgotten.length > 0) {
         setCleared((prev) => {
           const next = { ...prev, ...clearedNow };
@@ -153,9 +194,43 @@ export function useNozzleFollow(opts: {
    * the effect finds nothing changed there.
    */
   const seed = useCallback((stages: readonly StageMotors[]) => {
+    const next = new Map(decided.current);
     for (const s of stages) {
-      seen.current.set(s.stageId, { key: stageMotorKey(s), label: s.motors[0]?.label ?? '' });
+      const v = { key: stageMotorKey(s), label: s.motors[0]?.label ?? '' };
+      seen.current.set(s.stageId, v);
+      next.set(s.stageId, v);
     }
+    decided.current = next;
   }, []);
-  return { cleared, seed };
+  /**
+   * UNDO AFTER A MOTOR CHANGE (audit 2026-09-22, from review). The undo stack
+   * holds the tree alone, and the nozzle is the one field in it that follows
+   * the motor — so every state recorded before a motor change carries the
+   * previous motor's exit. Ctrl+Z on any earlier edit (a rename) put it back
+   * under the motor loaded now, and the effect never corrected it because the
+   * loadout had not changed: the review restored J1's 12 mm under K1, the state
+   * Eric's rule exists to prevent. (An Open and a configuration switch start
+   * the history over instead; this is the path neither of those covers.)
+   *
+   * So a restored tree brings back the record of what ITS nozzles were decided
+   * for, from its stamp. Where that is not what is loaded now, the effect sees
+   * a motor change from it — the same one the user made — and makes the same
+   * decision on the restored state: the loaded motor's published exit, or a
+   * clear with the note saying whose it was. Where it IS what is loaded now
+   * (undoing a nozzle typed for this motor, or a deleted mount coming back
+   * with its motor), nothing changes and the restored value stands. A tree
+   * with no stamp — written and pushed in one tick, never rendered — is left
+   * to the record as it stands, which is how every restore behaved before.
+   */
+  const restoring = useCallback((t: RocketTree) => {
+    const was = stamps.current.get(t);
+    if (was === undefined) return;
+    const next = new Map(decided.current);
+    for (const [id, v] of was) {
+      seen.current.set(id, v);
+      next.set(id, v);
+    }
+    decided.current = next;
+  }, []);
+  return { cleared, seed, restoring };
 }

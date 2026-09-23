@@ -22,6 +22,12 @@ import { openModalCount } from '../components/useDialog.js';
  * configuration's nozzle, separations and deployments under the new motors.
  * `reset` is what an Open and a configuration switch call, so the history
  * starts again from the design they put on screen.
+ *
+ * A motor change alone does NOT reset it, and one field in the tree follows the
+ * motor all the same: the nozzle exit. Every state recorded before a motor
+ * change carries the previous motor's exit, so App's `onRestore` hands each
+ * restored tree to useNozzleFollow's `restoring`, which has the effect decide
+ * that tree's nozzle again for the motors loaded now.
  */
 
 /** Edits closer together than this are ONE undo step (a drag, a slider, keystrokes). */
@@ -32,9 +38,10 @@ export const HISTORY_CAP = 50;
 export interface TreeHistoryOptions {
   /**
    * Applied to a tree coming BACK off either stack before it is written — App's
-   * stated-launch-weight reconcile, which a restored tree needs because motors
-   * are not on the stack (see App's `spendSpentMarks`). Read at call time, so a
-   * fresh closure every render is fine.
+   * nozzle re-decision and stated-launch-weight reconcile, which a restored tree
+   * needs because motors are not on the stack (see useNozzleFollow's
+   * `restoring` and App's `spendSpentMarks`). Handed the very object the stack
+   * held. Read at call time, so a fresh closure every render is fine.
    */
   onRestore?: (t: RocketTree) => RocketTree;
   /**

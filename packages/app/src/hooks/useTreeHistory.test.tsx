@@ -163,13 +163,19 @@ describe('useTreeHistory — steps', () => {
 
   it('runs onRestore on a tree coming back off either stack', () => {
     const onRestore = vi.fn((x: RocketTree) => ({ ...x, name: `${x.name}*` }));
-    const h = renderHistory(t('0'), { onRestore });
-    editApart(h, t('a'));
+    const first = t('0');
+    const h = renderHistory(first, { onRestore });
+    const second = t('a');
+    editApart(h, second);
     act(() => h.current.undo());
     expect(h.current.tree.name).toBe('0*');
     act(() => h.current.redo());
     expect(h.current.tree.name).toBe('a*');
     expect(onRestore).toHaveBeenCalledTimes(2);
+    // The very objects the stacks held: useNozzleFollow finds a restored tree's
+    // stamp by identity.
+    expect(onRestore.mock.calls[0]![0]).toBe(first);
+    expect(onRestore.mock.calls[1]![0]).toBe(second);
   });
 
   it('treeRef is the LATEST tree: two writes in one tick compose', () => {
