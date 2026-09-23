@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import {
-  applyProposal, beforeOf, fieldProvenance, staleness, undoApply, validWeatherSnapshot, withSigmaEstimate,
+  applyProposal, beforeOf, carrySigmaEstimate, fieldProvenance, staleness, undoApply, validWeatherSnapshot,
+  withSigmaEstimate,
   type WeatherSnapshot,
 } from './weatherSnapshot.js';
 
@@ -86,6 +87,28 @@ describe('undoApply', () => {
     // A σ-only receipt still undoes, with nothing else to put back.
     const onlySigma = snap({ applied: {}, before: {}, sigmaEstimate: { applied: 2, before: 0 } });
     expect(undoApply({ ...HOT_PAD, windStdDev: 2 }, onlySigma)).toEqual({ ...HOT_PAD, windStdDev: 0 });
+  });
+});
+
+describe('carrySigmaEstimate', () => {
+  // Claim check of the v0.140 notes: a second Apply replaced the record, the
+  // receipt went with it, and Undo left σ at the chip's estimate unexplained.
+  it('keeps the gust chip\'s receipt through a second Apply while σ still holds the estimate', () => {
+    const first = withSigmaEstimate(snap(), 2, 0.7);
+    const second = snap({ retrievedAt: '2026-09-23T09:00:00.000Z' });
+    const carried = carrySigmaEstimate(first, second, { windStdDev: 2 });
+    expect(carried.sigmaEstimate).toEqual({ applied: 2, before: 0.7 });
+    // And Undo on the second record then puts σ back to what it held before the chip.
+    expect(undoApply({ ...HOT_PAD, windStdDev: 2 }, carried).windStdDev).toBe(0.7);
+  });
+
+  it('carries nothing once σ was changed, when there was no receipt, or when the new record has its own', () => {
+    const first = withSigmaEstimate(snap(), 2, 0.7);
+    expect(carrySigmaEstimate(first, snap(), { windStdDev: 1.2 }).sigmaEstimate).toBeUndefined();
+    expect(carrySigmaEstimate(snap(), snap(), { windStdDev: 2 }).sigmaEstimate).toBeUndefined();
+    expect(carrySigmaEstimate(null, snap(), { windStdDev: 2 }).sigmaEstimate).toBeUndefined();
+    const own = withSigmaEstimate(snap(), 3, 2);
+    expect(carrySigmaEstimate(first, own, { windStdDev: 2 }).sigmaEstimate).toEqual({ applied: 3, before: 2 });
   });
 });
 

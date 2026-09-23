@@ -133,7 +133,7 @@ import {
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { WeatherDialog } from './components/WeatherDialog.js';
-import { applyProposal, undoApply, withSigmaEstimate, type WeatherSnapshot } from './services/weatherSnapshot.js';
+import { applyProposal, carrySigmaEstimate, undoApply, withSigmaEstimate, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
@@ -524,7 +524,9 @@ export function App() {
   /** ☁ Apply: ONE functional write — never from a render-captured `launch` (AUDIT row 304). */
   const applyWeather = (patch: Parameters<typeof applyProposal>[1], snapshot: WeatherSnapshot) => {
     setLaunch((prev) => applyProposal(prev, patch));
-    setWeather(snapshot);
+    // σ is never in a weather patch, so this render's launch holds the σ the
+    // new record must be compared with (weatherSnapshot.carrySigmaEstimate).
+    setWeather((prev) => carrySigmaEstimate(prev, snapshot, launch));
   };
   /**
    * The strip's Undo: each applied field back, unless it has been edited

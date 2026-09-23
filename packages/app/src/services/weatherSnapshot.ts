@@ -156,6 +156,22 @@ export function withSigmaEstimate(snap: WeatherSnapshot, sigmaMs: number, before
 }
 
 /**
+ * A second Apply replaces the weather record, and the record is where Undo
+ * finds what Wind gusts σ held before the gust chip set it. Without this, a
+ * Fetch again or any second Apply after taking the estimate left σ at the
+ * estimate on Undo, with nothing on screen saying where it came from (claim
+ * check of the v0.140 notes, 2026-09-23). So the new record inherits the old
+ * one's estimate while σ still holds exactly the estimated value; once the
+ * user has changed σ, it is theirs and nothing is carried.
+ */
+export function carrySigmaEstimate(prev: WeatherSnapshot | null, next: WeatherSnapshot,
+    launch: Pick<LaunchConditions, 'windStdDev'>): WeatherSnapshot {
+  const est = prev?.sigmaEstimate;
+  if (!est || next.sigmaEstimate || !sameValue(launch.windStdDev, est.applied)) return next;
+  return { ...next, sigmaEstimate: est };
+}
+
+/**
  * The applied temperature and pressure belong to one site altitude; this says
  * when the Site altitude has moved away from it while either still holds its
  * applied value — they are then that altitude's air flown at another pad.
