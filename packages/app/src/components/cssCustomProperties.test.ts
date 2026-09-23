@@ -51,16 +51,5 @@ describe('styles.css custom properties', () => {
   });
 });
 
-describe('Daylight: the modal scrim covers the modals', () => {
-  it('darkens .modal-backdrop, the class Modal.tsx renders', () => {
-    // The rule named `.modal-overlay`, a class no component has ever
-    // rendered, so the four confirmation modals (Start a new design, Unsaved
-    // changes, Open design from link, Convert camera shrouds) kept the
-    // everyday 40 % scrim in the theme built for glare.
-    const at = css.indexOf(".viz-root[data-contrast='high'] .modal-backdrop");
-    expect(at).toBeGreaterThan(-1);
-    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at));
-    expect(body).toContain('background: rgba(0, 0, 0, 0.72)');
-    expect(readFileSync(join(here, 'Modal.tsx'), 'utf8')).toContain('className="modal-backdrop"');
-  });
-});
+// The same row's other half — Daylight's modal scrim reaching the modals — is
+// checked against the rendered Modal in modalScrim.test.tsx.
