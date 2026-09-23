@@ -2400,6 +2400,27 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
     expect(chute['diameter']).toBeCloseTo(0.3, 4);
     expect(chute['cd']).toBeCloseTo(0.8, 9);
   });
+
+  const two = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+    const d = structuredClone(bare);
+    const tube = d.tree.components[0]!.children[1]! as ComponentNode;
+    tube.children = [tube.children![0]!,
+      { type: 'parachute', id: 'a', diameter: 0.4, ...a } as ComponentNode,
+      { type: 'parachute', id: 'b', diameter: 1.2, ...b } as ComponentNode];
+    return exportCdx1(d);
+  };
+
+  it('slots a blank-altitude chute by the 200 m it opens at', () => {
+    // Ranked as 0 m, the 200 m chute took slot 2 behind one opening at 150 m.
+    const xml = two({ deployEvent: 'altitude', deployAltitude: 150 }, { deployEvent: 'altitude' });
+    expect(xml).toContain('<Altitude1>656.168</Altitude1>');
+    expect(xml).toContain('<Altitude2>492.126</Altitude2>');
+  });
+
+  it('keeps two apogee chutes in tree order, whatever altitude one of them stores', () => {
+    const xml = two({ deployEvent: 'apogee' }, { deployEvent: 'apogee', deployAltitude: 100 });
+    expect(xml).toContain('<Size1>15.748</Size1>'); // the 0.4 m chute, first in the tree
+  });
 });
 
 /**

@@ -2167,13 +2167,16 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
    * 0.8, and DeploymentConfiguration's 200 m deploy altitude. This writer had
    * its own 0.9 m, Cd 0.75 and 150 m, so a blank-altitude main re-opened 50 m
    * lower on a canopy three times the size — and the sort below ranked a
-   * blank altitude as 0 m while it flies at 200.
+   * blank altitude as 0 m while it flies at 200. The sort now reads the
+   * altitude of an ALTITUDE chute only: another chute's stored altitude is not
+   * what it deploys on, and must not reorder two chutes on the same event.
    */
   const KERNEL_CHUTE_DIAMETER_M = 0.3;
   const KERNEL_CHUTE_CD = 0.8;
   const KERNEL_DEPLOY_ALTITUDE_M = 200;
-  chutes.sort((a, b) => eventRank(a) - eventRank(b)
-    || nnum(b, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) - nnum(a, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M));
+  const deployAltOf = (c: ComponentNode): number =>
+    eventRank(c) === 1 ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) : 0;
+  chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.
