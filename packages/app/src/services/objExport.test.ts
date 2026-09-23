@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { rocketToObj } from './objExport.js';
+import { buildPieces } from '../tree/pieces.js';
 
 const tree: RocketTree = {
   name: 'ObjTest',
@@ -39,5 +40,52 @@ describe('rocketToObj', () => {
   it('refuses an empty design', () => {
     expect(() => rocketToObj({ components: [{ type: 'stage', children: [] }] } as RocketTree, 'X'))
       .toThrow(/Nothing to export/);
+  });
+
+  it('is the EXTERNAL shell: a motor mount inside the body tube is not in the file', () => {
+    // The 3D view draws inner tubes as glass through its translucent shell,
+    // and every whole-rocket export used to carry them too — while the guide
+    // and this module's own header say "external shell only" (audit
+    // 2026-09-22).
+    const body = tree.components[0]!.children![1]!;
+    const withMount = {
+      ...tree,
+      components: [{
+        ...tree.components[0]!,
+        children: [tree.components[0]!.children![0]!, {
+          ...body,
+          children: [...(body.children ?? []), {
+            type: 'innertube', id: 'mm', length: 0.1, outerRadius: 0.0065, thickness: 0.0005,
+            position: { method: 'bottom', offset: 0 },
+          }],
+        }],
+      }],
+    } as RocketTree;
+    // The 3D view still draws it...
+    expect(buildPieces(withMount).pieces.filter((p) => p.innerGlass)).toHaveLength(1);
+    // ...and the file does not: nose + body + 3 fins, as without it.
+    const obj = rocketToObj(withMount, 'ObjTest');
+    expect((obj.match(/^o /gm) ?? []).length).toBe(5);
+    expect(obj).not.toMatch(/^o inner/m);
+  });
+});
+
+/**
+ * The rocket name goes into the `#` header, and a name from an imported file
+ * or a share link can carry a raw newline (audit 2026-09-22). Every line after
+ * it used to become a live OBJ record: "Goblin\nv 9 9 9\nf 1 2 3" added a
+ * vertex and a face, and three's absolute face indices then pointed at the
+ * wrong vertices.
+ */
+describe('rocketToObj — the header stays a header', () => {
+  it('folds a line break in the name into the comment instead of injecting records', () => {
+    const clean = rocketToObj(tree, 'Goblin');
+    for (const br of ['\n', '\r\n', '\u2028', '\u2029']) {
+      const obj = rocketToObj(tree, `Goblin${br}v 9 9 9${br}f 1 2 3`);
+      expect(obj.split('\n')[0], JSON.stringify(br)).toBe('# MMRocket Sim — Goblin v 9 9 9 f 1 2 3');
+      const records = (s: string) => s.split('\n').filter((l) => /^[vf] /.test(l)).length;
+      expect(records(obj), JSON.stringify(br)).toBe(records(clean));
+      expect(obj).not.toMatch(/[\r\u2028\u2029]/);
+    }
   });
 });

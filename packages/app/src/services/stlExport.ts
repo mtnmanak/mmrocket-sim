@@ -17,7 +17,7 @@
  */
 import * as THREE from 'three';
 import type { SolidMesh } from '../tree/solidMesh.js';
-import type { Piece } from '../tree/pieces.js';
+import { isShellPiece, type Piece } from '../tree/pieces.js';
 
 export const STL_MIME = 'model/stl';
 
@@ -87,7 +87,9 @@ export function solidToStl(mesh: SolidMesh, name: string): Uint8Array {
 
 /**
  * Whole-rocket display shell as one STL. Each piece's position/rotation is
- * baked into a cloned geometry, so the file matches what the 3D view shows.
+ * baked into a cloned geometry, so the file matches the 3D view's external
+ * shell — the inner tubes the view draws through it are skipped here
+ * (pieces.isShellPiece, audit 2026-09-22), as they are in the .obj and .glb.
  * NOT watertight by nature — overlapping open surfaces, not a fused solid.
  * It is a reference/print-preview model; per-component printable parts come
  * from solidToStl().
@@ -99,7 +101,7 @@ export function piecesToStl(pieces: Piece[], name: string): Uint8Array {
   const pos = new THREE.Vector3();
   const eul = new THREE.Euler();
   const unit = new THREE.Vector3(1, 1, 1);
-  for (const p of pieces) {
+  for (const p of pieces.filter(isShellPiece)) {
     pos.set(...(p.position ?? [0, 0, 0]));
     eul.set(...(p.rotation ?? [0, 0, 0]));
     q.setFromEuler(eul);

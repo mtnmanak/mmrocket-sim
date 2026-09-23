@@ -508,3 +508,33 @@ describe('export failures are reported, not swallowed', () => {
     }
   });
 });
+
+describe('the 2D export filename', () => {
+  /**
+   * The ⬇ SVG and ⬇ Image buttons built their filename from an inline copy of
+   * safeName's regex, with none of its fallback: a design named in Cyrillic
+   * saved as "_-2d.svg", and every such design overwrote the last (audit
+   * 2026-09-22).
+   */
+  const savedAs = (name: string): string => {
+    mount(infoOf(1.5), { exportData: { name, stability: null, motor: null } as never });
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:svg-name');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    let saved = '';
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) { saved = this.download; };
+    try {
+      const btn = [...host.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('⬇ SVG'))!;
+      act(() => { btn.click(); });
+    } finally {
+      HTMLAnchorElement.prototype.click = origClick;
+      vi.restoreAllMocks();
+    }
+    return saved;
+  };
+
+  it('names the file for the design, and falls back to "rocket" when nothing ASCII survives', () => {
+    expect(savedAs('WM Goblin')).toBe('WM_Goblin-2d.svg');
+    expect(savedAs('Ракета')).toBe('rocket-2d.svg');
+  });
+});

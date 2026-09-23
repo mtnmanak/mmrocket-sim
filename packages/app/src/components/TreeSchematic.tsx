@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import {
+  anchorStarts, axialLength, axialStart, offsetForStart, snapStart, startFromPosition,
+} from '../tree/position.js';
+import { finTabFront } from '../tree/finTab.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
@@ -15,6 +18,7 @@ import { shroudEnds } from '../tree/shroud.js';
 import {
   downloadImage, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
+import { safeName } from '../services/fileName.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
 import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -141,21 +145,6 @@ export function calloutLayout(
     margin = { x, y: laneBottom };
   }
   return { cg, cp, margin };
-}
-
-/** Tab front edge from the fin's leading edge (AxialMethod.getAsPosition). */
-export function finTabFront(n: ComponentNode, finLen: number): number {
-  const offset = num(n, 'tabOffset', 0);
-  const tabLen = num(n, 'tabLength', 0);
-  const method = typeof n['tabOffsetMethod'] === 'string' ? (n['tabOffsetMethod'] as string) : 'middle';
-  if (method === 'top') return offset;
-  if (method === 'bottom') return offset + (finLen - tabLen);
-  return offset + (finLen - tabLen) / 2;
-}
-
-function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
-  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  return pStart + startFromPosition(pos, childLen, pLen);
 }
 
 interface DragState {
@@ -1623,8 +1612,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                 if (!svgRef.current) return;
                 try {
                   const data = { ...exportData, spanM: 2 * vHalf };
+                  // safeName, not an inline copy of its regex: the copy had no
+                  // fallback, so a design named in Cyrillic saved "_-2d.svg"
+                  // (audit 2026-09-22).
                   downloadImage(schematicSvg(svgRef.current, scale, w, h, data),
-                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.svg`);
+                    `${safeName(data.name)}-2d.svg`);
                 } catch (e) {
                   onError?.(`SVG export failed: ${e instanceof Error ? e.message : String(e)}`);
                 }
@@ -1639,7 +1631,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
                   const data = { ...exportData, spanM: 2 * vHalf };
                   const svg = schematicSvg(svgRef.current, scale, w, h, data);
                   downloadImage(await svgToImage(svg, widthPx, format),
-                    `${data.name.replace(/[^\w-]+/g, '_')}-2d.${IMAGE_FORMAT_EXT[format]}`);
+                    `${safeName(data.name)}-2d.${IMAGE_FORMAT_EXT[format]}`);
                 } catch (e) {
                   onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)}`
                     + ' — try a smaller width, or use ⬇ SVG.');

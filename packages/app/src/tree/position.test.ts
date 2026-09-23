@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket, resetEngine } from '@online-openrocket/engine';
 import {
-  absoluteStations, anchorStarts, axialLength, drawnExtent, resolveAbsolutePositions, startFromPosition,
+  absoluteStations, anchorStarts, axialLength, axialStart, drawnExtent, resolveAbsolutePositions,
+  startFromPosition,
 } from './position.js';
 import { engineTree } from './treeModel.js';
 
@@ -303,5 +304,32 @@ describe('axialLength — a rail button is ZERO, the kernel\'s own', () => {
     // is dead centre — what the 25 mm frame put 25 mm and 12.5 mm forward.
     expect(anchorStarts(tube, button())).toContainEqual(expect.closeTo(0.3, 12));
     expect(anchorStarts(tube, button())).toContainEqual(expect.closeTo(0.15, 12));
+  });
+});
+
+/**
+ * `axialStart` — the ONE placement step the schematic, the 3D pieces and
+ * `absoluteStations` share (audit 2026-09-22). The two view copies it replaced
+ * disagreed about 'absolute': the schematic added the offset to the parent's
+ * start, the 3D view took it literally.
+ */
+describe('axialStart', () => {
+  const child = (method: string, offset: number) =>
+    ({ type: 'centeringring', length: 0.01, position: { method, offset } } as unknown as ComponentNode);
+
+  it('is the parent start plus startFromPosition for the parent-relative methods', () => {
+    for (const [method, offset] of [['top', 0.02], ['middle', -0.01], ['bottom', 0.005]] as const) {
+      const c = child(method, offset);
+      expect(axialStart(c, 0.01, 0.4, 0.3), method)
+        .toBeCloseTo(0.4 + startFromPosition(c.position as never, 0.01, 0.3), 12);
+    }
+  });
+
+  it('takes an absolute offset literally — it is already the rocket-origin frame', () => {
+    expect(axialStart(child('absolute', 0.55), 0.01, 0.4, 0.3)).toBeCloseTo(0.55, 12);
+  });
+
+  it('defaults a child with no position to top, offset 0', () => {
+    expect(axialStart({ type: 'bulkhead', length: 0.003 } as unknown as ComponentNode, 0.003, 0.25, 0.3)).toBe(0.25);
   });
 });

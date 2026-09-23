@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
+import type { DragSweep, OrkRocket, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { UnitChip } from './UnitChip.js';
@@ -9,6 +9,8 @@ import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
+import { foldTypography, oneLine } from '../services/textFold.js';
+import { hasAerodynamicForce, shownCp } from '../services/simReport.js';
 import { GestureHints } from './FlightCharts.js';
 import { APP_VERSION } from '../version.js';
 
@@ -30,7 +32,8 @@ import { APP_VERSION } from '../version.js';
 interface Line {
   label: string;
   color: string;
-  values: number[];
+  /** `null` is a gap — uPlot draws no line through it (a CP with no lift). */
+  values: (number | null)[];
   /**
    * Dashed stroke — `true` for the power-on overlay's classic [6,4]; a
    * pattern array for the 9th+ breakdown component, whose reused hue carries
@@ -168,7 +171,9 @@ type MachAlt = [number, number][];
  * function so the two can never disagree — the failure that put a mislabeled
  * curve on The Rocketry Forum was exactly a chart and a file disagreeing about
  * what produced them. Commas are avoided for the same reason the design-name
- * line avoids them (naive CSV parsers read them as cells).
+ * line avoids them (naive CSV parsers read them as cells). The CSV's copy has
+ * its typography folded to ASCII (exportCsv) — the same words, "20 degC" for
+ * "20 °C" — so the file opens clean in Excel.
  */
 function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, distUnit: string): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
@@ -186,34 +191,91 @@ function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefin
   return 'sea level (101325 Pa; 20 °C — the kernel default)';
 }
 
-function exportCsv(sweep: DragSweep, meta: { design: string; aeroModel: string; lengthUnit: string; conditions: string }) {
+/**
+ * CP per Mach as the chart and the CSV report it: `null` wherever the sweep's
+ * plane makes no normal force.
+ *
+ * The sweep is ONE roll plane, and where its CNa is zero the kernel reports
+ * cp = 0 — the nose tip — which is not a position but "nothing to measure"
+ * (simReport.hasAerodynamicForce, the test the stat tiles use). Measured on
+ * the real kernel: a 300 mm tube with two fins and no nose makes no lift in
+ * that plane at any of the 60 sweep points, and the chart drew a flat 0 % —
+ * a CP at the nose tip — until the 2026-09-22 audit.
+ */
+function sweepCp(sweep: DragSweep): (number | null)[] {
+  return sweep.cp.map((v, i) => (hasAerodynamicForce({ cna: sweep.cna[i] ?? 0 }) ? v : null));
+}
+
+/**
+ * The forward CP the rest of the app flies on (simReport.shownCp), when this
+ * design's CP depends on its roll angle — null when it does not.
+ *
+ * `dragSweep` measures CP in ONE roll plane, the fins as drawn; the tiles, the
+ * views and every margin use the forward-most CP over all roll angles. With
+ * three or more fins the two are one number. With fewer, or a part off the
+ * axis, they are not, and the curve moves with a cosmetic clocking: measured
+ * on the real kernel, a 70 mm ogive on a 300 mm x 24 mm tube with two fins
+ * charts 8.7 % of length with the fins at 0 degrees and 81.4 % at 90, while the
+ * app shows 8.7 % for both (audit 2026-09-22). The engine has no swept CP per
+ * Mach to plot instead, so the chart and the file say which plane they are.
+ * The 1e-9 is StatTiles' own "the plane differs" test.
+ */
+function rollDependentCp(info: StaticInfo): number | null {
+  const worst = info.cpWorst;
+  return worst !== undefined && Math.abs(worst - info.cp) > 1e-9 ? shownCp(info) : null;
+}
+
+function exportCsv(sweep: DragSweep, meta: {
+  design: string; aeroModel: string; lengthUnit: string; conditions: string;
+  /** rollDependentCp for the design, when its CP depends on roll angle */
+  rollCp?: number | null;
+}) {
   // RASAero feature #6: the full aerodynamic-coefficient table (CD both power
   // states + CP + CNa vs Mach) — usable as input to external trajectory codes.
   // The leading #-comment lines say which app, design and aero model produced
   // the table: a bare drag-analysis.csv travels (one was posted to a forum as
   // the Supersonic model's curve when it was the classic model's).
-  const cols: [string, number[]][] = [
+  const cols: [string, (number | null)[]][] = [
     ['mach', sweep.machs],
     ['cd_power_off', sweep.powerOff.total],
     ['cd_power_on', sweep.powerOn.total],
+    // An empty cell where the sweep's plane makes no lift (sweepCp), never the
+    // kernel's 0 — a trajectory code reads 0 as a CP at the nose tip.
     [`cp_${meta.lengthUnit}_from_nose`,
-      sweep.cp.map((v) => (v == null ? v : siToUi('length', meta.lengthUnit, v)))],
+      sweepCp(sweep).map((v) => (v == null ? v : siToUi('length', meta.lengthUnit, v)))],
     ['cna_per_rad', sweep.cna],
     ['friction', sweep.powerOff.friction],
     ['pressure', sweep.powerOff.pressure],
     ['base_power_off', sweep.powerOff.base],
     ['base_power_on', sweep.powerOn.base],
-    ...sweep.components.map((c): [string, number[]] => [`cd_${c.name.replace(/[,\s]+/g, '_')}`, c.cd]),
+    ...sweep.components.map((c): [string, number[]] =>
+      [`cd_${oneLine(foldTypography(c.name)).replace(/[,\s]+/g, '_')}`, c.cd]),
   ];
-  // The design name is user text: a newline would break the four-line comment
-  // block and a comma would read as extra CSV cells in naive parsers — flatten
-  // both (same reason the conditions line avoids its own comma).
-  const design = meta.design.replace(/[\r\n]+/g, ' ').replace(/,/g, ';');
+  // Every header line is one line (oneLine: a newline in the design name would
+  // break the comment block, and a comma would read as extra CSV
+  // cells in naive parsers — the same reason the conditions line avoids its
+  // own comma) and carries the app's typography folded to ASCII. The file
+  // ships with no BOM, because its leading `#` block has to be the first bytes
+  // for the tools that read it (services/fileName.ts, CSV_BOM) — so Excel
+  // decodes it as ANSI, and the "20 °C — the kernel default" of the sea-level
+  // line opened as "20 Â°C â€” the kernel default" (audit 2026-09-22). A name
+  // the user wrote in another script still passes through as UTF-8: folding
+  // it would throw the name away.
+  const header = (s: string) => oneLine(foldTypography(s)).replace(/,/g, ';');
   const rows = [
     `# MMRocket Sim ${APP_VERSION}`,
-    `# design: ${design}`,
-    `# aero model: ${meta.aeroModel}`,
-    `# conditions: ${meta.conditions.replace(/[\r\n]+/g, ' ').replace(/,/g, ';')}`,
+    `# design: ${header(meta.design)}`,
+    `# aero model: ${header(meta.aeroModel)}`,
+    `# conditions: ${header(meta.conditions)}`,
+    // One more comment line ONLY for a design whose CP depends on its roll
+    // angle (rollDependentCp): the cp column is one roll plane, and a file that
+    // travels without the chart's caption must still say so. Every other
+    // design's file keeps the four-line block it always had.
+    ...(meta.rollCp != null
+      ? ['# cp: one roll plane (theta = 0 with the fins as drawn) - this design\'s CP depends on'
+        + ' roll angle; the app\'s stability margin uses the forward-most CP over all roll angles: '
+        + `${fmtSi('length', meta.lengthUnit, meta.rollCp, 3)} ${meta.lengthUnit} from nose`]
+      : []),
     cols.map(([h]) => h).join(','),
   ];
   for (let i = 0; i < sweep.machs.length; i++) {
@@ -348,26 +410,43 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
 
   const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
 
+  // The design's static figures, read only while a sweep is showing: the CP
+  // chart needs the length to scale by, and the roll note below needs the
+  // single-plane and swept CPs.
+  const info = useMemo<StaticInfo | null>(() => {
+    if (!sweep || 'error' in sweep) return null;
+    try {
+      return rocket.staticInfo();
+    } catch {
+      return null;
+    }
+  }, [sweep, rocket]);
+  const rollNote = info ? rollDependentCp(info) : null;
+
   // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots,
   // so it's the default) or in the user's length unit from the nose — the
-  // view toggle beside the chart heading switches.
+  // view toggle beside the chart heading switches. Gaps where the sweep's
+  // plane makes no lift (sweepCp).
   const cpLines = useMemo<Line[]>(() => {
-    if (!sweep || 'error' in sweep) return [];
-    let length = 0;
-    try {
-      length = rocket.staticInfo().length;
-    } catch {
-      return [];
-    }
+    if (!sweep || 'error' in sweep || !info) return [];
+    const length = info.length;
     if (length <= 0) return [];
+    const cp = sweepCp(sweep);
     return [{
       label: 'CP',
       color: C[3]!,
       values: cpView === 'pct'
-        ? sweep.cp.map((v) => (v / length) * 100)
-        : sweep.cp.map((v) => siToUi('length', lenUnit, v)),
+        ? cp.map((v) => (v == null ? null : (v / length) * 100))
+        : cp.map((v) => (v == null ? null : siToUi('length', lenUnit, v))),
     }];
-  }, [sweep, rocket, C, cpView, lenUnit]);
+  }, [sweep, info, C, cpView, lenUnit]);
+  const cpHasLift = cpLines.length > 0 && cpLines[0]!.values.some((v) => v != null);
+  // With no CP to chart, WHICH sentence replaces it is decided by the force
+  // itself, the tiles' own test (hasAerodynamicForce): "No lift yet" only for
+  // a design with none at any roll angle, "this roll plane" for one with lift
+  // only in others. (No figures at all — staticInfo threw, or no length — hides
+  // the whole CP panel, since cpLines is then empty.)
+  const cpNoLift = info != null && !hasAerodynamicForce(info);
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
@@ -458,6 +537,7 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               // The SAME string the chart caption prints, so an exported table
               // and a screenshot of the chart can't claim different air.
               conditions: condText,
+              rollCp: rollNote,
             })}>⬇ Drag table (.csv)</button>
           </div>
 
@@ -516,9 +596,36 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
                 <ChartHeadButtons zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
               </div>
-              <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
-                yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend
-                expanded={bigCharts.has('cp')} plotRef={cpPlot} onZoomChange={noteZoom('cp')} />
+              {cpHasLift ? (
+                <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
+                  yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend
+                  expanded={bigCharts.has('cp')} plotRef={cpPlot} onZoomChange={noteZoom('cp')} />
+              ) : (
+                // Not a flat line at 0 %: that reads as a CP at the nose tip,
+                // and it is the kernel's "nothing to measure" (sweepCp).
+                <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                  {cpNoLift
+                    ? <><strong>No lift yet</strong> — this design makes no aerodynamic normal
+                      force, so there is no CP to plot.</>
+                    : <><strong>No CP to plot in this roll plane</strong> — with the fins as
+                      drawn, the design makes no normal force in it.</>}
+                </p>
+              )}
+              {rollNote != null && info && (
+                <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                  <strong>This design&apos;s CP depends on its roll angle</strong> (fewer than
+                  three fins, or a part off the axis), and{' '}
+                  {cpHasLift
+                    ? 'this chart is one roll plane'
+                    : 'the CP-vs-Mach sweep is measured in one roll plane'}, with
+                  the fins as drawn. The stability margin everywhere else in the app uses the
+                  forward-most CP over every roll angle,{' '}
+                  {cpView === 'pct'
+                    ? `${((rollNote / info.length) * 100).toFixed(1)} % of length`
+                    : `${fmtSi('length', lenUnit, rollNote, 3)} ${lenUnit} from nose`}
+                  {' '}— the conservative figure.
+                </p>
+              )}
               {supersonicModel ? (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>
                   Supersonic CP travel is the stability hazard on fast flights — check your

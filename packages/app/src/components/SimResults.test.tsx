@@ -131,6 +131,36 @@ describe('SimRunDetails — where the raw flight data went', () => {
   });
 });
 
+describe('SimRunDetails — comment levels stay on their own comments (audit 2026-09-22)', () => {
+  const lines = () => [...host.querySelectorAll('p.simdet-comments')]
+    .map((p) => ({ text: p.textContent ?? '', red: p.classList.contains('stability-bad') }));
+
+  it('colours each comment by its own level', () => {
+    render(<SimRunDetails run={{
+      ...run(),
+      comments: 'Descent under Drogue / 36in is fast. | Flown delay 6s vs optimal 4.0s. | Static margin 0.40 cal — under-stable.',
+      commentLevels: ['warning', 'info', 'warning'],
+    }} />);
+    expect(lines().filter((l) => l.red).map((l) => l.text)).toEqual([
+      '⚠ Descent under Drogue / 36in is fast.', '⚠ Static margin 0.40 cal — under-stable.',
+    ]);
+  });
+
+  it('a stored run whose device name split its comments renders plain, not shifted', () => {
+    // Saved before the fix: the drogue's name carried the separator, so four
+    // pieces for three levels. Indexed anyway, the delay line took the
+    // under-stable warning's red and the warning itself went plain.
+    render(<SimRunDetails run={{
+      ...run(),
+      comments: 'Descent under Drogue | 36in is fast. | Flown delay 6s vs optimal 4.0s. | Static margin 0.40 cal — under-stable.',
+      commentLevels: ['warning', 'info', 'warning'],
+    }} />);
+    const got = lines().filter((l) => /Drogue|36in|Flown delay|Static margin/.test(l.text));
+    expect(got).toHaveLength(4);
+    expect(got.filter((l) => l.red)).toEqual([]);
+  });
+});
+
 describe('SimRunDetails — the report carries its own provenance (v0.101)', () => {
   // This panel is what people screenshot and forward, and it used to show no
   // timestamp at all. Two investigations on 2026-09-03 turned on "is this

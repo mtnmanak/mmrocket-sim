@@ -1,5 +1,8 @@
 import type { ComponentNode } from '@online-openrocket/engine';
-import { collapseLoop, finCutOutline, type SolidContext } from '../tree/solidMesh.js';
+import {
+  centeringRingBore, collapseLoop, finCutOutline, ringOuterRadius, type SolidContext,
+} from '../tree/solidMesh.js';
+import { asciiOnly } from './textFold.js';
 
 /**
  * DXF export — the 2D CNC/laser boundary. Everything offered here is a FLAT
@@ -60,8 +63,6 @@ export const DXF_CUTTABLE = new Set([
 
 const M_TO_MM = 1000;
 const EPS = 1e-9;
-/** Matches solidMesh's fallback, so a DXF and an STL of the same part agree. */
-const FALLBACK_RADIUS = 0.012;
 /** Label text height (m) = 3.2 mm — the SVG template's label size. */
 const TEXT_H = 0.0032;
 /** Baseline-to-baseline spacing and the gap under the geometry (m). */
@@ -123,19 +124,13 @@ const dim = (meters: number): string => toMm(meters).toFixed(1);
  * its 80-byte header: fold the typography the app itself emits down to
  * ASCII, then force whatever is left into the printable range. Keeping the
  * whole file 7-bit also makes it byte-identical under UTF-8 and ANSI.
+ *
+ * The folding is services/textFold.ts's, shared with the other text-format
+ * headers since the 2026-09-22 audit. The copy that lived here did not know
+ * the ⌀ this module's own "BORE ASSUMED" line writes, so a CAM operator read
+ * "motor mount ? 29.0 mm does not fit".
  */
-function ascii(s: string): string {
-  return s
-    .replace(/[‐-―]/g, '-') // hyphen .. horizontal bar (em/en dash)
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/·/g, '-') // middle dot — the app's own separator
-    .replace(/×/g, 'x')
-    .replace(/°/g, ' deg')
-    .replace(/\s+/g, ' ')
-    .replace(/[^\x20-\x7e]/g, '?')
-    .trim();
-}
+const ascii = asciiOnly;
 
 // --- geometry builders -----------------------------------------------------
 
@@ -169,9 +164,14 @@ function discEnts(outerR: number, boreR: number | null): Ent[] {
   return ents;
 }
 
-/** Outer radius for a part that sits inside its parent tube's bore. */
-const bodyBore = (ctx: SolidContext): number =>
-  ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+/**
+ * The label-block warning for a part whose outer diameter is a placeholder
+ * (solidMesh.ringOuterRadius found neither a stated OD nor a bore to sit in —
+ * the SAME function the STL takes its size from, so the two cannot disagree).
+ * A cut file carries its label on the TEXT layer, so this is where the
+ * operator reads it: before the cut, not after the part fails to fit.
+ */
+const OD_ASSUMED = ' | OD ASSUMED: no tube found to size this part from - measure the bore before cutting';
 
 /** Bounding box over every emitted entity, in meters. */
 function bounds(ents: Ent[]): { minX: number; minY: number; maxX: number; maxY: number } {
@@ -285,8 +285,10 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
     }
 
     case 'centeringring': {
-      const R = bodyBore(ctx);
-      const raw = ctx.mountOuterRadius;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
+      // The ring's own stated bore first, then the mount's OD — the kernel's
+      // order, shared with componentLoop (centeringRingBore).
+      const raw = centeringRingBore(node, ctx, R);
       const found = typeof raw === 'number';
       const known = found && raw > EPS && raw < R - EPS;
       // Same fallback componentSolid() takes: a ring with no mount tube to
@@ -296,23 +298,29 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // the builder looking for a missing component, which is the wrong hunt
       // when a mount IS there and its diameter is the bad number.
       const bore = known ? raw : R * 0.5;
-      const label = known ? 'Centering ring' : 'Centering ring (assumed bore)';
+      // The same four labels componentLoop() gives the STL.
+      const label = known
+        ? `Centering ring${assumed ? ' (assumed size)' : ''}`
+        : assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)';
       const geom = discEnts(R, bore);
       const why = found
         ? `motor mount ⌀ ${dim(raw * 2)} mm does not fit this ring's ${dim(R * 2)} mm OD`
         : 'no motor mount found';
       const dims = `OD ${dim(R * 2)} mm | bore ${dim(bore * 2)} mm`
         + ` | stock thickness ${dim(num(node, 'length', 0.003))} mm`
+        + (assumed ? OD_ASSUMED : '')
         + (known ? '' : ` | BORE ASSUMED: ${why} — set to half the OD`);
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
     }
 
     case 'bulkhead': {
-      const R = bodyBore(ctx);
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
+      const label = assumed ? 'Bulkhead (assumed size)' : 'Bulkhead';
       const geom = discEnts(R, null);
       const dims = `OD ${dim(R * 2)} mm | stock thickness ${dim(num(node, 'length', 0.003))} mm`
-        + ' | centre marked on REFERENCE for the eyebolt';
-      return { label: 'Bulkhead', ents: [...geom, ...labelEnts(geom, [head('Bulkhead'), dims, foot])] };
+        + ' | centre marked on REFERENCE for the eyebolt'
+        + (assumed ? OD_ASSUMED : '');
+      return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
     }
 
     case 'tubecoupler':
@@ -323,17 +331,19 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // and it is the same two circles the disc builder already draws. The
       // label states the axial length so nobody mistakes the section for the
       // whole tube.
-      const R = bodyBore(ctx);
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       // A wall at or past the radius closes the bore — ringSolid() degrades the
       // printed version to a solid rod for exactly the same input, so the cut
       // profile agreeing with it is the whole point. Reading the bore back
       // through acceptedBore() keeps OD/ID/wall describing the circles below.
       const bore = acceptedBore(R, R - num(node, 'thickness', 0.001));
       const geom = discEnts(R, bore > 0 ? bore : null);
-      const label = node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block';
+      const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
+        + (assumed ? ' (assumed size)' : '');
       const dims = `OD ${dim(R * 2)} mm | ID ${dim(bore * 2)} mm`
         + ` | wall ${dim(R - bore)} mm | ${dim(num(node, 'length', 0.05))} mm long`
-        + ' (this is the ring SECTION, not a developed tube)';
+        + ' (this is the ring SECTION, not a developed tube)'
+        + (assumed ? OD_ASSUMED : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
     }
 

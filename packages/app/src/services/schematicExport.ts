@@ -1,7 +1,7 @@
 import type { StaticInfo } from '@online-openrocket/engine';
 import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
-import { formatStability } from './simReport.js';
+import { formatStability, hasAerodynamicForce, shownCp } from './simReport.js';
 import { downloadBlob as saveBlob } from './saveFile.js';
 
 /**
@@ -38,13 +38,24 @@ export function dataHeaderLines(d: ExportData): string[] {
     lines.push(d.withMotors
       ? `Launch mass ${fmtSi('mass', u.mass, i.mass)} ${u.mass} (dry ${fmtSi('mass', u.mass, i.massEmpty)} ${u.mass})`
       : `Dry mass ${fmtSi('mass', u.mass, i.massEmpty)} ${u.mass} — no motors loaded`);
-    lines.push(
-      `CG ${fmtSi('length', u.length, i.cg, 3)} ${u.length}, `
-      + `CP ${fmtSi('length', u.length, i.cp, 3)} ${u.length} from nose tip, `
-      // A printed template is read away from the app, so it carries BOTH
-      // forms rather than following the on-screen preference.
-      + `margin ${formatStability(i, 'both')}`,
-    );
+    // The CP is the SAME forward, roll-swept one the margin beside it is
+    // measured from and the CP marker in the drawing sits at (shownCp). This
+    // printed the theta = 0 single-plane `cp` until the 2026-09-22 audit.
+    // Measured on the real kernel, a 70 mm ogive on a 300 mm x 24 mm tube with
+    // two fins clocked 90 degrees headed its cert-packet image "CP 301.611 mm
+    // from nose tip, margin -7.47 cal" — a margin measured from the CP at
+    // 32.356 mm, which is where the drawing's own CP marker sat. And with no
+    // normal force at any roll angle the CP and the margin are artefacts, not
+    // answers (hasAerodynamicForce): a bare tube printed "CP 0 mm, margin
+    // -6.25 cal". The header now says "no lift yet", as the tiles do.
+    lines.push(hasAerodynamicForce(i)
+      ? `CG ${fmtSi('length', u.length, i.cg, 3)} ${u.length}, `
+        + `CP ${fmtSi('length', u.length, shownCp(i), 3)} ${u.length} from nose tip, `
+        // A printed template is read away from the app, so it carries BOTH
+        // forms rather than following the on-screen preference.
+        + `margin ${formatStability(i, 'both')}`
+      : `CG ${fmtSi('length', u.length, i.cg, 3)} ${u.length} from nose tip, `
+        + 'no CP or margin — no lift yet');
   }
   lines.push(`MMRocket Sim v${d.appVersion} — ${new Date().toISOString().slice(0, 10)}`);
   return lines;
@@ -147,17 +158,29 @@ export function svgToImage(svgString: string, widthPx = 3840, format: ImageForma
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml' }));
     const img = new Image();
+    // This body runs in an EVENT CALLBACK, outside the executor: a throw here
+    // neither rejects the promise nor reaches the caller's catch, so the export
+    // waited forever and the ⬇ Image button went dead with nothing reported
+    // (audit 2026-09-22). getContext('2d') returns null when the browser
+    // refuses the canvas — the 7680 px width on a long rocket is exactly the
+    // case TreeSchematic's catch was written for — and drawImage can throw.
     img.onload = () => {
-      const ratio = img.naturalHeight / Math.max(1, img.naturalWidth);
-      const canvas = document.createElement('canvas');
-      canvas.width = widthPx;
-      canvas.height = Math.round(widthPx * ratio);
-      const c = canvas.getContext('2d')!;
-      c.fillStyle = '#ffffff';
-      c.fillRect(0, 0, canvas.width, canvas.height);
-      c.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      encodeCanvas(canvas, format).then(resolve, reject);
+      try {
+        const ratio = img.naturalHeight / Math.max(1, img.naturalWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = widthPx;
+        canvas.height = Math.round(widthPx * ratio);
+        const c = canvas.getContext('2d');
+        if (!c) throw new Error(`the browser refused a ${canvas.width} x ${canvas.height} px canvas`);
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        c.drawImage(img, 0, 0, canvas.width, canvas.height);
+        encodeCanvas(canvas, format).then(resolve, reject);
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);

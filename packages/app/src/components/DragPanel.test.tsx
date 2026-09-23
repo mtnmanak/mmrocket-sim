@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DragPanel } from './DragPanel.js';
+import { foldTypography } from '../services/textFold.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -81,9 +82,9 @@ describe('DragPanel — sweep conditions', () => {
     vi.restoreAllMocks();
   });
 
-  const mount = (fileMachAlt?: [number, number][]) => act(() => root.render(
+  const mount = (fileMachAlt?: [number, number][], designName = 'Test rocket') => act(() => root.render(
     <PrefsProvider>
-      <DragPanel rocket={stubRocket(calls)} designName="Test rocket" fileMachAlt={fileMachAlt} />
+      <DragPanel rocket={stubRocket(calls)} designName={designName} fileMachAlt={fileMachAlt} />
     </PrefsProvider>,
   ));
   const openPanel = () => act(() => {
@@ -143,11 +144,8 @@ describe('DragPanel — sweep conditions', () => {
     expect(caption()).toMatch(/Reynolds number is matched/);
   });
 
-  it('stamps the SAME conditions into the exported CSV as the chart caption shows', async () => {
-    mount([[0, 0], [0.9, 7620], [5, 19202.4]]);
-    openPanel();
-    setSelect(condSelect(), 'file');
-    let csv = '';
+  /** Click "Drag table (.csv)"; the saved filename and the file's text. */
+  const exportCsv = async (): Promise<{ saved: string; csv: string }> => {
     const blobs: Blob[] = [];
     vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
       blobs.push(b as Blob);
@@ -170,17 +168,47 @@ describe('DragPanel — sweep conditions', () => {
     } finally {
       HTMLAnchorElement.prototype.click = origClick;
     }
+    expect(blobs.length).toBe(1);
+    return { saved, csv: await blobs[0]!.text() };
+  };
+
+  it('stamps the SAME conditions into the exported CSV as the chart caption shows', async () => {
+    mount([[0, 0], [0.9, 7620], [5, 19202.4]]);
+    openPanel();
+    setSelect(condSelect(), 'file');
+    const { saved, csv } = await exportCsv();
     // The design name is stamped into the filename: the code comment above
     // exportCsv records a bare drag-analysis.csv being posted to a forum under
     // the wrong model's name.
     expect(saved).toBe('Test_rocket-drag-table.csv');
-    csv = await blobs[0]!.text();
     const line = csv.split('\n').find((l) => l.startsWith('# conditions:'))!;
-    expect(line).toBe(`# conditions: ${caption().replace(/^Conditions: /, '').replace(/ — Reynolds.*$/, '')}`);
-    expect(line).toMatch(/file Mach-Alt table/);
+    // The same words as the caption, with its typography folded to ASCII
+    // (textFold.foldTypography) — the file carries no BOM, so an em dash here
+    // is what Excel opened as "â€”" (audit 2026-09-22).
+    expect(line).toBe(
+      `# conditions: ${foldTypography(caption().replace(/^Conditions: /, '').replace(/ — Reynolds.*$/, ''))}`);
+    expect(line).toBe('# conditions: file Mach-Alt table - 3 points from Mach 0 to 5 (0-19202 m ISA)');
     // Commas would read as extra cells in a naive parser — the header block is
     // deliberately comma-free even though the table below it is not.
     expect(line).not.toContain(',');
+  });
+
+  it('writes an ASCII header block that opens clean in Excel, and one line per field', async () => {
+    // No BOM, by design (the leading # block is parsed by other tools), so
+    // Excel reads the file as ANSI: the sea-level line's "20 °C — the kernel
+    // default" opened as "20 Â°C â€” the kernel default" (audit 2026-09-22).
+    mount(undefined, 'Big “Bertha”\nMk 2, rev B');
+    openPanel();
+    const { csv } = await exportCsv();
+    expect(csv.charCodeAt(0)).not.toBe(0xFEFF);
+    const lines = csv.split('\n');
+    const header = lines.slice(0, lines.findIndex((l) => l.startsWith('mach,')) + 1);
+    expect(header).toHaveLength(5);
+    for (const l of header) expect(l).toMatch(/^[\x20-\x7e]*$/);
+    expect(header[1]).toBe('# design: Big "Bertha" Mk 2; rev B');
+    expect(header[3]).toBe('# conditions: sea level (101325 Pa; 20 degC - the kernel default)');
+    // ...while the chart caption on screen keeps the real typography.
+    expect(caption()).toMatch(/20 °C — the kernel default/);
   });
 
   it('turns a typed altitude into a constant-altitude table, and blank back into sea level', () => {

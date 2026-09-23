@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { RocketTree } from '@online-openrocket/engine';
-import { buildPieces } from '../tree/pieces.js';
+import { buildPieces, isShellPiece } from '../tree/pieces.js';
 
 /**
- * Binary glTF (.glb) export of the rocket's EXTERNAL 3D geometry — the same
- * meshes the 3D view renders, each carrying its app color as a
+ * Binary glTF (.glb) export of the rocket's EXTERNAL 3D geometry — the 3D
+ * view's own meshes less the inner tubes it draws through its translucent
+ * shell (isShellPiece), each carrying its app color as a
  * MeshStandardMaterial (the advantage over .obj, which is geometry-only).
  * glTF is METERS by spec, so our SI geometry passes through unscaled; the
  * rocket axis = +X with the nose tip at the origin, matching the .obj export
@@ -16,7 +17,7 @@ export const GLB_MIME = 'model/gltf-binary';
 
 export function rocketToGlb(tree: RocketTree, name: string): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
-    const { pieces } = buildPieces(tree);
+    const pieces = buildPieces(tree).pieces.filter(isShellPiece);
     if (pieces.length === 0) {
       reject(new Error('Nothing to export — the design has no external components.'));
       return;

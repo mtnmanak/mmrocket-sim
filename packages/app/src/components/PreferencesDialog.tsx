@@ -330,7 +330,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           as numbered segments with a glued spigot instead of one unprintable file. It never
           splits silently: the piece count is in the button and in the file names.
           {' '}<strong>{(DEFAULT_PRINT_MARGIN * 1000).toFixed(0)} mm</strong> is kept clear at
-          each end of every axis (brim and first layer at the bed, gantry clearance up top).
+          both edges of the bed in X and Y (room for a brim) and at the top of Z (gantry
+          clearance) — the part stands on the bed, so nothing comes off the bottom of Z.
           {' '}<strong>Joint clearance</strong> is the gap per side between a spigot and its
           socket — 0.15&nbsp;mm suits FDM and 30-minute epoxy; drop it toward 0.05&nbsp;mm only
           if you glue with thin CA, which seizes in a wider gap. Print every segment of a part

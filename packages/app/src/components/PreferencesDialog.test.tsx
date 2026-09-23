@@ -130,6 +130,18 @@ describe('Preferences → 3D printing', () => {
     expect(axis('Bed X')).toBeNull();
     expect(stored().printer).toBeUndefined();
   });
+
+  it('describes the margin the split really keeps: both bed edges, and the top of Z only', () => {
+    // splitSolid.usableBox takes it off X and Y twice and off Z ONCE — the part
+    // stands on the bed. This hint said "at each end of every axis", which the
+    // button's own figure (usable Z = Z - 8 mm) contradicts (audit 2026-09-22).
+    mount();
+    const hint = [...host.querySelectorAll('p.prefs-hint')]
+      .map((p) => p.textContent ?? '').find((t) => t.includes('kept clear'))!;
+    expect(hint).toContain('8 mm is kept clear at both edges of the bed in X and Y');
+    expect(hint).toContain('at the top of Z');
+    expect(hint).not.toContain('every axis');
+  });
 });
 
 /**

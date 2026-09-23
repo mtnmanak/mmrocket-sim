@@ -10,10 +10,10 @@
  * isWatertight()/solidVolume() exist so tests can prove it.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
-import { finTabFront } from '../components/TreeSchematic.js';
+import { finRootChord, finTabSpan } from './finTab.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -23,9 +23,16 @@ export interface SolidMesh {
 }
 
 export interface SolidContext {
-  /** inner radius of the parent tube (m) — outer radius for bulkhead/centering ring/coupler */
+  /**
+   * the bore the part sits in (m), resolved by tree/solidContext.ts — the outer
+   * radius of a bulkhead/centering ring/coupler/engine block that states none
+   * of its own (ringOuterRadius)
+   */
   parentInnerRadius?: number;
-  /** outer radius of the motor-mount inner tube (m) — centering ring bore */
+  /**
+   * outer radius of the motor-mount inner tube (m) — the bore of a centering
+   * ring that states none of its own (centeringRingBore)
+   */
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
@@ -34,7 +41,11 @@ export interface SolidContext {
 const EPS = 1e-9;
 /** Curve samples for nose/transition profiles — keeps revolve volume well inside 1%. */
 const PROFILE_STEPS = 64;
-/** Fallback radius when the context can't size a part (matches the app's 3D-view default). */
+/**
+ * Fallback radius when nothing can size a part (matches the app's 3D-view
+ * default). A ring-type part that lands on it is labelled "(assumed size)" —
+ * see ringOuterRadius.
+ */
 const FALLBACK_RADIUS = 0.012;
 
 
@@ -376,16 +387,12 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  */
 export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
-  // null = freeform: its root chord is the LAST point's x and can only be read
-  // AFTER the closed-list trim below, so it is resolved there.
-  let rootLen: number | null = null;
   if (node.type === 'trapezoidfinset') {
     const root = num(node, 'rootChord', 0.05);
     const tip = Math.max(num(node, 'tipChord', 0.025), 0);
     const sweep = num(node, 'sweep', 0.02);
     const height = num(node, 'height', 0.03);
     pts = [[0, 0], [sweep, height], [sweep + tip, height], [root, 0]];
-    rootLen = root;
   } else if (node.type === 'ellipticalfinset') {
     const root = num(node, 'rootChord', 0.05);
     const height = num(node, 'height', 0.03);
@@ -413,7 +420,6 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
       const t = (Math.PI * i) / steps;
       pts.push([(root / 2) * (1 - Math.cos(t)), height * Math.sin(t)]);
     }
-    rootLen = root;
   } else {
     const raw = node['points'];
     if (!Array.isArray(raw) || raw.length < 3) return null;
@@ -434,35 +440,30 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
   }
   if (pts.length < 3) return null;
 
-  // A freeform fin's root chord is the LAST point's x — the kernel's own
-  // definition (FreeformFinSet.java:494 and :546, `this.length =
-  // points.get(lastIndex).x`), which FinSet.getTabFrontEdge() then measures the
-  // tab from. It is NOT the max over all points: FinPointsEditor's constrain()
-  // pins only point 0 and the last point's y, so a tip trailing corner may
-  // overhang the root's. Using max-x there put the tab's fore corner AFT of the
-  // root trailing corner, and the closed contour then walked y = 0 twice in
-  // opposite directions — points [[0,0],[0.02,0.03],[0.05,0.03],[0.01,0]] with
-  // a 20x10 mm tab gave three.js's ear clipper 4 cap triangles where 6 are
-  // needed, i.e. a non-watertight STL and a DXF path that doubled back on
-  // itself. It also placed the tab at a different station than the physics uses.
-  if (rootLen === null) rootLen = Math.max(0, pts[pts.length - 1]![0]);
-
-  const tabH = num(node, 'tabHeight', 0);
-  const tabL = num(node, 'tabLength', 0);
-  if (tabH > EPS && tabL > EPS && rootLen > EPS) {
+  // The root chord and the tab come from tree/finTab.ts — the SAME two readers
+  // the paper template (services/finTemplate.ts) uses, so the printed prism,
+  // the DXF and the template cannot put the tab in three places. A freeform
+  // fin's root chord is the LAST point's x (FinSet.getTabFrontEdge() measures
+  // the tab from it), NOT the max over all points: FinPointsEditor's
+  // constrain() pins only point 0 and the last point's y, so a tip trailing
+  // corner may overhang the root's. Using max-x there put the tab's fore
+  // corner AFT of the root trailing corner, and the closed contour then walked
+  // y = 0 twice in opposite directions — points
+  // [[0,0],[0.02,0.03],[0.05,0.03],[0.01,0]] with a 20x10 mm tab gave three.js's
+  // ear clipper 4 cap triangles where 6 are needed, i.e. a non-watertight STL
+  // and a DXF path that doubled back on itself. It also placed the tab at a
+  // different station than the physics uses.
+  const tab = finTabSpan(node, finRootChord(node));
+  if (tab) {
     const first = pts[0]!;
     const lastP = pts[pts.length - 1]!;
     if (Math.abs(first[1]) <= 1e-7 && Math.abs(lastP[1]) <= 1e-7) {
-      const front = finTabFront(node, rootLen);
-      const x0 = Math.min(Math.max(front, 0), rootLen);
-      const x1 = Math.min(Math.max(front + tabL, 0), rootLen);
-      if (x1 - x0 > EPS) {
-        const tab: Array<[number, number]> =
-          lastP[0] >= first[0]
-            ? [[x1, 0], [x1, -tabH], [x0, -tabH], [x0, 0]]
-            : [[x0, 0], [x0, -tabH], [x1, -tabH], [x1, 0]];
-        pts = pts.concat(tab);
-      }
+      const { x0, x1, depth } = tab;
+      pts = pts.concat(
+        lastP[0] >= first[0]
+          ? [[x1, 0], [x1, -depth], [x0, -depth], [x0, 0]]
+          : [[x0, 0], [x0, -depth], [x1, -depth], [x1, 0]],
+      );
     }
   }
   return pts;
@@ -487,6 +488,56 @@ export interface PrintableLoop {
   bodySpan: [number, number];
   /** nominal wall thickness as authored (m) */
   wall: number;
+  /**
+   * The part's OUTER diameter is a placeholder, not a measurement: nothing
+   * stated it and the context could not resolve the bore it sits in (see
+   * ringOuterRadius). The label says "(assumed size)" and printOffer puts a
+   * warning under the 🖨 button.
+   */
+  sizeAssumed?: boolean;
+}
+
+/**
+ * The outer radius (m) a ring-type part — coupler, engine block, centering
+ * ring, bulkhead — is printed or cut at, and whether it had to be ASSUMED.
+ * Shared by componentLoop and the DXF writer, so the printed and the machined
+ * version of one part cannot come out different sizes.
+ *
+ * In the kernel's order (audit 2026-09-22): the part's OWN outer radius when
+ * it states one — a catalogue part, and every RockSim ring, carries its OD, and
+ * the kernel bridge flies that radius — then the bore it sits in
+ * (tree/solidContext.ts resolves it the way the kernel resolves an automatic
+ * radius). Only when neither exists does it fall back to FALLBACK_RADIUS, and
+ * then it SAYS so. It used to take the bore alone and fall back silently: a
+ * bulkhead in a coupler from the Add menu exported as a 24.0 mm disc labelled
+ * plainly "Bulkhead" whatever the airframe diameter.
+ */
+export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: number; assumed: boolean } {
+  const own = numOpt(node, 'outerRadius');
+  if (own !== undefined && own > EPS) return { r: own, assumed: false };
+  const bore = ctx.parentInnerRadius;
+  if (bore !== undefined && Number.isFinite(bore) && bore > EPS) return { r: bore, assumed: false };
+  return { r: FALLBACK_RADIUS, assumed: true };
+}
+
+/**
+ * The bore (m) a centering ring of outer radius `R` is cut to, before the
+ * fits-inside-R check its two callers (componentLoop, the DXF writer) make —
+ * undefined when nothing gives one.
+ *
+ * The same order as ringOuterRadius, and the kernel's: the ring's OWN stated
+ * inner radius first — every .ork and .rkt ring that states an ID carries one,
+ * and CenteringRing.getInnerRadius flies it, consulting the sibling motor mount
+ * only when the radius is automatic — then the mount's OD. The exports read the
+ * mount alone until the 2026-09-22 audit's review, so an imported ring of OD 40
+ * / ID 29 mm in a tube with no inner tube printed and cut with a made-up 20 mm
+ * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
+ * leaves no ring to cut, so both fall through to the mount as before.
+ */
+export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | undefined {
+  const own = numOpt(node, 'innerRadius');
+  if (own !== undefined && own > EPS && own < R - EPS) return own;
+  return ctx.mountOuterRadius;
 }
 
 /**
@@ -550,26 +601,41 @@ export function componentLoop(
     }
     case 'tubecoupler':
     case 'engineblock': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const wall = num(node, 'thickness', 0.001);
       const L = num(node, 'length', 0.05);
-      const label = node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block';
-      return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
+      const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
+        + (assumed ? ' (assumed size)' : '');
+      return {
+        loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall,
+        ...(assumed ? { sizeAssumed: true } : {}),
+      };
     }
     case 'centeringring': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = num(node, 'length', 0.003);
-      const bore = ctx.mountOuterRadius;
+      const bore = centeringRingBore(node, ctx, R);
+      const size = assumed ? { sizeAssumed: true } : {};
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
-        return { loop: ringLoop(R, bore, L), label: 'Centering ring', bodySpan: [0, L], wall: R - bore };
+        return {
+          loop: ringLoop(R, bore, L), label: `Centering ring${assumed ? ' (assumed size)' : ''}`,
+          bodySpan: [0, L], wall: R - bore, ...size,
+        };
       }
       // No bore is a bulkhead, not a ring — assume a half-radius bore and say so.
-      return { loop: ringLoop(R, R * 0.5, L), label: 'Centering ring (assumed bore)', bodySpan: [0, L], wall: R * 0.5 };
+      return {
+        loop: ringLoop(R, R * 0.5, L),
+        label: assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)',
+        bodySpan: [0, L], wall: R * 0.5, ...size,
+      };
     }
     case 'bulkhead': {
-      const R = ctx.parentInnerRadius && ctx.parentInnerRadius > 0 ? ctx.parentInnerRadius : FALLBACK_RADIUS;
+      const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = num(node, 'length', 0.003);
-      return { loop: ringLoop(R, 0, L), label: 'Bulkhead', bodySpan: [0, L], wall: R };
+      return {
+        loop: ringLoop(R, 0, L), label: assumed ? 'Bulkhead (assumed size)' : 'Bulkhead',
+        bodySpan: [0, L], wall: R, ...(assumed ? { sizeAssumed: true } : {}),
+      };
     }
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);

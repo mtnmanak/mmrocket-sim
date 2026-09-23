@@ -169,15 +169,14 @@ function clockingNote(node: ComponentNode): string {
  *
  * `safeName` is imported rather than re-declared — this module carried a
  * byte-identical copy until 2026-09-08, and `fileName.ts` is the one that
- * documents WHY the result needs checking: `\w` is ASCII-only, so a name
- * written entirely in Cyrillic, Greek, Japanese or Arabic collapses to
- * underscores. `stampedName` guards that for single-file exports; the copy here
- * did not, and these stems name ZIP MEMBERS — every part in a pack built from
- * such a design would have collided on `_`.
+ * documents WHY a fallback is needed: `\w` is ASCII-only, so a name written
+ * entirely in Cyrillic, Greek, Japanese or Arabic collapses to underscores,
+ * and these stems name ZIP MEMBERS — every part in a pack built from such a
+ * design would have collided on `_`. `safeName` applies the fallback itself
+ * since the 2026-09-22 audit; a part's is `part`, not the design's `rocket`.
  */
 function safeZipStem(name: string): string {
-  const s = safeName(name);
-  return /[A-Za-z0-9]/.test(s) ? s : 'part';
+  return safeName(name, 'part');
 }
 
 /**
@@ -186,6 +185,14 @@ function safeZipStem(name: string): string {
  * `printer` is null when the user has not configured one — then this returns
  * the untouched single-STL offer, with at most an advisory line for a part
  * that is too long to assume it fits anything.
+ *
+ * A part whose diameter had to be ASSUMED (componentLoop's `sizeAssumed`)
+ * says so before anything else, printer or not. The STL's own label carries
+ * "(assumed size)", but a label inside a file is not something anyone reads
+ * before printing — this line under the button is (audit 2026-09-22: a
+ * bulkhead in a coupler exported as a 24.0 mm disc with nothing on screen to
+ * say the size was guessed). The DXF button sits beside it and cuts the same
+ * placeholder, so the line names both.
  */
 export function printOffer(
   node: ComponentNode, ctx: SolidContext,
@@ -198,6 +205,14 @@ export function printOffer(
   // splitter has nothing to say about them. Nothing changes for those.
   const base = componentLoop(node, ctx);
   if (!base) return single(null, 'none');
+  if (base.sizeAssumed) {
+    const od = 2 * Math.max(0, ...base.loop.map(([, r]) => r));
+    return single(
+      `Diameter assumed: ${mm1(od)} mm is a placeholder — the app could not find the tube `
+        + 'this part sits in. Measure the bore before you print or cut it.',
+      'warn',
+    );
+  }
   const total = span(base.loop);
 
   if (!printer) {
@@ -368,7 +383,11 @@ BEFORE YOU COMMIT TO THE LONG PRINT
 
 Printer this was planned for: ${printerLabel} `
     + `(${mmInt(printer.x)} × ${mmInt(printer.y)} × ${mmInt(printer.z)} mm build volume,\n`
-    + `${mmInt(printer.margin ?? DEFAULT_MARGIN)} mm kept clear at each end of every axis).\n`;
+    // usableBox (tree/splitSolid.ts) takes the margin off X and Y at both
+    // edges but off Z ONCE, at the top — see usableZ above. This line said "at
+    // each end of every axis" until the 2026-09-22 audit, so the README
+    // disagreed with the split it was describing.
+    + `${mmInt(printer.margin ?? DEFAULT_MARGIN)} mm kept clear at both edges of X and Y, and at the top of Z).\n`;
 }
 
 export interface PrintPack {

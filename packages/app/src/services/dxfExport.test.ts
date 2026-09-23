@@ -191,6 +191,19 @@ describe('DXF stream shape', () => {
     expect(label).toContain('Gr??e - "?75" pathfinder');
   });
 
+  it('writes its OWN words in plain ASCII — the diameter mark is "dia", not "?"', () => {
+    // The "BORE ASSUMED" line for a mount too big for its ring wrote "⌀", which
+    // the old folding did not know, so a CAM operator read "motor mount ?
+    // 40.0 mm" (audit 2026-09-22). A newline inside a name folds to a space.
+    const out = componentDxf(node('centeringring', { length: 0.003 }),
+      { parentInnerRadius: 0.0145, mountOuterRadius: 0.02 }, 'Two\nlines')!;
+    expect(out.text).toMatch(/^[\x20-\x7e\r\n]*$/);
+    const label = entities(parse(out.text)).filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n');
+    expect(label).toContain('BORE ASSUMED: motor mount dia 40.0 mm does not fit this ring\'s 29.0 mm OD');
+    expect(label).not.toContain('?');
+    expect(label).toContain('Two lines - Centering ring (assumed bore)');
+  });
+
   it('defines every layer, linetype and text style its entities reference', () => {
     for (const [n, ctx] of [[FIN, {}], [node('bulkhead'), RING_CTX], [node('centeringring'), RING_CTX]] as const) {
       const pairs = parse(dxf(n, ctx));
@@ -350,14 +363,17 @@ describe('fin cut profiles', () => {
   });
 
   it('labels the tab extent that was CUT, not the one that was designed', () => {
-    // A 40 mm 'top' tab starting 20 mm ahead of the root: OpenRocket (and the
-    // SVG template) place it at [-20, +20] mm, the cut profile clamps it into
-    // the root at [0, 20]. Printing the design length would send the operator
-    // to cut a 40 mm airframe slot for a 20 mm tab.
+    // A 40 mm 'top' tab starting 20 mm ahead of the root: OpenRocket places it
+    // at [-20, +20] mm, the cut profile clamps it into the root at [0, 20].
+    // Printing the design length would send the operator to cut a 40 mm
+    // airframe slot for a 20 mm tab.
     const clamped = node('trapezoidfinset', {
       ...FIN, tabHeight: 0.012, tabLength: 0.04, tabOffsetMethod: 'top', tabOffset: -0.02,
     });
-    expect(tabOutline(clamped, 0.1)).toEqual({ x0: -0.02, x1: 0.02, depth: 0.012 });
+    // The SVG template clamps it to the SAME [0, 20] (audit 2026-09-22) — this
+    // line used to pin the template's unclamped [-20, +20], i.e. pin the paper
+    // and the cut file disagreeing.
+    expect(tabOutline(clamped, 0.1)).toEqual({ x0: 0, x1: 0.02, depth: 0.012 });
     const label = labelText(clamped);
     expect(label).toContain('TTW tab 12.0 mm deep x 20.0 mm long at x 0.0-20.0 mm');
     expect(label).not.toContain('40.0 mm long');
@@ -440,6 +456,23 @@ describe('disc cut profiles', () => {
     expect(ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n')).toContain('BORE ASSUMED');
   });
 
+  it('centering ring that STATES its bore is cut to it, mount or none', () => {
+    // The kernel flies a stated inner radius (CenteringRing.getInnerRadius);
+    // the cut file read only the sibling mount and cut this ring to a 20 mm
+    // bore labelled "no motor mount found".
+    const ring = node('centeringring', { outerRadius: 0.02, innerRadius: 0.0145, length: 0.003 });
+    for (const ctx of [{ parentInnerRadius: 0.0245 }, RING_CTX]) {
+      const out = componentDxf(ring, ctx, 'WM Goblin')!;
+      expect(out.label).toBe('Centering ring');
+      const ents = entities(parse(out.text));
+      const radii = ents.filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40)).sort((a, b) => a - b);
+      expect(radii).toEqual([14.5, 20]);
+      const text = ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n');
+      expect(text).toContain('OD 40.0 mm | bore 29.0 mm');
+      expect(text).not.toContain('ASSUMED');
+    }
+  });
+
   it('bulkhead: one cut circle plus centre cross-hairs on REFERENCE', () => {
     const ents = entities(parse(dxf(node('bulkhead', { length: 0.005 }), RING_CTX)));
     const circles = ents.filter((e) => e.type === 'CIRCLE');
@@ -494,10 +527,31 @@ describe('disc cut profiles', () => {
     }
   });
 
-  it('sizes to the shared fallback radius when the parent gives nothing', () => {
-    const radii = entities(parse(dxf(node('bulkhead'), {}))).filter((e) => e.type === 'CIRCLE')
-      .map((c) => real(c, 40));
-    expect(radii).toEqual([12]); // solidMesh's FALLBACK_RADIUS, in mm
+  it('sizes to the shared fallback radius when the parent gives nothing — and SAYS so', () => {
+    // It used to cut the 24 mm placeholder labelled plainly "Bulkhead"
+    // (audit 2026-09-22). The label, the filename stem and the TEXT layer now
+    // all carry the assumption, in the same words the STL's label uses.
+    for (const [type, label] of [
+      ['bulkhead', 'Bulkhead (assumed size)'],
+      ['tubecoupler', 'Tube coupler (assumed size)'],
+      ['engineblock', 'Engine block (assumed size)'],
+      ['centeringring', 'Centering ring (assumed size and bore)'],
+    ] as const) {
+      const out = componentDxf(node(type), {}, 'X')!;
+      expect(out.label, type).toBe(label);
+      const ents = entities(parse(out.text));
+      const radii = ents.filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40));
+      expect(Math.max(...radii), type).toBe(12); // solidMesh's FALLBACK_RADIUS, in mm
+      expect(ents.filter((e) => e.type === 'TEXT').map((e) => first(e, 1)).join('\n'), type)
+        .toContain('OD ASSUMED: no tube found to size this part from');
+    }
+  });
+
+  it('a part stating its own OD is cut at it, as the kernel flies it', () => {
+    const out = componentDxf(node('bulkhead', { outerRadius: 0.02, length: 0.003 }), RING_CTX, 'X')!;
+    expect(out.label).toBe('Bulkhead');
+    const radii = entities(parse(out.text)).filter((e) => e.type === 'CIRCLE').map((c) => real(c, 40));
+    expect(radii).toEqual([20]);
   });
 });
 

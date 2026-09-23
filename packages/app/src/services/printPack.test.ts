@@ -95,6 +95,21 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
       expect(o.note).toBeNull();
     }
   });
+
+  it('a ring part with no bore to size from warns that its diameter is a placeholder', () => {
+    // It used to print the 24 mm placeholder with nothing on screen to say so
+    // (audit 2026-09-22). Printer or not, the warning comes first.
+    for (const p of [null, H2D]) {
+      const o = printOffer(node('bulkhead', { length: 0.004 }), {}, p);
+      expect(o.kind).toBe('single');
+      expect(o.button).toBe(SINGLE_BUTTON);
+      expect(o.note).toBe('Diameter assumed: 24.0 mm is a placeholder — the app could not find the '
+        + 'tube this part sits in. Measure the bore before you print or cut it.');
+      expect(o.tone).toBe('warn');
+    }
+    // ...and a sized one says nothing, as before.
+    expect(printOffer(node('bulkhead', { length: 0.004 }), { parentInnerRadius: 0.0366 }, null).note).toBeNull();
+  });
 });
 
 describe('printOffer — printer set, part fits', () => {
@@ -204,6 +219,15 @@ describe('the zip', () => {
     ]);
   });
 
+  it('names a part written in another script "part", not "_" and not the design\'s "rocket"', async () => {
+    // safeName carries the fallback itself since the 2026-09-22 audit; the zip
+    // stem keeps its own, because these are the part's files, not the design's.
+    const p = await buildPrintPack(split, 'Носовой обтекатель', H2D, 'Bambu H2D');
+    expect(p.filename).toBe('part-print-2-pieces.zip');
+    expect(Object.keys(unzipSync(p.bytes)).sort())
+      .toEqual(['README.txt', 'part-print-1of2.stl', 'part-print-2of2.stl']);
+  });
+
   it('writes real binary STLs (header, triangle count, not an ASCII "solid")', () => {
     for (const name of ['Nose_Cone-print-1of2.stl', 'Nose_Cone-print-2of2.stl']) {
       const bytes = entries[name]!;
@@ -248,7 +272,11 @@ describe('the zip', () => {
   it('quotes the machine it was planned for', () => {
     const readme = printPackReadme(split, 'Nose Cone', H2D, 'Bambu H2D');
     expect(readme).toContain('Bambu H2D (350 × 320 × 325 mm build volume');
-    expect(readme).toContain('8 mm kept clear at each end of every axis');
+    // The margin comes off X and Y at both edges and off Z once, at the top
+    // (splitSolid.usableBox). This line used to pin "at each end of every
+    // axis", which the split it describes does not do (audit 2026-09-22).
+    expect(readme).toContain('8 mm kept clear at both edges of X and Y, and at the top of Z)');
+    expect(readme).not.toContain('every axis');
   });
 
   it('a tuned clearance travels into the README', () => {

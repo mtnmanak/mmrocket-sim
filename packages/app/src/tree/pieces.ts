@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   assemblyBoundingRadius, assemblyChainLength, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
@@ -12,7 +12,7 @@ import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
-import { axialLength } from './position.js';
+import { axialLength, axialStart } from './position.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -33,19 +33,6 @@ import { axialLength } from './position.js';
  */
 
 const nodeColor = (n: ComponentNode, dflt: string): string => typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
-
-
-
-
-function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
-  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  switch (pos.method) {
-    case 'middle': return pStart + (pLen - childLen) / 2 + pos.offset;
-    case 'bottom': return pStart + pLen - childLen + pos.offset;
-    case 'absolute': return pos.offset;
-    default: return pStart + pos.offset;
-  }
-}
 
 /**
  * Lathe points for a nose/transition outer profile (kernel-exact shapes from
@@ -85,6 +72,17 @@ export interface Piece {
    *  (batch 08-21d: an opaque mount hid the motor entirely). */
   innerGlass?: boolean;
 }
+
+/**
+ * Whether a piece belongs in a whole-rocket FILE export — the .obj, the .glb
+ * and the display-shell .stl, which the guide and each exporter describe as
+ * the EXTERNAL shell only. The 3D view draws the inner tubes too, as glass
+ * through the translucent shell, and every export used to carry them: a motor
+ * mount buried inside the body tube of a "shell" model (audit 2026-09-22).
+ * The loaded motors the view also draws need no filter — they exist only when
+ * the view passes `MotorDims`, which no exporter does.
+ */
+export const isShellPiece = (p: Piece): boolean => !p.innerGlass;
 
 /** Loaded motor case dimensions (m) keyed by mount node id — the same shape
  *  TreeSchematic takes. */
