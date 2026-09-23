@@ -5,11 +5,12 @@
  * selector can be edited into one that matches nothing, and `npx eslint .` then
  * reports 0 problems — which is exactly what a working guard also reports.
  *
- *   - Node-only globals (`Buffer.from`, `process.env.X`) type-check, lint and
- *     test clean — tsc sees @types/node, typescript-eslint turns no-undef off for
- *     .ts, and vitest runs under Node — then throw or read `undefined` in a
- *     user's browser. The tests themselves DO run under Node, so the rule must
- *     stay off there.
+ *   - Node-only globals (`Buffer.from`, `process.env.X`) lint and test clean —
+ *     typescript-eslint turns no-undef off for .ts and vitest runs under Node —
+ *     and packages/engine's tsc still sees @types/node (packages/app's shipped
+ *     source stopped seeing it in the 2026-09-22 tsconfig split); then they
+ *     throw or read `undefined` in a user's browser. The tests themselves DO
+ *     run under Node, so the rule must stay off there.
  *   - A private `typeof n[k] === 'number' ? n[k] : fb` reader passes NaN, where
  *     tree/nodeNum.ts is the one reader (audit 2026-09-22).
  *

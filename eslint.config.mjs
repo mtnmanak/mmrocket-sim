@@ -150,9 +150,10 @@ export default tseslint.config(
   {
     // ─── Browser-shipped source ───
     // globals.browser only. That alone does NOT refuse a bare `process` or
-    // `require` in .ts: typescript-eslint switches no-undef off there (tsc owns
-    // undefined names, and tsc sees @types/node). no-restricted-globals below is
-    // what makes one a lint error rather than a runtime crash for a user.
+    // `require` in .ts: typescript-eslint switches no-undef off there, leaving
+    // undefined names to tsc — and packages/engine's tsconfig still sees
+    // @types/node. no-restricted-globals below is what makes one a lint error
+    // rather than a runtime crash for a user, in both packages.
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       globals: { ...globals.browser },
@@ -189,9 +190,11 @@ export default tseslint.config(
       'no-console': ['error', { allow: ['warn', 'error', 'debug'] }],
 
       // Node-only globals. typescript-eslint turns no-undef off for .ts, and tsc
-      // accepts them because @types/node is visible to the program, so
-      // `Buffer.from(...)` passes typecheck, lint and the (Node-run) tests, then
-      // throws ReferenceError in a user's browser — and `process.env.X` reads
+      // accepted them while @types/node was visible to the program — as it still
+      // is to packages/engine/src; packages/app's shipped source lost it in the
+      // 2026-09-22 tsconfig split (packages/app/tsconfig.json). So
+      // `Buffer.from(...)` passed typecheck, lint and the (Node-run) tests, then
+      // threw ReferenceError in a user's browser — and `process.env.X` read
       // undefined there (Vite rewrites `process.env` to `{}`) while the tests read
       // the real value. isNaN/isFinite coerce (isFinite('') is true), where every
       // number reader here is Number.isFinite by design (tree/nodeNum.ts).
