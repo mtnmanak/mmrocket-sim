@@ -154,7 +154,7 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     await type(input(host, 'Measured mass'), '2000');
-    await type(input(host, 'Measured balance point'), '250');
+    await type(input(host, 'Measured CG'), '250');
     await act(async () => { button(host, '✕ New').click(); });
     // Undo covers the tree only, so the question says the weighing is not
     // coming back with it (from review; ScaleDialog says the same).
@@ -269,7 +269,7 @@ describe('a Results panel that throws stays in its panel (audit 2026-09-22)', ()
       expect(host.textContent).toContain('a stored run the report cannot read');
       // Not the whole app: the workspace tabs and the rest of the tab are still there.
       expect(host.textContent).not.toContain('Something went wrong');
-      expect([...host.querySelectorAll('[role="tab"]')].length).toBeGreaterThan(0);
+      expect(host.querySelector('nav.workspace-tabs button[aria-current="page"]')).toBeTruthy();
       expect(button(host, 'Clear all')).toBeTruthy();
     } finally {
       reportThrows = false;
