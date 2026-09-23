@@ -1080,11 +1080,19 @@ export function App() {
     setFileNote(null);
     setSimError(null);
     setShroudPrompt(null);
+    // A measured mass & CG describe the rocket that was WEIGHED, which is the
+    // one being cleared — as an import and a Scale already treat them. Kept,
+    // the pad-mass arithmetic (services/hardwareMass.ts) took the old rocket's
+    // weight as the new one's dry mass: weigh A at 2.0 kg, press New, build a
+    // 1.2 kg B and type a 3.0 kg pad mass, and the hardware term came out
+    // 0.8 kg short, so B flew light and high (audit 2026-09-22).
+    const unweighed: MeasuredFigures = { massKg: null, cgM: null };
+    setMeasured(unweighed);
     // An empty design is not work anybody would mind losing, so the NEXT Open
     // must not ask about it. Same reasoning as seeding a first visit clean.
     // Built from the values just set, not from state, which has not
-    // re-rendered - launch and measured are deliberately not reset here, so
-    // they carry their current values.
+    // re-rendered - launch is deliberately not reset here (the launch site
+    // outlives the rocket), so it carries its current value.
     markSaved(designFingerprint({
       tree: fresh,
       mountMotors: {},
@@ -1092,7 +1100,7 @@ export function App() {
       maxMotorLengthByStage: {},
       savedConfigs: [],
       activeConfigId: null,
-      measured,
+      measured: unweighed,
     }));
   };
 

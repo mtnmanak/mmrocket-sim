@@ -119,3 +119,23 @@ describe('a first visit is clean once the starter motor lands (audit 2026-09-22)
     expect(host.textContent).toContain('Start a new design?');
   }, 30000);
 });
+
+describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-09-22)', () => {
+  it('clears the box, and the fresh design is saved-clean with it cleared', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(input(host, 'Measured mass'), '2000');
+    await type(input(host, 'Measured balance point'), '250');
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { button(host, 'Discard & start new').click(); });
+    await settle(600);
+    window.dispatchEvent(new Event('pagehide'));
+    // The rocket that was weighed is gone, so is its weighing: the hardware
+    // term (services/hardwareMass.ts) would otherwise take 2000 g as the NEW
+    // rocket's dry mass.
+    expect(storedSession()?.measured).toEqual({ massKg: null, cgM: null });
+    // ...and the mark New takes is over THAT, so a second ✕ New does not ask.
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+});
