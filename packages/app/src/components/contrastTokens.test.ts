@@ -162,12 +162,30 @@ describe('row 466', () => {
     }
   });
 
-  it('the schematic export bakes the light theme\'s own status tokens', () => {
+  it('the schematic export bakes the light theme\'s own status and launch tokens', () => {
     // The exported SVG is drawn on white in the light palette — so when the
     // tokens moved, the baked copies had to move with them.
     const baked = new Map(EXPORT_VARS);
-    for (const s of ['--status-serious', '--status-warn', '--status-good']) {
+    for (const s of ['--status-serious', '--status-warn', '--status-good', '--launch']) {
       expect(baked.get(`var(${s})`), s).toBe(light[s]);
+    }
+  });
+});
+
+describe('the Launch orange under its white label', () => {
+  /**
+   * Review of the audit branch: the Launch button (17 px bold — "large" text
+   * starts at 18.66 px bold) and the active 2D/3D/Aft toggle put #fff on
+   * --launch #c65420, 4.48:1, in light and dark alike.
+   */
+  it('white on --launch is AA in every theme, wherever it is the background', () => {
+    for (const sel of ['.launch-btn {', '.view-toggle button.active {']) {
+      const block = rule(sel);
+      expect(block, sel).toMatch(/background:\s*var\(--launch\)/);
+      expect(block, sel).toMatch(/(^|[;\s])color:\s*#fff(fff)?;/);
+    }
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(rgb('#ffffff'), tok(t, '--launch')), name).toBeGreaterThanOrEqual(AA);
     }
   });
 });

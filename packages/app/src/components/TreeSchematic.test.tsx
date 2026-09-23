@@ -201,8 +201,9 @@ describe('schematic export', () => {
   });
 
   it('bakes the launch tint the motor cases use (S5)', () => {
+    // Nudged from #c65420 so a white label on it is AA (audit 2026-09-22).
     expect(EXPORT_VARS).toEqual(expect.arrayContaining([
-      ['var(--launch)', '#c65420'],
+      ['var(--launch)', '#c45320'],
     ]));
   });
 });

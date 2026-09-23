@@ -67,7 +67,10 @@ html {
      INTERACTIVE color goes through --accent; the blue/green/amber series
      colors are data-only (charts, schematic marks). */
   --accent: #b8511d;
-  --launch: #c65420;
+  /* White label on it (Launch, the active 2D/3D/Aft): #c65420 was 4.48:1,
+     under AA for 12-17 px text. #c45320 is 4.56:1 and looks the same (review
+     of the audit 2026-09-22 branch); the schematic export bakes this value. */
+  --launch: #c45320;
   --chart-axis: #6d6b63;
   --chart-grid: #e3e1da;
   --chart-tick: #d9d6cf;
@@ -107,7 +110,7 @@ html {
   --note-bg: #2e2a1c;
   --note-border: #57503a;
   --accent: #ef8a52;
-  --launch: #c65420;
+  --launch: #c45320; /* the light value, AA under white — see there */
   --chart-axis: #94918a;
   --chart-grid: #353330;
   --chart-tick: #45423b;
