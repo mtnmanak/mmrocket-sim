@@ -34,9 +34,16 @@ import {
  * App both applies it and takes the saved mark from that same object — so what
  * is on screen and what is marked as on disk cannot be assembled apart.
  *
- * Pure except `resolveImportMotors`, which is where every await of an open
- * lives (one catalogue lookup, and possibly a thrustcurve.org fetch, per motor
- * the file names).
+ * WHAT IS PURE AND WHAT IS NOT. The planners — `planImport`, `planConfigSwitch`,
+ * `planOrkSave`, `importMark`, `starterMotorMayLand` — are pure, and so is
+ * `planNewDesign` but for one deliberate effect: it claims the open sequence
+ * it is handed, so an Open still in flight cannot land over the new design.
+ * The effectful edges are named for what they touch: `resolveImportMotors` is
+ * where every await of a file open lives (one catalogue lookup, and possibly a
+ * thrustcurve.org fetch, per motor the file names); `openShareLink` runs the
+ * share-link path's awaits, claiming its sequence before the first; and
+ * `applyImportPlan` / `applyConfigSwitchPlan` write a plan through the setters
+ * App hands them.
  */
 
 /**
