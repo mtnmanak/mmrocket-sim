@@ -74,8 +74,8 @@ import { saveFile } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
-  flushSession, loadSession, onSessionSaveStateChange, saveSessionDebounced,
-  sessionPredatesThisBuild, sessionSaveFailing,
+  flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
+  sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
@@ -599,6 +599,27 @@ export function App() {
   // Non-dismissible while failing — it clears itself when a save sticks.
   const [autosaveFailing, setAutosaveFailing] = useState(() => sessionSaveFailing());
   useEffect(() => onSessionSaveStateChange(setAutosaveFailing), []);
+  // Another tab wrote the autosave since this one last read it, and this tab's
+  // writes are being held back rather than overwrite that work (audit
+  // 2026-09-22; services/session.ts "ONE SLOT, SEVERAL TABS"). Pushed the same
+  // way, and cleared only by a choice in the banner.
+  const [sessionConflict, setSessionConflict] = useState(() => sessionConflicted());
+  useEffect(() => onSessionConflictChange(setSessionConflict), []);
+  // While it stands, closing this tab really would lose its changes — they are
+  // in no slot — so this is the one state that earns a leave-page prompt (the
+  // pagehide flush's comment explains why every other state does not).
+  // "Load the other tab's design" reloads on purpose, and says so first.
+  const leavingForOtherTab = useRef(false);
+  useEffect(() => {
+    if (!sessionConflict) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (leavingForOtherTab.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
+  }, [sessionConflict]);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
   /**
@@ -981,7 +1002,8 @@ export function App() {
   // close, reload and navigation away - and on a mobile browser discarding the
   // page, which `beforeunload` does not. No confirmation dialog: the autosave
   // genuinely restores the design, so stopping every tab close to say so would
-  // be a nag rather than a guard.
+  // be a nag rather than a guard — except while another tab holds the slot
+  // (`sessionConflict` above), when it does not.
   useEffect(() => {
     const onHide = () => { flushSession(); };
     window.addEventListener('pagehide', onHide);
@@ -3871,6 +3893,25 @@ export function App() {
           <div className="file-note file-note-error autosave-warn" role="alert">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
             design to a file (Save As / Export → .ork) to keep it safe.
+          </div>
+        )}
+        {sessionConflict && (
+          // Persistent until answered: until then neither tab's work is at
+          // risk, and a × that merely hid it would leave this tab's changes
+          // unsaved with nothing on screen to say so.
+          <div className="file-note file-note-error autosave-warn" role="alert">
+            ⚠ This design was changed in another tab. This tab has stopped
+            autosaving so it does not overwrite that work — changes made here
+            are not kept until you choose.{' '}
+            <button className="file-btn" onClick={takeOverSession}
+              title="Autosave this tab's design over the other tab's. The other tab will then show this same warning.">
+              Keep this tab&apos;s design
+            </button>{' '}
+            <button className="file-btn"
+              title="Reload this tab from the autosave, which holds the other tab's design. This tab's unsaved changes are discarded — Save .ork first to keep them."
+              onClick={() => { leavingForOtherTab.current = true; window.location.reload(); }}>
+              Load the other tab&apos;s design
+            </button>
           </div>
         )}
         {prefsSaveFailing && !autosaveFailing && (

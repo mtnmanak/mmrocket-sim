@@ -139,3 +139,42 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
     expect(host.textContent).not.toContain('Start a new design?');
   }, 30000);
 });
+
+describe('another tab\'s autosave is not overwritten (audit 2026-09-22)', () => {
+  const CONFLICT = 'changed in another tab';
+
+  it('one tab editing, reloading and editing again never raises the conflict', async () => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(input(host, 'Measured mass'), '31');
+    await settle(600);
+    await unmountAll();
+    host = await mountApp();
+    await type(input(host, 'Measured mass'), '32');
+    await settle(600);
+    expect(host.textContent).not.toContain(CONFLICT);
+    expect(storedSession()?.measured?.massKg).toBeCloseTo(0.032, 9);
+  }, 30000);
+
+  it('an edit here after another tab wrote holds back, says so, and "Keep" takes the slot', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await settle(600);
+    // Another tab of the same origin writes its own design into the slot.
+    const other = { ...storedSession()!, stamp: 'othertab' };
+    other.tree = { ...other.tree, name: 'The other tab\'s rocket' };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(other));
+
+    await type(input(host, 'Measured mass'), '33');
+    await settle(600);
+    expect(host.textContent).toContain(CONFLICT);
+    expect(storedSession()?.tree.name).toBe('The other tab\'s rocket');
+    window.dispatchEvent(new Event('pagehide')); // closing the tab flushes — and still holds back
+    expect(storedSession()?.tree.name).toBe('The other tab\'s rocket');
+
+    await act(async () => { button(host, 'Keep this tab').click(); });
+    expect(storedSession()?.tree.name).toBe('My Rocket');
+    expect(storedSession()?.measured?.massKg).toBeCloseTo(0.033, 9);
+    expect(host.textContent).not.toContain(CONFLICT);
+  }, 30000);
+});
