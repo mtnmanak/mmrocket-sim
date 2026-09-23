@@ -173,15 +173,22 @@ export function useHeroDrawer(): HeroDrawer {
    * so "too short" stays true once it is true. Hysteresis is still needed for
    * the other direction: reopening raises the ceiling again, so the reopen
    * threshold sits 60px above the close one.
+   *
+   * ONLY AT OR ABOVE THE BREAKPOINT. Below 981px the drawer is a block under
+   * the canvas and costs the drawing nothing, so there is nothing for the rule
+   * to rescue — and nothing for it to do. v0.136 said so by handing it an
+   * INFINITE stage there, which silenced the close branch and tripped the
+   * reopen one ("taller than 426px"): the drawer opened itself on every narrow
+   * window's Design tab, and straight back after a window dragged narrow had
+   * shut it, against the default above (audit 2026-09-22, found converting
+   * statsDrawerDefault.test.ts to behaviour). So the rule is not consulted.
    */
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!stageEl) return;
+    if (!stageEl || !wide) return;
     const check = () => {
       const next = drawerAutoState({
-        // Below 981px the drawer is a block under the canvas and costs the
-        // drawing nothing, so there is nothing for the rule to rescue.
-        stageH: wide ? stageEl.clientHeight : Infinity,
+        stageH: stageEl.clientHeight,
         open,
         userSet: userSet.current,
       });

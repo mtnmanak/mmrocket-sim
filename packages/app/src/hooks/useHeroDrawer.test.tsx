@@ -132,6 +132,30 @@ describe('useHeroDrawer — the breakpoint', () => {
     expect(h.current.open).toBe(true);
   });
 
+  /**
+   * AND STAYS SHUT (v0.136 regression). Below the breakpoint the auto-collapse
+   * rule was handed an INFINITE stage height, meant to make its close branch
+   * inert — "nothing for the rule to rescue" — but its REOPEN branch reads
+   * "taller than 426px", so it opened the drawer the moment the stage mounted,
+   * and re-opened it straight after a window dragged narrow had closed it.
+   * Every narrow window's Design tab carried the drawer the owner's 2026-08-23
+   * ruling keeps shut there.
+   */
+  it('…and leaves it shut one pixel narrower, where it would cover the drawing', () => {
+    width = 980;
+    const h = mount();
+    expect(h.current.wide).toBe(false);
+    expect(h.current.open).toBe(false);
+  });
+
+  it('follows a window dragged across the breakpoint, both ways', () => {
+    const h = mount();
+    dragTo(800);
+    expect([h.current.wide, h.current.open]).toEqual([false, false]);
+    dragTo(1300);
+    expect([h.current.wide, h.current.open]).toEqual([true, true]);
+  });
+
   it('never overrules a drawer the user opened or closed themselves', () => {
     const h = mount();
     act(() => h.current.setByUser(false));

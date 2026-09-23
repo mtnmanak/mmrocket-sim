@@ -379,6 +379,33 @@ describe('the Design tab\'s hero canvas', () => {
 });
 
 /**
+ * "ALL STATS" OPENS ON A DESKTOP AND STAYS SHUT ON ANYTHING NARROWER (the
+ * owner, 2026-08-23). statsDrawerDefault.test.ts held App's half of this as a
+ * regex for the 981px literal in the drawer's initializer — which stayed green
+ * through v0.136, when the short-canvas rule began opening the drawer on every
+ * narrow window's Design tab (hooks/useHeroDrawer.ts has the mechanism).
+ */
+describe('the All-stats drawer on a first look at the Design tab', () => {
+  it('is open on a desktop', async () => {
+    viewport(1200);
+    const host = await mountApp();
+    await waitFor(() => host.querySelector('.stats-drawer') !== null, 'the drawer');
+    expect(host.querySelector('.stats-drawer-chip')).toBeNull();
+  }, 30000);
+
+  it('is shut below 981px, with the chip to open it', async () => {
+    viewport(800);
+    const host = await mountApp();
+    await waitFor(() => host.querySelector('.stats-drawer-chip') !== null, 'the All-stats chip');
+    await settle(50);
+    expect(host.querySelector('.stats-drawer')).toBeNull();
+    // And the chip still opens it — as a block under the canvas at this width.
+    await act(async () => { button(host, '▤ All stats').click(); });
+    expect(host.querySelector('.stats-drawer')?.className).toContain('stats-drawer-flow');
+  }, 30000);
+});
+
+/**
  * A PHONE OPENS ON FLY (S4, batch 08-21c), and the rule for it is 767px — not
  * the hero canvas's 981px, or a phone inherits the desktop drawer.
  * statsDrawerDefault.test.ts held the literal as a regex over App.tsx; the
