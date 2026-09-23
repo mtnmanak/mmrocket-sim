@@ -126,8 +126,8 @@ import {
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
-  attachedOf, attachedSet, importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, resolveImportMotors,
-  type ImportedDesign,
+  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, planConfigSwitch, planImport, planNewDesign,
+  resolveImportMotors, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
@@ -389,7 +389,7 @@ export function App() {
   // the stack under the motors mounted now) and the flight-holds-a-handle gate.
   const {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
-    canUndo, canRedo,
+    reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
     onRestore: (t) => spendSpentMarks.current(t),
     blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,
@@ -532,6 +532,15 @@ export function App() {
         .map((st) => [st.id!, legacy]));
   });
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
+  /**
+   * The launch conditions as last rendered, for an open to merge the file's
+   * into AFTER its last await (audit 2026-09-22). The open's own closure holds
+   * the launch from the render that started it, so a wind typed while a file
+   * was opening was kept on screen by the old updater but left out of the saved
+   * mark — the just-opened design read as unsaved.
+   */
+  const launchRef = useRef(launch);
+  launchRef.current = launch;
   /**
    * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
    * bare FlightResult with no link to `lastRun`, so selecting a row in the
@@ -2761,33 +2770,24 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
-    // What goes on screen, decided in services/importApply.ts; applied here and
-    // marked from the SAME plan, so the two cannot be assembled apart.
-    const plan = planImport(imported, resolved, { launch, text: statedWeightText });
-    const { snapshot } = plan;
-    setTree(snapshot.tree);
-    setMountMotors(snapshot.mountMotors);
-    setUnmatchedRefs(plan.unmatchedRefs);
-    setSavedConfigs(snapshot.savedConfigs);
-    setActiveConfigId(snapshot.activeConfigId);
-    setFileMachAlt(plan.machAlt);
+    // What goes on screen, decided in services/importApply.ts and written by
+    // applyImportPlan, which marks from the SAME plan — so the two cannot be
+    // assembled apart. The launch is merged ONCE, from the mirror, now that
+    // every await is behind us (audit 2026-09-22). The history starts over
+    // from the opened design: Ctrl+Z does not reach across a file open.
+    const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
+    applyImportPlan(plan, {
+      history: { reset: resetHistory },
+      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setMaxMotorLen, setLaunch, setMeasured,
+      setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt, markSaved,
+    });
     // This design has now been through THIS build's importer, so the session
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
     // A simulation error belonged to the design that threw it, and that design
     // has just been replaced.
     setSimError(null);
-    setMaxMotorLen(snapshot.maxMotorLengthByStage); // imported stages have fresh ids — old limits don't apply
     setSelectedId(null);
-    setLaunch((prev) => importedLaunch(prev, imported.launch));
-    setMeasured(snapshot.measured);
-    setFileNote(plan.note.text, plan.note.severity);
-    setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
-    // The design now IS the file on disk, so the baseline moves with it —
-    // taken over the plan, NOT from React state, which has not re-rendered yet:
-    // reading state here would mark the PREVIOUS design as saved and leave the
-    // imported one looking dirty forever.
-    markSaved(importMark(plan));
   };
 
   /**
@@ -2798,12 +2798,13 @@ export function App() {
   const applyConfig = (requested: SavedConfig) => {
     const plan = planConfigSwitch(
       { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);
-    if (plan.savedConfigs !== savedConfigs) setSavedConfigs(plan.savedConfigs);
-    setMountMotors(plan.mountMotors);
-    setUnmatchedRefs(plan.unmatchedRefs);
-    setActiveConfigId(plan.activeConfigId);
-    if (plan.tree !== tree) setTree(plan.tree);
-    setFileNote(plan.note.text, plan.note.severity);
+    // The history starts over from the switched design (applyConfigSwitchPlan
+    // says why): the stack holds the tree alone, and one Ctrl+Z used to put the
+    // previous configuration's nozzle and recovery back under these motors.
+    applyConfigSwitchPlan(plan, savedConfigs, {
+      history: { reset: resetHistory },
+      setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setNote: setFileNote,
+    });
   };
 
   /** The "None" row / full unload: no motors, no active configuration. */
@@ -3612,8 +3613,8 @@ export function App() {
             This link opens “{shareOffer.name}”. Your current design
             “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
             it, save it as an .ork file first — declining simply drops the
-            link. Ctrl+Z will not put it back: it restores your components and
-            leaves the link's motors and launch conditions on them.
+            link. Ctrl+Z will not put it back: the undo history starts over
+            from the linked design.
           </p>
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { onSaveOrk(); }}>

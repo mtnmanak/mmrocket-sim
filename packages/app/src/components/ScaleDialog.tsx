@@ -500,10 +500,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             )}
 
             <p className="comp-stats">
-              The <strong>Measured mass &amp; CG</strong> box is cleared, because it describes a
-              rocket that will no longer exist. That is the one thing Ctrl+Z cannot put back —
-              undo covers the design tree — so write those two numbers down first if you want
-              them.
+              The <strong>Measured mass &amp; CG</strong> box is cleared, and so is every{' '}
+              <strong>weighed pad mass</strong> on Motors &amp; Launch, because they describe a
+              rocket that will no longer exist. Ctrl+Z cannot put them back — undo covers the
+              design tree — so write those numbers down first if you want them.
             </p>
 
             <p className="comp-stats">

@@ -12,6 +12,7 @@ import { padMassSetKey, withActiveConfigSynced } from './configSync.js';
 import {
   reconcileAllIncludedMotors, type AttachedMotor, type StatedWeightText,
 } from './statedLaunchWeight.js';
+import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import { separationEventOrDefault } from '../tree/sanitize.js';
 import {
@@ -334,6 +335,57 @@ export function importMark(plan: ImportPlan): string {
   return designFingerprint(plan.snapshot);
 }
 
+/** App's writers an open goes through: its state setters, and the tree's history. */
+export interface ImportSinks {
+  history: Pick<TreeHistory, 'reset'>;
+  setMountMotors: (m: Record<string, MountMotor>) => void;
+  setUnmatchedRefs: (r: Record<string, OrkMotorRef>) => void;
+  setSavedConfigs: (c: SavedConfig[]) => void;
+  setActiveConfigId: (id: string | null) => void;
+  setMaxMotorLen: (m: Record<string, number | null>) => void;
+  setLaunch: (l: LaunchConditions) => void;
+  setMeasured: (m: MeasuredFigures) => void;
+  setMachAlt: (t: [number, number][] | undefined) => void;
+  setNote: (text: string, severity: NoticeSeverity) => void;
+  setShroudPrompt: (s: ShroudCandidate[] | null) => void;
+  markSaved: (mark: string) => void;
+}
+
+/**
+ * An open, written: every field of the plan, and the mark over that same plan.
+ *
+ * THE HISTORY STARTS OVER (audit 2026-09-22). The undo stack holds the tree
+ * alone, so an Open pushed as an ordinary edit let Ctrl+Z put the previous
+ * rocket back under this file's launch conditions, measured mass and flight
+ * configurations — and Save then wrote that hybrid, and the Measured box sized
+ * ballast for one rocket from another's scale reading. The Open prompt already
+ * told the user "Ctrl+Z does not reach across a file open"; now it does not.
+ */
+export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
+  const { snapshot } = plan;
+  sinks.history.reset(snapshot.tree);
+  sinks.setMountMotors(snapshot.mountMotors);
+  sinks.setUnmatchedRefs(plan.unmatchedRefs);
+  sinks.setSavedConfigs(snapshot.savedConfigs);
+  sinks.setActiveConfigId(snapshot.activeConfigId);
+  sinks.setMachAlt(plan.machAlt);
+  sinks.setMaxMotorLen(snapshot.maxMotorLengthByStage);
+  // A VALUE, merged once from the launch as it stood after the open's last
+  // await — the same object the mark is taken over, so a wind typed while the
+  // file was opening is kept AND the design reads clean (audit 2026-09-22).
+  // The mark used to merge the launch captured when the open started, so that
+  // edit left the just-opened design reading as unsaved.
+  sinks.setLaunch(snapshot.launch);
+  sinks.setMeasured(snapshot.measured);
+  sinks.setNote(plan.note.text, plan.note.severity);
+  sinks.setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
+  // The design now IS the file on disk, so the baseline moves with it — taken
+  // over the plan, NOT from React state, which has not re-rendered yet: reading
+  // state here would mark the PREVIOUS design as saved and leave the imported
+  // one looking dirty forever.
+  sinks.markSaved(importMark(plan));
+}
+
 /** What App writes for a configuration switch. */
 export interface ConfigSwitchPlan {
   /** Every configuration, the one being left written back first. */
@@ -466,6 +518,39 @@ export function planConfigSwitch(
     tree: next,
     note,
   };
+}
+
+/** App's writers a configuration switch goes through. */
+export interface ConfigSwitchSinks {
+  history: Pick<TreeHistory, 'reset'>;
+  setSavedConfigs: (c: SavedConfig[]) => void;
+  setMountMotors: (m: Record<string, MountMotor>) => void;
+  setUnmatchedRefs: (r: Record<string, OrkMotorRef>) => void;
+  setActiveConfigId: (id: string | null) => void;
+  setNote: (text: string, severity: NoticeSeverity) => void;
+}
+
+/**
+ * A configuration switch, written.
+ *
+ * THE HISTORY STARTS OVER (audit 2026-09-22). The switch writes the new
+ * configuration's nozzle, separations and deployments into the tree, and the
+ * stack holds the tree alone — so one Ctrl+Z put the PREVIOUS configuration's
+ * back under the new motors. Measured on `38-54 2-stage.CDX1`: a K627 flying
+ * the M1350's 31.75 mm exit, +2.2 % apogee on the supersonic model; on
+ * `ThreeCarbYen-2018.CDX1` sim-1's 0.9 s separation delays under sim-2's
+ * motors. `savedConfigs` is written only when the write-back changed it, so an
+ * unchanged set keeps its identity (the dirty-state contract).
+ */
+export function applyConfigSwitchPlan(
+  plan: ConfigSwitchPlan, current: SavedConfig[], sinks: ConfigSwitchSinks,
+): void {
+  if (plan.savedConfigs !== current) sinks.setSavedConfigs(plan.savedConfigs);
+  sinks.setMountMotors(plan.mountMotors);
+  sinks.setUnmatchedRefs(plan.unmatchedRefs);
+  sinks.setActiveConfigId(plan.activeConfigId);
+  sinks.history.reset(plan.tree);
+  sinks.setNote(plan.note.text, plan.note.severity);
 }
 
 /**
