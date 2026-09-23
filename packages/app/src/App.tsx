@@ -34,6 +34,7 @@ import {
 import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
+import { useFocusHandoff } from './components/useFocusHandoff.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
@@ -647,7 +648,18 @@ export function App() {
    * rules fighting a deliberate choice — it is manners, not mechanism.
    */
   const userSetDrawer = useRef(false);
-  const setDrawerByUser = (v: boolean) => { userSetDrawer.current = true; setStatsDrawer(v); };
+  /**
+   * The chip and Collapse replace each other, so a press hands focus to the
+   * one that appears (review of the audit 2026-09-22 branch, row 462): it fell
+   * to <body>, and neither button's aria-expanded was ever heard changing.
+   * Only a press — the automatic rules below never move focus.
+   */
+  const drawerFocus = useFocusHandoff<'chip' | 'collapse'>();
+  const setDrawerByUser = (v: boolean) => {
+    userSetDrawer.current = true;
+    drawerFocus.handTo(v ? 'collapse' : 'chip');
+    setStatsDrawer(v);
+  };
   /**
    * The breakpoint is LIVE now (2026-09-21). The initializer above ran once at
    * startup, so a window dragged from wide to narrow kept a drawer that
@@ -3608,7 +3620,8 @@ export function App() {
     <div className={heroWide ? 'stats-drawer' : 'stats-drawer stats-drawer-flow'} ref={setDrawerEl}>
       <div className="stats-drawer-head">
         <span>All stats</span>
-        <button className="file-btn" aria-expanded={true} onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
+        <button className="file-btn" aria-expanded={true} ref={drawerFocus.refFor('collapse')}
+          onClick={() => setDrawerByUser(false)}>▾ Collapse</button>
       </div>
       <DesignStats
         info={built.info}
@@ -4513,8 +4526,10 @@ export function App() {
                 ? (heroWide ? statsDrawerNode : null)
                 : (
                   // aria-expanded on both halves of the drawer's disclosure
-                  // (audit 2026-09-22): this one only shows while it is shut.
-                  <button className="file-btn stats-drawer-chip" aria-expanded={false} onClick={() => setDrawerByUser(true)}
+                  // (audit 2026-09-22): this one only shows while it is shut,
+                  // and a press hands focus across — see drawerFocus.
+                  <button className="file-btn stats-drawer-chip" aria-expanded={false} ref={drawerFocus.refFor('chip')}
+                    onClick={() => setDrawerByUser(true)}
                     title="Every design stat, with unit switches">▤ All stats</button>
                 ))}
               {mountSizes.length > 0 && (

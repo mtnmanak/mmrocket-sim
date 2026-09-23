@@ -44,7 +44,13 @@ function openingTag(src: string, marker: string): string {
  * 445, 453, 455, 462). App.tsx is never rendered whole by this suite — it
  * needs the TeaVM kernel, the motor database and a browser layout — so, like
  * savedMarkSites.test.ts and nozzleWiring.test.ts, these read the source.
- * Each one is an absence or an attribute that no other test would miss.
+ *
+ * They are PRESENCE GUARDS ONLY: they catch the wiring being deleted or
+ * renamed, never a behavioural regression. Nothing here proves the Results
+ * <main> is mounted when Launch focuses it, or that a screen reader hears the
+ * announcement. Where the behaviour lives outside App it is rendered and
+ * tested there — the drawer's focus handoff in useFocusHandoff.test.tsx, the
+ * notices in NoticeBar.test.tsx.
  */
 describe('App — accessibility wiring', () => {
   it('row 443: Launch lands focus on the Results <main>, and says the flight is done', () => {
@@ -94,9 +100,17 @@ describe('App — accessibility wiring', () => {
     expect(openingTag(app(), 'className="motors-layout"')).toMatch(/^<main /);
   });
 
-  it('row 462: the stats drawer toggles state whether it is open', () => {
+  it('row 462: the stats drawer toggles state whether it is open, and a press hands focus across', () => {
     const src = app();
-    expect(openingTag(src, 'onClick={() => setDrawerByUser(false)}')).toContain('aria-expanded={true}');
-    expect(openingTag(src, 'onClick={() => setDrawerByUser(true)}')).toContain('aria-expanded={false}');
+    const collapse = openingTag(src, 'onClick={() => setDrawerByUser(false)}');
+    const chip = openingTag(src, 'onClick={() => setDrawerByUser(true)}');
+    expect(collapse).toContain('aria-expanded={true}');
+    expect(chip).toContain('aria-expanded={false}');
+    // The two replace each other, so the one pressed unmounts: without the
+    // handoff focus fell to <body> and neither state was ever heard (review
+    // of the audit branch). The behaviour is tested in useFocusHandoff.test.tsx.
+    expect(collapse).toContain("ref={drawerFocus.refFor('collapse')}");
+    expect(chip).toContain("ref={drawerFocus.refFor('chip')}");
+    expect(handler(src, 'setDrawerByUser')).toContain("drawerFocus.handTo(v ? 'collapse' : 'chip');");
   });
 });
