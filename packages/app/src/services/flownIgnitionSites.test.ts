@@ -50,9 +50,12 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     expect(at, 'applyOthers is gone — where do the non-target mounts get their motors now?')
       .toBeGreaterThan(-1);
     const body = src.slice(at, src.indexOf('\n  };', at));
-    expect(body).toContain('r.setMotorById(id, spec);');
-    expect(body).toContain("ig.event !== 'automatic' || ig.delay !== 0");
-    expect(body).toContain('r.setMotorIgnitionById(id, ig.event, ig.delay);');
+    // Through the design page's own write since the seam review of audit
+    // 2026-09-22 — the ignition restore AND the refusal of an event the kernel
+    // does not know, which a hand-kept copy here had lost (the row-283 gap).
+    // batchSweep.test.ts flies both.
+    expect(body).toContain('writeMountMotor(r, id, spec, assignedIgnitions[id]');
+    expect(body).not.toContain('.setMotorById(');
   });
 
   it('no other site in Batch writes a motor without restoring ignition', () => {
@@ -64,9 +67,9 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     expect(writes.length,
       'a setMotorById was added to the batch sweep — if it writes a mount the '
       + 'design configured, its ignition has to go back too')
-      // applyOthers, the candidate write and its delay re-fly: the two flight
-      // passes share ONE flight procedure since audit 2026-09-22 (flyLegs),
-      // where each used to write twice on its own.
-      .toBe(3);
+      // The candidate write and its delay re-fly: the two flight passes share
+      // ONE flight procedure since audit 2026-09-22 (flyLegs), where each used
+      // to write twice on its own. applyOthers writes through writeMountMotor.
+      .toBe(2);
   });
 });

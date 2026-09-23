@@ -46,14 +46,15 @@ export interface AeroFlags {
 /**
  * Write ONE motor onto a built handle and KEEP its ignition. Every motor write
  * on the design's own handle — App's build and every flight below — goes
- * through here. (Batch builds handles of its own and writes them itself;
- * flownIgnitionSites.test.ts guards those until it is extracted. Its
- * `applyOthers` still writes the motor BEFORE the ignition and swallows the
- * throw, so a mount carrying an event the kernel does not know — reachable
- * only from an autosave or saved configuration made before the .ork reader
- * began mapping one to AUTOMATIC — is left off the design's handle here and
- * flown on AUTOMATIC there. Route that write through this one when Batch is
- * extracted.)
+ * through here, and so do Batch's writes of the design's OTHER mounts
+ * (batchSweep `applyOthers`, since the seam review of audit 2026-09-22). Its
+ * hand-kept copy wrote the motor BEFORE the ignition and swallowed the throw,
+ * so a mount carrying an event the kernel does not know — reachable only from
+ * an autosave or saved configuration made before the .ork reader began mapping
+ * one to AUTOMATIC — was left off the design's handle here and flown on
+ * AUTOMATIC there: 240.34 m in Batch, 122.06 m on the design page. (Batch's
+ * per-candidate writes touch only the swept mount, which carries no design
+ * ignition; flownIgnitionSites.test.ts counts them.)
  *
  * The bridge's `setMotorById` (`OrkEngine.java` `applyMotor`) installs a FRESH
  * `MotorConfiguration` on the mount:

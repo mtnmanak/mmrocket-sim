@@ -13,6 +13,7 @@ import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thru
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './simReport.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
+import { writeMountMotor } from './flightRunner.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
 
@@ -482,18 +483,19 @@ export async function runBatchSweep(
     for (const [id, spec] of Object.entries(assignedMotors)) {
       if (!targetIds.includes(id)) {
         try {
-          r.setMotorById(id, spec);
-          // …and put the ignition back, exactly as the Launch path does
-          // (App.tsx:1342). The write above installs a fresh
-          // MotorConfiguration, so the mount lands on AUTOMATIC whatever the
-          // design says. One restore here covers the sweep AND both
-          // combination passes, because every per-candidate write below
-          // touches only the TARGET mounts, which this loop skips.
-          const ig = assignedIgnitions[id];
-          if (ig && (ig.event !== 'automatic' || ig.delay !== 0)) {
-            r.setMotorIgnitionById(id, ig.event, ig.delay);
-          }
-        } catch { /* mount absent in variant */ }
+          // THE DESIGN PAGE'S OWN WRITE (flightRunner.writeMountMotor). It
+          // puts the ignition back after the motor — `setMotorById` installs a
+          // fresh MotorConfiguration, so the mount would land on AUTOMATIC
+          // whatever the design says — and it REFUSES, before the motor goes
+          // on, an event the kernel does not know. This loop wrote the motor
+          // first and then swallowed the ignition throw, so such a motor flew
+          // here on AUTOMATIC while the design page flew without it: 240.34 m
+          // against 122.06 m for the same design and motor (the row-283 gap,
+          // seam review of audit 2026-09-22). One write here covers the sweep
+          // AND both combination passes, because every per-candidate write
+          // below touches only the TARGET mounts, which this loop skips.
+          writeMountMotor(r, id, spec, assignedIgnitions[id] ?? { event: 'automatic', delay: 0 });
+        } catch { /* mount absent in variant, or refused as on the design page (reported there) */ }
       }
     }
   };
