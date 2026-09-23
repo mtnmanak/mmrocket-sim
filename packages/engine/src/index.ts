@@ -45,6 +45,7 @@ export {
   type RocketTree,
   type SimulationOptions,
   type StaticInfo,
+  type WindLevel,
 } from './orkEngine.js';
 
 /**

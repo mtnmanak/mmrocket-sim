@@ -166,6 +166,9 @@ neutralizing base drag) is deferred to feature #1. Four files:
 - **aerodynamics/BarrowmanCalculator.java** — in the instance `calculateBaseCD` aft-base
   block, subtract the owning stage's nozzle-exit area from the base area when that stage
   `isStageThrusting`. (This file already carried a TeaVM reflection patch — see below.)
+  **Since 2026-09-22 only from the stage's AFT-MOST base** (`isStageAftBase`): until then
+  every base in the stage took an area of its own, pods and step-downs included — see
+  "Correctness fixes", *the power-on nozzle credit lands on the stage's aft-most base*.
 - Bridge (not a patch): `api/OrkEngine.applySeparationConfig` reads `nozzleExitDiameter`
   off the stage node and calls the setter. App side: `<nozzleexitdiameter>` in `.ork`
   (metres) + a per-stage schema field.
@@ -742,7 +745,9 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   `pressureThrust.test.ts` together), RASAero Manual p.50, so multiplying by
   `MotorClusterState.motorCount` would count a cluster twice against a field that already
   holds the sum. It also keeps the two halves consistent — the drag half subtracts one
-  nozzle area per stage INSTANCE. Two mounts on one stage are de-duplicated by stage number,
+  nozzle area per stage INSTANCE (true of a stage with pods or a step-down only since
+  2026-09-22, when the drag half stopped crediting every base in the stage — see "Correctness
+  fixes"). Two mounts on one stage are de-duplicated by stage number,
   the way `applyThrustState` builds its thrusting-stage set. (This overrules the kernel
   reader's per-motor recommendation; the physics and inputs readers were right.)
 - **RESOLVED 2026-09-22 (code review E2) — the halves now agree per stage INSTANCE.** This
@@ -914,6 +919,127 @@ no bridge export, no TypeScript method. The nozzle already reaches the stage
   behind the same model gate as features #1-#4. On an upstream upgrade, re-diff
   `RK4SimulationStepper.java` against the new release and re-apply the helper plus the five
   lines in `calculateThrust`; the insertion touches nothing upstream is likely to move.
+
+### models/wind/MultiLevelPinkNoiseWindModel.java — winds aloft through the engine API: a SEEDED `addWindLevel` (kernel pass 2, audit 2026-09-22)
+
+Not a RASAero gap: this is desktop OpenRocket 24.12's OWN multi-level ("winds aloft") wind
+model, made reachable. It sits here because it is default-off in the same sense as the
+features above — absent its new input, every flight is bit-identical.
+
+- **Why:** the class was carved with the rest of `models/wind` on day one, but nothing
+  constructed it — `simulateJson` built the single-level `PinkNoiseWindModel` unconditionally —
+  so TeaVM dead-code-eliminated it: **`MultiLevelPinkNoiseWindModel` 0 occurrences in the
+  artifact at `3918947`**. Exposing it takes a bridge switch (below) and this patch, because
+  upstream's `addWindLevel` builds each level's `PinkNoiseWindModel` with the no-arg
+  constructor, which seeds from `new Random().nextInt()`: a different turbulence stream on
+  every run, and a different one on the JVM and under TeaVM, so a multi-level flight with any
+  standard deviation could be neither reproduced nor differentially tested. (Desktop does seed
+  its single-level model from the simulation's `randomSeed` — `SimulationOptions` line 89 —
+  and this bridge has done the same since Phase 0; only the multi-level levels are unseeded
+  upstream.)
+- **Change (appended below upstream's last method, so every upstream line keeps its
+  number):** `addWindLevel(double altitude, double speed, double direction, double
+  standardDeviation, int seed)` — upstream's four-argument body with `new
+  PinkNoiseWindModel(seed)` for `new PinkNoiseWindModel()` and σ always applied. Same setter
+  order — direction, average, THEN σ, which matters: `PinkNoiseWindModel.setAverage` rescales σ
+  to hold the turbulence intensity, so σ must be set last to land as given — the same
+  binary-search insertion, the same duplicate-altitude refusal.
+- **Why a patch and not a shim:** the seed is a private final of `PinkNoiseWindModel`, set only
+  by its constructor, and the level list is private to `MultiLevelPinkNoiseWindModel`. The only
+  no-patch route is a same-package helper reaching into `LevelWindModel`'s protected `model`
+  field to swap each level's model after upstream has built it — replacing upstream state behind
+  its back. The appended overload is the smaller change, and the visible one.
+- **The bridge half (not a patch — `api/OrkEngine.windModelFor`):** desktop's `WindModelType`
+  switch, driven by the options JSON (the bridge builds `SimulationConditions` directly and never
+  constructs a `SimulationOptions`). No `windLevels`, or an empty list → the single-level model,
+  built by exactly the calls in exactly the order it always was. A non-empty `windLevels` →
+  `MultiLevelPinkNoiseWindModel`: the constructor's default level (built from the preferences
+  shim's unseeded average model) cleared; each level's altitude, speed and direction required
+  finite (a NaN crosses JSON as null, so a missing number and a non-finite one both refuse,
+  naming `windLevels[i]`, and neither can fly as a default); σ optional — ABSENT is a steady
+  level, 0 — but a PRESENT σ must be a finite number too, so a null (a NaN or an Infinity on the
+  wire) or a string refuses the same way. (As first committed σ was read with a fallback of 0,
+  and `JsonLite.dbl` returns the fallback for anything not a number, so σ = null and σ = "0.6"
+  both flew as a steady level with no error — 241.968 m on the C6 rocket, 3 s cut, seed 7 — while
+  this entry said they refused. Found by the package's adversarial review; the σ read now takes
+  a NaN fallback when the key is present.) A non-object entry refused; the levels sorted by
+  altitude; level k seeded `randomSeed ^ (k * 0x9E3779B9)`; and
+  `windAltitudeReference` `"MSL"` (the default, desktop's) or `"AGL"`, anything else refused.
+  The lowest level takes `randomSeed` itself, so ONE level carrying the single-level speed, σ
+  and direction π/2 IS the single-level flight, bit for bit; the golden-ratio multiplier keeps
+  neighbouring levels off adjacent `java.util.Random` seeds, whose first draws are correlated.
+  `windAverage` / `windStdDeviation` are ignored on that path, as desktop ignores its average
+  model while the multi-level one is selected. TypeScript: `SimulationOptions.windLevels` /
+  `windAltitudeReference` and the exported `WindLevel`; `assertWindLevels` refuses non-finite
+  values, a negative speed or σ (the kernel would silently turn a negative speed into a wind
+  from the opposite side), a repeated altitude and an unknown reference — naming the level —
+  before anything crosses.
+- **Direction convention, stated because it is easy to get backwards:** the direction the wind
+  blows FROM, clockwise from north (desktop's table tooltip: 0 = from the north, 90° = from the
+  east). `PinkNoiseWindModel`'s vector `speed × (sin d, cos d, 0)` points that way, and the
+  stepper ADDS it to the rocket's velocity to get airspeed. The single-level model has only ever
+  flown its default d = π/2.
+- **Divergences from desktop:** (a) seeding — desktop's multi-level turbulence is random per
+  run, ours is a function of `randomSeed`; (b) an EMPTY level list flies the single-level wind,
+  where desktop's model with no levels would fly calm (`getWindVelocity` returns
+  `Coordinate.ZERO`) — here absent and empty are the same request. Interpolation (the VECTOR,
+  linear in altitude), holding the end levels' values outside the table, and the altitude
+  reference are desktop's code, unchanged.
+- **Scope: engine API only.** No app control sets `windLevels`, so every flight the app flies
+  takes the unchanged single-level branch — **no user-visible number moves.** The `.ork` importer
+  does not read desktop's multi-level wind block either; both are app work for whoever builds
+  the UI.
+- **Oracle:** the before/after `goldenJvm` diff, the before side rebuilt from `b4916b0`'s own
+  source in a scratch export (and reproducing the recorded post-nozzle-fix baseline
+  byte-for-byte). Goldens `windLevelScenarios()`, appended at the END (difftest compares by line
+  index): the `conditionsScenarios` C6 rocket and 1,400 m / 303.15 K / 86 kPa pad, seed 7, cut
+  at 8 s; columns maxAltitude, maxVelocity, timeToApogee and the horizontal drift at apogee.
+  **All 395 pre-existing lines bit-identical; 395 → 400 lines, additions only.**
+  `flight.conditions.windlevels.single` reprints the existing windy flight (365.4237143564062 m,
+  as `flight.conditions.summary`), and `…one` — the same wind as one level at 0 m — equals it in
+  EVERY column, drift 75.83418675209836 m included. `…shear` (three turbulent levels veering with
+  height) 368.384 m, drift 55.620 m. `windlevels.steady.msl` / `.agl` — steady levels, calm at
+  0 m and 4 m/s at 300 m: measured from sea level the whole flight sits above the top level in a
+  steady 4 m/s (apogee 363.547 m, drift 77.763 m); measured from the pad it starts calm and builds
+  (371.597 m, 43.661 m). Differential **395 → 400 lines**, JVM↔TeaVM clean (265 bit-identical,
+  135 within tolerance — the five new lines all within it; `flight.conditions.*` take the
+  turbulent tolerance, as the existing windy flight does, the steady pair the flight tolerance).
+  Drift is taken AT APOGEE and as a distance on purpose: a scratch probe of the final per-axis
+  position at the 8 s cut, after the chute-opening transient, FAILED the differential — `single`
+  Px 74.00589 vs 74.00901 m, 4.2e-5 relative, over the 1e-5 turbulent budget, and Py 1.9e-4
+  relative on a 0.018 m crosswind; the steady pair's Py 6.1e-9 (`msl`) and 1.3e-6 (`agl`)
+  relative against the 1e-9 flight budget. (The probe's line names fell outside difftest's
+  `flight.conditions` prefix, so its turbulent rows were re-judged against the 1e-5 budget by
+  hand: `single` fails it, `shear` — 5e-7 and 7e-7 — would not.) The tolerances were not
+  touched, and the probe was reverted before the artifact above was built.
+- **Behavioural guards:** `packages/engine/src/windLevels.test.ts`, 7 tests — one level equal
+  to the single-level flight bit for bit (at 0 m and at 5,000 m, with `windAverage` set to
+  something else to prove it ignored) and an empty list equal to no list; the recorded `Vw`
+  checked ROW BY ROW against the kernel's own vector interpolation over a whole sea-level flight
+  whose wind swings from east to west between 100 and 250 m (and nearly vanishes at 175 m, where
+  interpolating speed and direction separately would read 8 m/s), with `θw` held on each side;
+  MSL by default, explicit `'MSL'` identical, AGL calm on the pad and building; seeds by altitude
+  rank, so a reversed list is the same flight; each level its own stream (two identical levels
+  bracketing the flight do NOT reproduce the single-level stream), reproducible per seed and
+  moved by another; and the refusals, in the wrapper and in the raw kernel. Against the pre-change
+  wrapper and artifact (`b4916b0`) **6 of the 7 fail**; the sort-order pin passes on both, by
+  construction (the old kernel flew both lists calm). The raw-kernel refusal test carries
+  σ = NaN (null on the wire) and σ = "0.6" since the review fix-up; against the first-committed
+  artifact (`b60202a9…`) it fails — both flew — and it passes after.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,766,975 → 2,800,664 bytes, md5
+  `e04d4a5aa19e3ee46bf4c8545cc4baae` → `b60202a9c44e4feeb8b2b0dc6f26d178`.
+  `MultiLevelPinkNoiseWindModel` **0 → 139** occurrences, `LevelWindModel` 0 → 18,
+  `OrkEngine_windModelFor` 0 → 2, both `addWindLevel` overloads linked
+  (`…_addWindLevel` / `…_addWindLevel0`, 0 → 2 each) — the grep, not Gradle's `UP-TO-DATE`, is
+  the evidence. Upstream's CSV import (`importLevelsFromCSV`, `FileReader`) stays unlinked: 0.
+  **Review fix-up (the σ read):** → 2,800,745 bytes, md5 `11f2ebcdbfdffac4b0e58af928e43d4d`;
+  the new `$row.$containsKey(…)` guard on σ is in `windModelFor`, 0 → 1 (a line diff of the two
+  artifacts shows nothing else but the renumbered locals around it). `goldenJvm` 400 lines,
+  byte-identical to the run before it — no golden sends a malformed σ — and the differential
+  400 lines clean (265 bit-identical, 135 within tolerance).
+- **Upstreamable:** arguably — desktop's multi-level runs are not reproducible run to run for
+  exactly this reason, and passing the simulation's `randomSeed` through a seeded overload is
+  the fix there too.
 
 ## Performance patches (behaviour-preserving — bit-identical goldens REQUIRED)
 
@@ -1405,7 +1531,7 @@ aerodynamic model.
 - **Upstreamable:** yes, both halves — an upstream arithmetic bug, confined to one guard and
   one accessor.
 
-### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half always was (code review E2, 2026-09-22)
+### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half does (on a one-base stage always; on every stage since kernel pass 2) (code review E2, 2026-09-22)
 
 - **Why:** `calculatePressureThrust` (feature #5 above) de-duplicated its term by
   `stage.getStageNumber()` and stopped there. That is ONE number for a whole
@@ -1450,21 +1576,16 @@ aerodynamic model.
   the only way to reach the old or the new arithmetic is the raw engine API, where the old one
   now cannot be reached at all. When the queued parallel-stage nozzle field lands, it gets the
   per-instance reading both halves share.
-- **Known residual, FOUND while doing this and NOT fixed here (outside E2):** the drag half
-  subtracts the nozzle area from EVERY base in the stage — each `SymmetricComponent` whose aft
-  radius exceeds the next one's fore radius, pods included, since a pod's `getStage()` is the
-  enclosing stage — so a stage with more than one base per instance recovers more than one
-  nozzle area, while this half charges exactly one. **Reachable in the app today:** a serial
-  stage carrying a pod set, with the stage's nozzle exit set, under Kbf/Supersonic. Measured
-  through the shipped wrapper at Mach 0.3 (29 mm airframe, 20 mm exit, two 24 mm pods):
-  power-off base CD 0.13170 → power-on 0.11604 without pods (reduction 0.015660, one area);
-  with the pods 0.17680 → 0.12982 (reduction 0.046980, exactly THREE areas — core plus two
-  pods). Same species as E2, on the drag side, and pre-existing; it moves reachable numbers,
-  so it belongs on the board (Tier 1: a wrong number reaching users) and in `open-items.md`,
-  not in this entry. **It was NOT on either when this entry was written** — the package that
-  found it could not write the local-only `docs/` folder, so its return (audit 2026-09-22,
-  package A8) hands the row over for filing. Until a board row exists, this bullet is the
-  only record; whoever files it should replace this sentence with the row's pointer.
+- **Residual found while doing this — FIXED the same day (kernel pass 2, audit 2026-09-22):**
+  the drag half subtracted the nozzle area from EVERY base in the stage, pods included (a
+  pod's `getStage()` is the enclosing stage), so a stage with more than one base per instance
+  recovered more than one area while this half charged exactly one — measured at M0.3 (29 mm
+  airframe in RADIUS, 20 mm exit, two 24 mm pods) as 0.046980 against one area's 0.015660,
+  exactly three. The credit now lands on the stage's aft-most base only; entry, goldens and
+  measurements under "Correctness fixes", *the power-on nozzle credit lands on the stage's
+  aft-most base*, the next entry. (This bullet was the only record of the defect until then —
+  it had reached neither the board nor `open-items.md`, which the fixing package could not
+  write either; its return hands the closure over for filing.)
 - **Behavioural guard:** `packages/engine/src/pressureThrust.test.ts`, *"credits a parallel
   stage one nozzle area per strap-on"* — for N = 1, 2, 3, every plateau row bit-exact against
   `N × 32 + N × term` and, for N > 1, NOT equal to the pre-fix `N × 32 + term`. It fails
@@ -1476,6 +1597,128 @@ aerodynamic model.
   `dafd535038530da83eacef3083d33f19`. `getComponentLocations` 13 → 14 occurrences — the new
   call site in `calculatePressureThrust`, which is the proof the change is in the build.
 - **Upstreamable:** n/a — upstream has no pressure-thrust term.
+
+### aerodynamics/BarrowmanCalculator.java — the power-on nozzle credit lands on the stage's aft-most base, once per stage INSTANCE (kernel pass 2, audit 2026-09-22)
+
+- **Why:** feature #2's `calculateBaseCD` subtracted the stage's equivalent nozzle-exit area
+  from EVERY `SymmetricComponent` base whose `getStage()` was the thrusting stage. Two kinds
+  of base were over-credited: a POD's tube (a pod's components are children of their
+  `PodSet`, but their stage is the enclosing one) and a STEP-DOWN part way along the stage's
+  own line (a wide tube straight onto a narrower one, no transition). So a stage with k bases
+  per instance recovered k nozzle areas — clamped at each base's own area — while the
+  pressure-thrust half charged exactly one per stage instance (E2, the entry above). Found
+  while doing E2, recorded there as a residual, verified twice on 2026-09-22 and confirmed at
+  `3918947` by a failing test before this change: through the shipped wrapper at M0.3, Rogers
+  Kbf, a 29 mm airframe (radius 14.5 mm) with a 20 mm exit, the reduction was
+  **0.18791914387633768 with two 24 mm pods against 0.06263971462544587 without — 3.000
+  areas** — and a 40 mm tube stepping onto a 29 mm one recovered **0.06585, two areas**. The
+  field is defined app-side as the stage's single equivalent exit (areas summed), so one area
+  per stage instance is the accounting both halves are meant to share.
+- **Change:** one more conjunct on the credit — `&& isStageAftBase(s, stage)`, evaluated LAST,
+  after the model gate, the nozzle and the thrusting flag — and a private static
+  `isStageAftBase` appended after `calculateBaseCD`: true only for the LAST `SymmetricComponent`
+  child of the stage itself. A pod's parts are children of their `PodSet`, so they never
+  qualify; an earlier part of the stage's line never qualifies, so a step keeps its whole
+  base. The stage's children are its body line in axial order (`AxialStage` and
+  `ParallelStage` accept `BodyComponent`s only, and in this kernel every `BodyComponent` is a
+  `SymmetricComponent`) — the same child order `getNextSymmetricComponent` reads to decide that
+  a base exists at all. `total += instanceCount * cd` is untouched, so the one credited base
+  still scales by the stage's instance count and an N-strap-on `ParallelStage` recovers N
+  areas, exactly as E2 made the pressure-thrust half charge them. If the stage's last
+  component is not a base (a sustainer onto an equally wide interstage, or flush on the stage
+  below), the stage gets no credit anywhere, a step earlier in its line included — correct, the
+  exhaust has no base of that stage to pressurize.
+- **Scope, structurally:** the new conjunct runs only when the old credit would have been
+  taken, so Classic Extended Barrowman (the gate), every design without a nozzle and every
+  coasting step execute nothing new, and a stage whose one base IS its last component — the
+  whole corpus bar the three shapes below — takes the identical branch with identical
+  arithmetic.
+- **Who moves — the wording a CHANGELOG needs (corrected in review, 2026-09-23; "pods or a
+  step" alone understated it):** under Rogers Kbf / Supersonic / Auto, a stage with a nozzle
+  exit set AND a base anywhere other than its aft-most component. (a) **Pods** on the stage:
+  each pod's base had taken an area of its own. (b) **A step-down** part way along the stage's
+  own line, no transition: the step had taken one. (c) **A step on a stage that sits flush on
+  the stage below:** that stage's ONE base is the step, and it now takes NOTHING — its motors
+  fire into the stage below, not through the step. (a) and (b) lose the credit they had on top
+  of the aft base's; (c) loses its whole credit. (c) shows only while the stage below is
+  attached: always in the Drag panel's power-on curve (`getDragSweep` marks every stage
+  thrusting with every stage active), in flight only when a stage burns before the stage below
+  separates. Measured through the raw bridge at M0.3, Kbf — a sustainer of nose, 40 mm tube and
+  29 mm tube with a 20 mm exit, on a flush 29 mm finned booster: power-on base CD 0.098775 →
+  0.1317 (one area → none), found by the fix's adversarial review. Every mover gains base drag;
+  none loses any.
+- **Divergence from upstream:** none new — feature #2 is ours, gated to Rogers Kbf /
+  Supersonic / Auto as before. The comment in `RK4SimulationStepper.calculatePressureThrust`'s
+  javadoc that said the drag half subtracts "from each aft base" is corrected in the same
+  commit (comment only: the stepper's bytecode, and its part of the artifact, are unchanged).
+- **Oracle:** the before/after `goldenJvm` diff. Goldens `podNozzleBaseDragScenarios()`,
+  appended at the END (difftest compares by line index): `podnozzle.{bare,pods,step,pods.ss}.*`
+  (mach, offBase, onBase, offTotal, onTotal at M0.3/0.9/1.5 through `getDragSweep`) and
+  `flight.podnozzle.{pods.kbf,pods.classic,podmotors.kbf}`. The scenario was added FIRST and
+  run on the unfixed kernel, then the fix: **all 380 pre-existing lines bit-identical, and 384
+  of 395 overall** — `podnozzle.bare.*` (one base: must not move) and
+  `flight.podnozzle.pods.classic` (the model-gate leak detector) are among the unmoved.
+  Movement is confined to the 11 `pods`/`step`/`pods.ss`/`pods.kbf`/`podmotors.kbf` lines.
+- **Checked as arithmetic, not as "the number changed":** `pods` at M0.3 now reduces base CD by
+  0.31210237812128416 − 0.24946266349583826 = 0.0626397146254459, against `bare`'s
+  0.06263971462544587 and `0.1317 × (10/14.5)²` = 0.06263971462544589 (last-place rounding);
+  before, the same row read 0.12418323424494648 on, a reduction of 0.18791914387633768 =
+  3.000000000000001 × `bare`'s. The pods' power-OFF base drag is untouched: `pods` − `bare`
+  power-off = 0.18040237812128418 = `2 × 0.1317 × (12/14.5)²`. `step` at M0.3: 0.1317 −
+  0.098775 = 0.032925 = `0.1317 × (10/20)²` on its 40 mm reference (before: 0.06585, two
+  areas); at M1.5, 0.16666666666666669 − 0.125 = one area of `0.25/1.5`. Differential **380 →
+  395 lines**, JVM↔TeaVM clean (265 bit-identical, 130 within tolerance).
+- **User-visible, measured** through the app's own importer, motor matcher, nozzle database
+  and tree translator on both artifacts (`vite-node`, scratch driver): **LEM-IV** (Eric's own
+  design, `docs/User files/LEM-IV.ork` — two 25.4 mm pods on the fin can, whose 5.07 cm² bases
+  are each smaller than the exit and so were zeroed outright), with the M1500G its flown
+  configuration names and that motor's published 1.875 in exit applied to its stage as the
+  nozzle-follow rule applies it: **Rogers Kbf apogee 3924.038 → 3894.020 m (−30.0 m,
+  −0.76 %)**, max velocity 453.730 → 450.231 m/s; **Supersonic 3783.646 → 3760.178 m
+  (−23.5 m, −0.62 %)**. The file's default configuration (HP-K535W, 1.25 in exit): −0.38 %
+  under both. The same flights with no nozzle are bit-identical on both artifacts (3823.480 /
+  3704.954 m) — the way back is unchanged. The whole nozzle model's effect on LEM-IV's M1500G
+  flight falls from +2.63 % to +1.84 % of apogee (Kbf). Golden fixture: `pods.kbf` 359.368 →
+  354.145 m (−1.45 %), `podmotors.kbf` 541.833 → 537.388 m (−0.82 %). Every mover LOSES
+  apogee: the old kernel shed base drag the pods never lost.
+- **Every tester file, scanned (review fix-up, 2026-09-23):** all 31 `.ork` files under
+  `docs/User files`, a 20 mm exit put on each stage in turn, power-on base CD at M0.3 under Kbf
+  through the app's importer on both artifacts. Four files move: the three LEM-IV copies (pods)
+  and **`TRF RASAero Files/Wildman Mach 2 this one.ork`** — shape (b): a single-stage minimum-
+  diameter design whose 56.5 mm airframe meets a boattail the file gives an explicit 55.4 mm
+  fore diameter, a 0.96 cm² step the old kernel credited a whole exit against and so zeroed.
+  Measured the LEM-IV way, with each motor's published 1.25 in exit: the file's default
+  configuration **K805G, Kbf 5024.910 → 5016.904 m (−0.16 %), Supersonic 4824.915 → 4817.597 m
+  (−0.15 %)**; L1000 −0.26 % under both; K250W, a long low-thrust burn and the largest mover
+  of the three configurations measured (of 41), **Kbf 8756.892 → 8699.200 m (−0.66 %),
+  Supersonic 8265.735 → 8215.166 m (−0.61 %)**.
+  No-nozzle flights bit-identical on both artifacts. **No tester file has shape (c):** every
+  upper stage in the seven multi-stage files sits flush with no step and is credited nothing,
+  before and after.
+- **Known residual, recorded rather than modelled:** the clamp `max(0, area − nozzleArea)` now
+  applies to one base, so a stage whose motors sit ONLY in pods, on a core whose own aft base
+  is smaller than the summed equivalent exit (a core tapering to a point, say), is credited
+  less than one area in the drag half while the pressure-thrust half still charges the full
+  one. Crediting the remainder onto the pods' bases would mean knowing which mounts burn
+  through which base — the kernel's thrusting flag is per stage, not per mount. Before this
+  fix the same design was over-credited by up to one area per pod, so the error shrank and
+  changed sign; no tester file has the shape (LEM-IV's motor is in the core).
+- **Behavioural guards:** `packages/engine/src/nozzleBaseDrag.test.ts`, 5 tests — the pod
+  design's reduction equals the podless design's and one area, under Kbf and Supersonic, at
+  M0.3 and M0.9, with the pods' power-off base drag pinned; the stepped airframe credited once;
+  a stepped sustainer flush on its booster credited NOTHING for its own nozzle (`on === off`)
+  and exactly one area when the booster carries one; a parallel stage still credited N areas
+  for N strap-ons; and Classic inert (`on === off`) on all three single-stage designs, plus the
+  pod design with no nozzle under Kbf. The first three fail against the pre-fix artifact
+  (0.18791914387633768, 0.06585 and 0.098775 read where one area, one area and none are due);
+  the last two pass on both, which is their job.
+- **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,759,604 → 2,766,975 bytes (the golden
+  scenario is most of it), md5 `5f8d53e985b754d457b1710343f8a300` →
+  `e04d4a5aa19e3ee46bf4c8545cc4baae`. `isStageAftBase` 0 → 2 occurrences (the definition and
+  the call inside the nozzle branch) — the grep, not Gradle's `UP-TO-DATE`, is the evidence.
+  The HEAD artifact was first rebuilt from HEAD source and reproduced byte-for-byte, so the
+  before side of every measurement above is the kernel users have.
+- **Upstreamable:** n/a — upstream has no nozzle-exit model.
 
 ## Rules
 

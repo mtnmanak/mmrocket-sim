@@ -71,12 +71,59 @@ export interface MotorSpec {
  */
 export const DEFAULT_TIME_STEP_S = 0.05;
 
+/**
+ * One level of the multi-level ("winds aloft") wind model — see
+ * {@link SimulationOptions.windLevels}. SI units, radians.
+ */
+export interface WindLevel {
+  /** Altitude of this level (m), above sea level or above the pad per `windAltitudeReference`. */
+  altitude: number;
+  /** Mean wind speed at this altitude (m/s), 0 or more. */
+  speed: number;
+  /**
+   * RADIANS: the direction the wind blows FROM, clockwise from north — desktop's
+   * own convention (its table: 0 = from the north, π/2 = from the east). The
+   * kernel's vector is `speed × (sin d, cos d, 0)`, which it ADDS to the
+   * rocket's velocity to get airspeed, so it points where the wind comes from.
+   * The single-level model has always flown d = π/2 and the app has never
+   * exposed a direction, so π/2 reproduces it.
+   */
+  direction: number;
+  /** Turbulence standard deviation at this altitude (m/s), 0 or more; default 0 (steady). */
+  standardDeviation?: number;
+}
+
 export interface SimulationOptions {
   launchRodLength?: number;
   /** Radians from vertical. */
   launchRodAngle?: number;
+  /** Single-level wind (m/s). Ignored when {@link windLevels} is non-empty. */
   windAverage?: number;
+  /** Single-level turbulence σ (m/s). Ignored when {@link windLevels} is non-empty. */
   windStdDeviation?: number;
+  /**
+   * WINDS ALOFT — desktop OpenRocket 24.12's own multi-level wind model
+   * (`MultiLevelPinkNoiseWindModel`), engine-API only: nothing in the app sets
+   * it yet. A non-empty list replaces the single-level wind for this flight —
+   * desktop's "Multi-level" wind-model switch — and `windAverage` /
+   * `windStdDeviation` are then ignored; absent or empty, the flight is the
+   * single-level one, bit for bit.
+   *
+   * Between two levels the wind VECTOR is interpolated linearly in altitude;
+   * below the lowest level and above the highest it holds that level's value.
+   * Each level carries its own turbulence stream. Those streams are SEEDED
+   * from `randomSeed` (desktop seeds them at random, so its multi-level
+   * turbulence differs run to run): the lowest level uses `randomSeed` itself,
+   * which makes a single level with the single-level model's speed, σ and
+   * direction π/2 the same flight, bit for bit.
+   */
+  windLevels?: readonly WindLevel[];
+  /**
+   * Which altitude {@link windLevels} are measured from: 'MSL' (desktop's
+   * default) or 'AGL' (above the pad). The two differ by `launchAltitude`, so
+   * it matters only on a pad that is not at sea level.
+   */
+  windAltitudeReference?: 'MSL' | 'AGL';
   launchAltitude?: number;
   /** Launch-site temperature (K). Default: ISA standard. */
   temperature?: number;
@@ -216,7 +263,14 @@ export type ComponentType =
  *
  * For a CLUSTER the value is the single equivalent nozzle with the exit AREAS
  * summed (d_eq = d x sqrt(N) for N identical nozzles) — the kernel charges one
- * area per stage, never one per motor. A `parallelstage` node takes the field
+ * area per stage, never one per motor. The drag half takes that area off the
+ * stage's AFT-MOST base only: a pod's own base, or a step part way along the
+ * airframe, keeps its whole base drag (2026-09-22 — until then each of those
+ * took an area of its own, so two pods tripled the reduction; see
+ * `nozzleBaseDrag.test.ts`). A stage whose last component is not a base — one
+ * sitting flush on the stage below it — is credited nowhere, a step in it
+ * included: its motors fire into that stage, not through the step. A
+ * `parallelstage` node takes the field
  * too, and there it is ONE strap-on's equivalent exit: both halves charge one
  * area per stage INSTANCE, so N strap-ons get N areas (code review E2, fixed
  * 2026-09-22 — pressure thrust used to charge one area for the whole ring). A
@@ -502,8 +556,10 @@ export interface DragSweep {
  * instance count: two instances of a 32 N, 10 mm-exit motor at about 86 kPa flew
  * 65.203822 N against the 66.407645 N per-instance accounting gives (code review
  * E2). The kernel now charges one area per stage INSTANCE, as the drag half
- * always did, so on a parallel stage the field means ONE strap-on's equivalent
- * exit and is accepted (`pressureThrust.test.ts` pins it bit-exactly).
+ * does (on a one-base stage it always did; a stage with pods or a step took an
+ * area per base until kernel pass 2 — `nozzleBaseDrag.test.ts`), so on a
+ * parallel stage the field means ONE strap-on's equivalent exit and is accepted
+ * (`pressureThrust.test.ts` pins it bit-exactly).
  */
 function assertNoPodSetNozzle(tree: RocketTree): void {
   const walk = (nodes: readonly ComponentNode[]): void => {
@@ -565,6 +621,37 @@ function assertFiniteCurve(motor: MotorSpec): void {
         'import a corrected .rse/.eng.',
     );
   }
+}
+
+/**
+ * Guards the winds-aloft levels before they cross into the kernel. A NaN or an
+ * Infinity crosses JSON as null, and the bridge would then refuse the flight
+ * with a message about a level it can no longer name the value of; a negative
+ * speed the kernel would silently turn into a wind from the opposite side. So
+ * both are refused here, naming the level, as is a repeated altitude (the
+ * kernel refuses that too, but by value, after sorting, where the list
+ * position the caller wrote is gone).
+ */
+function assertWindLevels(options: SimulationOptions): void {
+  const ref = options.windAltitudeReference;
+  if (ref != null && ref !== 'MSL' && ref !== 'AGL') {
+    throw new Error(`windAltitudeReference must be 'MSL' or 'AGL', not '${String(ref)}'.`);
+  }
+  const levels = options.windLevels ?? [];
+  const seen = new Set<number>();
+  levels.forEach((l, i) => {
+    const sigma = l.standardDeviation ?? 0;
+    if (![l.altitude, l.speed, l.direction, sigma].every((n) => Number.isFinite(n))) {
+      throw new Error(`Wind level ${i + 1}: altitude, speed, direction and standard deviation must be finite numbers.`);
+    }
+    if (l.speed < 0 || sigma < 0) {
+      throw new Error(`Wind level ${i + 1}: speed and standard deviation cannot be negative (turn the direction instead).`);
+    }
+    if (seen.has(l.altitude)) {
+      throw new Error(`Wind level ${i + 1}: another level is already at ${l.altitude} m; each altitude can carry one level.`);
+    }
+    seen.add(l.altitude);
+  });
 }
 
 /** A rocket design held inside the engine, addressed by handle. */
@@ -738,11 +825,18 @@ export class OrkRocket {
   }
 
   simulate(options: SimulationOptions = {}): FlightResult {
+    assertWindLevels(options);
     const raw = ork.simulateJson(this.handle, JSON.stringify({
       rodLength: options.launchRodLength ?? 1.0,
       rodAngle: options.launchRodAngle ?? 0,
       windAverage: options.windAverage ?? 0,
       windStdDeviation: options.windStdDeviation ?? 0,
+      // Absent unless given: JSON.stringify drops undefined, so a flight with no
+      // levels (and no reference) sends the kernel the very string it always
+      // did; an empty list is sent as no list. The kernel reads the reference
+      // only when there are levels to measure.
+      windLevels: options.windLevels?.length ? options.windLevels : undefined,
+      windAltitudeReference: options.windAltitudeReference,
       launchAltitude: options.launchAltitude ?? 0,
       temperature: options.temperature,
       pressure: options.pressure,
