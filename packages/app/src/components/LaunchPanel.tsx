@@ -636,12 +636,14 @@ export const ROD_AIM_HELP =
 
 /**
  * Help for the Longitude field (weather build, step 3). Exported for the
- * tests. The sign is the thing to say first: every US site is WEST, so
- * negative, and a positive number typed from a map that prints "119.06 W"
- * would put the flight in China.
+ * tests. The sign is the thing to say first: a positive number typed from a
+ * map that prints "119.06° W" would put the flight in China. Said as the
+ * conversion, not as "every US site is negative" — false for Guam, the
+ * Northern Mariana Islands and the western Aleutians, across 180° (review of
+ * 2026-09-23).
  */
 export const LONGITUDE_HELP =
-  'East is positive, west negative — every US site is negative. Blank flies −80.6°, the desktop '
+  'East is positive, west negative — a map’s 119.06° W is −119.06. Blank flies −80.6°, the desktop '
   + 'default. Longitude moves no flight number; it places the flight in the flight-data file’s '
   + 'Longitude column and travels with the .ork.';
 

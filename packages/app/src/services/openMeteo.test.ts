@@ -156,6 +156,11 @@ describe('parseForecast', () => {
     expect(kind(ragged, [1190])).toBe('shape');
     expect(kind(fixture('forecast-gerlach-0-1202m.json'), [0])).toBe('shape');
     expect(kind(fixture('forecast-blackrock-1190m.json'), [1219.2])).toBe('shape');
+    // The count in the user's words, singular included — not "1 places".
+    expect(() => parseForecast(fixture('forecast-blackrock-1190m.json'), [0, 1190]))
+      .toThrow('Open-Meteo answered for 1 place, not 2.');
+    expect(() => parseForecast(fixture('forecast-gerlach-0-1202m.json'), [0]))
+      .toThrow('Open-Meteo answered for 2 places, not 1.');
   });
 
   it('calls an all-null answer no data, never zeros', () => {
@@ -496,9 +501,14 @@ describe('fetchWeather', () => {
       expect(weatherErrorText(await fetchForecast(q, { fetchImpl: portal.fetchImpl }).catch((e: unknown) => e)))
         .toMatch(/^Open-Meteo sent a web page instead of weather — a Wi-Fi sign-in page\?/);
     }
+    // A reason with a non-400 status follows the status: alone, "Internal."
+    // named neither Open-Meteo nor what failed (review of 2026-09-23).
     const f502 = fakeFetch(() => ({ status: 502, body: { reason: 'Upstream busy' } }));
     expect(weatherErrorText(await fetchForecast(q, { fetchImpl: f502.fetchImpl }).catch((e: unknown) => e)))
-      .toBe('Upstream busy. Your launch conditions are unchanged.');
+      .toBe('Open-Meteo answered HTTP 502: Upstream busy. Your launch conditions are unchanged.');
+    const f500why = fakeFetch(() => ({ status: 500, body: { error: true, reason: 'Internal' } }));
+    expect(weatherErrorText(await fetchForecast(q, { fetchImpl: f500why.fetchImpl }).catch((e: unknown) => e)))
+      .toBe('Open-Meteo answered HTTP 500: Internal. Your launch conditions are unchanged.');
     const f500 = fakeFetch(() => ({ status: 500, body: {} }));
     expect(weatherErrorText(await fetchForecast(q, { fetchImpl: f500.fetchImpl }).catch((e: unknown) => e)))
       .toBe('Open-Meteo answered HTTP 500. Your launch conditions are unchanged.');

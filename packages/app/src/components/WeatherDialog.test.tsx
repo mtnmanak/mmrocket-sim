@@ -8,7 +8,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
-import { gustNote } from './weatherText.js';
+import { fieldText, gustNote } from './weatherText.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
 import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
 
@@ -453,5 +454,20 @@ describe('gustNote', () => {
     expect(gustNote(2.4, 2.5)).toBe('within Open-Meteo’s 0.1 m/s resolution of this hour’s wind, so there is no σ estimate.');
     expect(gustNote(0, 2)).toBe('the wind is calm this hour, so there is no σ estimate.');
     expect(gustNote(null, 2)).toBe('Open-Meteo has no wind for this hour, so there is no σ estimate.');
+  });
+});
+
+// Review of 2026-09-23: in inHg the review's Now read "29.92 inHg" beside
+// "25.9 inHg" — the promised two decimals, with the trailing zero stripped.
+describe('fieldText, for a pressure', () => {
+  const inHg = { ...INITIAL_UNITS, pressure: 'inHg' };
+  it('keeps each unit’s decimals, trailing zero included, so the columns line up', () => {
+    expect(fieldText('pressureHPa', 1013.25, inHg)).toBe('29.92 inHg');
+    expect(fieldText('pressureHPa', 877.2, inHg)).toBe('25.90 inHg');
+    expect(fieldText('pressureHPa', 877.2, { ...INITIAL_UNITS, pressure: 'bar' })).toBe('0.8772 bar');
+  });
+  it('prints a whole number whole, as a field’s bounds are', () => {
+    expect(fieldText('pressureHPa', 300, { ...INITIAL_UNITS, pressure: 'mbar' })).toBe('300 mbar');
+    expect(fieldText('pressureHPa', 1100, { ...INITIAL_UNITS, pressure: 'mbar' })).toBe('1100 mbar');
   });
 });

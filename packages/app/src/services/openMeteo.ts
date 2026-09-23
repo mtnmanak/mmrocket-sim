@@ -297,7 +297,8 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
   if (reason !== null) throw new WeatherError('refused', `Open-Meteo refused the request: ${reason}.`);
   const items = Array.isArray(body) ? body : [body];
   if (items.length !== elevationsM.length) {
-    throw new WeatherError('shape', `Open-Meteo answered for ${items.length} places, not ${elevationsM.length}.`);
+    throw new WeatherError('shape',
+      `Open-Meteo answered for ${items.length} ${items.length === 1 ? 'place' : 'places'}, not ${elevationsM.length}.`);
   }
   let anyValue = false;
   const variants = items.map((item, i): ForecastVariant => {
@@ -825,7 +826,10 @@ function httpError(status: number, json: unknown): WeatherError {
   if (json === undefined) return new WeatherError('http', `Open-Meteo answered HTTP ${status}.`);
   const reason = refusalReason(json) ?? (isObj(json) && typeof json['reason'] === 'string' ? json['reason'] : null);
   if (status === 400) return new WeatherError('refused', `Open-Meteo refused the request: ${reason ?? 'no reason given'}.`);
-  return new WeatherError('http', reason !== null ? `${reason}.` : `Open-Meteo answered HTTP ${status}.`);
+  // The status first, and the reason after it: a 500's reason alone read
+  // "Internal. Your launch conditions are unchanged." — naming neither
+  // Open-Meteo nor what went wrong (review of 2026-09-23).
+  return new WeatherError('http', `Open-Meteo answered HTTP ${status}${reason !== null ? `: ${reason}` : ''}.`);
 }
 
 /**

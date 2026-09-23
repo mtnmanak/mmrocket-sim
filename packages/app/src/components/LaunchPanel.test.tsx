@@ -652,7 +652,10 @@ describe('the longitude field', () => {
     renderConditions({});
     const described = lonInput()!.getAttribute('aria-describedby');
     expect(host.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(LONGITUDE_HELP);
-    expect(LONGITUDE_HELP).toMatch(/every US site is negative/);
+    // The conversion, not "every US site is negative" — false for Guam, the
+    // Northern Marianas and the western Aleutians (review of 2026-09-23).
+    expect(LONGITUDE_HELP).toMatch(/119\.06° W is −119\.06/);
+    expect(LONGITUDE_HELP).not.toMatch(/every US site/);
     expect(LONGITUDE_HELP).toMatch(/moves no flight number/);
   });
 

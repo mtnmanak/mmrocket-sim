@@ -41,6 +41,20 @@ const PRESSURE_DIGITS: Readonly<Record<string, number>> = {
   mbar: 1, Pa: 0, bar: 4, atm: 4, mmHg: 1, inHg: 2, psi: 2,
 };
 
+/**
+ * A pressure (Pa) in `sym` to PRESSURE_DIGITS decimals, trailing zeros KEPT,
+ * so the review's Now and forecast columns line up: "29.92 inHg" beside
+ * "25.90 inHg", where fmtSi's stripping printed "25.9" (review of
+ * 2026-09-23). A whole number still prints whole, so a field's bounds read
+ * "300 to 1100 mbar", not "300.0 to 1100.0".
+ */
+function pressureNumber(sym: string, pa: number): string {
+  const v = siToUi('pressure', sym, pa);
+  if (!Number.isFinite(v)) return '—';
+  const s = v.toFixed(PRESSURE_DIGITS[sym] ?? 2);
+  return Number.isInteger(Number(s)) ? String(Number(s)) : s;
+}
+
 /** A distance to read in the user's unit family: km for metric, mi for imperial. */
 export function farText(sym: string, m: number): string {
   const imperial = sym === 'ft' || sym === 'yd' || sym === 'mi';
@@ -70,7 +84,7 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): 
     case 'temperatureC':
       return `${fmtSi('temperature', units.temperature, stored + 273.15, 1)} ${units.temperature}`;
     case 'pressureHPa':
-      return `${fmtSi('pressure', units.pressure, stored * 100, PRESSURE_DIGITS[units.pressure] ?? 2)} ${units.pressure}`;
+      return `${pressureNumber(units.pressure, stored * 100)} ${units.pressure}`;
     case 'windAverage':
       return windText(units.windspeed, stored);
     case 'launchAltitudeM':
