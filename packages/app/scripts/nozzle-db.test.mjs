@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findDbMotor, MOTOR_DB } from '../src/services/motorDb.ts';
 import {
-  ASSEMBLY_FOLDER, IN_PER_M as BUILD_IN_PER_M, inToM, mergeMeasured, readSpecPage, round6 as buildRound6,
-  sourceDocuments,
+  ASSEMBLY_FOLDER, IN_PER_M as BUILD_IN_PER_M, basePartNo, equivalent, exitFromDescription, inToM,
+  medusaOpening, mergeMeasured, nozzleRow, readSpecPage, round6 as buildRound6, sourceDocuments,
+  throatFromDescription,
 } from './nozzle-db-helpers.mjs';
 
 /**
@@ -1132,5 +1133,100 @@ describe('build-nozzle-db\'s conversions and readers', () => {
     expect(() => sourceDocuments({ ...raw, assemblies: [{ file: 'x.pdf', docFamily: 'hybrid' }] }))
       .toThrow(/unknown docFamily "hybrid"/);
     expect(Object.keys(ASSEMBLY_FOLDER).sort()).toEqual(['dms', 'reloadable']);
+  });
+
+  /**
+   * The LIST OF MATERIAL readers. Each form below is one the drawings print,
+   * quoted in the reader's own comment, and three of them are bugs that
+   * shipped or nearly did: the I.D. form fell through to the part's nominal
+   * throat, a stray `\.?` read .209 as 209 (322 fields at once), and the bare
+   * verb "DRILL TO" left I65W-PS with no exit at all.
+   */
+  it('reads a motor\'s drilled throat from every form its drawing writes it in', () => {
+    const forms = [
+      ['(1.219" DT DRILLED)', 1.219],
+      ['(.455" DT UNDRILLED)', 0.455],
+      ['.844" I.D. /1.75" EXIT', 0.844],
+      ['1.00" THROAT', 1],
+      ['.344" UNDRILLED', 0.344],
+      ['.413 DRILLED', 0.413],
+      ['(DT = .484 SHOWN)', 0.484],
+      ['DRILLED .077"', 0.077],
+      ['UNDRILLED .291"', 0.291],
+      ['SPADED .313"', 0.313],
+      ['NOZZLE (F60/G80) DRILLED TO .209"', 0.209],
+      ['NOZZLE (F60/G80) DRILLED .228"', 0.228],
+      ['AS MOLDED .155"', 0.155],
+      ['MEDUSA NOZZLE CENTER DRILL TO .266"', 0.266],
+    ];
+    for (const [desc, throat] of forms) expect(throatFromDescription(desc), desc).toBe(throat);
+    expect(throatFromDescription('NOZZLE (38MM)')).toBeUndefined();
+    expect(exitFromDescription('.844" I.D. /1.75" EXIT')).toBe(1.75);
+    expect(exitFromDescription('NOZZLE DRILLED .413"')).toBeUndefined();
+  });
+
+  it('reads which of a Medusa\'s throats a dash number opens, in all five written forms', () => {
+    expect(medusaOpening('1x.297"/ 6x.220"')).toEqual({ centerThroatIn: 0.297, outerCount: 6, outerThroatIn: 0.22 });
+    expect(medusaOpening('NOZZLE (54MM MEDUSA) 1 X .228C / 2 x .228M'))
+      .toEqual({ centerThroatIn: 0.228, outerCount: 2, outerThroatIn: 0.228 });
+    expect(medusaOpening('NOZZLE (54MM MEDUSA) 1 X .228C')).toEqual({ centerThroatIn: 0.228, outerCount: 0 });
+    expect(medusaOpening('1C .359" + 3M .297" DT DRILLED')).toEqual({ centerThroatIn: 0.359, outerCount: 3, outerThroatIn: 0.297 });
+    expect(medusaOpening('4M DRILLED .256"')).toEqual({ outerCount: 4, outerThroatIn: 0.256 });
+    // The one form that states no outer count: read as the moulded state,
+    // centre only, and MARKED as assumed.
+    expect(medusaOpening('MEDUSA NOZZLE CENTER DRILL TO .266"'))
+      .toEqual({ centerThroatIn: 0.266, outerCount: 0, outerCountAssumed: true });
+    expect(medusaOpening('MEDUSA NOZZLE')).toBeNull();
+  });
+
+  it('combines holes by AREA, and strips a dash number without interpreting it', () => {
+    expect(equivalent(3, 4)).toBe(5);
+    expect(equivalent(0.5)).toBe(0.5);
+    expect(equivalent()).toBe(0);
+    // A 54 mm Medusa with all six outers open: 0.500 centre + 6 x 0.375 outer exits.
+    expect(Math.round(equivalent(0.5, ...Array(6).fill(0.375)) * 1e4) / 1e4).toBe(1.0458);
+    expect(['01880-4', '01800-4(M)', '01800M-1', '01550-X', '01880'].map(basePartNo))
+      .toEqual(['01880', '01800', '01800M', '01550', '01880']);
+  });
+
+  it('picks the one nozzle row out of a LIST OF MATERIAL, never the cap, O-ring or closure', () => {
+    const lom = (...descs) => ({ lomRows: descs.map((desc, i) => ({ part: `P${i}`, desc })) });
+    expect(nozzleRow(lom('NOZZLE CAP', 'NOZZLE O-RING', 'NOZZLE DRILLED .413"', 'AFT CLOSURE (NOZZLE)')))
+      .toEqual({ row: { part: 'P2', desc: 'NOZZLE DRILLED .413"' }, why: null });
+    expect(nozzleRow(lom('CASE', 'NOZZLE CAP'))).toEqual({ row: null, why: 'no LIST OF MATERIAL row names a nozzle' });
+    expect(nozzleRow(lom('NOZZLE A', 'NOZZLE B')).why).toBe('2 rows name a nozzle: P0, P1');
+  });
+
+  it('agrees with every shipped row the readers built', () => {
+    // The SHIPPED file, read back through the readers that wrote it: every
+    // AeroTech row whose own sheet states a throat carries exactly that throat,
+    // and every opened Medusa carries the equivalent of the exits it opens. A
+    // reader that drifted after the last regeneration fails here before the
+    // next one ships it.
+    let throats = 0;
+    let medusas = 0;
+    for (const r of rows) {
+      const desc = r.provenance?.lomDescription;
+      if (desc == null) continue;
+      if (r.medusa) {
+        const open = medusaOpening(desc);
+        expect(open, `${r.designation}: ${desc}`).not.toBeNull();
+        expect(r.medusa.openOuterThroats, r.designation).toBe(open.outerCount ?? 0);
+        expect(r.medusa.outerCountAssumed, r.designation).toBe(Boolean(open.outerCountAssumed));
+        const n = r.medusa.openOuterThroats;
+        expect(r.exitDiameterIn, r.designation)
+          .toBe(Math.round(equivalent(r.medusa.centerExitIn, ...Array(n).fill(r.medusa.outerExitIn)) * 1e4) / 1e4);
+        medusas++;
+        continue;
+      }
+      const t = throatFromDescription(desc);
+      if (t === undefined) continue;
+      expect(r.throatDiameterIn, `${r.designation}: ${desc}`).toBe(t);
+      throats++;
+    }
+    // Counted on the file as regenerated 2026-09-23; a regeneration may move
+    // them, but a reader that stopped matching anything must not pass vacuously.
+    expect(throats).toBeGreaterThan(150);
+    expect(medusas).toBeGreaterThan(15);
   });
 });

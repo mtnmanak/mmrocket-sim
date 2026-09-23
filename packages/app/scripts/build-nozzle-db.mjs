@@ -56,10 +56,14 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// The unit conversion, the store-page reader, the measured merge and the
-// source-file list live in nozzle-db-helpers.mjs, where nozzle-db.test.mjs can
-// pin them: this script runs its work at import and needs the document set.
-import { inToM, mergeMeasured, readSpecPage, round6, sourceDocuments } from './nozzle-db-helpers.mjs';
+// The unit conversion, the store-page reader, the LIST OF MATERIAL row readers,
+// the measured merge and the source-file list live in nozzle-db-helpers.mjs,
+// where nozzle-db.test.mjs can pin them: this script runs its work at import
+// and needs the document set.
+import {
+  basePartNo, equivalent, exitFromDescription, inToM, medusaOpening, mergeMeasured, nozzleRow,
+  readSpecPage, round6, sourceDocuments, throatFromDescription,
+} from './nozzle-db-helpers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const OUT = join(here, '..', 'src', 'data', 'nozzles.json');
@@ -146,136 +150,12 @@ for (const d of raw.nozzleDrawings) {
 
 // ------------------------------------------- reading an assembly LOM nozzle row
 
-/**
- * Rows in a LIST OF MATERIAL whose description mentions a nozzle but which are
- * NOT the nozzle: the moulded shipping cap over the throat, the nozzle O-ring,
- * the aft closure that a small nozzle screws into, and the ABS adapter that
- * bonds a 1 in nozzle into a fibreglass case. Without this filter the wrong
- * row wins on 227 of the 324 drawings — every motor with a 04580 nozzle cap.
- */
-const NOT_A_NOZZLE = /NOZZLE CAP|^CAP\b|O-RING|AFT CLOSURE|ADAPTER|INSULATOR|CASTING PLUG/i;
-
-/** The nozzle row of one assembly drawing, or null with the reason. */
-function nozzleRow(asm) {
-  const hits = asm.lomRows.filter((r) => /NOZZLE/i.test(r.desc) && !NOT_A_NOZZLE.test(r.desc));
-  if (hits.length === 0) return { row: null, why: 'no LIST OF MATERIAL row names a nozzle' };
-  if (hits.length > 1) {
-    return { row: null, why: `${hits.length} rows name a nozzle: ${hits.map((h) => h.part).join(', ')}` };
-  }
-  return { row: hits[0], why: null };
-}
-
-/**
- * The throat this MOTOR's nozzle is drilled to, from its own drawing's
- * description. Tried in order, because the sheets say the same thing six ways:
- *   "(1.219" DT DRILLED)"  "(.455" DT UNDRILLED)"  ".844" I.D."  "1.00" THROAT"
- *   ".344" UNDRILLED"  ".413 DRILLED"  "(DT = .484 SHOWN)"  "DRILLED .077""
- *   "UNDRILLED .291""  "SPADED .313""
- * A number in front of DT/THROAT/I.D. is the most explicit label, so it goes
- * first; the bare "DRILLED <n>" form goes last because "DRILLED" also appears
- * with the number in front of it.
- */
-function throatFromDescription(desc) {
-  const pats = [
-    // No trailing \b after I.D. — the character after it is a space, and there
-    // is no word boundary between "." and " ", so the six 98 mm rows written
-    // '.844" I.D. /1.75" EXIT' silently fell through to the base part's
-    // nominal throat until this was caught on 2026-09-08.
-    /([\d.]+)"?\s*(?:DT\b|THROAT|I\.D\.)/i,
-    /([\d.]+)"?\s*(?:UN)?DRILLED/i,
-    /\bDT\s*=\s*([\d.]+)/i,
-    // "DRILLED TO .209" AND "AS MOLDED .155" — the two forms the DMS sheets
-    // use and the reloadable ones never did (2026-09-13, from review).
-    //
-    // Without the optional TO, "NOZZLE (F60/G80) DRILLED TO .209"" matched
-    // nothing and the throat fell back to the PART's nominal. Sixteen DMS rows
-    // hit that, and on five of them the part's nominal is a different number,
-    // so v0.131 shipped H115DM-14A at .180 where its own sheet says .209,
-    // I140W-14A at .180 for .242, I175WS-13A at .180 for .281, I500T-14A at
-    // .398 for .469, and G72DM-14A with no throat at all where the sheet says
-    // .155. The other eleven agreed with the nominal by luck, which is why
-    // nothing looked wrong. NO EXIT MOVED and no flight number with it — the
-    // exit comes from the part's moulded bell under the dash rule, which is
-    // correct — but the throat is published data and it was wrong.
-    //
-    // "MOLDED" is here for the 29 mm DMS cases whose nozzle is moulded into
-    // the case and stated "AS MOLDED .155"".
-    // NOTE the capture includes the leading dot — `[\d.]+` already matches
-    // ".209". Writing it as `\.?([\d.]+)` instead consumed the dot OUTSIDE the
-    // group and returned 209 for .209, which turned 322 fields of this file
-    // into integers in one build. Caught immediately by diffing against the
-    // previous file, which is why that diff is worth running every time.
-    // `DRILL(?:ED)?`, not `DRILLED` (2026-09-14, from review). The DMS sheets write the
-    // bare verb as well as the participle — I65W-PS's LOM row reads
-    // `MEDUSA NOZZLE CENTER DRILL TO .266"` — and matching only "DRILLED" returned
-    // undefined for it. That fell all the way through: `medusaOpening` tries four patterns
-    // and then this function as its last resort, so a Medusa whose throat could not be read
-    // resolved to `exitSource: 'none'` and I65W-PS SHIPPED WITH NO EXIT DIAMETER AT ALL,
-    // where part 01700-1 publishes a 0.500 in centre exit. UNDRILLED stays first in the
-    // alternation, so it still wins over the bare verb inside its own word.
-    /(?:UNDRILLED|DRILL(?:ED)?|SPADED|THROAT|MOLDED)\s*(?:TO\s+)?[:=]?\s*([\d.]+)/i,
-  ];
-  for (const p of pats) {
-    const m = p.exec(desc);
-    if (m && Number.isFinite(Number(m[1])) && Number(m[1]) > 0) return Number(m[1]);
-  }
-  return undefined;
-}
-
-/** An exit the description states outright, as the 01800 "M" mould rows do. */
-function exitFromDescription(desc) {
-  const m = /([\d.]+)"?\s*EXIT/i.exec(desc);
-  return m ? Number(m[1]) : undefined;
-}
-
-/**
- * How many of a Medusa's throats this dash number opens.
- *
- * A Medusa is one centre throat plus six outer throats moulded CLOSED; a dash
- * number drills the centre and, on some parts, some of the outers. Every
- * opened throat flows, so every opened throat's exit contributes to A_exit —
- * which is exactly how the app's own field is defined ("the SINGLE EQUIVALENT
- * nozzle with the exit AREAS added", schema.ts / nozzleCheck.ts). The
- * descriptions write the count five ways:
- *   "1x.297"/ 6x.220""      centre .297, six outers .220
- *   "1 X .228C / 2 x .228M"  C = centre, M = outer ("middle")
- *   "1 X .228C"              centre only
- *   "1C .359" + 3M .297" DT DRILLED"
- *   "4M DRILLED .256""       four outers; the centre keeps its moulded size
- *   "DRILLED .266""          centre only, ASSUMED — see `outerCountAssumed`
- * The last form is the only one that does not state the outer count, and it is
- * read as centre-only because that is the moulded state: the store pages call
- * the outer throats "plugged". Rows resolved that way are marked, never hidden.
- */
-function medusaOpening(desc) {
-  let m = /1C\s*([\d.]+)"?\s*\+\s*(\d+)M\s*([\d.]+)/i.exec(desc);
-  if (m) return { centerThroatIn: Number(m[1]), outerCount: Number(m[2]), outerThroatIn: Number(m[3]) };
-  m = /1\s*[xX]\s*([\d.]+)"?C?\s*\/\s*(\d+)\s*[xX]\s*([\d.]+)"?M?/.exec(desc);
-  if (m) return { centerThroatIn: Number(m[1]), outerCount: Number(m[2]), outerThroatIn: Number(m[3]) };
-  m = /1\s*[xX]\s*([\d.]+)"?C\b/.exec(desc);
-  if (m) return { centerThroatIn: Number(m[1]), outerCount: 0 };
-  // No `\.?` in front of the capture: the descriptions write ".242" with no
-  // leading zero, and a separate optional dot ate it, turning 0.242 in into
-  // 242 in and a 12 m throat (caught 2026-09-08 by the report's own numbers).
-  m = /(\d+)M\s*DRILLED\s*([\d.]+)/i.exec(desc);
-  if (m) return { outerCount: Number(m[1]), outerThroatIn: Number(m[2]) };
-  const t = throatFromDescription(desc);
-  if (t !== undefined) return { centerThroatIn: t, outerCount: 0, outerCountAssumed: true };
-  return null;
-}
-
-/** sqrt of a sum of squared diameters — the single equivalent diameter of N holes. */
-const equivalent = (...ds) => Math.sqrt(ds.reduce((a, d) => a + d * d, 0));
+// NOT_A_NOZZLE, nozzleRow, throatFromDescription, exitFromDescription,
+// medusaOpening and equivalent: nozzle-db-helpers.mjs.
 
 // -------------------------------------------------------- resolving one part
 
-/**
- * The base part a dash number belongs to. "01880-4" -> "01880",
- * "01800-4(M)" -> "01800", "01800M-1" -> "01800M", "01550-X" -> "01550".
- * The suffix is stripped, never interpreted: which mould a dash number belongs
- * to is decided by EVIDENCE in `resolvePart`, not by the shape of the string.
- */
-const basePartNo = (p) => p.replace(/-[\w()]+$/, '');
+// basePartNo: nozzle-db-helpers.mjs.
 
 /**
  * Exit and throat for one nozzle part number, with the source that gave each.
