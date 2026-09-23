@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SimHistory } from './SimResults.js';
+import { SimHistory, SimRunDetails } from './SimResults.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { SimRun } from '../services/simReport.js';
 
@@ -117,5 +117,44 @@ describe('SimHistory rows — reachable without a mouse', () => {
     openTable();
     act(() => { rowEl().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(picked).toEqual(['a']);
+  });
+});
+
+/**
+ * Audit 2026-09-22, row 462: the report's "Show all details" and the saved
+ * runs' Show/Hide open and close a section, and said so to nobody — their
+ * siblings elsewhere (the header popups, the notice bar) state aria-expanded.
+ */
+describe('the disclosure toggles state whether they are open', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const render = (node: React.ReactNode) => act(() => root.render(<PrefsProvider>{node}</PrefsProvider>));
+  const button = (text: string) =>
+    Array.from(host.querySelectorAll('button')).find((b) => (b.textContent ?? '') === text)!;
+
+  beforeEach(() => {
+    localStorage.clear();
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    localStorage.clear();
+  });
+
+  it('Saved simulations: Show / Hide', () => {
+    render(<SimHistory runs={[run('a')]} onRunsChange={() => {}} />);
+    expect(button('Show').getAttribute('aria-expanded')).toBe('false');
+    act(() => { button('Show').click(); });
+    expect(button('Hide').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('the launch report: Show all details / Hide details', () => {
+    render(<SimRunDetails run={run('a')} hasSeries />);
+    expect(button('Show all details').getAttribute('aria-expanded')).toBe('false');
+    act(() => { button('Show all details').click(); });
+    expect(button('Hide details').getAttribute('aria-expanded')).toBe('true');
   });
 });

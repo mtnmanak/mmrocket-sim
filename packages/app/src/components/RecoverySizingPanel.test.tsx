@@ -304,8 +304,22 @@ describe('RecoverySizingPanel', () => {
     expect(drogue.textContent).toContain('in the caution band up to 90 ft/s');
     expect(drogue.textContent).toContain('the launch report will flag it as a caution');
     expect(drogue.textContent).not.toContain('accepted');
-    expect(drogue.querySelector('.recovery-part-warn .recovery-mark-warn')?.getAttribute('aria-label'))
-      .toBe('above the preferred drogue rate — a caution');
+    // The mark is for the eye; the words are for a screen reader (audit
+    // 2026-09-22) — an aria-label on a bare <span> is ignored, so a too-fast
+    // drogue was read as "dagger".
+    const mark = drogue.querySelector('.recovery-part-warn .recovery-mark-warn')!;
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    expect(mark.getAttribute('aria-label')).toBeNull();
+    expect(drogue.querySelector('.recovery-part-warn .recovery-part-rate .sr-only')?.textContent)
+      .toBe(' (above the preferred drogue rate — a caution)');
+    // The ‡ beside "packed size unpublished" repeats what the words say, so
+    // it is hidden too, and carries no name a reader would ignore anyway.
+    const unpublished = [...host.querySelectorAll('.recovery-part .recovery-mark:not(.recovery-mark-warn)')];
+    expect(unpublished.length).toBeGreaterThan(0);
+    for (const m of unpublished) {
+      expect(m.getAttribute('aria-hidden')).toBe('true');
+      expect(m.getAttribute('aria-label')).toBeNull();
+    }
     // Marked, and LAST — never ahead of a canopy that clears the threshold.
     const flagged = rows(1).map((r) => r.classList.contains('recovery-part-warn'));
     expect(flagged[flagged.length - 1]).toBe(true);

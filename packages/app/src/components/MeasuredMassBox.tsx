@@ -86,7 +86,10 @@ export function MeasuredMassBox({
               finds exactly these two; every other NumField in the app carries
               a label that was never wired in the first place and is named by
               `ariaLabel` instead. The ariaLabel stays here: it opens with the
-              visible text, so it extends the name rather than replacing it. */}
+              visible text, so it extends the name rather than replacing it —
+              which the CG box's did not until the 2026-09-22 audit ("Measured
+              balance point, …" under "Measured CG from nose tip"), so voice
+              control's "click Measured CG" found nothing. */}
           <NumField
             id="measured-mass"
             value={massKg === null ? undefined : siToUi('mass', massSym, massKg)}
@@ -114,7 +117,7 @@ export function MeasuredMassBox({
             nullable
             step={niceStep(siToUi('length', lenSym, 0.005))}
             placeholder={fmtSi('length', lenSym, bareCgM, 3)}
-            ariaLabel="Measured balance point, measured from the nose tip"
+            ariaLabel="Measured CG from nose tip — the balance point, motor removed"
           />
         </div>
       </div>
