@@ -5,7 +5,7 @@ import {
   absoluteStations, anchorStarts, axialLength, axialStart, drawnExtent, resolveAbsolutePositions,
   startFromPosition,
 } from './position.js';
-import { engineTree } from './treeModel.js';
+import { engineTree, findNode } from './treeModel.js';
 
 /**
  * `absoluteStations` — where every part sits along the assembled rocket.
@@ -332,4 +332,115 @@ describe('axialStart', () => {
   it('defaults a child with no position to top, offset 0', () => {
     expect(axialStart({ type: 'bulkhead', length: 0.003 } as unknown as ComponentNode, 0.003, 0.25, 0.3)).toBe(0.25);
   });
+});
+
+/**
+ * A POD'S OWN CHAIN STACKS (audit 2026-09-22, row 360). Inside a pod set or a
+ * strap-on, the kernel positions the nose, tubes and transitions the way it
+ * positions a stage's — each AFTER the one before it (`RocketComponent.setAfter`,
+ * the default axial method of every body component) — and the assembly is as
+ * long as that chain (`ComponentAssembly.updateBounds`). The station walkers
+ * placed every child of an assembly at the assembly's own start instead, so
+ * everything inside a pod's SECOND tube was one tube-length forward of where
+ * it flies, and `normalizeTree` rewrote an 'absolute' part there against the
+ * wrong start and moved it in the kernel. Pinned against `positionX`.
+ */
+describe('absoluteStations — a pod set’s own chain stacks as the kernel stacks it', () => {
+  const podded = (type: 'podset' | 'parallelstage', finPos: Record<string, unknown>): RocketTree => ({
+    name: 'P', components: [{ type: 'stage', id: 's1', children: [
+      { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.027, shape: 'ogive', thickness: 0.002 },
+      { type: 'bodytube', id: 'b1', length: 1.2, outerRadius: 0.027, thickness: 0.001, children: [
+        {
+          type, id: 'pod', instanceCount: 2, radiusMethod: 'relative', radiusOffset: 0, angleOffset: 0,
+          ...(type === 'parallelstage' ? { separationEvent: 'never' } : {}),
+          position: { method: 'bottom', offset: 0.1 },
+          children: [
+            { type: 'nosecone', id: 'pn', length: 0.08, aftRadius: 0.012, thickness: 0.002 },
+            { type: 'bodytube', id: 'pt1', length: 0.2, outerRadius: 0.012, thickness: 0.0005 },
+            { type: 'bodytube', id: 'pt2', length: 0.25, outerRadius: 0.012, thickness: 0.0005, children: [
+              { type: 'trapezoidfinset', id: 'pf', finCount: 3, rootChord: 0.06, tipChord: 0.03,
+                sweep: 0.02, height: 0.03, thickness: 0.002, position: finPos },
+              { type: 'innertube', id: 'pm', length: 0.1, outerRadius: 0.009, thickness: 0.0005,
+                motorMount: true, position: { method: 'bottom', offset: 0 } },
+            ] },
+          ],
+        },
+      ] },
+    ] }],
+  } as unknown as RocketTree);
+
+  const againstKernel = (t: RocketTree, ids: string[]) => {
+    const st = absoluteStations(t);
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(t));
+    for (const id of ids) {
+      expect(st.get(id)!.start, `station of ${id}`).toBeCloseTo(rocket.componentInfo(id).positionX, 9);
+    }
+    return st;
+  };
+
+  for (const type of ['podset', 'parallelstage'] as const) {
+    it(`stacks nose, first tube and second tube, and places what is inside them (${type})`, () => {
+      const st = againstKernel(podded(type, { method: 'bottom', offset: 0 }), ['pod', 'pn', 'pt1', 'pt2', 'pf', 'pm']);
+      // The pod is 0.08 + 0.2 + 0.25 = 0.53 long, bottom-anchored 0.1 past a
+      // 1.2 m tube that starts at 0.15: 0.15 + 1.2 − 0.53 + 0.1 = 0.92.
+      expect(st.get('pod')!.start).toBeCloseTo(0.92, 12);
+      expect(st.get('pt1')!.start).toBeCloseTo(1.00, 12);
+      expect(st.get('pt2')!.start).toBeCloseTo(1.20, 12);
+      expect(st.get('pf')!.start).toBeCloseTo(1.39, 12);
+    });
+  }
+
+  it('resolves an absolute part inside the second tube to where the file puts it', () => {
+    // A file's 'absolute' offset is the rocket-origin station (only importers
+    // write one). normalizeTree rewrites it to 'top' against the part's parent
+    // before anything reaches the kernel — so the rewrite has to use where the
+    // SECOND tube really starts, or the kernel flies the fin elsewhere.
+    const t = podded('podset', { method: 'absolute', offset: 1.35 });
+    expect(absoluteStations(t).get('pf')!.start).toBeCloseTo(1.35, 12);
+    const resolved = resolveAbsolutePositions(t);
+    const fin = findNode(resolved, 'pf')!;
+    expect(fin.position).toEqual({ method: 'top', offset: expect.closeTo(0.15, 12) }); // 1.35 − 1.20
+    const st = againstKernel(resolved, ['pf', 'pt2']);
+    expect(st.get('pf')!.start).toBeCloseTo(1.35, 12);
+  });
+});
+
+/**
+ * THE KERNEL'S OWN DEFAULT LENGTH, per type (audit 2026-09-22, row 373). A
+ * cleared length is the bridge's `dbl(node, "length", …)` default in the
+ * kernel — 50 mm for a lug, 70 mm for an inner tube, 100 mm for a tube-fin
+ * set, and the shroud's 80 mm through engineTree's lowering — where
+ * `axialLength` answered a generic 25 mm, so a 'bottom' or 'middle' anchored
+ * part was stationed 25–75 mm (or 12.5–37.5 mm) away from where it flies.
+ */
+describe('axialLength — a cleared length is the kernel’s default for the type', () => {
+  it('stations cleared-length parts where the kernel does', () => {
+    const t = {
+      name: 'D', components: [{ type: 'stage', id: 's1', children: [
+        { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.027, shape: 'ogive', thickness: 0.002 },
+        // A body tube with no length of its own: the kernel builds 0.3 m.
+        { type: 'bodytube', id: 'b0', outerRadius: 0.027, thickness: 0.001 },
+        { type: 'bodytube', id: 'b1', length: 0.7, outerRadius: 0.027, thickness: 0.001, children: [
+          { type: 'launchlug', id: 'lug', outerRadius: 0.003, thickness: 0.0005, position: { method: 'bottom', offset: 0 } },
+          { type: 'innertube', id: 'mmt', outerRadius: 0.0145, thickness: 0.001, position: { method: 'bottom', offset: 0 } },
+          { type: 'tubefinset', id: 'tf', finCount: 6, outerRadius: 0.01, position: { method: 'bottom', offset: 0 } },
+          { type: 'fairing', id: 'cam', width: 0.025, height: 0.02, position: { method: 'middle', offset: 0 } },
+          { type: 'masscomponent', id: 'mass', mass: 0.05, radius: 0.01, position: { method: 'bottom', offset: 0 } },
+          { type: 'tubecoupler', id: 'cp', thickness: 0.001, position: { method: 'bottom', offset: 0 } },
+          { type: 'engineblock', id: 'eb', thickness: 0.002, position: { method: 'bottom', offset: 0 } },
+          { type: 'bulkhead', id: 'bh', position: { method: 'bottom', offset: 0 } },
+          { type: 'centeringring', id: 'cr', position: { method: 'bottom', offset: 0 } },
+        ] },
+        { type: 'transition', id: 'tr', foreRadius: 0.027, aftRadius: 0.02, thickness: 0.002 },
+        { type: 'bodytube', id: 'b2', length: 0.2, outerRadius: 0.02, thickness: 0.001 },
+      ] }],
+    } as unknown as RocketTree;
+    const st = absoluteStations(t);
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(t));
+    for (const id of ['b0', 'b1', 'lug', 'mmt', 'tf', 'cam', 'mass', 'cp', 'eb', 'bh', 'cr', 'tr', 'b2']) {
+      expect(st.get(id)!.start, `station of ${id}`).toBeCloseTo(rocket.componentInfo(id).positionX, 9);
+    }
+  }, 60000);
 });

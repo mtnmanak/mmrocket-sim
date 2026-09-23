@@ -1140,6 +1140,51 @@ describe('engineTree — a protuberance mass is billed exactly, at its own stati
     // RASAero protuberance always has (the file carries no mass data).
     expect(info(0).mass).toBe(a.mass);
   }, 60000);
+
+  /**
+   * AT ITS CENTRE, whatever it is anchored by (audit 2026-09-22, row 372). The
+   * carrier is a rail button, which the kernel gives length 0, and it used to
+   * inherit the bump's own position — right for 'middle', but a 'top' bump's
+   * mass then flew at its leading edge and a 'bottom' one's at its trailing
+   * edge, L/2 from the drawn centre; with no position at all the kernel put it
+   * at the tube's middle (RailButton's MIDDLE default) where the app draws it
+   * from the top. Checked on the kernel's own station for the carrier.
+   */
+  it('flies the mass at the bump’s drawn centre for every anchoring', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { absoluteStations } = await import('./position.js');
+    const L = 0.1;
+    const design = (position: unknown): RocketTree => ({
+      name: 'M',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.026, thickness: 0.002, shape: 'ogive' },
+          {
+            type: 'bodytube', id: 'b1', length: 0.6, outerRadius: 0.026, thickness: 0.001,
+            children: [{
+              type: 'protuberance', id: 'x1', dragClass: 'streamlinedbase',
+              width: 0.02, height: 0.01, length: L, count: 1, mass: 0.05,
+              ...(position === undefined ? {} : { position }),
+            } as unknown as ComponentNode],
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    for (const position of [
+      { method: 'top', offset: 0.1 },
+      { method: 'bottom', offset: -0.05 },
+      { method: 'middle', offset: 0.02 },
+      { method: 'absolute', offset: 0.4 },
+      undefined,
+    ]) {
+      const t = design(position);
+      const drawnCentre = absoluteStations(t).get('x1')!.start + L / 2;
+      resetEngine();
+      const flown = OrkRocket.buildTree(engineTree(t)).componentInfo('x1').positionX;
+      expect(flown, JSON.stringify(position)).toBeCloseTo(drawnCentre, 12);
+    }
+  }, 60000);
 });
 
 /**

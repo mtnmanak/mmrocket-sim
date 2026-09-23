@@ -23,7 +23,7 @@
 // bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { resolveAbsolutePositions } from './position.js';
+import { axialLength, resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
@@ -1300,12 +1300,25 @@ export function engineTree(tree: RocketTree): RocketTree {
       // skipped under the override) — kept in a sane range purely so nothing
       // downstream sees a degenerate component.
       const od = Math.min(0.05, Math.max(0.001, Math.sqrt(Math.max(area, 1e-8))));
+      // THE CARRIER SITS AT THE BUMP'S CENTRE (audit 2026-09-22, row 372). A
+      // rail button has length 0 in the kernel, so handing it the bump's own
+      // position put its mass at the LEADING edge of a 'top' or 'absolute'
+      // bump and the TRAILING edge of a 'bottom' one — L/2 from the drawn
+      // centre, which moved the rocket's CG by m·L/(2M) (a 'top' bump
+      // overstating the margin); with no position at all it flew at the tube's
+      // middle (RailButton's MIDDLE default) where the app draws it from the
+      // top. Only 'middle' was right, because it already names the centre. The
+      // length is `axialLength`'s, the one the views draw the bump with.
+      const half = axialLength(n) / 2;
+      const pos = n.position ?? { method: 'top', offset: 0 };
+      const centre = pos.method === 'middle' ? pos
+        : { method: pos.method, offset: pos.offset + (pos.method === 'bottom' ? -half : half) };
       return {
         type: 'railbutton',
         id: n.id,
         name: n.name ?? 'Protuberance',
         outerDiameter: od,
-        position: n.position,
+        position: centre,
         // THE CLOCK ANGLE HAS TO RIDE THE CARRIER (v0.103). A protuberance
         // carries its own MOUNT_ANGLE (schema.ts) and every drawing places it
         // there, but this lowering used to emit type/id/name/outerDiameter/
