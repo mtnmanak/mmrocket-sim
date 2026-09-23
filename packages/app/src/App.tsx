@@ -88,7 +88,9 @@ import {
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
-import { addRun, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite } from './services/simStore.js';
+import {
+  addRun, loadRuns, persistFailed, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite,
+} from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
@@ -593,15 +595,20 @@ export function App() {
   // only ever raised kept claiming storage was full while the table showed
   // a freshly saved run. Dismissible; a later refused write raises it again.
   const [runsQuotaWarn, setRunsQuotaWarn] = useState(false);
-  // Runs the 500-run cap removed since the user last dismissed the note —
-  // through the same funnel, so a Launch at the cap and a batch that overflows
-  // it are both counted (audit 2026-09-22: the cap evicted silently).
-  const [runsEvicted, setRunsEvicted] = useState(0);
+  // What the 500-run cap cut since the user last dismissed the note — through
+  // the same funnel, so a Launch at the cap and a batch that overflows it are
+  // both counted (audit 2026-09-22: the cap evicted silently). Saved runs it
+  // removed and new runs that never fit are counted apart: only a batch of
+  // more than 500 can do the second, and they are not "the oldest" of anything.
+  const [runsCapped, setRunsCapped] = useState({ evicted: 0, unsaved: 0 });
   const recordRuns = useCallback((next: SimRun[]) => {
     setRuns(next);
     setRunsQuotaWarn(persistFailed());
     const evicted = runsEvictedByLastWrite();
-    if (evicted > 0) setRunsEvicted((n) => n + evicted);
+    const unsaved = runsUnsavedByLastWrite();
+    if (evicted > 0 || unsaved > 0) {
+      setRunsCapped((n) => ({ evicted: n.evicted + evicted, unsaved: n.unsaved + unsaved }));
+    }
   }, []);
   // Session autosave happens inside a debounce, so its health is pushed, not
   // polled: subscribe for the working<->failing edges (deduped in session.ts).
@@ -2118,19 +2125,18 @@ export function App() {
     }
     // Saved runs the cap removed — its own entry, so it neither overwrites an
     // import note nor is overwritten by one. A warning: those runs are gone.
-    if (runsEvicted > 0) {
+    if (runsCapped.evicted > 0 || runsCapped.unsaved > 0) {
       out.push({
         id: 'runs-evicted',
         severity: 'warn',
-        text: `Saved simulations keeps the newest ${MAX_RUNS} runs, so the oldest ${runsEvicted}`
-          + ` ${runsEvicted === 1 ? 'was' : 'were'} removed to make room. Download the run table`
+        text: `${runCapNote(runsCapped.evicted, runsCapped.unsaved)} Download the run table`
           + ' (Results) to keep a copy of the rest before more go.',
-        onDismiss: () => setRunsEvicted(0),
+        onDismiss: () => setRunsCapped({ evicted: 0, unsaved: 0 }),
       });
     }
     return out;
   }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
-    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsEvicted,
+    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */

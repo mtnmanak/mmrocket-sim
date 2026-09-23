@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runsEvictedByLastWrite,
-  runsToCsv, runsToTable,
+  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite,
+  runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
 import type { SimRun } from './simReport.js';
 
@@ -136,6 +136,45 @@ describe('the 500-run cap says what it removed (audit 2026-09-22)', () => {
     jamWrites();
     addRun(mkRun('lost'));
     expect(runsEvictedByLastWrite()).toBe(0);
+    expect(runsUnsavedByLastWrite()).toBe(0);
+  });
+
+  it('a batch of 600 over 100 saved runs: 100 saved runs go, and 100 of its own were never saved', () => {
+    // The cut at 500 falls inside the batch itself, so what it removed is two
+    // different things. One lumped count said "the oldest 200" (from review).
+    addRuns(many('saved', 100));
+    const out = addRuns(many('batch', 600));
+    expect(out.map((r) => r.id)).toEqual(many('batch', 500).map((r) => r.id));
+    expect(runsEvictedByLastWrite()).toBe(100);
+    expect(runsUnsavedByLastWrite()).toBe(100);
+  });
+
+  it('a batch that fits leaves nothing unsaved, and the next write resets both counts', () => {
+    addRuns(many('saved', 400));
+    addRuns(many('batch', 150));
+    expect(runsEvictedByLastWrite()).toBe(50);
+    expect(runsUnsavedByLastWrite()).toBe(0);
+    addRuns(many('huge', 501));
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite()]).toEqual([500, 1]);
+    deleteRun('huge0');
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite()]).toEqual([0, 0]);
+  });
+});
+
+describe('runCapNote — the one wording of what the cap did', () => {
+  it('says nothing when it did nothing', () => {
+    expect(runCapNote(0, 0)).toBe('');
+  });
+
+  it('names the saved runs it removed', () => {
+    expect(runCapNote(1, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
+    expect(runCapNote(26, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 26 were removed to make room.');
+  });
+
+  it('names the new runs that never fit, apart from the saved ones', () => {
+    expect(runCapNote(100, 100)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 100 were removed'
+      + ' to make room, and 100 new runs did not fit and were not saved.');
+    expect(runCapNote(0, 1)).toBe('Saved simulations keeps the newest 500 runs, so 1 new run did not fit and was not saved.');
   });
 });
 
