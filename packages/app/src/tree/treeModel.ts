@@ -214,6 +214,74 @@ export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): s
   return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b) || rank(a) - rank(b))[0] ?? null;
 }
 
+/**
+ * A weighed pad mass moved onto the primary `primaryMountOf` names now, off the
+ * record the ranking BEFORE row 356 named — topmost stage, ties in the given
+ * order — when those two differ (audit 2026-09-22, row 356, from review).
+ *
+ * The pad mass lives on the primary's record, and only the primary's is read:
+ * the hardware arithmetic, the field and the .ork export gate all skip every
+ * other record. So a session or stored configuration saved with a pod or
+ * strap-on motor picked before the core's has its weighing on the record that
+ * has just stopped being primary, and without this it would be kept but never
+ * flown, never shown and never saved — silently, on a pod design whose old
+ * flight was mass-correct (pods do not separate). The value is a weighing of
+ * the WHOLE stack and its set key names the whole set, so it means the same on
+ * the core's record; only where it rides changes, which is the fix.
+ *
+ * Identity (`motors` returned as given, nothing else set) unless it moves: the
+ * rankings agree, the old primary carries no pad mass, or the new one already
+ * carries one of its own (then nothing is overwritten). Key order is kept — it
+ * is the tie-break between two core mounts. App runs it on the restored working
+ * set and on every stored configuration; a `.ork` needs nothing, because its
+ * pad mass is rocket-level and attaches to the primary at open.
+ */
+export function padMassOntoRankedPrimary<T extends { padMassKg?: number; padMassWeighedWith?: string }>(
+  tree: RocketTree, motors: Record<string, T>,
+): { motors: Record<string, T>; from?: string; to?: string; kg?: number } {
+  const ids = Object.keys(motors);
+  const now = primaryMountOf(tree, ids);
+  const was = ids.filter((id) => stageIndexOf(tree, id) !== -1)
+    .sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b))[0] ?? null;
+  if (now == null || was == null || now === was) return { motors };
+  const old = motors[was]!;
+  const kg = old.padMassKg;
+  if (typeof kg !== 'number' || 'padMassKg' in motors[now]!) return { motors };
+  const { padMassKg: _p, padMassWeighedWith: key, ...rest } = old;
+  return {
+    motors: {
+      ...motors,
+      [was]: rest as T,
+      [now]: { ...motors[now]!, padMassKg: kg, ...(key !== undefined ? { padMassWeighedWith: key } : {}) },
+    },
+    from: was,
+    to: now,
+    kg,
+  };
+}
+
+/**
+ * Which auto-delay box a mount card shows (audit 2026-09-22, row 356, from
+ * review): 'optimal' — the working "auto (optimal)" box — on the primary's
+ * card, where flightRunner writes the rounded optimum; 'top-motor-only' on any
+ * other card whose motor carries the auto flag anyway, so it can be unticked;
+ * null otherwise. The primary offers the box on the sustainer stage, as it
+ * always has, and on a lower stage only once it is ticked (a booster is primary
+ * only while nothing above it is loaded, and it does fly the optimum then).
+ *
+ * The motor browser offers "Auto (optimal)" on every mount and starts a motor
+ * that lists no delay on it, but only the primary's flag is ever honoured; any
+ * other mount flies its provisional delay — the number in its field. Hiding the
+ * box on those cards left such a mount labelled "(auto delay)" with nothing to
+ * untick; this keeps a box there that says what the flag does.
+ */
+export function autoDelayBox(
+  tree: RocketTree, mountId: string, primaryMountId: string | null, ticked: boolean,
+): 'optimal' | 'top-motor-only' | null {
+  if (mountId === primaryMountId) return stageIndexOf(tree, mountId) === 0 || ticked ? 'optimal' : null;
+  return ticked ? 'top-motor-only' : null;
+}
+
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {
   // 'stage' now means "the rocket root" — only stage nodes live there.
   if (tree.components.some((n) => n.id === id)) return 'stage';
