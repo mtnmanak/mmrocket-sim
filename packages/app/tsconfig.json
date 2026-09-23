@@ -1,9 +1,24 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "react-jsx",
-    "noEmit": true
-  },
-  "include": ["src", "vite.config.ts"]
+  // A solution file: `tsc -b` (the typecheck and build scripts) checks the three
+  // projects below, and editors and ESLint's projectService find each file's
+  // project through these references.
+  //
+  // WHY THREE (audit 2026-09-22, Step D). This was one project over src/ and
+  // vite.config.ts, so every @types package in node_modules was visible to the
+  // shipped source — 82 files of @types/node among them. `Buffer.from(...)` or
+  // `process.env.X` in a component then type-checked, linted and passed its
+  // tests (vitest runs under Node), and failed only in a user's browser: a
+  // ReferenceError, or `undefined` where the test had read a real value.
+  //   tsconfig.app.json   the shipped source: no Node types
+  //   tsconfig.test.json  the *.test.ts(x) files, which DO run under Node
+  //   tsconfig.node.json  vite.config.ts, which runs under Node at build time
+  // eslint.config.mjs's no-restricted-globals is the other half: it names the
+  // Node global in plain words, and it covers packages/engine/src, whose
+  // tsconfig still sees @types/node.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

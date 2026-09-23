@@ -50,6 +50,12 @@
     // this flag the other form keeps a bare side-effect import. What it buys: tsc
     // refuses an import of a type without `type`, so what a file imports is what
     // esbuild and vitest load, rather than whatever elision decides.
+    //
+    // Declined the same day, on its count: exactOptionalPropertyTypes (62 errors
+    // in the shipped source's project, packages/app/tsconfig.app.json, and 101 in
+    // the test project). That is a migration, not a ratchet.
+    // noPropertyAccessFromIndexSignature is on for the shipped source only (0
+    // there, 11 in tests): see packages/app/tsconfig.app.json.
     "allowUnusedLabels": false,
     "noUncheckedSideEffectImports": true,
     "erasableSyntaxOnly": true,
