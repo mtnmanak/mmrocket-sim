@@ -59,14 +59,23 @@ import globals from 'globals';
 import { fileURLToPath } from 'node:url';
 
 // `typeof <member> === 'number'` as the whole test of a conditional or an `if` —
-// true of NaN. Used by the two no-restricted-syntax blocks below: the reader
-// shape everywhere in src, and any such test at all in the file writers.
+// true of NaN. Used by the no-restricted-syntax blocks below: the reader shape
+// everywhere in src (App.tsx's block carries it beside its markSaved rule), and
+// any such test at all in the file writers.
 const TYPEOF_NUMBER_TEST = "[test.operator='==='][test.left.operator='typeof']"
   + "[test.left.argument.type='MemberExpression'][test.right.value='number']";
 const NUMBER_READER_SHAPES = [
   ':function > ConditionalExpression.body',
   ':function > BlockStatement > ReturnStatement > ConditionalExpression.argument',
 ];
+// The reader-shape refusals as no-restricted-syntax options. Named because a
+// later block that adds entries of its own for one file REPLACES the rule's
+// options there, so it has to carry these along (App.tsx's markSaved block).
+const NUMBER_READER_RESTRICTIONS = NUMBER_READER_SHAPES.map((reader) => ({
+  selector: `${reader}${TYPEOF_NUMBER_TEST}`,
+  message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
+    + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
+}));
 
 export default tseslint.config(
   {
@@ -261,11 +270,7 @@ export default tseslint.config(
       // each) and 3 `if (typeof x[k] === 'number')` (treeModel 2, importApply
       // 1), counted 2026-09-23. Converting those is a separate sitting — they
       // sit in the files every other change touches.
-      'no-restricted-syntax': ['error', ...NUMBER_READER_SHAPES.map((reader) => ({
-        selector: `${reader}${TYPEOF_NUMBER_TEST}`,
-        message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
-          + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
-      }))],
+      'no-restricted-syntax': ['error', ...NUMBER_READER_RESTRICTIONS],
     },
   },
 
@@ -294,6 +299,33 @@ export default tseslint.config(
         selector: `:matches(ConditionalExpression, IfStatement)${TYPEOF_NUMBER_TEST}`,
         message: 'typeof-number accepts NaN (typeof NaN is "number"), and this file writes what it reads '
           + 'into a design or cut file. Use num / numOpt / numOrNull from tree/nodeNum.ts.',
+      }],
+    },
+  },
+
+  {
+    // App.tsx's `markSaved` (hooks/useDesignDirty.ts) clears the unsaved-work
+    // guard, so every place that names it is a place the Open prompt and ✕ New's
+    // question can be silenced. Three may: a .ork save, an import and ✕ New —
+    // each carries a disable with its reason, and reportUnusedDisableDirectives
+    // fails any that stops suppressing a site. Any other reference (a call, a
+    // hand-off to a child or a hook, a rename) is an error here. WHY LINT: a new
+    // mark is an absence no behavioural test can see unless it drives that
+    // action. App.save.test.tsx presses every Save As / Export entry and the
+    // flight actions; a mark on Launch passed every test before those
+    // were added, and one on the weather dialog's Apply, which no App test
+    // presses, still does (AUDIT row 477, review of its fix — the count over
+    // App.tsx's text in savedMarkSites.test.ts had been removed). The
+    // shorthand destructuring from useDesignDirty is where App takes it, so it
+    // is not a site. This block's no-restricted-syntax REPLACES the reader
+    // block's options for App.tsx, so it carries them along.
+    files: ['packages/app/src/App.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error', ...NUMBER_READER_RESTRICTIONS, {
+        selector: "Identifier[name='markSaved']:not(ObjectPattern > Property[shorthand=true] > Identifier)",
+        message: 'markSaved clears the unsaved-work guard, so the next Open or ✕ New discards without asking. '
+          + 'Only a full-fidelity save (.ork), an import and ✕ New may mark; a new site needs '
+          + '`// eslint-disable-next-line no-restricted-syntax -- <why this action may mark>`.',
       }],
     },
   },

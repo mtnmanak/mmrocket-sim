@@ -28,12 +28,15 @@ import { APP_VERSION } from './version.js';
  * asks "Start a new design?" only over work no file on disk has.
  *
  * The harness is App.render.test.tsx's: the real TeaVM kernel, the bundled
- * catalogue and curves, fetch stubbed to fail as offline. Four modules are
- * passed straight through with a handle on one function each — the file
- * writer (so no download happens, and a test can hold the Save-As picker open
- * or cancel it), the .ork writer (to read what a Save wrote), the starter
- * motor's loader and the share link's decoder (each an await a test can hold,
- * so an action can land inside it). None changes what the function does.
+ * catalogue and curves, fetch stubbed to fail as offline. Four modules keep
+ * everything real but one function each. The file writer's is REPLACED: a
+ * stub that reports a download without making one, which a test can hold open
+ * (the Save-As picker) or cancel — so what App hands saveFile is not checked
+ * here beyond the name the save line reports. The other three are passed
+ * straight through with a handle, and none changes what its function does: the
+ * .ork writer (to read what a Save wrote), the starter motor's loader and the
+ * share link's decoder (each an await a test can hold, so an action can land
+ * inside it).
  */
 vi.mock('./services/saveFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/saveFile.js')>();
@@ -216,7 +219,11 @@ afterEach(async () => {
  * discard exactly what the file does not hold. savedMarkSites.test.ts counted
  * `markSaved` in App.tsx's text (three) and searched two handlers and the share
  * link for it; here every entry of the Save As / Export menu is pressed, read
- * off the menu itself so an entry added later is swept too.
+ * off the menu itself so an entry added later is swept too, and so are the
+ * actions that fly. The count is the lint gate's now (eslint.config.mjs
+ * refuses any `markSaved` in App.tsx beyond the three reasoned sites): a mark
+ * added to an action no test here drives passes every behavioural test, as
+ * one on Launch did before the flight case below (AUDIT row 477, review).
  */
 describe('only a full-fidelity save clears the unsaved-work guard', () => {
   it('every Save As / Export entry but Save .ork — the share link among them — leaves the design unsaved', async () => {
@@ -295,6 +302,53 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await saveAs(host, 'Save .ork');
     await settle(0);
     expect(await guarded(host)).toBe(false);
+  }, 30000);
+
+  /**
+   * Nor does flying it. A Launch records a run, and the flight-data export and
+   * a history row's "📈 Charts" re-fly one; none writes a design file. A mark
+   * after Launch's markFlown passed the whole suite until this case (AUDIT
+   * row 477, review): the typed 31 g and the flight were then discarded by
+   * the next Open without a question.
+   */
+  it('a Launch, its flight-data export and a Show-charts re-fly leave the design unsaved', async () => {
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const host = await mountApp();
+    const runs = () => (JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as unknown[]).length;
+    const launch = async (n: number) => {
+      await act(async () => {
+        [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+      });
+      await waitFor(() => runs() === n, `flight ${n} to be saved`);
+      await settle(0);
+    };
+    /** ✕ New lives in the Design workspace's header; a flight lands on Results. */
+    const guardedOnDesign = async () => { await openTab(host, 'Design'); return guarded(host); };
+    try {
+      await waitFor(starterStored, 'the starter motor to be autosaved');
+      await type(input(host, 'Measured mass'), '31');
+      await launch(1);
+      expect(await guardedOnDesign(), 'after Launch').toBe(true);
+      // A second flight, so the first is a stored run with no plots in memory.
+      await launch(2);
+      await act(async () => { button(host, '⬇ Flight data (.csv)').click(); });
+      await waitFor(() => created.mock.calls.length > 0, 'the flight data to download');
+      await settle(0);
+      expect(await guardedOnDesign(), 'after the flight-data export').toBe(true);
+      await openTab(host, 'Results');
+      const history = [...host.querySelectorAll('h2')]
+        .find((h) => h.textContent?.startsWith('Saved simulations'))!.parentElement!;
+      await act(async () => { button(history, 'Show').click(); });
+      await act(async () => { button(host, '📈 Charts').click(); });
+      await waitFor(() => ![...host.querySelectorAll('button')].some((b) => b.textContent?.includes('📈 Charts')),
+        'the re-fly to draw its charts');
+      await settle(0);
+      expect(await guardedOnDesign(), 'after the Show-charts re-fly').toBe(true);
+    } finally {
+      created.mockRestore();
+      revoked.mockRestore();
+    }
   }, 30000);
 });
 

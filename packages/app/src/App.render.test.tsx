@@ -448,14 +448,6 @@ describe('a v0.117 session\'s weighed pad mass', () => {
   }, 30000);
 });
 
-/**
- * A WEIGHING SAVED ON A POD'S RECORD MOVES TO THE CORE'S, AND SAYS SO (audit
- * 2026-09-22, row 356). A session saved with a pod motor picked before the
- * core's has its pad mass on the record that has just stopped being primary;
- * the restore moves it (treeModel.padMassOntoRankedPrimary) and the notice bar
- * says where, so the value is not seen to jump cards unexplained.
- * primaryMount.test.ts checked App's half as a regex for the ref it read.
- */
 /** The starter rocket with a two-pod set on its body tube, the pods' mount `pod-mmt`. */
 const podTree = (t: RocketTree): RocketTree => {
   const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
@@ -470,6 +462,14 @@ const podTree = (t: RocketTree): RocketTree => {
   } as ComponentNode);
 };
 
+/**
+ * A WEIGHING SAVED ON A POD'S RECORD MOVES TO THE CORE'S, AND SAYS SO (audit
+ * 2026-09-22, row 356). A session saved with a pod motor picked before the
+ * core's has its pad mass on the record that has just stopped being primary;
+ * the restore moves it (treeModel.padMassOntoRankedPrimary) and the notice bar
+ * says where, so the value is not seen to jump cards unexplained.
+ * primaryMount.test.ts checked App's half as a regex for the ref it read.
+ */
 describe('a session\'s pad mass saved under a pod picked first', () => {
   it('is moved onto the core motor\'s record, and the bar names both mounts', async () => {
     const probe = podTree(defaultTree());

@@ -29,9 +29,12 @@ import {
  * What App decides is App.save.test.tsx's (audit 2026-09-22, row 477), with
  * App mounted: that only a .ork save, an open and ✕ New clear the unsaved-work
  * guard — every other Save As / Export entry and the share link pressed, the
- * lossy .rkt / .CDX1 among them — and App's hand-offs to the units here. They
- * were source guards over App.tsx in this file, including a count of
- * `markSaved` sites; a regex stays green while the behaviour it names is wrong.
+ * lossy .rkt / .CDX1 among them, and the flight actions — and App's hand-offs
+ * to the units here. They were source guards over App.tsx in this file; a
+ * regex stays green while the behaviour it names is wrong. The one that was
+ * not about behaviour — the count of `markSaved` sites, an absence no test can
+ * see unless it drives that action — is the lint gate's now: eslint.config.mjs
+ * refuses any `markSaved` in App.tsx beyond the three reasoned sites.
  */
 
 const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
