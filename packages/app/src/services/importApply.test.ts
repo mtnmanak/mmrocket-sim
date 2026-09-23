@@ -220,6 +220,11 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     expect(plan.mountMotors).toBe(B.motors);
     expect(plan.activeConfigId).toBe('B');
     expect(plan.unmatchedRefs).toEqual({});
+    // A configuration that states no nozzle (an .ork) seeds nothing: its motor
+    // change is a real one, and the nozzle follows it.
+    expect(planConfigSwitch({
+      savedConfigs: [B, A], activeConfigId: 'B', mountMotors: B.motors, unmatchedRefs: {}, tree: tree(),
+    }, A, TEXT).nozzleStated).toEqual([]);
   });
 
   it('puts the configuration’s deployment, separation and nozzle on the tree, the event in the kernel’s spelling', () => {
@@ -233,6 +238,10 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     expect(booster['separationEvent']).toBe('ejection');
     expect(booster['separationDelay']).toBe(1.5);
     expect(booster['nozzleExitDiameter']).toBe(0.02);
+    // The stage whose nozzle B states, under B's loadout — for the nozzle-follow
+    // seed (audit 2026-09-22). The sustainer's nozzle is not B's to state.
+    expect(plan.nozzleStated.map((st) => [st.stageId, st.motors.map((m) => m.motorId)]))
+      .toEqual([['s2', ['db-J300']]]);
     expect(plan.note).toEqual({
       text: 'Flight configuration “B” applied — its motors and recovery settings are now live.',
       severity: 'info',

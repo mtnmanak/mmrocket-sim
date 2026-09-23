@@ -12,11 +12,12 @@ import { padMassSetKey, syncActiveConfig } from './configSync.js';
 import {
   reconcileAllIncludedMotors, type AttachedMotor, type StatedWeightText,
 } from './statedLaunchWeight.js';
+import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import { separationEventOrDefault } from '../tree/sanitize.js';
 import {
-  applyStageNozzles, emptyTree, findNode, normalizeTree, primaryMountOf, updateNode,
+  applyStageNozzles, emptyTree, findNode, motorMounts, normalizeTree, primaryMountOf, updateNode,
 } from '../tree/treeModel.js';
 
 /**
@@ -397,6 +398,12 @@ export interface ConfigSwitchPlan {
   activeConfigId: string;
   /** The design with the configuration's nozzles, deployments and separations on it, reconciled. */
   tree: RocketTree;
+  /**
+   * The stages whose nozzle this configuration STATES, under the loadout it
+   * brings — for the nozzle-follow record, so the switch is not taken for a
+   * motor change there (hooks/useNozzleFollow's `seed`).
+   */
+  nozzleStated: StageMotors[];
   note: { text: string; severity: NoticeSeverity };
 }
 
@@ -511,6 +518,13 @@ export function planConfigSwitch(
     note = withSpent([`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
       + `${hasPad ? ' and weighed pad mass' : ''} are now live.`], 'info');
   }
+  // The loadout exactly as App will compute it once this is written: the
+  // configuration's motors on the mounts this tree has.
+  const mountIds = new Set(motorMounts(next).map((m) => m.id));
+  const nozzleStated = hasNozzles
+    ? stageMotors(next, Object.entries(cfg.motors).filter(([id]) => mountIds.has(id)))
+      .filter((s) => s.stageId in cfg.nozzles!)
+    : [];
   return {
     savedConfigs: synced,
     config: cfg,
@@ -521,12 +535,15 @@ export function planConfigSwitch(
     unmatchedRefs: cfg.unmatchedRefs ?? {},
     activeConfigId: cfg.id,
     tree: next,
+    nozzleStated,
     note,
   };
 }
 
 /** App's writers a configuration switch goes through. */
 export interface ConfigSwitchSinks {
+  /** The nozzle-follow record's seed (hooks/useNozzleFollow). */
+  seedNozzleFollow: (stages: readonly StageMotors[]) => void;
   history: Pick<TreeHistory, 'reset'>;
   setSavedConfigs: (c: SavedConfig[]) => void;
   setMountMotors: (m: Record<string, MountMotor>) => void;
@@ -550,6 +567,10 @@ export interface ConfigSwitchSinks {
 export function applyConfigSwitchPlan(
   plan: ConfigSwitchPlan, current: SavedConfig[], sinks: ConfigSwitchSinks,
 ): void {
+  // FIRST, before anything the nozzle-follow effect can see: the stages whose
+  // nozzle this configuration states are recorded under their new loadout, so
+  // the switch does not read as a motor change there (audit 2026-09-22).
+  sinks.seedNozzleFollow(plan.nozzleStated);
   if (plan.savedConfigs !== current) sinks.setSavedConfigs(plan.savedConfigs);
   sinks.setMountMotors(plan.mountMotors);
   sinks.setUnmatchedRefs(plan.unmatchedRefs);

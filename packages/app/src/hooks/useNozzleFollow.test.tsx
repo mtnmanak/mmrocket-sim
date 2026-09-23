@@ -45,9 +45,14 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
   const treeRef = { current: initial };
   const writes: RocketTree[] = [];
   const writeTree = (t: RocketTree) => { treeRef.current = t; writes.push(t); };
-  const out = { cleared: {} as Record<string, NozzleCleared> };
+  const out = {
+    cleared: {} as Record<string, NozzleCleared>,
+    seed: (() => {}) as (s: readonly StageMotors[]) => void,
+  };
   function Probe({ l }: { l: StageMotors[] }) {
-    out.cleared = useNozzleFollow({ loadout: l, treeRef, writeTree, lookup: look }).cleared;
+    const nf = useNozzleFollow({ loadout: l, treeRef, writeTree, lookup: look });
+    out.cleared = nf.cleared;
+    out.seed = nf.seed;
     return null;
   }
   host = document.createElement('div');
@@ -128,5 +133,20 @@ describe('useNozzleFollow', () => {
     expect(exitOf(h.treeRef.current)).toBeUndefined();
     // Written once, by the newest loadout's decision - K1's never lands.
     expect(h.writes.map(exitOf)).toEqual([undefined]);
+  });
+
+  /**
+   * The configuration-switch seed (audit 2026-09-22): a loadout recorded
+   * before it is written is not a change, so a nozzle the configuration states
+   * for it is left where the switch put it.
+   */
+  it('leaves a seeded loadout alone', async () => {
+    const h = harness(tree(0.012));
+    await h.show(loadout('J1'));
+    h.treeRef.current = tree(0.02);   // the switch writes the configuration's nozzle...
+    h.out.seed(loadout('X9'));        // ...having seeded its loadout first
+    await h.show(loadout('X9'));
+    expect(exitOf(h.treeRef.current)).toBe(0.02);
+    expect(h.out.cleared).toEqual({});
   });
 });

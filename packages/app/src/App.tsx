@@ -1151,7 +1151,7 @@ export function App() {
   // and why it is decided here rather than in NozzleField, are in
   // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
   const stageMotorLoadout = useMemo(() => stageMotors(tree, assigned), [tree, assigned]);
-  const { cleared: nozzleCleared } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
+  const { cleared: nozzleCleared, seed: seedNozzleFollow } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -2709,6 +2709,7 @@ export function App() {
     // says why): the stack holds the tree alone, and one Ctrl+Z used to put the
     // previous configuration's nozzle and recovery back under these motors.
     applyConfigSwitchPlan(plan, savedConfigs, {
+      seedNozzleFollow,
       history: { reset: resetHistory },
       setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setNote: setFileNote,
     });

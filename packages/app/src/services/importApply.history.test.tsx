@@ -158,7 +158,7 @@ describe('a configuration switch', () => {
       savedConfigs: [A, B], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: h.current.treeRef.current,
     }, B, TEXT);
     act(() => applyConfigSwitchPlan(plan, [A, B], {
-      history: h.current, setSavedConfigs: vi.fn(), setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
+      seedNozzleFollow: vi.fn(), history: h.current, setSavedConfigs: vi.fn(), setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
       setActiveConfigId: vi.fn(), setNote: vi.fn(),
     }));
     expect(h.current.tree.components[1]!['nozzleExitDiameter']).toBe(0.0254);
@@ -178,7 +178,7 @@ describe('a configuration switch', () => {
     }, C, TEXT);
     expect(plan.tree).toBe(h.current.treeRef.current);
     act(() => applyConfigSwitchPlan(plan, [A, C], {
-      history: h.current, setSavedConfigs: vi.fn(), setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
+      seedNozzleFollow: vi.fn(), history: h.current, setSavedConfigs: vi.fn(), setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
       setActiveConfigId: vi.fn(), setNote: vi.fn(),
     }));
     expect(h.current.canUndo).toBe(false);
@@ -193,7 +193,7 @@ describe('a configuration switch', () => {
         savedConfigs: configs, activeConfigId: 'A', mountMotors: working, unmatchedRefs: {}, tree: h.current.treeRef.current,
       }, B, TEXT);
       act(() => applyConfigSwitchPlan(plan, configs, {
-        history: h.current, setSavedConfigs, setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
+        seedNozzleFollow: vi.fn(), history: h.current, setSavedConfigs, setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(),
         setActiveConfigId: vi.fn(), setNote: vi.fn(),
       }));
       return setSavedConfigs;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
@@ -50,6 +50,12 @@ export function useNozzleFollow(opts: {
 }): {
   /** Per stage id: the nozzle this cleared, and whose it was. */
   cleared: Record<string, NozzleCleared>;
+  /**
+   * Record these stages' loadouts as already SEEN — called before writing a
+   * change that brings its own nozzle, so the change is not taken for a motor
+   * swap. See `seed` below.
+   */
+  seed: (stages: readonly StageMotors[]) => void;
 } {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
   const seen = useRef(new Map<string, { key: string; label: string }>());
@@ -135,5 +141,21 @@ export function useNozzleFollow(opts: {
     })();
     // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
   }, [loadout, treeRef, writeTree, lookup]);
-  return { cleared };
+  /**
+   * A CONFIGURATION SWITCH IS NOT A MOTOR CHANGE (audit 2026-09-22). A RASAero
+   * simulation states the nozzle of the motor it flies, and the switch writes
+   * that nozzle with those motors — but the record above had never seen the new
+   * loadout, so it acted on the switch as a swap and replaced or cleared the
+   * very nozzle the configuration states. Measured by the audit on
+   * `ThreeCarbYen-2018.CDX1`: switching to sim-2 deleted its stated 25.40 mm
+   * exit under a false note ("was for M745-P"), and Save then dropped it. The
+   * switch seeds the stages whose nozzle it states, BEFORE its state writes, so
+   * the effect finds nothing changed there.
+   */
+  const seed = useCallback((stages: readonly StageMotors[]) => {
+    for (const s of stages) {
+      seen.current.set(s.stageId, { key: stageMotorKey(s), label: s.motors[0]?.label ?? '' });
+    }
+  }, []);
+  return { cleared, seed };
 }
