@@ -11,7 +11,9 @@ import {
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import type { SimRun } from '../services/simReport.js';
-import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
+import {
+  addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
+} from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
 import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
 import {
@@ -354,7 +356,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
-  const [finished, setFinished] = useState<{ total: number; stopped: boolean } | null>(null);
+  const [finished, setFinished] = useState<{ total: number; stopped: boolean; evicted: number; unsaved: number } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
   // Stop, and unmount: the ONE cancel signal. It reaches every download, so
@@ -466,10 +468,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       // same list flight by flight, and this makes the end state not depend
       // on it having done so.
       setRows(out);
-      setFinished({ total: out.length, stopped });
       const accepted = out.flatMap((r) =>
         (r.run && gradeBatchRun(r.run, criteriaRef.current).length === 0 ? [r.run] : []));
-      if (accepted.length > 0) onRunsChange(addRuns(accepted));
+      // Saving them can push the oldest saved runs past the 500-run cap, which
+      // used to happen in silence (audit 2026-09-22) — and a sweep that accepts
+      // more than 500 does not fit at all. The line below says both, apart.
+      const stored = accepted.length > 0 ? addRuns(accepted) : null;
+      setFinished({ total: out.length, stopped, evicted: stored ? runsEvictedByLastWrite() : 0,
+        unsaved: stored ? runsUnsavedByLastWrite() : 0 });
+      if (stored) onRunsChange(stored);
     } catch (e) {
       if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
     } finally {
@@ -834,6 +841,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               errors: sorted.filter((r) => r.error).length,
               downloadable: sorted.some((r) => r.run),
             })}
+            {(finished.evicted > 0 || finished.unsaved > 0)
+              && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
+            {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
           </p>
         )}
         {failure && !running && (

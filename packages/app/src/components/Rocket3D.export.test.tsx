@@ -161,6 +161,25 @@ describe('the 3D image export', () => {
     expect(log).toHaveLength(before);
     root = createRoot(host); // afterEach unmounts again
   });
+
+  it('an encode that fails is reported, not an unhandled rejection (audit 2026-09-22)', async () => {
+    // A mobile GPU that cannot hand back an 8K frame (toBlob gives null) made
+    // the handler reject; the menu calls it fire-and-forget, so the pick did
+    // nothing at all. The 2D image menu already reported the same failure.
+    const { snapshotWithHeader } = await import('../services/schematicExport.js');
+    vi.mocked(snapshotWithHeader).mockImplementationOnce(() => Promise.reject(new Error('toBlob returned null')));
+    const errors: string[] = [];
+    act(() => root.render(
+      <PrefsProvider>
+        <Rocket3D tree={TREE} info={null} exportData={EXPORT} onError={(m) => errors.push(m)} />
+      </PrefsProvider>,
+    ));
+    await act(async () => { await expect(pick!()).resolves.toBeUndefined(); });
+    expect(errors).toEqual(['Image export failed: toBlob returned null — try a smaller width.']);
+    expect(downloadImage).not.toHaveBeenCalled();
+    // The renderer was still put back.
+    expect(log.slice(-3)).toEqual(['ratio 2', 'size 800x400', 'render']);
+  });
 });
 
 /**

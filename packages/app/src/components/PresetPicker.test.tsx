@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { loadCustomPresets, saveCustomPresets, type Preset } from '../services/presets.js';
+import { loadCustomPresets, loadPresets, saveCustomPresets, type Preset } from '../services/presets.js';
 
 /**
  * The CSV round trip this dialog advertises (⬇ CSV, "Import an edited CSV") is
@@ -25,6 +25,11 @@ import { loadCustomPresets, saveCustomPresets, type Preset } from '../services/p
  * table shows nothing but what these tests import.
  */
 vi.mock('../data/presets.json', () => ({ default: { presets: [] } }));
+// Passed through unchanged; one test makes a single reload fail.
+vi.mock('../services/presets.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../services/presets.js')>();
+  return { ...real, loadPresets: vi.fn(real.loadPresets) };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -145,6 +150,35 @@ describe('PresetPicker — CSV import', () => {
     expect(text()).toContain('1 row(s) skipped');
     expect(text()).toContain('NONAME-1');
     expect(loadCustomPresets().map((p) => p.partNo)).toEqual(['PLAIN-1']);
+  });
+
+  /**
+   * Audit 2026-09-22: after an import the list is reloaded, and that promise
+   * had no catch. A reload that failed was an unhandled rejection that left
+   * `all` null under an "Imported" note — and with a note on screen the
+   * "Loading…" line is hidden, so the dialog showed an empty table as if the
+   * catalogue had gone.
+   */
+  it('a list that cannot be reloaded after an import keeps the old one and says so', async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => { rejections.push(e); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      saveCustomPresets([{
+        kind: 'BodyTube', manufacturer: 'ACME', partNo: 'OLD-1', description: 'Already here',
+      } as Preset]);
+      await render();
+      expect(text()).toContain('OLD-1');
+      vi.mocked(loadPresets).mockRejectedValueOnce(new Error('chunk failed to load'));
+      await importCsv(CSV);
+      await flush();
+      expect(text()).toContain('Imported 1 preset(s)');
+      expect(text()).toContain('could not be reloaded (chunk failed to load)');
+      expect(text()).toContain('OLD-1'); // the list it had, not an empty table
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
   });
 });
 

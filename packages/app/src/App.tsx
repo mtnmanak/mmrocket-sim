@@ -50,6 +50,7 @@ const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ de
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
+import { PanelBoundary } from './components/PanelBoundary.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
@@ -65,17 +66,19 @@ import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPip
 import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
-import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
+import {
+  decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
+} from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
-import { saveFile } from './services/saveFile.js';
+import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
-  flushSession, loadSession, onSessionSaveStateChange, saveSessionDebounced,
-  sessionPredatesThisBuild, sessionSaveFailing,
+  flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
+  sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
@@ -85,7 +88,9 @@ import {
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
-import { addRun, loadRuns, persistFailed } from './services/simStore.js';
+import {
+  addRun, loadRuns, persistFailed, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite,
+} from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
@@ -470,6 +475,16 @@ export function App() {
   useEffect(() => { restoreCatalogueOverlay(); }, []);
 
   const wantsStarterMotor = !session?.mountMotors && !session?.motor && !!defaultMountId;
+  /**
+   * The starter motor as it arrives, held until the render that has it in
+   * state, where the first-visit saved mark is re-taken over it (the effect
+   * after the mark's seed, below). Without that, the mark described the
+   * rocket with NO motor — it is seeded on mount, one await before the C6
+   * lands — so the untouched starter read as unsaved, the stale mark was
+   * autosaved, and every newcomer's Open and ✕ New asked about a rocket they
+   * never touched, on every reload (audit 2026-09-22).
+   */
+  const starterLanding = useRef<MountMotor | null>(null);
   useEffect(() => {
     if (!wantsStarterMotor) return;
     let live = true;
@@ -478,10 +493,12 @@ export function App() {
         // Only if nothing beat it: the user may have picked a motor, or opened
         // a file or pressed ✕ New, in the time the bundle chunk took to arrive
         // (importApply.starterMotorMayLand — the mount must still be on screen).
-        if (live && m) {
-          setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)
-            ? { [defaultMountId!]: m } : prev));
-        }
+        if (!live || !m) return;
+        // The saved mark is re-taken on the render that has this motor in
+        // state (audit 2026-09-22, row 295) — see the effect that reads it.
+        starterLanding.current = m;
+        setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)
+          ? { [defaultMountId!]: m } : prev));
       })
       .catch(() => { /* no bundled curve and no network: the design starts with no motor, honestly */ });
     return () => { live = false; };
@@ -621,15 +638,47 @@ export function App() {
   // only ever raised kept claiming storage was full while the table showed
   // a freshly saved run. Dismissible; a later refused write raises it again.
   const [runsQuotaWarn, setRunsQuotaWarn] = useState(false);
+  // What the 500-run cap cut since the user last dismissed the note — through
+  // the same funnel, so a Launch at the cap and a batch that overflows it are
+  // both counted (audit 2026-09-22: the cap evicted silently). Saved runs it
+  // removed and new runs that never fit are counted apart: only a batch of
+  // more than 500 can do the second, and they are not "the oldest" of anything.
+  const [runsCapped, setRunsCapped] = useState({ evicted: 0, unsaved: 0 });
   const recordRuns = useCallback((next: SimRun[]) => {
     setRuns(next);
     setRunsQuotaWarn(persistFailed());
+    const evicted = runsEvictedByLastWrite();
+    const unsaved = runsUnsavedByLastWrite();
+    if (evicted > 0 || unsaved > 0) {
+      setRunsCapped((n) => ({ evicted: n.evicted + evicted, unsaved: n.unsaved + unsaved }));
+    }
   }, []);
   // Session autosave happens inside a debounce, so its health is pushed, not
   // polled: subscribe for the working<->failing edges (deduped in session.ts).
   // Non-dismissible while failing — it clears itself when a save sticks.
   const [autosaveFailing, setAutosaveFailing] = useState(() => sessionSaveFailing());
   useEffect(() => onSessionSaveStateChange(setAutosaveFailing), []);
+  // Another tab wrote the autosave since this one last read it, and this tab's
+  // writes are being held back rather than overwrite that work (audit
+  // 2026-09-22; services/session.ts "ONE SLOT, SEVERAL TABS"). Pushed the same
+  // way, and cleared only by a choice in the banner.
+  const [sessionConflict, setSessionConflict] = useState(() => sessionConflicted());
+  useEffect(() => onSessionConflictChange(setSessionConflict), []);
+  // While it stands, closing this tab really would lose its changes — they are
+  // in no slot — so this is the one state that earns a leave-page prompt (the
+  // pagehide flush's comment explains why every other state does not).
+  // "Load the other tab's design" reloads on purpose, and says so first.
+  const leavingForOtherTab = useRef(false);
+  useEffect(() => {
+    if (!sessionConflict) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (leavingForOtherTab.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
+  }, [sessionConflict]);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
   /**
@@ -1020,7 +1069,8 @@ export function App() {
   // close, reload and navigation away - and on a mobile browser discarding the
   // page, which `beforeunload` does not. No confirmation dialog: the autosave
   // genuinely restores the design, so stopping every tab close to say so would
-  // be a nag rather than a guard.
+  // be a nag rather than a guard — except while another tab holds the slot
+  // (`sessionConflict` above), when it does not.
   useEffect(() => {
     const onHide = () => { flushSession(); };
     window.addEventListener('pagehide', onHide);
@@ -1038,6 +1088,28 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // ...and when the starter motor lands (one await after that seed), take the
+  // mark again over the rocket WITH it — but only if the mark still describes
+  // everything else on screen. An edit, a pick or an open that got in first
+  // has already moved the design off the seed, and that work keeps its prompt
+  // (audit 2026-09-22). No motor ever landing (no bundle, no network) leaves
+  // the seed standing, which is the design on screen.
+  useEffect(() => {
+    const m = starterLanding.current;
+    if (m === null) return;
+    if (designSnapshot.mountMotors[defaultMountId ?? ''] !== m) {
+      // Not in state yet — or beaten, in which case it never will be.
+      if (Object.keys(designSnapshot.mountMotors).length > 0) starterLanding.current = null;
+      return;
+    }
+    starterLanding.current = null;
+    if (savedMark.current !== null
+      && designFingerprint({ ...designSnapshot, mountMotors: {} }) === savedMark.current) {
+      savedMark.current = designFingerprint(designSnapshot);
+      bumpDirty();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultMountId is fixed at mount
+  }, [designSnapshot]);
 
   /**
    * "Is there work a file on disk does not have?" — the guard behind the Open
@@ -1069,7 +1141,7 @@ export function App() {
     // "Start a new design?" on an empty design, which is the always-fires
     // confirmation the comment on the New button warns about. Handing it the
     // open sequence supersedes any Open still in flight (audit 2026-09-22).
-    const { snapshot: fresh, mark } = planNewDesign({ launch, measured }, openSeq);
+    const { snapshot: fresh, mark } = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
     setTree(fresh.tree);
     setMountMotors({});
     setUnmatchedRefs({});
@@ -1094,6 +1166,14 @@ export function App() {
     setFileNote(null);
     setSimError(null);
     setShroudPrompt(null);
+    // A measured mass & CG describe the rocket that was WEIGHED, which is the
+    // one being cleared — as an import and a Scale already treat them. Kept,
+    // the pad-mass arithmetic (services/hardwareMass.ts) took the old rocket's
+    // weight as the new one's dry mass: weigh A at 2.0 kg, press New, build a
+    // 1.2 kg B and type a 3.0 kg pad mass, and the hardware term came out
+    // 0.8 kg short, so B flew light and high (audit 2026-09-22).
+    const unweighed: MeasuredFigures = { massKg: null, cgM: null };
+    setMeasured(unweighed);
     // An empty design is not work anybody would mind losing, so the NEXT Open
     // must not ask about it. Same reasoning as seeding a first visit clean.
     // The mark is the plan's, taken over exactly the values just set, not from
@@ -1885,9 +1965,20 @@ export function App() {
         onDismiss: () => setFileNote(null),
       });
     }
+    // Saved runs the cap removed — its own entry, so it neither overwrites an
+    // import note nor is overwritten by one. A warning: those runs are gone.
+    if (runsCapped.evicted > 0 || runsCapped.unsaved > 0) {
+      out.push({
+        id: 'runs-evicted',
+        severity: 'warn',
+        text: `${runCapNote(runsCapped.evicted, runsCapped.unsaved)} Download the run table`
+          + ' (Results) to keep a copy of the rest before more go.',
+        onDismiss: () => setRunsCapped({ evicted: 0, unsaved: 0 }),
+      });
+    }
     return out;
   }, [buildError, buildResult, motorFailures, curveRepairs, fileNoteState, setFileNote,
-    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote,
+    restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
@@ -2567,28 +2658,39 @@ export function App() {
     } : undefined,
   );
 
-  const onSaveOrk = async () => {
-    // The mark is taken SYNCHRONOUSLY, before the await. `download` opens a
-    // Save-As picker that can sit open indefinitely, and the user can keep
-    // editing behind it — marking from post-await state would bless those
-    // edits as saved when the file on disk does not have them.
-    //
-    // Everything live — motors, references and what the tree holds for the
-    // active configuration — is written back into it FIRST and the mark taken
-    // over the synced set (importApply.planOrkSave says why).
-    const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
-    if (synced !== savedConfigs) setSavedConfigs(synced);
-    // WITH launch: the .ork's first <simulation> carries the pad and weather,
-    // so the file (and the desktop app) round-trips the whole flight setup.
-    const out = await download(exportOrk({
-      name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-      configs: exportConfigs(synced), activeConfigId, measured,
-      flightData: flightDataForExport(),
-    }), 'ork');
-    // Only a real write counts. 'cancelled' means the user backed out of the
-    // picker, and treating that as saved is how work gets discarded silently.
-    if (out.kind !== 'cancelled') markSaved(mark);
-    return out;
+  const onSaveOrk = async (): Promise<SaveOutcome | { kind: 'failed' }> => {
+    // Caught, like onSaveRkt and onSaveCdx1 below (audit 2026-09-22): the
+    // writer can throw on a design it cannot represent, and none of this
+    // handler's five callers catches, so a throw was an unhandled rejection —
+    // a Save that silently did nothing. 'failed' is not 'cancelled' but stops
+    // the same things: nothing is marked saved, and "Save .ork, then open"
+    // does not go on to open the other file.
+    try {
+      // The mark is taken SYNCHRONOUSLY, before the await. `download` opens a
+      // Save-As picker that can sit open indefinitely, and the user can keep
+      // editing behind it — marking from post-await state would bless those
+      // edits as saved when the file on disk does not have them.
+      //
+      // Everything live — motors, references and what the tree holds for the
+      // active configuration — is written back into it FIRST and the mark taken
+      // over the synced set (importApply.planOrkSave says why).
+      const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
+      if (synced !== savedConfigs) setSavedConfigs(synced);
+      // WITH launch: the .ork's first <simulation> carries the pad and weather,
+      // so the file (and the desktop app) round-trips the whole flight setup.
+      const out = await download(exportOrk({
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+        configs: exportConfigs(synced), activeConfigId, measured,
+        flightData: flightDataForExport(),
+      }), 'ork');
+      // Only a real write counts. 'cancelled' means the user backed out of the
+      // picker, and treating that as saved is how work gets discarded silently.
+      if (out.kind !== 'cancelled') markSaved(mark);
+      return out;
+    } catch (e) {
+      setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      return { kind: 'failed' };
+    }
   };
 
   // DELIBERATELY does not clear the unsaved-changes mark, and neither does
@@ -2907,7 +3009,9 @@ export function App() {
       // reason is appended and the collapsed bar truncates at 157, so as an info
       // notice the reader got the first sentence, an 'i' glyph, no reason, and a
       // bar that never opened itself — for a link that simply did not work.
-      onError: (e) => setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`, 'warn'),
+      // The sentence names the browser when this one cannot unpack links at
+      // all, rather than calling every link damaged (audit 2026-09-22).
+      onError: (e) => setFileNote(shareLinkOpenFailure(e), 'warn'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
@@ -3402,6 +3506,25 @@ export function App() {
             design to a file (Save As / Export → .ork) to keep it safe.
           </div>
         )}
+        {sessionConflict && (
+          // Persistent until answered: until then neither tab's work is at
+          // risk, and a × that merely hid it would leave this tab's changes
+          // unsaved with nothing on screen to say so.
+          <div className="file-note file-note-error autosave-warn" role="alert">
+            ⚠ This design was changed in another tab. This tab has stopped
+            autosaving so it does not overwrite that work — changes made here
+            are not kept until you choose.{' '}
+            <button className="file-btn" onClick={takeOverSession}
+              title="Autosave this tab's design over the other tab's. The other tab will then show this same warning.">
+              Keep this tab&apos;s design
+            </button>{' '}
+            <button className="file-btn"
+              title="Reload this tab from the autosave, which holds the other tab's design. This tab's unsaved changes are discarded — Save .ork first to keep them."
+              onClick={() => { leavingForOtherTab.current = true; window.location.reload(); }}>
+              Load the other tab&apos;s design
+            </button>
+          </div>
+        )}
         {prefsSaveFailing && !autosaveFailing && (
           // Same shape, different store. Shown only when autosave is NOT
           // already shouting — one banner is a diagnosis, two are noise, and
@@ -3520,10 +3643,11 @@ export function App() {
             This clears “{tree.name ?? 'the current rocket'}” — all components,
             overrides and the current simulation. Make sure it's saved as an
             .ork file first: Ctrl+Z brings the components back, but not the
-            motors, the flight configurations or the flight.
+            motors, the flight configurations, the Measured mass &amp; CG or the
+            flight.
           </p>
           <div className="modal-actions">
-            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save .ork first
             </button>
             <button
@@ -3555,8 +3679,9 @@ export function App() {
                   const out = await onSaveOrk();
                   // Backing out of the Save-As picker must NOT then open the
                   // file — that would discard the work the user just tried
-                  // to protect. Leave the prompt up and let them decide.
-                  if (out.kind === 'cancelled') return;
+                  // to protect — and nor must a save that failed. Leave the
+                  // prompt up and let them decide.
+                  if (out.kind === 'cancelled' || out.kind === 'failed') return;
                   setPendingOpen(null);
                   void onOpenOrk(f);
                 })();
@@ -3589,7 +3714,7 @@ export function App() {
             from the linked design.
           </p>
           <div className="modal-actions">
-            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save mine first
             </button>
             <button
@@ -4023,7 +4148,8 @@ export function App() {
                     // makes a lazy chunk that fails to DOWNLOAD land here too.
                     <View3DBoundary onBack={() => setView('2d')}>
                       <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
-                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData}
+                          onError={setFileNote} />
                       </Suspense>
                     </View3DBoundary>
                   )
@@ -4623,20 +4749,28 @@ export function App() {
               Press <strong>Launch</strong> to fly the current design.
             </div>
           )}
+          {/* Each panel below draws stored or computed data, so each has its
+              own boundary (audit 2026-09-22): a throw in one says so in place,
+              and the rest of the tab — the run table included, where a bad
+              run can be deleted — keeps working instead of the app going down. */}
           {shownResult && lastRun ? (
             <>
-              <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
-              <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
-                designName={tree.name}
-                /* The two downloads re-fly the design AS IT STANDS, so they
-                   refuse where the 📈 Charts button already does. The
-                   aerodynamics model is excluded on purpose —
-                   fetchFullSeriesResult puts the flown model back before it
-                   runs, so a model switch is a labelling matter, not a
-                   different rocket. */
-                staleReason={changedSinceNonModel.length > 0
-                  ? listAnd(changedSinceNonModel) : null} />
+              <PanelBoundary what="This flight's report" resetKey={lastRun}>
+                <FlightStats run={lastRun} />
+                <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
+              </PanelBoundary>
+              <PanelBoundary what="The flight plots" resetKey={shownResult}>
+                <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
+                  designName={tree.name}
+                  /* The two downloads re-fly the design AS IT STANDS, so they
+                     refuse where the 📈 Charts button already does. The
+                     aerodynamics model is excluded on purpose —
+                     fetchFullSeriesResult puts the flown model back before it
+                     runs, so a model switch is a labelling matter, not a
+                     different rocket. */
+                  staleReason={changedSinceNonModel.length > 0
+                    ? listAnd(changedSinceNonModel) : null} />
+              </PanelBoundary>
             </>
           ) : lastRun ? (
             // A stored run whose series nobody has computed in this session —
@@ -4644,8 +4778,10 @@ export function App() {
             // The tiles and the report come from the stored scalars; the plots
             // need series, which run history does not carry.
             <>
-              <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} changedSince={changedSince} />
+              <PanelBoundary what="This flight's report" resetKey={lastRun}>
+                <FlightStats run={lastRun} />
+                <SimRunDetails run={lastRun} changedSince={changedSince} />
+              </PanelBoundary>
               <div className="panel placeholder empty-state">
                 <p><strong>Flight plots aren&apos;t saved with a run</strong></p>
                 <p>
@@ -4687,9 +4823,13 @@ export function App() {
               )}
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
-            aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
-            designName={tree.name} fileMachAlt={fileMachAlt} />}
+          {built && (
+            <PanelBoundary what="The drag chart" resetKey={built}>
+              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
+                aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
+                designName={tree.name} fileMachAlt={fileMachAlt} />
+            </PanelBoundary>
+          )}
           {runsQuotaWarn && (
             <div className="file-note file-note-warn" role="alert">
               {runs.length === 0
@@ -4705,21 +4845,23 @@ export function App() {
               <button className="file-note-dismiss" onClick={() => setRunsQuotaWarn(false)} aria-label="Dismiss">×</button>
             </div>
           )}
-          <SimHistory
-            runs={runs}
-            onRunsChange={recordRuns}
-            selectedId={lastRun?.id ?? null}
-            // Selecting a row no longer destroys the in-memory flight: the
-            // result carries the id of the run it belongs to, so the charts
-            // decide for themselves whether they are showing this run. Coming
-            // back to the run you just flew restores its charts for free.
-            onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
-            canShowCharts={canShowCharts}
-            onShowCharts={(r) => { void showChartsFor(r); }}
-            reflyingId={reflying}
-            hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
-            designName={tree.name}
-          />
+          <PanelBoundary what="The run history" resetKey={runs}>
+            <SimHistory
+              runs={runs}
+              onRunsChange={recordRuns}
+              selectedId={lastRun?.id ?? null}
+              // Selecting a row no longer destroys the in-memory flight: the
+              // result carries the id of the run it belongs to, so the charts
+              // decide for themselves whether they are showing this run. Coming
+              // back to the run you just flew restores its charts for free.
+              onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
+              canShowCharts={canShowCharts}
+              onShowCharts={(r) => { void showChartsFor(r); }}
+              reflyingId={reflying}
+              hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
+              designName={tree.name}
+            />
+          </PanelBoundary>
         </main>
         )}
       </div>

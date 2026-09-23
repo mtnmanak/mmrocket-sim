@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
+import { addRuns, loadRuns } from '../services/simStore.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse,
 } from '../services/simReport.js';
@@ -340,5 +341,67 @@ describe('SimHistory — the run table names its data', () => {
       .find((b) => (b.textContent ?? '').includes('Charts')) as HTMLButtonElement;
     act(() => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(selected).toEqual([]);
+  });
+});
+
+describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-22)', () => {
+  /** The table the way App wires it: simStore is the truth, the prop follows it. */
+  function Wired() {
+    const [runs, setRuns] = useState(() => loadRuns());
+    return <SimHistory runs={runs} onRunsChange={setRuns} />;
+  }
+  const named = (id: string, rocket: string): SimRun => ({ ...run(), id, rocket });
+  const buttons = () => Array.from(host.querySelectorAll('button'));
+  const byText = (t: string) => buttons().find((b) => (b.textContent ?? '').includes(t)) as HTMLButtonElement;
+
+  beforeEach(() => {
+    // Newest first, as addRuns stores them.
+    addRuns([named('a', 'Alpha'), named('b', 'Bravo'), named('c', 'Charlie')]);
+  });
+
+  it('"Clear all" asks first, naming the count, and Cancel keeps every run', () => {
+    render(<Wired />);
+    act(() => { byText('Clear all').click(); });
+    expect(loadRuns()).toHaveLength(3);
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Delete all 3 saved runs?');
+    act(() => { byText('Cancel').click(); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(loadRuns().map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('and the confirmation is what deletes them', () => {
+    render(<Wired />);
+    act(() => { byText('Clear all').click(); });
+    act(() => { byText('Delete all 3').click(); });
+    expect(loadRuns()).toEqual([]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('a row\'s ✕ deletes at once and offers Undo, which puts it back where it was', () => {
+    render(<Wired />);
+    openTable();
+    const del = host.querySelector('button[aria-label^="Delete run Bravo"]') as HTMLButtonElement;
+    act(() => { del.click(); });
+    expect(loadRuns().map((r) => r.id)).toEqual(['a', 'c']);
+    const undo = byText('Undo');
+    expect(undo).toBeTruthy();
+    // Focus lands on it: the ✕ the keyboard was on has gone with its row.
+    expect(document.activeElement).toBe(undo);
+    expect(host.textContent).toContain('Deleted run Bravo');
+    act(() => { undo.click(); });
+    expect(loadRuns().map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(host.textContent).not.toContain('Deleted run');
+  });
+
+  it('Undo still works after the LAST run is deleted', () => {
+    localStorage.clear();
+    addRuns([named('only', 'Solo')]);
+    render(<Wired />);
+    openTable();
+    act(() => { (host.querySelector('button[aria-label^="Delete run Solo"]') as HTMLButtonElement).click(); });
+    expect(loadRuns()).toEqual([]);
+    act(() => { byText('Undo').click(); });
+    expect(loadRuns().map((r) => r.id)).toEqual(['only']);
   });
 });

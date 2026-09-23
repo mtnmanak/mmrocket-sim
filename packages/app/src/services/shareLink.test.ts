@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { decodeShareFragment, encodeShareFragment, hasSharePayload } from './shareLink.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { decodeShareFragment, encodeShareFragment, hasSharePayload, shareLinkOpenFailure } from './shareLink.js';
 
 // These tests run in vitest's node environment: Node ≥ 21.2 ships the same
 // CompressionStream / DecompressionStream / Blob / Response / atob globals
@@ -77,5 +77,47 @@ describe('share-link codec', () => {
       '<bodytube><length>0.3</length><radius>0.0125</radius></bodytube>'.repeat(5000)
     }</subcomponents></rocket></openrocket>`;
     expect(await decodeShareFragment(await encodeShareFragment(big))).toBe(big);
+  });
+});
+
+describe('a browser that cannot unpack a share link (audit 2026-09-22)', () => {
+  // An older iPad (Safari before 16.4) has no DecompressionStream at all, and
+  // a Chromium before 103 has one without 'deflate-raw'. Every link then
+  // failed inside the inflater and was reported as "damaged or cut short —
+  // ask for the link again", sending the user back for a link that fails the
+  // same way.
+  const REAL = globalThis.DecompressionStream;
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('says which browser is needed when DecompressionStream is missing', async () => {
+    const frag = await encodeShareFragment(XML);
+    vi.stubGlobal('DecompressionStream', undefined);
+    const err = await decodeShareFragment(frag).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const note = shareLinkOpenFailure(err);
+    expect(note).toMatch(/this browser/i);
+    expect(note).toMatch(/Safari 16\.4/);
+    expect(note).not.toMatch(/damaged|ask for the link again/i);
+  });
+
+  it('and when it has one without deflate-raw', async () => {
+    const frag = await encodeShareFragment(XML);
+    vi.stubGlobal('DecompressionStream', class {
+      constructor(format: string) {
+        if (format !== 'gzip' && format !== 'deflate') {
+          throw new TypeError(`Failed to construct 'DecompressionStream': Unsupported format '${format}'`);
+        }
+        return new REAL(format as CompressionFormat);
+      }
+    });
+    const note = shareLinkOpenFailure(await decodeShareFragment(frag).then(() => null, (e: unknown) => e));
+    expect(note).toMatch(/this browser/i);
+    expect(note).not.toMatch(/damaged/i);
+  });
+
+  it('a genuinely damaged link is still called damaged', async () => {
+    const frag = await encodeShareFragment(XML);
+    const err = await decodeShareFragment(frag.slice(0, Math.floor(frag.length / 2))).then(() => null, (e: unknown) => e);
+    expect(shareLinkOpenFailure(err)).toMatch(/damaged or cut short/);
   });
 });

@@ -10,7 +10,7 @@ import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
  */
 
 const KEY = 'online-openrocket.sim-runs.v1';
-const MAX_RUNS = 500;
+export const MAX_RUNS = 500;
 
 /**
  * SimRun fields that are arrays, and that every reader in the app takes
@@ -78,10 +78,15 @@ export function loadRuns(): SimRun[] {
 }
 
 // Set when a write is refused (quota), cleared by the next write that sticks.
-// Every mutation goes through addRun/addRuns/deleteRun/clearRuns
+// Every mutation goes through addRun/addRuns/deleteRun/restoreRun/clearRuns
 // synchronously, so a getter the caller checks after each mutation is enough —
 // no subscription machinery in a plain module.
 let lastPersistFailed = false;
+// What the MAX_RUNS cap cut from the latest mutation — same getter pattern,
+// same funnel. Two counts, because a write can cut two different things: runs
+// that were already saved, and runs it was asked to add that never fit.
+let lastEvicted = 0;
+let lastUnsaved = 0;
 
 /**
  * True when the latest mutation could not be written: the returned table is
@@ -91,8 +96,55 @@ export function persistFailed(): boolean {
   return lastPersistFailed;
 }
 
-function persist(runs: SimRun[]): SimRun[] {
+/**
+ * How many of the OLDEST already-saved runs the latest mutation removed to stay
+ * within MAX_RUNS — 0 when it removed none, or when the write was refused
+ * (nothing was removed then: the store still holds them). The cap evicted
+ * silently (audit 2026-09-22): 300 hand-flown runs plus a 226-motor sweep left
+ * 500 runs, only 274 of them hand-flown, and nothing said 26 were gone.
+ */
+export function runsEvictedByLastWrite(): number {
+  return lastEvicted;
+}
+
+/**
+ * How many of the runs the latest mutation was asked to ADD did not fit under
+ * MAX_RUNS and were never saved — only a batch that accepts more than
+ * MAX_RUNS at once can do this (a combination sweep flies up to ~1.9M
+ * flights). Counted apart from `runsEvictedByLastWrite` because they are not
+ * "the oldest" of anything: a 600-run batch over 100 saved runs keeps 500 of
+ * its own, removes all 100 saved runs and leaves 100 of its own unsaved, and
+ * one lumped count of 200 "oldest removed" misstated both (audit 2026-09-22,
+ * from review).
+ */
+export function runsUnsavedByLastWrite(): number {
+  return lastUnsaved;
+}
+
+/**
+ * What the cap did on a write, in words — the batch's finished line and App's
+ * notice both say it, so they say it the same way. '' when it did nothing.
+ */
+export function runCapNote(evicted: number, unsaved: number): string {
+  const were = (n: number) => (n === 1 ? 'was' : 'were');
+  const parts = [
+    ...(evicted > 0 ? [`the oldest ${evicted} ${were(evicted)} removed to make room`] : []),
+    ...(unsaved > 0
+      ? [`${unsaved} new ${unsaved === 1 ? 'run' : 'runs'} did not fit and ${were(unsaved)} not saved`]
+      : []),
+  ];
+  return parts.length === 0 ? '' : `Saved simulations keeps the newest ${MAX_RUNS} runs, so ${parts.join(', and ')}.`;
+}
+
+/**
+ * `fresh` = how many runs at the head of `runs` are the ones this mutation
+ * adds (addRun/addRuns put them first) — so the cut at MAX_RUNS can say which
+ * of what it removed had been saved and which never were.
+ */
+function persist(runs: SimRun[], fresh = 0): SimRun[] {
   const kept = runs.slice(0, MAX_RUNS);
+  lastEvicted = 0;
+  lastUnsaved = 0;
   try {
     // JSON has no Infinity — JSON.stringify(Infinity) is null, which silently
     // corrupted stored plugged runs. Round-trip it as a string instead.
@@ -106,27 +158,46 @@ function persist(runs: SimRun[]): SimRun[] {
     return loadRuns();
   }
   lastPersistFailed = false;
+  lastUnsaved = Math.max(0, fresh - MAX_RUNS);
+  lastEvicted = runs.length - kept.length - lastUnsaved;
   // Return what was stored, so the in-memory table matches the next reload.
   return kept;
 }
 
 /** Newest first. */
 export function addRun(run: SimRun): SimRun[] {
-  return persist([run, ...loadRuns()]);
+  return persist([run, ...loadRuns()], 1);
 }
 
 export function addRuns(newRuns: SimRun[]): SimRun[] {
-  return persist([...newRuns, ...loadRuns()]);
+  return persist([...newRuns, ...loadRuns()], newRuns.length);
 }
 
 export function deleteRun(id: string): SimRun[] {
   return persist(loadRuns().filter((r) => r.id !== id));
 }
 
+/**
+ * Put back a run the row's ✕ deleted — its Undo (audit 2026-09-22: one click
+ * used to destroy a run with no way back). `beforeId` is the run that sat just
+ * below it when it went, or null when it was the bottom row; flights added
+ * since stay above it. With that neighbour gone too it goes back by its own
+ * time, and a run already present is not doubled.
+ */
+export function restoreRun(run: SimRun, beforeId: string | null): SimRun[] {
+  const list = loadRuns().filter((r) => r.id !== run.id);
+  let at = beforeId === null ? list.length : list.findIndex((r) => r.id === beforeId);
+  if (at === -1) at = list.findIndex((r) => r.when < run.when);
+  list.splice(at === -1 ? list.length : at, 0, run);
+  return persist(list);
+}
+
 export function clearRuns(): SimRun[] {
   // removeItem frees space instead of needing it, so clearing works even at
   // quota, where persist([])'s setItem could in principle still be refused.
   // loadRuns() reads a missing key as [] — same result as storing "[]".
+  lastEvicted = 0;
+  lastUnsaved = 0;
   try {
     localStorage.removeItem(KEY);
     lastPersistFailed = false;

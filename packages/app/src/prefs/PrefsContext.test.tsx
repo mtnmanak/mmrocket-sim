@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrefsProvider, usePrefs, type Preferences } from './PrefsContext.js';
 import { printerFromPreset } from './printers.js';
+import { INITIAL_UNITS, UNITS, type Quantity } from './units.js';
 
 /**
  * Loading stored preferences. The one that matters is MIGRATION SAFETY: a
@@ -108,5 +109,33 @@ describe('the printer preference round-trips', () => {
     mount();
     expect((seen.prefs.printer as unknown as { nozzle: number }).nozzle).toBe(0.6);
     expect(seen.prefs.printer!.clearance).toBeCloseTo(0.00015, 12);
+  });
+});
+
+describe('stored unit symbols (audit 2026-09-22)', () => {
+  // unitDef falls back to a quantity's FIRST unit for a symbol it does not
+  // know, while every label prints the stored symbol — so a stale or corrupt
+  // one labelled one unit's numbers with another's name ("Max altitude
+  // (furlong)" over metres, in the CSV headers among other places).
+  it('a symbol the quantity does not know falls back to that quantity\'s default', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      units: { distance: 'furlong', mass: 42, length: 'in', velocity: 'km/h' },
+    }));
+    mount();
+    expect(seen.prefs.units.distance).toBe(INITIAL_UNITS.distance);
+    expect(seen.prefs.units.mass).toBe(INITIAL_UNITS.mass);
+    // Known symbols are kept, whatever the default is.
+    expect(seen.prefs.units.length).toBe('in');
+    expect(seen.prefs.units.velocity).toBe('km/h');
+  });
+
+  it('every stored symbol is one its quantity can convert', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      units: Object.fromEntries(Object.keys(INITIAL_UNITS).map((q) => [q, 'nonsense'])),
+    }));
+    mount();
+    for (const [q, sym] of Object.entries(seen.prefs.units)) {
+      expect(UNITS[q as Quantity].some((u) => u.symbol === sym), `${q}: ${sym}`).toBe(true);
+    }
   });
 });

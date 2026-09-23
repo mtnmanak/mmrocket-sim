@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { INITIAL_UNITS, type UnitSelection } from './units.js';
+import { INITIAL_UNITS, UNITS, type Quantity, type UnitSelection } from './units.js';
 import { normalizePrinter, type PrinterPrefs } from './printers.js';
 
 /**
@@ -173,6 +173,22 @@ export function effectiveAero(prefs: Preferences, override: AeroChoice | null): 
 
 const STORAGE_KEY = 'online-openrocket.prefs.v1';
 
+/**
+ * The stored unit per quantity, keeping only symbols that quantity can convert
+ * (audit 2026-09-22). units.ts's `unitDef` converts an unknown symbol as the
+ * quantity's FIRST unit while every label prints the stored one, so a stale or
+ * corrupt symbol put metres under a "furlong" heading — the CSV headers among
+ * them. An unknown one, or a quantity not stored at all, takes the default.
+ */
+function knownUnits(stored: Partial<UnitSelection> | undefined): UnitSelection {
+  const out = { ...DEFAULT_PREFS.units };
+  for (const q of Object.keys(out) as Quantity[]) {
+    const sym: unknown = stored?.[q];
+    if (typeof sym === 'string' && UNITS[q].some((u) => u.symbol === sym)) out[q] = sym;
+  }
+  return out;
+}
+
 function load(): Preferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -190,7 +206,7 @@ function load(): Preferences {
     return {
       ...DEFAULT_PREFS,
       ...parsed,
-      units: { ...DEFAULT_PREFS.units, ...(parsed.units ?? {}) },
+      units: knownUnits(parsed.units),
     };
   } catch {
     return DEFAULT_PREFS;

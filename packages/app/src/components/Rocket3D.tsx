@@ -371,7 +371,7 @@ function CalloutLabel({ text, color, position, height, gap, place = 'right' }: {
   );
 }
 
-export function Rocket3D({ tree, info, motors, exportData }: {
+export function Rocket3D({ tree, info, motors, exportData, onError }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor cases keyed by mount node id — rendered seated at the
@@ -379,6 +379,8 @@ export function Rocket3D({ tree, info, motors, exportData }: {
   motors?: MotorDims;
   /** When set, a 📷 PNG snapshot button appears (issue 2026-08-11a). */
   exportData?: Omit<ExportData, 'spanM'>;
+  /** Where a failed image export is reported — the same channel as the 2D view's. */
+  onError?: (message: string) => void;
 }) {
   const { prefs, setPrefs } = usePrefs();
   const markers = markerVisibility(prefs.markers3d);
@@ -435,19 +437,28 @@ export function Rocket3D({ tree, info, motors, exportData }: {
     // effect only ever cleared it, so under StrictMode's mount-unmount-mount it
     // was false from the first commit and every `npm run dev` export skipped the
     // restore and left the view at export size.
-    let encoding: Promise<Blob>;
+    //
+    // A failure anywhere — the hi-res render, a GPU that cannot hand back an 8K
+    // frame, the encode — used to reject a promise the menu never awaits: a
+    // pick that silently did nothing (audit 2026-09-22). It is reported the way
+    // the 2D image menu reports its own, and the renderer is still put back.
     try {
-      st.gl.setPixelRatio(1);
-      st.gl.setSize(widthPx, outH, false);
-      st.gl.render(st.scene, cam);
-      encoding = snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
-    } finally {
-      st.gl.setPixelRatio(pr);
-      st.gl.setSize(cssW, cssH, false);
-      st.gl.render(st.scene, st.camera);
+      let encoding: Promise<Blob>;
+      try {
+        st.gl.setPixelRatio(1);
+        st.gl.setSize(widthPx, outH, false);
+        st.gl.render(st.scene, cam);
+        encoding = snapshotWithHeader(el, { ...exportData, spanM: 2 * maxR }, format);
+      } finally {
+        st.gl.setPixelRatio(pr);
+        st.gl.setSize(cssW, cssH, false);
+        st.gl.render(st.scene, st.camera);
+      }
+      const blob = await encoding;
+      downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
+    } catch (e) {
+      onError?.(`Image export failed: ${e instanceof Error ? e.message : String(e)} — try a smaller width.`);
     }
-    const blob = await encoding;
-    downloadImage(blob, `${exportData.name.replace(/[^\w-]+/g, '_')}-3d.${IMAGE_FORMAT_EXT[format]}`);
   };
   // Mesh keys are stable across rebuilds, so R3F never unmounts/auto-disposes
   // the swapped-out geometries — release them ourselves or every edit leaks

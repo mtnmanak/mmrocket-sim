@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { saveFile } from './saveFile.js';
+import { downloadBlob, saveFile } from './saveFile.js';
 
 /**
  * A tester on Windows 10 + Chrome: *"When I click on save ORK or others it
@@ -103,6 +103,39 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
         .resolves.toEqual({ kind: 'downloaded', name: 'Wild_Child.ork' });
       expect(clicked.map((c) => c.download)).toEqual(['Wild_Child.ork']);
     }
+  });
+
+  it('a MIME type with parameters still gets the dialog (audit 2026-09-22)', async () => {
+    // Chrome's picker takes a bare MIME essence as an `accept` key and throws
+    // TypeError on "text/csv;charset=utf-8" — the type the Run table and
+    // Flight data CSVs are built with — so both went straight to Downloads
+    // while the XLSX beside them got a Save As dialog. A picker that refuses
+    // the way Chrome does:
+    const write = vi.fn(() => Promise.resolve());
+    const picker = vi.fn((o: { types: { accept: Record<string, string[]> }[] }) => {
+      for (const key of Object.keys(o.types[0]!.accept)) {
+        if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(key)) {
+          return Promise.reject(new TypeError(`Invalid type: ${key}`));
+        }
+      }
+      return Promise.resolve({
+        name: 'runs.csv',
+        createWritable: () => Promise.resolve({ write, close: () => Promise.resolve() }),
+      });
+    });
+    (window as PickerWin).showSaveFilePicker = picker;
+    const blob = new Blob(['a,b'], { type: 'text/csv;charset=utf-8' });
+    await expect(saveFile(blob, { ...OPTS, suggestedName: 'runs.csv', mime: blob.type, extensions: ['.csv'] }))
+      .resolves.toEqual({ kind: 'saved', name: 'runs.csv' });
+    expect(picker.mock.calls[0]![0].types[0]!.accept).toEqual({ 'text/csv': ['.csv'] });
+    expect(clicked).toEqual([]);
+    // downloadBlob — the path those two CSV buttons take — hands the Blob's
+    // own type through, and gets the dialog too.
+    picker.mockClear();
+    downloadBlob(blob, 'flight.csv');
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(picker.mock.calls[0]![0].types[0]!.accept).toEqual({ 'text/csv': ['.csv'] });
+    expect(clicked).toEqual([]);
   });
 
   it('an insecure context never even tries the picker', async () => {

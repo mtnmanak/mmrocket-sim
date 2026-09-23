@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, runsToCsv, runsToTable,
+  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite,
+  runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
 import type { SimRun } from './simReport.js';
 
@@ -107,6 +108,109 @@ describe('persist under quota — the table must not lie', () => {
     const out = clearRuns();
     expect(out.map((r) => r.id)).toEqual(['a']);
     expect(persistFailed()).toBe(true);
+  });
+});
+
+describe('the 500-run cap says what it removed (audit 2026-09-22)', () => {
+  const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => mkRun(`${prefix}${i}`));
+
+  it('300 hand-flown runs plus a 226-motor sweep: 26 hand-flown runs go, and the count says so', () => {
+    for (const r of many('hand', 300).reverse()) addRun(r); // newest first, one Launch at a time
+    expect(runsEvictedByLastWrite()).toBe(0);
+    const out = addRuns(many('sweep', 226));
+    expect(out).toHaveLength(500);
+    expect(out.filter((r) => r.id.startsWith('hand'))).toHaveLength(274);
+    expect(runsEvictedByLastWrite()).toBe(26);
+  });
+
+  it('one Launch at the cap removes one, and the next write under it removes none', () => {
+    addRuns(many('old', 500));
+    addRun(mkRun('fresh'));
+    expect(runsEvictedByLastWrite()).toBe(1);
+    deleteRun('fresh');
+    expect(runsEvictedByLastWrite()).toBe(0);
+  });
+
+  it('a refused write removed nothing — the store still holds every run', () => {
+    addRuns(many('old', 500));
+    jamWrites();
+    addRun(mkRun('lost'));
+    expect(runsEvictedByLastWrite()).toBe(0);
+    expect(runsUnsavedByLastWrite()).toBe(0);
+  });
+
+  it('a batch of 600 over 100 saved runs: 100 saved runs go, and 100 of its own were never saved', () => {
+    // The cut at 500 falls inside the batch itself, so what it removed is two
+    // different things. One lumped count said "the oldest 200" (from review).
+    addRuns(many('saved', 100));
+    const out = addRuns(many('batch', 600));
+    expect(out.map((r) => r.id)).toEqual(many('batch', 500).map((r) => r.id));
+    expect(runsEvictedByLastWrite()).toBe(100);
+    expect(runsUnsavedByLastWrite()).toBe(100);
+  });
+
+  it('a batch that fits leaves nothing unsaved, and the next write resets both counts', () => {
+    addRuns(many('saved', 400));
+    addRuns(many('batch', 150));
+    expect(runsEvictedByLastWrite()).toBe(50);
+    expect(runsUnsavedByLastWrite()).toBe(0);
+    addRuns(many('huge', 501));
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite()]).toEqual([500, 1]);
+    deleteRun('huge0');
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite()]).toEqual([0, 0]);
+  });
+});
+
+describe('runCapNote — the one wording of what the cap did', () => {
+  it('says nothing when it did nothing', () => {
+    expect(runCapNote(0, 0)).toBe('');
+  });
+
+  it('names the saved runs it removed', () => {
+    expect(runCapNote(1, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
+    expect(runCapNote(26, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 26 were removed to make room.');
+  });
+
+  it('names the new runs that never fit, apart from the saved ones', () => {
+    expect(runCapNote(100, 100)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 100 were removed'
+      + ' to make room, and 100 new runs did not fit and were not saved.');
+    expect(runCapNote(0, 1)).toBe('Saved simulations keeps the newest 500 runs, so 1 new run did not fit and was not saved.');
+  });
+});
+
+describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
+  const ids = () => loadRuns().map((r) => r.id);
+
+  it('puts a run back above the one that sat below it — flights added since stay on top', () => {
+    addRuns([mkRun('a'), mkRun('b'), mkRun('c')]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    addRun(mkRun('new'));
+    expect(restoreRun(b, 'c').map((r) => r.id)).toEqual(['new', 'a', 'b', 'c']);
+    expect(ids()).toEqual(['new', 'a', 'b', 'c']);
+  });
+
+  it('the bottom row goes back to the bottom', () => {
+    addRuns([mkRun('a'), mkRun('b')]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    expect(restoreRun(b, null).map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('with its neighbour gone too, it goes back by its own time', () => {
+    addRuns([mkRun('a', { when: 3 }), mkRun('b', { when: 2 }), mkRun('c', { when: 1 }), mkRun('z', { when: 0 })]);
+    const b = loadRuns()[1]!;
+    deleteRun('b');
+    deleteRun('c');
+    addRun(mkRun('d', { when: 4 }));
+    expect(restoreRun(b, 'c').map((r) => r.id)).toEqual(['d', 'a', 'b', 'z']);
+    expect(ids()).toEqual(['d', 'a', 'b', 'z']);
+  });
+
+  it('never doubles a run that is already there', () => {
+    addRuns([mkRun('a'), mkRun('b')]);
+    const a = loadRuns()[0]!;
+    expect(restoreRun(a, 'b').map((r) => r.id)).toEqual(['a', 'b']);
   });
 });
 

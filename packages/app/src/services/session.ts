@@ -1,7 +1,7 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor, SavedConfig } from '../App.js';
-import type { MotorMeta } from './simReport.js';
+import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 
@@ -103,6 +103,19 @@ export interface SessionState {
    * signal that they are old.
    */
   appVersion?: string;
+  /**
+   * Which write this is — a hash of everything else in the payload (but
+   * `over` and `savedAt`), written FIRST so a tab can read it without parsing
+   * the design (see `stampOf`). Absent on sessions written before audit
+   * 2026-09-22. Never written by a caller: writeNow computes it.
+   */
+  stamp?: string;
+  /**
+   * On a "Keep this tab's design" write only: the stamp of the other tab's
+   * write it replaced, so that tab can tell its own design was just
+   * overwritten (see `watchOtherTabs`). Right after `stamp`, outside it.
+   */
+  over?: string;
   /** Last-save timestamp (ms epoch) — shown on restore. */
   savedAt: number;
 }
@@ -156,15 +169,106 @@ function sessionPredatesTimeStepField(s: SessionState): boolean {
   return versionEarlierThan(s.appVersion, TIME_STEP_FIELD_VERSION);
 }
 
+/*
+ * ONE SLOT, SEVERAL TABS (audit 2026-09-22).
+ *
+ * The autosave is a single localStorage key and every open tab writes it, so
+ * the last tab to write won: tab B holds an hour of unsaved work, one Launch
+ * in tab A (which re-writes its session) replaced the slot, both tabs closed,
+ * and B's work was gone — the session is the ONLY copy of unsaved work.
+ *
+ * So a tab reads the slot before it writes. Each payload opens with a stamp, a
+ * hash of everything in it but the timestamp, and a tab remembers the stamp it
+ * last loaded or wrote. The slot is this tab's to overwrite when it is empty,
+ * when it still holds what this tab last saw, or when it already holds what
+ * this tab is about to write. Anything else was written by another tab since,
+ * and is not overwritten: the write is held, and `sessionConflicted()` goes
+ * true until the user chooses (`takeOverSession`, or a reload to adopt the
+ * other tab's design).
+ *
+ * A CONTENT stamp rather than a per-tab id, deliberately: a second tab that
+ * opens the same design re-writes it on mount byte for byte, and an id would
+ * make that alone a "conflict" for the first tab. A single tab can never trip
+ * this — the slot always holds its own last write.
+ *
+ * THE OTHER TAB MAY BE IDLE. The check above protects a tab only when it next
+ * writes. "Keep this tab's design" overwrites another tab's write on purpose,
+ * and that tab — idle, its work already in the slot — never wrote again, so
+ * nothing told it: its close gave no prompt and its design was gone (audit
+ * 2026-09-22, from review). So a takeover names the stamp it replaced (`over`),
+ * and a tab that hears through the `storage` event that its OWN last write was
+ * the one replaced raises the same conflict, holding that write
+ * (`watchOtherTabs`). Only a takeover does this: an ordinary write lands only
+ * on what its writer had seen, so the design it replaces is one that writer
+ * started from — the other tab is stale, not losing work, and stopping its
+ * close to say so would be a nag.
+ */
+const STAMP_PREFIX = '{"stamp":"';
+const OVER_FIELD = '"over":"';
+
+/**
+ * The stamp heading a stored payload, read without parsing the design: null =
+ * no session stored, '' = a session written before stamps (or by something
+ * else), which matches nothing a tab of this build writes.
+ */
+function stampOf(raw: string | null): string | null {
+  if (raw === null) return null;
+  if (!raw.startsWith(STAMP_PREFIX)) return '';
+  const end = raw.indexOf('"', STAMP_PREFIX.length);
+  return end === -1 ? '' : raw.slice(STAMP_PREFIX.length, end);
+}
+
+/** The stamp a takeover write names as the one it replaced, or null for any other payload. */
+function overOf(raw: string | null): string | null {
+  if (raw === null) return null;
+  const stamp = stampOf(raw);
+  if (!stamp) return null;
+  const at = STAMP_PREFIX.length + stamp.length + 2; // past the stamp's closing `",`
+  if (!raw.startsWith(OVER_FIELD, at)) return null;
+  const end = raw.indexOf('"', at + OVER_FIELD.length);
+  return end === -1 ? null : raw.slice(at + OVER_FIELD.length, end);
+}
+
+/**
+ * The stamp of the payload this tab last read (loadSession) or wrote.
+ * undefined until the first of those: a tab that never loaded has no baseline,
+ * and takes the slot as it finds it.
+ */
+let seenStamp: string | null | undefined;
+
+let conflicted = false;
+const conflictListeners = new Set<(conflicted: boolean) => void>();
+
+/** True while another tab's autosave holds the slot and this tab's writes are held back. */
+export function sessionConflicted(): boolean {
+  return conflicted;
+}
+
+/** Notified on each edge into and out of a conflict. Returns an unsubscribe. */
+export function onSessionConflictChange(fn: (conflicted: boolean) => void): () => void {
+  conflictListeners.add(fn);
+  return () => { conflictListeners.delete(fn); };
+}
+
+function setConflicted(next: boolean): void {
+  if (next === conflicted) return;
+  conflicted = next;
+  for (const fn of conflictListeners) fn(next);
+}
+
 export function loadSession(): SessionState | null {
   try {
     const raw = localStorage.getItem(KEY);
+    // What this tab has now seen in the slot — the baseline writeNow checks
+    // the slot against before it overwrites anything (see `seenStamp`).
+    seenStamp = stampOf(raw);
     if (!raw) return null;
     const s = JSON.parse(raw) as SessionState;
     if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) {
       // Unusable payload: drop it rather than re-parsing the same wreck on
       // every load, and so a corrupted autosave cannot follow the user around.
       clearSession();
+      seenStamp = null;
       return null;
     }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
@@ -245,6 +349,16 @@ function setSaveFailing(failing: boolean): void {
 let pending: Omit<SessionState, 'savedAt'> | null = null;
 
 /**
+ * The state this tab last wrote. An idle tab has nothing pending, so when a
+ * takeover overwrites its write this is what it holds back instead (see
+ * `watchOtherTabs`) — its design, which the slot no longer has.
+ */
+let lastWritten: Omit<SessionState, 'savedAt'> | null = null;
+
+/** Set by `takeOverSession` for its one write: the stamp that write replaces. */
+let overwriting: string | null = null;
+
+/**
  * Key prefixes holding data the app can rebuild for free, in the order they may
  * be sacrificed to keep the user's design.
  *
@@ -295,9 +409,25 @@ function writeNow(): void {
   try {
     // Plugged motors carry ejectionDelay = Infinity; JSON.stringify would
     // silently turn that into null, so round-trip it as a string.
-    const payload = JSON.stringify(
-      { appVersion: APP_VERSION, ...pending, savedAt: Date.now() }, (_k, v) =>
+    const { stamp: _stale, over: _staleOver, ...state } = pending;
+    const content = JSON.stringify(
+      { appVersion: APP_VERSION, ...state }, (_k, v) =>
       typeof v === 'number' && v === Infinity ? 'Infinity' : v);
+    // The stamp covers everything but the timestamp (and a takeover's `over`),
+    // so re-writing the same design is the same stamp. Spliced rather than
+    // stringified twice: the content is always a non-empty object (appVersion
+    // is in it), so `content.slice(1, -1)` is its member list.
+    const stamp = shortHash(content);
+    const over = overwriting ? `${OVER_FIELD}${overwriting}",` : '';
+    const payload = `${STAMP_PREFIX}${stamp}",${over}${content.slice(1, -1)},"savedAt":${Date.now()}}`;
+    // Read before writing — see "ONE SLOT, SEVERAL TABS" above.
+    const inSlot = stampOf(localStorage.getItem(KEY));
+    if (inSlot !== null && seenStamp !== undefined && inSlot !== seenStamp && inSlot !== stamp) {
+      // Another tab wrote since this one last looked. Keep `pending` — it is
+      // what "Keep this tab's design" writes — and leave the slot alone.
+      setConflicted(true);
+      return;
+    }
     try {
       localStorage.setItem(KEY, payload);
     } catch (quota) {
@@ -319,6 +449,9 @@ function writeNow(): void {
       if (evictDisposableCache() === 0) throw quota;
       localStorage.setItem(KEY, payload);
     }
+    seenStamp = stamp;
+    lastWritten = pending;
+    setConflicted(false);
     setSaveFailing(false);
   } catch {
     // Quota/serialization failures must never break editing — but "your
@@ -345,15 +478,141 @@ export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void
  *
  * Deliberately NOT a beforeunload confirmation dialog: the autosave really
  * does restore the design, so interrupting every tab close to say so would be
- * a nag rather than a guard.
+ * a nag rather than a guard. The one exception is a conflict (above), when
+ * this tab's write is held and the autosave does NOT hold its design — App
+ * asks before leaving then, and only then.
  */
 export function flushSession(): void {
   if (timer) { clearTimeout(timer); timer = null; }
   writeNow();
 }
 
+/**
+ * "Keep this tab's design": overwrite what another tab put in the slot with
+ * this tab's held write. The other tab is not silenced: the write names the
+ * stamp it replaces, so that tab, if it is open, hears of it at once and
+ * raises the same conflict there, holding its own design (`watchOtherTabs`)
+ * — even when it has not written since and never will.
+ */
+export function takeOverSession(): void {
+  let replacing: string | null = null;
+  try {
+    replacing = stampOf(localStorage.getItem(KEY));
+    seenStamp = replacing;
+  } catch {
+    // Unreadable storage: the write below fails and says so on its own.
+  }
+  setConflicted(false);
+  overwriting = replacing || null;
+  try {
+    flushSession();
+  } finally {
+    overwriting = null;
+  }
+}
+
+/**
+ * Hear the other tabs' writes to the slot — see "THE OTHER TAB MAY BE IDLE".
+ * Acts on one thing only: a takeover that replaced THIS tab's last write
+ * (`over` equal to the stamp it last saw). This tab then holds back its design
+ * — the pending write, or with none pending the one it last wrote — and raises
+ * the conflict, so its banner shows and closing it asks first. `storage` never
+ * fires in the tab that wrote, so a single tab cannot trip it. Installed for
+ * the page's lifetime at the root, outside App (root.tsx), so a tab whose App
+ * has crashed still hears it and its recovery download stays its own design.
+ * Returns an unsubscribe.
+ */
+export function watchOtherTabs(): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== KEY) return;
+    const over = overOf(e.newValue);
+    if (over === null || over !== seenStamp) return;
+    pending ??= lastWritten;
+    if (pending !== null) setConflicted(true);
+  };
+  window.addEventListener('storage', onStorage);
+  return () => { window.removeEventListener('storage', onStorage); };
+}
+
 export function clearSession(): void {
   try {
     localStorage.removeItem(KEY);
   } catch { /* ignore */ }
+}
+
+/**
+ * The stored autosave exactly as it sits in the slot, or null — for the
+ * crash-recovery download (services/autosaveBackup.ts), which falls back to
+ * these bytes when they cannot be turned into a design file.
+ */
+export function sessionPayload(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The write a conflict is holding back — this tab's design, which the slot
+ * does not have (see "ONE SLOT, SEVERAL TABS"). null when there is no
+ * conflict. The crash-recovery download takes this over the slot, which then
+ * holds another tab's design.
+ */
+export function heldSession(): Omit<SessionState, 'savedAt'> | null {
+  return conflicted ? pending : null;
+}
+
+/**
+ * The stored session, parsed as loadSession parses it, WITHOUT taking the slot
+ * as this tab's baseline — for the crash-recovery download, which reads the
+ * slot on the user's behalf. Through loadSession, a download in a tab the slot
+ * had moved on from made the other tab's write "seen", and "Start fresh" then
+ * took it for this tab's own and deleted it.
+ */
+export function peekSession(): SessionState | null {
+  const seen = seenStamp;
+  try {
+    return loadSession();
+  } finally {
+    seenStamp = seen;
+  }
+}
+
+/**
+ * Does the slot hold ANOTHER tab's design — a conflict, or a write this tab
+ * has not seen? Then it is not this tab's to delete (`discardSession`), and
+ * the crash panel says so before it offers to.
+ */
+export function autosaveIsAnotherTabs(): boolean {
+  if (conflicted) return true;
+  try {
+    const inSlot = stampOf(localStorage.getItem(KEY));
+    return inSlot !== null && seenStamp !== undefined && inSlot !== seenStamp;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "Start fresh" after a crash: drop this tab's autosave AND any write still
+ * waiting in the debounce. Clearing the key alone is not enough — the crashed
+ * App's last edit can still be pending, and it would land 400 ms later and
+ * restore the very design the user is escaping on the next load (audit
+ * 2026-09-22).
+ *
+ * Only THIS tab's autosave, though. While the slot holds another tab's design
+ * (`autosaveIsAnotherTabs`) it is left alone — deleting it lost that tab's work
+ * with nothing pending anywhere to put it back (audit 2026-09-22, from
+ * review). This tab's held and pending writes still go, and the reload then
+ * opens the other tab's design.
+ */
+export function discardSession(): void {
+  if (timer) { clearTimeout(timer); timer = null; }
+  const othersInSlot = autosaveIsAnotherTabs();
+  pending = null;
+  lastWritten = null;
+  if (!othersInSlot) clearSession();
+  seenStamp = null;
+  setConflicted(false);
 }
