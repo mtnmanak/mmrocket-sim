@@ -156,6 +156,14 @@ export function useBackdropClose(onClose: () => void) {
  *
  * Call it unconditionally and pass `open` — the popup's own JSX is
  * conditionally rendered, so a hook inside it could not be.
+ *
+ * Closing by ANY route hands focus back to the trigger when it has nowhere
+ * else to be (audit 2026-09-22). Choosing an item unmounts the button that
+ * held focus, so the keyboard landed on <body>: no visible focus, and the
+ * screen reader's place lost. Only then — a pick that focused something on
+ * purpose, or an outside click on a field, keeps where it went. The cleanup
+ * runs before any effect of the same commit mounts, so a dialog an item
+ * opens still takes focus afterwards, and returns it to the trigger in turn.
  */
 export function useMenuPopup(open: boolean, onClose: () => void): void {
   const onCloseRef = useRef(onClose);
@@ -173,6 +181,10 @@ export function useMenuPopup(open: boolean, onClose: () => void): void {
       opener?.focus?.();
     };
     document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      const active = document.activeElement;
+      if ((!active || active === document.body) && opener?.isConnected) opener.focus?.();
+    };
   }, [open]);
 }

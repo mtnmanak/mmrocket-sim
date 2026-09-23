@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { IMAGE_WIDTHS, type ImageFormat } from '../services/schematicExport.js';
+import { useMenuPopup } from './useDialog.js';
 
 /** Per-export toggles carried alongside the format/width choice. Nothing here
  *  is persisted — the picker is reopened for every export anyway. */
@@ -15,6 +16,13 @@ export interface ImageExportOptions {
  * rasterize) and Rocket3D (hi-res re-render snapshot) so the two views offer
  * the identical picker. The 3D view additionally opts into the "fit rocket to
  * frame" toggle it needs to spend its megapixels on the rocket.
+ *
+ * A DISCLOSURE, like the header's Save As / Export popup — not a menu (audit
+ * 2026-09-22). It declared `role="menu"` over plain buttons, which are not
+ * menuitems, so assistive tech pruned them and announced an empty menu;
+ * Escape did nothing; and its six buttons had three names, "HD", "4K" and
+ * "8K", each twice. useMenuPopup gives it the header popups' Escape and
+ * focus return, and each button now names its format and width.
  */
 export function ImageExportMenu({ label, title, onPick, fitOption }: {
   label: string;
@@ -41,16 +49,19 @@ export function ImageExportMenu({ label, title, onPick, fitOption }: {
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
 
+  useMenuPopup(open, () => setOpen(false));
+
   const widthLabel = (w: number) => (w >= 7680 ? '8K' : w >= 3840 ? '4K' : 'HD');
+  const formatLabel = (fmt: ImageFormat) => (fmt === 'png' ? 'PNG' : 'JPG');
 
   return (
     <div ref={wrap} style={{ position: 'relative', display: 'inline-block' }}>
-      <button className="file-btn" title={title} aria-haspopup="menu" aria-expanded={open}
+      <button className="file-btn" title={title} aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
         {label}
       </button>
       {open && (
-        <div role="menu" style={{
+        <div className="image-export-popup" role="group" aria-label="Image export — format and width" style={{
           position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 30,
           background: 'var(--surface-1)', border: '1px solid var(--border, #444)',
           borderRadius: 6, padding: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
@@ -60,11 +71,14 @@ export function ImageExportMenu({ label, title, onPick, fitOption }: {
           {(['png', 'jpeg'] as ImageFormat[]).map((fmt) => (
             [
               <span key={`${fmt}-label`} style={{ alignSelf: 'center', padding: '0 6px', color: 'var(--text-muted, #999)' }}>
-                {fmt === 'png' ? 'PNG' : 'JPG'}
+                {formatLabel(fmt)}
               </span>,
               ...IMAGE_WIDTHS.map((w) => (
+                // The name OPENS with the button's own text ("HD"), so voice
+                // control's "click HD" still finds it, then says which row.
                 <button key={`${fmt}-${w}`} className="file-btn"
                   title={`${w} px wide`}
+                  aria-label={`${widthLabel(w)} ${formatLabel(fmt)}, ${w} px wide`}
                   onClick={() => { setOpen(false); onPick(fmt, w, { fit: !!fitOption && fit }); }}>
                   {widthLabel(w)}
                 </button>
