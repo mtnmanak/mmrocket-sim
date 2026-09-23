@@ -97,13 +97,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # NO TOKEN LEFT IN .git/config. This job holds `contents: write` and
-          # then runs `npm ci`, which executes the install scripts of ~1,000
-          # transitive dev dependencies. At the default (true) a write-capable
-          # token sits on disk while they run, and in this repo a push to main IS
-          # the production deploy — so any one of them could deploy. deploy.yml
-          # can leave the default alone because its token is `contents: read`;
-          # this one cannot. The push below carries the token explicitly instead,
-          # for the one command that needs it.
+          # then runs `npm ci`, which installs ~590 third-party packages and runs
+          # the install script of any that declares one (the lockfile marks two
+          # today; any routine upgrade can add more), and then runs their code in
+          # the tests. At the default (true) a write-capable token sits on disk
+          # while they run, and in this repo a push to main IS the production
+          # deploy — so any one of them could deploy. deploy.yml can leave the
+          # default alone because its token is `contents: read`; this one cannot.
+          # The push below carries the token explicitly instead, for the one
+          # command that needs it.
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -128,22 +130,33 @@ jobs:
       # them: motorCurves.json is keyed by motorId FROM motors.json, so a curve run
       # against the old catalogue leaves every newly-certified motor curveless.
       #
-      # Both scripts exit non-zero on trouble — fetch-motor-db.mjs throws on any
-      # non-200, fetch-motor-curves.mjs sets exitCode 1 when a batch failed — and a
-      # non-zero exit ends the job here, before anything is committed. That is
-      # deliberate: fetch-motor-curves.mjs WRITES a partial bundle before it exits,
-      # and a partial bundle must never become a PR. There is no retry: the next
-      # weekly run is the retry, and a red run is the notification. To retry now,
-      # use "Run workflow" on the Actions tab.
+      # Both scripts exit non-zero on trouble, and decide BEFORE they write
+      # (audit 2026-09-22): fetch-motor-db.mjs on any non-200 or any answer short
+      # of the API's own `matches` count, fetch-motor-curves.mjs on any failed
+      # batch (only its --allow-partial, never passed here, writes a short
+      # bundle). A non-zero exit ends the job here, before anything is
+      # committed, so a partial catalogue or bundle never becomes a PR. There is
+      # no retry: the next weekly run is the retry, and a red run is the
+      # notification. To retry now, use "Run workflow" on the Actions tab.
       #
-      # KNOWN WEAKNESS, worth fixing in those scripts rather than here: neither
-      # sends a User-Agent, where check-upstream.mjs sends
-      # 'mmrocket-sim-upstream-check'. From a laptop that is invisible; weekly from
-      # a datacentre IP with 24 POSTs to download.json it is the profile a small
-      # volunteer-run service rate-limits. The symptom would be this step red with
+      # Both send the User-Agent 'mmrocket-sim-upstream-check', as
+      # check-upstream.mjs does: weekly from a datacentre IP with 24 POSTs to
+      # download.json, an anonymous client is the profile a small volunteer-run
+      # service rate-limits. If it ever does, the symptom is this step red with
       # HTTP 403 or HTTP 429.
       - name: Refresh the catalogue and the curve bundle
         run: npm run motors:refresh
+
+      # The user guide quotes the catalogue — {{MOTOR_COUNT}}, {{MOTOR_DB_DATE}},
+      # the curve counts and shares — compiled into the COMMITTED
+      # packages/app/src/data/userGuide.ts. Recompile it from the refreshed JSON
+      # BEFORE the gate: packages/app/scripts/user-guide-current.test.mjs fails a
+      # stale one, and the commit below carries it beside the JSON, so main's
+      # guide quotes main's catalogue (audit 2026-09-22, Tests row 526). It can
+      # also refuse, e.g. when a new count collides with a hand-typed figure in
+      # user-guide.md — better here than in the deploy's build after a merge.
+      - name: Recompile the user guide against the refreshed catalogue
+        run: node scripts/build-user-guide.mjs
 
       # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
       # this PR runs exactly this command on main (deploy.yml's `npm test` step)
@@ -166,20 +179,21 @@ jobs:
       # the gate itself is drift-proof and stays true as tests are added.
       #
       # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
-      # committed artifact, so still no Java) and runs ~2,255 tests — about two
-      # minutes inside the 30-minute budget. Cheap against a merged PR that turns
-      # main red, which is the shape deploy.yml's own typecheck comment exists to
-      # avoid.
+      # committed artifact, so still no Java) and runs the whole suite — about
+      # 4,000 tests in September 2026 — in a few minutes of the 30-minute
+      # budget. Cheap against a merged PR that turns main red, which is the shape
+      # deploy.yml's own typecheck comment exists to avoid.
       - name: The deploy gate must pass on the refreshed data
         run: npm test
 
-      # Printed for the log, and NOTHING is decided by it. Both files are
+      # Printed for the log, and NOTHING is decided by it. Both JSON files are
       # single-line minified JSON, so this always reports 1 insertion / 1 deletion
       # for a whole-file rewrite — and the rewrite happens every week regardless,
-      # because both scripts stamp today's date into `generated`. The verdict comes
-      # from the semantic diff below.
+      # because both scripts stamp today's date into `generated` (which the guide
+      # prints, so userGuide.ts moves every week too). The verdict comes from the
+      # semantic diff below.
       - name: What git sees (informational only)
-        run: git diff --stat -- "$DATA/motors.json" "$DATA/motorCurves.json"
+        run: git diff --stat -- "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts"
 
       # Ignores the two date stamps and the derived counts; compares the 18
       # catalogue fields with the same float tolerance the in-app overlay uses, and
@@ -212,7 +226,7 @@ jobs:
       - name: No motor changed — leave main alone
         if: steps.diff.outputs.open-pr != 'true'
         run: |
-          git checkout -- "$DATA/motors.json" "$DATA/motorCurves.json"
+          git checkout -- "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts"
           echo "Catalogue and curve bundle are unchanged apart from the date stamp."
           echo "No pull request opened. The numbers are in the job summary."
 
@@ -223,7 +237,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- "$DATA/motors.json" "$DATA/motorCurves.json"
+          git add -- "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts"
           git commit -F "$RUNNER_TEMP/commit-msg.txt"
           # FORCE, and always exactly one commit ahead of main. The branch content
           # is a full regeneration, so last week's is strictly superseded, and two
