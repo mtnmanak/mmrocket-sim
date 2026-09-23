@@ -327,9 +327,12 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Flight config', (r) => r.flightConfig ?? ''],
   // Trailing for the same reason, after it (weather build, 2026-09-22): the
   // dry-air density altitude the run flew in, stored at launch. A run flown
-  // before the field, or a stored value that is not a number, is an empty cell.
+  // before the field, or a stored value that is not a finite number, is an
+  // empty cell: `cv`'s own Number.isFinite test is the check, and it refuses a
+  // string or an object as it refuses NaN (audit row 522 took the typeof test
+  // that stood in front of it, the shape eslint.config.mjs now refuses).
   [`Density altitude (${sym('distance', 'm')})`,
-    (r) => cv('distance', typeof r.densityAltitudeM === 'number' ? r.densityAltitudeM : null)],
+    (r) => cv('distance', r.densityAltitudeM)],
   ];
 }
 

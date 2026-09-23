@@ -17,6 +17,7 @@ import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } 
 import { shroudEnds } from '../tree/shroud.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
+import { num, numOpt } from '../tree/nodeNum.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
 
 /**
@@ -197,8 +198,8 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   // own material, almost always. Offer it, selected, with the density the node
   // is actually flying, rather than silently calling it Custom.
   const foreign = named !== null && !known ? named : null;
-  const foreignDensity = typeof node[densityKey] === 'number'
-    ? (node[densityKey] as number) : undefined;
+  // A non-finite density is no density (audit row 522): the option would read "(NaN kg/m³)".
+  const foreignDensity = numOpt(node, densityKey);
   const id = useId();
   return (
     <div className="field">
@@ -288,7 +289,8 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
   flagKey: string;
   onPatch: (patch: Partial<ComponentNode>) => void;
 }) {
-  const active = typeof node[valueKey] === 'number';
+  // suppressingAncestor's own reading of an override (audit row 522).
+  const active = numOpt(node, valueKey) !== undefined;
   const hasChildren = (node.children?.length ?? 0) > 0;
   const blocker = node.id ? suppressingAncestor(tree, node.id, flagKey, valueKey) : null;
 
@@ -383,9 +385,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
   const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  const parentLenSi = parent && parent !== 'stage' && typeof parent['length'] === 'number'
-    ? parent['length']
-    : 0.2;
+  const parentLenSi = parent && parent !== 'stage' ? num(parent, 'length', 0.2) : 0.2;
 
   /**
    * What the 🖨 button offers for this component: its caption, the one line
@@ -442,8 +442,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
    * alone. Naming a figure that is not on screen sends the reader looking for
    * a blank field.
    */
-  const statedMass = typeof node['overrideMass'] === 'number';
-  const statedCg = typeof node['overrideCGX'] === 'number';
+  // The two overrides as the Overrides fields below show them, and as the
+  // kernel reads them: a non-finite value is none (audit row 522).
+  const massOverride = numOpt(node, 'overrideMass');
+  const cgOverride = numOpt(node, 'overrideCGX');
+  const statedMass = massOverride !== undefined;
+  const statedCg = cgOverride !== undefined;
   const statedLaunchCopy = statedMass && statedCg
     ? {
       lead: 'These came from the RASAero file, with the motor still in them.',
@@ -496,7 +500,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // tube carries the part is irrelevant. frameContaining cuts only at pod
     // sets and parallel stages, whose sub-chains rotate as a unit.
     const members = frameContaining(tree, node.id) ?? (parent.children ?? []);
-    const cur = typeof node['angleOffset'] === 'number' ? node['angleOffset'] as number : 0;
+    const cur = num(node, 'angleOffset', 0);
     const onFin = nearestAngle(finAnglesAmong(members), cur);
     const between = nearestAngle(betweenFinAnglesAmong(members), cur);
     if (onFin === null || between === null) return null;
@@ -526,8 +530,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       ? uiToSi(quantity, symbol, ui)
       : ui) / geomFactor;
 
-    const raw = node[f.key];
-    const value = typeof raw === 'number' ? toDisplay(raw) : '';
+    // The stored value, if it is one the rocket can fly: a NaN or infinite one
+    // shows as blank, with the default it flies in its place (the kernel reads
+    // it as absent), rather than as "—" in the box and NaN or Infinity on the
+    // slider (audit row 522).
+    const raw = numOpt(node, f.key);
+    const value = raw !== undefined ? toDisplay(raw) : undefined;
 
     // Cross-field ceilings for tube fins (issue 2026-08-05e): the outer
     // radius is capped by the touching radius for the current fin count, and
@@ -545,9 +553,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // "default: 0.01", and one ▴ committed 10.5 mm instead of 10.2.
     let autoValue: number | undefined;
     if (tubeFinBodyR !== null && f.key === 'outerRadius') {
-      const n = Math.round(typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 6);
+      const n = Math.round(num(node, 'finCount', 6));
       maxSi = tubeFinMaxRadius(n, tubeFinBodyR) ?? undefined;
-      if (typeof raw !== 'number') {
+      if (raw === undefined) {
         autoValue = toDisplay(tubeFinRadius(node, tubeFinBodyR));
         autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
       }
@@ -577,7 +585,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     if (f.key === 'shapeParameter') {
       const sh = String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive'));
       maxSi = shapeParamMax(sh);
-      if (typeof raw !== 'number') {
+      if (raw === undefined) {
         autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
       }
     }
@@ -596,7 +604,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // falls back to the kernel constructor (RailButton.java:58-64) exactly as
     // the .ork reader and writer do, and it is that value the rocket is flying.
     // Same idiom as the shape-parameter default above.
-    if (node.type === 'railbutton' && typeof raw !== 'number') {
+    if (node.type === 'railbutton' && raw === undefined) {
       const dflt = RAILBUTTON_DEFAULTS[f.key];
       if (dflt !== undefined) {
         autoValue = toDisplay(dflt);
@@ -608,7 +616,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // steps from it the same way (seam review of audit 2026-09-22; schema.ts
     // `blankValue`). A blank with no such figure keeps no base, so NumField's
     // spinner stays inert on it, as the audit made it.
-    if (typeof raw !== 'number' && autoValue === undefined && autoPlaceholder === undefined) {
+    if (raw === undefined && autoValue === undefined && autoPlaceholder === undefined) {
       const blank = blankValue(node.type, f.key);
       if (blank !== undefined) {
         autoValue = toDisplay(blank);
@@ -697,7 +705,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <NumField
           id={inputId}
           ariaLabel={fieldName}
-          value={typeof value === 'number' ? value : undefined}
+          value={value}
           step={step}
           allowNegative={allowNegative}
           integer={f.unit === 'count'}
@@ -715,7 +723,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             else commit(v);
           }}
         />
-        {f.smin !== undefined && f.smax !== undefined && typeof value === 'number' && (
+        {f.smin !== undefined && f.smax !== undefined && value !== undefined && (
           <ValueSlider
             ariaLabel={fieldName}
             value={value}
@@ -1002,14 +1010,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           // Wall thickness and inner diameter are two views of one dimension
           // — editing either updates the other. Tubes reference outerRadius;
           // nose cones reference their base (aft) radius, so OD/ID/wall stay
-          // in sync with the body tube behind them.
-          const outerKeyForID = typeof node['outerRadius'] === 'number' ? 'outerRadius'
-            : node.type === 'nosecone' && typeof node['aftRadius'] === 'number' ? 'aftRadius'
-            : null;
-          if (f.key === 'thickness' && outerKeyForID
-              && typeof node['thickness'] === 'number') {
-            const outerR = node[outerKeyForID] as number;
-            const innerSi = Math.max(0, outerR - (node['thickness'] as number)) * 2;
+          // in sync with the body tube behind them. Finite values only (audit
+          // row 522): with a NaN radius the box read "—", and a diameter typed
+          // into it committed a NaN wall.
+          const outerR = numOpt(node, 'outerRadius')
+            ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : undefined);
+          const wall = numOpt(node, 'thickness');
+          if (f.key === 'thickness' && outerR !== undefined && wall !== undefined) {
+            const innerSi = Math.max(0, outerR - wall) * 2;
             const idQuantity: Quantity = 'length';
             const idSym = prefs.units[idQuantity];
             return (
@@ -1133,8 +1141,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           above. Every figure comes from treeModel, so the panel cannot print
           an area the kernel did not use. */}
       {node.type === 'fairing' && (() => {
-        const W = typeof node['width'] === 'number' ? (node['width'] as number) : 0.025;
-        const H = typeof node['height'] === 'number' ? (node['height'] as number) : 0.02;
+        // Read as fairingFrontalArea reads them (audit row 522), so the flat
+        // part and the crescent split the area it returns.
+        const W = num(node, 'width', 0.025);
+        const H = num(node, 'height', 0.02);
         const area = fairingFrontalArea(tree, node);
         const flat = Math.max(0, W) * Math.max(0, H);
         const bodyR = mountRadiusOf(parent === 'stage' ? null : (parent as ComponentNode | null));
@@ -1289,8 +1299,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             <NumField
               id={idFor('overrideMass')}
               ariaLabel="Mass override"
-              value={typeof node['overrideMass'] === 'number'
-                ? siToUi('mass', massSym, node['overrideMass'] as number) : undefined}
+              value={massOverride !== undefined ? siToUi('mass', massSym, massOverride) : undefined}
               step={niceStep(siToUi('mass', massSym, 0.0001))}
               nullable
               placeholder={info ? fmtSi('mass', massSym, info.mass) : undefined}
@@ -1316,8 +1325,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             <NumField
               id={idFor('overrideCGX')}
               ariaLabel="CG override, from component top"
-              value={typeof node['overrideCGX'] === 'number'
-                ? lenToUi(node['overrideCGX'] as number) : undefined}
+              value={cgOverride !== undefined ? lenToUi(cgOverride) : undefined}
               step={niceStep(siToUi('length', lengthSym, 0.001))}
               allowNegative
               nullable
@@ -1340,9 +1348,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                 no mass override to position and the flag off. Reported twice by
                 the owner, which is once more than it should have taken. */}
             {CONTAINER_TYPES.has(node.type)
-              && typeof node['overrideCGX'] === 'number'
+              && cgOverride !== undefined
               && node['overrideSubcomponentsCG'] !== true
-              && typeof node['overrideMass'] !== 'number' && (
+              && massOverride === undefined && (
               <p className="override-inert" role="note">
                 <strong>This is not doing anything yet.</strong> A
                 {' '}{DISPLAY_NAME[node.type]?.toLowerCase() ?? 'container'} has
@@ -1369,7 +1377,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             <NumField
               id={idFor('overrideCD')}
               ariaLabel="Drag coefficient (Cd) override"
-              value={typeof node['overrideCD'] === 'number' ? (node['overrideCD'] as number) : undefined}
+              value={numOpt(node, 'overrideCD')}
               step={0.05}
               nullable
               placeholder="auto"

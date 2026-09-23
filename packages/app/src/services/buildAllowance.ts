@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { numOpt } from '../tree/nodeNum.js';
 import { axialLength, offsetForStart } from '../tree/position.js';
 import { findNode, suppressingAncestor } from '../tree/treeModel.js';
 
@@ -160,6 +161,8 @@ export interface AllowancePlacement {
  * (RocketComponent.updateChildrenMassOverriddenBy), which is what
  * `suppressingAncestor` already encodes. The host body component is tested as
  * well as its ancestors, because a body tube can carry the override itself.
+ * "Numeric" is finite, here and below: the kernel is handed null for NaN or
+ * Infinity and sets no override (audit row 522).
  */
 export function coveringMassOverride(
   tree: RocketTree,
@@ -170,7 +173,7 @@ export function coveringMassOverride(
   if (!place) return null;
   const host = findNode(tree, place.parentId);
   if (host && host['overrideSubcomponentsMass'] === true
-    && typeof host['overrideMass'] === 'number') return host;
+    && numOpt(host, 'overrideMass') !== undefined) return host;
   return suppressingAncestor(tree, place.parentId, 'overrideSubcomponentsMass', 'overrideMass');
 }
 
@@ -190,7 +193,7 @@ export function coveringMassOverride(
  */
 export function solePinnedStage(components: readonly ComponentNode[]): ComponentNode | null {
   const pinned = components.filter((n) =>
-    n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
+    n['overrideSubcomponentsMass'] === true && numOpt(n, 'overrideMass') !== undefined);
   return pinned.length === 1 ? pinned[0]! : null;
 }
 

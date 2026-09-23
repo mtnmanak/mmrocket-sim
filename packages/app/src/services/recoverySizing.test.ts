@@ -4,6 +4,7 @@ import presetsJson from '../data/presets.json';
 import type { Preset } from './presets.js';
 import { presetPatch } from './presets.js';
 import { engineTree } from '../tree/treeModel.js';
+import { numOpt } from '../tree/nodeNum.js';
 import { SAFETY } from './simReport.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
@@ -115,7 +116,7 @@ describe('canopyCdA — a Cd and its spill hole are ONE fact (2026-09-03)', () =
   });
 
   it('refuses a row with no Cd rather than defaulting it', () => {
-    const bare = canopies.find((p) => typeof p['dragCoefficient'] !== 'number')!;
+    const bare = canopies.find((p) => numOpt(p, 'dragCoefficient') === undefined)!;
     expect(canopyCdA(bare)).toBeNull();
   });
 });
@@ -534,7 +535,7 @@ describe('the fit filter', () => {
     // them would make the list look arbitrary and hide real answers.
     const narrow = ok(sizing({ tree: tube(0.054) }));
     const unpublished = canopies.filter((p) => canopyCdA(p) !== null
-      && typeof p['packedDiameter'] !== 'number');
+      && numOpt(p, 'packedDiameter') === undefined);
     expect(unpublished.length).toBe(26);
     const shown = narrow.main.candidates.concat(narrow.drogue.candidates);
     for (const c of shown) {
@@ -982,11 +983,32 @@ describe('the size line carries the design chute’s spill hole', () => {
     expect(Number.isFinite(r.main.diameter)).toBe(true);
   });
 
-  it('ignores a vent on a canopy with no diameter rather than dividing by zero', () => {
-    const r = ok(sizing({
-      tree: tube(0.3, [{ cd: 2.2, spillHoleDiameter: 0.1, deployEvent: 'altitude' }]),
-    }));
-    expect(r.main.ventFactor).toBe(1);
-    expect(Number.isFinite(r.main.diameter)).toBe(true);
+  it('vents a canopy with no usable diameter against the 0.3 m it flies, never dividing by zero', () => {
+    // It read ventFactor 1 here — the vent ignored — while engineTree vented
+    // the same chute against its 0.3 m fallback (review of audit row 522).
+    for (const diameter of [undefined, NaN, Infinity]) {
+      const r = ok(sizing({
+        tree: tube(0.3, [{ cd: 2.2, spillHoleDiameter: 0.1, deployEvent: 'altitude', diameter }]),
+      }));
+      expect(r.main.ventFactor, String(diameter)).toBeCloseTo(1 - (0.1 / 0.3) ** 2, 12);
+      expect(Number.isFinite(r.main.diameter), String(diameter)).toBe(true);
+    }
+    // A diameter stated as 0 or less is still no vent, as in engineTree.
+    for (const diameter of [0, -0.6]) {
+      const r = ok(sizing({
+        tree: tube(0.3, [{ cd: 2.2, spillHoleDiameter: 0.1, deployEvent: 'altitude', diameter }]),
+      }));
+      expect(r.main.ventFactor, String(diameter)).toBe(1);
+    }
+  });
+
+  it('quotes the Cd engineTree flies, whatever the diameter (review of audit row 522)', () => {
+    // One convention: the same ventLimit, clamp and guard. What split them was
+    // a diameter with no usable number — absent, NaN or infinite.
+    for (const diameter of [0.3, 1.0, 0.05, undefined, NaN, Infinity, -Infinity, 0, -0.6]) {
+      const tree = tube(0.3, [{ cd: 1.5, spillHoleDiameter: 0.1, deployEvent: 'altitude', diameter }]);
+      const flown = engineTree(tree).components[0]!.children![0]!.children![0]!['cd'] as number;
+      expect(ok(sizing({ tree })).main.cd, String(diameter)).toBeCloseTo(flown, 12);
+    }
   });
 });

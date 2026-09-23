@@ -1092,9 +1092,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // motor's moment landed on top of one already in it, and the stability
     // margin counted the motor twice — silently, while the same tree in
     // session clears that CG with a note. Reader and writer now agree.
+    // (readOverrides sets finite values only — `num` falls back on anything
+    // else — so numOpt reads these exactly as the typeof test did.)
     const included = text(stageEl, `:scope > ${OVERRIDE_INCLUDES_MOTOR.toLowerCase()}`);
     if (included
-      && (typeof stage['overrideMass'] === 'number' || typeof stage['overrideCGX'] === 'number')) {
+      && (numOpt(stage, 'overrideMass') !== undefined || numOpt(stage, 'overrideCGX') !== undefined)) {
       stage[OVERRIDE_INCLUDES_MOTOR] = included;
     }
     if (i > 0) {
@@ -1631,8 +1633,12 @@ function readLaunchConditions(
       const siteAltM = launch.launchAltitudeM;
       if (typeof siteAltM === 'number') {
         const isStd = (v: number, std: number): boolean => Math.abs(v - std) <= 1e-9 * Math.abs(std);
+        // Null tests: each field is absent, null or the value range-checked
+        // above (NaN fails the range), and isStd compares tK / pPa, not it.
+        // eslint-disable-next-line no-restricted-syntax -- a null test, not a design number (audit row 522)
         if (blank === 'temperature' && typeof launch.temperatureC === 'number'
           && isStd(tK, isaTemperatureK(siteAltM))) launch.temperatureC = null;
+        // eslint-disable-next-line no-restricted-syntax -- a null test, not a design number (audit row 522)
         if (blank === 'pressure' && typeof launch.pressureHPa === 'number'
           && isStd(pPa, isaPressurePa(siteAltM))) launch.pressureHPa = null;
       }

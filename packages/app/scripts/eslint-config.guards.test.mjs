@@ -11,10 +11,14 @@
  *     source stopped seeing it in the 2026-09-22 tsconfig split); then they
  *     throw or read `undefined` in a user's browser. The tests themselves DO
  *     run under Node, so the rule must stay off there.
- *   - A private `typeof n[k] === 'number' ? n[k] : fb` reader passes NaN, where
- *     tree/nodeNum.ts is the one reader (audit 2026-09-22). In the design-file
- *     writers and cut-file exports the same test is refused INLINE as well,
- *     because there a NaN goes straight into the file a user saves or cuts.
+ *   - A lone `typeof n[k] === 'number'` passes NaN and Infinity, where
+ *     tree/nodeNum.ts is the one reader (audit 2026-09-22). It began as the
+ *     private reader FUNCTION alone, then the inline test in the design-file
+ *     writers and cut-file exports; since audit row 522 (2026-09-23) it is
+ *     refused anywhere in src — a conditional's or an `if`'s test, a value, a
+ *     return, an arrow body — and, since that row's review, as one operand of
+ *     && or || too, unless the same chain has a bound or a Number.isFinite /
+ *     Number.isInteger to refuse NaN.
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
  * still resolve for shipped source, its tests and the engine.
@@ -82,9 +86,9 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     ].join('\n'), rules)).toEqual(['no-restricted-syntax@3', 'no-restricted-syntax@5']);
   });
 
-  it('refuses the inline test as well in the design-file writers and cut-file exports', async () => {
-    // The block that does this REPLACES the reader-shape options for those
-    // files, so the reader shape must still fire there too (line 4).
+  it('refuses the inline test everywhere in src, tests and the engine included (audit row 522)', async () => {
+    // Until row 522 this fired inline only in the five design-file writers and
+    // cut-file exports, and elsewhere only on the reader shape (line 4).
     const probe = [
       "type N = { [k: string]: unknown };",
       'export const cd = (node: N): string =>',
@@ -96,18 +100,34 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       "  if (typeof node['d'] === 'number' && (node['d'] as number) > 0) out.push('d');",
       '}',
     ].join('\n');
-    for (const f of ['orkFile', 'rocksimFile', 'rasaeroFile', 'finTemplate', 'dxfExport']) {
-      const rules = await rulesFor(`packages/app/src/services/${f}.ts`, READER);
-      expect(lint(probe, rules), f)
-        .toEqual(['no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@7']);
+    const HITS = ['no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@7'];
+    for (const rel of [
+      ...['orkFile', 'rocksimFile', 'rasaeroFile', 'finTemplate', 'dxfExport'].map((f) => `app/src/services/${f}.ts`),
+      'app/src/tree/treeModel.ts', 'app/src/services/recoverySizing.ts', 'app/src/components/PropertyPanel.tsx',
+      'app/src/services/orkFile.test.ts', 'app/src/tree/canopyVent.test.ts', 'engine/src/orkEngine.ts',
+    ]) {
+      expect(lint(probe, await rulesFor(`packages/${rel}`, READER)), rel).toEqual(HITS);
     }
-    // Elsewhere only the reader shape is refused — the inline reads left
-    // outside the writers are a separate sitting (eslint.config.mjs counts them).
-    expect(lint(probe, await rulesFor('packages/app/src/tree/treeModel.ts', READER)))
-      .toEqual(['no-restricted-syntax@4']);
-    // A writer's TEST file is not a writer.
-    expect(lint(probe, await rulesFor('packages/app/src/services/orkFile.test.ts', READER)))
-      .toEqual(['no-restricted-syntax@4']);
+  });
+
+  it('refuses the lone test in every other position too: a value, a !== test, an optional chain', async () => {
+    // Each read a NaN field as present before row 522. Line 3 is the shape
+    // the writer block's condition-only selector missed in rocksimFile, which
+    // then wrote <KnownMass>NaN</KnownMass> from it.
+    const rules = await rulesFor('packages/app/src/services/rocksimFile.ts', READER);
+    expect(lint([
+      "type N = { [k: string]: unknown };",
+      'export function f(n: N, p: N | null, xs: N[]): unknown[] {',
+      "  const hasMass = typeof n['overrideMass'] === 'number';",
+      "  if (typeof n['overrideCGX'] !== 'number') xs.pop();",
+      "  const len = typeof p?.['length'] === 'number' ? (p['length'] as number) : 0;",
+      "  const o = { hadMass: typeof n['m'] === 'number' };",
+      "  return [hasMass, len, o, xs.filter((x) => typeof x['cd'] !== 'number')];",
+      '}',
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@5',
+      'no-restricted-syntax@6', 'no-restricted-syntax@7',
+    ]);
   });
 
   it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {
@@ -122,14 +142,68 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
-  it('leaves ordinary type narrowing alone', async () => {
+  it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
+    // A plain variable is as often a union discriminator as a field read, and
+    // an operand of && / || beside a bound or Number.isFinite has a partner
+    // that refuses NaN: eslint.config.mjs says why neither is matched.
     const rules = await rulesFor('packages/app/src/tree/treeModel.ts', READER);
     expect(lint([
-      'export function f(v: unknown, n: { [k: string]: unknown }): number {',
+      'export function f(v: unknown, t: number | string, n: { [k: string]: unknown }): number {',
       "  if (typeof v === 'number' && v > 0) return v;",
-      "  const w = typeof n['w'] === 'number' ? (n['w'] as number) * 2 : 0;",
-      '  return w;',
+      "  const u = typeof t === 'number' ? t : t.length;",
+      "  const w = typeof n['w'] === 'number' && Number.isFinite(n['w']) ? (n['w'] as number) * 2 : 0;",
+      "  if (typeof n['x'] !== 'number' || !Number.isFinite(n['x'])) return 0;",
+      "  if (n['a'] && n['b'] && n['c'] && n['e'] && typeof n['g'] === 'number' && (n['g'] as number) > 1) return 1;",
+      "  if (typeof n['y'] !== 'number' || !((n['y'] as number) > 0)) return 0;",
+      "  return typeof n['d'] === 'number' && (n['d'] as number) > 0 ? u + w : w;",
       '}',
     ].join('\n'), rules)).toEqual([]);
+  });
+
+  it('refuses a compound test with nothing in its chain to refuse NaN (review of audit row 522)', async () => {
+    // 15 of main's compound reads were this defect, converted by hand in row
+    // 522, and a revert of any of them passed lint while the rule exempted
+    // every && / || operand. Lines 2-3 are the review's reproductions; line 5
+    // is suppressingAncestor's own shape. Line 6: a bound in an OUTER chain
+    // does not cover a test inside a callback, and line 7: a bound inside a
+    // callback does not cover the chain around it.
+    const rules = await rulesFor('packages/app/src/services/buildAllowance.ts', READER);
+    expect(lint([
+      'export function f(n: { [k: string]: unknown } | null, xs: { [k: string]: unknown }[]): unknown[] {',
+      "  const a = n && typeof n['k'] === 'number' ? (n['k'] as number) : 0.2;",
+      "  const b = n?.['t'] !== 'x' && typeof n?.['k'] === 'number';",
+      "  const c = typeof n?.['m'] === 'number' || typeof n?.['g'] === 'number';",
+      "  const d = xs.find((x) => x['f'] === true && typeof x['v'] === 'number');",
+      "  const e = xs.length > 0 && xs.some((x) => x['f'] && typeof x['v'] === 'number');",
+      "  const g = typeof n?.['k'] === 'number' && xs.some((x) => (x['v'] as number) > 0);",
+      '  return [a, b, c, d, e, g];',
+      '}',
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@4',
+      'no-restricted-syntax@5', 'no-restricted-syntax@6', 'no-restricted-syntax@7',
+    ]);
+  });
+
+  it('refuses a partner that points the wrong way (re-verification of audit row 522)', async () => {
+    // A reject test needs a partner that is TRUE for NaN, an accept test one
+    // that is FALSE for it. Each line here hands a NaN through: a bare bound
+    // beside a reject test (2, 4), a negated one beside an accept test (3), a
+    // negated Number.isFinite beside an accept test (5) and a bare one beside
+    // a reject test (6). Line 2 is the shape re-verification put into App.tsx,
+    // where it passed the whole gate.
+    const rules = await rulesFor('packages/app/src/services/buildAllowance.ts', READER);
+    expect(lint([
+      'export function f(n: { [k: string]: unknown }): unknown[] {',
+      "  const a = typeof n['a'] !== 'number' || (n['a'] as number) <= 0 ? 0.02 : n['a'];",
+      "  const b = typeof n['b'] === 'number' && !((n['b'] as number) <= 0);",
+      "  const c = typeof n['c'] !== 'number' || (n['c'] as number) < 0 ? 2 : n['c'];",
+      "  const d = typeof n['d'] === 'number' && !Number.isFinite(n['d']);",
+      "  const e = typeof n['e'] !== 'number' || Number.isFinite(n['e']) ? 1 : n['e'];",
+      '  return [a, b, c, d, e];',
+      '}',
+    ].join('\n'), rules)).toEqual([
+      'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4',
+      'no-restricted-syntax@5', 'no-restricted-syntax@6',
+    ]);
   });
 });

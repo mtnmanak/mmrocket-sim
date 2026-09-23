@@ -247,3 +247,99 @@ describe('PropertyPanel — a container CG override with nothing to position', (
     expect(text).not.toMatch(/does nothing at all/i);
   });
 });
+
+/**
+ * AUDIT ROW 522: a NaN or infinite value is not one the rocket flies — the
+ * kernel is handed null for it and falls back — so the panel shows it as
+ * absent: an empty box, no "Use instead of everything inside" flag and no
+ * inert-CG note, where the typeof reads showed "NaN" and offered all three.
+ */
+describe('PropertyPanel — a non-finite value reads as absent (audit row 522)', () => {
+  const values = () => [...host.querySelectorAll('input')].map((i) => (i as HTMLInputElement).value);
+
+  it('shows the three overrides as empty, with no flag and no inert-CG note', () => {
+    mount(stage({ overrideMass: NaN, overrideCGX: NaN, overrideCD: Infinity }));
+    const byLabel = (label: string) =>
+      (host.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement).value;
+    expect(byLabel('Mass override')).toBe('');
+    expect(byLabel('CG override, from component top')).toBe('');
+    expect(byLabel('Drag coefficient (Cd) override')).toBe('');
+    expect(subsBoxes()).toHaveLength(0);
+    expect(host.querySelector('.override-inert')).toBeNull();
+    expect(values().filter((v) => /NaN|Infinity/.test(v))).toEqual([]);
+  });
+
+  it('shows a NaN geometry field as an empty box, not "NaN"', () => {
+    mount({
+      id: 'b1', type: 'bodytube', length: NaN, outerRadius: 0.012, thickness: Infinity,
+    } as unknown as ComponentNode);
+    expect(values().filter((v) => /NaN|Infinity/.test(v))).toEqual([]);
+    expect(host.textContent).not.toMatch(/NaN|Infinity/);
+  });
+
+  // Each case below renders the panel with the field NaN or infinite and with
+  // it left out, and expects the two to read the same where the typeof test
+  // made them differ.
+  const tubeOf = (fields: Record<string, unknown>) => ({
+    id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0005, ...fields,
+  } as unknown as ComponentNode);
+  /** `id` rendered inside a body tube carrying `tube` and `kids`: mount() puts a node under a stage. */
+  const mountInTube = (tube: Record<string, unknown>, kids: Record<string, unknown>[], id: string) => {
+    const bt = { ...tubeOf({ outerRadius: 0.025, thickness: 0.001, ...tube }), children: kids } as unknown as ComponentNode;
+    const tree = { name: 'R', components: [{ id: 's1', type: 'stage', children: [bt] }] } as unknown as RocketTree;
+    const node = (kids.find((k) => k['id'] === id) ?? bt) as ComponentNode;
+    act(() => root.render(
+      <PrefsProvider>
+        <PropertyPanel tree={tree} node={node} onPatch={(p) => patches.push(p)} />
+      </PrefsProvider>,
+    ));
+  };
+  const BAD = [NaN, Infinity];
+
+  it('names a foreign material with no density beside a NaN one', () => {
+    const option = (density: number | undefined) => {
+      mount(tubeOf({ materialName: 'Unobtainium', density }));
+      return host.querySelector('select[aria-label="Material"]')!.textContent;
+    };
+    expect(option(1200)).toContain('Unobtainium (1200 kg/m³)');
+    for (const bad of BAD) expect(option(bad), String(bad)).toBe(option(undefined));
+  });
+
+  it('offers no inner-diameter box on a tube whose outer radius is NaN', () => {
+    const idBox = (outerRadius: number | undefined) => {
+      mount(tubeOf({ outerRadius }));
+      return host.querySelector('input[aria-label="Inner diameter"]') !== null;
+    };
+    expect(idBox(0.012)).toBe(true);
+    for (const bad of BAD) expect(idBox(bad), String(bad)).toBe(idBox(undefined));
+  });
+
+  it('still offers the fin snaps for a part whose angle is NaN', () => {
+    const fins = { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, height: 0.03 };
+    const snaps = (angleOffset: number | undefined) => {
+      mountInTube({}, [fins, { id: 'r1', type: 'railbutton', angleOffset }], 'r1');
+      return [...host.querySelectorAll('button')].map((b) => b.title).filter((t) => t.includes('fin'));
+    };
+    expect(snaps(undefined)).toHaveLength(2);
+    for (const bad of BAD) expect(snaps(bad), String(bad)).toEqual(snaps(undefined));
+  });
+
+  it('splits a camera shroud’s area the same way with a NaN width as with none', () => {
+    const stats = (width: number | undefined) => {
+      mountInTube({}, [{ id: 'c1', type: 'fairing', length: 0.08, width, height: 0.02 }], 'c1');
+      return [...host.querySelectorAll('.comp-stats')].map((p) => p.textContent);
+    };
+    expect(stats(undefined).join(' ')).toMatch(/tube surface/);
+    for (const bad of BAD) expect(stats(bad), String(bad)).toEqual(stats(undefined));
+  });
+
+  it('ranges the position slider over the default length inside a NaN-length tube', () => {
+    const range = (length: number | undefined) => {
+      mountInTube({ length }, [{ id: 'l1', type: 'launchlug', length: 0.05, outerRadius: 0.0022, thickness: 0.0003 }], 'l1');
+      const slider = host.querySelector('input[type="range"][aria-label="Position offset"]')!;
+      return [slider.getAttribute('min'), slider.getAttribute('max')];
+    };
+    expect(range(undefined).every((v) => Number.isFinite(Number(v)))).toBe(true);
+    for (const bad of BAD) expect(range(bad), String(bad)).toEqual(range(undefined));
+  });
+});

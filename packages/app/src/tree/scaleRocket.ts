@@ -404,8 +404,10 @@ export function previewMounts(
     const scaledMount = scaleNode(m, factor);
     const scaledBoreMm = mountBore(scaledMount) * 1000;
     const nearestMm = nearestCommonClass(scaledBoreMm);
-    const motorM = m.id ? assigned[m.id] : undefined;
-    const motorMm = typeof motorM === 'number' ? motorM * 1000 : null;
+    // The loaded motor's diameter, if it is a real one (audit row 522): a NaN
+    // fitted no class, so the notes said "the NaN mm motor … no longer fits".
+    const motorM = m.id ? num(assigned, m.id) : null;
+    const motorMm = motorM !== null ? motorM * 1000 : null;
     // A min-diameter mount IS the airframe and is never snapped, so its bore
     // stays the scaled one whatever the checkbox says.
     const isAirframe = m.type !== 'innertube';
@@ -531,6 +533,9 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // station — including the fixed-size ones, which is desktop's rule too
   // (its "Scale component offsets" box, on for a whole-rocket scale).
   const pos = n.position as ComponentPosition | undefined;
+  // A non-finite offset comes out the same on either branch (round(NaN · k)
+  // is NaN, round(±Infinity · k) is ±Infinity), so this test cannot change it.
+  // eslint-disable-next-line no-restricted-syntax -- a pass-through, not a read (audit row 522)
   if (pos && typeof pos.offset === 'number') {
     out.position = { ...pos, offset: round(pos.offset * k) };
   } else if (pos && typeof pos === 'object') {
@@ -606,7 +611,7 @@ export function scaleRocket(
       statedLaunch.push({
         name: n.name ?? 'Stage',
         motor: n[OVERRIDE_INCLUDES_MOTOR] as string,
-        hadMass: typeof n['overrideMass'] === 'number',
+        hadMass: num(n, 'overrideMass') !== null, // a finite one (audit row 522)
       });
       delete scaled[OVERRIDE_INCLUDES_MOTOR];
       delete scaled['overrideMass'];

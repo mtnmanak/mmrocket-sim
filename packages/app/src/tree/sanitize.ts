@@ -138,6 +138,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     found.push(limitFinding(n, key, limit, raw, fixed));
   }
   const pos = n.position;
+  // eslint-disable-next-line no-restricted-syntax -- the load clamp, as the field loop above: it clamps a number, it does not read one (audit row 522)
   if (pos && typeof pos.offset === 'number') {
     const fixed = applyFieldLimit(POSITION, pos.offset);
     if (fixed !== pos.offset) {

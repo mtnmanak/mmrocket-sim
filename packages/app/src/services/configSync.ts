@@ -315,8 +315,10 @@ export function assignMotorRecord(
   const { tree, primaryMountId, droppedRef, remainingRefs } = ctx;
   const identity = motorIdentity(fresh.meta, fresh.spec.designation);
   let record: MountMotor = fresh;
-  // 1. Same motor, keys carried.
+  // 1. Same motor, keys carried. The weighing is carried as it stands:
+  // hardwareMass refuses a non-finite one before any arithmetic.
   const old = prev[mountId];
+  // eslint-disable-next-line no-restricted-syntax -- carries a pad-mass record unchanged (audit row 522)
   if (old && typeof old.padMassKg === 'number' && typeof old.padMassWeighedWith === 'string'
       && motorIdentity(old.meta, old.spec.designation) === identity) {
     record = { ...fresh, padMassKg: old.padMassKg, padMassWeighedWith: old.padMassWeighedWith };

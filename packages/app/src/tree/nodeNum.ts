@@ -1,9 +1,13 @@
 /**
  * What the readers take: a component node, or anything else keyed by field
- * name the same way. The one other caller is a catalogue `Preset` row
- * (services/presets.ts, components/PresetPicker.tsx), whose dimensions are the
- * same question with the same answer. `ComponentNode` satisfies it through its
- * own index signature, so no node caller changes.
+ * name the same way. The other callers are catalogue `Preset` rows
+ * (services/presets.ts, services/recoverySizing.ts, components/PresetPicker.tsx,
+ * components/ScaleDialog.tsx), whose dimensions are the same question with the
+ * same answer, and scaleRocket's map of loaded motor diameters. `ComponentNode`
+ * satisfies it through its own index signature, so no node caller changes. An
+ * INTERFACE does not (TS2345: no index signature), which is why the few such
+ * reads left — importApply's configuration pad mass — test Number.isFinite
+ * inline (audit row 522).
  */
 type Fields = { readonly [key: string]: unknown };
 

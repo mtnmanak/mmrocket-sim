@@ -133,12 +133,13 @@ const readShapeParameter = (num: NumReader, el: Element, node: ComponentNode): v
  * 613 ogive cones in the corpus carry 0.
  *
  * The fallback for a GATED shape stays the KERNEL default, never 0: a power-law
- * part exported with exponent 0 re-imports as a blunt cylinder.
+ * part exported with exponent 0 re-imports as a blunt cylinder. It is also what
+ * a NaN or infinite parameter gets (audit row 522): this took the value and
+ * tested `typeof value === 'number'`, a reader on a plain variable that neither
+ * lint rule could see, and wrote <ShapeParameter>NaN</ShapeParameter>.
  */
-const rktShapeParameter = (shape: string, value: unknown): number =>
-  RKT_PARAM_SHAPES.includes(shape)
-    ? (typeof value === 'number' ? value : shapeParamDefault(shape))
-    : 0;
+const rktShapeParameter = (shape: string, node: ComponentNode): number =>
+  RKT_PARAM_SHAPES.includes(shape) ? nnum(node, 'shapeParameter', shapeParamDefault(shape)) : 0;
 
 const CROSS_SECTIONS: Record<string, string> = lookupTable({ '0': 'square', '1': 'rounded', '2': 'airfoil' });
 const CROSS_SECTION_TO_CODE: Record<string, number> = lookupTable({ square: 0, rounded: 1, airfoil: 2 });
@@ -883,7 +884,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // keptWithoutCGFlag.delete() below meant it was not even named in the
           // "kept without the CG flag" note. A node that no longer carries any
           // kept value still leaves that set.
-          if (typeof n['overrideMass'] !== 'number') keptWithoutCGFlag.delete(n);
+          if (numOpt(n, 'overrideMass') === undefined) keptWithoutCGFlag.delete(n);
           return n;
         }
         n['mass'] = num(el, 'KnownMass', 0) / MASS;
@@ -900,7 +901,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // inside its parent; pin the CG on the point.
         const rawLen = num(el, 'Len', 20) / LEN;
         n['rocksimLen'] = rawLen;
-        const parentLen = typeof parent?.['length'] === 'number' ? (parent['length'] as number) : 0;
+        const parentLen = parent ? nnum(parent, 'length', 0) : 0;
         n['length'] = parentLen > 0 ? Math.min(rawLen, parentLen) : rawLen;
         // Its KnownMass became this component's real mass one line above, so the
         // override readCommon set from the SAME element is a duplicate and would
@@ -2080,8 +2081,13 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       const wantThickness = a['filled'] === true ? or : nnum(a, 'thickness', -2);
       if (Math.abs(nnum(b, 'thickness', -3) - wantThickness) > 1e-9) continue;
       if ((b.children ?? []).length) continue;
-      if (typeof b['overrideMass'] === 'number' && b['overrideMass'] !== 0) continue;
-      if (typeof b['overrideCGX'] === 'number' || typeof b['overrideCD'] === 'number') continue;
+      // Finite overrides only, as common() reads them (audit row 522): a NaN or
+      // infinite one overrides nothing in the kernel, and it kept the fold from
+      // happening — the extension went out as a second <BodyTube> with
+      // <BaseExtensionLen>0</BaseExtensionLen>, unlike the same tube without it.
+      const massOv = numOpt(b, 'overrideMass');
+      if (massOv !== undefined && massOv !== 0) continue;
+      if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
       baseExtOf.set(a.id, nnum(b, 'length', 0));
       folded.add(b);
     }
@@ -2167,9 +2173,13 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       if (copies) copies.push(serial);
       else mountCopies.set(node.id, [serial]);
     }
-    const hasMassOv = typeof node['overrideMass'] === 'number';
-    const hasCgOv = typeof node['overrideCGX'] === 'number';
-    const override = hasMassOv || hasCgOv;
+    // Finite overrides only (audit row 522). These two flags were a typeof
+    // test, which the writer block's lint rule did not see (it matched the test
+    // of a conditional or an `if`), so a NaN override still wrote
+    // <KnownMass>NaN</KnownMass> and <KnownCG>NaN</KnownCG> with UseKnownCG 1.
+    const massOv = numOpt(node, 'overrideMass');
+    const cgOv = numOpt(node, 'overrideCGX');
+    const override = massOv !== undefined || cgOv !== undefined;
     const info = node.id ? compInfo?.[node.id] : undefined;
     // BOTH values are always real whenever either override exists: the
     // overridden one verbatim, the other from the computed component info. A 0
@@ -2186,7 +2196,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // and this app's reader, adding the tubes back together, would say so too.
     const share = opts?.copies ?? 1;
     const knownMass = opts?.knownMass
-      ?? ((hasMassOv ? (node['overrideMass'] as number)
+      ?? ((massOv !== undefined ? massOv
         : override ? info?.mass ?? 0 : 0) * MASS) / share;
     emit(`<KnownMass>${knownMass}</KnownMass>`);
     // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
@@ -2236,7 +2246,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // at the component's own front — because App.tsx only fills compInfo for nodes
     // carrying exactly ONE of the two overrides, so `info?.cgX ?? 0` yielded 0.
     const knownCG = pt ? xbMm
-      : hasCgOv ? (node['overrideCGX'] as number) * LEN
+      : cgOv !== undefined ? cgOv * LEN
         : useKnown ? (info?.cgX ?? 0) * LEN : 0;
     emit(`<KnownCG>${knownCG}</KnownCG>`);
     emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
@@ -2301,7 +2311,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
         emit(`<BaseDia>${nnum(node, 'aftRadius', 0.012) * RAD}</BaseDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'ogive')] ?? 1}</ShapeCode>`);
-        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'ogive'), node['shapeParameter'])}</ShapeParameter>`);
+        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'ogive'), node)}</ShapeParameter>`);
         emit(`<ConstructionType>${node['filled'] === true ? 0 : 1}</ConstructionType>`);
         emit(`<ShoulderLen>${nnum(node, 'shoulderLength', 0) * LEN}</ShoulderLen>`);
         emit(`<ShoulderOD>${nnum(node, 'shoulderRadius', 0) * RAD}</ShoulderOD>`);
@@ -2327,7 +2337,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
         // (TransitionHandler.java:102-107). Emitted before it, desktop OpenRocket
         // silently drops the value. Our own reader is DOM-based and order-free,
         // so only the ordering test catches a mistake here.
-        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'conical'), node['shapeParameter'])}</ShapeParameter>`);
+        emit(`<ShapeParameter>${rktShapeParameter(String(node['shape'] ?? 'conical'), node)}</ShapeParameter>`);
         emit(`<ConstructionType>${node['filled'] === true ? 0 : 1}</ConstructionType>`);
         emit(`<FrontShoulderLen>${nnum(node, 'foreShoulderLength', 0) * LEN}</FrontShoulderLen>`);
         emit(`<FrontShoulderDia>${nnum(node, 'foreShoulderRadius', 0) * RAD}</FrontShoulderDia>`);
