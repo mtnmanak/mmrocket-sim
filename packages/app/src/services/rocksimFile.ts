@@ -1595,9 +1595,6 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   const nnum = (node: ComponentNode, key: string, fb: number): number =>
     typeof node[key] === 'number' ? (node[key] as number) : fb;
 
-  // Parent of the part currently being emitted (set at emitPart dispatch).
-  let curParent: ComponentNode | null = null;
-
   // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
   // Without this it goes out as a plain <BodyTube> and its `overrideMass: 0` is lost
   // on re-import — common() writes <KnownMass>0</KnownMass> and the import gate is
@@ -1634,30 +1631,58 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   for (const s of stagesIn) { foldChain(s.children); foldInPods(s.children); }
 
   /**
-   * RockSim `<LocationMode>` + `<Xb>` for a node. Extracted so the KnownCG line
-   * above it can reach Xb: a MassObject's `<KnownCG>` IS its `<Xb>` (desktop
-   * MassObjectDTO.java:38-39 overrides BasePartDTO to write exactly that, and all
-   * 28 TypeCode-0 objects in our corpus agree). Uses curParent for 'middle'.
+   * RockSim `<LocationMode>` + `<Xb>` for a node's FORE end (aft end in mode 2,
+   * which measures forward from the parent's rear).
+   *
+   * The parent is PASSED, never remembered (audit 2026-09-22). A module-level
+   * `curParent`, set on each emitPart dispatch, was stale by the time a cluster
+   * wrote copies 2..N or a pod set wrote instances 2..N: the first copy's
+   * children had re-set it on their way through. "Middle of parent" then
+   * resolved against the last child's parent — a cluster's copy 2 went out at
+   * Xb 0 while copy 1 sat centred, and on re-open the copies no longer grouped
+   * and became separate centreline tubes, with no note.
    */
-  const rocksimXb = (node: ComponentNode): { mode: number; xb: number } => {
+  const rocksimXb = (node: ComponentNode, parent: ComponentNode | null): { mode: number; xb: number } => {
     const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
     const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
     let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
     // RockSim has no "middle" mode — convert to front-referenced, mirroring
     // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2.
-    if (pos.method === 'middle' && curParent) {
+    if (pos.method === 'middle' && parent) {
       const compLen = nnum(node, 'length', nnum(node, 'rootChord', 0));
-      xb = pos.offset + (nnum(curParent, 'length', 0) - compLen) / 2;
+      xb = pos.offset + (nnum(parent, 'length', 0) - compLen) / 2;
     }
     return { mode, xb };
   };
 
   const common = (
     node: ComponentNode,
+    parent: ComponentNode | null,
     dfltName: string,
-    opts?: { knownMass?: number; useKnownCG?: boolean; knownCGIsXb?: boolean },
+    opts?: {
+      knownMass?: number;
+      useKnownCG?: boolean;
+      /**
+       * Write the part as RockSim's POINT mass: `<Xb>` on its CG and
+       * `<KnownCG>` equal to that `<Xb>`. `cg` is measured from the part's own
+       * front (m), `length` is its body length (m). See the MassObject branches.
+       */
+      point?: { cg: number; length: number };
+    },
   ) => {
-    const { mode, xb } = rocksimXb(node);
+    const { mode, xb: xbEnd } = rocksimXb(node, parent);
+    // A point mass sits at its CG (audit 2026-09-22). RockSim reads a
+    // <MassObject> as a point at <Xb>, and so does this app's importer (it pins
+    // overrideCGX on that point), so the point must BE the CG. It was the fore
+    // end: a 150 mm av bay reached RockSim, and this app on re-open, 75 mm
+    // forward of where it sits. In mode 2 Xb counts forward from the parent's
+    // rear to the part's AFT end, and the CG is (length − cg) further forward.
+    // A RockSim-imported mass object is pinned at its fore end (mode 0/1) or aft
+    // end (mode 2), so its Xb comes back out unchanged. Summed in millimetres,
+    // so 200 + 10 writes "210" rather than the metre sum's 210.00000000000003.
+    const pt = opts?.point;
+    const shift = !pt ? 0 : mode === 2 ? pt.length - pt.cg : pt.cg;
+    const xbMm = xbEnd * LEN + shift * LEN;
     serial += 1;
     // First write wins: cluster copies re-emit the same node — motor
     // references must point at the FIRST copy (the one carrying children).
@@ -1721,7 +1746,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // `<KnownCG>0</KnownCG><UseKnownCG>1</UseKnownCG>` — telling RockSim its CG sits
     // at the component's own front — because App.tsx only fills compInfo for nodes
     // carrying exactly ONE of the two overrides, so `info?.cgX ?? 0` yielded 0.
-    const knownCG = opts?.knownCGIsXb ? xb * LEN
+    const knownCG = pt ? xbMm
       : hasCgOv ? (node['overrideCGX'] as number) * LEN
         : useKnown ? (info?.cgX ?? 0) * LEN : 0;
     emit(`<KnownCG>${knownCG}</KnownCG>`);
@@ -1729,7 +1754,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
     emit(`<SerialNo>${serial}</SerialNo>`);
     emit(`<LocationMode>${mode}</LocationMode>`);
-    emit(`<Xb>${xb * LEN}</Xb>`);
+    emit(`<Xb>${xbMm}</Xb>`);
     // RockSim's computed mass/CG. Desktop writes both (BasePartDTO.java:84-85) and
     // — the load-bearing part — its IMPORTER pins any AIRFOIL fin set with
     // UseKnownCG=0 to them (FinSetHandler.java:299-309) from a field that defaults
@@ -1756,9 +1781,11 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     emit('</AttachedParts>');
   };
 
-  const emitInnerTube = (node: ComponentNode, radialLocM = 0, radialAngle = 0, suffix = '') => {
+  const emitInnerTube = (
+    node: ComponentNode, parent: ComponentNode | null, radialLocM = 0, radialAngle = 0, suffix = '',
+  ) => {
     emit('<BodyTube>');
-    common(node, `Inner Tube${suffix}`);
+    common(node, parent, `Inner Tube${suffix}`);
     emit(`<OD>${nnum(node, 'outerRadius', 0.0095) * RAD}</OD>`);
     emit(`<ID>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
@@ -1775,14 +1802,12 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   };
 
   const emitPart = (node: ComponentNode, parent: ComponentNode | null) => {
-    // common() needs the parent's length for the middle-position conversion;
-    // set before dispatch (every common() call happens inside this frame,
-    // always before the recursive attached() walk).
-    curParent = parent;
+    // common() takes `parent` for the middle-position conversion — passed on
+    // every call, never held in a variable the children re-set (see rocksimXb).
     switch (node.type) {
       case 'nosecone': {
         emit('<NoseCone>');
-        common(node, 'Nose cone');
+        common(node, parent, 'Nose cone');
         emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
         emit(`<BaseDia>${nnum(node, 'aftRadius', 0.012) * RAD}</BaseDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
@@ -1802,7 +1827,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'transition': {
         emit('<Transition>');
-        common(node, 'Transition');
+        common(node, parent, 'Transition');
         emit(`<Len>${nnum(node, 'length', 0.04) * LEN}</Len>`);
         emit(`<FrontDia>${nnum(node, 'foreRadius', 0.012) * RAD}</FrontDia>`);
         emit(`<RearDia>${nnum(node, 'aftRadius', 0.009) * RAD}</RearDia>`);
@@ -1825,7 +1850,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'bodytube': {
         emit('<BodyTube>');
-        common(node, 'Body tube');
+        common(node, parent, 'Body tube');
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
         emit(`<ID>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.2) * LEN}</Len>`);
@@ -1847,12 +1872,12 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         const offsets = clusterOffsets(cluster, nnum(node, 'outerRadius', 0.0095),
           nnum(node, 'clusterScale', 1), nnum(node, 'clusterRotation', 0));
         if (offsets.length === 1) {
-          emitInnerTube(node);
+          emitInnerTube(node, parent);
         } else {
           offsets.forEach((off, i) => {
             const r = Math.hypot(off.y, off.z);
             const angle = Math.atan2(off.z, off.y);
-            emitInnerTube(node, r, angle, i === 0 ? '' : ` (${i + 1})`);
+            emitInnerTube(node, parent, r, angle, i === 0 ? '' : ` (${i + 1})`);
           });
         }
         break;
@@ -1861,7 +1886,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         const usage = node.type === 'bulkhead' ? 1 : node.type === 'engineblock' ? 2
           : node.type === 'tubecoupler' ? 4 : 0;
         emit('<Ring>');
-        common(node, 'Ring');
+        common(node, parent, 'Ring');
         const parentInner = parent
           ? nnum(parent, 'outerRadius', 0.012) - nnum(parent, 'thickness', 0.0005)
           : 0.012;
@@ -1878,7 +1903,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       case 'trapezoidfinset': case 'ellipticalfinset': case 'freeformfinset': {
         const isCustom = node.type === 'freeformfinset';
         emit(isCustom ? '<CustomFinSet>' : '<FinSet>');
-        common(node, 'Fin set');
+        common(node, parent, 'Fin set');
         emit(`<FinCount>${Math.round(nnum(node, 'finCount', 3))}</FinCount>`);
         emit(`<ShapeCode>${isCustom ? 2 : node.type === 'ellipticalfinset' ? 1 : 0}</ShapeCode>`);
         emit(`<Thickness>${nnum(node, 'thickness', 0.003) * LEN}</Thickness>`);
@@ -1917,14 +1942,14 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // <ExternalPod>s around the ring (the desktop does the same);
         // parallel stages export as Detachable pods.
         const count = Math.max(1, Math.round(nnum(node, 'instanceCount', 1)));
-        const parentR = curParent
-          ? Math.max(nnum(curParent, 'outerRadius', 0), nnum(curParent, 'aftRadius', 0), 0.012)
+        const parentR = parent
+          ? Math.max(nnum(parent, 'outerRadius', 0), nnum(parent, 'aftRadius', 0), 0.012)
           : 0.012;
         const centerR = resolveAssemblyRadius(node, parentR);
         const angle0 = nnum(node, 'angleOffset', 0);
         for (let i = 0; i < count; i++) {
           emit('<ExternalPod>');
-          common(node, node.type === 'podset' ? 'Pod' : 'Booster');
+          common(node, parent, node.type === 'podset' ? 'Pod' : 'Booster');
           emit('<AutoCalcRadialDistance>0</AutoCalcRadialDistance>');
           emit('<AutoCalcRadialAngle>0</AutoCalcRadialAngle>');
           emit(`<Detachable>${node.type === 'parallelstage' ? 1 : 0}</Detachable>`);
@@ -1941,7 +1966,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'launchlug': {
         emit('<LaunchLug>');
-        common(node, 'Launch lug');
+        common(node, parent, 'Launch lug');
         emit(`<OD>${nnum(node, 'outerRadius', 0.0022) * RAD}</OD>`);
         emit(`<ID>${(nnum(node, 'outerRadius', 0.0022) - nnum(node, 'thickness', 0.0003)) * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.05) * LEN}</Len>`);
@@ -1956,7 +1981,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'tubefinset': {
         emit('<TubeFinSet>');
-        common(node, 'Tube fins');
+        common(node, parent, 'Tube fins');
         emit(`<TubeCount>${Math.round(nnum(node, 'finCount', 6))}</TubeCount>`);
         emit(`<MaxTubesAllowed>${Math.round(nnum(node, 'finCount', 6))}</MaxTubesAllowed>`);
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
@@ -1970,7 +1995,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'parachute': {
         emit('<Parachute>');
-        common(node, 'Parachute');
+        common(node, parent, 'Parachute');
         emit(`<Dia>${nnum(node, 'diameter', 0.3) * LEN}</Dia>`);
         emit(`<DragCoefficient>${nnum(node, 'cd', 0.75)}</DragCoefficient>`);
         emit(`<ShroudLineCount>${Math.round(nnum(node, 'lineCount', 6))}</ShroudLineCount>`);
@@ -1993,7 +2018,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'streamer': {
         emit('<Streamer>');
-        common(node, 'Streamer');
+        common(node, parent, 'Streamer');
         emit(`<Len>${nnum(node, 'stripLength', 0.5) * LEN}</Len>`);
         emit(`<Width>${nnum(node, 'stripWidth', 0.05) * LEN}</Width>`);
         emit(`<DragCoefficient>${nnum(node, 'cd', 0.75)}</DragCoefficient>`);
@@ -2002,7 +2027,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
       }
       case 'shockcord': {
         emit('<MassObject>');
-        common(node, 'Shock cord');
+        common(node, parent, 'Shock cord');
         emit('<TypeCode>1</TypeCode>');
         emit(`<Len>${nnum(node, 'cordLength', 0.3) * LEN}</Len>`);
         emit('</MassObject>');
@@ -2012,11 +2037,17 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // RockSim has no external-protuberance component — keep at least the
         // MASS so CG survives the export (aero effect is lost, documented).
         emit('<MassObject>');
-        common(node, `${node.name ?? 'Camera shroud'} (mass only)`, {
-          knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true, knownCGIsXb: true,
+        // A point at the shroud's CG. The kernel flies it as a strake fin
+        // (treeModel engineTree), whose CG sits off the middle when one end is
+        // streamlined and the other is not, so the kernel's own CG leads; half
+        // the length is the symmetric case, for a caller with no compInfo.
+        const shroudLen = nnum(node, 'length', 0.08);
+        common(node, parent, `${node.name ?? 'Camera shroud'} (mass only)`, {
+          knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true,
+          point: { cg: (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? shroudLen / 2, length: shroudLen },
         });
         emit('<TypeCode>0</TypeCode>');
-        emit(`<Len>${nnum(node, 'length', 0.08) * LEN}</Len>`);
+        emit(`<Len>${shroudLen * LEN}</Len>`);
         emit('</MassObject>');
         break;
       }
@@ -2030,7 +2061,17 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         const massKg = typeof node['overrideMass'] === 'number'
           ? (node['overrideMass'] as number)
           : nnum(node, 'mass', 0);
-        common(node, 'Mass', { knownMass: massKg * MASS, useKnownCG: true, knownCGIsXb: true });
+        // A point at the component's CG, measured from its own front: the
+        // stated override (a RockSim import pins one on the file's point),
+        // else the kernel's, else the body's middle — where the kernel puts a
+        // MassObject's CG (MassObject.java:230-231) and where App's compInfo
+        // would say it is.
+        const bodyLen = nnum(node, 'length', 0.02);
+        const cg = typeof node['overrideCGX'] === 'number' ? (node['overrideCGX'] as number)
+          : (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? bodyLen / 2;
+        common(node, parent, 'Mass', {
+          knownMass: massKg * MASS, useKnownCG: true, point: { cg, length: bodyLen },
+        });
         emit('<TypeCode>0</TypeCode>');
         // The file's OWN <Len> where we clamped one on import, so a .rkt round trip
         // returns the value RockSim wrote rather than the body we simulate.

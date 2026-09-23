@@ -1526,10 +1526,13 @@ describe('RockSim mass objects are points, not bodies', () => {
       ] }] } as never,
     });
     const blocks = xml.match(/<MassObject>[\s\S]*?<\/MassObject>/g)!;
-    expect(blocks[0]).toContain('<KnownCG>200</KnownCG>');
-    expect(blocks[0]).toContain('<Xb>200</Xb>');
-    expect(blocks[1]).toContain('<KnownCG>100</KnownCG>');
-    expect(blocks[1]).toContain('<Xb>100</Xb>');
+    // Both on the component's CG, half its 20 mm length in (audit 2026-09-22 —
+    // they were on its fore end, 200 and 100): TOP 200 + 10, and BOTTOM, which
+    // RockSim counts forward from the parent's rear, 100 to the aft end + 10.
+    expect(blocks[0]).toContain('<KnownCG>210</KnownCG>');
+    expect(blocks[0]).toContain('<Xb>210</Xb>');
+    expect(blocks[1]).toContain('<KnownCG>110</KnownCG>');
+    expect(blocks[1]).toContain('<Xb>110</Xb>');
     for (const b of blocks) {
       expect(b.indexOf('<KnownCG>')).toBeLessThan(b.indexOf('<UseKnownCG>'));
     }
@@ -1964,4 +1967,99 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
     expect(info.mass).toBeCloseTo(0.138211, 9);
     expect(info.cgX).toBeCloseTo(0.15376, 6);
   }, 60000);
+});
+
+/**
+ * Audit 2026-09-22, rows 383 and 384 — where the .rkt export puts things.
+ *
+ * 383: RockSim reads a <MassObject> as a POINT at <Xb> (and this app's importer
+ * pins it there), so the point has to be the part's CG. It was written at the
+ * part's FORE end, so a 150 mm av bay reached RockSim, and this app on re-open,
+ * 75 mm forward of where it sits.
+ *
+ * 384: a cluster's copies 2..N and a pod set's instances 2..N were positioned
+ * against whatever parent the previous copy's children left behind, so "middle
+ * of parent" resolved against the wrong part.
+ */
+describe('.rkt export positions (audit 2026-09-22)', () => {
+  const stage = (children: ComponentNode[]) => ({
+    name: 'P',
+    tree: { name: 'P', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.025, thickness: 0.001, children },
+    ] }] as ComponentNode[] },
+  });
+  const blocks = (xml: string, tag: string) => xml.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g')) ?? [];
+  const xbOf = (block: string) => Number(/<Xb>([^<]*)<\/Xb>/.exec(block)![1]);
+
+  it('writes a mass component at its CG, for every position method', () => {
+    const xml = exportRkt(stage([
+      { type: 'masscomponent', id: 'top', mass: 0.25, length: 0.15, position: { method: 'top', offset: 0.1 } },
+      { type: 'masscomponent', id: 'bot', mass: 0.25, length: 0.15, position: { method: 'bottom', offset: -0.05 } },
+      { type: 'masscomponent', id: 'mid', mass: 0.25, length: 0.15, position: { method: 'middle', offset: 0.01 } },
+      // A stated CG (from the component's own front) is where the point goes.
+      { type: 'masscomponent', id: 'pin', mass: 0.25, length: 0.15, overrideCGX: 0.03,
+        position: { method: 'top', offset: 0.2 } },
+    ] as ComponentNode[]));
+    const [top, bot, mid, pin] = blocks(xml, 'MassObject');
+    // top: front 100 mm + half of 150.
+    expect(xbOf(top!)).toBeCloseTo(175, 9);
+    // bottom (RockSim measures forward from the parent's rear): aft end 50 mm
+    // forward, CG a further 75.
+    expect(xbOf(bot!)).toBeCloseTo(125, 9);
+    // middle: front at 10 + (400 − 150)/2 = 135 mm, CG at 210.
+    expect(xbOf(mid!)).toBeCloseTo(210, 9);
+    expect(xbOf(pin!)).toBeCloseTo(230, 9);
+    for (const b of [top!, bot!, mid!, pin!]) {
+      expect(b).toContain(`<KnownCG>${xbOf(b)}</KnownCG>`);
+    }
+  });
+
+  it('prefers the kernel CG it is handed, as a fairing needs', () => {
+    // A shroud with one streamlined end has its CG off centre; compInfo carries it.
+    const xml = exportRkt({
+      ...stage([{ type: 'fairing', id: 'f', mass: 0.03, length: 0.08, position: { method: 'top', offset: 0.1 } }] as ComponentNode[]),
+      compInfo: { f: { mass: 0.03, cgX: 0.035 } },
+    });
+    expect(xbOf(blocks(xml, 'MassObject')[0]!)).toBeCloseTo(135, 9);
+  });
+
+  it('round-trips a mass component with its CG where it was', () => {
+    const d = stage([{ type: 'masscomponent', id: 'bay', name: 'Av bay', mass: 0.25, length: 0.15,
+      position: { method: 'top', offset: 0.1 } }] as ComponentNode[]);
+    const back = importRkt(exportRkt(d));
+    const bay = flatten(back.tree.components).find((c) => c.type === 'masscomponent')!;
+    const cgFromParentFront = (bay.position!.offset) + (bay['overrideCGX'] as number);
+    expect(cgFromParentFront).toBeCloseTo(0.175, 9);
+    expect(bay['mass']).toBeCloseTo(0.25, 9);
+  });
+
+  it('positions every cluster copy against the cluster’s own parent', () => {
+    // An engine block inside the mount is what used to leave the stale parent.
+    const d = stage([{ type: 'innertube', id: 'mt', length: 0.07, outerRadius: 0.0095, thickness: 0.0005,
+      motorMount: true, cluster: 'double', clusterScale: 1, position: { method: 'middle', offset: 0 },
+      children: [{ type: 'engineblock', id: 'eb', length: 0.005 }] }] as ComponentNode[]);
+    const xml = exportRkt(d);
+    // Blocks nest, so pick each copy out by its own <Name>. Before the fix,
+    // copy 2 was centred in the ENGINE BLOCK'S parent (the mount itself):
+    // (70 − 70)/2 = 0, and on re-open the two no longer grouped.
+    const inner = xml.split('<BodyTube>').filter((b) => /<Name>Inner Tube/.test(b));
+    expect(inner).toHaveLength(2);
+    for (const b of inner) expect(xbOf(b)).toBeCloseTo(165, 9); // (400 − 70)/2
+    const back = importRkt(xml);
+    const mounts = flatten(back.tree.components).filter((c) => c.type === 'innertube');
+    expect(mounts).toHaveLength(1);
+    expect(mounts[0]!['cluster']).toBe('double');
+    expect(back.notes.some((n) => /centerline tubes/.test(n))).toBe(false);
+  });
+
+  it('positions every pod instance against the pod set’s own parent', () => {
+    const d = stage([{ type: 'podset', id: 'pods', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.05,
+      position: { method: 'middle', offset: 0 },
+      children: [{ type: 'bodytube', id: 'pt', length: 0.1, outerRadius: 0.01, thickness: 0.0005 }] }] as ComponentNode[]);
+    const back = importRkt(exportRkt(d));
+    const pods = flatten(back.tree.components).filter((c) => c.type === 'podset');
+    expect(pods).toHaveLength(2);
+    // The pod set has no axial length, so "middle" is the parent's midpoint.
+    for (const p of pods) expect(p.position?.offset).toBeCloseTo(0.2, 9);
+  });
 });
