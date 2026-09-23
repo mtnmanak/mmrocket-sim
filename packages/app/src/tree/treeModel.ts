@@ -266,27 +266,36 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
  * invented the difference as airframe hardware and then flew it on every
  * repeated motor.
  *
- * Each instance count is read EXACTLY as the kernel reads it (audit
- * 2026-09-22, row 352): `ComponentFactory.applyAssembly` hands the kernel
- * `(int) dbl(node, "instanceCount", 2)` — absent (the Instances field is
- * nullable, so clearing it stores nothing), null or non-finite is TWO, and a
- * fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount` ignore
- * anything below one, which leaves their constructors' two standing. This used
- * to read an absent count as ONE, so a cleared field subtracted one motor from
- * a weighed pad mass where the kernel flies two, and the missing motor flew
- * again as phantom hardware on every flight; `AftView`, `TreeSchematic` and
- * `mountAngle` already drew two. Pinned against the kernel, case by case, in
- * `mountMotorCount.kernel.test.ts`.
+ * Each instance count is read exactly as the kernel reads it —
+ * `flownInstanceCount` (audit 2026-09-22, row 352). Pinned against the kernel,
+ * case by case, in `mountMotorCount.kernel.test.ts`.
  */
 export function mountMotorCount(tree: RocketTree, mountId: string): number {
   let k = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
   for (const a of ancestorsOf(tree, mountId)) {
-    if (a.type === 'podset' || a.type === 'parallelstage') {
-      const c = Math.trunc(num(a, 'instanceCount', 2));
-      k *= c >= 1 ? c : 2;
-    }
+    if (a.type === 'podset' || a.type === 'parallelstage') k *= flownInstanceCount(a);
   }
   return k;
+}
+
+/**
+ * How many copies of a pod set or strap-on the KERNEL builds (audit
+ * 2026-09-22, row 352): `ComponentFactory.applyAssembly` hands it
+ * `(int) dbl(node, "instanceCount", 2)` — absent (the Instances field is
+ * nullable, so clearing it stores nothing), null or non-finite is TWO, and a
+ * fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount` ignore
+ * anything below one, which leaves their constructors' two standing.
+ * `mountMotorCount` used to read an absent count as ONE, so a cleared field
+ * subtracted one motor from a weighed pad mass where the kernel flies two, and
+ * the missing motor flew again as phantom hardware on every flight; `AftView`,
+ * `TreeSchematic` and `mountAngle` already drew two.
+ *
+ * Not `counts.ts`'s `assemblyInstanceCount`, which is how many the views DRAW —
+ * rounded and clamped to 32; this is the flown count, unclamped.
+ */
+export function flownInstanceCount(a: ComponentNode): number {
+  const c = Math.trunc(num(a, 'instanceCount', 2));
+  return c >= 1 ? c : 2;
 }
 
 /**
