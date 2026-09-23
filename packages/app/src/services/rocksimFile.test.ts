@@ -2733,3 +2733,188 @@ describe('.rkt simulations become flight configurations', () => {
     expect(byStage(r, r.motors)).toEqual(['C6', 'C6']);
   });
 });
+
+/**
+ * CLUSTERS, POD SETS AND OFF-AXIS TUBES THROUGH A .rkt AND BACK (seam review
+ * of audit 2026-09-22). Three seams met here. The writer split a cluster into
+ * N motor-mount tubes and wrote ONE engine set, on the first — where RockSim
+ * lists a set per tube (every corpus set is EngineCount 1) — so the file flew
+ * one motor. The reader's regrouping hid that for an on-axis cluster, and
+ * could not once the writer put an off-axis cluster's tubes where the kernel
+ * flies them: they came back as N centreline mounts carrying one motor. And a
+ * lone off-axis tube came back on the axis, while identical tubes carrying
+ * DIFFERENT motors were merged into one cluster flying one of them.
+ */
+describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', () => {
+  const tubeIn = (tube: Record<string, unknown>) => ({
+    name: 'C', tree: {
+      name: 'C',
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'b', name: 'Body', length: 0.3, outerRadius: 0.05, thickness: 0.001,
+          children: [{ type: 'innertube', id: 'm', name: 'Mount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, ...tube }],
+        }],
+      }] as ComponentNode[],
+    },
+  });
+  const D12: OrkExportMotor = { designation: 'D12', manufacturer: 'Estes', diameter: 0.024, length: 0.07, delay: 5 };
+  /** Every inside tube's centre, (y, z) in metres, sorted — from RadialLoc (mm) and RadialAngle (rad). */
+  const centres = (xml: string) => [...xml.matchAll(
+    /<IsInsideTube>1<\/IsInsideTube>\s*<RadialLoc>([^<]+)<\/RadialLoc>\s*<RadialAngle>([^<]+)<\/RadialAngle>/g)]
+    .map((m) => [(Number(m[1]) / 1000) * Math.cos(Number(m[2])), (Number(m[1]) / 1000) * Math.sin(Number(m[2]))] as const)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const mountsOf = (tree: { components: ComponentNode[] }) => flatten(tree.components).filter((n) => n['motorMount'] === true);
+
+  it('writes one engine set per tube and one name entry per motor, as RockSim writes a cluster', () => {
+    const xml = exportRkt({ ...tubeIn({ motorMount: true, cluster: '3-ring' }), motors: { m: D12 } });
+    expect((xml.match(/<IsInsideTube>1<\/IsInsideTube>/g) ?? []).length).toBe(3);
+    const sets = [...xml.matchAll(/<EngineSet>[\s\S]*?<MountSerialNo>(\d+)<\/MountSerialNo>[\s\S]*?<\/EngineSet>/g)].map((m) => m[1]);
+    expect(sets).toHaveLength(3);
+    expect(new Set(sets).size).toBe(3);
+    expect(xml).toContain('<SimulationName>[D12-5, D12-5, D12-5] </SimulationName>');
+    expect((xml.match(/<EngineCount>1<\/EngineCount>/g) ?? []).length).toBe(3);
+  });
+
+  it('brings an off-axis, turned cluster back as ONE cluster, where it was, carrying every motor', () => {
+    const design = tubeIn({
+      motorMount: true, cluster: '3-ring', clusterRotation: Math.PI / 6,
+      radialDirection: (20 * Math.PI) / 180, radialPosition: 0.006,
+    });
+    const first = exportRkt({ ...design, motors: { m: D12 } });
+    const back = importRkt(first);
+    const mounts = mountsOf(back.tree);
+    expect(mounts).toHaveLength(1);
+    expect(mounts[0]!['cluster']).toBe('3-ring');
+    expect(mounts[0]!['radialPosition']).toBeCloseTo(0.006, 9);
+    // Its motor rides the cluster: three motors, as the design flew.
+    expect(Object.keys(back.motors)).toEqual([mounts[0]!.id]);
+    expect(back.notes.join('\n')).toMatch(/imported as one 3-ring cluster, 6\.0 mm off the centerline/);
+    // And every tube where the kernel put it: written again, the same three centres.
+    const again = exportRkt({ name: 'C', tree: back.tree, motors: { [mounts[0]!.id!]: D12 } });
+    const [a, b] = [centres(first), centres(again)];
+    expect(b).toHaveLength(3);
+    b.forEach((c, i) => { expect(c[0]).toBeCloseTo(a[i]![0], 9); expect(c[1]).toBeCloseTo(a[i]![1], 9); });
+  });
+
+  it('brings a lone tube back off the axis, where it was', () => {
+    const back = importRkt(exportRkt(tubeIn({ radialPosition: 0.012, radialDirection: (50 * Math.PI) / 180 })));
+    const tube = flatten(back.tree.components).find((n) => n.type === 'innertube')!;
+    expect(tube['radialPosition']).toBeCloseTo(0.012, 9);
+    expect(tube['radialDirection']).toBeCloseTo((50 * Math.PI) / 180, 9);
+    expect(back.notes.join('\n')).not.toMatch(/cluster|centerline/i);
+  });
+
+  it('gives a pod set’s every instance its motor', () => {
+    const tree = {
+      name: 'P',
+      components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b', name: 'Body', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'podset', id: 'pods', instanceCount: 2, radiusOffset: 0.05, children: [
+            { type: 'bodytube', id: 'pt', name: 'Pod tube', length: 0.2, outerRadius: 0.012, thickness: 0.0005,
+              motorMount: true },
+          ] },
+        ] },
+      ] }] as ComponentNode[],
+    };
+    const xml = exportRkt({ name: 'P', tree, motors: { pt: D12 } });
+    expect(xml).toContain('<SimulationName>[D12-5, D12-5] </SimulationName>');
+    const back = importRkt(xml);
+    expect(Object.values(back.motors).map((m) => m.designation)).toEqual(['D12', 'D12']);
+  });
+
+  /** Four identical tubes around the axis, and what each simulation loads in them — 8 in Goblin 4 x 75mm.rkt's shape. */
+  const goblin = (sims: string[][]) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Goblin-ish</Name><StageCount>1</StageCount>
+    <Stage3Parts><BodyTube><Name>Body</Name><OD>203</OD><ID>199</ID><Len>1500</Len><SerialNo>1</SerialNo>
+      <AttachedParts>${[0, 1, 2, 3].map((i) => `<BodyTube><Name>Tube ${i + 1}</Name><OD>79</OD><ID>76</ID><Len>600</Len>
+        <IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount><SerialNo>${8 + i}</SerialNo>
+        <RadialLoc>60</RadialLoc><RadialAngle>${(i * Math.PI) / 2}</RadialAngle></BodyTube>`).join('')}
+      </AttachedParts></BodyTube></Stage3Parts>
+    </RocketDesign></DesignInformation>
+    <SimulationResultsList>${sims.map((codes) => `<SimulationResults><Stage3Engines>${codes.map((c, i) => (c ? `<EngineSet>
+      <EngineCount>1</EngineCount><EngineCode>${c}</EngineCode><EngineMfg>AeroTech</EngineMfg><IgnitionDelay>0.</IgnitionDelay>
+      <MountSerialNo>${8 + i}</MountSerialNo><EjectionDelay>-2.</EjectionDelay></EngineSet>` : '')).join('')}
+    </Stage3Engines></SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`;
+
+  it('keeps identical tubes that carry different motors as mounts of their own', () => {
+    const r = importRkt(goblin([
+      ['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ'],
+      ['M2050X', 'L1170FJ', 'M2050X', 'L1170FJ'],
+      ['K1499N', '', 'K1499N', ''],
+    ]));
+    const mounts = mountsOf(r.tree);
+    expect(mounts).toHaveLength(4);
+    expect(mounts.every((m) => m['cluster'] === undefined)).toBe(true);
+    // Each where the file puts it: 60 mm out, a quarter turn apart.
+    expect(mounts.map((m) => m['radialPosition'] as number)).toEqual([0.06, 0.06, 0.06, 0.06].map((v) => expect.closeTo(v, 9)));
+    const designations = (id: string) => Object.values(r.configs.find((c) => c.id === id)!.motors)
+      .map((m) => m.designation).sort();
+    expect(designations('rocksim-sim-1')).toEqual(['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ']);
+    expect(designations('rocksim-sim-2')).toEqual(['L1170FJ', 'L1170FJ', 'M2050X', 'M2050X']);
+    expect(designations('rocksim-sim-3')).toEqual(['K1499N', 'K1499N']);
+    expect(r.notes.join('\n')).toMatch(/4 identical motor tubes in “Body” carry different motors in the file's simulations/);
+    // The same tubes loaded alike in every simulation are still one cluster.
+    const alike = importRkt(goblin([['L1170FJ', 'L1170FJ', 'L1170FJ', 'L1170FJ'], ['K1499N', 'K1499N', 'K1499N', 'K1499N']]));
+    expect(mountsOf(alike.tree).map((m) => m['cluster'])).toEqual(['4-ring']);
+    expect(Object.values(alike.configs.find((c) => c.id === 'rocksim-sim-2')!.motors).map((m) => m.designation)).toEqual(['K1499N']);
+  });
+
+  /**
+   * LEM-M2B.ork's two nose-cone tubes (not mounts, 12.954 mm at 0° and 12.7 mm
+   * at 180°), written to a .rkt and read back: exactly a double cluster centred
+   * 0.127 mm off the axis — and named as tubes, not as motor tubes.
+   */
+  it('fits two plain tubes about their own centre and does not call them motor tubes', () => {
+    const tube = (angle: number, loc: number) => `<BodyTube><Name>Tube</Name><OD>4.7625</OD><ID>1.5875</ID><Len>25.4</Len>
+      <IsInsideTube>1</IsInsideTube><RadialLoc>${loc}</RadialLoc><RadialAngle>${angle}</RadialAngle></BodyTube>`;
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>LEM</Name><StageCount>1</StageCount>
+      <Stage3Parts><NoseCone><Name>Nose cone</Name><Len>100</Len><BaseDia>40</BaseDia>
+        <AttachedParts>${tube(0, 12.954)}${tube(Math.PI, 12.7)}</AttachedParts></NoseCone></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`);
+    const tubes = flatten(r.tree.components).filter((n) => n.type === 'innertube');
+    expect(tubes).toHaveLength(1);
+    expect(tubes[0]!['cluster']).toBe('double');
+    expect(tubes[0]!['radialPosition']).toBeCloseTo(0.000127, 9);
+    expect(r.notes.join('\n')).toContain('Cluster: 2 identical tubes in “Nose cone” imported as one double cluster, 0.1 mm off the centerline.');
+  });
+
+  /**
+   * A tube holds one motor, so two engine sets naming ONE tube is a stale
+   * serial — EclipseB_38mmRedlineEllis.rkt's H148R at 30 s and at 0 s, both on
+   * serial 22, beside a twin tube carrying none. Merged, the pair flew as two
+   * of the last; kept apart un-repaired it would fly one. The extra set goes to
+   * the twin.
+   */
+  it('gives a set that names an already-loaded tube to its empty twin', () => {
+    const tube = (serial: number, angle: number) => `<BodyTube><Name>Motor tube</Name><OD>41</OD><ID>38.5</ID><Len>300</Len>
+      <IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount><SerialNo>${serial}</SerialNo>
+      <RadialLoc>30</RadialLoc><RadialAngle>${angle}</RadialAngle></BodyTube>`;
+    const set = (delay: string) => `<EngineSet><EngineCount>1</EngineCount><EngineCode>H148R</EngineCode>
+      <EngineMfg>AeroTech</EngineMfg><IgnitionDelay>0.</IgnitionDelay><MountSerialNo>22</MountSerialNo>
+      <EjectionDelay>${delay}</EjectionDelay></EngineSet>`;
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>Eclipse</Name><StageCount>1</StageCount>
+      <Stage3Parts><BodyTube><Name>Body</Name><OD>102</OD><ID>98</ID><Len>900</Len><SerialNo>1</SerialNo>
+        <AttachedParts>${tube(22, 0)}${tube(23, Math.PI)}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation><SimulationResultsList><SimulationResults><Stage3Engines>
+        ${set('30.')}${set('0.')}</Stage3Engines></SimulationResults></SimulationResultsList></RockSimDocument>`);
+    const mounts = mountsOf(r.tree);
+    expect(mounts).toHaveLength(2);
+    expect(mounts.map((m) => r.motors[m.id!]?.delay)).toEqual([30, 0]);
+  });
+
+  const corpus = ['G:/Documents/Dropbox/Rocksim Designs', 'C:/Users/peltz/Dropbox/Rocksim Designs'];
+  const ECLIPSE = corpus.map((c) => `${c}/Public Missiles/EclipseB_38mmRedlineEllis.rkt`).find((p) => existsSync(p));
+  it.skipIf(!ECLIPSE)('EclipseB_38mmRedlineEllis.rkt: two tubes, two motors, each its own delay', () => {
+    const r = importRkt(readFileSync(ECLIPSE!, 'latin1'));
+    expect(Object.values(r.motors).map((m) => `${m.designation}-${m.delay}`).sort()).toEqual(['H148R-0', 'H148R-30']);
+  });
+  const GOBLIN = corpus.map((c) => `${c}/Wildman/PELTZER/8 in Goblin 4 x 75mm.rkt`).find((p) => existsSync(p));
+  it.skipIf(!GOBLIN)('8 in Goblin 4 x 75mm.rkt: simulations 90 and 102 fly the motors RockSim flew', () => {
+    const r = importRkt(readFileSync(GOBLIN!, 'latin1'));
+    const sim = (n: number) => Object.values(r.configs.find((c) => c.id === `rocksim-sim-${n}`)!.motors)
+      .map((m) => m.designation).sort();
+    expect(sim(90)).toEqual(['L1170FJ', 'L1170FJ', 'M2050X', 'M2050X']);
+    expect(sim(102)).toEqual(['K1499N', 'K1499N']);
+  });
+});

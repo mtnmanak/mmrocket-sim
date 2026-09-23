@@ -998,13 +998,30 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // RockSim files carry a cluster as N separate inner tubes at radial
   // positions. Regroup identical siblings whose offsets fit one of the
   // kernel's cluster patterns into ONE tagged cluster tube (motor serials of
-  // the dropped twins re-point at the kept tube). Unmatched layouts stay as
-  // separate tubes (with a note) — our schema has no off-axis single tube.
+  // the dropped twins re-point at the kept tube). Tubes that fit no pattern,
+  // or carry different motors, stay separate — and every tube that stays on
+  // its own keeps its place off the axis (radialPosition / radialDirection,
+  // below the reconstruction).
+  //
+  // THE PATTERN IS FITTED ABOUT THE TUBES' OWN CENTRE, not the rocket's axis
+  // (seam review of audit 2026-09-22). Every kernel pattern is centred on the
+  // tube's axis, and the kernel then sets the whole cluster off the rocket's
+  // by the tube's radialPosition along its radialDirection
+  // (InnerTube.getClusterPoints), which the .rkt writer has written since the
+  // same audit. Fitted about the rocket's axis, such a cluster matched nothing
+  // and came back as N separate tubes: a 3-ring 6 mm off the axis reopened as
+  // three mounts carrying one motor between them. The offset found is handed
+  // back as the tube's own radialPosition / radialDirection; one under 10 µm is
+  // RockSim's rounding of a centred cluster, not a placement, and is dropped.
   const matchCluster = (
     pts: { y: number; z: number }[], tubeR: number,
-  ): { pattern: string; scale: number; rotation: number } | null => {
+  ): { pattern: string; scale: number; rotation: number; offset: { y: number; z: number } } | null => {
     const eps = 1e-6;
-    const p = pts.map((q) => ({ x: q.y, y: q.z }));
+    const cy = pts.reduce((a, q) => a + q.y, 0) / pts.length;
+    const cz = pts.reduce((a, q) => a + q.z, 0) / pts.length;
+    const centred = Math.hypot(cy, cz) < 1e-5;
+    const offset = centred ? { y: 0, z: 0 } : { y: cy, z: cz };
+    const p = pts.map((q) => ({ x: q.y - offset.y, y: q.z - offset.z }));
     for (const [pattern, flat] of Object.entries(CLUSTER_POINTS)) {
       if (pattern === 'single' || flat.length / 2 !== p.length) continue;
       const u: { x: number; y: number }[] = [];
@@ -1040,12 +1057,80 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // round-tripped our own exports, but gave a real RockSim cluster a
           // rotation the kernel and desktop turn the other way.
           const rot = Math.atan2(Math.sin(-phi), Math.cos(-phi)); // normalize (−π, π]
-          return { pattern, scale: sep / (2 * tubeR), rotation: rot };
+          return { pattern, scale: sep / (2 * tubeR), rotation: rot, offset };
         }
       }
     }
     return null;
   };
+  // The file's stored simulations — read here for the tubes' loadouts, and
+  // again below, once the tubes are regrouped, for the configurations.
+  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  /** Per stored simulation, its engine sets and the tube each names, before any regrouping. */
+  const simSets = simEls.map((sim) => Array.from(sim.querySelectorAll('EngineSet')).flatMap((el) => {
+    const serial = text(el, ':scope > MountSerialNo');
+    const node = serial ? serialToNode.get(serial) : undefined;
+    return node ? [{ el, node }] : [];
+  }));
+  /** One engine set as a comparable string: code, maker and both delays, as numbers. */
+  const setKey = (el: Element): string => {
+    const norm = (tag: string): string => {
+      const raw = text(el, `:scope > ${tag}`) ?? '';
+      const v = parseDecimal(raw);
+      return Number.isFinite(v) ? String(v) : raw.trim().toLowerCase();
+    };
+    return [text(el, ':scope > EngineCode') ?? '', text(el, ':scope > EngineMfg') ?? '',
+      norm('EjectionDelay'), norm('IgnitionDelay')].join('|');
+  };
+  /**
+   * Engine sets moved off the tube their MountSerialNo names, onto an
+   * identical sibling — the repair in `groupLoadouts` — for readEngineSet.
+   */
+  const movedSets = new Map<Element, ComponentNode>();
+  /**
+   * How every simulation loads a group of identical tubes, and whether any two
+   * of them differ. Tubes are merged into one cluster only when EVERY
+   * simulation loads them alike.
+   *
+   * IDENTICAL TUBES ARE NOT IDENTICAL MOUNTS (seam review of audit 2026-09-22).
+   * The regrouping looked at size and place alone, and the merged tube then
+   * took ONE engine set per simulation, the last: 8 in Goblin 4 x 75mm.rkt's
+   * simulation 90 (M2050X on two tubes, L1170FJ on the other two) opened as
+   * L1170FJ × 4; Cluster Duck.rkt's alternating C6 and C6Q as C6Q × 6. Engine
+   * sets outside any simulation — this app's own export before that audit,
+   * which wrote one set for a whole cluster — are left out of the test, so
+   * those files still merge.
+   *
+   * A tube holds one motor, so a simulation that names ONE tube in two of its
+   * engine sets has a stale serial — 65 simulations in 13 corpus files, most
+   * of them Public Missiles', do (EclipseB_38mmRedlineEllis.rkt: H148R at 30 s
+   * and at 0 s, both on serial 22, with its twin tube carrying none). Within
+   * a group the extra sets go, in file order, to the group's tubes that carry
+   * none in that simulation: merged, the pair used to fly as two of the last;
+   * apart, un-repaired, it would fly one.
+   */
+  const groupLoadouts = (g: ComponentNode[]): { differ: boolean; moves: Map<Element, ComponentNode> } => {
+    const moves = new Map<Element, ComponentNode>();
+    let differ = false;
+    for (const sets of simSets) {
+      const on = new Map<ComponentNode, Element[]>(g.map((t) => [t, []]));
+      for (const { el, node } of sets) on.get(node)?.push(el);
+      const empty = g.filter((t) => on.get(t)!.length === 0);
+      for (const t of g) {
+        const list = on.get(t)!;
+        while (list.length > 1 && empty.length > 0) {
+          const el = list.splice(1, 1)[0]!;
+          const to = empty.shift()!;
+          on.get(to)!.push(el);
+          moves.set(el, to);
+        }
+      }
+      if (new Set(g.map((t) => on.get(t)!.map(setKey).sort().join('\n'))).size > 1) differ = true;
+    }
+    return { differ, moves };
+  };
+  /** The kept tube of each merged cluster: its own RadialLoc is one copy's, not the cluster's place. */
+  const mergedKeep = new Set<ComponentNode>();
   const reconstructClusters = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
       const kids = parentNode.children ?? [];
@@ -1073,10 +1158,23 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
+        const where = parentNode.name ?? parentNode.type;
+        // "Motor tubes" only when they are: LEM-M2B.ork's two nose-cone tubes,
+        // written out and read back, were called that with no mount among them.
+        const kind = g.some((t) => t['motorMount'] === true) ? 'motor tubes' : 'tubes';
+        const loads = groupLoadouts(g);
+        if (loads.differ) {
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical ${kind} in “${where}” carry different motors in the file's simulations, `
+            + 'so each stays a mount of its own, where the file puts it — merged into one cluster, a '
+            + 'simulation would fly one of those motors in every tube.');
+          continue;
+        }
         const tubeR = typeof g[0]!['outerRadius'] === 'number' ? (g[0]!['outerRadius'] as number) : 0.0095;
         const m = matchCluster(g.map((t) => radialByNode.get(t) ?? { y: 0, z: 0 }), tubeR);
         if (!m) {
-          notes.push(`${g.length} identical off-axis tubes in “${parentNode.name ?? parentNode.type}” don't fit a known cluster pattern — imported as separate centerline tubes.`);
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical off-axis ${kind} in “${where}” don't fit a known cluster pattern — imported as separate tubes, each where the file puts it.`);
           continue;
         }
         // Keep the tube that carries children (our own exports put them on the
@@ -1084,19 +1182,44 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         const keep = g.find((t) => (t.children ?? []).length > 0) ?? g[0]!;
         keep['cluster'] = m.pattern;
         keep['clusterScale'] = Number(m.scale.toFixed(4));
-        if (Math.abs(m.rotation) > 1e-4) keep['clusterRotation'] = m.rotation;
+        let rotation = m.rotation;
+        const off = Math.hypot(m.offset.y, m.offset.z);
+        if (off > 0) {
+          const dir = Math.atan2(m.offset.z, m.offset.y);
+          keep['radialPosition'] = off;
+          keep['radialDirection'] = dir;
+          // The kernel turns the pattern by radialDirection − clusterRotation
+          // (cluster.ts clusterOffsets), so the tube's own direction goes into
+          // the rotation too, leaving each tube where the file has it.
+          rotation = Math.atan2(Math.sin(rotation + dir), Math.cos(rotation + dir));
+        }
+        if (Math.abs(rotation) > 1e-4) keep['clusterRotation'] = rotation;
         keep.name = keep.name?.replace(/ \(\d+\)$/, '');
+        mergedKeep.add(keep);
         const dropped = new Set(g.filter((t) => t !== keep));
         for (const [serial, node] of serialToNode) {
           if (dropped.has(node)) serialToNode.set(serial, keep);
         }
         parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
-        notes.push(`Cluster: ${g.length} identical motor tubes in “${parentNode.name ?? parentNode.type}” imported as one ${m.pattern} cluster.`);
+        notes.push(`Cluster: ${g.length} identical ${kind} in “${where}” imported as one ${m.pattern} cluster`
+          + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`);
       }
       reconstructClusters(parentNode.children ?? []);
     }
   };
   reconstructClusters(components);
+  // A TUBE ON ITS OWN OFF THE AXIS STAYS THERE (seam review of audit
+  // 2026-09-22). The schema has carried an inner tube's radialPosition and
+  // radialDirection all along (the Design tab's "Distance off centerline"),
+  // and the .rkt writer has written them since that audit, but this reader put
+  // every such tube back on the axis — a 12 mm / 50° tube reopened at 0 / 0
+  // with no note. RockSim's RadialLoc is millimetres from the axis and its
+  // RadialAngle the direction, in radians: the pair the kernel takes.
+  for (const [node, c] of radialByNode) {
+    if (mergedKeep.has(node)) continue;
+    node['radialPosition'] = Math.hypot(c.y, c.z);
+    node['radialDirection'] = Math.atan2(c.z, c.y);
+  }
 
   // ---- Fin de-collision (2026-08-05d) ----
   // RockSim renders interleaved fin sets without storing an angle, so tube
@@ -1262,7 +1385,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     const code = text(engineSet, ':scope > EngineCode');
     if (!code) return null;
     const mountSerial = text(engineSet, ':scope > MountSerialNo');
-    let mount = mountSerial ? serialToNode.get(mountSerial) : undefined;
+    // A set the regrouping moved off a tube that already carried one (see
+    // groupLoadouts) goes to the twin it was given.
+    let mount = movedSets.get(engineSet) ?? (mountSerial ? serialToNode.get(mountSerial) : undefined);
     if (!mount || mount['motorMount'] !== true) {
       // Stale serial: Stage3Engines→stage 0, Stage2Engines→1, Stage1Engines→2.
       const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
@@ -1355,7 +1480,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
    * export wrote them until the same audit — read as one more set, first. And
    * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
-  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
   const simGroups: { number: number | null; name: string | null; sets: Element[] }[] = [];
   const loose = Array.from(doc.querySelectorAll('EngineSet')).filter((e) => !e.closest('SimulationResults'));
   if (loose.length) simGroups.push({ number: null, name: null, sets: loose });
@@ -1877,6 +2001,8 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   let serial = 0;
   /** node id → RockSim SerialNo (links motors back to mounts). */
   const nodeSerial = new Map<string, number>();
+  /** Mount node id → the SerialNo of every copy written (cluster tubes, pod instances). */
+  const mountCopies = new Map<string, number[]>();
 
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) {
@@ -1984,6 +2110,13 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // First write wins: cluster copies re-emit the same node — motor
     // references must point at the FIRST copy (the one carrying children).
     if (node.id && !nodeSerial.has(node.id)) nodeSerial.set(node.id, serial);
+    // And EVERY copy of a mount, for its engine sets: a cluster's tubes and a
+    // pod set's instances each carry a motor, and RockSim wants one set each.
+    if (node.id && node['motorMount'] === true) {
+      const copies = mountCopies.get(node.id);
+      if (copies) copies.push(serial);
+      else mountCopies.set(node.id, [serial]);
+    }
     const hasMassOv = typeof node['overrideMass'] === 'number';
     const hasCgOv = typeof node['overrideCGX'] === 'number';
     const override = hasMassOv || hasCgOv;
@@ -2516,30 +2649,45 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // Blackhawk's pair with one lit 15 s late. Of the corpus names this spells
     // exactly for two or more stages, all 129 put the bottom stage first and
     // none the sustainer (audit 2026-09-22 review: it was sustainer first, one
-    // bracket per motor).
-    const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.map(([id, m]) => {
+    // bracket per motor). One entry per MOTOR, as RockSim writes it — a
+    // 3-tube cluster of A8-3 is Semroc-Defender.rkt's "[A8-3, A8-3, A8-3] " —
+    // so a cluster or a pod set names each of its copies.
+    const copiesOf = (id: string): number[] => mountCopies.get(id) ?? [nodeSerial.get(id) ?? -1];
+    const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.flatMap(([id, m]) => {
       const ign = rktIgnitionDelay(id);
-      return `${m.designation}-${m.rktEveryDelay ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+      const entry = `${m.designation}-${m.rktEveryDelay ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+      return copiesOf(id).map(() => entry);
     }).join(', ')}] `).join('');
     emit(`<SimulationName>${esc(simName)}</SimulationName>`);
     // Bottom slot first, as RockSim writes them: Stage1Engines is the stage
     // that leaves the pad, Stage3Engines the sustainer (our stage 0).
     for (const slot of [1, 2, 3]) {
       emit(`<Stage${slot}Engines>`);
+      // ONE ENGINE SET PER TUBE (seam review of audit 2026-09-22). A cluster
+      // went out as N IsMotorMount tubes and ONE set on the first copy, so
+      // RockSim, which lists a set per tube — every one of the 14,434 sets in
+      // the 939-file corpus says <EngineCount>1</EngineCount>, and a cluster's
+      // tubes each carry one (Quest_Quad_Runner.rkt: four B4-4, serials 3, 13,
+      // 15, 17) — flew one motor where the design flies N. This app's own
+      // importer hid it for an on-axis cluster by merging the tubes back, and
+      // could not once the tubes were written at their true off-axis place:
+      // three came back as three mounts carrying one motor between them.
       for (const [id, m] of stageMotors[3 - slot]!) {
-        emit('<EngineSet>');
-        emit('<EngineCount>1</EngineCount>');
-        emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
-        emit(`<IgnitionDelay>${rktIgnitionDelay(id)}</IgnitionDelay>`);
-        emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
-        emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
-        // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
-        // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
-        // A reference nothing loaded that the file gave RockSim's "every delay"
-        // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay).
-        emit(`<EjectionDelay>${m.rktEveryDelay ? RKT_EVERY_DELAY
-          : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
-        emit('</EngineSet>');
+        for (const copySerial of copiesOf(id)) {
+          emit('<EngineSet>');
+          emit('<EngineCount>1</EngineCount>');
+          emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
+          emit(`<IgnitionDelay>${rktIgnitionDelay(id)}</IgnitionDelay>`);
+          emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
+          emit(`<MountSerialNo>${copySerial}</MountSerialNo>`);
+          // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
+          // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
+          // A reference nothing loaded that the file gave RockSim's "every delay"
+          // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay).
+          emit(`<EjectionDelay>${m.rktEveryDelay ? RKT_EVERY_DELAY
+            : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
+          emit('</EngineSet>');
+        }
       }
       emit(`</Stage${slot}Engines>`);
     }
