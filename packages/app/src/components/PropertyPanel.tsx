@@ -1457,7 +1457,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
                   }
                   // Magnetic slider: snap to structural anchors (tube/sibling ends).
                   // `parent` is a ComponentNode here — positionable excludes 'stage'.
-                  // Same frame as the 2D drag (TreeSchematic's onMove) and the
+                  // Same frame as the 2D drag (hooks/useAxialDrag's move) and the
                   // drawings — axialLength, the kernel's length: zero for a
                   // rail button, the root chord for a freeform fin — and the
                   // anchor ladder is built in that frame too.

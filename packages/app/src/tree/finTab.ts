@@ -3,7 +3,7 @@ import { num } from './nodeNum.js';
 
 /**
  * Fin ROOT CHORD and through-the-wall TAB placement — the one reader every fin
- * output shares: the 2D schematic's dashed tab (components/TreeSchematic.tsx),
+ * output shares: the 2D schematic's dashed tab (tree/schematicLayout.ts),
  * the printable prism and the DXF contour (solidMesh.finCutOutline), and the
  * paper cut template (services/finTemplate.ts). A template that disagrees with
  * the cut file is worse than either, so they read these numbers from here
