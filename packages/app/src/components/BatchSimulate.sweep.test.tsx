@@ -12,6 +12,7 @@ import {
   runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { addRuns } from '../services/simStore.js';
 
 /**
  * THE DIALOG AROUND A SWEEP — what BatchSimulate does with the rows, the
@@ -250,6 +251,27 @@ describe('under StrictMode', () => {
     expect(host.querySelector('.batch-finished')?.textContent).toMatch(/^Finished/);
     expect(saved).toHaveLength(1);
     expect(saved[0]!.map((r) => r.id)).toEqual(['a']);
+  });
+});
+
+describe('the 500-run cap (audit 2026-09-22)', () => {
+  it('the finished line says how many old runs saving the sweep removed', async () => {
+    addRuns(Array.from({ length: 499 }, (_, i) => run(`old${i}`, 'Acme B4', 100)));
+    sweep.mockResolvedValue({
+      rows: [row('a', 'Acme E20', 300), row('b', 'Acme E22', 310), row('c', 'Acme E30', 320)], stopped: false,
+    });
+    mount();
+    await start();
+    expect(saved[0]).toHaveLength(500);
+    expect(host.querySelector('.batch-finished')?.textContent)
+      .toContain('Saving the accepted runs removed the 2 oldest runs from Saved simulations, which keeps the newest 500.');
+  });
+
+  it('and says nothing when there was room', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    mount();
+    await start();
+    expect(host.querySelector('.batch-finished')?.textContent).not.toContain('oldest');
   });
 });
 

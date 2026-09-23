@@ -10,7 +10,7 @@ import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
  */
 
 const KEY = 'online-openrocket.sim-runs.v1';
-const MAX_RUNS = 500;
+export const MAX_RUNS = 500;
 
 /**
  * SimRun fields that are arrays, and that every reader in the app takes
@@ -78,10 +78,13 @@ export function loadRuns(): SimRun[] {
 }
 
 // Set when a write is refused (quota), cleared by the next write that sticks.
-// Every mutation goes through addRun/addRuns/deleteRun/clearRuns
+// Every mutation goes through addRun/addRuns/deleteRun/restoreRun/clearRuns
 // synchronously, so a getter the caller checks after each mutation is enough —
 // no subscription machinery in a plain module.
 let lastPersistFailed = false;
+// How many runs the MAX_RUNS cap cut from the latest mutation — same getter
+// pattern, same funnel.
+let lastEvicted = 0;
 
 /**
  * True when the latest mutation could not be written: the returned table is
@@ -91,8 +94,20 @@ export function persistFailed(): boolean {
   return lastPersistFailed;
 }
 
+/**
+ * How many of the OLDEST runs the latest mutation removed to stay within
+ * MAX_RUNS — 0 when it removed none, or when the write was refused (nothing
+ * was removed then: the store still holds them). The cap evicted silently
+ * (audit 2026-09-22): 300 hand-flown runs plus a 226-motor sweep left 500
+ * runs, only 274 of them hand-flown, and nothing said 26 were gone.
+ */
+export function runsEvictedByLastWrite(): number {
+  return lastEvicted;
+}
+
 function persist(runs: SimRun[]): SimRun[] {
   const kept = runs.slice(0, MAX_RUNS);
+  lastEvicted = 0;
   try {
     // JSON has no Infinity — JSON.stringify(Infinity) is null, which silently
     // corrupted stored plugged runs. Round-trip it as a string instead.
@@ -106,6 +121,7 @@ function persist(runs: SimRun[]): SimRun[] {
     return loadRuns();
   }
   lastPersistFailed = false;
+  lastEvicted = runs.length - kept.length;
   // Return what was stored, so the in-memory table matches the next reload.
   return kept;
 }
@@ -142,6 +158,7 @@ export function clearRuns(): SimRun[] {
   // removeItem frees space instead of needing it, so clearing works even at
   // quota, where persist([])'s setItem could in principle still be refused.
   // loadRuns() reads a missing key as [] — same result as storing "[]".
+  lastEvicted = 0;
   try {
     localStorage.removeItem(KEY);
     lastPersistFailed = false;

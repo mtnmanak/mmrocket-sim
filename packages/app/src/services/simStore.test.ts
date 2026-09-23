@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runsToCsv, runsToTable,
+  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runsEvictedByLastWrite,
+  runsToCsv, runsToTable,
 } from './simStore.js';
 import type { SimRun } from './simReport.js';
 
@@ -107,6 +108,34 @@ describe('persist under quota — the table must not lie', () => {
     const out = clearRuns();
     expect(out.map((r) => r.id)).toEqual(['a']);
     expect(persistFailed()).toBe(true);
+  });
+});
+
+describe('the 500-run cap says what it removed (audit 2026-09-22)', () => {
+  const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => mkRun(`${prefix}${i}`));
+
+  it('300 hand-flown runs plus a 226-motor sweep: 26 hand-flown runs go, and the count says so', () => {
+    for (const r of many('hand', 300).reverse()) addRun(r); // newest first, one Launch at a time
+    expect(runsEvictedByLastWrite()).toBe(0);
+    const out = addRuns(many('sweep', 226));
+    expect(out).toHaveLength(500);
+    expect(out.filter((r) => r.id.startsWith('hand'))).toHaveLength(274);
+    expect(runsEvictedByLastWrite()).toBe(26);
+  });
+
+  it('one Launch at the cap removes one, and the next write under it removes none', () => {
+    addRuns(many('old', 500));
+    addRun(mkRun('fresh'));
+    expect(runsEvictedByLastWrite()).toBe(1);
+    deleteRun('fresh');
+    expect(runsEvictedByLastWrite()).toBe(0);
+  });
+
+  it('a refused write removed nothing — the store still holds every run', () => {
+    addRuns(many('old', 500));
+    jamWrites();
+    addRun(mkRun('lost'));
+    expect(runsEvictedByLastWrite()).toBe(0);
   });
 });
 

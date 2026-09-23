@@ -8,6 +8,16 @@ import type { SessionState } from './services/session.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// happy-dom has no canvas, and the Results tab a Launch lands on draws uPlot
+// charts on a rAF tick. The same no-op 2D context FlightCharts.test.tsx uses:
+// nothing here is about pixels.
+const ctx2d = new Proxy({}, {
+  get: (_t, prop) => (prop === 'measureText' ? () => ({ width: 0 }) : () => undefined),
+});
+HTMLCanvasElement.prototype.getContext = (() => ctx2d) as unknown as HTMLCanvasElement['getContext'];
+class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath() {} }
+(globalThis as unknown as { Path2D: unknown }).Path2D ??= NoPath;
+
 /**
  * The whole App, mounted — for the session, saved-mark and autosave behaviour
  * that lives in App's own effects and cannot be reached through a service.
@@ -137,6 +147,23 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
     // ...and the mark New takes is over THAT, so a second ✕ New does not ask.
     await act(async () => { button(host, '✕ New').click(); });
     expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+});
+
+describe('the 500-run cap is reported (audit 2026-09-22)', () => {
+  it('a Launch with 500 runs saved says one old run was removed', async () => {
+    const old = Array.from({ length: 500 }, (_, i) => ({ id: `old${i}`, when: i, rocket: 'Old', motor: 'A8-3' }));
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(old));
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await act(async () => {
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+    });
+    await waitFor(() => (JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1')!) as { id: string }[])
+      .some((r) => !r.id.startsWith('old')), 'the flight to be saved');
+    await settle(50);
+    expect(document.body.textContent).toContain(
+      'Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
   }, 30000);
 });
 

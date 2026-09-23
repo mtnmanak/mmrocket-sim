@@ -11,7 +11,7 @@ import {
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import type { SimRun } from '../services/simReport.js';
-import { addRuns, runsToCsv, runsToTable } from '../services/simStore.js';
+import { addRuns, MAX_RUNS, runsEvictedByLastWrite, runsToCsv, runsToTable } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
 import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
 import {
@@ -354,7 +354,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
-  const [finished, setFinished] = useState<{ total: number; stopped: boolean } | null>(null);
+  const [finished, setFinished] = useState<{ total: number; stopped: boolean; evicted: number } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
   // Stop, and unmount: the ONE cancel signal. It reaches every download, so
@@ -466,10 +466,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       // same list flight by flight, and this makes the end state not depend
       // on it having done so.
       setRows(out);
-      setFinished({ total: out.length, stopped });
       const accepted = out.flatMap((r) =>
         (r.run && gradeBatchRun(r.run, criteriaRef.current).length === 0 ? [r.run] : []));
-      if (accepted.length > 0) onRunsChange(addRuns(accepted));
+      // Saving them can push the oldest saved runs past the 500-run cap, which
+      // used to happen in silence (audit 2026-09-22); the line below says how many.
+      const stored = accepted.length > 0 ? addRuns(accepted) : null;
+      setFinished({ total: out.length, stopped, evicted: stored ? runsEvictedByLastWrite() : 0 });
+      if (stored) onRunsChange(stored);
     } catch (e) {
       if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
     } finally {
@@ -834,6 +837,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               errors: sorted.filter((r) => r.error).length,
               downloadable: sorted.some((r) => r.run),
             })}
+            {finished.evicted > 0 && ` Saving the accepted runs removed the ${finished.evicted} oldest`
+              + ` ${finished.evicted === 1 ? 'run' : 'runs'} from Saved simulations, which keeps the newest ${MAX_RUNS}.`}
           </p>
         )}
         {failure && !running && (
