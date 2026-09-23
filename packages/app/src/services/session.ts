@@ -3,7 +3,7 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 import type { MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
-import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures } from './orkFile.js';
+import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -28,6 +28,15 @@ export interface SessionState {
   savedConfigs?: SavedConfig[];
   /** Which preset the working motor set came from; null/absent = custom/none. */
   activeConfigId?: string | null;
+  /**
+   * The working set's unmatched motor references — the motors the file named
+   * that nothing could load — keyed by mount id (audit 2026-09-22). A
+   * configuration-less import (.rkt, or a .CDX1 with no simulation) had no
+   * other copy, so a reload lost them and Save wrote those mounts empty.
+   * Absent on a session written before; App then seeds them from the active
+   * configuration (configSync.restoreUnmatchedRefs).
+   */
+  unmatchedRefs?: Record<string, OrkMotorRef>;
   /** Per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
   maxMotorLengthByStage?: Record<string, number | null>;
   /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
@@ -170,6 +179,12 @@ export function loadSession(): SessionState | null {
         const d = mm?.spec?.ejectionDelay as unknown;
         if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
       }
+    }
+    // A plugged reference's delay the same way: it rides out to the file as
+    // "none" only while it is Infinity (writers test Number.isFinite).
+    for (const ref of Object.values(s.unmatchedRefs ?? {})) {
+      const d = ref?.delay as unknown;
+      if (d === 'Infinity' || d === null) ref.delay = Infinity;
     }
     // Time-step migration (v0.071). Before this release the app took a design
     // file's own integration time step and MERGED it into the launch conditions

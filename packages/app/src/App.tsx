@@ -481,14 +481,17 @@ export function App() {
    * or removes a motor there, because at that point the file's reference is no
    * longer what the user wants on that mount.
    *
-   * Not persisted itself: at restore it is seeded from the ACTIVE
-   * configuration's stored refs (the session's only copy), minus any mount that
-   * has a record — and the write-back in applyConfig / clearConfig / onSaveOrk
-   * (configSync.withActiveConfigSynced) keeps that copy current, so a reload
-   * no longer costs a configuration its unresolved motors (v0.118).
+   * Persisted with the session since the 2026-09-22 audit: a
+   * configuration-less import (a .rkt naming a motor the catalogue lacks) has
+   * no configuration to hold them, so they lived here alone and a reload lost
+   * them. At restore the session's copy is used, minus any mount that has a
+   * record; a session written before falls back to the ACTIVE configuration's
+   * stored refs, which the write-back in applyConfig / clearConfig / onSaveOrk
+   * (configSync.syncActiveConfig) keeps current (v0.118).
    */
   const [unmatchedRefs, setUnmatchedRefsRaw] = useState<Record<string, OrkMotorRef>>(
-    () => restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {}));
+    () => restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {},
+      session?.unmatchedRefs));
   /**
    * The live references, mirrored into a ref for exactly the reason `treeRef`
    * mirrors the tree (2026-09-08, from review): `assignMotor` runs after an
@@ -957,6 +960,9 @@ export function App() {
   useEffect(() => {
     saveSessionDebounced({
       ...designSnapshot,
+      // Not part of the design fingerprint, but the only copy of a
+      // configuration-less import's unresolved motors (audit 2026-09-22).
+      unmatchedRefs,
       // The build that PARSED this design, not the one writing the file — see
       // parsedByVersion. writeNow spreads `pending` AFTER its own
       // `appVersion: APP_VERSION`, so this value is the one that reaches
@@ -965,7 +971,7 @@ export function App() {
       appVersion: parsedByVersion.current,
       savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
     });
-  }, [designSnapshot, dirtyTick]);
+  }, [designSnapshot, dirtyTick, unmatchedRefs]);
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the

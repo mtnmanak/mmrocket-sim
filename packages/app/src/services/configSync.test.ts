@@ -171,6 +171,27 @@ describe('withActiveConfigSynced', () => {
     expect(restoreUnmatchedRefs([cfg('C', {})], 'C', {})).toEqual({});
   });
 
+  /**
+   * Audit 2026-09-22. A configuration-less import (a .rkt naming a motor the
+   * catalogue lacks) has no configuration to hold its unresolved references,
+   * so the working set was their only copy and a reload lost them — Save then
+   * wrote the mount empty. The session now carries them, and its copy wins.
+   */
+  it('restores the session’s own copy of the working references when it carries one', () => {
+    const rkt = { 'b-mmt': { ...ref('K1100T'), delay: Infinity } };
+    // No configurations at all: the fallback has nothing to read.
+    expect(restoreUnmatchedRefs(undefined, null, {})).toEqual({});
+    expect(restoreUnmatchedRefs(undefined, null, {}, rkt)).toEqual(rkt);
+    // Still minus a mount that has a record now.
+    expect(restoreUnmatchedRefs(undefined, null, { 'b-mmt': motor('K1100T') }, rkt)).toEqual({});
+    // The session's copy is the working set's truth, even with an active
+    // configuration that still stores a reference the user has since removed.
+    const A = cfg('A', { 's-mmt': motor('J540R') }, { unmatched: ['K1100T'], unmatchedRefs: { 'b-mmt': ref('K1100T') } });
+    expect(restoreUnmatchedRefs([A], 'A', A.motors, {})).toEqual({});
+    // A session written before the field: the active configuration's, as v0.118.
+    expect(restoreUnmatchedRefs([A], 'A', A.motors, undefined)).toEqual({ 'b-mmt': ref('K1100T') });
+  });
+
   it('returns the input by identity when there is no active configuration', () => {
     const configs = [cfg('A', { 's-mmt': motor('J540R') })];
     const working = { 's-mmt': motor('I284W') };

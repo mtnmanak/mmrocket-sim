@@ -19,8 +19,9 @@ import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/
  * the only copy of a configuration's unresolved motors was the configuration
  * itself. These helpers close both: the working set is written BACK into the
  * active configuration before a switch and before the mark a save takes, and
- * the working references are seeded from the active configuration at
- * restore. Pure — no React, no kernel — so each is a unit test.
+ * the working references are seeded at restore — from the session's own copy
+ * since the 2026-09-22 audit, from the active configuration for a session
+ * written before. Pure — no React, no kernel — so each is a unit test.
  */
 
 /**
@@ -372,17 +373,23 @@ export function withoutStoredRef(configs: SavedConfig[], activeId: string | null
 }
 
 /**
- * The working set's unmatched references at restore: the active
- * configuration's stored refs (the session's only copy — the working set is
- * not persisted), minus any mount that has a record in `motors` (a motor
- * assigned to that mount after the import superseded the reference).
+ * The working set's unmatched references at restore, minus any mount that has
+ * a record in `motors` (a motor assigned to that mount after the import
+ * superseded the reference).
+ *
+ * The session's own copy (`stored`) when it carries one — since the 2026-09-22
+ * audit the working references are persisted, because a configuration-less
+ * import (a .rkt naming a motor the catalogue lacks) has no configuration to
+ * keep them in: they lived in React state alone, a reload lost them (the
+ * service worker's post-deploy reload included), and Save then wrote the
+ * mount with no motor. A session written before that carries none, and falls
+ * back to the ACTIVE configuration's stored refs, as v0.118 did.
  */
 export function restoreUnmatchedRefs(
   configs: SavedConfig[] | undefined, activeId: string | null | undefined,
-  motors: Record<string, MountMotor>,
+  motors: Record<string, MountMotor>, stored?: Record<string, OrkMotorRef>,
 ): Record<string, OrkMotorRef> {
-  if (!configs || !activeId) return {};
-  const refs = configs.find((c) => c.id === activeId)?.unmatchedRefs;
+  const refs = stored ?? (configs && activeId ? configs.find((c) => c.id === activeId)?.unmatchedRefs : undefined);
   if (!refs) return {};
   const out: Record<string, OrkMotorRef> = {};
   for (const [id, ref] of Object.entries(refs)) {
