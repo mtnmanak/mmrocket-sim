@@ -274,13 +274,15 @@ describe('.ork — enum strings', () => {
     const r = importOrk(ork(MOUNT('whenever')));
     // The .ork reader names AUTOMATIC explicitly (services/ignitionEvent.ts is the one
     // reader of the five, shared with the flight runner), once per motor and value.
-    expect(r.motor!.ignitionEvent).toBe('automatic');
+    // Read from `motors`, the map App loads from (audit 2026-09-22, Dead code row
+    // 575): one mount, one motor.
+    expect(Object.values(r.motors).map((m) => m.ignitionEvent)).toEqual(['automatic']);
     expect(r.notes.filter((n) => n.includes('“whenever”') && /lights on Automatic/.test(n))).toHaveLength(1);
   });
 
   it('an ignition event in another spelling is read in the kernel\'s', () => {
     const r = importOrk(ork(MOUNT('EJECTION_CHARGE')));
-    expect(r.motor!.ignitionEvent).toBe('ejectioncharge');
+    expect(Object.values(r.motors).map((m) => m.ignitionEvent)).toEqual(['ejectioncharge']);
     expect(r.notes.some((n) => /ignition/.test(n))).toBe(false);
   });
 

@@ -36,6 +36,20 @@ function firstStageChildren(result: { tree: { components: ComponentNode[] } }): 
   return result.tree.components[0]!.children ?? [];
 }
 
+/**
+ * The motor an import loaded on the design's first motor mount (document
+ * order), read the way App reads every import: from `motors`, keyed by the
+ * mount's node id. These assertions read a TEST-ONLY `motor` field (the first
+ * motor found) until it went (audit 2026-09-22, Dead code row 575): production
+ * never read it, so they pinned a copy that could drift from what App loads.
+ */
+function firstMountMotor(
+  result: { tree: { components: ComponentNode[] }; motors: Record<string, OrkMotorRef> },
+): OrkMotorRef | undefined {
+  const mount = flatten(result.tree.components).find((n) => n['motorMount'] === true);
+  return mount?.id ? result.motors[mount.id] : undefined;
+}
+
 describe('.ork tree import', () => {
   it('imports the reference golden file with structure preserved', () => {
     const result = importOrk(golden('reference.ork'));
@@ -49,8 +63,8 @@ describe('.ork tree import', () => {
     ]);
     const mount = body.children![1]!;
     expect(mount['motorMount']).toBe(true);
-    expect(result.motor?.designation).toBe('C6');
-    expect(result.motor?.mountId).toBe(mount.id);
+    expect(firstMountMotor(result)?.designation).toBe('C6');
+    expect(firstMountMotor(result)?.mountId).toBe(mount.id);
     expect(result.motors[mount.id!]?.designation).toBe('C6');
     expect(result.ignored).toEqual([]);
   });
@@ -95,8 +109,7 @@ describe('.ork tree round trip', () => {
     const xml = exportOrk({
       name: original.name,
       tree: original.tree,
-      motor: original.motor,
-      mountId: original.motor?.mountId,
+      motors: original.motors,
     });
     // The exported root element must stamp OUR product name as creator, not
     // OpenRocket's own or a stale/renamed product — this is the one line a
@@ -113,7 +126,8 @@ describe('.ork tree round trip', () => {
     expect(roundTripped.name).toBe(original.name);
     expect(stripIds(roundTripped.tree.components)).toEqual(stripIds(original.tree.components));
     // Kitchen sink has no motor configured — must stay absent, not invented.
-    expect(roundTripped.motor).toEqual(original.motor);
+    expect(original.motors).toEqual({});
+    expect(roundTripped.motors).toEqual({});
   });
 
   it('reference: motor survives the round trip on its mount', () => {
@@ -121,13 +135,12 @@ describe('.ork tree round trip', () => {
     const xml = exportOrk({
       name: original.name,
       tree: original.tree,
-      motor: original.motor,
-      mountId: original.motor?.mountId,
+      motors: original.motors,
     });
     const roundTripped = importOrk(xml);
-    expect(roundTripped.motor?.designation).toBe('C6');
-    expect(roundTripped.motor?.delay).toBe(5);
-    expect(roundTripped.motor?.mountId).toBeDefined();
+    expect(firstMountMotor(roundTripped)?.designation).toBe('C6');
+    expect(firstMountMotor(roundTripped)?.delay).toBe(5);
+    expect(firstMountMotor(roundTripped)?.mountId).toBeDefined();
   });
 });
 
@@ -193,7 +206,7 @@ describe('.ork permissive handling', () => {
 
   it('reads an unknown ignition event as automatic, and names it in a note', () => {
     const result = importOrk(IGNITED('bogus'));
-    expect(result.motor?.ignitionEvent).toBe('automatic');
+    expect(firstMountMotor(result)?.ignitionEvent).toBe('automatic');
     expect(result.notes.join(' ')).toMatch(/D12.*“bogus”/);
   });
 
@@ -203,7 +216,7 @@ describe('.ork permissive handling', () => {
     // such in the Ignition select.
     for (const [raw, want] of [['EJECTION_CHARGE', 'ejectioncharge'], ['Launch', 'launch']] as const) {
       const result = importOrk(IGNITED(raw));
-      expect(result.motor?.ignitionEvent, raw).toBe(want);
+      expect(firstMountMotor(result)?.ignitionEvent, raw).toBe(want);
       expect(result.notes.join(' '), raw).not.toMatch(/ignition event/);
     }
   });
@@ -214,8 +227,8 @@ describe('.ork permissive handling', () => {
     // The body tube IS the mount (kernel BodyTube implements MotorMount) —
     // the motor attaches to it instead of surfacing as an orphan note.
     expect(body['motorMount']).toBe(true);
-    expect(result.motor?.designation).toBe('D12');
-    expect(result.motor?.mountId).toBe(body.id);
+    expect(firstMountMotor(result)?.designation).toBe('D12');
+    expect(firstMountMotor(result)?.mountId).toBe(body.id);
     expect(result.notes.join(' ')).not.toMatch(/Motor mounts directly/);
     // Both are now supported component types — they import rather than being ignored.
     expect(result.ignored).not.toContain('podset');
@@ -480,7 +493,7 @@ describe('.ork audit regressions (2026-08-04)', () => {
   it("imports a plugged motor (<delay>none</delay>) as Infinity, never 0", () => {
     const bytes = new TextEncoder().encode(PLUGGED);
     const result = importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
-    expect(result.motor?.delay).toBe(Infinity);
+    expect(firstMountMotor(result)?.delay).toBe(Infinity);
     expect(result.notes.some((n) => n.includes('plugged'))).toBe(true);
   });
 
@@ -488,11 +501,10 @@ describe('.ork audit regressions (2026-08-04)', () => {
     const bytes = new TextEncoder().encode(PLUGGED);
     const original = importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
     const xml = exportOrk({
-      name: original.name, tree: original.tree,
-      motor: original.motor, mountId: original.motor?.mountId,
+      name: original.name, tree: original.tree, motors: original.motors,
     });
     expect(xml).toContain('<delay>none</delay>');
-    expect(importOrk(xml).motor?.delay).toBe(Infinity);
+    expect(firstMountMotor(importOrk(xml))?.delay).toBe(Infinity);
   });
 
   it('round-trips tube-fin thickness instead of resetting it to the 0.5 mm fallback', () => {
@@ -1229,12 +1241,12 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(Object.values(cfgB!.deployments)[0]).toMatchObject({ deployEvent: 'altitude', deployAltitude: 150 });
     expect(result.chosenConfigId).toBe('cfg-a');
     // Both mounts carry a cfg-a motor.
-    expect(result.motor?.designation).toBe('C6');
-    expect(result.motor?.delay).toBe(5);
+    expect(firstMountMotor(result)?.designation).toBe('C6');
+    expect(firstMountMotor(result)?.delay).toBe(5);
     expect(Object.values(result.motors).map((m) => m.designation).sort()).toEqual(['C6', 'D12']);
     // Ignition: cfg-b's override block must NOT leak — bare defaults apply.
-    expect(result.motor?.ignitionEvent).toBe('automatic');
-    expect(result.motor?.ignitionDelay).toBe(0);
+    expect(firstMountMotor(result)?.ignitionEvent).toBe('automatic');
+    expect(firstMountMotor(result)?.ignitionDelay).toBe(0);
     // Deployment: bare tags, not cfg-b's override block.
     const chute = flatten(result.tree.components).find((c) => c.type === 'parachute')!;
     expect(chute['deployEvent']).toBe('ejection');
@@ -1259,13 +1271,13 @@ describe('.ork multi-configuration import (Stage A)', () => {
   it('opts.configId picks the other configuration, overrides included', () => {
     const result = importOrk(MULTI, { configId: 'cfg-b' });
     expect(result.chosenConfigId).toBe('cfg-b');
-    expect(result.motor?.designation).toBe('D12');
-    expect(result.motor?.delay).toBe(7);
+    expect(firstMountMotor(result)?.designation).toBe('D12');
+    expect(firstMountMotor(result)?.delay).toBe(7);
     // The booster mount has no cfg-b motor — it imports empty.
     expect(Object.values(result.motors).map((m) => m.designation)).toEqual(['D12']);
     // Ignition/deployment/separation: cfg-b's override blocks apply.
-    expect(result.motor?.ignitionEvent).toBe('launch');
-    expect(result.motor?.ignitionDelay).toBeCloseTo(1.5, 12);
+    expect(firstMountMotor(result)?.ignitionEvent).toBe('launch');
+    expect(firstMountMotor(result)?.ignitionDelay).toBeCloseTo(1.5, 12);
     const chute = flatten(result.tree.components).find((c) => c.type === 'parachute')!;
     expect(chute['deployEvent']).toBe('altitude');
     expect(chute['deployAltitude']).toBeCloseTo(150, 12);
@@ -1301,7 +1313,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(bRefs[0]!.ignitionDelay).toBeCloseTo(1.5, 12);
     // Keyed by THIS parse's node ids: cfg-b's one mount is the same
     // sustainer mount the chosen config's C6 sits on.
-    expect(cfgB!.motors[result.motor!.mountId!]).toBeDefined();
+    expect(cfgB!.motors[firstMountMotor(result)!.mountId!]).toBeDefined();
   });
 
   it('presets are pick-independent: choosing cfg-b leaves cfg-a complete', () => {
@@ -1314,7 +1326,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
   it('falls back to the default when opts.configId names no declared config', () => {
     const result = importOrk(MULTI, { configId: 'cfg-nope' });
     expect(result.chosenConfigId).toBe('cfg-a');
-    expect(result.motor?.designation).toBe('C6');
+    expect(firstMountMotor(result)?.designation).toBe('C6');
   });
 
   it('separation falls back to the bare tags when the chosen config has no block', () => {
@@ -1330,7 +1342,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(result.configs).toHaveLength(1);
     expect(result.configs[0]!.isDefault).toBe(true);
     expect(result.chosenConfigId).toBe(result.configs[0]!.id);
-    expect(result.motor?.designation).toBe('C6');
+    expect(firstMountMotor(result)?.designation).toBe('C6');
     expect(result.notes.some((n) => n.includes('flight configuration'))).toBe(false);
   });
 
@@ -1354,7 +1366,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     const result = importOrk(undeclared);
     expect(result.configs).toEqual([]);
     expect(result.chosenConfigId).toBeNull();
-    expect(result.motor?.designation).toBe('C6'); // first in document order
+    expect(firstMountMotor(result)?.designation).toBe('C6'); // first in document order
     const note = result.notes.find((n) => n.includes('flight configurations'))!;
     expect(note).toContain('kept “cfg-a”');
     expect(note).toContain('1 was not imported');
@@ -1447,7 +1459,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
     // Active config carries the LIVE set (delay 9, edits persisted); the
     // inactive preset keeps its own stored motor.
     expect(back.chosenConfigId).toBe('cfg-b');
-    expect(back.motor).toMatchObject({ designation: 'D12', delay: 9, ignitionEvent: 'launch' });
+    expect(firstMountMotor(back)).toMatchObject({ designation: 'D12', delay: 9, ignitionEvent: 'launch' });
     expect(Object.values(back.configs[0]!.motors)[0]).toMatchObject({ designation: 'C6', delay: 5 });
   });
 
@@ -1457,7 +1469,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
     expect(xml).toContain('<motorconfiguration configid="cfg-a" default="true">');
     const back = importOrk(xml);
     expect(back.chosenConfigId).toBe('cfg-a');
-    expect(back.motor).toMatchObject({ designation: 'C6', delay: 5 }); // the preset survived
+    expect(firstMountMotor(back)).toMatchObject({ designation: 'C6', delay: 5 }); // the preset survived
   });
 
   it('active none WITH live motors mints an unnamed default config carrying them', () => {
@@ -1474,7 +1486,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
     const back = importOrk(xml);
     expect(back.configs).toHaveLength(3);
     expect(back.chosenConfigId).toBe(decls[2]![1]);
-    expect(back.motor).toMatchObject({ designation: 'C6', delay: 3 });
+    expect(firstMountMotor(back)).toMatchObject({ designation: 'C6', delay: 3 });
     // The named presets are intact alongside the minted custom set.
     expect(Object.values(back.configs[0]!.motors)[0]!.delay).toBe(5);
     expect(Object.values(back.configs[1]!.motors)[0]!.delay).toBe(7);
@@ -1554,7 +1566,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
     expect(b[0]!.ignitionDelay).toBeCloseTo(1.5, 12);
     // Mount keys are the NEW parse's node ids — cfg-b's motor sits on the
     // same mount the applied C6 does.
-    expect(back.configs[1]!.motors[back.motor!.mountId!]).toBeDefined();
+    expect(back.configs[1]!.motors[firstMountMotor(back)!.mountId!]).toBeDefined();
   });
 });
 
@@ -1578,7 +1590,7 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
   it('reader captures digest, type and manufacturer from a desktop motor block', () => {
     const result = importOrk(golden('lemiv-motors.ork'));
     // Chosen config = file default (the single-use K535).
-    expect(result.motor).toMatchObject({
+    expect(firstMountMotor(result)).toMatchObject({
       designation: 'HP-K535W', manufacturer: 'AeroTech',
       motorType: 'single', digest: '74451a159ce1001a76d319ed0d9a6f9a',
       delay: 14,
@@ -1609,7 +1621,7 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
       expect(order).toEqual(['type', 'manufacturer', 'digest', 'designation', 'diameter', 'length', 'delay']);
     }
     const back = importOrk(xml);
-    expect(back.motor).toMatchObject({
+    expect(firstMountMotor(back)).toMatchObject({
       designation: 'HP-K535W', manufacturer: 'AeroTech',
       motorType: 'single', digest: '74451a159ce1001a76d319ed0d9a6f9a', delay: 14,
     });
@@ -1633,11 +1645,10 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
         </motormount>
       </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
     const orig = importOrk(BARE);
-    expect(orig.motor?.digest).toBeUndefined();
-    expect(orig.motor?.motorType).toBeUndefined();
+    expect(firstMountMotor(orig)?.digest).toBeUndefined();
+    expect(firstMountMotor(orig)?.motorType).toBeUndefined();
     const xml = exportOrk({
-      name: orig.name, tree: orig.tree, motor: toExport(orig.motor!),
-      mountId: orig.motor?.mountId,
+      name: orig.name, tree: orig.tree, motors: mapMotors(orig.motors),
     });
     const mount = xml.match(/<motormount>[\s\S]*?<\/motormount>/)![0];
     expect(mount).not.toContain('<type>');
@@ -1649,15 +1660,15 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
 
   it('plugged (Infinity) still writes <delay>none</delay> alongside the identity fields', () => {
     const orig = importOrk(golden('lemiv-motors.ork'));
-    const ref = orig.motor!;
+    const ref = firstMountMotor(orig)!;
     const xml = exportOrk({
       name: 'P', tree: orig.tree,
       motors: { [ref.mountId!]: { ...toExport(ref), delay: Infinity } },
     });
     expect(xml).toContain('<delay>none</delay>');
     const back = importOrk(xml);
-    expect(back.motor?.delay).toBe(Infinity);
-    expect(back.motor?.digest).toBe('74451a159ce1001a76d319ed0d9a6f9a');
+    expect(firstMountMotor(back)?.delay).toBe(Infinity);
+    expect(firstMountMotor(back)?.digest).toBe('74451a159ce1001a76d319ed0d9a6f9a');
   });
 
   it('captures <digest> only from format 1.4+ files — a 1.3 digest is the old algorithm', () => {
@@ -1676,12 +1687,12 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
             <diameter>0.054</diameter><length>0.404</length><delay>14.0</delay></motor>
         </motormount>
       </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
-    const old = importOrk(withVersion('1.3')).motor!;
+    const old = firstMountMotor(importOrk(withVersion('1.3')))!;
     expect(old.digest).toBeUndefined();
     // <type>/<manufacturer> are version-independent — still captured.
     expect(old.motorType).toBe('single');
     expect(old.manufacturer).toBe('AeroTech');
-    const modern = importOrk(withVersion('1.10')).motor!;
+    const modern = firstMountMotor(importOrk(withVersion('1.10')))!;
     expect(modern.digest).toBe('74451a159ce1001a76d319ed0d9a6f9a');
   });
 
@@ -1692,7 +1703,7 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
     // desktop has no manufacturer literally named EX, and omission lets its
     // designation-only description match still find the motor.
     const orig = importOrk(golden('lemiv-motors.ork'));
-    const ref = orig.motor!;
+    const ref = firstMountMotor(orig)!;
     const xml = exportOrk({
       name: 'EX', tree: orig.tree,
       motors: {

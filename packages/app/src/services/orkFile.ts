@@ -80,13 +80,10 @@ export interface OrkTreeImportResult {
   name: string;
   tree: RocketTree;
   /**
-   * First motor found, in document order. TEST-ONLY: no production code reads
-   * it (every caller uses `motors`); orkFile.test.ts and importLimits.test.ts
-   * do, ~47 assertions (audit 2026-09-22, Dead code row 575). Do not build on
-   * it — read `motors`.
+   * EVERY mount's motor, keyed by the mount's editor node id. A `motor` field
+   * holding the first one found was read by tests alone and went (audit
+   * 2026-09-22, Dead code row 575): read the mount's entry here, as App does.
    */
-  motor?: OrkMotorRef;
-  /** EVERY mount's motor, keyed by the mount's editor node id. */
   motors: Record<string, OrkMotorRef>;
   ignored: string[];
   notes: string[];
@@ -305,7 +302,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const outsideTreeEnums = new Map<string, string>();
   /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
-  let motor: OrkMotorRef | undefined;
   const motors: Record<string, OrkMotorRef> = {};
 
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
@@ -589,7 +585,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     if (node.id) {
       motors[node.id] = ref;
     }
-    if (!motor) motor = ref;
   };
 
   const convertElement = (el: Element): ComponentNode | null => {
@@ -1271,7 +1266,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const tree = sanitizeTree({ name, components }, notes);
 
   return {
-    name, tree, motor, motors, configs, chosenConfigId,
+    name, tree, motors, configs, chosenConfigId,
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
   };
@@ -1794,15 +1789,12 @@ export interface OrkExportConfig {
 export interface OrkTreeExportInput {
   name: string;
   tree: RocketTree;
-  /** Motors keyed by mount node id (Release C: one per mount). */
-  motors?: Record<string, OrkExportMotor>;
   /**
-   * Legacy single-motor form, merged into `motors` under `mountId`. TEST-ONLY:
-   * no production caller passes either (audit 2026-09-22, Dead code row 575);
-   * pass `motors`.
+   * Motors keyed by mount node id (Release C: one per mount). A legacy single
+   * `motor` + `mountId` pair merged into this map was passed by no production
+   * caller and went (audit 2026-09-22, Dead code row 575).
    */
-  motor?: OrkExportMotor;
-  mountId?: string | null;
+  motors?: Record<string, OrkExportMotor>;
   /** Launch-site conditions — written as one <simulation> when present. */
   launch?: LaunchConditions;
   /**
@@ -1902,11 +1894,10 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 }
 
 export function exportOrk({
-  name, tree, motors, motor, mountId, launch, configs, activeConfigId, measured, flightData,
+  name, tree, motors, launch, configs, activeConfigId, measured, flightData,
   flightDataDefault,
 }: OrkTreeExportInput): string {
   const motorMap: Record<string, OrkExportMotor> = { ...(motors ?? {}) };
-  if (motor && mountId && !motorMap[mountId]) motorMap[mountId] = motor;
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
   //

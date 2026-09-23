@@ -1082,7 +1082,6 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const chosenConfigId = chosen?.id ?? null;
-  const firstMotor = Object.values(motors)[0];
   // Bake the chosen configuration's separation onto its stage nodes, the way
   // importOrk does — App.applyImported applies configs, not stage settings, so
   // without this a fresh multi-stage import separates on the kernel default
@@ -1570,7 +1569,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     // the import banner — a fin <Count> had a floor of 1 and no ceiling, and a
     // negative <Span> failed the whole build. Each repair is named in one note.
     name, tree: sanitizeTree({ name, components: stages }, notes),
-    ...(firstMotor ? { motor: firstMotor } : {}), motors,
+    motors,
     ignored: [...ignored], notes,
     ...(launch ? { launch } : {}),
     ...(machAlt ? { machAlt } : {}),
