@@ -43,9 +43,12 @@
 // FinPointsEditor.pointer.test.tsx tests FinPointsEditor.tsx's pointer handling.
 // A name whose first segment names no module beside it makes finding a module's
 // tests a grep: 33 of the 197 files in packages/app/src did on 2026-09-22. They
-// keep their names; renaming buys churn in `git log` and nothing else. The one
-// exception is a tool config: vitest's default exclude drops every `*.config.*`
-// file, so this config's own guard is packages/app/scripts/eslint-config.guards.test.mjs.
+// keep their names; renaming buys churn in `git log` and nothing else. A test of
+// something that is not a module is named for what it checks: shipped data
+// (packages/app/scripts/preset-density.test.mjs), the dependency tree
+// (scripts/dependencies.threeTypes.test.mjs reads package-lock.json), and this
+// config, whose guard is scripts/eslint-config.guards.test.mjs — not
+// eslint.config.*, because vitest's default exclude drops every `*.config.*` file.
 //
 // The file extension is .mjs because the root package.json has no "type": "module".
 
@@ -216,12 +219,15 @@ export default tseslint.config(
         { name: 'isNaN', message: 'Global isNaN coerces its argument. Use Number.isNaN, or num/numOrNull (tree/nodeNum.ts).' },
         { name: 'isFinite', message: "Global isFinite coerces its argument (isFinite('') is true). Use Number.isFinite." },
       ],
-      // The rest of Step A, each measured at 0 hits in packages/*/src the same day,
-      // so each is a pure ratchet: code from a string (eval, new Function, a string
-      // handed to setTimeout); parseInt without a radix; x !== x as a NaN test; a
-      // loop that can only run once; a map/filter callback that forgets to return;
-      // throwing a non-Error (no stack, no `cause`); for-in without an own-property
-      // guard (the prototype-key class services/xmlUtil.ts lookupTable closes);
+      // The rest of Step A, each measured at 0 hits in shipped source the same
+      // day, so each is a pure ratchet. The one test-side hit is no-new-func in
+      // src/tree/cluster.test.ts, which evaluates the carved Java source's own
+      // constant expressions and carries a reasoned suppression. The rules: code
+      // from a string (eval, new Function, a string handed to setTimeout);
+      // parseInt without a radix; x !== x as a NaN test; a loop that can only
+      // run once; a map/filter callback that forgets to return; throwing a
+      // non-Error (no stack, no `cause`); for-in without an own-property guard
+      // (the prototype-key class services/xmlUtil.ts lookupTable closes);
       // assignment hidden in a return or a comma expression; a = b = c; labels;
       // arguments.caller; extending a built-in prototype; new Number/String/Boolean.
       'no-eval': 'error',
