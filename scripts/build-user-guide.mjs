@@ -200,7 +200,29 @@ function renderBlocks(lines, base) {
  *
  * An unknown {{TOKEN}} is a hard failure, not a silent pass-through — a typo
  * would otherwise reach a reader as literal braces.
+ *
+ * Audit 2026-09-22 added the breakdown of the motors with no curve (by maker,
+ * and how many are out of production) and the curve files' source shares:
+ * both were hand-typed, and the maker list was already wrong — it named
+ * Gorilla and Jambol for a set that is half Kosdon.
  */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** What each token holds, for the bare-figure check below. */
+const TOKEN_KIND = {
+  MOTOR_COUNT: 'count',
+  CURVE_MOTORS: 'count',
+  CURVE_FILES: 'count',
+  CURVE_MISSING: 'count',
+  CURVE_MISSING_OOP: 'count',
+  CURVE_MISSING_MAKERS: 'text',
+  MOTOR_DB_DATE: 'date',
+  CURVE_SHARE_CERT: 'percent',
+  CURVE_SHARE_USER: 'percent',
+  CURVE_SHARE_MFR: 'percent',
+};
+
 function guideTokens() {
   const data = join(root, 'packages', 'app', 'src', 'data');
   const motors = JSON.parse(readFileSync(join(data, 'motors.json'), 'utf8'));
@@ -210,21 +232,137 @@ function guideTokens() {
   // "19 September 2026" — the guide writes dates in prose, and an ISO string
   // in the middle of a sentence reads like a version number.
   const [y, m, d] = String(motors.generated).split('-').map(Number);
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
   if (!y || !m || !d || !MONTHS[m - 1]) fail(`motors.json has an unreadable generated date: ${motors.generated}`);
+
+  // The catalogued motors with no bundled curve, counted from the rows rather
+  // than by subtraction, and held to the subtraction so the two cannot part.
+  const withCurve = new Set(Object.keys(curves.curves ?? {}));
+  const missing = motors.motors.filter((x) => !withCurve.has(x.motorId));
+  if (missing.length !== total - curves.motors) {
+    fail(`motorCurves.json covers ${curves.motors} motors, but ${missing.length} of the ${total} catalogued `
+      + 'motors have no curve in it — the two files were not built against one catalogue');
+  }
+  if (missing.length === 0) {
+    fail('every catalogued motor has a bundled curve — the guide\'s sentences about the ones without need rewriting');
+  }
+  // "39 Kosdon, 13 Jambol, 13 Ultra, 11 Gorilla and 4 more from 3 other
+  // makers": every maker with five or more, largest first, the rest lumped.
+  const byMaker = new Map();
+  for (const x of missing) byMaker.set(x.manufacturerAbbrev, (byMaker.get(x.manufacturerAbbrev) ?? 0) + 1);
+  const ranked = [...byMaker].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const named = ranked.filter(([, c]) => c >= 5);
+  const rest = ranked.filter(([, c]) => c < 5);
+  const parts = named.map(([mfr, c]) => `${n(c)} ${mfr}`);
+  if (rest.length === 1) parts.push(`${n(rest[0][1])} ${rest[0][0]}`);
+  else if (rest.length > 1) {
+    parts.push(`${n(rest.reduce((s, [, c]) => s + c, 0))} more from ${rest.length} other makers`);
+  }
+  const makers = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+
+  // Where the bundled files came from. The guide's sentence names exactly
+  // three sources, so a fourth tag is a failure, not a silent 99 %.
+  const bySource = { cert: 0, user: 0, mfr: 0 };
+  let files = 0;
+  for (const list of Object.values(curves.curves ?? {})) {
+    for (const f of list) {
+      if (!(f.source in bySource)) fail(`motorCurves.json has a file with source "${f.source}" — the guide names only cert, user and mfr`);
+      bySource[f.source] += 1;
+      files += 1;
+    }
+  }
+  if (files !== curves.files) fail(`motorCurves.json says ${curves.files} files and holds ${files}`);
+  const share = (k) => (100 * bySource[k] / files).toFixed(1);
+
   return {
     MOTOR_COUNT: n(total),
     MOTOR_DB_DATE: `${d} ${MONTHS[m - 1]} ${y}`,
     CURVE_MOTORS: n(curves.motors),
     CURVE_FILES: n(curves.files),
     CURVE_MISSING: n(total - curves.motors),
+    CURVE_MISSING_OOP: n(missing.filter((x) => x.availability === 'OOP').length),
+    CURVE_MISSING_MAKERS: makers,
+    CURVE_SHARE_CERT: share('cert'),
+    CURVE_SHARE_USER: share('user'),
+    CURVE_SHARE_MFR: share('mfr'),
   };
 }
 
 const TOKENS = guideTokens();
+for (const key of Object.keys(TOKENS)) {
+  if (!(key in TOKEN_KIND)) fail(`guide token {{${key}}} has no entry in TOKEN_KIND`);
+}
 
-const lines = readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+/**
+ * NO BARE CATALOGUE FIGURES (audit 2026-09-22). The tokens only help if they
+ * are used: the offline section went on hand-typing "80" and "(5 September
+ * 2026)" two lines below a sentence that used the tokens, and the date was
+ * already a fortnight stale when it was found. So the build refuses the raw
+ * markdown when it carries, outside a {{TOKEN}}:
+ *
+ *  - a token's CURRENT value as a bare figure: a count (thousands only in the
+ *    guide's own comma form, so a year such as 1949 in a reference is never
+ *    read as one) that is not part of a larger number and not followed by a
+ *    unit; a share followed by %; the catalogue date, in prose or ISO form;
+ *  - a count of catalogued, bundled or thrustcurve.org motors or curves, or
+ *    any count of three digits or more of motors or curves, whatever the
+ *    number — that is a catalogue figure however stale it is;
+ *  - a date within a sentence's reach of "catalogue", "pulled" or
+ *    "thrustcurve".
+ *
+ * Designed against the guide as it stands: "0.80 (auto)", "above 80 N
+ * average thrust" and "29 mm DMS motors" all pass. If a figure is refused that
+ * genuinely counts something else, give it its unit or write it in words.
+ */
+const UNIT_AFTER = String.raw`(?!\s*(?:N·s|Ns|N|mm|cm|km|ms|m|s|kg|g|lb|oz|ft|in|K|Pa|hPa|kPa|percent|degrees?|cal|calibers?|px|x)(?![A-Za-z]))(?!\s*[%°″′×·/])`;
+const CATALOGUE_NOUN = String.raw`(?:motors?|simulator files?|thrust curves?|curve files?|curves?)\b`;
+const PROSE_DATE = new RegExp(String.raw`\b\d{1,2} (?:${MONTHS.join('|')}) \d{4}\b`, 'g');
+
+function checkBareFigures(raw, tokens) {
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rules = [];
+  for (const [key, value] of Object.entries(tokens)) {
+    const kind = TOKEN_KIND[key];
+    if (kind === 'count') {
+      rules.push({ key, re: new RegExp(String.raw`(?<![\d.,])${esc(value)}(?![\d]|[.,]\d)${UNIT_AFTER}`, 'g') });
+    } else if (kind === 'percent') {
+      rules.push({ key, re: new RegExp(String.raw`(?<![\d.,])${esc(value)}\s*%`, 'g') });
+    } else if (kind === 'date') {
+      const [d, month, y] = value.split(' ');
+      const iso = `${y}-${String(MONTHS.indexOf(month) + 1).padStart(2, '0')}-${d.padStart(2, '0')}`;
+      rules.push({ key, re: new RegExp(`\\b(?:${esc(value)}|${iso})\\b`, 'g') });
+    }
+  }
+  const phrase = new RegExp(String.raw`(?<![\d.,])(?:\d[\d,]*\s+(?:(?:catalogued|catalogue|catalog|bundled|thrustcurve\.org)\s+)+|(?:\d{1,3}(?:,\d{3})+|\d{3,})\s+)${CATALOGUE_NOUN}`, 'gi');
+  raw.split('\n').forEach((line, ln) => {
+    // A token is the one sanctioned way to write these figures; blank it out
+    // (same length, so a reported column stays honest) before looking.
+    const text = line.replace(/\{\{[A-Z_]+\}\}/g, (t) => ' '.repeat(t.length));
+    for (const { key, re } of rules) {
+      re.lastIndex = 0;
+      const hit = re.exec(text);
+      if (hit) {
+        fail(`bare "${hit[0].trim()}" is the shipped data's {{${key}}} (${TOKEN_KIND[key]}), typed by hand — write {{${key}}} so it follows the data`, ln);
+      }
+    }
+    phrase.lastIndex = 0;
+    const counted = phrase.exec(text);
+    if (counted) {
+      fail(`"${counted[0]}" is a hand-typed catalogue count — use {{MOTOR_COUNT}}, {{CURVE_MOTORS}}, {{CURVE_FILES}} or {{CURVE_MISSING}}`, ln);
+    }
+    PROSE_DATE.lastIndex = 0;
+    for (let m; (m = PROSE_DATE.exec(text));) {
+      const near = text.slice(Math.max(0, m.index - 120), m.index + m[0].length + 120);
+      if (/catalog|thrustcurve|pulled/i.test(near)) {
+        fail(`"${m[0]}" is a hand-typed catalogue date — use {{MOTOR_DB_DATE}}`, ln);
+      }
+    }
+  });
+}
+
+const rawGuide = readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
+checkBareFigures(rawGuide, TOKENS);
+
+const lines = rawGuide
   .replace(/\{\{([A-Z_]+)\}\}/g, (_m, key) => {
     if (!(key in TOKENS)) {
       fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);

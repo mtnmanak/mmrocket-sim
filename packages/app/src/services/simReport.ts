@@ -899,9 +899,11 @@ export function aeroModelLabel(
     case 'auto-supersonic': return 'Supersonic (auto — flight exceeded Mach 0.9)';
     // ONE NAME for the parity model (Eric, 2026-09-21): the same
     // "Classic Extended Barrowman" the selector, the batch dropdown, the
-    // vitals strip and the guide all use. The Kbf row keeps the same base
-    // name and says what is added, rather than inventing a fifth.
-    case 'classic': return `Classic Extended Barrowman${rogersKbf ? ' + Rogers Kbf' : ''}`;
+    // vitals strip and the guide all use. The default model takes the name
+    // Preferences gives it (audit 2026-09-22): "Classic Extended Barrowman +
+    // Rogers Kbf" read as the parity model plus one term, so a reader put the
+    // whole difference from desktop 24.12 down to Kbf.
+    case 'classic': return rogersKbf ? 'Rogers Modified Barrowman (Kbf)' : 'Classic Extended Barrowman';
     default: return '—';
   }
 }
@@ -916,7 +918,7 @@ export function currentModelLabel(cur: {
   if (cur.aeroMode === 'auto') {
     return cur.autoSupersonic
       ? aeroModelLabel('auto-supersonic')
-      : `Auto (classic${cur.effectiveKbf ? ' + Rogers Kbf' : ''} until Mach 0.9)`;
+      : `Auto (${cur.effectiveKbf ? 'Rogers Kbf' : 'Classic Extended Barrowman'} until Mach 0.9)`;
   }
   return aeroModelLabel('classic', cur.effectiveKbf);
 }

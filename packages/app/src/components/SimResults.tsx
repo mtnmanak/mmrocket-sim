@@ -225,7 +225,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
         <p className="simdet-delay">
           Optimal delay <strong>{s(run.optimumDelayS, 1)} s</strong>
           {run.recommendedDelayS !== null && (
-            <> · recommended (available) <strong>{run.recommendedDelayS} s</strong></>
+            <> · recommended (drill to fit) <strong>{run.recommendedDelayS} s</strong></>
           )}
           {' '}· flown with{' '}
           <strong>

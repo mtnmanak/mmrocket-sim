@@ -137,16 +137,18 @@ describe('the model labels the report and the banner share', () => {
   it('spells each stored model the same way everywhere', () => {
     expect(aeroModelLabel('supersonic')).toBe('Supersonic (our extended model)');
     expect(aeroModelLabel('auto-supersonic')).toBe('Supersonic (auto — flight exceeded Mach 0.9)');
-    expect(aeroModelLabel('classic', true)).toBe('Classic Extended Barrowman + Rogers Kbf');
+    // The default model by the name Preferences gives it, never the parity
+    // model's name with a suffix (audit 2026-09-22).
+    expect(aeroModelLabel('classic', true)).toBe('Rogers Modified Barrowman (Kbf)');
     expect(aeroModelLabel('classic', false)).toBe('Classic Extended Barrowman');
     expect(aeroModelLabel(undefined)).toBe('—');
   });
 
   it('names the CURRENT model, including auto’s two states', () => {
     expect(currentModelLabel({ aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false }))
-      .toBe('Classic Extended Barrowman + Rogers Kbf');
+      .toBe('Rogers Modified Barrowman (Kbf)');
     expect(currentModelLabel({ aeroMode: 'auto', effectiveKbf: true, autoSupersonic: false }))
-      .toBe('Auto (classic + Rogers Kbf until Mach 0.9)');
+      .toBe('Auto (Rogers Kbf until Mach 0.9)');
     expect(currentModelLabel({ aeroMode: 'auto', effectiveKbf: true, autoSupersonic: true }))
       .toBe('Supersonic (auto — flight exceeded Mach 0.9)');
   });

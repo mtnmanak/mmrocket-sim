@@ -81,7 +81,10 @@ const NAMED_CHARTS: string[] = [
  *
  * Every group is single-unit by construction — see the module doc. The drag
  * group leads because it is the one family whose members are meant to be read
- * against each other: Cd is what Cdf, Cdp and Cdb add up to.
+ * against each other: Cd is Cdf + Cdp + Cdb plus any drag override the
+ * design carries, which has no column of its own — so on a design with an
+ * override the three do not add up to Cd (BarrowmanCalculator sets CD as
+ * friction + pressure + base + override).
  */
 const GROUPED_CHARTS: { tab: string; axis: string; members: string[] }[] = [
   { tab: 'Drag coefficients', axis: 'Coefficient', members: ['Cd', 'Cdf', 'Cdp', 'Cdb', 'Cda'] },
