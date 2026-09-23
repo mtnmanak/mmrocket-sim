@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { assemblyChainLength, isAssembly } from './assembly.js';
+import { isAssembly } from './assembly.js';
 import { num } from './nodeNum.js';
 
 /**
@@ -35,6 +35,14 @@ import { num } from './nodeNum.js';
  * buttons" missed the CG by half that. The branch lived in `kernelLength.ts`
  * (v0.105) until the freeform split above made this function the one place
  * for the kernel's frame; that file's own comment asked for the fold.
+ *
+ * POD SET / STRAP-ON: the length of its own nose/tube/transition chain, each
+ * member at ITS length here — `ComponentAssembly.updateBounds` sums the
+ * lengths of the children positioned AFTER one another.
+ *
+ * A CLEARED LENGTH is the kernel's default for the type (`LENGTH_DEFAULTS`
+ * below). This fell back to one generic 25 mm, which the kernel uses only for
+ * a packed recovery device (audit 2026-09-22, row 373).
  */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
@@ -45,9 +53,47 @@ export function axialLength(n: ComponentNode): number {
     return num(n, 'rootChord', 0.05);
   }
   if (n.type === 'railbutton') return 0;
-  if (isAssembly(n.type)) return assemblyChainLength(n);
-  return num(n, 'length', num(n, 'packedLength', 0.025));
+  if (isAssembly(n.type)) {
+    return (n.children ?? []).filter((c) => CHAIN_TYPES.has(c.type)).reduce((s, c) => s + axialLength(c), 0);
+  }
+  return num(n, 'length', num(n, 'packedLength', LENGTH_DEFAULTS[n.type as string] ?? 0.025));
 }
+
+/** The members of a nose-to-tail chain: what stacks AFTER the one before it. */
+const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
+
+/**
+ * The length the KERNEL builds when a node carries no `length` — the bridge's
+ * own `dbl(node, "length", …)` default in `ComponentFactory.create`, or what
+ * `engineTree` lowers an app-only part to. One table (audit 2026-09-22, row
+ * 373): the generic 25 mm fallback put a cleared-length part 'bottom'- or
+ * 'middle'-anchored away from where it flies — measured 25 mm for a launch
+ * lug, 45 mm for an inner tube, 55 mm for a camera shroud and 75 mm for a
+ * tube-fin set, and 275 mm for everything behind a body tube.
+ *
+ * Parachutes, streamers and shock cords are absent ON PURPOSE: the bridge
+ * never sets their length, so the kernel keeps `MassObject`'s packed 25 mm —
+ * which the fallback already is. A protuberance is lowered to a zero-length
+ * carrier anchored at the bump's centre (treeModel `engineTree`), so its
+ * entry is the length the views draw it with, which that centre is taken from.
+ */
+const LENGTH_DEFAULTS: Record<string, number> = Object.assign(Object.create(null) as Record<string, number>, {
+  nosecone: 0.07,
+  bodytube: 0.3,
+  transition: 0.05,
+  innertube: 0.07,
+  tubecoupler: 0.05,
+  centeringring: 0.002,
+  bulkhead: 0.002,
+  engineblock: 0.005,
+  launchlug: 0.05,
+  tubefinset: 0.1,
+  masscomponent: 0.02,
+  // engineTree lowers a shroud to a one-fin strake whose root chord is its
+  // length, `nnum(n, 'length', 0.08)`.
+  fairing: 0.08,
+  protuberance: 0.06,
+});
 
 /**
  * How far aft of its OWN leading edge a component's drawn shape reaches — the
@@ -107,6 +153,43 @@ export function offsetForStart(method: ComponentPosition['method'], start: numbe
 }
 
 /**
+ * Where each child of `parent` starts, in the frame `pStart` is given in —
+ * THE placement rule every station walker in the app shares (audit 2026-09-22,
+ * row 360). Two cases, both the kernel's:
+ *
+ *  - Inside a POD SET or STRAP-ON, the children are a chain of their own and
+ *    stack nose-to-tail from the assembly's start, each AFTER the one before
+ *    (`RocketComponent.setAfter`), exactly as a stage's do; a member's own
+ *    position field is not read, as it is not for a stage's. The walkers used
+ *    to place every one of them at the assembly's start, so everything inside
+ *    a pod's second tube sat a whole tube forward of where it flies — and
+ *    `resolveAbsolutePositions` rewrote an 'absolute' part there against that
+ *    wrong start and moved it in the kernel. A non-chain child (no editor path
+ *    makes one) is a zero-length station at the running x, as at stage level.
+ *  - Everywhere else a child is placed inside its parent by `axialStart`.
+ *
+ * `len` is the child's `axialLength` — what its own children are placed against.
+ */
+function placeChildren(
+  parent: ComponentNode, pStart: number, pLen: number,
+): { node: ComponentNode; start: number; len: number }[] {
+  const kids = parent.children ?? [];
+  if (!isAssembly(parent.type)) {
+    return kids.map((node) => {
+      const len = axialLength(node);
+      return { node, start: axialStart(node, len, pStart, pLen), len };
+    });
+  }
+  let x = pStart;
+  return kids.map((node) => {
+    const len = axialLength(node);
+    const placed = { node, start: x, len };
+    if (CHAIN_TYPES.has(node.type)) x += len;
+    return placed;
+  });
+}
+
+/**
  * Rewrites every 'absolute' axial position (rocket-origin frame — only file
  * importers produce it) into the equivalent parent-relative 'top' offset.
  * The UI edits positions in the parent frame only: leaving 'absolute' in the
@@ -115,32 +198,35 @@ export function offsetForStart(method: ComponentPosition['method'], start: numbe
  */
 export function resolveAbsolutePositions(tree: RocketTree): RocketTree {
   let changed = false;
-  const chainTypes = new Set(['nosecone', 'bodytube', 'transition']);
 
   const fixChildren = (parent: ComponentNode, pStart: number, pLen: number): ComponentNode => {
     if (!parent.children?.length) return parent;
-    const children = parent.children.map((child) => {
+    // Each child's start is `placeChildren`'s — the one `absoluteStations`
+    // gives — taken BEFORE the rewrite, which is right: an 'absolute' offset
+    // IS that station, and the rewrite lands the child on it. The rewrite is
+    // against `pStart`, the PARENT's own start, which is what the kernel's
+    // 'top' measures from.
+    const children = placeChildren(parent, pStart, pLen).map(({ node: child, start, len }) => {
       let next = child;
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
       if (pos.method === 'absolute') {
         changed = true;
         next = { ...child, position: { method: 'top', offset: pos.offset - pStart } } as ComponentNode;
       }
-      const cLen = axialLength(next);
-      const nextPos = (next.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      const start = pStart + startFromPosition(nextPos, cLen, pLen);
-      return fixChildren(next, start, cLen);
+      return fixChildren(next, start, len);
     });
     return { ...parent, children } as ComponentNode;
   };
 
   // Stages flatten into one nose-to-tail chain; chain members stack
-  // sequentially (their own position field is not used for layout).
+  // sequentially (their own position field is not used for layout), each at
+  // its kernel length — `axialLength`, so a cleared length is the kernel's
+  // default rather than zero.
   let x = 0;
   const components = tree.components.map((stage) => {
     const kids = stage.type === 'stage' ? stage.children ?? [] : [stage];
     const fixedKids = kids.map((n) => {
-      const len = chainTypes.has(n.type) ? (typeof n['length'] === 'number' ? (n['length'] as number) : 0) : 0;
+      const len = CHAIN_TYPES.has(n.type) ? axialLength(n) : 0;
       const fixed = fixChildren(n, x, len);
       x += len;
       return fixed;
@@ -177,27 +263,25 @@ export interface AbsoluteStation {
 /**
  * Every component's axial station in the WHOLE assembled stack, nose tip = 0.
  *
- * This is the walk `resolveAbsolutePositions` already performs inside
- * `fixChildren` (ll. 57–71 above) and throws away once it has rewritten the
- * positions: chain members (nose cone, body tube, transition) stack nose-to-
- * tail and ignore their own position field, everything else is placed inside
- * its parent by `startFromPosition`, and stages continue the same `x` rather
- * than restarting — which is what makes this the rocket frame the property
- * panel prints ("starts N mm from nose", PropertyPanel.tsx:553) and the frame
- * the kernel's own `ComponentInfo.positionX` reports.
+ * The same walk `resolveAbsolutePositions` performs inside `fixChildren` and
+ * throws away once it has rewritten the positions — one placement rule,
+ * `placeChildren`: chain members (nose cone, body tube, transition) stack
+ * nose-to-tail and ignore their own position field, at stage level and inside
+ * a pod set or strap-on alike; everything else is placed inside its parent by
+ * `axialStart`; and stages continue the same `x` rather than restarting —
+ * which is what makes this the rocket frame the property panel prints
+ * ("starts N mm from nose", PropertyPanel.tsx:553) and the frame the kernel's
+ * own `ComponentInfo.positionX` reports.
  *
- * WHOLE STACK, NOT PER STAGE — stated because the repo already carries a
- * per-stage version of the same walk, `stationsInStage` in motorRoom.ts
- * (ll. 104–123), and the difference will otherwise be rediscovered as a bug.
- * That one restarts at each stage's fore end ON PURPOSE: it answers how long a
- * motor fits, and a motor cannot cross a stage joint because stages separate.
- * The questions this one is for — where a part sits relative to another part
- * on the pad, what is upstream of what during boost — are asked of the rocket
- * as assembled, which is the same frame `railInterferenceWarnings` chose for
- * the rail line (mountAngle.ts, `checkFrame(tree.components)`). motorRoom's
- * copy should be folded into this one as `stationsInStage(stage) =
- * absoluteStations({components:[stage]})`; it is left standing here only
- * because this sitting did not own that file.
+ * WHOLE STACK, NOT PER STAGE. motorRoom.ts asks the per-stage question — how
+ * long a motor fits, which never crosses a stage joint because stages
+ * separate — and asks it of this same walk, one stage at a time
+ * (`absoluteStations({ components: [stage] })`, audit 2026-09-22, row 360); it
+ * carried a copy of the walk until then. The questions this whole-stack frame
+ * is for — where a part sits relative to another part on the pad, what is
+ * upstream of what during boost — are asked of the rocket as assembled, which
+ * is the same frame `railInterferenceWarnings` chose for the rail line
+ * (mountAngle.ts, `checkFrame(tree.components)`).
  *
  * The one place this walk is stricter than `startFromPosition` alone: an
  * `absolute` position is ALREADY in this frame (it is the rocket-origin offset
@@ -209,16 +293,13 @@ export interface AbsoluteStation {
  */
 export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation> {
   const out = new Map<string, AbsoluteStation>();
-  const chainTypes = new Set(['nosecone', 'bodytube', 'transition']);
 
   const descend = (parent: ComponentNode, pStart: number, pLen: number): void => {
-    for (const child of parent.children ?? []) {
-      // cLen anchors (and is the parent length its own children are placed
-      // against — the kernel's getLength() either way); the END is the extent.
-      const cLen = axialLength(child);
-      const start = axialStart(child, cLen, pStart, pLen);
+    // `len` anchors (and is the parent length its own children are placed
+    // against — the kernel's getLength() either way); the END is the extent.
+    for (const { node: child, start, len } of placeChildren(parent, pStart, pLen)) {
       if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child, parent });
-      descend(child, start, cLen);
+      descend(child, start, len);
     }
   };
 
@@ -233,7 +314,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
       // a chain member advances x — the same rule both existing walkers use, so
       // a stage-level part that is not a tube reads as a zero-length station at
       // the current x rather than displacing everything behind it.
-      const len = chainTypes.has(member.type) ? axialLength(member) : 0;
+      const len = CHAIN_TYPES.has(member.type) ? axialLength(member) : 0;
       if (member.id) out.set(member.id, { start: x, end: x + len, node: member, parent: null });
       descend(member, x, len);
       x += len;

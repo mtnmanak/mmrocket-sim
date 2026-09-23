@@ -10,6 +10,7 @@ import { refToExportMotor } from './motorMatch.js';
 import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
+import { clusterOffsets } from '../tree/cluster.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -265,6 +266,55 @@ describe('RockSim export → import round trip', () => {
     expect(back.notes.join(' ')).toMatch(/cluster/i);
   });
 
+  /**
+   * Every tube where the KERNEL puts it (InnerTube.getClusterPoints): the
+   * pattern turned by clusterRotation − radialDirection, plus the tube's own
+   * offset of radialPosition along radialDirection. The exporter passed neither
+   * (audit 2026-09-22, row 358, from review), so a clustered tube with its own
+   * direction went out unturned, and any off-axis tube went out on the axis.
+   */
+  it('writes each tube at the kernel’s position — its own direction and offset included', () => {
+    const R = 0.0095;
+    const xmlFor = (extra: Record<string, unknown>) => exportRkt({
+      name: 'C', tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.05, thickness: 0.001,
+            children: [{
+              type: 'innertube' as const, id: 'm', length: 0.07, outerRadius: R,
+              thickness: 0.0005, motorMount: true, ...extra,
+            }],
+          }],
+        }],
+      },
+    });
+    /** Each inside tube's centre, (y, z) in metres, from RadialLoc (mm) and RadialAngle (rad). */
+    const centres = (xml: string) => [...xml.matchAll(
+      /<IsInsideTube>1<\/IsInsideTube>\s*<RadialLoc>([^<]+)<\/RadialLoc>\s*<RadialAngle>([^<]+)<\/RadialAngle>/g)]
+      .map((m) => ({ y: (Number(m[1]) / 1000) * Math.cos(Number(m[2])), z: (Number(m[1]) / 1000) * Math.sin(Number(m[2])) }));
+    const expectAt = (got: { y: number; z: number }[], want: { y: number; z: number }[]) => {
+      expect(got.length).toBe(want.length);
+      got.forEach((c, i) => {
+        expect(c.y).toBeCloseTo(want[i]!.y, 9);
+        expect(c.z).toBeCloseTo(want[i]!.z, 9);
+      });
+    };
+    // A single tube 12 mm off the axis, at 90°.
+    expectAt(centres(xmlFor({ radialPosition: 0.012, radialDirection: Math.PI / 2 })), [{ y: 0, z: 0.012 }]);
+    // A 3-ring on the axis with a 30° direction: the kernel turns it by +30°.
+    const d = Math.PI / 6;
+    const turned = clusterOffsets('3-ring', R).map((o) => ({
+      y: o.y * Math.cos(d) - o.z * Math.sin(d), z: o.y * Math.sin(d) + o.z * Math.cos(d),
+    }));
+    expectAt(centres(xmlFor({ cluster: '3-ring', radialDirection: d })), turned);
+    // A 3-ring set 20 mm off the axis along 0°: every tube shifted with it.
+    expectAt(centres(xmlFor({ cluster: '3-ring', radialPosition: 0.02 })),
+      clusterOffsets('3-ring', R).map((o) => ({ y: o.y + 0.02, z: o.z })));
+    // And an on-axis tube still goes out as 0 / 0.
+    expect(xmlFor({})).toMatch(/<RadialLoc>0<\/RadialLoc>\s*<RadialAngle>0<\/RadialAngle>/);
+  });
+
   it('reconstructs a real-world ring despite RockSim rounding drift (Darkstar case)', () => {
     // the owner's 12in Darkstar: 6×75mm ring (RadialLoc 95.25 mm, exact 60° steps
     // in radians) around a central 98mm mount — but RockSim wrote tube 1's
@@ -304,6 +354,47 @@ describe('RockSim export → import round trip', () => {
     const central = tubes.find((t) => t !== ring)!;
     expect(central['cluster']).toBeUndefined();
     expect(central['outerRadius']).toBeCloseTo(0.051, 9);
+  });
+
+  /**
+   * A ROTATED ring read from a real RockSim file must come back with the
+   * rotation the KERNEL turns the same way (audit 2026-09-22, row 358). The
+   * kernel turns a pattern by MINUS its clusterRotation; three tubes RockSim
+   * places at 60°/180°/300° are a 3-ring the kernel calls +30°. The importer
+   * matched the old +rotation drawing and read them as −30°, which the kernel
+   * (and desktop, and now every view) puts at 0°/120°/240° — on the fin lines.
+   */
+  it('reads a rotated ring as the rotation the kernel turns the same way', () => {
+    const tube = (n: number, angle: number) => `
+      <BodyTube><Name>tube ${n}</Name><IsInsideTube>1</IsInsideTube><IsMotorMount>1</IsMotorMount>
+        <OD>24</OD><ID>22</ID><Len>70</Len><Xb>0.</Xb>
+        <RadialLoc>${24 / Math.sqrt(3)}</RadialLoc><RadialAngle>${angle}</RadialAngle>
+      </BodyTube>`;
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>Ring</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Body</Name><OD>100</OD><ID>98</ID><Len>300</Len>
+          <AttachedParts>
+            ${tube(1, Math.PI / 3)}${tube(2, Math.PI)}${tube(3, (5 * Math.PI) / 3)}
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const ring = flatten(importRkt(xml).tree.components).find((c) => c.type === 'innertube')!;
+    expect(ring['cluster']).toBe('3-ring');
+    // +30° modulo the ring's own 120° symmetry.
+    const rot = ring['clusterRotation'] as number;
+    const k = Math.round((rot - Math.PI / 6) / ((2 * Math.PI) / 3));
+    expect(rot - k * ((2 * Math.PI) / 3)).toBeCloseTo(Math.PI / 6, 6);
+    // And the offsets the views and the exporter draw from it are where the
+    // file put the tubes.
+    const angles = clusterOffsets('3-ring', ring['outerRadius'] as number,
+      ring['clusterScale'] as number, rot)
+      .map((o) => ((Math.atan2(o.z, o.y) * 180) / Math.PI + 360) % 360)
+      .sort((a, b) => a - b);
+    expect(angles[0]).toBeCloseTo(60, 3);
+    expect(angles[1]).toBeCloseTo(180, 3);
+    expect(angles[2]).toBeCloseTo(300, 3);
   });
 
   it('de-collides overlapping fin sets at the same angle (Ultra Neon case)', () => {

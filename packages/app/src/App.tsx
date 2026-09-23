@@ -89,12 +89,11 @@ import { addRun, loadRuns, persistFailed } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, applyStageNozzles, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
+  addChild, addStage, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, emptyTree, engineTree, findNode,
   findParent, flownRecoveryDevices, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, motorisedStagesWithNozzle, mountMotorCount, normalizeTree, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
-import { clusterCount } from './tree/cluster.js';
 import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
 import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
@@ -406,6 +405,13 @@ export function App() {
    * where the value went is the whole reason the outcome is kept.
    */
   const legacyPadMass = useRef<ReturnType<typeof migrateLegacyPadMass> | null>(null);
+  /**
+   * Where the restore moved a weighed pad mass when the core-first ranking
+   * (audit 2026-09-22, row 356) named a different primary than the session was
+   * saved under — treeModel.padMassOntoRankedPrimary. Read once, by the
+   * `padMassNote` seed, for the same reason as `legacyPadMass`.
+   */
+  const rankedPadMass = useRef<{ from?: string; to?: string; kg?: number } | null>(null);
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) {
       // The pad mass moved from the measured box onto the motor's record in
@@ -417,7 +423,11 @@ export function App() {
         initialTree,
       );
       legacyPadMass.current = m;
-      return m.motors;
+      // And a session saved with a pod or strap-on motor picked before the
+      // core's carries it on the record that has just stopped being primary.
+      const ranked = padMassOntoRankedPrimary(initialTree, m.motors);
+      rankedPadMass.current = ranked;
+      return ranked.motors;
     }
     if (!defaultMountId) return {};
     // A legacy (pre-per-mount) session carried its one motor's spec inline.
@@ -468,7 +478,14 @@ export function App() {
   // motor edits KEEP the active id (the working set is that config's current
   // truth, and export writes the live set into it); only unloading
   // everything or applying "None" clears it.
-  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(session?.savedConfigs ?? []);
+  // Each stored configuration's pad mass follows the core-first ranking the
+  // same way the working set's does above (audit 2026-09-22, row 356), or
+  // applying one saved with a pod motor picked first would orphan it again.
+  // A row nothing moves in is kept by identity.
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => (session?.savedConfigs ?? []).map((c) => {
+    const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
+    return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
+  }));
   const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
   /**
    * The WORKING SET's unmatched motor references, keyed by mount node id — the
@@ -868,17 +885,33 @@ export function App() {
    * an import note. Seeded here for the one outcome the restore already knows
    * (dropped: no motor to belong to); the reconcile effect below writes the
    * other two after the first build has checked the value against the motor.
+   * Also where a pad mass the core-first ranking moved went (rankedPadMass),
+   * so the value is not seen to jump from one card to another unexplained.
    */
   const [padMassNote, setPadMassNote] = useState<{ text: string; severity: NoticeSeverity } | null>(() => {
     const m = legacyPadMass.current;
-    return m?.outcome === 'dropped' && typeof m.kg === 'number'
-      ? {
+    if (m?.outcome === 'dropped' && typeof m.kg === 'number') {
+      return {
         severity: 'warn',
         text: `The weighed pad mass you entered before this version (${massText(m.kg)}) had no motor loaded`
           + ' to belong to and was not kept. Weigh the rocket with the motor in and type it under that'
           + ' motor on Motors & Launch.',
-      }
-      : null;
+      };
+    }
+    const r = rankedPadMass.current;
+    if (r?.from && r.to && typeof r.kg === 'number') {
+      const from = mountMotors[r.from];
+      const to = mountMotors[r.to];
+      return {
+        severity: 'info',
+        text: `The weighed pad mass (${massText(r.kg)}) now sits under ${to ? baseLabel(to.label) : 'another motor'}`
+          + ` on ${findNode(initialTree, r.to)?.name ?? 'its mount'}, not under`
+          + ` ${from ? baseLabel(from.label) : 'the motor'} on ${findNode(initialTree, r.from)?.name ?? 'its mount'}:`
+          + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
+          + ' to ride with whichever was picked first. The value itself is unchanged.',
+      };
+    }
+    return null;
   });
 
   /**
@@ -2284,7 +2317,12 @@ export function App() {
           motor: { ...primary.spec, ejectionDelay: flownDelay },
           meta: {
             ...primary.meta,
-            motorCount: clusterCount(findNode(tree, primaryMountId)?.['cluster'] as string | undefined),
+            // What the kernel flew on the primary mount — the cluster times any
+            // enclosing pod set or strap-on ring (audit 2026-09-22, row 351: a
+            // motor in a three-pod set was recorded as one). The report's
+            // Motors row says "firing together"; the CSV column keeps its old
+            // 'Motors (cluster)' header so a sheet keyed on it still reads.
+            motorCount: mountMotorCount(tree, primaryMountId),
           },
           launch,
           rocketName: tree.name ?? 'Rocket',
@@ -3473,7 +3511,9 @@ export function App() {
       id: m.id!,
       size: classLabel(diameterClass(mountDiaMm(node))),
       stage: stageList[stIdx]?.name ?? `Stage ${stIdx + 1}`,
-      count: clusterCount(node?.['cluster'] as string | undefined),
+      // Every motor the mount fires, pods and strap-ons included (audit
+      // 2026-09-22, row 351) — the same count the mass figures carry.
+      count: mountMotorCount(tree, m.id!),
     };
   }), [mounts, tree, stageList]);
 
@@ -3898,11 +3938,16 @@ export function App() {
           mounts={mounts.map((m) => {
             const mNode = findNode(tree, m.id!);
             const stId = stageList[stageIndexOf(tree, m.id!)]?.id ?? '';
+            // Every motor a candidate fires on this mount: the cluster times any
+            // enclosing pod set or strap-on ring (audit 2026-09-22, row 351). It
+            // feeds the candidate's equivalent stage exit (exitForCandidate), so
+            // the cluster alone gave three pods one pod's nozzle.
+            const motorCount = mountMotorCount(tree, m.id!);
             return {
               id: m.id!,
-              label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${clusterCount(mNode?.['cluster'] as string | undefined) > 1 ? ` ×${clusterCount(mNode?.['cluster'] as string | undefined)}` : ''})`,
+              label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
               diameterMm: mountDiaMm(mNode),
-              motorCount: clusterCount(mNode?.['cluster'] as string | undefined),
+              motorCount,
               maxMotorLengthM: maxMotorLen[stId]
                 ?? (typeof mNode?.['maxMotorLength'] === 'number' ? (mNode['maxMotorLength'] as number) : null),
             };
@@ -4687,15 +4732,27 @@ export function App() {
                   {stMounts.map((m) => {
               const mm = mountMotors[m.id!];
               const mNode = findNode(tree, m.id!);
-              const count = clusterCount(mNode?.['cluster'] as string | undefined);
-              const isSustainerMount = stIdx === 0;
+              // Pods and strap-ons included (audit 2026-09-22, row 351): the
+              // label and the pad-mass card's multi-motor wording follow the
+              // count the mass figures carry, not the cluster alone.
+              const count = mountMotorCount(tree, m.id!);
+              const countNote = mountCountNote(tree, m.id!);
+              // The working "auto (optimal)" box goes on the PRIMARY's card —
+              // the one mount flightRunner writes the rounded optimum onto
+              // (audit 2026-09-22, row 356). It used to show on every
+              // sustainer-stage card, so a strap-on or a second core mount
+              // carried a ticked "auto (optimal)" that flew its spec delay. Any
+              // other card whose motor still carries the flag (the browser
+              // offers Auto on every mount) gets a box that says it applies to
+              // the top motor only, so it can be unticked (treeModel.autoDelayBox).
+              const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     <label style={{ flex: 1, fontWeight: 600 }}>
                       {m.name ?? 'Motor mount'}
                       <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
-                      {count > 1 && ` (cluster ×${count})`}
+                      {countNote && ` (${countNote})`}
                     </label>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
@@ -4781,8 +4838,11 @@ export function App() {
                           />
                           plugged
                         </label>
-                        {isSustainerMount && (
-                          <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
+                        {autoBox && (
+                          <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
+                            title={autoBox === 'top-motor-only'
+                              ? 'Only the top motor flies at its simulated optimum delay. This one flies the delay in the field; untick to label it with that number.'
+                              : undefined}>
                             <input
                               type="checkbox"
                               checked={mm.meta.autoDelay === true}
@@ -4799,7 +4859,7 @@ export function App() {
                                 }));
                               }}
                             />
-                            auto (optimal)
+                            {autoBox === 'optimal' ? 'auto (optimal)' : 'auto — top motor only'}
                           </label>
                         )}
                       </div>

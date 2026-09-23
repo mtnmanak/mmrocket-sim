@@ -113,6 +113,36 @@ describe('AftView cross-section frame', () => {
     expect(pod.x).toBeGreaterThan(0);
     expect(Math.abs(pod.y)).toBeLessThan(1e-9);
   });
+
+  /**
+   * A 3-ring rotated 30° inside a three-fin set: the kernel turns a pattern by
+   * MINUS its rotation, so its tubes sit at 60°/180°/300° — BETWEEN the fins at
+   * 0°/120°/240° — and a view roll must turn them with the fins. This view drew
+   * them ON the fin lines, and fed the roll in as extra rotation, which turned
+   * them against the fins (audit 2026-09-22, row 358).
+   */
+  it('puts a rotated 3-ring between the fins, and rolls it with them', () => {
+    const tree = finRocket();
+    tree.components[0]!.children![0]!.children!.push({
+      id: 'mt', type: 'innertube', length: 0.1, outerRadius: 0.004, cluster: '3-ring',
+      clusterRotation: Math.PI / 6,
+    } as unknown as RocketTree['components'][number]);
+    const deg = (y: number, z: number) => ((Math.atan2(z, y) * 180) / Math.PI + 360) % 360;
+    for (const roll of [0, (40 * Math.PI) / 180]) {
+      const layout = aftLayout(tree, roll);
+      const fins = layout.outer.filter((s) => s.kind === 'fin')
+        .map((s) => (((s as { angle: number }).angle * 180) / Math.PI + 360) % 360);
+      const tubes = layout.inner.filter((s) => s.key.startsWith('mt'))
+        .map((s) => deg(s.y, s.z));
+      expect(fins).toHaveLength(3);
+      expect(tubes).toHaveLength(3);
+      // Every tube is 60° from its nearest fin: halfway between two of them.
+      for (const t of tubes) {
+        const gap = Math.min(...fins.map((f) => Math.abs(((t - f + 540) % 360) - 180)));
+        expect(gap).toBeCloseTo(60, 9);
+      }
+    }
+  });
 });
 
 /**

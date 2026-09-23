@@ -23,10 +23,11 @@
 // bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { resolveAbsolutePositions } from './position.js';
+import { axialLength, resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
+import { num, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 
 /**
@@ -181,17 +182,104 @@ export function stageIndexOf(tree: RocketTree, id: string): number {
 
 /**
  * The mount the hardware is carried on: the topmost-stage mount among
- * `mountIds` THAT ARE STILL IN THE TREE; ties keep the given (assignment /
- * file) order; null when none remain. An id the tree no longer has is dropped
- * BEFORE sorting — `stageIndexOf` returns −1 for it, which would otherwise
- * sort a deleted mount above the sustainer (a stale `mountMotors` record is
- * never pruned when its mount is removed). App's `primaryMountId`, the
- * pad-mass field's gate, the export gate, the .ork attach-on-open and the
- * session migration all use it (v0.118).
+ * `mountIds` THAT ARE STILL IN THE TREE; within a stage the CORE's mounts
+ * before a pod set's, and a pod set's before a strap-on's; remaining ties keep
+ * the given (assignment / file) order; null when none remain. An id the tree
+ * no longer has is dropped BEFORE sorting — `stageIndexOf` returns −1 for it,
+ * which would otherwise sort a deleted mount above the sustainer (a stale
+ * `mountMotors` record is never pruned when its mount is removed). App's
+ * `primaryMountId`, the pad-mass field's gate, the export gate, the .ork
+ * attach-on-open and the session migration all use it (v0.118).
+ *
+ * WHY THE CORE RANKS FIRST (audit 2026-09-22, row 356). A pod set and a
+ * strap-on ring live INSIDE the core's stage, so `stageIndexOf` ties them with
+ * the core, and assignment order used to decide — a strap-on motor picked
+ * before the core's became THE motor. The auto delay was then written onto the
+ * strap-ons while the core's card said "(auto delay)" — measured through the
+ * kernel on a C6 core with a ring of two C6 strap-ons, the strap-on picked
+ * first and auto ticked on both cards: the core flew its 3 s spec delay and
+ * 253.7 m, where the core on auto flies 4 s and 257.9 m — and a weighed pad
+ * mass rode the strap-ons and separated with them. A strap-on ranks last because it can leave; a pod
+ * set stays with the core but is still not its motor. Assignment order still
+ * settles a tie between two core mounts (a central mount and a ring), which is
+ * the behaviour the guide states.
  */
 export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): string | null {
   const inTree = mountIds.filter((id) => stageIndexOf(tree, id) !== -1);
-  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b))[0] ?? null;
+  const rank = (id: string): number => {
+    const up = ancestorsOf(tree, id);
+    return up.some((a) => a.type === 'parallelstage') ? 2 : up.some((a) => a.type === 'podset') ? 1 : 0;
+  };
+  // Array.prototype.sort is stable, so equal keys keep the given order.
+  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b) || rank(a) - rank(b))[0] ?? null;
+}
+
+/**
+ * A weighed pad mass moved onto the primary `primaryMountOf` names now, off the
+ * record the ranking BEFORE row 356 named — topmost stage, ties in the given
+ * order — when those two differ (audit 2026-09-22, row 356, from review).
+ *
+ * The pad mass lives on the primary's record, and only the primary's is read:
+ * the hardware arithmetic, the field and the .ork export gate all skip every
+ * other record. So a session or stored configuration saved with a pod or
+ * strap-on motor picked before the core's has its weighing on the record that
+ * has just stopped being primary, and without this it would be kept but never
+ * flown, never shown and never saved — silently, on a pod design whose old
+ * flight was mass-correct (pods do not separate). The value is a weighing of
+ * the WHOLE stack and its set key names the whole set, so it means the same on
+ * the core's record; only where it rides changes, which is the fix.
+ *
+ * Identity (`motors` returned as given, nothing else set) unless it moves: the
+ * rankings agree, the old primary carries no pad mass, or the new one already
+ * carries one of its own (then nothing is overwritten). Key order is kept — it
+ * is the tie-break between two core mounts. App runs it on the restored working
+ * set and on every stored configuration; a `.ork` needs nothing, because its
+ * pad mass is rocket-level and attaches to the primary at open.
+ */
+export function padMassOntoRankedPrimary<T extends { padMassKg?: number; padMassWeighedWith?: string }>(
+  tree: RocketTree, motors: Record<string, T>,
+): { motors: Record<string, T>; from?: string; to?: string; kg?: number } {
+  const ids = Object.keys(motors);
+  const now = primaryMountOf(tree, ids);
+  const was = ids.filter((id) => stageIndexOf(tree, id) !== -1)
+    .sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b))[0] ?? null;
+  if (now == null || was == null || now === was) return { motors };
+  const old = motors[was]!;
+  const kg = old.padMassKg;
+  if (typeof kg !== 'number' || 'padMassKg' in motors[now]!) return { motors };
+  const { padMassKg: _p, padMassWeighedWith: key, ...rest } = old;
+  return {
+    motors: {
+      ...motors,
+      [was]: rest as T,
+      [now]: { ...motors[now]!, padMassKg: kg, ...(key !== undefined ? { padMassWeighedWith: key } : {}) },
+    },
+    from: was,
+    to: now,
+    kg,
+  };
+}
+
+/**
+ * Which auto-delay box a mount card shows (audit 2026-09-22, row 356, from
+ * review): 'optimal' — the working "auto (optimal)" box — on the primary's
+ * card, where flightRunner writes the rounded optimum; 'top-motor-only' on any
+ * other card whose motor carries the auto flag anyway, so it can be unticked;
+ * null otherwise. The primary offers the box on the sustainer stage, as it
+ * always has, and on a lower stage only once it is ticked (a booster is primary
+ * only while nothing above it is loaded, and it does fly the optimum then).
+ *
+ * The motor browser offers "Auto (optimal)" on every mount and starts a motor
+ * that lists no delay on it, but only the primary's flag is ever honoured; any
+ * other mount flies its provisional delay — the number in its field. Hiding the
+ * box on those cards left such a mount labelled "(auto delay)" with nothing to
+ * untick; this keeps a box there that says what the flag does.
+ */
+export function autoDelayBox(
+  tree: RocketTree, mountId: string, primaryMountId: string | null, ticked: boolean,
+): 'optimal' | 'top-motor-only' | null {
+  if (mountId === primaryMountId) return stageIndexOf(tree, mountId) === 0 || ticked ? 'optimal' : null;
+  return ticked ? 'top-motor-only' : null;
 }
 
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {
@@ -245,16 +333,60 @@ export function ancestorsOf(tree: RocketTree, id: string): ComponentNode[] {
  * 0.2 kg, not 0.1 kg — and a weighed pad mass that counted only the cluster
  * invented the difference as airframe hardware and then flew it on every
  * repeated motor.
+ *
+ * Each instance count is read exactly as the kernel reads it —
+ * `flownInstanceCount` (audit 2026-09-22, row 352). Pinned against the kernel,
+ * case by case, in `mountMotorCount.kernel.test.ts`.
  */
 export function mountMotorCount(tree: RocketTree, mountId: string): number {
   let k = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
   for (const a of ancestorsOf(tree, mountId)) {
-    if (a.type === 'podset' || a.type === 'parallelstage') {
-      const c = a['instanceCount'];
-      k *= typeof c === 'number' && c >= 1 ? Math.round(c) : 1;
-    }
+    if (a.type === 'podset' || a.type === 'parallelstage') k *= flownInstanceCount(a);
   }
   return k;
+}
+
+/**
+ * How many copies of a pod set or strap-on the KERNEL builds (audit
+ * 2026-09-22, row 352): `ComponentFactory.applyAssembly` hands it
+ * `(int) dbl(node, "instanceCount", 2)` — absent, null or non-finite is TWO,
+ * and a fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount`
+ * ignore anything below one, which leaves their constructors' two standing.
+ * The panel no longer lets the Instances field be cleared (it is not
+ * `optional` in schema.ts, so an empty draft is discarded), and the .ork
+ * importer always writes a count; an absent one now comes from a session saved
+ * while the field could still be cleared, or from a hand-edited file.
+ * `mountMotorCount` used to read an absent count as ONE, so such a design
+ * subtracted one motor from a weighed pad mass where the kernel flies two, and
+ * the missing motor flew again as phantom hardware on every flight; `AftView`,
+ * `TreeSchematic` and `mountAngle` already drew two.
+ *
+ * Not `counts.ts`'s `assemblyInstanceCount`, which is how many the views DRAW —
+ * rounded and clamped to 32; this is the flown count, unclamped.
+ */
+export function flownInstanceCount(a: ComponentNode): number {
+  const c = Math.trunc(num(a, 'instanceCount', 2));
+  return c >= 1 ? c : 2;
+}
+
+/**
+ * How a mount card says how many motors it fires, or '' for one: "cluster ×4"
+ * when the cluster is the whole story, and the total with where the rest come
+ * from when a pod set or strap-on ring repeats the mount — "×3 — one per pod",
+ * "×6 — a cluster of 3 per strap-on". The card used to print the cluster alone
+ * (audit 2026-09-22, row 351), so a motor in a three-pod set read as one while
+ * the pad mass, the recovery weight and the flight all carried three. "Per"
+ * names the NEAREST repeating assembly, which keeps it true when pods sit
+ * inside a strap-on.
+ */
+export function mountCountNote(tree: RocketTree, mountId: string): string {
+  const total = mountMotorCount(tree, mountId);
+  if (total <= 1) return '';
+  const cluster = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  if (total === cluster) return `cluster ×${total}`;
+  const nearest = ancestorsOf(tree, mountId).find((a) => a.type === 'podset' || a.type === 'parallelstage');
+  const per = nearest?.type === 'parallelstage' ? 'strap-on' : 'pod';
+  return `×${total} — ${cluster > 1 ? `a cluster of ${cluster}` : 'one'} per ${per}`;
 }
 
 /**
@@ -1248,12 +1380,25 @@ export function engineTree(tree: RocketTree): RocketTree {
       // skipped under the override) — kept in a sane range purely so nothing
       // downstream sees a degenerate component.
       const od = Math.min(0.05, Math.max(0.001, Math.sqrt(Math.max(area, 1e-8))));
+      // THE CARRIER SITS AT THE BUMP'S CENTRE (audit 2026-09-22, row 372). A
+      // rail button has length 0 in the kernel, so handing it the bump's own
+      // position put its mass at the LEADING edge of a 'top' or 'absolute'
+      // bump and the TRAILING edge of a 'bottom' one — L/2 from the drawn
+      // centre, which moved the rocket's CG by m·L/(2M) (a 'top' bump
+      // overstating the margin); with no position at all it flew at the tube's
+      // middle (RailButton's MIDDLE default) where the app draws it from the
+      // top. Only 'middle' was right, because it already names the centre. The
+      // length is `axialLength`'s, the one the views draw the bump with.
+      const half = axialLength(n) / 2;
+      const pos = n.position ?? { method: 'top', offset: 0 };
+      const centre = pos.method === 'middle' ? pos
+        : { method: pos.method, offset: pos.offset + (pos.method === 'bottom' ? -half : half) };
       return {
         type: 'railbutton',
         id: n.id,
         name: n.name ?? 'Protuberance',
         outerDiameter: od,
-        position: n.position,
+        position: centre,
         // THE CLOCK ANGLE HAS TO RIDE THE CARRIER (v0.103). A protuberance
         // carries its own MOUNT_ANGLE (schema.ts) and every drawing places it
         // there, but this lowering used to emit type/id/name/outerDiameter/
@@ -1490,6 +1635,28 @@ export function flownRecoveryDevices(
   return out;
 }
 
+/**
+ * A cluster mount's `overrideMass`, shared out across the `groups` mounts a
+ * split replaces it with — or nothing when it has none (audit 2026-09-22,
+ * row 357).
+ *
+ * The override is the WHOLE cluster's mass, not one tube's: the kernel's
+ * `MassCalculation.calculateStructure` sets the component's own CG weight to
+ * `getOverrideMass()` once, where the geometric mass it replaces is one tube's
+ * times the cluster count (`RingComponent.getComponentMass`). Both splits
+ * spread `...mount` onto every group, so the full override was copied onto
+ * each: a mount with a 100 g override flew 200 g on a 4-ring's two pairs and
+ * 300 g on a 6-ring's three, in every combination row, with the CG dragged aft
+ * by the extra mass. A CG override is a position and is right on every group
+ * as it stands; the subcomponents flag rides along unchanged, and each group's
+ * share then stands for its own cloned subtree, which sums back to the whole.
+ * `treeModel.test.ts` flies split against unsplit through the kernel.
+ */
+function overrideMassShare(mount: ComponentNode, groups: number): Partial<ComponentNode> {
+  const m = numOrNull(mount, 'overrideMass');
+  return m == null ? {} : { overrideMass: m / groups };
+}
+
 export interface ClusterSplit {
   tree: RocketTree;
   /** The symmetric group mounts replacing the original cluster mount. */
@@ -1517,6 +1684,7 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
   const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
   const mk = (sub: string, scaleMul: number, rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
+    ...overrideMassShare(mount, 2),
     id: freshId(),
     name: `${mount.name ?? 'Motor mount'} ${suffix}`,
     cluster: sub,
@@ -1554,6 +1722,7 @@ export function splitClusterPairsTree(tree: RocketTree, mountId: string): Cluste
   const phi = typeof mount['clusterRotation'] === 'number' ? (mount['clusterRotation'] as number) : 0;
   const mk = (rotAdd: number, suffix: string): ComponentNode => ({
     ...mount,
+    ...overrideMassShare(mount, 3),
     id: freshId(),
     name: `${mount.name ?? 'Motor mount'} ${suffix}`,
     cluster: 'double',

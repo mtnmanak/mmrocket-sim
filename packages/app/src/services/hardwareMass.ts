@@ -210,7 +210,7 @@ export function motorIdentity(
   return meta.exMotorId ?? `${meta.manufacturer ?? ''}/${designation}`;
 }
 
-/** One mount's entry in a set identity. `count` is that mount's cluster count (tree/cluster.ts clusterCount). */
+/** One mount's entry in a set identity. `count` is the motors that mount fires — treeModel `mountMotorCount`, the cluster times every enclosing pod set and strap-on. */
 export type SetEntry = readonly [mountId: string, identity: string, count: number];
 
 const byMountThenIdentity = (a: SetEntry, b: SetEntry): number =>

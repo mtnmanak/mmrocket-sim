@@ -378,9 +378,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const ry = rp * Math.cos(rd);
         const rz = rp * Math.sin(rd);
         const motor = child.id ? motors?.[child.id] : undefined;
+        // The pattern turns with the tube's direction as well as sitting along
+        // it — the kernel's getPoints(clusterRotation − radialDirection).
         for (const off of clusterOffsets(
           child['cluster'] as string | undefined, r,
-          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
+          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0), { radialDirection: rd },
         )) {
           place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
             [start + len / 2, ry + off.y, rz + off.z], [0, 0, -Math.PI / 2], xform, 'glass');

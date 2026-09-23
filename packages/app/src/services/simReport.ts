@@ -28,7 +28,7 @@ export interface MotorMeta {
   propellant?: string;
   /** Reload case (e.g. "Pro29-6GXL"); empty for single-use. */
   motorCase?: string;
-  /** Motors firing together (cluster count of the mount); 1 = no cluster. */
+  /** Motors firing together on the mount (`mountMotorCount`: cluster × enclosing pods/strap-ons); 1 = one motor. */
   motorCount?: number;
   /**
    * Over 80 N average thrust or 160 Ns total impulse (isHighPower). Drives the
@@ -371,7 +371,11 @@ export interface SimRun {
   propellant?: string;
   /** Reload case; empty for single-use motors. */
   motorCase?: string;
-  /** Motors firing together (cluster); absent/1 = single motor. */
+  /**
+   * Motors firing together: the cluster times any enclosing pod set or
+   * strap-on ring (mountMotorCount; the cluster alone in runs stored before
+   * audit 2026-09-22, row 351); absent/1 = single motor.
+   */
   motorCount?: number;
   /** Ejection delay the sim flew with (s). */
   delayS: number;

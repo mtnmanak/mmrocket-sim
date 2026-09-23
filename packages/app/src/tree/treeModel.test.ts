@@ -144,6 +144,80 @@ describe('splitClusterTree — symmetric group split for combination batching', 
     expect(findNode(split.tree, 'm1')).toBeNull(); // replaced in the copy
     expect(split.groupSize).toBe(2);
   });
+
+  /**
+   * THE SPLIT IS THE SAME ROCKET, read back from the kernel (audit 2026-09-22,
+   * row 357). A mount's `overrideMass` is the WHOLE cluster's mass —
+   * `MassCalculation.calculateStructure` sets the component's own CG weight to
+   * it once, where a cluster's geometric mass is per tube times the count
+   * (`RingComponent.getComponentMass`) — so spreading `...mount` onto every
+   * group flew it once PER GROUP: a 100 g override flew 200 g on a 4-ring's
+   * two pairs and 300 g on a 6-ring's three, in every combination row. Each
+   * group now carries its share. Mass, CG and both empty figures must equal the
+   * unsplit mount's, with and without the subcomponents flag and with a CG
+   * override riding along, and with no override at all.
+   */
+  describe('flies the same mass and CG as the mount it replaces', () => {
+    /** A 98 mm airframe (clusterTree's 0.05 m tubes are the wrong fit for a kernel build). */
+    const flyable = (cluster: string, mount: Record<string, unknown>): RocketTree => ({
+      name: 'c',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.3, aftRadius: 0.049, thickness: 0.002 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b1', length: 0.9, outerRadius: 0.049, thickness: 0.001, density: 1200,
+            children: [{
+              type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.0155, thickness: 0.0005, density: 1200,
+              motorMount: true, cluster, position: { method: 'bottom', offset: 0 },
+              children: [{
+                type: 'engineblock', id: 'eb', length: 0.005, outerRadius: 0.015, thickness: 0.003,
+                density: 1200, position: { method: 'top', offset: 0 },
+              } as ComponentNode],
+              ...mount,
+            } as ComponentNode],
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    const massAndCg = (t: RocketTree) => {
+      const info = OrkRocket.buildTree(engineTree(t)).staticInfo();
+      return { mass: info.massEmpty, cg: info.cgEmpty };
+    };
+    const splits: [string, string, (t: RocketTree) => ReturnType<typeof splitClusterTree>][] = [
+      ['4-ring into pairs', '4-ring', (t) => splitClusterTree(t, 'm1')],
+      ['6-ring into trios', '6-ring', (t) => splitClusterTree(t, 'm1')],
+      ['6-ring into pairs', '6-ring', (t) => splitClusterPairsTree(t, 'm1')],
+    ];
+    const overrides: [string, Record<string, unknown>][] = [
+      ['a 100 g mass override', { overrideMass: 0.1 }],
+      ['an override for the whole subtree', { overrideMass: 0.1, overrideSubcomponentsMass: true }],
+      ['a mass and a CG override', { overrideMass: 0.1, overrideCGX: 0.05 }],
+      ['no override at all', {}],
+    ];
+    for (const [splitLabel, cluster, split] of splits) {
+      for (const [overLabel, mount] of overrides) {
+        it(`${splitLabel}, ${overLabel}`, () => {
+          const whole = flyable(cluster, mount);
+          const s = split(whole)!;
+          const before = massAndCg(whole);
+          const after = massAndCg(s.tree);
+          expect(after.mass).toBeCloseTo(before.mass, 12);
+          expect(after.cg).toBeCloseTo(before.cg, 12);
+        });
+      }
+    }
+
+    it('gives each group its share of the override and leaves the source alone', () => {
+      const whole = flyable('6-ring', { overrideMass: 0.3 });
+      const s = splitClusterPairsTree(whole, 'm1')!;
+      for (const id of s.mountIds) expect(findNode(s.tree, id)!['overrideMass']).toBeCloseTo(0.1, 15);
+      expect(findNode(whole, 'm1')!['overrideMass']).toBe(0.3);
+      // No override: none is invented.
+      const plain = splitClusterTree(flyable('4-ring', {}), 'm1')!;
+      for (const id of plain.mountIds) expect('overrideMass' in findNode(plain.tree, id)!).toBe(false);
+    });
+  });
 });
 
 describe('engineTree — camera shroud (fairing) lowering', () => {
@@ -559,6 +633,58 @@ describe('primaryMountOf — the mount the weighed hardware is carried on', () =
     expect(primaryMountOf(staged, ['ring', 'central', 'b1'])).toBe('ring');
     expect(primaryMountOf(staged, ['central', 'ring', 'b1'])).toBe('central');
     expect(primaryMountOf(staged, [])).toBeNull();
+  });
+
+  /**
+   * A pod set and a strap-on ring sit INSIDE the core's stage, so the stage
+   * index ties them with the core, and assignment order used to pick: a
+   * strap-on motor picked first became the primary, took the auto delay and
+   * carried the weighed pad mass away when it separated (audit 2026-09-22,
+   * row 356).
+   */
+  it('ranks the core’s mounts before a pod set’s, and a pod set’s before a strap-on’s', () => {
+    const ring = (type: 'podset' | 'parallelstage', id: string, mountId: string): ComponentNode => ({
+      type, id, instanceCount: 2,
+      children: [{
+        type: 'bodytube', id: `${id}-bt`, length: 0.2,
+        children: [{ type: 'innertube', id: mountId, motorMount: true } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode);
+    const withRings: RocketTree = {
+      name: 'rings',
+      components: [
+        {
+          type: 'stage', id: 's0', name: 'Sustainer',
+          children: [{
+            type: 'bodytube', id: 'b0', length: 0.3, children: [
+              ring('parallelstage', 'straps', 'strap'),
+              ring('podset', 'pods', 'pod'),
+              { type: 'innertube', id: 'central', motorMount: true } as ComponentNode,
+              { type: 'innertube', id: 'ring', motorMount: true, cluster: '3-ring' } as ComponentNode,
+            ],
+          } as ComponentNode],
+        } as ComponentNode,
+        {
+          type: 'stage', id: 's1', name: 'Booster',
+          children: [{
+            type: 'bodytube', id: 'b1', length: 0.2, motorMount: true,
+            children: [ring('parallelstage', 'bstraps', 'bstrap')],
+          } as ComponentNode],
+        } as ComponentNode,
+      ],
+    };
+    // Whatever order they were assigned in, the core wins its stage…
+    expect(primaryMountOf(withRings, ['strap', 'pod', 'central'])).toBe('central');
+    expect(primaryMountOf(withRings, ['pod', 'strap', 'central'])).toBe('central');
+    // …a pod set beats a strap-on…
+    expect(primaryMountOf(withRings, ['strap', 'pod'])).toBe('pod');
+    expect(primaryMountOf(withRings, ['strap'])).toBe('strap');
+    // …and the stage still comes first: a sustainer strap-on outranks the booster.
+    expect(primaryMountOf(withRings, ['b1', 'bstrap', 'strap'])).toBe('strap');
+    expect(primaryMountOf(withRings, ['bstrap', 'b1'])).toBe('b1');
+    // Two CORE mounts still tie on assignment order, as the guide says.
+    expect(primaryMountOf(withRings, ['strap', 'ring', 'central'])).toBe('ring');
+    expect(primaryMountOf(withRings, ['strap', 'central', 'ring'])).toBe('central');
   });
 
   it('ignores a mount id the tree no longer has', () => {
@@ -1013,6 +1139,51 @@ describe('engineTree — a protuberance mass is billed exactly, at its own stati
     // A zero mass bills nothing at all — the default, and what an imported
     // RASAero protuberance always has (the file carries no mass data).
     expect(info(0).mass).toBe(a.mass);
+  }, 60000);
+
+  /**
+   * AT ITS CENTRE, whatever it is anchored by (audit 2026-09-22, row 372). The
+   * carrier is a rail button, which the kernel gives length 0, and it used to
+   * inherit the bump's own position — right for 'middle', but a 'top' bump's
+   * mass then flew at its leading edge and a 'bottom' one's at its trailing
+   * edge, L/2 from the drawn centre; with no position at all the kernel put it
+   * at the tube's middle (RailButton's MIDDLE default) where the app draws it
+   * from the top. Checked on the kernel's own station for the carrier.
+   */
+  it('flies the mass at the bump’s drawn centre for every anchoring', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { absoluteStations } = await import('./position.js');
+    const L = 0.1;
+    const design = (position: unknown): RocketTree => ({
+      name: 'M',
+      components: [{
+        type: 'stage', id: 's1',
+        children: [
+          { type: 'nosecone', id: 'n1', length: 0.15, aftRadius: 0.026, thickness: 0.002, shape: 'ogive' },
+          {
+            type: 'bodytube', id: 'b1', length: 0.6, outerRadius: 0.026, thickness: 0.001,
+            children: [{
+              type: 'protuberance', id: 'x1', dragClass: 'streamlinedbase',
+              width: 0.02, height: 0.01, length: L, count: 1, mass: 0.05,
+              ...(position === undefined ? {} : { position }),
+            } as unknown as ComponentNode],
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    for (const position of [
+      { method: 'top', offset: 0.1 },
+      { method: 'bottom', offset: -0.05 },
+      { method: 'middle', offset: 0.02 },
+      { method: 'absolute', offset: 0.4 },
+      undefined,
+    ]) {
+      const t = design(position);
+      const drawnCentre = absoluteStations(t).get('x1')!.start + L / 2;
+      resetEngine();
+      const flown = OrkRocket.buildTree(engineTree(t)).componentInfo('x1').positionX;
+      expect(flown, JSON.stringify(position)).toBeCloseTo(drawnCentre, 12);
+    }
   }, 60000);
 });
 

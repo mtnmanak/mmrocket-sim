@@ -1,7 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
-import { findNode, kernelStageIdByNode, stagesWithNozzle } from '../tree/treeModel.js';
-import { clusterCount } from '../tree/cluster.js';
+import { kernelStageIdByNode, mountMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
 
 /**
  * Is the typed nozzle exit diameter physically possible for the motors in the
@@ -43,7 +42,7 @@ export interface NozzleOversize {
   exitDiameterM: number;
   /** sqrt(sum of count x casing^2) over the motors loaded in that stage, SI metres. */
   casingEquivalentM: number;
-  /** How many motors that bound was built from (cluster counts included). */
+  /** How many motors that bound was built from (cluster and pod counts included). */
   motorCount: number;
 }
 
@@ -84,9 +83,17 @@ export function nozzleOversize(
     // from `node.cluster` at report time instead (App.tsx, hardwareMass.ts).
     // So the cluster branch below was dead in production and an honest 4x29 mm
     // cluster entered as its 36 mm equivalent got a permanent, non-dismissible
-    // warning against a 29 mm bound (2026-09-08, review). Same call as every
-    // other consumer, so the four cannot drift.
-    const n = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+    // warning against a 29 mm bound (2026-09-08, review).
+    //
+    // And the count is `mountMotorCount`, the cluster times every enclosing
+    // POD SET (audit 2026-09-22, row 351). This comment used to say "same call
+    // as every other consumer" while it read the cluster alone and the pad-mass
+    // arithmetic did not — so three pods with a 20 mm exit each, entered
+    // honestly as their 34.6 mm equivalent, drew a "wider than its motors"
+    // warning against one pod's casing. No parallel stage encloses a mount
+    // joined to a serial stage here (kernel ownership, above), so this is the
+    // stage's own motor count.
+    const n = mountMotorCount(tree, mountId);
     const cur = sumSq.get(stageId) ?? { area: 0, count: 0 };
     sumSq.set(stageId, { area: cur.area + n * d * d, count: cur.count + n });
   }

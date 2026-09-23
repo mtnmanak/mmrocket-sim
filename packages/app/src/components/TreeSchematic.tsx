@@ -1295,7 +1295,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         // claimed a different button height. Both fallbacks are now the kernel
         // constructor's own (RailButton.java:58-64).
         const btnDia = t === 'railbutton' ? num(child, 'outerDiameter', 0.0097) : 0;
-        const len = t === 'railbutton' ? btnDia : num(child, 'length', 0.01);
+        // A lug's drawn length is `axialLength`'s — the kernel's, and what the
+        // drag and the snap ladder resolve it with — so a lug with no length
+        // of its own draws where it flies, 50 mm, not 10 (audit 2026-09-22).
+        const len = t === 'railbutton' ? btnDia : axialLength(child);
         const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
         const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
         // A BUTTON IS CENTRED ON ITS STATION; a lug starts at it (v0.105).
@@ -1354,18 +1357,25 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           engineblock: { stroke: '#7d7050', tag: 'EB' },
         };
         const style = TYPE_STYLE[child.type];
-        const len = num(child, 'length', num(child, 'packedLength', 0.025));
+        // `axialLength`: the kernel's length, a cleared one included — the one
+        // the drag resolves the position with, so the part does not jump when
+        // grabbed (audit 2026-09-22; it used to fall back to 25 mm here and
+        // there alike, where the kernel builds a 70 mm inner tube).
+        const len = axialLength(child);
         const r = Math.min(
           pRadius * 0.85,
           num(child, 'outerRadius', num(child, 'radius', num(child, 'packedRadius', pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
+          // The view's roll as its own turn, not added to the rotation — the
+          // kernel turns a pattern by MINUS its rotation (cluster.ts).
           ? clusterOffsets(
             child['cluster'] as string | undefined,
             num(child, 'outerRadius', 0.0095),
             num(child, 'clusterScale', 1),
-            num(child, 'clusterRotation', 0) + roll,
+            num(child, 'clusterRotation', 0),
+            { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
           )
           : [{ y: 0, z: 0 }];
         // An inner tube can also sit OFF the centreline on its own, with no

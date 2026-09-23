@@ -316,6 +316,39 @@ describe('assignMotorRecord — how a weighing survives loading a motor', () => 
     expect(other['s-mmt']).toEqual(motor('J350W'));
   });
 
+  /**
+   * A mount inside a POD SET fires once per pod, and App's `currentSetKey`
+   * counts it that way (`mountMotorCount`). The adopted key used the cluster
+   * alone, so a file's own motor adopting its pad mass in a three-pod design
+   * wrote count 1 against a live key of 3 and read 'stale-set' at once (audit
+   * 2026-09-22, row 351).
+   */
+  it('keys an adopted pad mass with the pod count App’s own set key uses', () => {
+    const pods: RocketTree = {
+      name: 'pods',
+      components: [{
+        type: 'stage', id: 's1', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.05, thickness: 0.0005,
+          children: [{
+            type: 'podset', id: 'pods', instanceCount: 3,
+            children: [{
+              type: 'bodytube', id: 'pb', length: 0.4, outerRadius: 0.03, thickness: 0.0005,
+              children: [{
+                type: 'innertube', id: 'p-mmt', length: 0.4, outerRadius: 0.028, thickness: 0.0005, motorMount: true,
+              } as ComponentNode],
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    };
+    const ref550 = { ...ref('K550W'), padMassKg: 10.574 };
+    const out = assignMotorRecord({}, 'p-mmt', motor('K550W'),
+      ctx({ tree: pods, droppedRef: ref550 }));
+    expect(out['p-mmt']!.padMassKg).toBe(10.574);
+    expect(out['p-mmt']!.padMassWeighedWith).toBe('[["p-mmt","AeroTech/K550W",3]]');
+  });
+
   it('the primary’s unmatched: sentinel for the loaded mount is rewritten to the loaded identity, count kept', () => {
     const key = '[["b-mmt","unmatched:I284W",2],["s-mmt","AeroTech/J540R",1]]';
     const prev: Record<string, MountMotor> = {

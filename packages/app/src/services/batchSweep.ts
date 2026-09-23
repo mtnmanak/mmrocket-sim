@@ -3,7 +3,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import {
-  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, stageIdByNode, stagesWithNozzle,
+  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, mountMotorCount, stageIdByNode, stagesWithNozzle,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
@@ -41,7 +41,7 @@ export interface BatchMountOption {
   id: string;
   label: string;
   diameterMm: number;
-  /** Cluster count — each candidate fires ×N. */
+  /** Motors a candidate fires on this mount (`mountMotorCount`: cluster × enclosing pods/strap-ons) — ×N. */
   motorCount: number;
   /** Effective max motor length (override ?? mount design value), SI m. */
   maxMotorLengthM: number | null;
@@ -755,18 +755,27 @@ export async function runBatchSweep(
     // design's nozzles too, and its own pool is keyed on the equivalent exit
     // of whatever multiset is flying.
     const comboHandle = handlePool(clearStageNozzles(split.tree), [...split.mountIds, target.id]);
+    // What each group mount FIRES: its group times every enclosing pod set or
+    // strap-on ring (mountMotorCount on the split tree, the groups sitting
+    // where the cluster sat). `split.groupSize` is the group alone, so a 4-ring
+    // in a three-pod set was labelled "2× A + 2× B", stored as 4 motors and
+    // given four motors' equivalent exit where the kernel burns twelve (audit
+    // 2026-09-22, row 351, from review — the single-motor pass above already
+    // counted the pods through `target.motorCount`).
+    const groupFires = split.mountIds.map((id) => mountMotorCount(split.tree, id));
     for (const idxs of comboAssignments(n, split.mountIds.length)) {
       if (signal.aborted) break;
       const entries = idxs.map((i) => candidates[i]!);
-      // Collapse equal groups for the label: [A,A,B] → "4× A + 2× B".
-      const counts = new Map<string, { entry: MotorDbEntry; groups: number }>();
-      for (const e of entries) {
+      // Collapse equal groups for the label: [A,A,B] → "4× A + 2× B", each
+      // group counted as the motors it fires (pods included).
+      const counts = new Map<string, { entry: MotorDbEntry; fires: number }>();
+      entries.forEach((e, k) => {
         const cur = counts.get(e.motorId);
-        if (cur) cur.groups++;
-        else counts.set(e.motorId, { entry: e, groups: 1 });
-      }
+        if (cur) cur.fires += groupFires[k]!;
+        else counts.set(e.motorId, { entry: e, fires: groupFires[k]! });
+      });
       const label = [...counts.values()]
-        .map(({ entry: e, groups }) => `${groups * split.groupSize}× ${names.get(e.motorId)!}`)
+        .map(({ entry: e, fires }) => `${fires}× ${names.get(e.motorId)!}`)
         .join(' + ');
       const configTag = split.mountIds.length === 2
         ? `mixed ${split.groupSize}+${split.groupSize}`
@@ -792,8 +801,8 @@ export async function runBatchSweep(
          * returns null the moment any leg is unknown — which is the honest
          * answer for a mixed combination the database only half covers.
          */
-        const comboParts = entries.map(async (e) => ({
-          count: split.groupSize,
+        const comboParts = entries.map(async (e, k) => ({
+          count: groupFires[k]!,
           exitDiameterM: (await nozzleFor(e.motorId))?.exitDiameterM ?? null,
         }));
         const exitM = equivalentExitDiameterM([...await Promise.all(comboParts), ...otherParts]);
@@ -812,7 +821,7 @@ export async function runBatchSweep(
             label,
             manufacturer: manuf,
             autoDelay: f.autoDelay,
-            motorCount: split.groupSize * split.mountIds.length,
+            motorCount: groupFires.reduce((a, b) => a + b, 0),
             highPower: entries.some((e) => isHighPower(e)),
           },
           launch,
