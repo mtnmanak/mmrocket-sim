@@ -23,6 +23,14 @@ import { useEffect, useRef, useState } from 'react';
  * So: one line at the bottom of the window, out of the workspace entirely,
  * carrying a severity. Routine information stays collapsed and announces
  * politely; a warning or an error opens itself and announces assertively.
+ *
+ * The announcing is done by two ALWAYS-MOUNTED regions beside the bar, not by
+ * the bar (audit 2026-09-22). The bar used to be the live region itself, and
+ * it rendered null while empty, so the region arrived in the same commit as
+ * its first message — the case a screen reader announces least reliably. And
+ * collapsed it showed only its lead notice, so a routine note arriving beside
+ * another one changed the live text by "+1" and nothing else. The regions say
+ * what is NEW, in words, and the collapsed bar leads with the newest notice.
  */
 
 export type NoticeSeverity = 'info' | 'warn' | 'error';
@@ -52,6 +60,22 @@ const firstLine = (text: string): string => {
   return line.length > 160 ? `${line.slice(0, 157)}…` : line;
 };
 
+/**
+ * What makes a notice NEW for the announcer and for "newest first": its words
+ * as well as its id. The file note is ONE id ('file-note') whose text is
+ * replaced — "Saved “X”", then "Share link copied" — so an id-only key would
+ * never hear the second.
+ */
+const noticeKey = (n: Notice): string => `${n.id}\u0000${n.severity}\u0000${n.text}`;
+
+/**
+ * What the announcer says for one notice: routine information as the one line
+ * the collapsed bar shows, a problem in full, because a problem is what opens
+ * the bar — the same text a sighted user is shown.
+ */
+const spoken = (n: Notice): string =>
+  `${LABEL[n.severity]}: ${n.severity === 'info' ? firstLine(n.text) : n.text}`;
+
 export function NoticeBar({ notices }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
   // Track what the user has already been shown — every `id:severity` on the
@@ -62,6 +86,51 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
   const worst = notices.reduce<NoticeSeverity>(
     (acc, n) => (RANK[n.severity] > RANK[acc] ? n.severity : acc), 'info');
   const key = notices.map((n) => `${n.id}:${n.severity}`).join('|');
+  const textKey = notices.map(noticeKey).join('\u0001');
+
+  /**
+   * When each notice on the bar first appeared, as a batch number: notices
+   * that arrive together share one, so on the first render the App's own
+   * order still decides. Derived during render (React's "adjust state when a
+   * prop changes" pattern), not in an effect, so the newest notice leads in
+   * the SAME frame it appears rather than one frame after an older one.
+   */
+  const [age, setAge] = useState<{ textKey: string; batch: ReadonlyMap<string, number>; next: number }>(
+    { textKey: '', batch: new Map(), next: 0 });
+  if (age.textKey !== textKey) {
+    const batch = new Map<string, number>();
+    for (const n of notices) {
+      const k = noticeKey(n);
+      batch.set(k, age.batch.get(k) ?? age.next);
+    }
+    setAge({ textKey, batch, next: age.next + 1 });
+  }
+
+  /**
+   * The announcers' text: every notice not on the bar last time, routine ones
+   * politely and problems assertively. Set AFTER commit (an effect), so even
+   * on the very first render the regions already exist, empty, when their
+   * text arrives. `seq` keys the spoken element: the same words said again
+   * after they went away are a new event, and replacing the element is a DOM
+   * change a screen reader hears where re-setting identical text is not.
+   * Nothing new → the last announcement is left in place rather than cleared,
+   * which would announce nothing anyway and would wipe it under StrictMode's
+   * double-run of this effect.
+   */
+  const onBar = useRef<ReadonlySet<string>>(new Set());
+  const [said, setSaid] = useState({ seq: 0, polite: '', assertive: '' });
+  useEffect(() => {
+    const before = onBar.current;
+    onBar.current = new Set(notices.map(noticeKey));
+    const fresh = notices.filter((n) => !before.has(noticeKey(n)));
+    if (fresh.length === 0) return;
+    const say = (want: (n: Notice) => boolean) => fresh.filter(want).map(spoken).join(' ');
+    setSaid((prev) => ({
+      seq: prev.seq + 1,
+      polite: say((n) => n.severity === 'info'),
+      assertive: say((n) => n.severity !== 'info'),
+    }));
+  }, [textKey, notices]);
 
   useEffect(() => {
     const seen = announced.current;
@@ -107,19 +176,40 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
     return () => { ro.disconnect(); clear(); };
   }, [key, expanded, notices.length]);
 
-  if (notices.length === 0) return null;
+  const announcers = (
+    <>
+      <div className="notice-announce sr-only" role="status" aria-live="polite">
+        {said.polite && <span key={said.seq}>{said.polite}</span>}
+      </div>
+      <div className="notice-announce sr-only" role="alert" aria-live="assertive">
+        {said.assertive && <span key={said.seq}>{said.assertive}</span>}
+      </div>
+    </>
+  );
+
+  if (notices.length === 0) return announcers;
 
   // Show the most serious one when collapsed — an error must never hide behind
-  // "Loaded Rocket.ork".
-  const lead = [...notices].sort((a, b) => RANK[b.severity] - RANK[a.severity])[0]!;
+  // "Loaded Rocket.ork" — and among equals the NEWEST (audit 2026-09-22): the
+  // first of equals was whichever standing notice the App lists first, so the
+  // stale-session note hid every "Saved" and "Share link copied" behind it.
+  // A notice missing from `age` is this render's newcomer (in the render
+  // React throws away for the setAge above); Array.sort is stable, so a tie
+  // keeps the App's order.
+  const newest = (n: Notice) => age.batch.get(noticeKey(n)) ?? age.next;
+  const lead = [...notices].sort((a, b) =>
+    RANK[b.severity] - RANK[a.severity] || newest(b) - newest(a))[0]!;
   const others = notices.length - 1;
 
   return (
+    <>
+    {/* A named region, not a live one: the announcers below speak for it, and
+        a live bar re-read itself whenever expanding rewrote its content. */}
     <div
       ref={barRef}
       className={`notice-bar notice-${worst}${expanded ? ' expanded' : ''}`}
-      role={worst === 'info' ? 'status' : 'alert'}
-      aria-live={worst === 'info' ? 'polite' : 'assertive'}
+      role="region"
+      aria-label="Notices"
     >
       {expanded ? (
         <ul className="notice-list">
@@ -157,5 +247,7 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
         aria-label={expanded ? 'Collapse notices' : `Show ${notices.length} notice${notices.length === 1 ? '' : 's'} in full`}
       >{expanded ? '⌄' : '⌃'}</button>
     </div>
+    {announcers}
+    </>
   );
 }
