@@ -16,11 +16,15 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     // The free half of the 2026-09-08 audit's tooling recommendation: every flag
-    // below was MEASURED at zero violations against the tree it was added to
-    // (`npx tsc -p tsconfig.json --noEmit --<flag>`), so each is a pure ratchet
-    // — it costs nothing today and refuses the next instance. They are grouped
-    // because that measurement is the reason they are here, and a future reader
-    // deciding whether to keep one should re-measure rather than assume.
+    // below was MEASURED at zero violations against the tree it was added to,
+    // so each is a pure ratchet — it costs nothing today and refuses the next
+    // instance. They are grouped because that measurement is the reason they are
+    // here, and a future reader deciding whether to keep one should re-measure
+    // rather than assume: in packages/app, `npx tsc -p tsconfig.app.json --noEmit
+    // --<flag>` and the same for tsconfig.test.json (packages/app/tsconfig.json
+    // is a solution file with no files of its own since 2026-09-22, so `-p` on it
+    // checks nothing), and `npx tsc -p tsconfig.json --noEmit --<flag>` in
+    // packages/engine.
     //
     // noImplicitReturns is the load-bearing one for THIS app: a branch that
     // silently returns undefined where a number is expected is how a wrong
