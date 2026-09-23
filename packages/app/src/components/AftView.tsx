@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
-import { arrowPan, wheelNotches } from '../chartPanZoom.js';
+import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal } from '../tree/shroud.js';
 import { RollControl } from './RollControl.js';
@@ -315,7 +315,8 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const eRef = useRef(0.02);
-  const pan = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  /** The pan in progress, and the pointer that owns it (see endPan). */
+  const pan = useRef<{ px: number; py: number; x: number; y: number; pointerId: number } | null>(null);
   // The zoom as last committed, so the wheel listener can tell BEFORE it
   // updates whether this notch zooms at all — effect-written, like eRef.
   const zoomRef = useRef(zoom);
@@ -466,6 +467,15 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
     const step = 0.2 * E; // a tenth of the 2E-wide view
     setZoom((z) => ({ ...z, x: z.x + d[0] * step, y: z.y + d[1] * step }));
   };
+  /**
+   * Ends the pan its OWN pointer started — a second finger lifting, leaving or
+   * being cancelled must not end the first finger's (TreeSchematic's endDrag).
+   * The capture is taken once, on press, and never moved, so a lost capture is
+   * a real end of the gesture here, not the side view's hand-off.
+   */
+  const endPan = (e: React.PointerEvent) => {
+    if (pan.current?.pointerId === e.pointerId) pan.current = null;
+  };
   return (
     <div style={{ position: 'relative' }}>
       {/* className marks this svg as METER-scaled: its viewBox spans ~0.4
@@ -488,10 +498,16 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
         tabIndex={0}
         aria-label="Aft end view, looking at the rocket from behind. Zoom with the buttons beside this drawing; once zoomed in, the arrow keys pan it."
         onKeyDown={onKeyDown}
+        // THE SIDE VIEW'S GESTURE RULES (seam review of audit 2026-09-22):
+        // only a primary press of the primary pointer pans, only that pointer
+        // drives it, and a move with the button up is a release this view
+        // never saw. The audit gave TreeSchematic all three and left this pan
+        // following a right-press (glued to a bare mouse once macOS's context
+        // menu ate the release) and a second finger.
         onPointerDown={(e) => {
-          if (zoom.k === 1) return;
+          if (zoom.k === 1 || !startsGesture(e)) return;
           const { vx, vy } = toView(e.clientX, e.clientY);
-          pan.current = { px: vx, py: vy, x: zoom.x, y: zoom.y };
+          pan.current = { px: vx, py: vy, x: zoom.x, y: zoom.y, pointerId: e.pointerId };
           (e.target as Element).setPointerCapture?.(e.pointerId);
         }}
         onPointerMove={(e) => {
@@ -500,12 +516,15 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
           // reading it inside the updater crashed the app (live report,
           // "Cannot read properties of null (reading 'x')").
           const p = pan.current;
-          if (!p || !svgRef.current) return;
+          if (!p || !svgRef.current || e.pointerId !== p.pointerId) return;
+          if (releasedDuring(e)) { pan.current = null; return; }
           const { vx, vy } = toView(e.clientX, e.clientY);
           setZoom((z) => ({ ...z, x: p.x + (vx - p.px), y: p.y + (vy - p.py) }));
         }}
-        onPointerUp={() => { pan.current = null; }}
-        onPointerLeave={() => { pan.current = null; }}>
+        onPointerUp={endPan}
+        onPointerLeave={endPan}
+        onPointerCancel={endPan}
+        onLostPointerCapture={endPan}>
         <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
           {hulls.map(drawShape)}
           {inner.map(drawShape)}

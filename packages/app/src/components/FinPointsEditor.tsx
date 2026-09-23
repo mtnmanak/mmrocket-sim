@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { startsGesture } from '../chartPanZoom.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
@@ -44,9 +45,8 @@ interface Press {
   active: boolean;
 }
 
-/** Primary button of the primary pointer only — a right-press or a second
- *  finger starts nothing here. */
-const startsGesture = (e: React.PointerEvent): boolean => e.button === 0 && e.isPrimary;
+// Primary button of the primary pointer only — a right-press or a second finger
+// starts nothing here: `startsGesture` (chartPanZoom.ts), the drawings' one rule.
 
 const samePoints = (a: FinPoint[], b: FinPoint[]): boolean =>
   a.length === b.length && a.every((p, i) => p[0] === b[i]![0] && p[1] === b[i]![1]);
