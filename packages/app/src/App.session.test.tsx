@@ -5,6 +5,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import type { SessionState } from './services/session.js';
+import { exportOrk } from './services/orkFile.js';
+
+// The real writer, passed through; one test makes a single save throw.
+vi.mock('./services/orkFile.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/orkFile.js')>();
+  return { ...real, exportOrk: vi.fn(real.exportOrk) };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -203,5 +210,29 @@ describe('another tab\'s autosave is not overwritten (audit 2026-09-22)', () => 
     expect(storedSession()?.tree.name).toBe('My Rocket');
     expect(storedSession()?.measured?.massKg).toBeCloseTo(0.033, 9);
     expect(host.textContent).not.toContain(CONFLICT);
+  }, 30000);
+});
+
+describe('Save .ork that throws (audit 2026-09-22)', () => {
+  it('says the save failed, leaves the design unsaved, and rejects nothing', async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => { rejections.push(e); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const host = await mountApp();
+      await waitFor(starterStored, 'the starter motor to be autosaved');
+      await type(input(host, 'Measured mass'), '34'); // work worth asking about
+      vi.mocked(exportOrk).mockImplementationOnce(() => { throw new Error('writer gave up'); });
+      await act(async () => { button(host, 'Save As / Export').click(); });
+      await act(async () => { button(host, 'Save .ork — OpenRocket design').click(); });
+      await settle(50);
+      expect(document.body.textContent).toContain('Save .ork failed — nothing was written: writer gave up');
+      expect(rejections).toEqual([]);
+      // Not marked saved: ✕ New still asks.
+      await act(async () => { button(host, '✕ New').click(); });
+      expect(host.textContent).toContain('Start a new design?');
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
   }, 30000);
 });

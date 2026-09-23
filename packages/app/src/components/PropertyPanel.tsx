@@ -772,36 +772,45 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
               : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
             onClick={async () => {
-              // Split path: a zip of segments. Everything else — no printer, a
-              // part that fits, a part that cannot be split — takes the single
-              // STL path below, byte-for-byte and filename-for-filename what
-              // this button has always produced.
-              if (offer?.kind === 'split' && offer.split) {
-                const vol = toPrinterVolume(printer);
-                if (!vol) return;
-                const name = node.name ?? offer.split.label;
-                const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
-                downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
-                  pack.filename, 'ZIP of printable segments');
-              } else {
-                const solid = await componentSolid(node, solidContextFor(tree, node));
-                // componentSolid now returns null for a fin whose planform is
-                // unusable as well as for a type that is not printable, and a
-                // button that silently does nothing reads as a broken button.
-                if (!solid) {
-                  setExportNote(node.type.endsWith('finset')
-                    ? 'This fin outline crosses itself or encloses no area — fix the '
-                      + 'fin points before exporting.'
-                    : 'Nothing to export for this component.');
-                  return;
+              // Every await below can reject — the mesher, the print-pack
+              // builder, a lazily loaded chunk offline — and a rejection here
+              // was unhandled: the same silently dead button the null case
+              // below exists to prevent. It says why, in the same note
+              // (audit 2026-09-22).
+              try {
+                // Split path: a zip of segments. Everything else — no printer, a
+                // part that fits, a part that cannot be split — takes the single
+                // STL path below, byte-for-byte and filename-for-filename what
+                // this button has always produced.
+                if (offer?.kind === 'split' && offer.split) {
+                  const vol = toPrinterVolume(printer);
+                  if (!vol) return;
+                  const name = node.name ?? offer.split.label;
+                  const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
+                  downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
+                    pack.filename, 'ZIP of printable segments');
+                } else {
+                  const solid = await componentSolid(node, solidContextFor(tree, node));
+                  // componentSolid now returns null for a fin whose planform is
+                  // unusable as well as for a type that is not printable, and a
+                  // button that silently does nothing reads as a broken button.
+                  if (!solid) {
+                    setExportNote(node.type.endsWith('finset')
+                      ? 'This fin outline crosses itself or encloses no area — fix the '
+                        + 'fin points before exporting.'
+                      : 'Nothing to export for this component.');
+                    return;
+                  }
+                  setExportNote(null);
+                  // Loaded on click: stlExport imports the whole three.js
+                  // namespace, and this panel renders on the design screen.
+                  const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
+                  const stl = solidToStl(solid.mesh, node.name ?? solid.label);
+                  downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
+                    `${safeName(node.name ?? solid.label, safeName(solid.label))}-print.stl`, 'STL 3D print');
                 }
-                setExportNote(null);
-                // Loaded on click: stlExport imports the whole three.js
-                // namespace, and this panel renders on the design screen.
-                const { solidToStl, STL_MIME } = await import('../services/stlExport.js');
-                const stl = solidToStl(solid.mesh, node.name ?? solid.label);
-                downloadBlob(new Blob([stl as BlobPart], { type: STL_MIME }),
-                  `${safeName(node.name ?? solid.label, safeName(solid.label))}-print.stl`, 'STL 3D print');
+              } catch (e) {
+                setExportNote(`Couldn't export this part: ${e instanceof Error ? e.message : String(e)}`);
               }
             }}>
             {offer?.button ?? SINGLE_BUTTON}

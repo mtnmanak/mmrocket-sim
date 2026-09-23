@@ -134,12 +134,22 @@ export function PresetPicker({ type, node, onApply, onClose }: {
       // reloads the OLD rows while the note claims the new ones were stored.
       const stored = new Set(loadCustomPresets().map(key));
       const missing = good.filter((p) => !stored.has(key(p))).length;
-      setAll(null);
-      loadPresets().then(setAll);
-      setNote(missing > 0
+      const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
           + ` is full or blocked, so they are not in the list.${droppedNote}`
-        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`);
+        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`;
+      // The reload had no catch (audit 2026-09-22): a failure was an unhandled
+      // rejection that left `all` null under the note above — and a note hides
+      // the "Loading…" line — so the dialog showed an empty table. It now keeps
+      // the list it had and says the new rows are in storage, not on screen.
+      const before = all;
+      setAll(null);
+      loadPresets().then(setAll, (err: unknown) => {
+        setAll(before);
+        setNote(`${imported} The list could not be reloaded (${err instanceof Error ? err.message : String(err)})`
+          + ' — close and reopen the presets to see the new rows.');
+      });
+      setNote(imported);
     } catch (e) {
       setNote(`CSV import failed: ${e instanceof Error ? e.message : e}`);
     }

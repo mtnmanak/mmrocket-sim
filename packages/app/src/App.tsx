@@ -72,7 +72,7 @@ import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
-import { saveFile } from './services/saveFile.js';
+import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
@@ -2797,31 +2797,42 @@ export function App() {
     } : undefined,
   );
 
-  const onSaveOrk = async () => {
-    // The mark is taken SYNCHRONOUSLY, before the await. `download` opens a
-    // Save-As picker that can sit open indefinitely, and the user can keep
-    // editing behind it — marking from post-await state would bless those
-    // edits as saved when the file on disk does not have them.
-    //
-    // The working set is written back into the active configuration FIRST and
-    // the mark taken over the synced set: the writer swaps the live motors into
-    // the active configuration anyway, so the file already had them — but the
-    // stored configuration did not, and a switch away and back after the save
-    // read as unsaved work. Identity when nothing changed (configSync).
-    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
-    if (synced !== savedConfigs) setSavedConfigs(synced);
-    const mark = designFingerprint({ ...snapshotNow(), savedConfigs: synced });
-    // WITH launch: the .ork's first <simulation> carries the pad and weather,
-    // so the file (and the desktop app) round-trips the whole flight setup.
-    const out = await download(exportOrk({
-      name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-      configs: exportConfigs(synced), activeConfigId, measured,
-      flightData: flightDataForExport(),
-    }), 'ork');
-    // Only a real write counts. 'cancelled' means the user backed out of the
-    // picker, and treating that as saved is how work gets discarded silently.
-    if (out.kind !== 'cancelled') markSaved(mark);
-    return out;
+  const onSaveOrk = async (): Promise<SaveOutcome | { kind: 'failed' }> => {
+    // Caught, like onSaveRkt and onSaveCdx1 below (audit 2026-09-22): the
+    // writer can throw on a design it cannot represent, and none of this
+    // handler's five callers catches, so a throw was an unhandled rejection —
+    // a Save that silently did nothing. 'failed' is not 'cancelled' but stops
+    // the same things: nothing is marked saved, and "Save .ork, then open"
+    // does not go on to open the other file.
+    try {
+      // The mark is taken SYNCHRONOUSLY, before the await. `download` opens a
+      // Save-As picker that can sit open indefinitely, and the user can keep
+      // editing behind it — marking from post-await state would bless those
+      // edits as saved when the file on disk does not have them.
+      //
+      // The working set is written back into the active configuration FIRST and
+      // the mark taken over the synced set: the writer swaps the live motors into
+      // the active configuration anyway, so the file already had them — but the
+      // stored configuration did not, and a switch away and back after the save
+      // read as unsaved work. Identity when nothing changed (configSync).
+      const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+      if (synced !== savedConfigs) setSavedConfigs(synced);
+      const mark = designFingerprint({ ...snapshotNow(), savedConfigs: synced });
+      // WITH launch: the .ork's first <simulation> carries the pad and weather,
+      // so the file (and the desktop app) round-trips the whole flight setup.
+      const out = await download(exportOrk({
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+        configs: exportConfigs(synced), activeConfigId, measured,
+        flightData: flightDataForExport(),
+      }), 'ork');
+      // Only a real write counts. 'cancelled' means the user backed out of the
+      // picker, and treating that as saved is how work gets discarded silently.
+      if (out.kind !== 'cancelled') markSaved(mark);
+      return out;
+    } catch (e) {
+      setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      return { kind: 'failed' };
+    }
   };
 
   // DELIBERATELY does not clear the unsaved-changes mark, and neither does
@@ -4052,7 +4063,7 @@ export function App() {
             motors, the flight configurations or the flight.
           </p>
           <div className="modal-actions">
-            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save .ork first
             </button>
             <button
@@ -4084,8 +4095,9 @@ export function App() {
                   const out = await onSaveOrk();
                   // Backing out of the Save-As picker must NOT then open the
                   // file — that would discard the work the user just tried
-                  // to protect. Leave the prompt up and let them decide.
-                  if (out.kind === 'cancelled') return;
+                  // to protect — and nor must a save that failed. Leave the
+                  // prompt up and let them decide.
+                  if (out.kind === 'cancelled' || out.kind === 'failed') return;
                   setPendingOpen(null);
                   void onOpenOrk(f);
                 })();
@@ -4118,7 +4130,7 @@ export function App() {
             leaves the link's motors and launch conditions on them.
           </p>
           <div className="modal-actions">
-            <button className="file-btn" onClick={() => { onSaveOrk(); }}>
+            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save mine first
             </button>
             <button
@@ -4552,7 +4564,8 @@ export function App() {
                     // makes a lazy chunk that fails to DOWNLOAD land here too.
                     <View3DBoundary onBack={() => setView('2d')}>
                       <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
-                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData} />
+                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData}
+                          onError={setFileNote} />
                       </Suspense>
                     </View3DBoundary>
                   )
