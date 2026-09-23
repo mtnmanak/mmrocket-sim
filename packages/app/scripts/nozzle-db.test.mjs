@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findDbMotor, MOTOR_DB } from '../src/services/motorDb.ts';
+import {
+  ASSEMBLY_FOLDER, IN_PER_M as BUILD_IN_PER_M, inToM, mergeMeasured, readSpecPage, round6 as buildRound6,
+  sourceDocuments,
+} from './nozzle-db-helpers.mjs';
 
 /**
  * The screen on the SHIPPED nozzle database. Runs in `npm test`, so a
@@ -99,8 +103,64 @@ function judgeAgainstCatalogue(bad, what, howToClear) {
     + `regeneration can clear it and that needs docs/RCS Schematics.\n  ${detail}\n  ${howToClear}\n`);
 }
 
+/**
+ * This file's own inch factor, stated independently of the builder's so the
+ * both-units check is not an echo of the code it checks; the helpers' pin below
+ * compares the two.
+ */
+const IN_PER_M_CHECK = 39.3700787401575;
+
 /** Millimetres of slop on the casing bound: drawings tolerance +/- .005 in. */
 const CASING_SLOP_MM = 0.5;
+
+/**
+ * THE ROW SCREENS THAT A MEASURED ROW MUST PASS, as functions over a set of rows
+ * (audit 2026-09-22), so they run twice: on the shipped file, and on the shipped
+ * file plus a synthetic measured row made by the builder's own `mergeMeasured`.
+ *
+ * WHY. `MEASURED_NOZZLES` is where the owner's caliper readings of L2050LW and
+ * M1378LR are to land, and until this change the screen REJECTED the very
+ * `exitSource: 'measured'` the builder writes for them — in the source set, the
+ * part-tie exemption set, and every one of the Loki checks, all of which assume
+ * a Loki row came off Loki's published tables. So the first real measurement
+ * would have turned `npm test` red and blocked every deploy, and the easy "fix"
+ * in that moment would have been to loosen the Loki band check, which guards a
+ * field that buys thrust. A measured row is routed to its own checks instead,
+ * and the synthetic one below proves the route before it is needed rather than
+ * on the day it is.
+ */
+const EXIT_SOURCES = new Set(['spec-page', 'base-spec-page', 'drawing-title', 'assembly-description',
+  'medusa-open-throats', 'medusa', 'throat-bored-through', 'none',
+  // Loki: the motor's own instruction sheet named the nozzle, or Loki's
+  // published "Commercial Nozzle throat" column for that case did.
+  'loki-sheet', 'loki-case-table',
+  // A caliper on the part in hand (MEASURED_NOZZLES), for a motor nobody publishes.
+  'measured']);
+const EXIT_CONFIDENCES = new Set(['high', 'medium', 'low', 'none', 'per-motor']);
+
+function unlabelledExits(rowSet) {
+  return rowSet
+    .filter((r) => !EXIT_SOURCES.has(r.exitSource) || !EXIT_CONFIDENCES.has(r.exitConfidence))
+    .map((r) => `${r.designation}: ${r.exitSource}/${r.exitConfidence}`);
+}
+
+/**
+ * Sources whose exit legitimately differs from the part table's figure, each for
+ * a stated reason (see the test that uses this). `measured` is here because a
+ * measured nozzle is a part NO table holds: the caliper reading is its only
+ * exit, and there is no published part for it to be tied to.
+ */
+const OWN_EXIT_SOURCES = new Set(['medusa-open-throats', 'throat-bored-through', 'assembly-description',
+  'base-spec-page', 'none', 'loki-sheet', 'loki-case-table', 'measured']);
+
+function exitsOffTheirPart(rowSet) {
+  const byPart = new Map(parts.map((p) => [p.partNo, p]));
+  return rowSet
+    .filter((r) => !OWN_EXIT_SOURCES.has(r.exitSource) && r.exitDiameterIn !== undefined)
+    .filter((r) => byPart.get(r.nozzlePartNo)?.exitDiameterIn !== r.exitDiameterIn)
+    .map((r) => `${r.designation}: row says ${r.exitDiameterIn} in, part ${r.nozzlePartNo} says `
+      + `${byPart.get(r.nozzlePartNo)?.exitDiameterIn}`);
+}
 
 describe('the shipped nozzle database', () => {
   it('is not empty and names its catalogue', () => {
@@ -137,7 +197,7 @@ describe('the shipped nozzle database', () => {
     // the drawing" and the app flies the metres. Nothing compared them, so a
     // hand edit or a botched regeneration could put two different diameters in
     // one row and every other test would pass (2026-09-08, from review).
-    const IN_PER_M = 39.3700787401575;
+    const IN_PER_M = IN_PER_M_CHECK;
     const round6 = (v) => Math.round(v * 1e6) / 1e6;
     const bad = [];
     for (const [what, xs] of [['motor', rows], ['part', parts]]) {
@@ -213,15 +273,9 @@ describe('the shipped nozzle database', () => {
     // nozzle PART NUMBERS at all, so there is no parts table for them to be
     // tied to. The engraved number is the part's identity and the exit follows
     // from Loki's published band for the casing — which is checked, below, by
-    // re-deriving it from the band table rather than by looking it up here.
-    const own = new Set(['medusa-open-throats', 'throat-bored-through', 'assembly-description',
-      'base-spec-page', 'none', 'loki-sheet', 'loki-case-table']);
-    const byPart = new Map(parts.map((p) => [p.partNo, p]));
-    const bad = rows
-      .filter((r) => !own.has(r.exitSource) && r.exitDiameterIn !== undefined)
-      .filter((r) => byPart.get(r.nozzlePartNo)?.exitDiameterIn !== r.exitDiameterIn)
-      .map((r) => `${r.designation}: row says ${r.exitDiameterIn} in, part ${r.nozzlePartNo} says `
-        + `${byPart.get(r.nozzlePartNo)?.exitDiameterIn}`);
+    // re-deriving it from the band table rather than by looking it up here. A
+    // measured nozzle is exempt for the same reason (OWN_EXIT_SOURCES).
+    const bad = exitsOffTheirPart(rows);
     expect(bad, bad.join('\n')).toEqual([]);
   });
 
@@ -272,15 +326,7 @@ describe('the shipped nozzle database', () => {
   });
 
   it('labels every exit with a known source and confidence', () => {
-    const sources = new Set(['spec-page', 'base-spec-page', 'drawing-title', 'assembly-description',
-      'medusa-open-throats', 'medusa', 'throat-bored-through', 'none',
-      // Loki: the motor's own instruction sheet named the nozzle, or Loki's
-      // published "Commercial Nozzle throat" column for that case did.
-      'loki-sheet', 'loki-case-table']);
-    const confidences = new Set(['high', 'medium', 'low', 'none', 'per-motor']);
-    const bad = rows
-      .filter((r) => !sources.has(r.exitSource) || !confidences.has(r.exitConfidence))
-      .map((r) => `${r.designation}: ${r.exitSource}/${r.exitConfidence}`);
+    const bad = unlabelledExits(rows);
     expect(bad, bad.join('\n')).toEqual([]);
     // A drawing CALLOUT is an unlabelled leader-line number and must never be
     // the answer — it is only ever a cross-check (`exitOnDrawing` on a part).
@@ -599,13 +645,111 @@ const LOKI_BANDS = {
   76: [[28, 39, 1.255], [40, 51, 1.500], [52, Infinity, 1.818]],
 };
 
-describe('the Loki rows, derived from Loki\'s own published tables', () => {
-  const loki = rows.filter((r) => r.manufacturer === 'Loki');
+/**
+ * The Loki rows these checks are ABOUT: every Loki row read off Loki's published
+ * tables, which is every Loki row but a measured one. A measured nozzle is the
+ * case those tables do not cover — L2050LW and M1378LR's 54/4000 commercial
+ * throat cell reads "Single Use" — so it carries no engraved `#n`, and its
+ * caliper reading is not required to land on a band. It is screened by
+ * `measuredRowProblems` instead. Routed out here and nowhere else, so each
+ * check below still sees every published row.
+ */
+const publishedLoki = (rowSet) => rowSet.filter((r) => r.manufacturer === 'Loki' && r.exitSource !== 'measured');
 
+function lokiPartNumberProblems(rowSet) {
+  return publishedLoki(rowSet).filter((r) => !/^#\d+$/.test(r.nozzlePartNo ?? ''))
+    .map((r) => `${r.designation}: nozzlePartNo ${r.nozzlePartNo}`);
+}
+
+function lokiThroatProblems(rowSet) {
+  return publishedLoki(rowSet)
+    .filter((r) => Math.abs(r.throatDiameterIn - Number(r.nozzlePartNo.slice(1)) / 64) > 0.0001)
+    .map((r) => `${r.designation}: ${r.nozzlePartNo} is ${(Number(r.nozzlePartNo.slice(1)) / 64).toFixed(4)} in, row says ${r.throatDiameterIn}`);
+}
+
+function lokiBandProblems(rowSet) {
+  const bad = [];
+  for (const r of publishedLoki(rowSet)) {
+    const no = Number(r.nozzlePartNo.slice(1));
+    const band = (LOKI_BANDS[r.casingDiameterMm] ?? []).find(([lo, hi]) => no >= lo && no <= hi);
+    const want = band?.[2];
+    if (want === undefined) {
+      // No band published for this casing — the row must then carry NO exit.
+      // Loki's 98 mm hardware is the only case, and shipping a number for it
+      // would be an invention rather than a reading.
+      if (r.exitDiameterM !== undefined) {
+        bad.push(`${r.designation}: ${r.casingDiameterMm} mm has no published band, but the row has an exit`);
+      }
+      continue;
+    }
+    if (r.exitDiameterIn !== want) {
+      bad.push(`${r.designation} (${r.nozzlePartNo}, ${r.casingDiameterMm} mm): row says ${r.exitDiameterIn} in, `
+        + `Loki's published band says ${want} in`);
+    }
+  }
+  return bad;
+}
+
+function lokiSourceProblems(rowSet) {
+  const loki = publishedLoki(rowSet);
+  return {
+    bad: loki
+      .filter((r) => !(r.exitSource === 'loki-sheet' && r.exitConfidence === 'high')
+        && !(r.exitSource === 'loki-case-table' && r.exitConfidence === 'medium')
+        && !(r.exitSource === 'none' && r.exitConfidence === 'none' && r.exitDiameterM === undefined))
+      .map((r) => `${r.designation}: ${r.exitSource}/${r.exitConfidence}`),
+    // A row taken from the per-case column instead of the motor's own sheet
+    // has to SAY so, because that is the one step of inference in the chain.
+    silent: loki.filter((r) => r.exitSource === 'loki-case-table' && !r.confidenceNote)
+      .map((r) => r.designation),
+  };
+}
+
+function lokiCustomExitProblems(rowSet) {
+  return {
+    wrong: rowSet.filter((r) => r.customExitNote)
+      .filter((r) => r.manufacturer !== 'Loki' || r.casingDiameterMm !== 76
+        || r.exitDiameterIn === undefined || r.exitSource === 'measured')
+      .map((r) => `${r.designation}: ${r.manufacturer} ${r.casingDiameterMm} mm, exit ${r.exitDiameterIn}, `
+        + `source ${r.exitSource}`),
+    // The note quotes Loki's STANDARD exit for the row's band, so it belongs on
+    // the published rows and not on a measured one, whose exit is not a band's.
+    missing: publishedLoki(rowSet)
+      .filter((r) => r.casingDiameterMm === 76 && r.exitDiameterIn !== undefined)
+      .filter((r) => !r.customExitNote)
+      .map((r) => r.designation),
+  };
+}
+
+/**
+ * A measured row's own screen. It has to say it is measured, by whom and when,
+ * in every place a published row says where its number came from — so it can
+ * never pass, downstream, as a figure off a drawing — and it takes no part in
+ * Loki's band cautions. The physical bounds (exit >= throat, exit inside the
+ * casing, one row per motorId) are the shipped-file checks above, which run on
+ * it unchanged.
+ */
+function measuredRowProblems(rowSet) {
+  return rowSet.filter((r) => r.exitSource === 'measured')
+    .flatMap((r) => {
+      const why = [];
+      if (r.exitConfidence !== 'high') why.push(`confidence ${r.exitConfidence}, not "high"`);
+      if (!(r.exitDiameterIn > 0) || !(r.exitDiameterM > 0)) why.push('no exit');
+      if (!/^Measured from the hardware by \S/.test(r.confidenceNote ?? '')) why.push('the note does not name who measured it');
+      if (!/^Measured: \S.*, \d{4}-\d\d-\d\d$/.test(r.provenance?.exitFrom ?? '')) {
+        why.push(`provenance.exitFrom "${r.provenance?.exitFrom}" does not name a measurer and a date`);
+      }
+      if (!r.motorId) why.push('no motorId — a measurement is only ever made for a catalogued motor');
+      if (r.customExitNote) why.push('carries Loki\'s band caution, which describes a published exit');
+      if (r.exitAmbiguous) why.push('marked ambiguous — one caliper reading is one number');
+      return why.map((w) => `${r.designation} (${r.nozzlePartNo}): ${w}`);
+    });
+}
+
+describe('the Loki rows, derived from Loki\'s own published tables', () => {
   it('is here at all, and every row names the engraved nozzle number', () => {
-    expect(loki.length).toBeGreaterThan(50);
-    const bad = loki.filter((r) => !/^#\d+$/.test(r.nozzlePartNo ?? ''))
-      .map((r) => `${r.designation}: nozzlePartNo ${r.nozzlePartNo}`);
+    expect(publishedLoki(rows).length).toBeGreaterThan(50);
+    const bad = lokiPartNumberProblems(rows);
     expect(bad, bad.join('\n')).toEqual([]);
   });
 
@@ -614,46 +758,18 @@ describe('the Loki rows, derived from Loki\'s own published tables', () => {
     // the throat size in 64ths of an inch." So the throat is not an
     // independent reading and must be exactly the number over 64 — a row whose
     // throat drifted from its own label would mean the two were entered apart.
-    const bad = loki
-      .filter((r) => Math.abs(r.throatDiameterIn - Number(r.nozzlePartNo.slice(1)) / 64) > 0.0001)
-      .map((r) => `${r.designation}: ${r.nozzlePartNo} is ${(Number(r.nozzlePartNo.slice(1)) / 64).toFixed(4)} in, row says ${r.throatDiameterIn}`);
+    const bad = lokiThroatProblems(rows);
     expect(bad, bad.join('\n')).toEqual([]);
   });
 
   it('re-derives every exit from the published band for its casing', () => {
-    const bad = [];
-    for (const r of loki) {
-      const no = Number(r.nozzlePartNo.slice(1));
-      const band = (LOKI_BANDS[r.casingDiameterMm] ?? []).find(([lo, hi]) => no >= lo && no <= hi);
-      const want = band?.[2];
-      if (want === undefined) {
-        // No band published for this casing — the row must then carry NO exit.
-        // Loki's 98 mm hardware is the only case, and shipping a number for it
-        // would be an invention rather than a reading.
-        if (r.exitDiameterM !== undefined) {
-          bad.push(`${r.designation}: ${r.casingDiameterMm} mm has no published band, but the row has an exit`);
-        }
-        continue;
-      }
-      if (r.exitDiameterIn !== want) {
-        bad.push(`${r.designation} (${r.nozzlePartNo}, ${r.casingDiameterMm} mm): row says ${r.exitDiameterIn} in, `
-          + `Loki's published band says ${want} in`);
-      }
-    }
+    const bad = lokiBandProblems(rows);
     expect(bad, bad.join('\n')).toEqual([]);
   });
 
   it('says which of the two published sources each row came from', () => {
-    const bad = loki
-      .filter((r) => !(r.exitSource === 'loki-sheet' && r.exitConfidence === 'high')
-        && !(r.exitSource === 'loki-case-table' && r.exitConfidence === 'medium')
-        && !(r.exitSource === 'none' && r.exitConfidence === 'none' && r.exitDiameterM === undefined))
-      .map((r) => `${r.designation}: ${r.exitSource}/${r.exitConfidence}`);
+    const { bad, silent } = lokiSourceProblems(rows);
     expect(bad, bad.join('\n')).toEqual([]);
-    // A row taken from the per-case column instead of the motor's own sheet
-    // has to SAY so, because that is the one step of inference in the chain.
-    const silent = loki.filter((r) => r.exitSource === 'loki-case-table' && !r.confidenceNote)
-      .map((r) => r.designation);
     expect(silent, silent.join(', ')).toEqual([]);
   });
 
@@ -662,18 +778,11 @@ describe('the Loki rows, derived from Loki\'s own published tables', () => {
     // 2.0\" are available upon request for an additional machining fee." It
     // names no other casing, so a 38 or 54 mm row carrying it would be a
     // caution about an option that flyer cannot buy.
-    const withNote = rows.filter((r) => r.customExitNote);
-    expect(withNote.length).toBeGreaterThan(0);
-    const wrong = withNote.filter((r) => r.manufacturer !== 'Loki' || r.casingDiameterMm !== 76
-      || r.exitDiameterIn === undefined)
-      .map((r) => `${r.designation}: ${r.manufacturer} ${r.casingDiameterMm} mm, exit ${r.exitDiameterIn}`);
-    expect(wrong, wrong.join('\n')).toEqual([]);
+    expect(rows.filter((r) => r.customExitNote).length).toBeGreaterThan(0);
     // And EVERY 76 mm Loki row with an exit has it — a note on some of them
     // would be worse than none, because its absence would read as "not this one".
-    const missing = rows
-      .filter((r) => r.manufacturer === 'Loki' && r.casingDiameterMm === 76 && r.exitDiameterIn !== undefined)
-      .filter((r) => !r.customExitNote)
-      .map((r) => r.designation);
+    const { wrong, missing } = lokiCustomExitProblems(rows);
+    expect(wrong, wrong.join('\n')).toEqual([]);
     expect(missing, missing.join(', ')).toEqual([]);
   });
 
@@ -842,7 +951,10 @@ describe('the gaps are stated rather than left blank', () => {
     // itself was proved by hand on 2026-09-13 with a temporary entry: two rows
     // appeared in `motors` at exitSource "measured" and Loki 54 mm coverage
     // went 14/16 to 16/16. Do not read a green tick here as proof of the merge
-    // until `measured` has an entry in it.
+    // until `measured` has an entry in it. Since 2026-09-22 the MERGE CODE is
+    // exercised on every run regardless, on a synthetic entry (the describe
+    // "a measured nozzle, before the first real one lands", below); this test
+    // stays the check that the SHIPPED file holds what its `measured` says.
     const byId = new Map(rows.map((r) => [r.motorId, r]));
     const byDesignation = new Map(rows.map((r) => [r.designation, r]));
     const bad = [];
@@ -875,5 +987,150 @@ describe('the gaps are stated rather than left blank', () => {
         || (m.throatDiameterIn !== undefined && m.exitDiameterIn < m.throatDiameterIn))
       .map((m) => JSON.stringify(m));
     expect(bad, bad.join('\n')).toEqual([]);
+    // And the rows they became pass a measured row's own screen.
+    const rowBad = measuredRowProblems(rows);
+    expect(rowBad, rowBad.join('\n')).toEqual([]);
+  });
+});
+
+/**
+ * THE MEASURED PATH, EXERCISED BEFORE THE FIRST REAL MEASUREMENT (audit
+ * 2026-09-22). `measured` is empty in the shipped file, so every check above
+ * that reads a measured row passes on nothing. Here the builder's own
+ * `mergeMeasured` turns a synthetic entry into rows, exactly as it would the
+ * owner's L2050LW / M1378LR readings, and every row screen runs on the shipped
+ * rows PLUS those. The catalogue motors are synthetic too, so the fixture does
+ * not start colliding with real data the day a real measurement lands.
+ */
+describe('a measured nozzle, before the first real one lands', () => {
+  const catalogueFixture = [
+    { motorId: 'fixture-loki-54-a', manufacturerAbbrev: 'Loki', designation: 'L9001LW', commonName: 'L9001',
+      diameter: 54, caseInfo: '54/4000' },
+    { motorId: 'fixture-loki-54-b', manufacturerAbbrev: 'Loki', designation: 'M9002LR', commonName: 'M9002',
+      diameter: 54, caseInfo: '54/4000' },
+  ];
+  const entry = {
+    manufacturer: 'Loki', partNo: '54/4000 single-use (fixture)', exitDiameterIn: 1.0, throatDiameterIn: 0.5,
+    measuredBy: 'nozzle-db.test.mjs', measuredOn: '2026-09-22', appliesTo: ['L9001LW', 'M9002'],
+  };
+  const merged = mergeMeasured([entry], catalogueFixture, rows);
+  const withMeasured = [...rows, ...merged.rows];
+
+  it('is merged into rows by the builder\'s own code, one per motor it names', () => {
+    expect(merged.problems).toEqual([]);
+    expect(merged.rows.map((r) => r.motorId)).toEqual(['fixture-loki-54-a', 'fixture-loki-54-b']);
+    expect(merged.rows.every((r) => r.exitSource === 'measured')).toBe(true);
+    // The metres the app flies are the inches, converted, to the micron.
+    expect(merged.rows[0].exitDiameterM).toBe(0.0254);
+    expect(merged.rows[0].throatDiameterM).toBe(0.0127);
+  });
+
+  it('passes every row screen a published row passes', () => {
+    const labelled = unlabelledExits(withMeasured);
+    expect(labelled, labelled.join('\n')).toEqual([]);
+    const tied = exitsOffTheirPart(withMeasured);
+    expect(tied, tied.join('\n')).toEqual([]);
+    for (const [what, bad] of [
+      ['part number', lokiPartNumberProblems(withMeasured)],
+      ['throat', lokiThroatProblems(withMeasured)],
+      ['band', lokiBandProblems(withMeasured)],
+      ['source', lokiSourceProblems(withMeasured).bad],
+      ['custom exit', lokiCustomExitProblems(withMeasured).wrong],
+      ['measured', measuredRowProblems(withMeasured)],
+    ]) {
+      expect(bad, `${what}:\n${bad.join('\n')}`).toEqual([]);
+    }
+  });
+
+  it('still has every published Loki row screened: only measured rows are routed away', () => {
+    // The routing must not quietly empty the published checks: adding measured
+    // rows leaves the published set exactly the shipped Loki rows, and a wrong
+    // band figure on one of those is still caught.
+    const published = publishedLoki(withMeasured);
+    expect(published.length).toBe(publishedLoki(rows).length);
+    const banded = published.find((r) => r.exitDiameterIn !== undefined && LOKI_BANDS[r.casingDiameterMm]);
+    const wrongBand = withMeasured.map((r) => (r === banded ? { ...r, exitDiameterIn: 9.9 } : r));
+    expect(lokiBandProblems(wrongBand)).toHaveLength(1);
+  });
+
+  it('refuses a measured row that does not say who measured it, or claims a band caution', () => {
+    const [row] = merged.rows;
+    const anonymous = { ...row, confidenceNote: 'Measured.', provenance: { ...row.provenance, exitFrom: 'Measured' } };
+    expect(measuredRowProblems([anonymous]).length).toBe(2);
+    expect(measuredRowProblems([{ ...row, customExitNote: 'x' }]).length).toBe(1);
+    expect(measuredRowProblems([{ ...row, exitConfidence: 'medium' }]).length).toBe(1);
+  });
+
+  it('refuses a measurement of a motor that already has a published row', () => {
+    const published = rows.find((r) => r.manufacturer === 'Loki' && r.motorId);
+    const clash = mergeMeasured([{ ...entry, appliesTo: [published.designation] }],
+      [{ ...catalogueFixture[0], motorId: published.motorId, designation: published.designation }], rows);
+    expect(clash.rows).toEqual([]);
+    expect(clash.problems.join('\n')).toMatch(/already has a PUBLISHED row/);
+  });
+
+  it('refuses a measurement with no measurer, no date, or no motor', () => {
+    const problems = (e) => mergeMeasured([{ ...entry, ...e }], catalogueFixture, rows).problems;
+    expect(problems({ measuredBy: '' })).toHaveLength(1);
+    expect(problems({ measuredOn: undefined })).toHaveLength(1);
+    expect(problems({ appliesTo: [] })).toHaveLength(1);
+    expect(problems({ exitDiameterIn: 0 })).toHaveLength(1);
+    expect(problems({ appliesTo: ['NO-SUCH-MOTOR'] })).toHaveLength(1);
+  });
+});
+
+/**
+ * THE BUILDER'S PURE HELPERS (audit 2026-09-22), pinned where a slipped factor
+ * would otherwise ship unseen: a factor applied to EVERY row keeps every ratio,
+ * bound and part tie above intact.
+ */
+describe('build-nozzle-db\'s conversions and readers', () => {
+  it('converts inches to metres at exactly 25.4 mm, to the micron', () => {
+    expect(BUILD_IN_PER_M).toBeCloseTo(1 / 0.0254, 12);
+    // The builder and this file's own both-units check agree on the factor.
+    expect(BUILD_IN_PER_M).toBe(IN_PER_M_CHECK);
+    expect(buildRound6(inToM(1))).toBe(0.0254);
+    expect(buildRound6(inToM(1.75))).toBe(0.04445);
+    expect(buildRound6(inToM(0.734))).toBe(0.018644);
+    expect(buildRound6(0.12345649)).toBe(0.123456);
+    expect(buildRound6(0.1234565)).toBe(0.123457);
+  });
+
+  it('reads a store page\'s labelled figures, and a weight of a kilogram or more', () => {
+    const page = (summary) => readSpecPage({ productCode: '01800', file: 'x.mhtml', title: 't', summary });
+    const single = page('Molded glass/phenolic nozzle for 98mm diameter motors. Dimensions: 3.619" O.D. '
+      + '1.000" diameter throat 2.737" diameter exit Weight = 549 grams');
+    expect(single).toMatchObject({ odIn: 3.619, throatIn: 1, exitIn: 2.737, weightG: 549 });
+    expect(single.multi).toBeUndefined();
+    // "1,050 grams" was Number('1,050') = NaN, which JSON writes as null.
+    expect(page('3.619" O.D. 1.000" diameter throat 2.737" diameter exit Weight = 1,050 grams').weightG).toBe(1050);
+    expect(page('Weight: 1,234.5 grams').weightG).toBe(1234.5);
+    expect(page('no weight stated').weightG).toBeUndefined();
+    const medusa = page('0.192" diameter center throat 0.500" diameter center exit 0.125" diameter plugged '
+      + 'outer throats x 6 0.375" diameter outer exits x 6');
+    expect(medusa.multi).toEqual({ centerThroatIn: 0.192, centerExitIn: 0.5, outerThroatIn: 0.125,
+      outerExitIn: 0.375, outerCount: 6 });
+    expect(page('Throat diameter: 0.13" Exit diameter: 0.25"')).toMatchObject({ throatIn: 0.13, exitIn: 0.25 });
+  });
+
+  it('dates the file from every document family it read, each joined to its own folder', () => {
+    const raw = {
+      assemblies: [{ file: 'RMS-38/H.pdf', docFamily: 'reloadable' }, { file: '29mm/D.pdf', docFamily: 'dms' }],
+      specPages: [{ file: 'Nozzles/a.mhtml' }],
+      nozzleDrawings: [{ file: 'Nozzles/b.pdf' }],
+      certNozzles: [{ file: 'Cert Docs/c.pdf' }],
+    };
+    expect(sourceDocuments(raw, ['38mm Red.pdf'])).toEqual([
+      { root: 'rcs', file: 'Motor Assembly Drawings/RMS-38/H.pdf' },
+      { root: 'rcs', file: 'DMS Motor Designs/29mm/D.pdf' },
+      { root: 'rcs', file: 'Nozzles/a.mhtml' },
+      { root: 'rcs', file: 'Nozzles/b.pdf' },
+      { root: 'rcs', file: 'Cert Docs/c.pdf' },
+      { root: 'loki', file: '38mm Red.pdf' },
+    ]);
+    // A third family must be given its folder, not joined to one it is not in.
+    expect(() => sourceDocuments({ ...raw, assemblies: [{ file: 'x.pdf', docFamily: 'hybrid' }] }))
+      .toThrow(/unknown docFamily "hybrid"/);
+    expect(Object.keys(ASSEMBLY_FOLDER).sort()).toEqual(['dms', 'reloadable']);
   });
 });

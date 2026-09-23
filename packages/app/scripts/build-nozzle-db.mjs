@@ -2,7 +2,7 @@
  * Regenerates src/data/nozzles.json — commercial motor NOZZLE geometry, keyed
  * to the bundled motor catalogue.
  *
- * Usage: node packages/app/scripts/build-nozzle-db.mjs [--source "<folder>"] [--report]
+ * Usage: node packages/app/scripts/build-nozzle-db.mjs [--source "<folder>"] [--loki "<folder>"] [--report]
  *
  * WHY THIS EXISTS (2026-09-08). v0.119 added RASAero's pressure-thrust term,
  * F(h) = F_curve(t) + A_exit x (101,325 - P(h)). A_exit is the stage's nozzle
@@ -56,16 +56,15 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The unit conversion, the store-page reader, the measured merge and the
+// source-file list live in nozzle-db-helpers.mjs, where nozzle-db.test.mjs can
+// pin them: this script runs its work at import and needs the document set.
+import { inToM, mergeMeasured, readSpecPage, round6, sourceDocuments } from './nozzle-db-helpers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const OUT = join(here, '..', 'src', 'data', 'nozzles.json');
 const MOTORS = join(here, '..', 'src', 'data', 'motors.json');
 const EXTRACTOR = join(here, 'extract-nozzle-pdfs.py');
-
-const IN_PER_M = 39.3700787401575;
-const inToM = (v) => v / IN_PER_M;
-/** Six decimal places of a metre is a micron — finer than any drawing tolerance. */
-const round6 = (v) => Math.round(v * 1e6) / 1e6;
 
 // ---------------------------------------------------------------- the source
 
@@ -77,6 +76,11 @@ const flag = (name) => {
 const REPORT = argv.includes('--report');
 const source = flag('--source') ?? process.env.RCS_SCHEMATICS
   ?? join(here, '..', '..', '..', 'docs', 'RCS Schematics');
+// Loki's instruction sheets are TRANSCRIBED below (LOKI_SHEETS), so the build
+// does not need this folder to run; it is read only for the `generated` date,
+// which has to move when a sheet does.
+const lokiSource = flag('--loki') ?? process.env.LOKI_DATA
+  ?? join(here, '..', '..', '..', 'docs', 'Loki Data');
 if (!existsSync(source)) {
   console.error(`No RCS document set at ${source}.`);
   console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
@@ -90,49 +94,7 @@ const raw = JSON.parse(execFileSync(python, [EXTRACTOR, source], {
 
 // ------------------------------------------------------- reading a spec page
 
-/**
- * A store page's Summary paragraph, e.g.
- *   "Molded glass/phenolic nozzle for 98mm diameter motors. Dimensions:
- *    3.619" O.D. 1.000" diameter throat 2.737" diameter exit Weight = 549 grams"
- * and, for the multi-throat parts,
- *   "... 0.192" diameter center throat 0.500" diameter center exit
- *    0.125" diameter plugged outer throats x 6 0.375" diameter outer exits x 6"
- * and, for the three Enerjet parts, a "Throat diameter: 0.13"" list form.
- *
- * Everything here is a labelled number lifted verbatim. Nothing is derived.
- */
-function readSpecPage(page) {
-  const s = page.summary ?? '';
-  const num = (re) => {
-    const m = re.exec(s);
-    return m ? Number(m[1]) : undefined;
-  };
-  const centerThroat = num(/([\d.]+)"\s*diameter center throat/i);
-  const centerExit = num(/([\d.]+)"\s*diameter center exit/i);
-  const outerThroat = num(/([\d.]+)"\s*diameter (?:plugged )?outer throats?\s*x\s*(\d+)/i);
-  const outerExit = num(/([\d.]+)"\s*diameter outer exits?\s*x\s*(\d+)/i);
-  const outerCount = (() => {
-    const m = /diameter outer exits?\s*x\s*(\d+)/i.exec(s);
-    return m ? Number(m[1]) : undefined;
-  })();
-  const multi = centerThroat !== undefined && outerExit !== undefined
-    ? { centerThroatIn: centerThroat, centerExitIn: centerExit, outerThroatIn: outerThroat, outerExitIn: outerExit, outerCount }
-    : undefined;
-  return {
-    partNo: page.productCode,
-    file: page.file,
-    title: page.title,
-    summary: s,
-    odIn: num(/([\d.]+)"\s*O\.?D\.?(?!\s*X)/i) ?? num(/O\.D\.:\s*([\d.]+)"/i),
-    // The plain (single-throat) numbers. A Medusa page has none of these; its
-    // geometry is in `multi`, and the equivalent diameters are computed later.
-    throatIn: num(/([\d.]+)"\s*diameter throat/i) ?? num(/Throat diameter:\s*([\d.]+)"/i),
-    exitIn: num(/([\d.]+)"\s*diameter exit/i) ?? num(/Exit diameter:\s*([\d.]+)"/i),
-    weightG: num(/Weight\s*(?:=|:)\s*([\d,.]+)\s*grams/i),
-    multi,
-  };
-}
-
+// readSpecPage: nozzle-db-helpers.mjs.
 const specByPart = new Map();
 for (const page of raw.specPages) {
   if (!page.productCode) continue;
@@ -1133,17 +1095,17 @@ const NO_EXIT_NOTES = {
  * a consumer can tell "we have not got it" from "it does not exist", and so
  * measured numbers have a documented place to land.
  *
- * LOKI: nothing published was found in the local document set — the only Loki
- * file on disk is `docs/User files/TRF RASAero Files/Loki_J1026CT.eng`, a
- * thrust curve with no geometry. Testers' own RASAero files DO carry exits for
- * Loki motors, and they are exactly why a user-typed number is not data: four
- * files type 0.9 in for the 54 mm K627LR, and the same corpus types 0, 0.91 and
+ * LOKI: this paragraph used to say nothing published had been found and that
+ * the owner would measure the line. Both halves turned out to be published by
+ * Loki, and since 2026-09-13 the LOKI section below reads them. What is left for
+ * a caliper is the two 54/4000 one-time-use nozzles (L2050LW, M1378LR), whose
+ * commercial-throat cell reads "Single Use"; the owner has them and will
+ * measure. Those go in MEASURED_NOZZLES below, never by hand into nozzles.json
+ * (a hand edit is wiped by the next run of this script). Testers' own RASAero
+ * files are NOT a source, and they show why a user-typed number is not data:
+ * four type 0.9 in for the 54 mm K627LR, and the same corpus types 0, 0.91 and
  * 1.3 in for the SAME motor (`38mm Min Diameter.CDX1`, `38mm_thought
- * experiment.CDX1`). None of that is imported. The owner has one of every Loki
- * graphite nozzle and offered to measure them; five or six measurements would
- * cover the line, because Loki change only the throat. Those go in
- * MEASURED_NOZZLES below, never by hand into nozzles.json (a hand edit is wiped
- * by the next run of this script).
+ * experiment.CDX1`). None of that is imported.
  *
  * CESARONI: the owner searched pro38.com's product and resources pages and the
  * wider web and found no published nozzle geometry at all. Recorded as a known
@@ -1152,15 +1114,14 @@ const NO_EXIT_NOTES = {
  */
 const MEASURED_NOZZLES = [
   // Ruled, measured additions go here, e.g.
-  // { manufacturer: 'Loki', partNo: '54mm graphite', exitDiameterIn: 0.9,
+  // { manufacturer: 'Loki', partNo: '54/4000 single-use', exitDiameterIn: 1.0,
   //   throatDiameterIn: 0.5, measuredBy: 'owner, calipers', measuredOn: '2026-09-??',
-  //   appliesTo: ['K627LR'] },
+  //   appliesTo: ['L2050LW'] },
   //
-  // NOTHING LOKI NEEDS TO GO HERE ANY MORE — see the LOKI section below, which
-  // reads Loki's own published tables. This list is still the landing place for
-  // a measurement of something nobody publishes (Cesaroni), and it is emitted
-  // as `measured` for the record; it is NOT merged into `motors`, so a row put
-  // here alone would not reach the app.
+  // Only a motor with NO published row: Loki's tables cover the rest of their
+  // line, and naming a motor that already has a row fails the build rather than
+  // silently replacing it. Each entry is emitted as `measured` for the record
+  // AND merged into `motors` (mergeMeasured, below), so it reaches the app.
 ];
 
 /* ------------------------------------------------------------------- LOKI
@@ -1592,66 +1553,13 @@ motorRows.push(...lokiRows);
  * a hole. Found 2026-09-13, the day before Eric measures the two 54/4000
  * one-time-use nozzles (L2050LW, M1378LR) that are the last closeable Loki gap.
  *
- * TWO RULES, both deliberate:
- *
- *  1. A measurement fills a motor that has NO row. It never overwrites a
- *     published one. If it names a motor already covered, the build FAILS
- *     rather than silently preferring one source over the other — that is a
- *     decision a person should make in the open, not a precedence rule hidden
- *     in a script. (Today no measured entry collides with anything.)
- *  2. Provenance is mandatory, exactly as it is for a published row: who
- *     measured it and when. A measured number with no measurer is
- *     indistinguishable, downstream, from one read off a drawing.
- *
- * `exitSource: 'measured'` and `exitConfidence: 'high'` — high because a
- * caliper on the part in hand is better evidence about THAT part than a band
- * that covers a run of throat sizes; the source field is what keeps the two
- * kinds of number tellable apart.
+ * The merge and its two rules (a measurement never replaces a published row;
+ * provenance is mandatory) are `mergeMeasured` in nozzle-db-helpers.mjs, where
+ * nozzle-db.test.mjs runs it on a synthetic entry — so the path is exercised
+ * before the first real measurement lands rather than on the day it does.
+ * (Today no measured entry collides with anything.)
  */
-const measuredRows = [];
-const measuredProblems = [];
-for (const mn of MEASURED_NOZZLES) {
-  if (!(mn.exitDiameterIn > 0)) { measuredProblems.push(`${mn.partNo}: no usable exitDiameterIn`); continue; }
-  if (!mn.measuredBy || !mn.measuredOn) { measuredProblems.push(`${mn.partNo}: measurements need measuredBy and measuredOn`); continue; }
-  if (!Array.isArray(mn.appliesTo) || mn.appliesTo.length === 0) { measuredProblems.push(`${mn.partNo}: appliesTo names no motor`); continue; }
-  for (const want of mn.appliesTo) {
-    const m = motorsDb.motors.find((x) => x.designation === want || x.commonName === want);
-    if (!m) { measuredProblems.push(`${mn.partNo}: the catalogue has no motor "${want}"`); continue; }
-    if (motorRows.some((r) => r.motorId === m.motorId)) {
-      measuredProblems.push(`${mn.partNo}: ${want} already has a PUBLISHED row — a measurement must not `
-        + 'silently replace one. Decide which source wins and say so here.');
-      continue;
-    }
-    const exitIn = mn.exitDiameterIn;
-    const throatIn = mn.throatDiameterIn;
-    measuredRows.push({
-      motorId: m.motorId,
-      manufacturer: mn.manufacturer,
-      designation: m.designation,
-      catalogDesignation: m.designation,
-      commonName: m.commonName,
-      caseFamily: m.caseInfo ?? 'no case stated',
-      casingDiameterMm: m.diameter,
-      nozzlePartNo: mn.partNo,
-      exitDiameterM: round6(inToM(exitIn)),
-      exitDiameterIn: exitIn,
-      ...(throatIn > 0
-        ? { throatDiameterM: round6(inToM(throatIn)), throatDiameterIn: throatIn }
-        : {}),
-      exitSource: 'measured',
-      exitConfidence: 'high',
-      confidenceNote: `Measured from the hardware by ${mn.measuredBy} on ${mn.measuredOn}, because `
-        + `${mn.manufacturer} publish no figure for this motor. Not a published number.`,
-      provenance: {
-        lomDescription: `${mn.partNo} — measured exit ${exitIn} in`
-          + (throatIn > 0 ? `, throat ${throatIn} in` : ''),
-        matchedVia: want,
-        exitFrom: `Measured: ${mn.measuredBy}, ${mn.measuredOn}`,
-        assemblyDrawings: [`Measured from the hardware (${mn.measuredBy}, ${mn.measuredOn})`],
-      },
-    });
-  }
-}
+const { rows: measuredRows, problems: measuredProblems } = mergeMeasured(MEASURED_NOZZLES, motorsDb.motors, motorRows);
 if (measuredProblems.length > 0) {
   console.error('MEASURED_NOZZLES cannot be merged:');
   for (const p of measuredProblems) console.error(`  ${p}`);
@@ -1809,19 +1717,17 @@ const certCheck = (raw.certNozzles ?? []).map((c) => {
  * showed a diff whether or not anything had changed. Falls back to the clock
  * only if nothing can be stat'ed, which cannot happen on a run that got this
  * far (the extractor read all of them).
+ *
+ * EVERY family, since 2026-09-22: the list joined every assembly to "Motor
+ * Assembly Drawings", so the DMS sheets were looked for where they are not and
+ * the Loki sheets were not looked for at all, and neither could move the date
+ * (`sourceDocuments` in nozzle-db-helpers.mjs, where the join is tested).
  */
 const sourceDate = (() => {
-  // Assembly `file`s are relative to "Motor Assembly Drawings"; every other
-  // group's is relative to the set root (see extract-nozzle-pdfs.py).
-  const files = [
-    ...raw.assemblies.map((f) => join('Motor Assembly Drawings', f.file)),
-    ...raw.specPages.map((f) => f.file),
-    ...raw.nozzleDrawings.map((f) => f.file),
-    ...raw.certNozzles.map((f) => f.file),
-  ];
+  const roots = { rcs: source, loki: lokiSource };
   let newest = 0;
-  for (const f of files) {
-    try { newest = Math.max(newest, statSync(join(source, f)).mtimeMs); } catch { /* moved or renamed */ }
+  for (const { root, file } of sourceDocuments(raw, LOKI_SHEETS.map((x) => x.file))) {
+    try { newest = Math.max(newest, statSync(join(roots[root], file)).mtimeMs); } catch { /* moved or renamed */ }
   }
   return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
 })();
