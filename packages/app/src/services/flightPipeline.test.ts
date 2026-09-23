@@ -137,6 +137,17 @@ describe('stageMotorInfo', () => {
     } as RocketTree;
     expect(stageMotorInfo(tree, [['m0', motor('C6-5', false)]], stages(tree))).toEqual({});
   });
+
+  it('keys a stage whose name is also a prototype key like any other', () => {
+    // Audit 2026-09-22: on a plain object `out['constructor']` was Object
+    // itself, taken for an earlier entry, and the branch was labelled
+    // "undefined + H220-6" with its high-power flag lost.
+    const tree: RocketTree = {
+      name: 'Proto', components: [stage('s0', 'constructor', [mount('m0')])],
+    } as RocketTree;
+    const info = stageMotorInfo(tree, [['m0', motor('H220-6', true)]], stages(tree));
+    expect(info['constructor']).toEqual({ label: 'H220-6', highPower: true });
+  });
 });
 
 describe('aeroModelFor — the stamp that is permanent on a stored run', () => {

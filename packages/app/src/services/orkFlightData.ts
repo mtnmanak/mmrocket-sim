@@ -1,6 +1,7 @@
 import type { MountMotor, SavedConfig } from '../App.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { runCarriesNozzleStamp, runMatchesModel, type SimRun } from './simReport.js';
+import { lookupTable } from './xmlUtil.js';
 
 /**
  * WHICH stored flight results are allowed into a saved `.ork`, and what they
@@ -71,7 +72,10 @@ export function flightDataForExport(
     runs, savedConfigs, activeConfigId, assigned, mountIds,
     designKey, conditionsKey, model, hasNozzle, motorSetKeyOf, hardwareDeltaKg,
   } = input;
-  const out: Record<string, OrkExportFlightData> = {};
+  // No prototype: keyed by configuration id, file-sourced text. A default id
+  // of `constructor` found Object there, was skipped as already written, and
+  // saved as notsimulated (audit 2026-09-22).
+  const out = lookupTable<OrkExportFlightData>({});
   for (const r of runs) {
     // Newest-first, so the first qualifying run per config wins.
     if (!r.flightConfigId || out[r.flightConfigId]) continue;

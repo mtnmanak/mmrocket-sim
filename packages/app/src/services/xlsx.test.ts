@@ -44,6 +44,78 @@ describe('minimal xlsx writer', () => {
     expect(sheet).toContain('a&lt;b&amp;c');
     expect(sheet).toContain('<row r="3"></row>');
   });
+
+  it('drops the characters XML cannot carry from cells and tab names', () => {
+    // Audit 2026-09-22: a U+0002 pasted into a part name from a vendor PDF
+    // reached the cell verbatim, and Excel had to repair the workbook.
+    const files = unzipSync(sheetsToXlsx([
+      { name: 'Stage\u0002 1', headers: ['Part'], rows: [['Nose\u0002cone \uD800!']] },
+    ]));
+    expect(strFromU8(files['xl/worksheets/sheet1.xml']!)).toContain('>Nosecone !</t>');
+    // In a tab name the control becomes a space, like the other characters
+    // Excel refuses there.
+    expect(strFromU8(files['xl/workbook.xml']!)).toContain('<sheet name="Stage  1"');
+  });
+});
+
+describe("sheet names follow all of Excel's rules", () => {
+  const tabNames = (names: string[], charts: string[] = []): string[] => {
+    const chart = (name: string): ChartSpec => ({
+      name, title: name, xTitle: 't', yTitle: 'y',
+      series: [{ name, sheetIndex: 0, xCol: 0, yCol: 0, rowCount: 1, color: '000000' }],
+    });
+    const wb = strFromU8(unzipSync(sheetsToXlsx(
+      names.map((name) => ({ name, headers: ['A'], rows: [[1]] })), charts.map(chart)))['xl/workbook.xml']!);
+    return [...wb.matchAll(/<sheet name="([^"]*)"/g)].map((m) => m[1]!);
+  };
+  const A28 = 'A'.repeat(28);
+
+  it('ends on a clash with a name already shaped like its own suffix', () => {
+    // The old loop re-suffixed its own output — `name.slice(0, 28) + '_' +
+    // (i + 1)` — which for this name IS this name: two stage tabs called
+    // `AAAA…(28)_2` hung the flight-data export for good (measured at the old
+    // code: still running when killed at 20 s).
+    const t0 = performance.now();
+    const names = tabNames([`${A28}_2`, `${A28}_2`, `${A28}_2`]);
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(names).toEqual([`${A28}_2`, `${A28}__2`, `${A28}__3`]);
+    expect(names.every((n) => n.length <= 31)).toBe(true);
+  });
+
+  it('keeps the ordinary _2, _3 numbering for repeated names', () => {
+    expect(tabNames(['Stage', 'Stage', 'Stage'])).toEqual(['Stage', 'Stage_2', 'Stage_3']);
+  });
+
+  it('treats names differing only in case as the same name, as Excel does', () => {
+    // A stage named `mass` beside the `Mass` chart tab: Excel called that
+    // workbook corrupt.
+    expect(tabNames(['mass'], ['Mass'])).toEqual(['mass', 'Mass_2']);
+  });
+
+  it('strips an apostrophe from either end and renames the reserved History', () => {
+    expect(tabNames(["'Booster'", "  ' Sustainer's '", 'history', 'HISTORY']))
+      .toEqual(['Booster', "Sustainer's", 'History_', 'History__2']);
+    expect(tabNames(["''"])).toEqual(['Sheet1']);
+  });
+
+  it('never ends a truncated name on an apostrophe or a space', () => {
+    // Cut at 31 characters, these would end on the space and the apostrophe.
+    expect(tabNames([`${'x'.repeat(29)} 'tail`, `${'y'.repeat(30)}'tail`]))
+      .toEqual(['x'.repeat(29), 'y'.repeat(30)]);
+  });
+
+  it('deduplicates the name it writes: a cut through an emoji, a lone surrogate', () => {
+    // The 31-unit cut split the rocket emoji, and the orphaned high half made
+    // the name "different" from a plain X…(30) until escapeXml stripped it at
+    // the write — two tabs of the same name. A name that was only a lone
+    // surrogate wrote an EMPTY one. Excel refuses both.
+    const X30 = 'X'.repeat(30);
+    expect(tabNames([`${X30}\u{1F680}`, X30])).toEqual([X30, `${'X'.repeat(29)}_2`]);
+    expect(tabNames(['\uD800', ''])).toEqual(['Sheet1', 'Sheet2']);
+    expect(tabNames(['Stage\uDC00 1'])).toEqual(['Stage  1']);
+    // A whole emoji inside the limit is kept.
+    expect(tabNames(['Booster \u{1F680}'])).toEqual(['Booster \u{1F680}']);
+  });
 });
 
 describe('chart tabs', () => {

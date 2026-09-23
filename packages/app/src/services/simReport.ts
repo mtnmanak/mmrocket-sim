@@ -1091,7 +1091,8 @@ function extractDeployments(
       ? (groundHit !== null && Number.isFinite(groundHit) ? groundHit : null)
       : at(series.time, series.velocity, tSettled);
     const groundSpeed = groundSpeedRaw === null ? null : Math.abs(groundSpeedRaw);
-    const f = flown?.[device];
+    // Own keys only: a device named `constructor` must not read Object.
+    const f = flown && Object.hasOwn(flown, device) ? flown[device] : undefined;
     return {
       device,
       time: ev.time,

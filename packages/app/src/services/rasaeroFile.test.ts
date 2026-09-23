@@ -457,6 +457,16 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(plain.notes.join(' ')).not.toMatch(/Mach-Alt/);
   });
 
+  it('reads no hex or blank Mach-Alt field as a number', () => {
+    // `Number('0x10')` is 16 and `Number(' ')` is 0, so these two rows used to
+    // become Mach 16 and Mach 0 (audit 2026-09-22). Decimal only, as xmlNum.
+    const xml = fixture('RMA53D02 - 2.CDX1').replace(/<MachAlt>\s*<Item>/,
+      '<MachAlt><Item>0x10, 1000</Item><Item> , 2000</Item><Item>');
+    const table = importCdx1(xml).machAlt!;
+    expect(table.map(([m]) => m)).toEqual([0, 2.5, 5, 10, 25]);
+    expect(table[0]![1]).toBe(0); // the file's own Mach 0 row, not the blank one's 2000 ft
+  });
+
   it('imports the RMA hexagonal-blunt-base airfoil (no TE chamfer)', () => {
     const r = importCdx1(fixture('RMA53D02 - 2.CDX1'));
     const fins = flatten(r.tree.components).find((c) => c.type === 'trapezoidfinset')!;
@@ -1776,6 +1786,21 @@ describe('RASAero import — unreadable numbers are reported, not swallowed', ()
       <BodyTube><PartType>BodyTube</PartType><Length>18.25</Length><Diameter>0.736</Diameter></BodyTube>
     </RocketDesign></RASAeroDocument>`;
     expect(importCdx1(sparse).notes.some((n) => n.startsWith('Could not read'))).toBe(false);
+  });
+
+  it('reports a hex literal as unreadable instead of reading it as a number', () => {
+    // `Number('0x10')` is 16, so this tube used to import 16 in long with no
+    // note. .NET never writes one, and reading it as sixteen inches is a guess
+    // the desktop's parser does not make either (audit 2026-09-22).
+    const hex = `<RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+      <NoseCone><PartType>NoseCone</PartType><Length>4.5</Length><Diameter>0.736</Diameter>
+        <Shape>Tangent Ogive</Shape></NoseCone>
+      <BodyTube><PartType>BodyTube</PartType><Length>0x10</Length><Diameter>0.736</Diameter></BodyTube>
+    </RocketDesign></RASAeroDocument>`;
+    const r = importCdx1(hex);
+    const tube = flatten(r.tree.components).find((c) => c.type === 'bodytube')!;
+    expect(tube['length']).not.toBeCloseTo(16 / 39.37, 6);
+    expect(r.notes.find((n) => n.startsWith('Could not read'))).toContain('<Length> “0x10”');
   });
 
   it('says nothing on the real RASAero fixture files', () => {

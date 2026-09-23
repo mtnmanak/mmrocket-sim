@@ -74,14 +74,26 @@ export const DISPLAY = {
   aerotech: 'AeroTech',
 };
 
-/** The canonical identity key for a manufacturer string. */
+/**
+ * The canonical identity key for a manufacturer string.
+ *
+ * Both maps are read with Object.hasOwn: this module is bundled into the app,
+ * where the string is a design FILE's manufacturer text, and on a plain object
+ * `ALIASES['constructor']` is a function — so `mfrKey('Constructor')` returned
+ * Object itself, and `mfrDisplay` a function where a name belonged (audit
+ * 2026-09-22). The maps stay plain objects for the build scripts that iterate
+ * them.
+ */
 export const mfrKey = (s) => {
   const k = normRaw(s);
-  return ALIASES[k] ?? k;
+  return Object.hasOwn(ALIASES, k) ? ALIASES[k] : k;
 };
 
 /** The canonical display spelling, or the original when nothing is known. */
-export const mfrDisplay = (s) => DISPLAY[mfrKey(s)] ?? String(s ?? '');
+export const mfrDisplay = (s) => {
+  const k = mfrKey(s);
+  return Object.hasOwn(DISPLAY, k) ? DISPLAY[k] : String(s ?? '');
+};
 
 /**
  * A part number reduced to a comparison token.

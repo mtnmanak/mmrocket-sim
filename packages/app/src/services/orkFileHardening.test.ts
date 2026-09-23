@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
+import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, unreadableFinPoints } from './xmlUtil.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
 /**
@@ -37,12 +38,13 @@ const buf = (u: Uint8Array): ArrayBuffer =>
 
 /**
  * Rewrite fields of ONE entry's central-directory record. That record is where
- * fflate reads the compression method and the uncompressed size from
- * (`zh()`: method at +10, uncompressed size at +24, name length at +28, name at
- * +46), so patching it is how a crafted archive is simulated without shipping
- * one: a bomb PROMISES a gigabyte in a few hundred bytes, and `method` 14 is a
- * probe that throws the moment fflate is asked to inflate that entry — which is
- * exactly what must never happen to an entry the importer does not want.
+ * zipMember.ts reads the compression method and the uncompressed size from
+ * (mirroring fflate's `zh()`: method at +10, uncompressed size at +24, name
+ * length at +28, name at +46), so patching it is how a crafted archive is
+ * simulated without shipping one: a bomb PROMISES a gigabyte in a few hundred
+ * bytes, and `method` 14 is a probe that throws the moment the reader is asked
+ * to inflate that entry — which is exactly what must never happen to an entry
+ * the importer does not want.
  * (rocksimFileHardening.test.ts carries the same helper for the .rkt path.)
  */
 function patchZipEntry(zip: Uint8Array, name: string,
@@ -76,7 +78,7 @@ describe('.ork zip reading is bounded', () => {
   });
 
   it('never inflates an entry it will not read', () => {
-    // The decoy is marked compression 14 (LZMA), which fflate refuses to
+    // The decoy is marked compression 14 (LZMA), which the reader refuses to
     // inflate — so the import can only succeed if the decoy is skipped before
     // any inflate. The old `unzipSync(bytes)` inflated EVERY entry to build the
     // map it then searched, which is the decompression-bomb vector: real files
@@ -92,7 +94,7 @@ describe('.ork zip reading is bounded', () => {
   it('refuses an entry that declares more than the cap', () => {
     const zip = zipSync({ 'rocket.ork': strToU8(orkXml(BODY_TUBE)) });
     patchZipEntry(zip, 'rocket.ork', { originalSize: MAX_ZIP_MEMBER_BYTES + 1 });
-    // Rejected on the DECLARED size, before the allocation fflate would size
+    // Rejected on the DECLARED size, before the allocation the reader sizes
     // from that same field — a caught Error the user can read, not an
     // out-of-memory tab that takes their open design with it.
     expect(() => importOrk(buf(zip))).toThrow(/expands to .* MB/);
@@ -121,6 +123,237 @@ describe('.ork zip reading is bounded', () => {
 
   it('names an empty archive instead of crashing on it', () => {
     expect(() => importOrk(buf(zipSync({})))).toThrow(/Empty \.ork archive/);
+  });
+
+  it('reads a UTF-16 .ork, which used to be a parse error', () => {
+    // Audit 2026-09-22: the bytes were always read as UTF-8, so a UTF-16 file
+    // (byte-order mark and all) failed with "Not a valid .ork file".
+    const doc = orkXml(BODY_TUBE).replace("encoding='utf-8'", "encoding='utf-16'");
+    const le = new Uint8Array(2 + doc.length * 2);
+    le.set([0xff, 0xfe]);
+    for (let i = 0; i < doc.length; i++) {
+      le[2 + 2 * i] = doc.charCodeAt(i) & 255;
+      le[3 + 2 * i] = doc.charCodeAt(i) >> 8;
+    }
+    expect(importOrk(buf(le)).name).toBe('Test');
+    // Zipped, the member goes through the same decoder.
+    expect(importOrk(buf(zipSync({ 'rocket.ork': le }))).name).toBe('Test');
+  });
+
+  it('refuses a 98-byte archive that declares 2^32 entries, as an Error', () => {
+    // Audit 2026-09-22: a zip64 end record's entry count was trusted, and the
+    // enumeration read zeros past the end of the buffer until the tab ran out
+    // of memory — a crash from the ordinary Open button that no catch can see.
+    // Now importOrk throws, and App.tsx shows the message after "Could not open
+    // that .ork file: ". zipMember.test.ts builds the same file byte by byte.
+    const bomb = new Uint8Array(98);
+    const dv = new DataView(bomb.buffer);
+    dv.setUint32(0, 0x06064b50, true); // zip64 end record ("PK" — the importer's zip test)
+    dv.setUint32(32, 0xffffffff, true); // its entry count
+    dv.setUint32(56, 0x07064b50, true); // zip64 locator -> offset 0
+    dv.setUint32(76, 0x06054b50, true); // classic end record
+    dv.setUint16(84, 1, true);
+    expect(() => importOrk(buf(bomb))).toThrow(/lists 4,294,967,295 entries/);
+  });
+});
+
+describe('.ork numbers are decimal, as the desktop reads them', () => {
+  it('falls back on a hex length instead of reading 0x10 as sixteen metres', () => {
+    // `Number('0x10')` is 16. The desktop's Double.parseDouble refuses it, so
+    // the field is unreadable there and must fall back here (audit 2026-09-22).
+    const tube = (length: string, radius: string): ComponentNode => {
+      const { tree } = importOrk(orkXml('<bodytube><name>Tube</name>'
+        + `<length>${length}</length><radius>${radius}</radius>`
+        + '<thickness>0.001</thickness></bodytube>'));
+      return flatten(tree.components).find((c) => c.type === 'bodytube')!;
+    };
+    expect(tube('0x10', '0.025')['length']).toBe(0.3); // the reader's default
+    expect(tube('0b11', '0.025')['length']).toBe(0.3);
+    expect(tube('0.5', '0.025')['length']).toBe(0.5);
+    // `auto 0x1` is a bare `auto` with no readable last value: resolved like
+    // one (no neighbour here, so the desktop's 25 mm DEFAULT_RADIUS), never 1 m.
+    expect(tube('0.5', 'auto 0x1')['outerRadius']).toBe(0.025);
+  });
+
+  it('reads no hex density, offset or weighed mass either', () => {
+    // The raw attribute and element reads beside num(), same defect: a
+    // `density="0x10"` was 16 kg/m³ on the part's mass.
+    const { tree, measured } = importOrk(orkXml('<bodytube><name>Tube</name>'
+      + '<material type="bulk" density="0x10">Custom</material>'
+      + '<length>0.3</length><radius>0.025</radius><thickness>0.001</thickness>'
+      + '<subcomponents><innertube><name>MMT</name><axialoffset method="top">0x1</axialoffset>'
+      + '<length>0.1</length><outerradius>0.01</outerradius><thickness>0.001</thickness>'
+      + '</innertube></subcomponents></bodytube>',
+    ).replace('<name>Test</name>', '<name>Test</name><measuredmass>0x2</measuredmass>'));
+    const nodes = flatten(tree.components);
+    expect(nodes.find((c) => c.type === 'bodytube')!.density).toBeUndefined();
+    expect(nodes.find((c) => c.type === 'innertube')!.position).toEqual({ method: 'top', offset: 0 });
+    expect(measured).toBeUndefined();
+  });
+});
+
+describe('.ork freeform fin points are read as the file wrote them', () => {
+  /** A freeform fin set on a body tube, its <point>s written verbatim. */
+  const finOrk = (points: string): string => orkXml('<bodytube><name>Tube</name><length>0.3</length>'
+    + '<radius>0.025</radius><thickness>0.001</thickness><subcomponents>'
+    + `<freeformfinset><name>Fins</name><fincount>3</fincount><finpoints>${points}</finpoints>`
+    + '</freeformfinset></subcomponents></bodytube>');
+  const fins = (points: string) => {
+    const r = importOrk(finOrk(points));
+    const set = flatten(r.tree.components).find((c) => c.type === 'freeformfinset')!;
+    return { points: set['points'] as [number, number][] | undefined, notes: r.notes };
+  };
+  const refusal = (why: string) => `Fin set "Fins": its outline was not used — ${why} `
+    + 'The set keeps a default outline; redraw it in the fin editor.';
+
+  it('reads an ordinary outline', () => {
+    const r = fins('<point x="0.0" y="0.0"/><point x="0.01" y="0.03"/>'
+      + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+    expect(r.points).toEqual([[0, 0], [0.01, 0.03], [0.04, 0.03], [0.06, 0]]);
+    expect(r.notes.some((n) => n.startsWith('Fin set'))).toBe(false);
+  });
+
+  it('counts every <point> against the cap, the malformed ones included', () => {
+    // Audit 2026-09-22: the cap was counted AFTER the filter, so 5,501 points
+    // with one malformed were kept as 5,000 — the front of a longer outline,
+    // flown with no note, where the 8 September fix promised "refused rather
+    // than truncated".
+    const n = MAX_FIN_POINTS + 501;
+    const pts = Array.from({ length: n }, (_, i) => {
+      const x = (i * 0.2 / (n - 1)).toFixed(6);
+      const y = i === 0 || i === n - 1 ? '0' : (0.05 * Math.sin(Math.PI * i / (n - 1))).toFixed(6);
+      return i === 100 ? `<point x="abc" y="${y}"/>` : `<point x="${x}" y="${y}"/>`;
+    });
+    const r = fins(pts.join(''));
+    expect(r.points).toBeUndefined();
+    expect(r.notes).toContain(refusal(TOO_MANY_FIN_POINTS));
+  });
+
+  const skipped = (n: number) => `Fin set "Fins": ${unreadableFinPoints(n)}`;
+
+  it('leaves out a blank coordinate, and says so, instead of reading it as zero', () => {
+    // `Number('')` is 0: this outline imported with its second vertex on
+    // x = 0, a valid-looking and different fin, with no note at all. The
+    // desktop skips the point with a warning; so does this, now.
+    const r = fins('<point x="0.0" y="0.0"/><point x="" y="0.03"/>'
+      + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+    expect(r.points).toEqual([[0, 0], [0.04, 0.03], [0.06, 0]]);
+    expect(r.notes).toContain(skipped(1));
+  });
+
+  it('leaves out a point with a missing or unreadable coordinate, and says so', () => {
+    // Dropped as the desktop drops it (FinSetPointHandler), so both fly the
+    // same fin — but no longer silently: the vertex used to vanish with no note.
+    for (const bad of ['<point y="0.03"/>', '<point x="0x1" y="0.03"/>', '<point x=" " y="0.03"/>',
+      '<point x="0.02" y="1e999"/>']) {
+      const r = fins(`<point x="0.0" y="0.0"/><point x="0.01" y="0.03"/>${bad}`
+        + '<point x="0.04" y="0.03"/><point x="0.06" y="0.0"/>');
+      expect(r.points, bad).toEqual([[0, 0], [0.01, 0.03], [0.04, 0.03], [0.06, 0]]);
+      expect(r.notes, bad).toContain(skipped(1));
+    }
+  });
+
+  it('refuses the outline when what is left cannot be one, with both notes', () => {
+    const r = fins('<point x="0.0" y="0.0"/><point x="a" y="0.03"/><point x="0.04" y="b"/>'
+      + '<point x="0.06" y="0.0"/>');
+    expect(r.points).toBeUndefined();
+    expect(r.notes).toContain(skipped(2));
+    expect(r.notes.some((m) => m.startsWith('Fin set "Fins": its outline was not used'))).toBe(true);
+  });
+});
+
+describe('a long chain of automatic radii resolves in linear time', () => {
+  // Audit 2026-09-22: the resolver walked the chain afresh from every tube,
+  // recursively — measured at the old code, 4,000 bare-`auto` tubes took
+  // 7.7 s with the stated radius ahead of them and 15.6 s with it behind,
+  // and 8,000 overflowed the stack ("Maximum call stack size exceeded").
+  // The bounds are generous — about 1-2 s here now, 21.8 s for the 6,000
+  // below at the old code.
+  const tube = (r: string) =>
+    `<bodytube><name>t</name><length>0.01</length><radius>${r}</radius><thickness>0.001</thickness></bodytube>`;
+  const radii = (xml: string): Set<unknown> => new Set(flatten(importOrk(xml).tree.components)
+    .filter((c) => c.type === 'bodytube').map((c) => c['outerRadius']));
+
+  it('chains every tube to a stated radius AHEAD of it', () => {
+    const t0 = performance.now();
+    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>0.03</aftradius>'
+      + `</nosecone>${tube('auto').repeat(6000)}`));
+    const ms = performance.now() - t0;
+    expect([...got]).toEqual([0.03]);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  });
+
+  it('chains every tube to a stated radius BEHIND it, without recursing the length of the chain', () => {
+    const t0 = performance.now();
+    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>auto</aftradius>'
+      + `</nosecone>${tube('auto').repeat(8000)}${tube('0.03')}`));
+    const ms = performance.now() - t0;
+    expect([...got]).toEqual([0.03]);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  });
+});
+
+describe('method attributes are written from their closed sets', () => {
+  it('writes the default, never raw text, for a method outside the set', () => {
+    // Audit 2026-09-22: `<axialoffset method>`, `<position type>` and
+    // `<tabposition relativeto>` interpolated the node's value unescaped.
+    // Unreachable through today's importers, which whitelist all three — this
+    // is the tree a future path that kept a file's value would hand over.
+    const EVIL = 'top"><evil x="';
+    const tree = {
+      name: 'M',
+      components: [{
+        type: 'stage', id: 's', name: 'S',
+        children: [{
+          type: 'bodytube', id: 'b', name: 'Tube', length: 0.3, outerRadius: 0.025, thickness: 0.001,
+          position: { method: EVIL, offset: 0.01 },
+          children: [{
+            type: 'trapezoidfinset', id: 'f', name: 'Fins', finCount: 3, rootChord: 0.05, tipChord: 0.03,
+            height: 0.04, sweepLength: 0.02, thickness: 0.003,
+            tabHeight: 0.01, tabLength: 0.02, tabOffset: 0, tabOffsetMethod: EVIL,
+          }],
+        }],
+      }] as unknown as ComponentNode[],
+    };
+    const xml = exportOrk({ name: 'M', tree });
+    expect(xml).not.toContain('<evil');
+    for (const [, v] of xml.matchAll(/<(?:axialoffset method|position type)="([^"]*)"/g)) {
+      expect(['top', 'middle', 'bottom', 'absolute']).toContain(v);
+    }
+    expect(xml).toContain('<tabposition relativeto="center">0</tabposition>');
+    expect(xml).toContain('<tabposition relativeto="middle">0</tabposition>');
+  });
+});
+
+describe('component nesting is capped at import', () => {
+  // Audit 2026-09-22: import took any depth and the exporter could not give
+  // it back — it recurses and indents per level, so depth 1,500 saved as
+  // 50 MB (measured at the old code) and threw RangeError in a browser's
+  // stack. The cap is 64 levels below the stage; real designs nest 5.
+  const nested = (n: number): string => {
+    let open = '';
+    for (let i = 0; i < n; i++) {
+      open += `<bodytube><name>t${i}</name><length>0.1</length><radius>0.02</radius>`
+        + '<thickness>0.001</thickness><subcomponents>';
+    }
+    return orkXml(open + '</subcomponents></bodytube>'.repeat(n));
+  };
+  const depth = (ns: ComponentNode[], k = 0): number =>
+    ns.reduce((m, n) => Math.max(m, depth(n.children ?? [], k + 1)), k);
+
+  it('keeps a design exactly 64 levels deep whole, with no note', () => {
+    const r = importOrk(nested(64));
+    expect(depth(r.tree.components)).toBe(65); // the stage, then 64 levels
+    expect(r.notes.some((n) => /nested more than/.test(n))).toBe(false);
+  });
+
+  it('leaves out what is deeper, says so, and can save what it kept', () => {
+    const r = importOrk(nested(500));
+    expect(depth(r.tree.components)).toBe(65);
+    expect(r.notes).toContain('Components nested more than 64 levels deep were left out — no real '
+      + 'design nests that far, so the file is probably damaged or crafted.');
+    const saved = exportOrk({ name: 'Deep', tree: r.tree });
+    expect(saved.length).toBeLessThan(500_000); // 5.7 MB at the old code
   });
 });
 
@@ -182,6 +415,37 @@ describe('flight-configuration ids survive the exporter as XML', () => {
     expect(back.configs.map((c) => c.id)).toEqual([WEIRD, 'plain-2']);
     expect(back.chosenConfigId).toBe(WEIRD);
     expect(back.configs[0]!.name).toBe('A & B');
+  });
+
+  it('writes an id with a TAB, LF or CR so every attribute and the element read back alike', () => {
+    // Raw, attribute-value normalisation reads TAB/LF/CR back as spaces, and
+    // end-of-line handling reads a CR in the <configid> ELEMENT back as LF —
+    // so the simulation named an id no configuration carried any more (audit
+    // 2026-09-22). happy-dom applies neither step, so this reads the text the
+    // way XML 1.0 says a parser must: end-of-line handling over the document
+    // (§2.11), then for an attribute the whitespace normalisation of §3.3.3,
+    // and only THEN the character references — which is why a reference
+    // survives both.
+    const eol = (s: string) => s.replace(/\r\n?/g, '\n');
+    const refs = (s: string) => s.replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)))
+      .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const readAttr = (raw: string) => refs(eol(raw).replace(/[\t\n]/g, ' '));
+    const readText = (raw: string) => refs(eol(raw));
+    const ID = 'Main\tbackup\nline\r2';
+    // The reader is not a no-op: the raw id reads back as a different one.
+    expect(readAttr(ID)).toBe('Main backup line 2');
+    expect(readText(ID)).toBe('Main\tbackup\nline\n2');
+    const out = exportOrk({
+      name: 'Cfg', tree, motors: { mount: MOTOR }, activeConfigId: ID, launch: DEFAULT_CONDITIONS,
+      configs: [{ ...configs[1]!, id: ID, isDefault: true }],
+    });
+    const attrs = [...out.matchAll(/configid="([^"]*)"/g)].map((m) => readAttr(m[1]!));
+    // <motorconfiguration>, <motor>, <ignitionconfiguration> and
+    // <separationconfiguration> (this deployment matches the default, so it
+    // writes no <deploymentconfiguration>).
+    expect(attrs).toEqual([ID, ID, ID, ID]);
+    const els = [...out.matchAll(/<configid>([^<]*)<\/configid>/g)].map((m) => readText(m[1]!));
+    expect(els).toEqual([ID]);
   });
 });
 

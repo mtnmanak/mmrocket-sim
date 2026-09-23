@@ -1,4 +1,3 @@
-import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
@@ -6,7 +5,7 @@ import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, escapeXml as esc, lookupTable, xmlNum as num, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum as num, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkMotorRef, OrkTreeImportResult } from './orkFile.js';
@@ -133,6 +132,9 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkTreeImportResult {
   let xml: string;
+  // Set when the bytes were not valid UTF-8 and named no other encoding (see
+  // decodeXml): the first import note, once there are notes.
+  let encodingNote: string | undefined;
   if (typeof data === 'string') {
     xml = data;
   } else {
@@ -145,9 +147,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // good file was a parse error; and an archive with NO entries made that
     // non-null assertion hand `undefined` to strFromU8, surfacing as "Cannot
     // read properties of undefined". See zipMember.ts for the size cap.
-    xml = bytes[0] === 0x50 && bytes[1] === 0x4b
-      ? strFromU8(unzipMember(bytes, '.rkt', '.rkt'))
-      : strFromU8(bytes);
+    ({ xml, note: encodingNote } = decodeXml(bytes[0] === 0x50 && bytes[1] === 0x4b
+      ? unzipMember(bytes, '.rkt', '.rkt')
+      : bytes));
   }
   // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
   // in the first bytes. Neither we nor desktop OpenRocket can read it, but it IS
@@ -203,7 +205,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
-  const notes: string[] = [];
+  const notes: string[] = encodingNote ? [encodingNote] : [];
   const ignored = new Set<string>();
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
@@ -424,21 +426,44 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
 
+  // Parts nest at most MAX_NESTING levels below their stage, as in the .ork
+  // importer; deeper ones are left out with a note (see MAX_NESTING). Uncapped
+  // until the review of audit 2026-09-22: a .rkt 500 levels deep imported
+  // whole in 1.2 s and saved as an 8.9 MB .ork, and 1,500 overflowed the
+  // stack. `level` is the level convertPart is building at; a sub-assembly
+  // flattens into its parent's level, so only real children go one deeper.
+  let level = 1;
+  let tooDeep = false;
+  const oneLevelDown = (hasParts: boolean, convert: () => void): void => {
+    if (level >= MAX_NESTING) {
+      if (hasParts) tooDeep = true;
+      return;
+    }
+    level++;
+    try {
+      convert();
+    } finally {
+      level--;
+    }
+  };
+
   const convertAttached = (el: Element, parentNode: ComponentNode) => {
     const wrap = el.querySelector(':scope > AttachedParts');
     if (!wrap) return;
-    for (const child of Array.from(wrap.children)) {
-      if (child.tagName === 'SubAssembly') {
-        flattenSubAssembly(child, parentNode, (n) => {
-          parentNode.children = [...(parentNode.children ?? []), n];
-        });
-        continue;
+    oneLevelDown(wrap.children.length > 0, () => {
+      for (const child of Array.from(wrap.children)) {
+        if (child.tagName === 'SubAssembly') {
+          flattenSubAssembly(child, parentNode, (n) => {
+            parentNode.children = [...(parentNode.children ?? []), n];
+          });
+          continue;
+        }
+        const node = convertPart(child, parentNode);
+        if (node) {
+          parentNode.children = [...(parentNode.children ?? []), node];
+        }
       }
-      const node = convertPart(child, parentNode);
-      if (node) {
-        parentNode.children = [...(parentNode.children ?? []), node];
-      }
-    }
+    });
   };
 
   const convertPart = (el: Element, parent: ComponentNode | null): ComponentNode | null => {
@@ -622,10 +647,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // the kernel's %g log line was patched on 2026-09-22; by name since).
           // The v0.105 changelog said the importers already checked this; they
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
-          const rktPts = parsePointList(text(el, ':scope > PointList') ?? '');
-          const outlineProblem = finOutlineProblem(rktPts);
+          const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
+          if (parsed.unreadable > 0) {
+            const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
+            if (!notes.includes(note)) notes.push(note);
+          }
+          const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts);
           if (!outlineProblem) {
-            n['points'] = rktPts;
+            n['points'] = parsed.pts;
           } else {
             const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
             if (!notes.includes(note)) notes.push(note);
@@ -837,22 +866,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           n['separationDelay'] = 0;
         }
         // RockSim allows the pod's chain both directly under the pod and
-        // inside AttachedParts (desktop handles both) — collect from both.
-        const chain: ComponentNode[] = [];
+        // inside AttachedParts (desktop handles both) — collect from both, in
+        // document order, then convert them ONE LEVEL DOWN: the pod's chain is
+        // its children, so it counts against MAX_NESTING like attached parts.
+        const chainEls: Element[] = [];
         const CHAIN_TAGS = ['NoseCone', 'BodyTube', 'Transition'];
         for (const sub of Array.from(el.children)) {
           if (CHAIN_TAGS.includes(sub.tagName)) {
-            const kid = convertPart(sub, null);
-            if (kid) chain.push(kid);
+            chainEls.push(sub);
           } else if (sub.tagName === 'AttachedParts') {
             for (const sub2 of Array.from(sub.children)) {
-              if (CHAIN_TAGS.includes(sub2.tagName)) {
-                const kid = convertPart(sub2, null);
-                if (kid) chain.push(kid);
-              }
+              if (CHAIN_TAGS.includes(sub2.tagName)) chainEls.push(sub2);
             }
           }
         }
+        const chain: ComponentNode[] = [];
+        oneLevelDown(chainEls.length > 0, () => {
+          for (const sub of chainEls) {
+            const kid = convertPart(sub, null);
+            if (kid) chain.push(kid);
+          }
+        });
         n.children = chain;
         notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
@@ -1102,6 +1136,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
+  if (tooDeep) notes.push(TOO_DEEP_NESTING);
   if (keptWithoutCGFlag.size) {
     const n = keptWithoutCGFlag.size;
     notes.push(`${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `
@@ -1303,29 +1338,66 @@ const readDeploymentEvents = (
   }
 };
 
-/** RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered. */
-function parsePointList(raw: string): [number, number][] {
+/**
+ * RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered.
+ *
+ * Returns the outline, or `problem` when the list is too long to read — then
+ * with NO points, because the caller must not fly the first 5,000 of a longer
+ * outline (see MAX_FIN_POINTS). `unreadable` counts the pairs left out because
+ * they were not two decimals, for the caller's note.
+ */
+function parsePointList(raw: string): { pts: [number, number][]; problem?: string; unreadable: number } {
   const pts: [number, number][] = [];
-  for (const pair of raw.split('|')) {
+  let unreadable = 0;
+  // The cap counts every PAIR the file wrote, skipped ones included, and the
+  // list is walked with indexOf rather than split. Audit 2026-09-22: the cap
+  // was tested only before a push, and each duplicate `0,0` ran `pts.some`
+  // over every kept point WITHOUT growing `pts` — so a 4,998-point outline
+  // followed by `0,0` pairs never met the cap, at ~20 µs a pair: 3.5 s for
+  // 0.85 MB, minutes for the 64 MiB a zipped .rkt may inflate to. And past the
+  // cap the list was truncated, so the partial outline flew with no note
+  // (leading-to-trailing order) or drew a misleading "last point must be aft"
+  // (RockSim's reversed order). `.ork` refused it; now both do. The `+ 1`
+  // leaves room for the duplicate closing 0,0 RockSim writes.
+  let pairs = 0;
+  let sawOrigin = false;
+  for (let at = 0; at <= raw.length;) {
+    let bar = raw.indexOf('|', at);
+    if (bar < 0) bar = raw.length;
+    const pair = raw.slice(at, bar);
+    at = bar + 1;
     if (!pair.trim()) continue;
-    if (pts.length >= MAX_FIN_POINTS) break;
-    const fields = pair.split(',');
-    // BOTH fields must be present and non-blank. `Number('')` is 0, so a
-    // malformed pair like "1,1|,,|2,2" used to yield a real [0, 0] vertex in
-    // the middle of the outline — which usually then made it self-intersect,
-    // and the note blamed the outline rather than the field (2026-09-08 audit).
-    if (fields.length < 2 || fields[0]!.trim() === '' || fields[1]!.trim() === '') continue;
-    const [x, y] = fields.map((v) => Number(v));
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    // RockSim writes duplicate 0,0 points — drop them.
-    if (pts.length > 0 && x === 0 && y === 0 && pts.some(([px, py]) => px === 0 && py === 0)) continue;
-    pts.push([x! / LEN, y! / LEN]);
+    if (++pairs > MAX_FIN_POINTS + 1) return { pts: [], problem: TOO_MANY_FIN_POINTS, unreadable: 0 };
+    const fields = pair.split(',', 3);
+    // BOTH fields must be present and non-blank — parseDecimal reads a blank
+    // as NaN. `Number('')` was 0, so a malformed pair like "1,1|,,|2,2" used
+    // to yield a real [0, 0] vertex in the middle of the outline, which
+    // usually then made it self-intersect, and the note blamed the outline
+    // rather than the field (2026-09-08 audit). Decimal only, like xmlNum.
+    // Such a pair is left out and COUNTED, and the caller says so — the
+    // desktop warns and skips it too ("Invalid fin point pair." / "Fin point
+    // not in numeric format."); skipped silently, as it was until audit
+    // 2026-09-22, the fin flew with a vertex missing and nothing said.
+    const x = fields.length < 2 ? NaN : parseDecimal(fields[0]);
+    const y = fields.length < 2 ? NaN : parseDecimal(fields[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      unreadable++;
+      continue;
+    }
+    // RockSim writes duplicate 0,0 points — drop them. A flag, not a scan of
+    // the kept points: that scan was the quadratic above.
+    if (x === 0 && y === 0) {
+      if (sawOrigin) continue;
+      sawOrigin = true;
+    }
+    pts.push([x / LEN, y / LEN]);
   }
+  if (pts.length > MAX_FIN_POINTS) return { pts: [], problem: TOO_MANY_FIN_POINTS, unreadable: 0 };
   // Our order is leading-root → trailing-root; RockSim's is usually reversed.
   if (pts.length > 1 && pts[pts.length - 1]![0] === 0 && pts[pts.length - 1]![1] === 0) {
     pts.reverse();
   }
-  return pts;
+  return { pts, unreadable };
 }
 
 // ============================ EXPORT ============================

@@ -70,6 +70,19 @@ describe('flightDataForExport — the baseline qualifies', () => {
     expect(ids()).toEqual(['c1']);
   });
 
+  it('writes the run for a configuration whose id is also a prototype key', () => {
+    // Audit 2026-09-22: `out['constructor']` was Object itself, so the run
+    // was skipped as "already written" and the .ork saved that configuration
+    // as notsimulated. The id is file text, kept verbatim.
+    const out = flightDataForExport(base({
+      runs: [{ ...RUN, flightConfigId: 'constructor' } as SimRun],
+      savedConfigs: [{ ...CONFIG, id: 'constructor' } as SavedConfig],
+      activeConfigId: 'constructor',
+    }));
+    expect(Object.keys(out)).toEqual(['constructor']);
+    expect(out['constructor']!.maxAltitude).toBe(1234.5);
+  });
+
   it('writes the ten values desktop OpenRocket stores, in its units', () => {
     const out = flightDataForExport(base());
     expect(out['c1']).toEqual({

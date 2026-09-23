@@ -1,10 +1,9 @@
-import { strFromU8 } from 'fflate';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { isaPressurePa, padPressureIssue } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
-import { escapeXml as esc, lookupTable, xmlNum, xmlText as text } from './xmlUtil.js';
+import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
@@ -249,8 +248,10 @@ export function readMachAltTable(doc: Document): MachAltTable | undefined {
   for (const item of Array.from(el.querySelectorAll(':scope > Item'))) {
     const [machStr, altStr] = (item.textContent ?? '').split(',');
     if (altStr === undefined) continue;
-    const mach = Number(machStr);
-    const altFt = Number(altStr);
+    // Decimal only, as xmlNum: `Number` read "0x10" as Mach 16 and a blank
+    // field (", 4750") as Mach 0 (audit 2026-09-22).
+    const mach = parseDecimal(machStr);
+    const altFt = parseDecimal(altStr);
     // A negative Mach or a sub-sea-level altitude is not a row RASAero can
     // mean; dropping it beats handing the ISA model an altitude it clamps.
     if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) continue;
@@ -273,7 +274,10 @@ export interface Cdx1ImportResult extends OrkImportResult {
 // ============================ IMPORT ============================
 
 export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
-  const xml = (typeof data === 'string' ? data : strFromU8(new Uint8Array(data))).replace(/^﻿?/, '');
+  // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22).
+  const decoded: { xml: string; note?: string } =
+    typeof data === 'string' ? { xml: data } : decodeXml(new Uint8Array(data));
+  const xml = decoded.xml.replace(/^﻿?/, '');
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   if (doc.querySelector('parsererror')) {
     throw new Error('Not a valid RASAero file (XML parse error)');
@@ -281,7 +285,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const design = doc.querySelector('RASAeroDocument > RocketDesign');
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
-  const notes: string[] = [];
+  const notes: string[] = decoded.note ? [decoded.note] : [];
   const ignored = new Set<string>();
   /**
    * Tag → the first raw text under it we could not turn into a number. One
@@ -308,7 +312,9 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    */
   const num = (el: Element, tag: string, fb: number): number => {
     const raw = text(el, `:scope > ${tag}`);
-    if (raw !== null && !Number.isFinite(Number(raw)) && !unreadable.has(tag)) {
+    // parseDecimal, the parser xmlNum itself uses: with `Number(raw)` here a
+    // "0x10" would pass this test and still fall back below, silently.
+    if (raw !== null && !Number.isFinite(parseDecimal(raw)) && !unreadable.has(tag)) {
       unreadable.set(tag, raw.slice(0, 40));
     }
     return xmlNum(el, tag, fb);

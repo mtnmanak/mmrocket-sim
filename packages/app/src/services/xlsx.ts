@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
-import { escapeXml } from './xmlUtil.js';
+import { escapeXml, escapeXmlAttr } from './xmlUtil.js';
 
 /**
  * Minimal .xlsx writer (2026-08-05c #4; multi-sheet 2026-08-05 chat; charts
@@ -191,12 +191,41 @@ function sheetXml({ headers, rows }: Sheet): string {
  * names (they address sheets by final name, so the two must agree).
  */
 export function sheetsToXlsx(sheets: Sheet[], charts: ChartSpec[] = []): Uint8Array {
+  // Excel's rules: 1–31 characters, none of : \ / ? * [ ], no apostrophe at
+  // either end, not the reserved "History", and unique IGNORING CASE — so
+  // `used` holds lower-cased names. A clash takes `_2`, `_3`, … counted from
+  // the sanitised base. Audit 2026-09-22: the old loop re-suffixed its own
+  // output, `name.slice(0, 28) + '_' + (i + 1)`, which is a fixed point for a
+  // name already of that shape — two stage tabs called `AAAA…(28)_2` hung the
+  // flight-data export for good — and it compared case-sensitively and let
+  // `'Booster'` and `History` through, all of which Excel reports as a
+  // corrupt workbook. Control characters become spaces: a tab name cannot
+  // show them and XML cannot carry most of them.
+  //
+  // The name deduplicated here must be EXACTLY the name written, so nothing
+  // escapeXml would strip may survive into it: lone surrogates and U+FFFE/
+  // U+FFFF become spaces with the controls, and a 31-unit cut that splits an
+  // emoji drops the orphaned high half. Stripped only at the write (review of
+  // audit 2026-09-22), `X…(30)🚀` cut to `X…(30)` + a lone surrogate passed
+  // the clash check beside a plain `X…(30)` and then wrote the same name
+  // twice, and a name that was only a lone surrogate wrote an empty one —
+  // both of which Excel refuses.
   const used = new Set<string>();
+  const fit = (s: string, max: number): string =>
+    s.slice(0, max).replace(/[\uD800-\uDBFF]$/, '').replace(/^[\s']+|[\s']+$/g, '');
   const sanitize = (raw: string, i: number): string => {
-    // Excel: ≤31 chars, no : \ / ? * [ ]
-    let name = (raw || `Sheet${i + 1}`).replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || `Sheet${i + 1}`;
-    while (used.has(name)) name = `${name.slice(0, 28)}_${i + 1}`;
-    used.add(name);
+    // The class is the complement of what XML carries MINUS TAB/LF/CR, i.e.
+    // every C0 control, lone surrogate and non-character, spelled without
+    // writing one into the pattern; the `u` flag keeps a real pair whole.
+    let base = fit((raw || '').replace(
+      /[:\\/?*[\]]|[^\u{20}-\u{D7FF}\u{E000}-\u{FFFD}\u{10000}-\u{10FFFF}]/gu, ' '), 31) || `Sheet${i + 1}`;
+    if (base.toLowerCase() === 'history') base = 'History_';
+    let name = base;
+    for (let k = 2; used.has(name.toLowerCase()); k++) {
+      const suffix = `_${k}`;
+      name = (fit(base, 31 - suffix.length) || 'Sheet') + suffix;
+    }
+    used.add(name.toLowerCase());
     return name;
   };
   const safeNames = sheets.map((s, i) => sanitize(s.name, i));
@@ -220,7 +249,7 @@ export function sheetsToXlsx(sheets: Sheet[], charts: ChartSpec[] = []): Uint8Ar
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets>${allTabs.map((t, i) => `<sheet name="${escapeXml(t.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
+<sheets>${allTabs.map((t, i) => `<sheet name="${escapeXmlAttr(t.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
 </workbook>`;
 
   const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

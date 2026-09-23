@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FlightResult, FlightSeries, StaticInfo } from '@online-openrocket/engine';
+import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   buildSimRun, commentLevelsAlign, conditionsKeyOf, extractLandingDrift, extractMaxRollRate, formatStability,
   recommendDelay,
@@ -10,6 +10,7 @@ import {
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
+import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -632,6 +633,32 @@ describe('dual deployment attribution', () => {
       const said = withCd(9.0).comments ?? '';
       expect(said).toMatch(/drag coefficient of 2\.20/);
       expect(said).not.toMatch(/automatic value/);
+    });
+
+    it('reports the Cd of a device whose name is also a prototype key', () => {
+      // Audit 2026-09-22: in flownRecoveryDevices a chute called `constructor`
+      // found Object already in the plain-object table, was taken for a
+      // duplicate name and deleted, and the report lost its Cd and diameter.
+      const tree = {
+        name: 'r',
+        components: [{
+          type: 'stage', id: 's1',
+          children: [{
+            type: 'bodytube', id: 'b1', length: 0.3, outerRadius: 0.02,
+            children: [{ type: 'parachute', id: 'p1', name: 'constructor', diameter: 0.6, cd: 1.5 }],
+          }],
+        }],
+      } as unknown as RocketTree;
+      const result = dualDeployResult(19.5, 5.5);
+      result.events = result.events.map((e) => (e.source === 'Main' ? { ...e, source: 'constructor' } : e));
+      const run = buildSimRun({
+        result, info, motor, meta: { label: 'J350-auto', manufacturer: 'AT' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+        flownRecovery: flownRecoveryDevices(engineTree(tree)),
+      });
+      const dev = run.deployments.find((d) => d.device === 'constructor')!;
+      expect(dev.cd).toBe(1.5);
+      expect(dev.diameter).toBe(0.6);
     });
 
     it('a run carrying no coefficients still reports cleanly (runs stored before v0.099)', () => {

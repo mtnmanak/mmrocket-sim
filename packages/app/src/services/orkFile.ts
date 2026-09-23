@@ -1,4 +1,3 @@
-import { strFromU8 } from 'fflate';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_TIME_STEP_S, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
@@ -6,7 +5,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
-import { MAX_FIN_POINTS, escapeXml, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
@@ -204,20 +203,22 @@ export interface OrkImportResult extends OrkTreeImportResult {
 
 export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): OrkImportResult {
   let xml: string;
+  // Set when the bytes were not valid UTF-8 and named no other encoding (see
+  // decodeXml): the first import note, once there are notes.
+  let encodingNote: string | undefined;
   if (typeof data === 'string') {
     xml = data;
   } else {
-    const bytes = new Uint8Array(data);
+    let bytes: Uint8Array = new Uint8Array(data);
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
       // Same entry choice as before (an entry named *.ork, else the first) but
       // BOUNDED: the bare `unzipSync(bytes)` this replaced inflated every
       // member — every decal, and every crafted 1 GB run of zeros — before a
       // byte of XML was read, and an out-of-memory tab cannot be caught by the
       // try/catch around this call. See zipMember.ts.
-      xml = strFromU8(unzipMember(bytes, '.ork', '.ork'));
-    } else {
-      xml = strFromU8(bytes);
+      bytes = unzipMember(bytes, '.ork', '.ork');
     }
+    ({ xml, note: encodingNote } = decodeXml(bytes));
   }
 
   // OpenRocket writes a single-quoted XML declaration; some parsers reject it.
@@ -243,7 +244,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const digestsTrusted = fileVersion >= 104;
 
   const ignored = new Set<string>();
-  const notes: string[] = [];
+  const notes: string[] = encodingNote ? [encodingNote] : [];
   /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
   let motor: OrkMotorRef | undefined;
@@ -258,7 +259,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const measuredNum = (tag: string): number | null => {
     const raw = text(rocketEl, `:scope > ${tag}`);
     if (raw === null) return null;
-    const v = Number(raw);
+    const v = parseDecimal(raw);
     return Number.isFinite(v) && v > 0 ? v : null;
   };
   const measuredMassKg = measuredNum('measuredmass');
@@ -298,7 +299,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       autoFallback = DEFAULT_AUTO_RADIUS): number => {
     const raw = text(el, `:scope > ${tag}`);
     if (raw === null) return fallback;
-    const last = Number(raw.trim().split(/\s+/).pop());
+    const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
     if (!/^auto\b/i.test(raw.trim())) return fallback; // unparseable — unchanged
     const label = text(el, ':scope > name') ?? el.tagName;
@@ -345,7 +346,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // one) flagged legacy, for App to check against the loaded motor before it
   // is applied. Never written again, only read.
   for (const el of Array.from(rocketEl.querySelectorAll(':scope > measuredpadmass'))) {
-    const v = Number(el.textContent?.trim());
+    const v = parseDecimal(el.textContent);
     if (!Number.isFinite(v) || v <= 0) continue;
     const id = el.getAttribute('configid');
     const target = id === null
@@ -628,15 +629,29 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // with no early exit on a non-crossing outline, so an uncapped list is
         // the cost (see MAX_FIN_POINTS). Refused rather than truncated — half
         // an outline is a different fin, and silently flying one is worse than
-        // declining to read it.
-        const ptEls = Array.from(el.querySelectorAll(':scope > finpoints > point'))
-          .slice(0, MAX_FIN_POINTS + 1);
-        // A missing x/y attribute must SKIP the point (Number(null) is 0,
-        // which would silently drop a vertex onto the origin).
-        const pts = ptEls
-          .filter((pt) => pt.getAttribute('x') !== null && pt.getAttribute('y') !== null)
-          .map((pt) => [Number(pt.getAttribute('x')), Number(pt.getAttribute('y'))] as [number, number])
-          .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+        // declining to read it. The cap counts the <point> ELEMENTS the file
+        // wrote, not the ones that parsed: counted after a filter, 5,501
+        // points with one malformed were kept as 5,000 and flown with no note
+        // (audit 2026-09-22).
+        const ptEls = el.querySelectorAll(':scope > finpoints > point');
+        // A point whose x or y is missing, blank or not a decimal is LEFT OUT,
+        // and a note says how many: what the desktop does with the same file
+        // (FinSetPointHandler: "Illegal fin points specification, ignoring."),
+        // so both fly the same fin. Before, such a point was dropped with no
+        // note at all, and `Number('')` is 0, so `x=""` KEPT the vertex, on
+        // x = 0 — a different, valid-looking fin (audit 2026-09-22). The .rkt
+        // importer does the same (parsePointList).
+        const pts: [number, number][] = [];
+        let unreadable = 0;
+        if (ptEls.length <= MAX_FIN_POINTS) {
+          for (const pt of Array.from(ptEls)) {
+            const x = parseDecimal(pt.getAttribute('x'));
+            const y = parseDecimal(pt.getAttribute('y'));
+            if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
+            else unreadable++;
+          }
+        }
+        if (unreadable > 0) notes.push(`Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(unreadable)}`);
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
         // crossing outline reaches the kernel's FreeformFinSet, which refuses it,
@@ -645,12 +660,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // The v0.105 changelog said the importers already checked this; they did
         // not. A file-supplied outline that fails keeps the default outline and
         // says so, rather than taking the whole rocket down with it.
-        const outlineProblem = pts.length > MAX_FIN_POINTS
-          ? `has ${pts.length}+ points; this app reads at most ${MAX_FIN_POINTS}`
+        const outlineProblem = ptEls.length > MAX_FIN_POINTS
+          ? TOO_MANY_FIN_POINTS
           : finOutlineProblem(pts);
         if (!outlineProblem) {
           n['points'] = pts;
-        } else if (pts.length > 0) {
+        } else if (ptEls.length > 0) {
           notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }
@@ -889,14 +904,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['instanceCount'] = Math.round(num(el, 'instancecount', 2));
         const radEl = el.querySelector(':scope > radiusoffset');
         if (radEl) {
-          const rv = Number(radEl.textContent?.trim());
+          const rv = parseDecimal(radEl.textContent);
           n['radiusOffset'] = Number.isFinite(rv) ? rv : 0; // metres, no conversion
           n['radiusMethod'] = (radEl.getAttribute('method') ?? 'relative').toLowerCase() === 'free'
             ? 'free' : 'relative';
         }
         const angEl = el.querySelector(':scope > angleoffset');
         if (angEl) {
-          const av = Number(angEl.textContent?.trim());
+          const av = parseDecimal(angEl.textContent);
           n['angleOffset'] = (Number.isFinite(av) ? av : 0) * Math.PI / 180; // deg → rad, like cant
           if (asmType === 'parallelstage') {
             n['angleMethod'] = (angEl.getAttribute('method') ?? 'relative').toLowerCase() === 'fixed'
@@ -922,17 +937,25 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   };
 
-  const convertChildren = (parentEl: Element): ComponentNode[] => {
+  // Components nest at most MAX_NESTING levels below their stage; deeper
+  // ones are left out, with a note (see MAX_NESTING; the .rkt importer caps
+  // the same way).
+  let tooDeep = false;
+  const convertChildren = (parentEl: Element, depth = 1): ComponentNode[] => {
     const out: ComponentNode[] = [];
     const wrap = parentEl.querySelector(':scope > subcomponents');
     if (!wrap) return out;
+    if (depth > MAX_NESTING) {
+      if (wrap.children.length > 0) tooDeep = true;
+      return out;
+    }
     for (const el of Array.from(wrap.children)) {
       const node = convertElement(el);
       if (node === null) {
         ignored.add(el.tagName);
         continue;
       }
-      const kids = convertChildren(el);
+      const kids = convertChildren(el, depth + 1);
       if (kids.length > 0) node.children = kids;
       out.push(node);
     }
@@ -994,6 +1017,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   if (ignored.size) {
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
+  if (tooDeep) notes.push(TOO_DEEP_NESTING);
 
   // Say when a dimension was INFERRED. The user opened an archived file and got
   // a number nobody typed; without this note the only clue that anything was
@@ -1540,7 +1564,12 @@ export function exportOrk({
   // bare `&`, so the user's own saved design failed to reopen with "XML parse
   // error", and a `"` in the id closed the attribute and injected markup into a
   // design they then shared. Escaping round-trips the id byte-for-byte, so
-  // nothing about matching or defaulting changes.
+  // nothing about matching or defaulting changes. The six attributes use
+  // escapeXmlAttr, which also writes TAB/LF/CR as character references: raw,
+  // attribute-value normalisation read them back as spaces while <configid>
+  // kept them, and the two stopped matching. Characters XML cannot carry at
+  // all are dropped at all seven sites alike (audit 2026-09-22), so the file
+  // still agrees with itself.
   const active = configs?.find((c) => c.id === activeConfigId) ?? null;
   const writeConfigs: Array<{
     id: string;
@@ -1604,8 +1633,13 @@ export function exportOrk({
 
   const position = (depth: number, node: ComponentNode, dflt: ComponentPosition['method'] = 'top') => {
     const pos = (node.position ?? { method: dflt, offset: 0 }) as ComponentPosition;
-    emit(depth, `<axialoffset method="${pos.method}">${pos.offset}</axialoffset>`);
-    emit(depth, `<position type="${pos.method}">${pos.offset}</position>`);
+    // Mapped through the closed set AT THE EMIT, like radiusoffset/angleoffset
+    // below, not trusted because today's importers whitelist it: a future path
+    // that kept a file-sourced method would write it raw into an attribute —
+    // one `"` and the saved file is broken (audit 2026-09-22).
+    const method = AXIAL_METHODS.includes(pos.method) ? pos.method : dflt;
+    emit(depth, `<axialoffset method="${method}">${pos.offset}</axialoffset>`);
+    emit(depth, `<position type="${method}">${pos.offset}</position>`);
   };
 
   const header = (depth: number, node: ComponentNode, fallback: string) => {
@@ -1679,7 +1713,7 @@ export function exportOrk({
         }
         : (node.id ? c.deployments[node.id] ?? {} : {});
       if (Object.keys(o).length === 0) continue;
-      emit(depth, `<deploymentconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth, `<deploymentconfiguration configid="${escapeXmlAttr(c.id)}">`);
       if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(o.deployEvent)}</deployevent>`);
       if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
       if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
@@ -1707,7 +1741,7 @@ export function exportOrk({
     sep(depth, liveEv, liveDelay, liveAlt);
     for (const c of writeConfigs) {
       const o = c.separations === null || !node.id ? undefined : c.separations[node.id];
-      emit(depth, `<separationconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth, `<separationconfiguration configid="${escapeXmlAttr(c.id)}">`);
       sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
         o?.separationAltitude ?? liveAlt);
       emit(depth, '</separationconfiguration>');
@@ -1727,7 +1761,7 @@ export function exportOrk({
       ? node['filletMaterialGroup'] as string : 'PaperProducts';
     const matName = typeof node['filletMaterialName'] === 'string'
       ? node['filletMaterialName'] as string : 'Cardboard';
-    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXml(group)}">`
+    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXmlAttr(group)}">`
       + `${escapeXml(matName)}</filletmaterial>`);
   };
 
@@ -1745,8 +1779,10 @@ export function exportOrk({
     const h = n(node, 'tabHeight', 0);
     const len = n(node, 'tabLength', 0);
     if (h <= 0 || len <= 0) return;
-    const method = typeof node['tabOffsetMethod'] === 'string'
-      ? (node['tabOffsetMethod'] as string) : 'middle';
+    // The closed set the editor offers, mapped at the emit as position() does
+    // — anything else is the default, never raw text in an attribute.
+    const m = node['tabOffsetMethod'];
+    const method = m === 'top' || m === 'bottom' ? m : 'middle';
     const legacy = method === 'top' ? 'front' : method === 'bottom' ? 'end' : 'center';
     const offset = n(node, 'tabOffset', 0);
     emit(depth, `<tabheight>${h}</tabheight>`);
@@ -1781,7 +1817,7 @@ export function exportOrk({
     emit(depth + 1, `<overhang>${overhangM}</overhang>`);
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<motor configid="${escapeXml(c.id)}">`);
+      emit(depth + 1, `<motor configid="${escapeXmlAttr(c.id)}">`);
       // Desktop element order (RocketComponentSaver): type, manufacturer,
       // digest, designation, diameter, length, delay. Unknown identity is
       // OMITTED, never guessed: the desktop matcher treats a missing field
@@ -1802,7 +1838,7 @@ export function exportOrk({
     }
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
-      emit(depth + 1, `<ignitionconfiguration configid="${escapeXml(c.id)}">`);
+      emit(depth + 1, `<ignitionconfiguration configid="${escapeXmlAttr(c.id)}">`);
       emit(depth + 2, `<ignitionevent>${escapeXml(m.ignitionEvent ?? 'automatic')}</ignitionevent>`);
       emit(depth + 2, `<ignitiondelay>${m.ignitionDelay ?? 0}</ignitiondelay>`);
       emit(depth + 1, '</ignitionconfiguration>');
@@ -2323,13 +2359,13 @@ export function exportOrk({
   const ordered = [...writeConfigs].sort((a, b) => (a.id === defaultId ? -1 : 0) - (b.id === defaultId ? -1 : 0));
   for (const c of ordered) {
     const pm = padMassOf(c);
-    if (pm !== undefined) emit(2, `<measuredpadmass configid="${escapeXml(c.id)}">${pm}</measuredpadmass>`);
+    if (pm !== undefined) emit(2, `<measuredpadmass configid="${escapeXmlAttr(c.id)}">${pm}</measuredpadmass>`);
   }
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);
   for (const c of writeConfigs) {
-    emit(2, `<motorconfiguration configid="${escapeXml(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
+    emit(2, `<motorconfiguration configid="${escapeXmlAttr(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
     if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
     for (let i = 0; i < stageNodes.length; i++) {
       emit(3, `<stage number="${i}" active="true"/>`);
@@ -2405,7 +2441,8 @@ export function exportOrk({
       // way; what matters is that a configuration with nothing to say still
       // says notsimulated rather than claiming a result it does not have.
       const fdAttrs = flightDataAttrs(
-        flightData?.[c.id] ?? (c.id === defaultId ? flightDataDefault : undefined));
+        (flightData && Object.hasOwn(flightData, c.id) ? flightData[c.id] : undefined) // own keys: ids are file text
+          ?? (c.id === defaultId ? flightDataDefault : undefined));
       emit(2, `<simulation status="${fdAttrs ? 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".
@@ -2521,7 +2558,7 @@ function readOverrides(el: Element, node: ComponentNode): void {
 function autoNum(el: Element, tag: string): number | undefined {
   const t = text(el, `:scope > ${tag}`);
   if (!t || t.trim().toLowerCase() === 'auto') return undefined;
-  const v = Number(t.split(/\s+/).pop());
+  const v = parseDecimal(t.split(/\s+/).pop()); // decimal only, as num() below
   return Number.isFinite(v) ? v : undefined;
 }
 
@@ -2666,33 +2703,53 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
   const stated = (el: Element, tag: string): number | null => {
     const t = text(el, `:scope > ${tag}`);
     if (t === null) return null;
-    const v = Number(t.trim().split(/\s+/).pop());
+    // parseDecimal, like num() below: the neighbour's radius must read the
+    // way the neighbour's own node reads it.
+    const v = parseDecimal(t.trim().split(/\s+/).pop());
     return Number.isFinite(v) ? v : null;
   };
 
-  /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
-  const front = (el: Element, seen: Set<Element>): number => {
-    if (seen.has(el)) return UNRESOLVED; // cyclic auto chain — desktop's refComp guard
-    seen.add(el);
-    if (el.tagName === 'bodytube') {
-      const r = stated(el, 'radius');
-      if (r !== null) return r;
-      const p = prevOf(el);
-      return p ? front(p, seen) : UNRESOLVED;
+  // The two walks below are LOOPS with a per-element memo, not recursion.
+  // Audit 2026-09-22: recursive and unmemoised, a chain of bare-`auto` tubes
+  // was walked afresh from every tube in it — O(n²) DOM queries, with the
+  // recursion as deep as the chain: 4,000 tubes (420 KB) took 7.7 s with the
+  // anchor ahead of them and 15.6 s with it behind, and 8,000 overflowed the
+  // stack. A walk's answer depends only on where it starts — backward it can
+  // reach only predecessors and the chains of enclosing assemblies, forward
+  // only successors, so the caller's own element is never on its path — so
+  // each element's answer is computed once and reused by every later walk
+  // that passes it. `seen` stays as the cycle guard it always was, and a walk
+  // that ends on it is not memoised, so the memo never outlives its caller.
+  const frontMemo = new Map<Element, number>();
+  const rearMemo = new Map<Element, number>();
+  const walk = (start: Element, seen: Set<Element>, memo: Map<Element, number>,
+      step: (el: Element) => Element | null, answer: (el: Element) => number | null): number => {
+    const path: Element[] = [];
+    let r = UNRESOLVED;
+    let cyclic = false;
+    for (let el: Element | null = start; el; el = step(el)) {
+      const known = memo.get(el);
+      if (known !== undefined) { r = known; break; }
+      if (seen.has(el)) { cyclic = true; break; } // cyclic auto chain — desktop's refComp guard
+      seen.add(el);
+      path.push(el);
+      const a = answer(el);
+      if (a !== null) { r = a; break; }
     }
-    return stated(el, 'aftradius') ?? UNRESOLVED;
+    if (!cyclic) for (const el of path) memo.set(el, r);
+    return r;
   };
 
+  /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
+  const front = (el: Element, seen: Set<Element>): number => walk(el, seen, frontMemo, prevOf,
+    // A body tube states its radius or defers to the one ahead (null: keep
+    // walking); anything else answers with its aft face, stated or not.
+    (e) => e.tagName === 'bodytube' ? stated(e, 'radius') : stated(e, 'aftradius') ?? UNRESOLVED);
+
   /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
-  const rear = (el: Element, seen: Set<Element>): number => {
-    if (seen.has(el)) return UNRESOLVED;
-    seen.add(el);
-    if (el.tagName === 'bodytube') {
-      const r = stated(el, 'radius');
-      if (r !== null) return r;
-      const n = nextOf(el);
-      return n ? rear(n, seen) : UNRESOLVED;
-    }
+  const rear = (el: Element, seen: Set<Element>): number => walk(el, seen, rearMemo, nextOf, rearFace);
+  function rearFace(el: Element): number | null {
+    if (el.tagName === 'bodytube') return stated(el, 'radius');
     // A DELIBERATE DEVIATION from 24.12, not a mirror of it. An un-flipped
     // nose cone's fore radius is 0 and NOT automatic (`NoseCone
     // .resetForeRadius`, NoseCone.java:276-278), so `Transition
@@ -2706,7 +2763,7 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     // attempts to close.)
     if (el.tagName === 'nosecone') return UNRESOLVED;
     return stated(el, 'foreradius') ?? UNRESOLVED;
-  };
+  }
 
   const bodyTube = (el: Element): number => {
     const p = prevOf(el);
@@ -2760,27 +2817,29 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
 /**
  * A recovery device's `<cd>`: a number, or the literal `auto` (desktop's
  * `RecoveryDevice.setCDAutomatic`, which the kernel factory honours by leaving
- * the field off). Anything else is dropped — `Number("auto 0.8")` is NaN, and a
- * NaN drag coefficient reaches the descent solver.
+ * the field off). Anything else is dropped — `parseDecimal("auto 0.8")` is NaN,
+ * and a NaN drag coefficient reaches the descent solver.
  */
 function readAutoCd(el: Element, node: ComponentNode): void {
   const t = text(el, ':scope > cd');
   if (t === null || /^auto\b/i.test(t)) return;
-  const v = Number(t);
+  const v = parseDecimal(t);
   if (Number.isFinite(v) && v >= 0) node['cd'] = v;
 }
 
 function num(el: Element, tag: string, fallback: number): number {
   const t = text(el, `:scope > ${tag}`);
-  // Values like "auto 0.012" carry an automatic flag + last value.
-  const v = t ? Number(t.split(/\s+/).pop()) : NaN;
+  // Values like "auto 0.012" carry an automatic flag + last value. Decimal
+  // only: `Number` read "0x10" as 16 where the desktop's parseDouble refuses
+  // the field (audit 2026-09-22).
+  const v = t ? parseDecimal(t.split(/\s+/).pop()) : NaN;
   return Number.isFinite(v) ? v : fallback;
 }
 
 function matDensity(el: Element): number | undefined {
   const m = el.querySelector(':scope > material');
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
 
@@ -2797,7 +2856,7 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
     densityKey: string, nameKey: string, selector = ':scope > material'): void {
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== kind) return;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node[densityKey] = d;
   const name = matName_(el, kind, selector);
   if (name) node[nameKey] = name;
@@ -2876,7 +2935,7 @@ function readFillet(el: Element, node: ComponentNode): void {
   node['filletRadius'] = r;
   const m = el.querySelector(':scope > filletmaterial');
   if (!m) return;
-  const d = Number(m.getAttribute('density'));
+  const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
   const group = m.getAttribute('group');
   if (group) node['filletMaterialGroup'] = group;
@@ -2942,7 +3001,7 @@ function readFinTabs(el: Element, node: ComponentNode): void {
       : rel.includes('end') || rel === 'bottom' ? 'bottom'
       : 'middle';
     node['tabOffsetMethod'] = method;
-    const v = Number(last.textContent?.trim());
+    const v = parseDecimal(last.textContent);
     node['tabOffset'] = Number.isFinite(v) ? v : 0;
   }
 }
@@ -2966,6 +3025,9 @@ function readDeployment(el: Element, node: ComponentNode, configEl: Element | nu
   }
 }
 
+/** The axial-position methods an .ork carries — the exporter's closed set for `method=`/`type=`. */
+const AXIAL_METHODS: readonly string[] = ['top', 'middle', 'bottom', 'absolute'];
+
 function readPosition(el: Element): ComponentPosition | undefined {
   // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
   // only <position type="..."> — fall back to it or old files lose every
@@ -2973,7 +3035,7 @@ function readPosition(el: Element): ComponentPosition | undefined {
   const off = el.querySelector(':scope > axialoffset') ?? el.querySelector(':scope > position');
   if (!off) return undefined;
   const method = (off.getAttribute('method') ?? off.getAttribute('type') ?? 'top') as ComponentPosition['method'];
-  const offset = Number(off.textContent ?? '0');
+  const offset = parseDecimal(off.textContent);
   if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
   return { method, offset: Number.isFinite(offset) ? offset : 0 };
 }

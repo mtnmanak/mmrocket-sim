@@ -1436,7 +1436,10 @@ export function flownRecoveryDevices(
     cd: number | null; cdNominal: number | null; cdAutomatic: boolean;
     diameter: number | null; spillHoleDiameter: number | null;
   }> {
-  const out: Record<string, ReturnType<typeof flownRecoveryDevices>[string]> = {};
+  // No prototype: the key is a device NAME. On a plain object a chute called
+  // `constructor` found Object already there, was taken for a duplicate and
+  // deleted, and lost its Cd and diameter from the report (audit 2026-09-22).
+  const out = Object.create(null) as Record<string, ReturnType<typeof flownRecoveryDevices>[string]>;
   const dupes = new Set<string>();
   const num = (n: ComponentNode, k: string): number | null =>
     (typeof n[k] === 'number' && Number.isFinite(n[k] as number) ? (n[k] as number) : null);

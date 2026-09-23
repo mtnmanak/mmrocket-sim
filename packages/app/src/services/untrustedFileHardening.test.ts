@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import type { ComponentNode } from '@online-openrocket/engine';
+import { exportOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
-import { MAX_FIN_POINTS, lookupTable } from './xmlUtil.js';
+import {
+  MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, lookupTable, unreadableFinPoints,
+} from './xmlUtil.js';
 
 /**
  * The three untrusted-input findings from the 2026-09-08 audit that were not
@@ -131,42 +135,184 @@ describe('the .rkt CDATA pre-pass is linear, not quadratic', () => {
   });
 });
 
+/** A one-fin-set .rkt whose CustomFinSet carries `pointList` verbatim. */
+const rktFin = (pointList: string): string =>
+  `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
+          <PointList>${pointList}</PointList></CustomFinSet></AttachedParts>
+      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+
+/** The fin set of a `rktFin` import, and its outline if one was taken. */
+const finOf = (out: ReturnType<typeof importRkt>): [number, number][] | undefined =>
+  out.tree.components[0]!.children![0]!.children![0]!['points'] as [number, number][] | undefined;
+
 describe('a freeform fin outline is capped', () => {
   it('refuses an absurd point count instead of validating it in O(n^2)', () => {
     // A monotone staircase: NOT self-intersecting, so finOutlineIntersection's
     // double loop runs to completion — the expensive case.
     const pts = Array.from({ length: MAX_FIN_POINTS + 500 }, (_, i) => `${i * 0.001},${i * 0.0005}`);
-    const xml = `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
-      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
-        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
-          <PointList>${pts.join('|')}</PointList></CustomFinSet></AttachedParts>
-      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
     const t0 = performance.now();
-    const out = importRkt(xml);
+    const out = importRkt(rktFin(pts.join('|')));
     const ms = performance.now() - t0;
     expect(out.tree.components.length).toBeGreaterThan(0);
     // Generous, but far below the ~27 s an uncapped 90,000-point list cost.
     expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(4000);
+    // REFUSED, not truncated (audit 2026-09-22): the first 5,000 of these
+    // points are a different fin, and they used to fly with no note.
+    expect(finOf(out)).toBeUndefined();
+    expect(out.notes).toContain(`Fin set "f": its outline was not used — ${TOO_MANY_FIN_POINTS} `
+      + 'The set keeps a default outline; redraw it in the fin editor.');
   });
 
-  it('drops a malformed pair rather than inserting an origin vertex', () => {
+  it('counts duplicate 0,0 pairs against the cap, so they cannot spin the loop', () => {
+    // Audit 2026-09-22: the cap was tested only before a push, and a duplicate
+    // origin is never pushed — each one scanned every kept point instead, so
+    // 4,998 real points and then `0,0` pairs ran ~20 µs a pair, unbounded:
+    // 3.5 s for 0.85 MB, minutes for a 64 MiB zipped .rkt. RockSim's own
+    // order, trailing root first, puts the origin LAST among the kept points,
+    // so each scan walked all of them before finding it.
+    const n = MAX_FIN_POINTS - 2;
+    const real = Array.from({ length: n }, (_, i) => `${(n - i) * 0.01},${i === 0 ? 0 : 5 + (i % 2)}`);
+    const list = `${real.join('|')}|0,0|${'0,0|'.repeat(150_000)}`;
+    const t0 = performance.now();
+    const out = importRkt(rktFin(list));
+    const ms = performance.now() - t0;
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(1500);
+    expect(finOf(out)).toBeUndefined();
+    expect(out.notes.some((n) => n.includes(TOO_MANY_FIN_POINTS))).toBe(true);
+  });
+
+  it("says the list is too long in RockSim's reversed order too, not that the root is backwards", () => {
+    // Truncated trailing-first, the kept half never reached 0,0, was never
+    // reversed, and was refused as "The last point must be aft of the first" —
+    // a true statement about a list the file never wrote.
+    const n = MAX_FIN_POINTS + 10;
+    const pts = Array.from({ length: n }, (_, i) => {
+      const x = (n - 1 - i) * 0.02;
+      return `${x},${i === 0 || i === n - 1 ? 0 : 10}`;
+    });
+    const out = importRkt(rktFin(pts.join('|')));
+    expect(finOf(out)).toBeUndefined();
+    const note = out.notes.find((m) => m.startsWith('Fin set "f"')) ?? '';
+    expect(note).toContain(TOO_MANY_FIN_POINTS);
+    expect(note).not.toMatch(/aft of the first/);
+  });
+
+  it('still reads an ordinary reversed list with its duplicate closing origin', () => {
+    // RockSim's own shape: trailing root first, the origin twice at the end.
+    const out = importRkt(rktFin('60,0|50,30|10,30|0,0|0,0|'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+  });
+
+  it('reads no hex coordinate as a number', () => {
+    // parseDecimal, as xmlNum: `Number('0x10')` put a vertex at 16 mm. The
+    // pair is left out like any other unreadable one — and said so.
+    const out = importRkt(rktFin('0,0|0x10,30|50,30|60,0'));
+    expect(finOf(out)).toEqual([[0, 0], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(1)}`);
+  });
+
+  it('drops a malformed pair rather than inserting an origin vertex, and says so', () => {
     // `Number('')` is 0, so "1,1|,,|2,2" used to yield a real [0,0] point in the
     // middle of the outline — which usually made it self-intersect, and the
-    // note then blamed the outline rather than the field.
-    const xml = `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
-      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
-        <AttachedParts><CustomFinSet><Name>f</Name><FinCount>3</FinCount>
-          <PointList>0,0|50,30|,,|60,0</PointList></CustomFinSet></AttachedParts>
-      </BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
-    const out = importRkt(xml);
-    const json = JSON.stringify(out.tree);
-    // Three real points survive; the blank pair contributes none.
-    const fin = out.tree.components[0]!.children![0]!.children![0]!;
-    const pts = fin['points'] as [number, number][] | undefined;
-    if (pts) {
-      const origins = pts.filter(([x, y]) => x === 0 && y === 0).length;
-      expect(origins, 'at most the one genuine 0,0 corner').toBeLessThanOrEqual(1);
+    // note then blamed the outline rather than the field. It was then skipped
+    // with NO note (audit 2026-09-22); the desktop warns and skips, and so does
+    // this now — the same fin, and the user told a vertex is missing.
+    const out = importRkt(rktFin('0,0|10,30|,,|50,30|7|60,0'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(2)}`);
+  });
+
+  it('says nothing about an ordinary list, blank pairs and duplicate origins included', () => {
+    const out = importRkt(rktFin('60,0|50,30|10,30|0,0||0,0|'));
+    expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
+    expect(out.notes.some((m) => m.startsWith('Fin set'))).toBe(false);
+  });
+});
+
+describe('.rkt component nesting is capped as .ork nesting is', () => {
+  // Review of audit 2026-09-22 row 236: only the .ork importer was capped, so
+  // a .rkt nested 500 deep imported whole (1.2 s), saved as an 8.9 MB .ork,
+  // and at 1,500 levels the import overflowed the stack.
+  /** A body tube carrying `n` inner tubes, each attached inside the last. */
+  const nested = (n: number): string => {
+    let parts = '';
+    for (let i = n; i > 0; i--) {
+      parts = `<BodyTube><Name>t${i}</Name><Len>10</Len><OD>20</OD><ID>19</ID>`
+        + `<AttachedParts>${parts}</AttachedParts></BodyTube>`;
     }
-    expect(json.length).toBeGreaterThan(0);
+    return `<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`;
+  };
+  const depth = (ns: ComponentNode[], k = 0): number =>
+    ns.reduce((m, n) => Math.max(m, depth(n.children ?? [], k + 1)), k);
+
+  it('keeps a design exactly MAX_NESTING levels deep whole, with no note', () => {
+    const r = importRkt(nested(MAX_NESTING - 1)); // the body tube is level 1
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1); // the stage, then 64 levels
+    expect(r.notes).not.toContain(TOO_DEEP_NESTING);
+  });
+
+  it('leaves out what is deeper, says so, and can save what it kept', () => {
+    const t0 = performance.now();
+    const r = importRkt(nested(500));
+    const ms = performance.now() - t0;
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1);
+    expect(r.notes).toContain(TOO_DEEP_NESTING);
+    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(1000);
+    expect(exportOrk({ name: 'Deep', tree: r.tree }).length).toBeLessThan(500_000);
+  });
+
+  it('counts a pod as a level too', () => {
+    // A pod's chain is converted without AttachedParts, so a counter kept only
+    // there would let pod-in-tube-in-pod nest twice as deep as the cap.
+    let parts = '';
+    for (let i = 0; i < 100; i++) {
+      parts = `<ExternalPod><Name>p${i}</Name><BodyTube><Name>b${i}</Name><Len>10</Len><OD>20</OD>`
+        + `<AttachedParts>${parts}</AttachedParts></BodyTube></ExternalPod>`;
+    }
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`);
+    expect(depth(r.tree.components)).toBe(MAX_NESTING + 1);
+    expect(r.notes).toContain(TOO_DEEP_NESTING);
+  });
+});
+
+/** A string as single bytes — the file a windows-1252 or ISO-8859-1 writer saves. */
+const singleBytes = (s: string): ArrayBuffer => new Uint8Array([...s].map((c) => c.charCodeAt(0))).buffer;
+
+describe('the importers read the encoding a file declares', () => {
+  // Audit 2026-09-22 (carried from 8 September): the bytes were always read as
+  // UTF-8 and `encoding=` discarded, so a windows-1252 name came in with
+  // replacement characters and no word about it.
+  it('reads a windows-1252 .rkt as windows-1252', () => {
+    const xml = '<?xml version="1.0" encoding="windows-1252"?>'
+      + rktFin('0,0|50,30|60,0').replace('<Name>t</Name>', '<Name>Fin 30° cant</Name>');
+    const out = importRkt(singleBytes(xml));
+    expect(out.name).toBe('Fin 30° cant');
+    expect(out.notes.some((n) => /could not be read and/.test(n))).toBe(false);
+  });
+
+  it('says so when a .rkt is not UTF-8 and names no encoding', () => {
+    const out = importRkt(singleBytes(rktFin('0,0|50,30|60,0').replace('<Name>t</Name>', '<Name>Fin 30° cant</Name>')));
+    expect(out.name).toBe('Fin 30\u{FFFD} cant');
+    expect(out.notes[0]).toMatch(/^1 character in this file could not be read and was replaced/);
+  });
+
+  it('reads a UTF-16 .CDX1, which used to be a parse error', () => {
+    const doc = cdx1().replace('<?xml version="1.0"?>', '<?xml version="1.0" encoding="utf-16"?>');
+    const le = new Uint8Array(2 + doc.length * 2);
+    le.set([0xff, 0xfe]);
+    for (let i = 0; i < doc.length; i++) {
+      le[2 + 2 * i] = doc.charCodeAt(i) & 255;
+      le[3 + 2 * i] = doc.charCodeAt(i) >> 8;
+    }
+    const out = importCdx1(le.buffer);
+    expect(out.tree.components[0]!.children!.length).toBeGreaterThan(0);
   });
 });

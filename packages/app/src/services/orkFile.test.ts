@@ -2370,6 +2370,22 @@ describe('exportOrk — <flightdata>', () => {
       + ' launchrodvelocity="8" deploymentvelocity="9" optimumdelay="10"/>');
   });
 
+  it('reads a configuration id that is also a prototype key as an id', () => {
+    // Audit 2026-09-22: `flightData?.['constructor']` found Object itself, so
+    // the default-configuration fallback never ran and that configuration
+    // saved as notsimulated. Configuration ids are file text, kept verbatim.
+    const xml = exportOrk({
+      ...base(),
+      configs: [{ id: 'constructor', name: 'Club field', isDefault: true, motors: {} }],
+      activeConfigId: 'constructor',
+      flightData: {},
+      flightDataDefault: { maxAltitude: 331.7 },
+    });
+    const [only] = sims(xml);
+    expect(only!.startsWith('status="uptodate">')).toBe(true);
+    expect(only).toContain('<flightdata maxaltitude="331.7"/>');
+  });
+
   it('skips a non-finite value rather than serializing it', () => {
     // The desktop's saver appends each attribute only when it is not NaN, and
     // our own emit interpolates raw — "NaN" or "null" in the file would be a

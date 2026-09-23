@@ -28,10 +28,11 @@ const buf = (u: Uint8Array): ArrayBuffer =>
 
 /**
  * Rewrite fields of ONE entry's central-directory record — method at +10,
- * uncompressed size at +24, name length at +28, name at +46 (fflate `zh()`).
- * See the twin in orkFileHardening.test.ts for why: a bomb PROMISES its size
- * in a few hundred bytes, and compression method 14 is a probe that throws the
- * instant fflate is asked to inflate an entry the importer never wanted.
+ * uncompressed size at +24, name length at +28, name at +46 (zipMember.ts,
+ * mirroring fflate `zh()`). See the twin in orkFileHardening.test.ts for why: a
+ * bomb PROMISES its size in a few hundred bytes, and compression method 14 is a
+ * probe that throws the instant the reader is asked to inflate an entry the
+ * importer never wanted.
  */
 function patchZipEntry(zip: Uint8Array, name: string,
     patch: { method?: number; originalSize?: number }): void {
