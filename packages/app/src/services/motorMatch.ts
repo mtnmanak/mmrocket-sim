@@ -1,10 +1,11 @@
-import type { IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
+import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
 import {
   displayDesignation, findDbMotor, isHighPower, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
 
 /**
@@ -182,8 +183,13 @@ export async function matchImportedMotor(
   const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
 
+  // Never cast: an event none of the five reached the build verbatim, which put
+  // the motor on the handle and then refused it (audit 2026-09-22). The .ork
+  // reader already maps one to AUTOMATIC with a note; this is the backstop for
+  // a reference from anywhere else, and AUTOMATIC is where desktop
+  // OpenRocket's reader leaves a mount whose value it ignores.
   const ignition: MountMotor['ignition'] = {
-    event: (ref.ignitionEvent as IgnitionEvent | undefined) ?? 'automatic',
+    event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic',
     delay: ref.ignitionDelay ?? 0,
   };
   const fileIdentity = fileMotorIdentity(ref);

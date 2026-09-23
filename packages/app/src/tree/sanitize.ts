@@ -1,8 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
 import {
-  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, IGNITION_EVENT_LIMIT,
-  IGNITION_EVENT_VALUES, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
+  applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
 } from './schema.js';
 
@@ -202,17 +201,6 @@ export function separationEventOrDefault(raw: string): string {
 }
 
 /**
- * A motor's ignition event in the kernel's spelling, or null when it names
- * none of the kernel's five — `OrkEngine.ignitionEventOf` throws on anything
- * else, where desktop drops it with a warning and keeps AUTOMATIC
- * (MotorMountHandler, IgnitionConfigurationHandler). Ignition lives on the
- * motor, not the tree, so this is the .ork reader's to call.
- */
-export function ignitionEventOf(raw: string): string | null {
-  return canonicalEnum(IGNITION_EVENT_VALUES, raw);
-}
-
-/**
  * The import note for an unknown separation event in a flight configuration
  * other than the one opened — worded like the tree pass's own notes, so the
  * banner reads as one list. The opened configuration's value is on the stage
@@ -222,12 +210,6 @@ export function configSeparationNote(stage: ComponentNode, raw: string): string 
   const { fallback } = ENUM_LIMITS['stage']!['separationEvent']!;
   return `${partName(stage)}: separation event “${raw}”, in a flight configuration other than the one `
     + `opened, is not one the simulation knows — that configuration now uses ${fallback}.`;
-}
-
-/** The import note for a motor ignition event the kernel does not know. */
-export function ignitionNote(mount: ComponentNode, raw: string): string {
-  const f = enumFinding(mount, 'motor ignition event', raw, IGNITION_EVENT_LIMIT);
-  return `${f.problem} — ${f.repair}.`;
 }
 
 /**

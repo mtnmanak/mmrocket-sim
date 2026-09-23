@@ -201,8 +201,8 @@ export const LEGACY_PAD_MASS_KEY = 'legacy';
 
 /**
  * ONE spelling of a motor's identity: the EX library id when it is one, else
- * manufacturer/designation. Byte-identical to the term App's `motorSetKeyOf`
- * has always used, so stored run keys do not move.
+ * manufacturer/designation. Byte-identical to the term `motorSetKeyOf` (now
+ * in simReport.ts) has always used, so stored run keys do not move.
  */
 export function motorIdentity(
   meta: { exMotorId?: string; manufacturer?: string }, designation: string,
@@ -432,8 +432,8 @@ export function shiftMotorMass(spec: MotorSpec, perMotorShiftKg: number): MotorS
  * The spec a mount FLIES: the catalogue spec shifted by the weighed hardware
  * when this is the mount the hardware is carried on, the catalogue spec
  * otherwise. The one helper every place that writes a motor onto the engine
- * handle goes through (the build loop, `applyAssignedMotors`, and the re-fly
- * paths in App.tsx) — so a Launch can never fly a different mass from the
+ * handle goes through (the build loop in App.tsx, and every flight in
+ * services/flightRunner.ts) — so a Launch can never fly a different mass from the
  * design page.
  */
 export function flownSpec(

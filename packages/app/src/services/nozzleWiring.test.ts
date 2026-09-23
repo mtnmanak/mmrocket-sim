@@ -88,10 +88,15 @@ describe('App tells the launch report which stages flew a nozzle', () => {
  */
 describe('App feeds the pressure-thrust provenance stamp', () => {
   it('tells both match keys whether the design spends the term', () => {
-    // currentMatchKey (Show charts) and provenanceKey (the staleness banner).
+    // provenanceKey (the staleness banner) and currentMatchKey (Show charts).
+    // ONE assembly since the 2026-09-22 audit: provenanceKey is built by
+    // simReport's designMatchKeyOf, and currentMatchKey is that same key gated
+    // on a rocket and a motor — so one feed reaches both, where there used to
+    // be two to keep in step.
     const src = app();
     const hits = src.split('hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,').length - 1;
-    expect(hits).toBe(2);
+    expect(hits).toBe(1);
+    expect(src).toContain('() => (built && primaryMountId ? provenanceKey : null),');
   });
 
   it('refuses an unstamped run in the .ork <flightdata> export too', () => {

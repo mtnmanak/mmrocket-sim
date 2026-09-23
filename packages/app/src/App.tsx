@@ -21,7 +21,7 @@ import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, kernelSimOptions, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
-import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './services/machProbe.js';
+import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
@@ -61,6 +61,7 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { matchImportedMotor, refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
+import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
@@ -76,10 +77,10 @@ import {
   sessionPredatesThisBuild, sessionSaveFailing,
 } from './services/session.js';
 import {
-  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun, conditionsKeyOf,
-  currentModelLabel, formatRunWhenProse, formatStability, listAnd,
-  hasAerodynamicForce, recommendDelay, shownStability, runMatchesDesign, runMatchesModel,
-  shortHash, storedSimCost,
+  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
+  currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
+  hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
+  storedSimCost,
   type DesignMatchKey, type FlownRecoveryDevice, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
@@ -1357,72 +1358,6 @@ export function App() {
     // other reason would re-decide a change it has already acted on.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the loadout is the trigger
   }, [stageMotorLoadout]);
-  /**
-   * Put every assigned mount's motor and ignition onto the engine handle, from
-   * the app's own state, RIGHT NOW — so a flight never trusts whatever the
-   * handle happened to be carrying.
-   *
-   * The handle is shared by Launch, the drag panel, the mass table and the two
-   * re-fly paths (charts, CSV), and it has no way to report its motor state
-   * back. Two of those paths wrote a STORED flight's ejection delay onto it and
-   * shipped without restoring it — one for 47 releases (v0.046–v0.104), one
-   * for 30 — so the next Launch flew a delay its own report never named.
-   * Measured on a real flight: the report said the chute opened at 4.5 ft/s
-   * while it actually deployed at 45.9 ft/s. Both leaks were fixed in v0.105
-   * with restore-after-use; this is the fix the audit ALSO proposed
-   * (`docs/AUDIT.md:518`) and the one that makes the class impossible rather
-   * than merely repaired: set what you need before you use it, and inherited
-   * state cannot matter. `setMotorById` is 0.057 ms against a 141–285 ms
-   * flight — 0.04 % of one Launch.
-   *
-   * Same loop the build runs (below), deliberately: a motor the kernel refused
-   * at build time was reported then in `motorFailures` and stays absent here.
-   *
-   * `hardware` is the build's own result (buildResult.hardware): the primary
-   * mount flies the catalogue curve shifted by the weighed hardware, through
-   * the SAME `flownSpec` the build wrote onto the handle — so a Launch flies
-   * the design page's mass, not the catalogue's. See services/hardwareMass.ts.
-   */
-  const applyAssignedMotors = (rocket: OrkRocket, hardware: HardwareMassResult | undefined): void => {
-    for (const [id, mm] of assigned) {
-      try {
-        rocket.setMotorById(id, flownSpec(id, mm.spec, hardware));
-        if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-          rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
-        }
-      } catch {
-        // Already reported at build time; a Launch must not re-raise it.
-      }
-    }
-  };
-  /**
-   * Write ONE motor onto a built handle and KEEP its ignition. Every
-   * `setMotorById` outside `buildResult` goes through here.
-   *
-   * Same mechanism the loop above re-applies for, and the reason is the same:
-   * the bridge's `setMotorById` (`OrkEngine.java` `applyMotor`) installs a
-   * FRESH `MotorConfiguration` on the mount, so any write resets the ignition
-   * event and its timer to the kernel default. `buildResult` guards itself and
-   * says so; the three re-flight paths did not.
-   *
-   * What that cost: `assignMotor` gives a high-power sustainer on a staged
-   * design `{ event: 'burnout', delay: 1 }`, and `primaryMountId` IS that
-   * mount. Ticking "auto (optimal)" re-flew it on AUTOMATIC — lighting off the
-   * booster's ejection charge instead of burnout + 1 s — and it is the
-   * RE-FLOWN result that `buildSimRun` stores, the report shows and the `.ork`
-   * `<flightdata>` carries. The charts path re-flew the same way under a
-   * comment promising it "reproduces this exact flight", and the CSV path
-   * exported a flight that disagreed with the plots directly above it.
-   * Found by the 2026-09-08 audit (`docs/AUDIT.md`); the mechanism was read
-   * out of the kernel, not inferred from the comment.
-   */
-  const setFlownMotorOn = useCallback((rocket: OrkRocket, id: string, spec: MotorSpec): void => {
-    rocket.setMotorById(id, spec);
-    const mm = assigned.find(([mid]) => mid === id)?.[1];
-    if (mm && (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0)) {
-      rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
-    }
-  }, [assigned]);
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
@@ -1510,10 +1445,12 @@ export function App() {
       const motorFailures: { mountId: string; text: string }[] = [];
       for (const [id, mm] of assigned) {
         try {
-          rocket.setMotorById(id, mm.spec);
-          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-            rocket.setMotorIgnitionById(id, mm.ignition.event, mm.ignition.delay);
-          }
+          // The motor and its ignition, through the ONE writer every flight
+          // uses too (services/flightRunner.ts). It refuses an ignition event
+          // the kernel does not know BEFORE the motor goes on, so a mount
+          // reported here is also absent from the handle — recovery weight
+          // and the pad-mass arithmetic below already treat it so.
+          writeMountMotor(rocket, id, mm.spec, mm.ignition);
         } catch (e) {
           motorFailures.push({
             mountId: id,
@@ -1566,14 +1503,11 @@ export function App() {
       if (hardware.state === 'ok') {
         const mm = accepted.find(([id]) => id === hardware.appliedTo)?.[1];
         if (mm) {
-          rocket.setMotorById(hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware));
-          // Ignition re-applied on the same condition as the loop above: the
-          // bridge's setMotorById (OrkEngine.java applyMotor) installs a fresh
-          // motor configuration on the mount, so the second write would
-          // otherwise leave it on the kernel's default.
-          if (mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) {
-            rocket.setMotorIgnitionById(hardware.appliedTo, mm.ignition.event, mm.ignition.delay);
-          }
+          // Through the same writer as the loop above, which re-applies the
+          // ignition: the bridge's setMotorById (OrkEngine.java applyMotor)
+          // installs a fresh motor configuration on the mount, so the second
+          // write would otherwise leave it on the kernel's default.
+          writeMountMotor(rocket, hardware.appliedTo, flownSpec(hardware.appliedTo, mm.spec, hardware), mm.ignition);
           info = rocket.staticInfo();
         }
       }
@@ -1653,22 +1587,9 @@ export function App() {
   const motorFailures = useMemo(() => built?.motorFailures ?? [], [built]);
   /**
    * The hardware this build carries (kg), 0 when none: a provenance term
-   * (motorSetKeyOf below) so a pad-mass edit marks the shown flight stale.
+   * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
   const hardwareDeltaKg = built && built.hardware.state === 'ok' ? built.hardware.deltaKg : 0;
-  /**
-   * The spec the PRIMARY mount flies — the catalogue spec with the weighed
-   * hardware on it, or the catalogue spec itself. Every re-fly path that
-   * writes the primary's delay onto the shared handle spreads THIS, not
-   * `primary.spec`: that write replaces the whole motor, and spreading the
-   * catalogue spec put the catalogue mass back on the handle, so the reported
-   * flight lost the hardware the design page had just carried.
-   */
-  const primaryFlownSpec = useMemo((): MotorSpec | null => (
-    built && primaryMountId && mountMotors[primaryMountId]
-      ? flownSpec(primaryMountId, mountMotors[primaryMountId]!.spec, built.hardware)
-      : null
-  ), [built, primaryMountId, mountMotors]);
 
   /**
    * RECOVERY WEIGHT — the mass that comes down under the chute, which is
@@ -2325,90 +2246,26 @@ export function App() {
   const onLaunch = () => {
     if (!built || !primaryMountId) return;
     const primary = mountMotors[primaryMountId]!;
-    // Never fly inherited handle state — see applyAssignedMotors. This is also
-    // what makes the auto-delay write further down safe to leave unrestored.
-    applyAssignedMotors(built.rocket, built.hardware);
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there.
     setTab('results');
     void afterPaint().then(() => {
       try {
-        const simOpts = kernelSimOptions(launch);
-        // The cost the time-step caution quotes is ONE flight at the current
-        // step, so each full flight is timed alone and the LAST measurement
-        // wins — that is the flight whose result is shown. t0 used to sit
-        // before the Mach probe, so auto aero plus auto delay billed a probe
-        // and up to two extra flights as "per flight" and the caution quoted
-        // 2-3x the real wait.
-        let execMs = 0;
-        const flyTimed = (): FlightResult => {
-          const t0 = performance.now();
-          const r = built.rocket.simulate(simOpts);
-          execMs = performance.now() - t0;
-          return r;
-        };
-        // Auto aero mode: decide which model to fly BEFORE flying. Past Mach 0.9
-        // (transonic onset, where classic aero starts degrading) the whole
-        // flight uses the supersonic model, and the design's displayed statics
-        // follow (setAutoSupersonic rebuilds the engine handle with the flag on
-        // after this callback finishes).
-        //
-        // This used to fly the entire classic flight and then, on a supersonic
-        // design, throw all of it away and fly the entire thing again — paying
-        // for two flights to read one number. A run truncated just past burnout
-        // reaches the same >0.9 verdict: peak Mach happens at or just after
-        // burnout, never during the coast. Measured on the whole test corpus,
-        // the truncated probe returns the EXACT maxMach on 6 of 7 designs and
-        // lands the same side of 0.9 on all 7, at a fraction of the cost.
-        let usedSupersonic = effectiveSupersonic;
-        if (aeroMode === 'auto' && !usedSupersonic) {
-          const probe = built.rocket.simulate({
-            ...simOpts,
-            maxTime: machProbeSeconds(assigned.map(([id, mm]) => ({
-              ...mm, onLaunchStage: isOnLaunchStage(tree, id),
-            }))),
-          });
-          if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-            built.rocket.setSupersonicAero(true);
-            usedSupersonic = true;
-            setAutoSupersonic(true);
-          }
-        }
-        // The ONE real flight. The probe's result is never used for anything
-        // else: a truncated run has no apogee, so its optimumDelay is absent and
-        // its warning set is incomplete.
-        let res = flyTimed();
-        // The probe under-reads by construction — it stops ~3 s after burnout,
-        // and its exact-maxMach score on the corpus was 6 of 7 — so its verdict
-        // is re-checked against the flight it green-lit. Without this, a
-        // borderline design (probe 0.897, flight 0.904), or one whose
-        // BALLISTIC DESCENT alone goes supersonic (the probe never sees the
-        // descent; v0.070's full-flight decision did), stays on classic aero
-        // with nothing to say so. Costs nothing except on the designs the
-        // probe misread, and cannot loop: usedSupersonic is true after one
-        // upgrade, so the recheck fires at most once.
-        if (aeroMode === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-          built.rocket.setSupersonicAero(true);
-          usedSupersonic = true;
-          setAutoSupersonic(true);
-          res = flyTimed();
-        }
-        let flownDelay = primary.spec.ejectionDelay;
-        // Auto delay (sustainer/primary mount): the first run yields the
-        // kernel's optimum (ballistic probe) — round to the nearest whole
-        // second (drill-to-fit) and fly the real run with that.
-        if (primary.meta.autoDelay) {
-          const rec = recommendDelay(res.summary.optimumDelay);
-          if (rec !== null) {
-            flownDelay = rec;
-            // Spread the FLOWN spec (hardware included), not the catalogue
-            // one: this write replaces the whole motor on the handle, and
-            // spreading `primary.spec` put the catalogue mass back — so the
-            // reported flight lost the hardware the build had just carried.
-            setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: rec });
-            res = flyTimed();
-          }
-        }
+        // The probe, the auto-aero upgrade, the auto delay and the handle
+        // protocol they share all live in services/flightRunner.ts, where a
+        // test can fly them (audit 2026-09-22, extraction #1).
+        const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs } = flyLaunch(built.rocket, {
+          assigned,
+          hardware: built.hardware,
+          primaryMountId,
+          simOptions: kernelSimOptions(launch),
+          aeroMode,
+          supersonic: effectiveSupersonic,
+          isOnLaunchStage: (id) => isOnLaunchStage(tree, id),
+          // Rebuilds the engine handle with the flag on after this callback
+          // finishes, so the design's displayed statics follow the flight.
+          onSupersonicUpgrade: () => setAutoSupersonic(true),
+        });
         // Per-stage motor info so booster branches can be safety-checked
         // (a chuteless booster above the high-power line must warn). The branch
         // naming rule, and the reason it is not simply the stage's name, lives
@@ -2443,10 +2300,11 @@ export function App() {
           // Provenance for the .ork <flightdata> guard: what this flight was
           // computed FROM, so a later export can prove the design, motors and
           // conditions have not moved since — and refuse to write the numbers
-          // when they have.
+          // when they have. Stamped from the SAME key every comparison uses
+          // (`provenanceKey`, below), so the two cannot be assembled apart.
           ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
-          designKey: shortHash(physicsKey),
-          motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
+          designKey: provenanceKey.designKey,
+          motorSetKey: provenanceKey.motorSetKey,
           // What the kernel was handed for each chute — so the report can state
           // the coefficient the verdict rests on, not just the device's name.
           flownRecovery: built.flownRecovery,
@@ -2482,69 +2340,45 @@ export function App() {
   };
 
   /**
-   * The flown motor set as one comparable string: every mount that carried a
-   * motor, WHICH motor, the delay it flew and its ignition setting.
-   *
-   * The stored run's `motor`/`delayS` describe only the PRIMARY mount and
-   * `boosterMotors` is labels-only, so neither can tell a two-stage design
-   * re-motored on the booster from the same design untouched.
-   *
-   * The manufacturer is part of the identity, not decoration: designations
-   * are not unique across vendors (an AeroTech J350 and a Cesaroni J350 are
-   * different motors with different curves), and the EX library keys on the
-   * exact imported entry because two vendors' same-designation curves coexist
-   * there. Without them, swapping vendors would leave the old flight's
-   * numbers looking current.
-   *
-   * The weighed hardware (services/hardwareMass.ts) is part of the motor's
-   * FLOWN mass, so it is a term here too: a pad-mass edit after a flight marks
-   * the shown run stale the way a motor swap does, and the .ork flightData
-   * guard refuses the stale numbers. Appended ONLY when non-zero, to 0.1 g,
-   * so every stored run and every design without a pad mass keeps the exact
-   * key it always had.
-   */
-  const motorSetKeyOf = useCallback((set: [string, MountMotor][], hardwareKg: number): string => {
-    const key = [...set]
-      .map(([id, mm]) => [
-        id,
-        motorIdentity(mm.meta, mm.spec.designation),
-        mm.spec.ejectionDelay,
-        mm.ignition.event,
-        mm.ignition.delay,
-      ].join(':'))
-      .sort()
-      .join('|');
-    return hardwareKg > 0 ? `${key}|hw:${Math.round(hardwareKg * 1e4)}` : key;
-  }, []);
-
-  /**
-   * The provenance of the design as it stands RIGHT NOW, for comparison
-   * against what a stored run recorded at launch. Every term is stamped onto
-   * every run by onLaunch, so the comparison is like-for-like.
+   * The provenance of the design, its motors and the conditions AS THEY STAND:
+   * what onLaunch stamps onto every run, and what a stored run is compared
+   * against — for the stale marks, for "Show charts" and for the `.ork`
+   * `<flightdata>` guard. ONE assembly (simReport's designMatchKeyOf) since the
+   * 2026-09-22 audit found it built term by term in four places here.
    *
    * effectiveKbf, not the stored preference: with the vitals strip's session
    * override active the two differ, and the run this is compared against was
    * stamped with the effective value.
+   *
+   * Deliberately NOT gated on `built && primaryMountId` the way
+   * `currentMatchKey` is. That gate is right for the re-fly path — you cannot
+   * reproduce a flight without a buildable rocket and a mount — but applying it
+   * here made the whole staleness signal vanish in exactly the states where a
+   * stored run is most likely to belong to something else: unload the motor, or
+   * start a new design, and the report went back to rendering an old flight with
+   * nothing to say so. Every term here is computable without a motor.
    */
-  const currentMatchKey = useMemo<DesignMatchKey | null>(() => {
-    if (!built || !primaryMountId) return null;
-    return {
-      designKey: shortHash(physicsKey),
-      motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
-      conditionsKey: conditionsKeyOf(launch),
-      aeroMode,
-      effectiveKbf,
-      autoSupersonic,
-      // Does the design SPEND the pressure-thrust term? A stored run flown
-      // before v0.119 cannot be re-flown on a design that does — see
-      // simReport's runCarriesNozzleStamp (2026-09-08).
-      hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-    };
+  const provenanceKey = useMemo<DesignMatchKey>(() => designMatchKeyOf({
+    physicsKey,
+    assigned,
+    hardwareDeltaKg,
+    launch,
+    aeroMode,
+    effectiveKbf,
+    autoSupersonic,
+    // Does the design SPEND the pressure-thrust term? A stored run flown
+    // before v0.119 cannot be re-flown on a design that does — see
+    // simReport's runCarriesNozzleStamp (2026-09-08).
+    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
     // `tree`, not `tree.components`, unlike `buildResult` above: this memo is
     // ~0.3 ms and re-running it on a rename is cheaper than a suppressed
     // exhaustive-deps warning is to read.
-  }, [built, primaryMountId, physicsKey, assigned, launch, aeroMode, effectiveKbf,
-    autoSupersonic, motorSetKeyOf, hardwareDeltaKg, tree]);
+  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree]);
+  /** The same key, only when there is a rocket and a motor to re-fly it on. */
+  const currentMatchKey = useMemo<DesignMatchKey | null>(
+    () => (built && primaryMountId ? provenanceKey : null),
+    [built, primaryMountId, provenanceKey],
+  );
 
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.
@@ -2580,7 +2414,9 @@ export function App() {
    * the cache, six flights).
    *
    * The physics is deterministic (fixed seed), so this reproduces the stored
-   * flight exactly rather than approximating it.
+   * flight exactly rather than approximating it — which holds only while the
+   * re-fly is handed the delay the run FLEW; services/flightRunner.ts
+   * `reflyRun` owns that and the rest of the handle protocol.
    */
   const showChartsFor = useCallback(async (run: SimRun): Promise<void> => {
     if (!built || !primaryMountId) return;
@@ -2588,45 +2424,28 @@ export function App() {
     setLastRun(run);
     // Let the busy state paint before the synchronous simulation blocks.
     await afterPaint();
-    const primary = mountMotors[primaryMountId]!;
-    // Did this re-fly write a foreign ejection delay onto the SHARED engine
-    // handle? `run.delayS` is the delay the stored run FLEW, which differs from
-    // the spec's whenever auto delay chose the optimum — and `built.rocket` is
-    // the handle the next Launch, the drag panel and the component table all
-    // use. Left behind, a Launch with auto delay switched off reported the
-    // spec's 5 s while the kernel flew the run's 7 s: deployment altitude,
-    // velocity at deployment, the safe-deployment verdict and the
-    // optimum-delay advice all came from a flight the report misattributed.
-    const wroteDelay = run.delayS !== primary.spec.ejectionDelay;
     try {
-      if (wroteDelay) {
-        // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
-        setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: run.delayS });
-      }
       // canShowCharts already required the run's model to equal the current
       // one, so the handle is right as it stands. It is set explicitly anyway
       // — in Auto the same effective model can be reached with the session's
       // upgrade flag either way, and a handle rebuilt since the flag flipped
       // would otherwise be silently one model behind.
-      built.rocket.setSupersonicAero(effectiveSupersonic);
-      built.rocket.setRogersModifiedBarrowman(effectiveKbf);
-      const res = built.rocket.simulate(kernelSimOptions(launch));
+      const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf };
+      const res = reflyRun(built.rocket, {
+        assigned, hardware: built.hardware, primaryMountId,
+        delayS: run.delayS,
+        simOptions: kernelSimOptions(launch),
+        fly: current,
+        restore: current,
+      });
       cacheFlight(run.id, res);
       setSimError(null);
     } catch (e) {
       setSimError(e instanceof Error ? e.message : String(e));
     } finally {
-      // Hand the shared handle back exactly as it was found — the same
-      // contract fetchFullSeriesResult already keeps for the aero model.
-      if (wroteDelay) {
-        try { setFlownMotorOn(built.rocket, primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* the
-          motor the kernel refused is already reported by buildResult's
-          motorFailures; failing to restore it must not also lose the charts. */ }
-      }
       setReflying(null);
     }
-  }, [built, primaryMountId, mountMotors, launch, effectiveSupersonic, effectiveKbf, cacheFlight,
-    primaryFlownSpec, setFlownMotorOn]);
+  }, [built, primaryMountId, assigned, launch, effectiveSupersonic, effectiveKbf, cacheFlight]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -2642,15 +2461,6 @@ export function App() {
     }
     // Let the caller's busy state paint before the synchronous re-simulation.
     await afterPaint();
-    const primary = mountMotors[primaryMountId]!;
-    const wroteDelay = lastRun.delayS !== primary.spec.ejectionDelay;
-    if (wroteDelay) {
-      // Auto delay flew the rounded optimum (recorded on the run); a handle
-      // rebuilt since launch (auto-supersonic flips the build memo) still
-      // holds the pre-probe spec — restore the flown delay before re-flying.
-      // The FLOWN spec, hardware included — see onLaunch's auto-delay write.
-      setFlownMotorOn(built.rocket, primaryMountId, { ...(primaryFlownSpec ?? primary.spec), ejectionDelay: lastRun.delayS });
-    }
     // Restore the model the SHOWN flight was flown on, not whatever is
     // selected now. Since a model switch no longer discards the flight, the
     // two can differ — and a CSV that re-flew on today's model would be a
@@ -2658,25 +2468,17 @@ export function App() {
     const wasSupersonic = lastRun.aeroModel === 'supersonic'
       || lastRun.aeroModel === 'auto-supersonic';
     const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
-    built.rocket.setSupersonicAero(wasSupersonic);
-    built.rocket.setRogersModifiedBarrowman(wasKbf);
-    try {
-      return built.rocket.simulate({ ...kernelSimOptions(launch), series: 'full' });
-    } finally {
-      // Hand the shared handle back exactly as it was: the drag panel and the
-      // component table read it too, and they follow the CURRENT model.
-      built.rocket.setSupersonicAero(effectiveSupersonic);
-      built.rocket.setRogersModifiedBarrowman(effectiveKbf);
-      // The MOTOR too, and for the same reason — this finally restored the
-      // aero model and left the run's ejection delay on the shared handle, so
-      // the next Launch flew a delay the report never mentions.
-      if (wroteDelay) {
-        try { setFlownMotorOn(built.rocket, primaryMountId, primaryFlownSpec ?? primary.spec); } catch { /* a motor
-          the kernel refuses is already surfaced by buildResult's motorFailures. */ }
-      }
-    }
-  }, [built, primaryMountId, lastRun, mountMotors, launch, effectiveSupersonic, effectiveKbf,
-    primaryFlownSpec, setFlownMotorOn]);
+    return reflyRun(built.rocket, {
+      assigned, hardware: built.hardware, primaryMountId,
+      // Auto delay flew the rounded optimum, recorded on the run.
+      delayS: lastRun.delayS,
+      simOptions: { ...kernelSimOptions(launch), series: 'full' },
+      fly: { supersonic: wasSupersonic, kbf: wasKbf },
+      // Hand the shared handle back on the CURRENT model: the drag panel and
+      // the component table read it too.
+      restore: { supersonic: effectiveSupersonic, kbf: effectiveKbf },
+    });
+  }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   const toExportMotor = (mm: MountMotor): OrkExportMotor => {
@@ -2801,8 +2603,11 @@ export function App() {
       activeConfigId,
       assigned,
       mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
-      designKey: shortHash(physicsKey),
-      conditionsKey: conditionsKeyOf(launch),
+      // The design and conditions terms of the ONE key a run is stamped with.
+      // The motor set is not taken from it: a non-active configuration is
+      // compared against its OWN motors, so the function is handed over.
+      designKey: provenanceKey.designKey,
+      conditionsKey: provenanceKey.conditionsKey,
       model: { aeroMode, effectiveKbf, autoSupersonic },
       // Tree-only, deliberately NOT joined to `assigned` the way the two match
       // keys are: this admits runs from OTHER flight configurations, whose
@@ -2812,8 +2617,11 @@ export function App() {
       hasNozzle: stagesWithNozzle(tree).length > 0,
       motorSetKeyOf,
       hardwareDeltaKg,
+      // Whose delay a run's `delayS` is: an auto-delay run is written only when
+      // it flew the delay the file's <delay> will name (audit 2026-09-22).
+      primaryMountOf: (ids) => primaryMountOf(tree, ids),
     })
-  ), [runs, savedConfigs, activeConfigId, assigned, mounts, physicsKey, launch, motorSetKeyOf,
+  ), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
 
   /**
@@ -3703,31 +3511,10 @@ export function App() {
   const modelMatch = lastRun
     ? runMatchesModel(lastRun, { aeroMode, effectiveKbf, autoSupersonic })
     : null;
-  /**
-   * The design, motors and conditions AS THEY STAND, for comparing a stored run
-   * against.
-   *
-   * Deliberately NOT gated on `built && primaryMountId` the way
-   * `currentMatchKey` is. That gate is right for the re-fly path — you cannot
-   * reproduce a flight without a buildable rocket and a mount — but applying it
-   * here made the whole staleness signal vanish in exactly the states where a
-   * stored run is most likely to belong to something else: unload the motor, or
-   * start a new design, and the report went back to rendering an old flight with
-   * nothing to say so. Every term here is computable without a motor.
-   */
-  const provenanceKey = useMemo<DesignMatchKey>(() => ({
-    designKey: shortHash(physicsKey),
-    motorSetKey: motorSetKeyOf(assigned, hardwareDeltaKg),
-    conditionsKey: conditionsKeyOf(launch),
-    aeroMode,
-    effectiveKbf,
-    autoSupersonic,
-    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-  }), [physicsKey, assigned, launch, aeroMode, effectiveKbf, autoSupersonic, motorSetKeyOf,
-    hardwareDeltaKg, tree]);
 
   /**
-   * What has changed since the SHOWN run was flown.
+   * What has changed since the SHOWN run was flown, against `provenanceKey`
+   * (the design as it stands — deliberately not gated on a motor, see there).
    *
    * Selecting a row in Saved simulations loads any stored run into the report —
    * deliberately, because looking at an earlier flight is a real thing to want.
@@ -4458,6 +4245,9 @@ export function App() {
             canCompare={!!built && !!primaryMountId && !isStaged}
             staleModel={modelMatch === false && lastRun
               ? aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf) : null}
+            // The same provenance the vitals strip's ⚠ and the Results note
+            // read — this screen replaces the strip on a phone.
+            changedSince={changedSinceNonModel}
           />
         )}
 

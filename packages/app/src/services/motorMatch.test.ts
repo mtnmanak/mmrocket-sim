@@ -244,3 +244,26 @@ describe('refToExportMotor', () => {
     expect('padMassKg' in refToExportMotor(ref({ padMassKg: 0 }))).toBe(false);
   });
 });
+
+/**
+ * An ignition event that is none of the five (audit 2026-09-22). It used to
+ * reach the MountMotor verbatim through an `as IgnitionEvent` cast; the build
+ * then put the motor on the handle, the ignition write threw, and the mount was
+ * reported as REFUSED — so recovery weight and the pad-mass arithmetic left it
+ * out — while the handle flew it on AUTOMATIC. The .ork reader now maps it to
+ * AUTOMATIC with a note, as desktop OpenRocket's does (orkFile.test.ts); this is
+ * the backstop for a reference from anywhere else.
+ */
+describe('an ignition event nothing knows', () => {
+  const deps = { findDb: () => dbEntry(), fetchSpec: async () => spec('C6', 5) };
+
+  it('flies AUTOMATIC rather than reaching the kernel as it was written', async () => {
+    const res = await matchImportedMotor(ref({ ignitionEvent: 'sideways', ignitionDelay: 2 }), deps);
+    expect(res.motor?.ignition).toEqual({ event: 'automatic', delay: 2 });
+  });
+
+  it('keeps a known event in the spelling the kernel parses it by', async () => {
+    const res = await matchImportedMotor(ref({ ignitionEvent: 'EJECTION_CHARGE' }), deps);
+    expect(res.motor?.ignition.event).toBe('ejectioncharge');
+  });
+});

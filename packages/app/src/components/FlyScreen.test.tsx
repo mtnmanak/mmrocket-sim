@@ -100,6 +100,69 @@ describe('FlyScreen', () => {
   });
 
   /**
+   * A selected history run is a flight of whatever rocket it was — and this is
+   * the phone home screen, where the optimum delay is the number people set at
+   * the pad. The screen got only the MODEL mark, so a run of another rocket,
+   * motor or launch conditions showed its apogee, delay and descent here
+   * unmarked, beside a Recovery-weight tile that follows the motor loaded now
+   * (audit 2026-09-22).
+   */
+  describe('a flight that no longer describes the design', () => {
+    const FLOWN = {
+      ...RUN, when: Date.now(), motor: 'C6', manufacturer: 'Estes', delayS: 3,
+    } as SimRun;
+    const notes = () => Array.from(host.querySelectorAll('.fly-stale')).map((el) => el.textContent ?? '');
+
+    it('says what flew and what changed since, and sends the user to Launch', () => {
+      mount({ run: FLOWN, changedSince: ['the motor'] });
+      expect(notes()).toHaveLength(1);
+      expect(notes()[0]).toMatch(/Flown with Estes C6-3 at .+ — the motor changed since\. Press Launch/);
+    });
+
+    it('lists every change, the way the Results tab does', () => {
+      mount({ run: FLOWN, changedSince: ['the design', 'the launch conditions'] });
+      expect(notes()[0]).toContain('the design and the launch conditions changed since');
+    });
+
+    it('names a plugged motor as plugged, not as an Infinity-second delay', () => {
+      mount({ run: { ...FLOWN, delayS: Infinity }, changedSince: ['the design'] });
+      expect(notes()[0]).toContain('Estes C6-P');
+    });
+
+    it('names a Batch combination as the report header does, with no delay hung on its last leg', () => {
+      // Batch stores a combination with the whole label as `motor` and the
+      // manufacturers '+'-joined; it carries a conditions key, so a change of
+      // launch conditions shows this note for it.
+      mount({
+        run: {
+          ...FLOWN, motor: '4× G80 + 2× F39', manufacturer: 'AT+CTI', delayS: 7, motorConfig: 'mixed 4+2',
+        },
+        changedSince: ['the launch conditions'],
+      });
+      expect(notes()[0]).toMatch(/Flown with 4× G80 \+ 2× F39 \(AT\+CTI\) at .+ — the launch conditions changed since/);
+      expect(notes()[0]).not.toContain('F39-7');
+    });
+
+    it('a single-motor Batch row keeps the single-motor form', () => {
+      mount({ run: { ...FLOWN, motorConfig: 'single' }, changedSince: ['the design'] });
+      expect(notes()[0]).toContain('Estes C6-3');
+    });
+
+    it('says nothing when nothing changed, or when it cannot be told', () => {
+      mount({ run: FLOWN, changedSince: [] });
+      expect(notes()).toEqual([]);
+      mount({ run: FLOWN, changedSince: null });
+      expect(notes()).toEqual([]);
+    });
+
+    it('keeps the model note as well — they are different reasons', () => {
+      mount({ run: FLOWN, changedSince: ['the motor'], staleModel: 'Extended Barrowman' });
+      expect(notes()).toHaveLength(2);
+      expect(notes()[0]).toContain('Extended Barrowman');
+    });
+  });
+
+  /**
    * Recovery weight is the mass under the chute — dry rocket plus the SPENT
    * casing, not pad weight. It needs no flight, only a motor, so it is the one
    * number on this screen that reads before Launch is pressed.

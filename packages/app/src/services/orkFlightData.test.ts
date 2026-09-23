@@ -17,7 +17,7 @@ import type { MountMotor, SavedConfig } from '../App.js';
 
 const MOTOR: MountMotor = {
   label: 'H128-M',
-  spec: { designation: 'H128W', diameter: 0.029, length: 0.194 },
+  spec: { designation: 'H128W', diameter: 0.029, length: 0.194, ejectionDelay: 7 },
   meta: { label: 'H128-M' },
   ignition: { event: 'automatic', delay: 0 },
 } as unknown as MountMotor;
@@ -28,6 +28,7 @@ const RUN: SimRun = {
   designKey: 'design-A',
   conditionsKey: 'cond-A',
   motorSetKey: 'set-A',
+  delayS: 7,
   aeroModel: 'supersonic',
   rogersKbf: true,
   nozzleStamp: 'v119',
@@ -59,6 +60,7 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
   hasNozzle: false,
   motorSetKeyOf: () => 'set-A',
   hardwareDeltaKg: 0,
+  primaryMountOf: (mountIds) => mountIds[0] ?? null,
   ...over,
 });
 
@@ -192,5 +194,59 @@ describe('flightDataForExport — the rules that are about OTHER configurations'
     const out = flightDataForExport(base({ runs: [newer, RUN] }));
     expect(Object.keys(out)).toEqual(['c1']);
     expect(out['c1']!.maxAltitude).toBe(999);
+  });
+});
+
+/**
+ * THE DELAY A RUN FLEW (audit 2026-09-22). The motor-set key carries each
+ * motor's SPEC delay — the one the file's `<delay>` names — never an auto-delay
+ * optimum, which is only known after flying. So an auto-delay run matched its
+ * configuration, and its flight went into the file under a delay it never
+ * flew. Measured on the starter rocket (classic + Kbf, the default) with an
+ * Estes C6 whose spec says 3 s: auto flew 5 s, and the file said the chute
+ * opened at 3.81 m/s where the 3 s motor it names deploys at 16.81 m/s.
+ */
+describe('flightDataForExport — the flown delay must be the one the file names', () => {
+  const withDelay = (delay: number): MountMotor =>
+    ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: delay } }) as MountMotor;
+
+  it('refuses an auto-delay run that flew a delay other than its configuration’s', () => {
+    // RUN flew 7 s; the configuration's motor now says 3 s, with the same key.
+    expect(ids({ assigned: [['m1', withDelay(3)]] })).toEqual([]);
+  });
+
+  it('writes an auto-delay run whose optimum rounded to the configuration’s own delay', () => {
+    // It flew exactly what the file will say — nothing to refuse.
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
+    expect(ids({ assigned: [['m1', auto]] })).toEqual(['c1']);
+  });
+
+  it('reads the delay off the configuration’s PRIMARY, not its first mount', () => {
+    // `delayS` is the primary's: auto delay writes no other mount.
+    const booster = withDelay(0);
+    const staged = (primary: string) => ids({
+      assigned: [['b', booster], ['m1', MOTOR]], mountIds: ['b', 'm1'],
+      primaryMountOf: () => primary,
+    });
+    expect(staged('m1')).toEqual(['c1']);
+    expect(staged('b')).toEqual([]);
+  });
+
+  it('reads a NON-active configuration against its own motors', () => {
+    const other = {
+      id: 'c2', name: 'Longer delay', isDefault: false, motors: { m1: withDelay(10) },
+    } as unknown as SavedConfig;
+    const run2 = { ...RUN, id: 'r2', flightConfigId: 'c2' } as SimRun;
+    expect(ids({ runs: [run2], savedConfigs: [CONFIG, other] })).toEqual([]);
+    expect(ids({ runs: [{ ...run2, delayS: 10 } as SimRun], savedConfigs: [CONFIG, other] })).toEqual(['c2']);
+  });
+
+  it('refuses when the configuration has no primary to read the delay against', () => {
+    expect(ids({ primaryMountOf: () => null })).toEqual([]);
+  });
+
+  it('writes a plugged motor’s run — Infinity is the delay it flew and the one the file names', () => {
+    const plugged = withDelay(Infinity);
+    expect(ids({ runs: [{ ...RUN, delayS: Infinity } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
   });
 });

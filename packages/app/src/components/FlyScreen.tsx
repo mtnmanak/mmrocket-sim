@@ -3,7 +3,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
 import {
-  formatStability, hasAerodynamicForce, shownStability, type SimRun,
+  formatRunWhenProse, formatStability, hasAerodynamicForce, listAnd, shownStability, type SimRun,
 } from '../services/simReport.js';
 import { Icon } from './Icon.js';
 import { LaunchField, type LaunchConditions } from './LaunchPanel.js';
@@ -19,7 +19,7 @@ import { TreeSchematic } from './TreeSchematic.js';
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunch, simulating, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
-  staleModel }: {
+  staleModel, changedSince }: {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -49,6 +49,18 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
    * the current model.
    */
   staleModel?: string | null;
+  /**
+   * What has changed since the shown run was flown, the model excepted (it
+   * has its own note): App's `changedSinceNonModel`. Empty or null = nothing
+   * to say, or it cannot be told.
+   *
+   * Without it, a run picked in Saved simulations showed its apogee, optimum
+   * delay and descent here unmarked beside a different rocket or motor — on
+   * the screen whose optimum delay is the number people set at the pad, and
+   * next to a Recovery-weight tile that follows the motor loaded NOW, so the
+   * tiles disagreed with each other (audit 2026-09-22).
+   */
+  changedSince?: readonly string[] | null;
 }) {
   const { prefs } = usePrefs();
   const stab = info && hasAerodynamicForce(info)
@@ -99,6 +111,17 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             <p className="fly-stale" role="status">
               ⚠ Flown on <strong>{staleModel}</strong>, not the model now
               selected — press Launch to re-fly.
+            </p>
+          )}
+          {run && changedSince && changedSince.length > 0 && (
+            // The Results tab's provenance note, phone-sized: what flew, and
+            // what is different now. The motor is named because the Motor row
+            // below shows the one loaded now, which may not be it.
+            <p className="fly-stale" role="status">
+              ⚠ Flown with{' '}
+              <strong>{flownMotorLabel(run)}</strong>{' '}
+              {formatRunWhenProse(run.when)} — <strong>{listAnd(changedSince)}</strong> changed
+              since. Press Launch to fly the current design.
             </p>
           )}
           <div className="fly-stats">
@@ -160,4 +183,20 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
       </button>
     </main>
   );
+}
+
+/**
+ * What flew, for the provenance note. A Batch COMBINATION run (`motorConfig`
+ * 'mixed …', the test the batch table groups its sheets by) already carries
+ * the whole multi-motor label in `motor` ("4× G80 + 2× F39") and a '+'-joined
+ * manufacturer set, so the single-motor form read "AT+CTI 4× G80 + 2× F39-7",
+ * with the delay hung on the last leg alone. It is named as the launch
+ * report's header names it instead, with no delay.
+ */
+function flownMotorLabel(run: SimRun): string {
+  if (run.motorConfig?.startsWith('mixed')) {
+    return `${run.motor}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
+  }
+  return `${run.manufacturer ? `${run.manufacturer} ` : ''}${run.motor}-${
+    Number.isFinite(run.delayS) ? run.delayS : 'P'}`;
 }

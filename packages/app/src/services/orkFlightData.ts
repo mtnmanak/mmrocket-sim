@@ -60,9 +60,18 @@ export interface FlightDataForExportInput {
   model: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean };
   /** Whether ANY stage carries a nozzle exit diameter. */
   hasNozzle: boolean;
-  /** The app's own motor-set key function, injected so this module stays pure. */
+  /**
+   * simReport's `motorSetKeyOf` — the SAME function Launch stamps a run with.
+   * Passed in rather than imported so a test can hand each configuration a key
+   * of its own and exercise one rule at a time.
+   */
   motorSetKeyOf: (motors: [string, MountMotor][], hardwareDeltaKg: number) => string;
   hardwareDeltaKg: number;
+  /**
+   * treeModel's `primaryMountOf` over the tree as it stands: the mount whose
+   * motor a run's `delayS` describes. Passed in so this module needs no tree.
+   */
+  primaryMountOf: (mountIds: readonly string[]) => string | null;
 }
 
 export function flightDataForExport(
@@ -70,7 +79,7 @@ export function flightDataForExport(
 ): Record<string, OrkExportFlightData> {
   const {
     runs, savedConfigs, activeConfigId, assigned, mountIds,
-    designKey, conditionsKey, model, hasNozzle, motorSetKeyOf, hardwareDeltaKg,
+    designKey, conditionsKey, model, hasNozzle, motorSetKeyOf, hardwareDeltaKg, primaryMountOf,
   } = input;
   // No prototype: keyed by configuration id, file-sourced text. A default id
   // of `constructor` found Object there, was skipped as already written, and
@@ -109,6 +118,20 @@ export function flightDataForExport(
     // hardware, and refusal is the safe direction for numbers written into a
     // file — the same rule the model check above applies to UNKNOWN.
     if (r.motorSetKey !== motorSetKeyOf(cfgMotors, cfg.id === activeConfigId ? hardwareDeltaKg : 0)) continue;
+    // And the delay the run FLEW. The key carries each motor's SPEC delay —
+    // the one this file's `<delay>` will name — never an auto-delay optimum,
+    // which is only known after flying (simReport's motorSetKeyOf). So an
+    // auto-delay run matched its configuration and its flight was written
+    // under a delay it never flew: measured on the starter rocket on the default
+    // model (classic + Kbf; audit 2026-09-22), an Estes C6 set to 3 s that auto
+    // flew at 5 s went into the file deploying at 3.81 m/s, where the 3 s motor
+    // the file names deploys at 16.81 m/s. The run's `delayS` is the PRIMARY's
+    // — the only mount auto delay writes — so it is read against this
+    // configuration's own primary. An optimum that rounded to the spec delay
+    // flew exactly what the file says, and is written.
+    const primaryId = primaryMountOf(cfgMotors.map(([id]) => id));
+    const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
+    if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
     out[r.flightConfigId] = summaryOf(r);
   }
   return out;

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { buildSimRun, type SimRun, formatRunWhenProse,
+import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse,
 } from '../services/simReport.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
@@ -166,6 +166,46 @@ describe('SimRunDetails — the report carries its own provenance (v0.101)', () 
     expect(text).toContain('Flown');
     expect(text).not.toContain('changed since');
     expect(text).not.toContain('matches the design');
+  });
+});
+
+/**
+ * A deployment row as run history stored it BEFORE v0.099 (2026-09-03): no
+ * `cd`, `cdNominal`, `diameter` or `spillHoleDiameter` key at all — they did
+ * not exist yet — and, before v0.100, no `groundSpeed` either. `loadRuns`
+ * revives rows as it finds them, so every tester run with a recovery device
+ * stored from 2026-08-21 to 2026-09-03 reaches the report in this shape.
+ */
+const preV099Deployment = {
+  device: 'Parachute', time: 7.0, altitude: 331.0, velocityAtDeployment: 4.2,
+  descentRate: 3.4, isLanding: true, openingOk: true, descentOk: true,
+} as unknown as DeploymentReport;
+
+describe('SimRunDetails — a run stored before v0.099 (audit 2026-09-22)', () => {
+  // `flownCd` guarded `d.cd === null`, and an ABSENT key is undefined, so
+  // `d.cd.toFixed(2)` threw during render. With no error boundary above the
+  // Results column, clicking such a run in Saved simulations unmounted the
+  // whole app to "Something went wrong".
+  const cdCells = () => Array.from(host.querySelectorAll('.motor-table tbody tr'))
+    .map((tr) => tr.querySelectorAll('td')[4]?.textContent);
+
+  it('renders the main flight’s deployment table, with a dash for the coefficient it never recorded', () => {
+    const r: SimRun = { ...run(), deployments: [preV099Deployment] };
+    render(<SimRunDetails run={r} />);
+    expect(cdCells()).toEqual(['—']);
+  });
+
+  it('renders a booster branch’s deployment table the same way', () => {
+    const r: SimRun = {
+      ...run(),
+      deployments: [],
+      branches: [{
+        name: 'Booster', apogee: 120, tumbles: false,
+        deployments: [preV099Deployment], landingRate: 5, safeLandingRate: true,
+      }],
+    };
+    render(<SimRunDetails run={r} />);
+    expect(cdCells()).toEqual(['—']);
   });
 });
 
