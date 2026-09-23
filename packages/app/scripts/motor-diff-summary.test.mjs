@@ -18,6 +18,7 @@ import {
   sameValue,
   summarise,
 } from './motor-diff-summary.mjs';
+import { FIELDS } from './fetch-motor-db.mjs';
 
 /**
  * Tests for motor-diff-summary.mjs — the script that decides whether
@@ -342,24 +343,18 @@ describe('renderMarkdown', () => {
 });
 
 /**
- * The highest-value tests in this file. The 18-field catalogue projection lives in THREE
- * places and cannot be imported into all of them: fetch-motor-db.mjs does its work at
- * module top level and exports nothing, and catalogueOverlay.ts is browser TypeScript. So
- * the copies are pinned by reading the other two as text.
+ * The highest-value tests in this file. The 18-field catalogue projection lives in TWO
+ * places: FIELDS in fetch-motor-db.mjs (the writer, imported by motor-diff-summary.mjs
+ * since 2026-09-22) and CATALOGUE_FIELDS in catalogueOverlay.ts, browser TypeScript that
+ * the pipeline cannot import — so that one is pinned by reading it as text.
  */
 describe('the 18-field catalogue projection has not drifted', () => {
   const namesIn = (text, re) => (re.exec(text)?.[1].match(/'([^']+)'/g) ?? [])
     .map((q) => q.slice(1, -1));
 
-  it('matches FIELDS in fetch-motor-db.mjs, which is the writer and the authority', () => {
-    const src = readFileSync(join(here, 'fetch-motor-db.mjs'), 'utf8');
-    const fields = namesIn(src, /const FIELDS\s*=\s*\[([\s\S]*?)\];/);
-    expect(fields.length, 'could not parse FIELDS out of fetch-motor-db.mjs').toBe(18);
-    expect(
-      fields,
-      'fetch-motor-db.mjs WRITES motors.json, so its FIELDS list is the authority: copy it into '
-      + 'CATALOGUE_FIELDS in motor-diff-summary.mjs and in src/services/catalogueOverlay.ts.',
-    ).toEqual(CATALOGUE_FIELDS);
+  it('is FIELDS in fetch-motor-db.mjs, which is the writer and the authority', () => {
+    expect(CATALOGUE_FIELDS).toBe(FIELDS);
+    expect(FIELDS).toHaveLength(18);
   });
 
   it('matches CATALOGUE_FIELDS in src/services/catalogueOverlay.ts, the in-app differ', () => {
