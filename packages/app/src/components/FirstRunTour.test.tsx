@@ -152,6 +152,83 @@ describe('FirstRunTour', () => {
     expect(localStorage.getItem(TOUR_KEY)).toBe('done');
   });
 
+  /**
+   * Audit 2026-09-22: the tour declared itself aria-modal and trapped Tab while
+   * the whole app stayed live behind it (spotlight and scrim are
+   * pointer-events:none, on purpose), its step text was never announced, and it
+   * painted over any dialog opened mid-tour.
+   */
+  describe('a NON-modal card', () => {
+    const card = () => host.querySelector<HTMLElement>('.tour-card')!;
+    const key = (k: string): boolean => {
+      const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      act(() => { (document.activeElement ?? document).dispatchEvent(e); });
+      return e.defaultPrevented;
+    };
+
+    it('is a dialog without aria-modal, described by its step text', async () => {
+      mount(() => {}, () => {});
+      await settle();
+      expect(card().getAttribute('role')).toBe('dialog');
+      expect(card().getAttribute('aria-modal')).toBeNull();
+      const described = document.getElementById(card().getAttribute('aria-describedby') ?? '');
+      expect(described?.textContent).toContain('Every part of the rocket lives in this tree.');
+    });
+
+    it('starts with focus in the card, and does not trap Tab', async () => {
+      mount(() => {}, () => {});
+      await settle();
+      expect(card().contains(document.activeElement)).toBe(true);
+      // The last button in the card: a trap would take Tab and wrap.
+      const buttons = card().querySelectorAll<HTMLButtonElement>('button');
+      act(() => { buttons[buttons.length - 1]!.focus(); });
+      expect(key('Tab'), 'Tab was trapped in the card').toBe(false);
+    });
+
+    it('still closes on Escape', async () => {
+      let closed = false;
+      mount(() => {}, () => { closed = true; });
+      await settle();
+      expect(key('Escape')).toBe(true);
+      expect(closed).toBe(true);
+    });
+
+    it('announces each new step', async () => {
+      mount(() => {}, () => {});
+      await settle();
+      const region = () => host.querySelector('.tour-announce')!;
+      expect(region().getAttribute('aria-live')).toBe('polite');
+      act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
+      expect(region().textContent).toBe(
+        'Step 2 of 6: Check the drawing. Drag parts to reposition them, scroll to zoom.'
+        + ' The callouts flag CG, CP, and the stability margin.');
+      act(() => { (host.querySelectorAll('.tour-skip')[1] as HTMLButtonElement).click(); }); // Back
+      expect(region().textContent).toMatch(/^Step 1 of 6: Build here\. /);
+    });
+
+    it('steps aside under a dialog opened mid-tour, and comes back where it was', async () => {
+      let closed = false;
+      mount(() => {}, () => { closed = true; });
+      await settle();
+      act(() => { (host.querySelector('.tour-next') as HTMLButtonElement).click(); });
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.innerHTML = '<button id="in-dialog">OK</button>';
+      await act(async () => { document.body.appendChild(dialog); await Promise.resolve(); });
+      expect(card().hidden, 'the card painted over the dialog').toBe(true);
+      expect(host.querySelector('.tour-ring')).toBeNull();
+      // Escape belongs to the dialog, not to the tour hiding under it.
+      act(() => { dialog.querySelector<HTMLButtonElement>('#in-dialog')!.focus(); });
+      key('Escape');
+      expect(closed).toBe(false);
+
+      await act(async () => { dialog.remove(); await Promise.resolve(); });
+      expect(card().hidden).toBe(false);
+      expect(host.querySelector('.tour-title')?.textContent).toBe('Check the drawing');
+    });
+  });
+
   it('a missing anchor never loses the tour — the card centers, no ring', async () => {
     anchors.remove(); // no data-tour elements anywhere
     mount(() => {}, () => {});

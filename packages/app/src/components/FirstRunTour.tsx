@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useDialog } from './useDialog.js';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 /**
  * First-run tour (batch 2026-08-21b, proposal S3): six anchored tooltips that
@@ -105,6 +104,9 @@ interface Anchor {
   rect: DOMRect | null; // null = target absent, card centers itself
 }
 
+/** Whether a modal dialog is open anywhere in the page. */
+const modalOpen = (): boolean => document.querySelector('[aria-modal="true"]') !== null;
+
 export function FirstRunTour({ onSetTab, onClose }: {
   onSetTab: (tab: WorkspaceTab) => void;
   onClose: () => void;
@@ -112,6 +114,17 @@ export function FirstRunTour({ onSetTab, onClose }: {
   const [idx, setIdx] = useState(0);
   const [anchor, setAnchor] = useState<Anchor>({ rect: null });
   const step = STEPS[idx]!;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
+  // What the step region says: empty on open (focus entering the card reads
+  // its name and, through aria-describedby, its body), then each step Next or
+  // Back lands on — focus stays on the button, so nothing else would say it.
+  const [said, setSaid] = useState('');
+  const goTo = (i: number) => {
+    const s = STEPS[i]!;
+    setIdx(i);
+    setSaid(`Step ${i + 1} of ${STEPS.length}: ${s.title}. ${s.body}`);
+  };
 
   const close = useCallback(() => {
     markTourDone();
@@ -125,9 +138,54 @@ export function FirstRunTour({ onSetTab, onClose }: {
   // once" false for exactly the people most likely to complain about it.
   useEffect(() => { markTourDone(); }, []);
 
-  // Escape dismisses the tour (and keyboard focus starts in the card, so Next
-  // is reachable without a mouse). Same contract as every other dialog here.
-  const dialogRef = useDialog<HTMLDivElement>(close);
+  /**
+   * NON-modal (audit 2026-09-22). It was a useDialog — aria-modal, Tab trapped
+   * in the card — while the spotlight and scrim are pointer-events:none on
+   * purpose, so a mouse could use the whole app and a keyboard or a screen
+   * reader could not reach it. What stays from that contract: focus starts in
+   * the card, so Next is reachable without a mouse, and goes back where it was
+   * when the tour closes; Escape dismisses it while focus is in the card (or
+   * nowhere). What goes: the trap, and aria-modal.
+   */
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    const card = cardRef.current;
+    (card?.querySelector<HTMLElement>('button') ?? card)?.focus();
+    return () => {
+      const active = document.activeElement;
+      if (!active || active === document.body || card?.contains(active)) before?.focus?.();
+    };
+  }, []);
+
+  /**
+   * A dialog opened mid-tour (the Guide button is step 6's own anchor) owns the
+   * screen: the card, at z-index 120, painted over it. So the tour steps aside
+   * while any modal is open — hidden, not closed, so it comes back on the same
+   * step — and leaves Escape to that dialog.
+   */
+  const [covered, setCovered] = useState(modalOpen);
+  useEffect(() => {
+    const check = () => setCovered(modalOpen());
+    check();
+    if (typeof MutationObserver === 'undefined') return;
+    const mo = new MutationObserver(check);
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
+    return () => mo.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // A modal's own handler stops Escape in the capture phase; the check
+      // is for one that does not.
+      if (e.key !== 'Escape' || e.defaultPrevented || modalOpen()) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && !cardRef.current?.contains(active)) return;
+      e.preventDefault();
+      close();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [close]);
 
   // Keep the target's tab active. Runs before measuring (same commit), so the
   // measurement effect below sees the right DOM one frame later.
@@ -183,7 +241,7 @@ export function FirstRunTour({ onSetTab, onClose }: {
       {/* Spotlight: the ring's huge box-shadow dims everything EXCEPT the
           anchor (the owner, batch 08-21c — the tour must visibly take the stage).
           With no anchor the plain scrim does the dimming. */}
-      {anchor.rect ? (
+      {covered ? null : anchor.rect ? (
         <div
           className="tour-ring"
           style={{
@@ -196,19 +254,20 @@ export function FirstRunTour({ onSetTab, onClose }: {
       ) : (
         <div className="tour-scrim" />
       )}
-      <div className="tour-card" role="dialog" aria-modal="true" ref={dialogRef} tabIndex={-1}
-        aria-label={`Tour step ${idx + 1} of ${STEPS.length}: ${step.title}`} style={cardStyle}>
+      <div className="tour-card" role="dialog" ref={cardRef} tabIndex={-1} hidden={covered}
+        aria-label={`Tour step ${idx + 1} of ${STEPS.length}: ${step.title}`}
+        aria-describedby={bodyId} style={cardStyle}>
         <button className="tour-close" onClick={close} aria-label="Close tour">×</button>
         <h3 className="tour-title">{step.title}</h3>
-        <p className="tour-body">{step.body}</p>
+        <p className="tour-body" id={bodyId}>{step.body}</p>
         <div className="tour-footer">
           <button className="tour-skip" onClick={close}>Skip</button>
           <span style={{ flex: 1 }} />
           {idx > 0 && (
-            <button className="tour-skip" onClick={() => setIdx(idx - 1)}>Back</button>
+            <button className="tour-skip" onClick={() => goTo(idx - 1)}>Back</button>
           )}
           {idx < STEPS.length - 1 ? (
-            <button className="tour-next" onClick={() => setIdx(idx + 1)}>
+            <button className="tour-next" onClick={() => goTo(idx + 1)}>
               Next ({idx + 1} of {STEPS.length})
             </button>
           ) : (
@@ -216,6 +275,7 @@ export function FirstRunTour({ onSetTab, onClose }: {
           )}
         </div>
       </div>
+      <p className="tour-announce sr-only" aria-live="polite">{said}</p>
     </>
   );
 }
