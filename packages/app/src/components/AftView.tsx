@@ -220,9 +220,13 @@ export function aftLayout(
         }
       } else if (t === 'innertube') {
         const r = num(child, 'outerRadius', 0.0095);
+        // The roll goes in as the VIEW's turn, not added to the rotation:
+        // the kernel turns a pattern by MINUS its rotation (cluster.ts), so
+        // `rotation + roll` would spin the tubes against the rest of the view.
         const offs = clusterOffsets(
           child['cluster'] as string | undefined, r,
-          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0) + roll,
+          num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
+          { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
         );
         // A tube can also sit OFF the centreline on its own (OpenRocket's
         // radial position/direction). Desktop's "split cluster" makes each

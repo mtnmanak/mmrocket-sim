@@ -1369,11 +1369,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
+          // The view's roll as its own turn, not added to the rotation — the
+          // kernel turns a pattern by MINUS its rotation (cluster.ts).
           ? clusterOffsets(
             child['cluster'] as string | undefined,
             num(child, 'outerRadius', 0.0095),
             num(child, 'clusterScale', 1),
-            num(child, 'clusterRotation', 0) + roll,
+            num(child, 'clusterRotation', 0),
+            { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
           )
           : [{ y: 0, z: 0 }];
         // An inner tube can also sit OFF the centreline on its own, with no

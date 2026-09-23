@@ -974,7 +974,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           used.add(idx);
         }
         if (ok) {
-          const rot = Math.atan2(Math.sin(phi), Math.cos(phi)); // normalize (−π, π]
+          // The tubes sit at the unit pattern turned by +phi; the kernel turns
+          // a pattern by MINUS its clusterRotation (cluster.ts clusterOffsets,
+          // audit 2026-09-22), so the rotation that puts them back where the
+          // file has them is −phi. +phi matched the old +rotation drawing and
+          // round-tripped our own exports, but gave a real RockSim cluster a
+          // rotation the kernel and desktop turn the other way.
+          const rot = Math.atan2(Math.sin(-phi), Math.cos(-phi)); // normalize (−π, π]
           return { pattern, scale: sep / (2 * tubeR), rotation: rot };
         }
       }
