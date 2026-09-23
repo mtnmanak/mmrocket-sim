@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { limitPatch } from '../tree/sanitize.js';
-import { csvToPresets, loadPresets, presetPatch, type Preset } from './presets.js';
+import { csvToPresets, KIND_FOR_TYPE, loadPresets, presetPatch, type Preset } from './presets.js';
 
 /**
  * A PRESET PICK WRITES INSIDE THE LIMITS TABLE (seam review of audit
@@ -13,10 +13,14 @@ import { csvToPresets, loadPresets, presetPatch, type Preset } from './presets.j
 describe('limitPatch — a preset patch brought inside the limits table', () => {
   const coupler = { id: 'c1', type: 'tubecoupler', name: 'Coupler', length: 0.05, thickness: 0.0005 } as ComponentNode;
 
-  it("repairs the shipped SEMROC HTC-11's negative wall, in the words a reopened file gives", async () => {
-    // Its inside diameter (49.99 mm) is over its outside one (28.65 mm): the
-    // only one of the catalogue's rows the limits table flags.
-    const row = (await loadPresets()).find((p) => p.manufacturer === 'SEMROC' && p.partNo === 'HTC-11')!;
+  it("repairs a row's negative wall, in the words a reopened file gives", () => {
+    // SEMROC HTC-11 as it shipped: the upstream .orc's inside diameter (1.968 in,
+    // 49.99 mm) over its outside one (28.65 mm), which the catalogue now
+    // corrects (apply-preset-corrections.mjs). A user's CSV can still say it.
+    const row: Preset = {
+      kind: 'TubeCoupler', manufacturer: 'SEMROC', partNo: 'HTC-11', description: 'Tube coupler',
+      insideDiameter: 0.0499872, outsideDiameter: 0.0286512, length: 0.03175,
+    };
     const patch = presetPatch('tubecoupler', row);
     expect(patch['thickness']).toBeCloseTo(-0.010668, 9);
     const notes: string[] = [];
@@ -46,6 +50,25 @@ describe('limitPatch — a preset patch brought inside the limits table', () => 
     expect(row!['diameter']).toBeUndefined();
     expect(row!['lineCount']).toBeUndefined();
     expect(row!['lineLength']).toBe(0.15);
+  });
+
+  /**
+   * THE SCREEN, on the SHIPPED catalogue (review of the seam fixes, 2026-09-22):
+   * a row the pick has to repair is a row that is wrong, and the repair stores
+   * a part that is not the catalogue's — the HTC-11 pick above stored a coupler
+   * that weighs nothing. The row is corrected at its source, and this keeps a
+   * regeneration from bringing it, or one like it, back.
+   */
+  it('every row the shipped catalogue offers picks inside the limits table', async () => {
+    const presets = await loadPresets();
+    const offenders: string[] = [];
+    for (const [type, kind] of Object.entries(KIND_FOR_TYPE) as [ComponentType, string][]) {
+      for (const row of presets.filter((p) => p.kind === kind)) {
+        limitPatch({ id: 'n', type } as ComponentNode, presetPatch(type, row), offenders);
+      }
+    }
+    expect(presets.length).toBeGreaterThan(4000);
+    expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
   it('hands back the same patch, and no note, when nothing is out of limits', () => {

@@ -9,8 +9,9 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 /**
  * A preset pick goes through the limits table on its way into the tree (seam
  * review of audit 2026-09-22). The picker is stood in for by one button that
- * applies the patch the shipped SEMROC HTC-11 row makes — `presetPatch` itself
- * is pinned against the real row in services/presetLimits.test.ts — so what this
+ * applies the patch SEMROC HTC-11's row made as it shipped, before its inside
+ * diameter was corrected at the source — `presetPatch` itself is pinned against
+ * that row in services/presetLimits.test.ts — so what this
  * pins is the PANEL's handling of whatever a pick hands it.
  */
 vi.mock('./PresetPicker.js', () => ({

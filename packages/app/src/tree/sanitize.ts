@@ -189,8 +189,9 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
  * repair in the wording the load boundary uses — for a write path that is
  * neither the property panel's typed commit nor a load: a pick from the preset
  * catalogue, which a user's own CSV rows feed too (seam review of audit
- * 2026-09-22). It wrote whatever the row said: the shipped SEMROC HTC-11
- * (inside diameter 49.99 mm over an outside 28.65) stored a -10.668 mm wall,
+ * 2026-09-22). It wrote whatever the row said: SEMROC HTC-11 as it shipped
+ * (inside diameter 49.99 mm over an outside 28.65; corrected since, in
+ * apply-preset-corrections.mjs) stored a -10.668 mm wall,
  * and a CSV canopy of 1,000,000 lines a 540 kg parachute — values a restored
  * session then repaired SILENTLY, which this file's header says only an older
  * build could have let through.
