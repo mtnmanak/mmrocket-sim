@@ -1,7 +1,9 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile } from '../services/saveFile.js';
-import { autosaveIsAnotherTabs, discardSession } from '../services/session.js';
+import {
+  autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange,
+} from '../services/session.js';
 
 /** The persisted workspace tab (App's own key): a crash tied to one tab re-opens on it. */
 const WORKSPACE_KEY = 'online-openrocket.workspace.v1';
@@ -31,12 +33,26 @@ const WORKSPACE_KEY = 'online-openrocket.workspace.v1';
  * It sits outside PrefsProvider and needs nothing from it, so a throw in the
  * preferences layer is caught too. Section boundaries inside App
  * (PanelBoundary) keep a failing panel from reaching this one at all.
+ *
+ * WHILE ANOTHER TAB HOLDS THE AUTOSAVE (seam review of audit 2026-09-22),
+ * this tab's changes are held in memory and in no slot (services/session.ts
+ * `heldSession`), and App's leave-page prompt — the one guard on them —
+ * unmounts with App. So the panel keeps its own for as long as they are held
+ * and not yet downloaded, and says the autosave does NOT hold this design,
+ * where it used to promise that it did. It listens for the conflict as well:
+ * the other tab can take the slot over after the crash (root.tsx keeps
+ * `watchOtherTabs` running above this boundary for exactly that).
  */
 export class AppBoundary extends Component<
   { children: ReactNode; /** Injected by tests; the page reload otherwise. */ onReload?: () => void },
-  { error: string | null; note: string | null; confirming: boolean }
+  { error: string | null; note: string | null; confirming: boolean; held: boolean }
 > {
-  override state = { error: null as string | null, note: null as string | null, confirming: false };
+  override state = { error: null as string | null, note: null as string | null, confirming: false, held: false };
+
+  /** The conflict subscription, while the panel is up. */
+  private unsubscribe: (() => void) | null = null;
+  /** This tab's held design has been handed to the user as a file: it is no longer only in memory. */
+  private handedOver = false;
 
   static getDerivedStateFromError(err: unknown) {
     return { error: err instanceof Error ? err.message : String(err) };
@@ -45,9 +61,28 @@ export class AppBoundary extends Component<
   override componentDidCatch(err: Error, info: ErrorInfo) {
     // Logged in full: the component stack is what a bug report needs.
     console.error('The app stopped on an error:', err, info.componentStack);
+    if (this.unsubscribe === null) {
+      window.addEventListener('beforeunload', this.onBeforeUnload);
+      this.unsubscribe = onSessionConflictChange(() => this.setState({ held: heldSession() !== null }));
+      this.setState({ held: heldSession() !== null });
+    }
   }
 
+  override componentWillUnmount() {
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
+  /** Read when the page is left, not when the panel drew: the conflict can start or end in between. */
+  private onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (heldSession() === null || this.handedOver) return;
+    e.preventDefault();
+    e.returnValue = '';
+  };
+
   private download = async () => {
+    const held = heldSession() !== null;
     const file = autosavedDesignFile();
     if (!file) {
       this.setState({ note: 'There is no autosaved design in this browser to download.' });
@@ -57,6 +92,9 @@ export class AppBoundary extends Component<
       suggestedName: file.name, mime: file.mime, extensions: [file.extension], description: file.description,
     });
     if (out.kind === 'cancelled') return;
+    // autosavedDesignFile handed over the held design (it prefers it), so the
+    // leave-page guard has nothing left to keep.
+    if (held) this.handedOver = true;
     const where = out.kind === 'saved' ? `Saved “${out.name}”.` : `Saved “${out.name}” to your browser's download folder.`;
     this.setState({
       note: file.ork
@@ -78,13 +116,23 @@ export class AppBoundary extends Component<
     // this tab's is what the button is about to act on, and another tab can
     // write in between.
     const othersInSlot = this.state.confirming && autosaveIsAnotherTabs();
+    // Read at render; `state.held` only makes the conflict's edges re-render.
+    const held = heldSession() !== null;
     return (
       <div className="panel hero-fallback" role="alert" style={{ margin: '24px auto' }}>
         <h2>Something went wrong</h2>
-        <p>
-          The app hit an error it could not draw past, so it stopped. Your design is still in this
-          browser&rsquo;s autosave: download it first, then start fresh.
-        </p>
+        {held ? (
+          <p>
+            The app hit an error it could not draw past, so it stopped. This tab&rsquo;s design is
+            not in this browser&rsquo;s autosave &mdash; another tab has written there since &mdash;
+            so it exists only in this tab: download it before you close or reload it.
+          </p>
+        ) : (
+          <p>
+            The app hit an error it could not draw past, so it stopped. Your design is still in this
+            browser&rsquo;s autosave: download it first, then start fresh.
+          </p>
+        )}
         <p className="hero-fallback-detail">{this.state.error}</p>
         <button className="file-btn" onClick={() => { void this.download(); }}>
           ⬇ Download the autosaved design
