@@ -15,19 +15,25 @@ import { shownCp } from './simReport.js';
  * of the list resolves to nothing in a standalone SVG, and for `stroke` and
  * `fill` that means the initial value — the element simply is not there. On
  * screen the same variable resolves normally, so there is no error, no console
- * warning and no visual cue in the app: TreeSchematic.tsx is 1,600 lines and
- * under active edit, and adding one new token to a callout would make that
- * element vanish from every ⬇ SVG and ⬇ Image export. The affected artifact is
- * the one the guide points at L3 / Tripoli Class 3 documentation packets, so
- * the first person to notice would be a cert reviewer looking at a drawing with
- * a missing CP marker.
+ * warning and no visual cue in the app: the side view is two files under
+ * active edit, and adding one new token to a callout would make that element
+ * vanish from every ⬇ SVG and ⬇ Image export. The affected artifact is the one
+ * the guide points at L3 / Tripoli Class 3 documentation packets, so the first
+ * person to notice would be a cert reviewer looking at a drawing with a
+ * missing CP marker.
  *
  * This turns that silent rendering failure into a red suite. The fix when it
  * fails is to add the new var and its light-theme value to EXPORT_VARS — never
  * to relax the assertion.
+ *
+ * Both files: the drawn shapes moved out of TreeSchematic's render body into
+ * tree/schematicLayout.ts (audit 2026-09-22), taking the motor case's
+ * var(--launch) with them, so reading the component alone stopped seeing
+ * every token the layout emits.
  */
-const SCHEMATIC_SRC = readFileSync(
-  fileURLToPath(new URL('../components/TreeSchematic.tsx', import.meta.url)), 'utf8');
+const SCHEMATIC_SRC = ['../components/TreeSchematic.tsx', '../tree/schematicLayout.ts']
+  .map((f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8'))
+  .join('\n');
 
 const varsIn = (src: string): Set<string> =>
   new Set(Array.from(src.matchAll(/var\(--[a-z0-9-]+\)/g), (m) => m[0]));
@@ -36,6 +42,11 @@ describe('EXPORT_VARS covers every CSS variable the schematic emits', () => {
   it('read the schematic source at all — a silent empty read would pass vacuously', () => {
     expect(SCHEMATIC_SRC.length).toBeGreaterThan(1000);
     expect(varsIn(SCHEMATIC_SRC).size).toBeGreaterThan(5);
+  });
+
+  it('reads the layout the component draws, not only the component', () => {
+    // The loaded motor case's fill is emitted by tree/schematicLayout.ts alone.
+    expect(varsIn(SCHEMATIC_SRC)).toContain('var(--launch)');
   });
 
   it('bakes a value for every var TreeSchematic uses', () => {
