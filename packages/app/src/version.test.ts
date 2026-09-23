@@ -27,6 +27,21 @@ describe('APP_VERSION / CHANGELOG / version.json pairing', () => {
     }
   });
 
+  /**
+   * Strictly downward was not enough (audit 2026-09-22): release v0.137 RENAMED
+   * the deployed v0.136 entry to 0.137 and added one item to it, so What's New
+   * jumped from 0.137 to 0.135 and version.json's "everything in v0.136 still
+   * applies" pointed at an entry that no longer existed. Every release since
+   * 0.001 has its own entry, so consecutive entries differ by exactly one.
+   */
+  it('every release has its own entry: consecutive versions differ by exactly 0.001', () => {
+    for (let i = 1; i < CHANGELOG.length; i++) {
+      const newer = Math.round(Number(CHANGELOG[i - 1]!.version) * 1000);
+      const older = Math.round(Number(CHANGELOG[i]!.version) * 1000);
+      expect(newer - older, `${CHANGELOG[i - 1]!.version} is followed by ${CHANGELOG[i]!.version}`).toBe(1);
+    }
+  });
+
   it('every entry carries a date, a title and at least one item', () => {
     for (const e of CHANGELOG) {
       expect(e.date, e.version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
