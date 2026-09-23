@@ -1,5 +1,6 @@
 import type { TcMotor } from './thrustcurve.js';
 import { lookupTable } from './xmlUtil.js';
+import { IMPULSE_PREFIX, looseDesignation as loose, prefixWithoutSplit } from './designationText.js';
 import rawDb from '../data/motors.json';
 
 /**
@@ -448,9 +449,10 @@ export function sortMotors(
  * abbreviation, so the generic prefix rule in {@link manufacturerMatches}
  * cannot pair them. Keys are normalized (lower-case, alphanumerics only).
  *
- * Only names that actually appear in OpenRocket's own Manufacturer table are
- * listed: an alias nobody writes is a liability, because a wrong one silently
- * steers a match to the wrong vendor's curve.
+ * Only names that actually appear in a writer's own maker table are listed —
+ * OpenRocket's Manufacturer table, RockSim's EngineVendors.dat, RASAero's
+ * engine codes: an alias nobody writes is a liability, because a wrong one
+ * silently steers a match to the wrong vendor's curve.
  *
  * The second group is the rest of that table (24.12, Manufacturer.java), added
  * in audit 2026-09-23: the prefix rule cannot reach them either, and a name
@@ -525,6 +527,28 @@ const MANUFACTURER_ALIASES: Record<string, string> = lookupTable({
   wcr: 'wch',
   westcoast: 'wch',
   westcoasthybrid: 'wch',
+  // The writers' own tables (second review of the audit): most of the corpus
+  // is RockSim files, and RockSim writes the codes in its EngineVendors.dat
+  // (RockSim 11, Data/). Its Aerotech row is AT, A, Aero Tech, Aero, AEROT,
+  // AT-SU, AT-RMS, AT-EJ, A-RMS, A-J, A-M, A-WL, AT-MWL; the ones below are the
+  // ones nothing else paired. PK-12 Onyx.RKT's F25 under “A-WL” opened with a
+  // note saying the file named another maker than AeroTech, and E15, H70 and
+  // G40 under it loaded RV's E15, RATT's H70 hybrid and Estes's G40. A-M is
+  // left out: it normalises to AMW's own “AM” in the same table. Kosdon's row
+  // is TRM, K, KOS, KTRM, KOS-TRM. RASAero writes Gorilla as “GM”
+  // (rasaeroFile.ts RASAERO_MFG), and ThreeCarbYen-2018.CDX1's M745WC opened
+  // with the same false note. “Kosdon-by-Aerot” is RockSim's 15-character cut
+  // of “Kosdon-by-Aerotech”, which the prefix rule pairs with Kosdon only.
+  atsu: 'aerotech',
+  atej: 'aerotech',
+  aj: 'aerotech',
+  awl: 'aerotech',
+  atmwl: 'aerotech',
+  trm: 'kosdon',
+  ktrm: 'kosdon',
+  kostrm: 'kosdon',
+  gm: 'gorilla',
+  kosdonbyaerot: 'kba',
 });
 
 const normName = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -550,39 +574,24 @@ export function manufacturerMatches(fileName: string | undefined, abbrev: string
   if (!a || a === 'unknown' || a === 'custom') return false;
   const b = normName(abbrev);
   if (!b) return false;
-  return a === b || a.startsWith(b) || b.startsWith(a) || MANUFACTURER_ALIASES[a] === b;
+  const pairs = (x: string): boolean => a === x || a.startsWith(x) || x.startsWith(a) || MANUFACTURER_ALIASES[a] === x;
+  return pairs(b) || (MAKER_FAMILIES.find((f) => f.includes(b))?.some((o) => o !== b && pairs(o)) ?? false);
 }
+
+/**
+ * Catalogue makers a design file cannot tell apart, so a name that pairs with
+ * one pairs with all. thrustcurve.org keeps Kosdon's own motors (“Kosdon”) and
+ * AeroTech's remakes of them (“KBA”) apart; desktop OpenRocket files K, KBA,
+ * K-AT, KOS, KOSDON, KOSDON/AT and KOSDON/AEROTECH under the one maker
+ * (Manufacturer.java, 24.12), and so do the files it writes. Kept apart here,
+ * “I170S” under Kosdon opened on Kosdon's Dirty Harry I170DH (433 Ns) rather
+ * than KBA's I170S (374 Ns), the designation the file wrote, and “I170DH”
+ * under KBA the reverse (second review of audit 2026-09-23). Normalised names.
+ */
+const MAKER_FAMILIES: readonly (readonly string[])[] = [['kba', 'kosdon']];
 
 /** The separators design files write a designation with. */
 const SEPARATORS = /[-\s_/]+/;
-
-/**
- * Does `short` begin `long` without cutting a number in two — does the cut
- * fall anywhere but between two digits? “g11” does not begin “g115-wt”; “h128”
- * begins “h128w”, “g115” begins “g115-wt”, and “h128w” begins “h128w14a” (a
- * delay glued to AeroTech's propellant letter, which the first form of this
- * guard refused: it barred ANY digit after the cut). A `short` with no digit
- * in it is no designation and begins nothing. See findDbMotor.
- */
-function prefixWithoutSplit(short: string, long: string): boolean {
-  if (!/\d/.test(short) || !long.startsWith(short)) return false;
-  return !(/\d/.test(short.charAt(short.length - 1)) && /\d/.test(long.charAt(short.length)));
-}
-
-/**
- * A designation with its dashes, spaces and underscores dropped wherever they
- * do not stand between two digits, so the two spellings of one designation
- * compare equal: Loki's catalogue “M900-LR” and a RockSim file's “M900LR”,
- * “J-326-LR” and “J326LR”. “G115-13A” keeps its dash (as “-”), the only thing
- * between a G115 and a G11513. A SLASH is kept: AeroTech's “G79W/L” is the
- * single-use LMS motor, and “G79W-L” the RMS reload G79W at its long delay
- * (the nozzle database's own row, nozzle-db.test.mjs), so the two must not
- * compare equal.
- */
-function loose(s: string): string {
-  return s.replace(/[-\s_]+/g, (sep: string, at: number, all: string) =>
-    (/\d/.test(all.charAt(at - 1)) && /\d/.test(all.charAt(at + sep.length)) ? '-' : ''));
-}
 
 /**
  * Propellant codes design files write after a common name — RockSim's
@@ -732,10 +741,10 @@ export interface DbMotorMatch {
   motor: MotorDbEntry;
   /**
    * How the designation matched (see findDbMotor): 0 exact, 1 a designation
-   * with only a delay or the row's own propellant between them, 2 the common
-   * name and the row's propellant, 3 a designation followed by letters nothing
-   * could read, 4 the file's maker's only row of that common name, followed
-   * by letters nothing could read.
+   * with only a delay or the row's own propellant between them, or the common
+   * name alone or with a delay, 2 the common name and the row's propellant, 3 a
+   * designation followed by letters nothing could read, 4 the file's maker's
+   * only row of that common name, followed by letters nothing could read.
    */
   tier: number;
   /**
@@ -746,6 +755,25 @@ export interface DbMotorMatch {
    * says so (motorMatch).
    */
   rivals: MotorDbEntry[];
+}
+
+/**
+ * Does a catalogue row agree with the total impulse a file's designation
+ * states before its common name (“217-H135-WH-12A”, {@link IMPULSE_PREFIX})?
+ * Within 10 % of the row's total impulse, or equal to the row's own prefix:
+ * the catalogue's prefixes stand up to 8.1 % off its own impulse figures (WCH's
+ * 246H100-P, 266 Ns; Cesaroni's 266H125-12A, 285.6 Ns), and two rows of one
+ * common name that the prefix has to tell apart are further apart than that —
+ * Cesaroni's Skidmark H123s are 176 and 232 Ns, its H160s 220 and 312.
+ */
+function impulseAgrees(m: MotorDbEntry, ns: number): boolean {
+  return Math.abs(m.totImpulseNs - ns) <= 0.1 * ns || impulsePrefixOf(m) === ns;
+}
+
+/** The total impulse a catalogue designation states before its common name (“381I224-15A”), if it does. */
+function impulsePrefixOf(m: MotorDbEntry): number | undefined {
+  const p = IMPULSE_PREFIX.exec(m.designation)?.[1];
+  return p === undefined ? undefined : Number(p);
 }
 
 /**
@@ -760,7 +788,40 @@ export function matchDbMotor(
 ): DbMotorMatch | null {
   const want = designation.trim().toLowerCase();
   if (!want) return null;
+  const whole = rankMatches(want, diameterMm, motors, manufacturer, () => true);
+  if (whole) return whole;
+  // RockSim's own form for a Cesaroni reload puts the total impulse first,
+  // “217-H135-WH-12A”, and nothing above reads past it (second review of audit
+  // 2026-09-23: 38 references in 30 of the owner's files matched nothing). Read
+  // without it, and only among rows whose impulse agrees with it — so the prefix
+  // is a check on the match, and picks between two rows of one common name.
+  // A row whose own designation carries that same prefix first: “117-G69” is
+  // Cesaroni's 117G69-14A, not SkyR's 128 Ns G69 hybrid, which is within 10 %
+  // of it and IS the designation “G69”.
+  const prefixed = IMPULSE_PREFIX.exec(want);
+  if (!prefixed) return null;
+  const ns = Number(prefixed[1]);
+  const named = want.slice(prefixed[0].length);
+  return rankMatches(named, diameterMm, motors, manufacturer, (m) => impulsePrefixOf(m) === ns)
+    ?? rankMatches(named, diameterMm, motors, manufacturer, (m) => impulseAgrees(m, ns));
+}
+
+/** matchDbMotor for one spelling of the reference, over the rows `admit` lets in. */
+function rankMatches(
+  want: string,
+  diameterMm: number | undefined,
+  motors: MotorDbEntry[],
+  manufacturer: string | undefined,
+  admit: (m: MotorDbEntry) => boolean,
+): DbMotorMatch | null {
   const looseWant = loose(want);
+  // A catalogue designation begins the reference. One with no digit in it —
+  // Quest's “MICRO_MAXX_II” — is still a whole designation, so it may begin
+  // “MICRO_MAXX_II-1”; prefixWithoutSplit refuses a digit-free short side
+  // because a bare impulse letter or a propellant word is no designation.
+  const begins = (d: string): boolean => (/\d/.test(d) ? prefixWithoutSplit(d, want) : d !== '' && want.startsWith(d));
+  // Rows reached by their common name and a delay alone (rank 1, below).
+  const byCommon = new Set<MotorDbEntry>();
   const tierOf = (m: MotorDbEntry): number => {
     const raw = m.designation.toLowerCase();
     const disp = displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase();
@@ -770,39 +831,55 @@ export function matchDbMotor(
     if (prefixWithoutSplit(want, raw) || prefixWithoutSplit(want, disp)
       || m.commonName.toLowerCase() === want) return 1;
     // The file writing more than the catalog: read what it adds.
-    const stem = [disp, raw].filter((d) => prefixWithoutSplit(d, want)).sort((a, b) => b.length - a.length)[0];
+    const stem = [disp, raw].filter(begins).sort((a, b) => b.length - a.length)[0];
     const left = stem === undefined ? null : readLeftover(want.slice(stem.length), m, motors);
     if (left === 'delay' || left === 'agrees') return 1;
+    const common = m.commonName.toLowerCase();
+    const afterCommon = common !== '' && prefixWithoutSplit(common, want)
+      ? readLeftover(want.slice(common.length), m, motors) : null;
+    // The common name and a delay — “I150-1”, “H42-1”, “D10-3” — as firm as
+    // the common name alone. Before the second review of the audit only a
+    // designation could take a delay, so these matched nothing unless the digit
+    // split the audit removed made them a prefix (“i150-1” of “i150-11a”).
+    // Within the rank it yields to a row whose DESIGNATION the reference is
+    // (below): “D10-3” is Apogee's D10 before AeroTech's D10W.
+    if (afterCommon === 'delay') { byCommon.add(m); return 1; }
     if (namesByCommonAndPropellant(want, m)) return 2;
     if (left === 'unread') return 3;
-    // Only ever reached for the file's own maker's rows (below).
-    const common = m.commonName.toLowerCase();
-    return common !== '' && prefixWithoutSplit(common, want)
-      && readLeftover(want.slice(common.length), m, motors) === 'unread' ? 4 : -1;
+    // Only ever taken for the file's own maker's rows (below).
+    return afterCommon === 'unread' ? 4 : -1;
   };
-  // A maker that catalogues the common name keeps the reference (see findDbMotor).
   const stated = (m: MotorDbEntry): boolean => manufacturerMatches(manufacturer, m.manufacturerAbbrev);
   const claims = motors.some((m) => {
     const common = m.commonName.toLowerCase();
     return stated(m) && common !== '' && (common === want || prefixWithoutSplit(common, want));
   });
-  const candidates = motors
-    .filter((m) => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5)
-      && (!claims || stated(m)))
-    .map((m) => ({ m, tier: tierOf(m) }))
-    .filter(({ tier }) => tier >= 0 && (tier < 4 || claims));
+  const scored = motors
+    .filter((m) => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5) && admit(m))
+    .map((m) => ({ m, tier: tierOf(m), maker: stated(m) }))
+    .filter(({ tier, maker }) => tier >= 0 && (tier < 4 || maker));
+  // A maker that catalogues the common name keeps the reference (see
+  // findDbMotor) — unless all it has is a tier-4 guess, or nothing, and another
+  // maker's row IS the designation, bar a delay. KBA and Kosdon each catalogue
+  // an I170, and “I170S” under Kosdon took Kosdon's Dirty Harry I170DH (433 Ns)
+  // over KBA's I170S (374 Ns), the designation the file wrote; “I170DH-11”
+  // under KBA the reverse (second review of the audit).
+  const ownBest = Math.min(Infinity, ...scored.filter((s) => s.maker).map((s) => s.tier));
+  const keep = claims && !(ownBest >= 4 && scored.some((s) => !s.maker && s.tier <= 1));
+  const candidates = keep ? scored.filter((s) => s.maker) : scored;
   if (candidates.length === 0) return null;
   const delayNamed = want.split(SEPARATORS).slice(1).map((t) => /^(\d+)[a-z]?$/.exec(t)?.[1]).find(Boolean);
   const fitsDelay = (m: MotorDbEntry): boolean =>
     delayNamed !== undefined && (m.delays ?? '').split(',').map((d) => d.trim()).includes(delayNamed);
-  const keyed = candidates.map(({ m, tier }) => ({ m, tier, maker: stated(m), delay: fitsDelay(m) }));
+  const keyed = candidates.map(({ m, tier, maker }) => ({ m, tier, maker, delay: fitsDelay(m), named: !byCommon.has(m) }));
   keyed.sort((a, b) => a.tier - b.tier
     || Number(b.maker) - Number(a.maker)
     || Number(b.delay) - Number(a.delay)
+    || Number(b.named) - Number(a.named)
     || Number(isAvailable(b.m)) - Number(isAvailable(a.m)));
   const best = keyed[0]!;
   const rivals = keyed.slice(1)
-    .filter((k) => k.tier === best.tier && k.maker === best.maker && k.delay === best.delay
+    .filter((k) => k.tier === best.tier && k.maker === best.maker && k.delay === best.delay && k.named === best.named
       && (Math.abs(k.m.diameter - best.m.diameter) > 1.5
         || Math.abs(k.m.totImpulseNs - best.m.totImpulseNs) > 0.03 * Math.max(k.m.totImpulseNs, best.m.totImpulseNs)))
     .map((k) => k.m);
@@ -850,7 +927,8 @@ export function matchDbMotor(
  * THE ORDER, from the review of that change (same audit), best first:
  *
  *   0. the designation exactly, raw or display, or once the separators that
- *      stand between letters are dropped ({@link loose}) — Loki's “M900-LR”
+ *      stand between letters are dropped ({@link looseDesignation}, which
+ *      keeps one between two digits or before a plugged “P”) — Loki's “M900-LR”
  *      is a RockSim file's “M900LR”. That alone moves 393 lookups across the
  *      1,070-file corpus (the owner's RockSim collection, the tester uploads,
  *      the fixtures), 387 of them Loki's: 385 matched nothing, and in the
@@ -858,7 +936,8 @@ export function matchDbMotor(
  *      +18 % impulse;
  *   1. a designation that differs by a delay alone (“I224-15A” / “I224”), or
  *      by the row's own propellant (“E6 Blue Thunder” / “E6”), or the common
- *      name alone;
+ *      name alone or followed by a delay alone (“I150-1”, “D10-3”: until the
+ *      second review of the audit only a designation could take a delay);
  *   2. the common name and the row's propellant (“G115-WT”);
  *   3. a designation followed by letters nothing reads — makers' own suffixes
  *      mostly: Estes's 13 mm “A10T”, Ellis's “I150EM” — below 2, so it loses
@@ -875,7 +954,8 @@ export function matchDbMotor(
  *
  * Within a rank the file's manufacturer, then a row whose delays include the
  * one the designation names (“H123-SK-14A”: only the 38 mm H123 lists 14 s),
- * then production status. And A MAKER THAT CATALOGUES THE COMMON NAME KEEPS
+ * then a row whose designation the reference names over one it reaches by
+ * common name and delay only, then production status. And A MAKER THAT CATALOGUES THE COMMON NAME KEEPS
  * THE REFERENCE: when a row by the file's manufacturer has a common name the
  * designation begins with, other makers' rows are not candidates at all, even
  * an exact designation. “G69-Classic” filed under Cesaroni resolved to SkyR's
@@ -888,7 +968,18 @@ export function matchDbMotor(
  * (“G69-Classic”: Cesaroni's only G69 is Skidmark) is left unmatched — a
  * blank the open reports beats another maker's motor it does not. A maker
  * with no such common name (“K1075-SK” under Cesaroni) still falls through to
- * whoever has it, and the open says whose it loaded.
+ * whoever has it, and the open says whose it loaded. So does one whose best is
+ * a rank-4 guess, or nothing, when another maker's row is the designation bar
+ * a delay (rank 0 or 1): KBA and Kosdon each catalogue an I170, and “I170S”
+ * under Kosdon took Kosdon's Dirty Harry I170DH, 433 Ns against the 374 of
+ * KBA's I170S (second review of the audit).
+ *
+ * A CESARONI IMPULSE PREFIX ON THE FILE'S SIDE — RockSim's own EngineCode form,
+ * “217-H135-WH-12A” — is read past when the whole of it matches nothing
+ * ({@link IMPULSE_PREFIX}), among the rows whose total impulse agrees with it
+ * (same review: 38 such references in 30 of the owner's files matched
+ * nothing). The prefix then also picks between two rows of a common name:
+ * “176-H123-SK-12A” is the 29 mm H123, “232-H123-SK-14A” the 38 mm.
  */
 export function findDbMotor(
   designation: string,

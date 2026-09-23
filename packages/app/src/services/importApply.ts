@@ -5,7 +5,7 @@ import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import type { Sequencer } from './latestWins.js';
-import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
+import { matchImportedMotor, withMountCount, type MotorMatchResult } from './motorMatch.js';
 import {
   fmtStepS, type MeasuredFigures, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
   type OrkTreeImportResult,
@@ -303,6 +303,20 @@ export function configOntoTree(
   return next;
 }
 
+/**
+ * The sentences for motors a file did not confirm (MotorMatchResult.openNote),
+ * each once however many mounts carry its motor, with the count: a cluster built
+ * as separate mounts carries one motor each, and PELTZER_Swarm_JR.rkt's twelve
+ * F32 mounts said the same three sentences twelve times (second review of audit
+ * 2026-09-23 — the rule the .rkt reader's own sentinel notes follow). In the
+ * order the mounts first say them.
+ */
+function unconfirmedNotes(perMount: readonly (string | undefined)[]): string[] {
+  const counts = new Map<string, number>();
+  for (const n of perMount) if (n) counts.set(n, (counts.get(n) ?? 0) + 1);
+  return [...counts].map(([n, mounts]) => withMountCount(n, mounts));
+}
+
 /** What App writes for an opened design, and the mark it takes over it. */
 export interface ImportPlan {
   /**
@@ -357,9 +371,12 @@ export function planImport(
   // The refs nothing resolved, kept whole so Save writes them back verbatim
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
   const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
+  const openNotes: (string | undefined)[] = [];
   for (const [nodeId, ref] of Object.entries(openRefs)) {
     const { motor: mm, note, approximated, openNote } = openMatches[nodeId] ?? { note: '' };
-    if (mm) nextMotors[nodeId] = mm;
+    // The note rides the motor (MountMotor.openNote), so a switch back to this
+    // configuration says it again.
+    if (mm) nextMotors[nodeId] = openNote && mm.openNote !== openNote ? { ...mm, openNote } : mm;
     else nextUnmatchedRefs[nodeId] = ref;
     // A built-in standing in for a database motor whose curve would not
     // download is a motor the user is FLYING on an approximate curve, so it
@@ -367,10 +384,11 @@ export function planImport(
     if (!mm || approximated) notes.push(note);
     // So is a motor the file did not confirm — another maker's than it names,
     // one of several equal matches, an out-of-production guess — in a sentence
-    // about the open, not the mount (MotorMatchResult.openNote), so it cannot
+    // about the match, not the mount (MotorMatchResult.openNote), so it cannot
     // go stale the way the retired "Motor: … loaded" line did.
-    else if (openNote) notes.push(openNote);
+    else openNotes.push(openNote);
   }
+  notes.push(...unconfirmedNotes(openNotes));
   // Stage B: every configuration in the file becomes a ready-to-apply
   // preset, matched in the same pass. Only the APPLIED config's notes
   // surface — a preset's failures are reported if/when it is applied.
@@ -668,12 +686,21 @@ export function planConfigSwitch(
     text: [...lines, ...spent.notes].join('\n'),
     severity: spent.severity === 'warn' && sev === 'info' ? 'warn' as const : sev,
   });
+  // The loadout exactly as App will compute it once this is written: the
+  // configuration's motors on the mounts this tree has.
+  const mountIds = new Set(motorMounts(next).map((m) => m.id));
+  // A motor the file did not confirm is said again when its configuration is
+  // applied (second review of audit 2026-09-23): the open says it only for the
+  // configuration it shows, so a switch loaded the rest in silence.
+  const unconfirmed = unconfirmedNotes(Object.entries(cfg.motors)
+    .filter(([id]) => mountIds.has(id)).map(([, m]) => m.openNote));
   let note: ConfigSwitchPlan['note'];
   if (cfg.unmatched?.length) {
     // Quiet at import time (only the applied config reports) — the debt
     // comes due when the user actually loads this preset.
-    note = withSpent(cfg.unmatched.map((d) =>
-      `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`), 'warn');
+    note = withSpent([...cfg.unmatched.map((d) =>
+      `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`),
+    ...unconfirmed], 'warn');
   } else {
     // "… and weighed pad mass" only when this configuration's primary record
     // carries one — the field under that motor shows it.
@@ -681,11 +708,9 @@ export function planConfigSwitch(
     const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
     const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
     note = withSpent([`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
-      + `${hasPad ? ' and weighed pad mass' : ''} are now live.`], 'info');
+      + `${hasPad ? ' and weighed pad mass' : ''} are now live.`, ...unconfirmed],
+    unconfirmed.length > 0 ? 'warn' : 'info');
   }
-  // The loadout exactly as App will compute it once this is written: the
-  // configuration's motors on the mounts this tree has.
-  const mountIds = new Set(motorMounts(next).map((m) => m.id));
   const nozzleStated = hasNozzles
     ? stageMotors(next, Object.entries(cfg.motors).filter(([id]) => mountIds.has(id)))
       .filter((s) => s.stageId in cfg.nozzles!)

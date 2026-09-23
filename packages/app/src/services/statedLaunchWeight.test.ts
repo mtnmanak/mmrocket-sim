@@ -375,6 +375,28 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(namesSameMotor('H128W14A', 'H128W')).toBe(true);
   });
 
+  /**
+   * The matcher's rank 0 drops the separators between letters (Loki's
+   * “K1127-LB” is RockSim's “K1127LB”), and this did not, so a stage weight
+   * saved under one spelling was cleared, as another motor's, when the other
+   * loaded (second review of audit 2026-09-23). One rule now, in one place.
+   */
+  it('reads a designation spelled with or without the dashes between letters as one motor', () => {
+    expect(namesSameMotor('K1127-LB', 'K1127LB')).toBe(true);
+    expect(namesSameMotor('J-326-LR', 'J326-LR')).toBe(true);
+    expect(namesSameMotor('M900-LR', 'M900LR')).toBe(true);
+    // …and RockSim's own form with the Cesaroni impulse first.
+    expect(namesSameMotor('217H135-12A', '217-H135-12A')).toBe(true);
+    // A separator between two digits still separates: no G115-13A is a G11513A.
+    expect(namesSameMotor('G115-13A', 'G11513A')).toBe(false);
+    // The mark is backed out, not cleared.
+    const fix = reconcileIncludedMotor(
+      marked({ [OVERRIDE_INCLUDES_MOTOR]: 'K1127LB' }), 'bt',
+      { designation: 'K1127-LB', launchMassKg: 1, lengthM: 0.3, cgXFromFrontM: 0.15 }, TEXT)!;
+    expect(fix.tree.components[0]!['overrideMass']).toBeCloseTo(1, 9);
+    expect(fix.severity).toBe('info');
+  });
+
   it('drops a stale mark quietly when BOTH overrides have already been cleared', () => {
     const tree = marked({ overrideMass: undefined, overrideCGX: undefined, overrideSubcomponentsCG: undefined });
     const fix = reconcileIncludedMotor(tree, 'bt', motor(1), TEXT)!;
@@ -624,8 +646,11 @@ describe.skipIf(!existsSync(PEPE2))('PePe2: another simulation’s motor on a ma
     expect(after['overrideMass']).toBeUndefined();
     expect(after[OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
     expect(out.severity).toBe('warn');
-    expect(out.notes[0]).toContain('“N5800-CS” was not in the motor database when the file was imported');
-    expect(out.notes[0]).not.toContain('is not in the motor database');
+    // Not "was not in the motor database" either: the 20146N5800-P was, and the
+    // matcher cannot tell a motor the catalogue lacks from one it misread
+    // (second review of the audit).
+    expect(out.notes[0]).toContain('“N5800-CS” matched no motor in the motor database when the file was imported');
+    expect(out.notes[0]).not.toContain('not in the motor database');
   });
 });
 

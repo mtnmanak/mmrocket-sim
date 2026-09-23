@@ -124,9 +124,11 @@ export interface MotorMatchResult {
    * confirmed one ({@link unconfirmedMatchNote}): another maker's motor than
    * the file names, one of several that match equally well, or an
    * out-of-production row for a file that names no maker. Worded as a record
-   * of the open — what the file said and what it opened on — so it stays true
+   * of the match — what the file said and what it loaded as — so it stays true
    * after the user loads another motor (the stale "Motor: … loaded" line Big
-   * Dog reported was a claim about the mount, not about the open).
+   * Dog reported was a claim about the mount, not about the open). `motor`
+   * carries it too (MountMotor.openNote), so applying the configuration it
+   * belongs to says it again.
    */
   openNote?: string;
 }
@@ -243,7 +245,7 @@ export async function matchImportedMotor(
       const openNote = unconfirmedMatchNote(ref, dbMatch,
         matchDbMotor(ref.designation, diameterMm, undefined, ref.manufacturer));
       return {
-        motor,
+        motor: openNote ? { ...motor, openNote } : motor,
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
         ...(openNote ? { openNote } : {}),
       };
@@ -278,11 +280,32 @@ function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
   return namedMaker(ref) !== null && !manufacturerMatches(ref.manufacturer, db.manufacturerAbbrev);
 }
 
-/** A catalogue row as the open note names it: maker, designation, size, impulse, propellant. */
-function describeRow(m: MotorDbEntry): string {
-  const facts = [`${m.diameter} mm`, `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
+/**
+ * A catalogue row as the open note names it: maker, designation, size, impulse,
+ * propellant. The diameter to a tenth of a millimetre, not as stored: ten rows
+ * carry float noise (Jambol's and Ultra's 13.000000000000002 mm), and the note
+ * printed it (second review of audit 2026-09-23). The RAW designation when
+ * another row in the same note would read the same — AeroTech's HP-H45W and
+ * H45W both display as “H45W”, and the note named “AeroTech H45W” twice.
+ */
+function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m]): string {
+  const facts = [`${Number(m.diameter.toFixed(1))} mm`, `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
     ...(m.propInfo ? [m.propInfo] : []), ...(isAvailable(m) ? [] : ['out of production'])];
-  return `${m.manufacturerAbbrev} ${displayDesignation(m.designation, m.manufacturerAbbrev)} (${facts.join(', ')})`;
+  const shown = displayDesignation(m.designation, m.manufacturerAbbrev);
+  const twin = all.some((o) => o !== m && o.manufacturerAbbrev === m.manufacturerAbbrev
+    && displayDesignation(o.designation, o.manufacturerAbbrev) === shown);
+  return `${m.manufacturerAbbrev} ${twin ? m.designation : shown} (${facts.join(', ')})`;
+}
+
+/**
+ * One open note for a motor that `mounts` mounts carry — a cluster built as
+ * separate mounts — said once, with the count (the rule the .rkt reader's
+ * sentinel notes follow): PELTZER_Swarm_JR.rkt's twelve F32 mounts gave twelve
+ * identical three-sentence warnings. Every note {@link unconfirmedMatchNote}
+ * writes opens with `Motor “<designation>”`, and the count goes after it.
+ */
+export function withMountCount(note: string, mounts: number): string {
+  return mounts > 1 ? note.replace(/^(Motor “[^”]*”)/, `$1 (${mounts} mounts)`) : note;
 }
 
 /**
@@ -314,14 +337,16 @@ export function unconfirmedMatchNote(
   const oopGuess = namedMaker(ref) === null && !isAvailable(db) && (firm?.tier ?? 0) > 0;
   const rivals = firm?.rivals ?? [];
   if (!other && !unread && !oopGuess && rivals.length === 0) return undefined;
+  const named = [db, ...rivals];
+  const row = describeRow(db, named);
   const opened = other
-    ? `Motor “${ref.designation}”: the file names ${namedMaker(ref)!}, but it opened on ${describeRow(db)} — the motor the database matched to it.`
+    ? `Motor “${ref.designation}”: the file names ${namedMaker(ref)!}, but it loaded as ${row} — the motor the database matched to it.`
     : unread
-      ? `Motor “${ref.designation}” matched no motor in the database exactly; it opened on the closest, ${describeRow(db)}.`
+      ? `Motor “${ref.designation}” matched no motor in the database exactly; it loaded as the closest, ${row}.`
       : oopGuess
-        ? `Motor “${ref.designation}”: the file names no manufacturer, and it opened on ${describeRow(db)} — the motor the database matched to it.`
-        : `Motor “${ref.designation}” opened on ${describeRow(db)}.`;
-  const shown = rivals.slice(0, 3).map(describeRow);
+        ? `Motor “${ref.designation}”: the file names no manufacturer, and it loaded as ${row} — the motor the database matched to it.`
+        : `Motor “${ref.designation}” loaded as ${row}.`;
+  const shown = rivals.slice(0, 3).map((r) => describeRow(r, named));
   const more = rivals.length > shown.length ? `; and ${rivals.length - shown.length} more` : '';
   const also = rivals.length === 0 ? ''
     : ` ${rivals.length === 1 ? 'Another motor matches' : `${rivals.length} other motors match`} it as well: ${shown.join('; ')}${more}.`;

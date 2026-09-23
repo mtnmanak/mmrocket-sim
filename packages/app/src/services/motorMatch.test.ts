@@ -3,7 +3,7 @@ import type { MotorSpec } from '@online-openrocket/engine';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
-  baseDesignation, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
+  baseDesignation, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor, withMountCount,
 } from './motorMatch.js';
 
 /** A .ork <motor> block as the importer hands it over. SI: metres, seconds. */
@@ -233,9 +233,11 @@ describe('matchImportedMotor against the shipped catalog', () => {
       // motor list has K1075SK under Animal Motor Works only.
       const res = await open(rkt('K1075-SK', 'Cesaroni Technology Inc.', Infinity));
       expect(res.motor?.meta.manufacturer).toBe('AMW');
-      expect(res.openNote).toBe('Motor “K1075-SK”: the file names Cesaroni Technology Inc., but it opened on '
+      expect(res.openNote).toBe('Motor “K1075-SK”: the file names Cesaroni Technology Inc., but it loaded as '
         + 'AMW 2245K1075-P (54 mm, 2245.1 Ns, Skidmark) — the motor the database matched to it. '
         + 'Check it is the motor you fly, or pick another via Browse motor database.');
+      // The motor carries it, so applying its configuration says it again.
+      expect(res.motor?.openNote).toBe(res.openNote);
       // Not “Cesaroni Technology Inc.” beside “2245K1075-P”: that pair names no
       // motor, and desktop OpenRocket filters on the maker strictly.
       expect(res.motor?.meta.orkManufacturer).toBeUndefined();
@@ -243,7 +245,7 @@ describe('matchImportedMotor against the shipped catalog', () => {
 
     it('one of two motors that match equally well', async () => {
       const res = await open(rkt('H123-SK', 'CTI'));
-      expect(res.openNote).toBe('Motor “H123-SK” opened on Cesaroni H123-12A (29 mm, 176.5 Ns, Skidmark). '
+      expect(res.openNote).toBe('Motor “H123-SK” loaded as Cesaroni H123-12A (29 mm, 176.5 Ns, Skidmark). '
         + 'Another motor matches it as well: Cesaroni H123-14A (38 mm, 232.4 Ns, Skidmark). '
         + 'Check it is the motor you fly, or pick another via Browse motor database.');
       // The file's own maker IS the row's, so it is kept for Save.
@@ -253,18 +255,50 @@ describe('matchImportedMotor against the shipped catalog', () => {
     it('an out-of-production motor for a file that names no maker', async () => {
       // 25 Public Missiles MAC-8 files name a bare “H55”; the only H55 is this.
       const res = await open(rkt('H55', 'unknown', 6));
-      expect(res.openNote).toMatch(/^Motor “H55”: the file names no manufacturer, and it opened on AeroTech H55W \(29 mm, 162\.3 Ns, White Lightning, out of production\)/);
+      expect(res.openNote).toMatch(/^Motor “H55”: the file names no manufacturer, and it loaded as AeroTech H55W \(29 mm, 162\.3 Ns, White Lightning, out of production\)/);
     });
 
     it('the maker’s only motor of that name, with letters it could not read', async () => {
       const res = await open(rkt('G80NBT', 'Aerotech'));
       expect(res.motor?.spec.designation).toBe('G80T');
-      expect(res.openNote).toMatch(/^Motor “G80NBT” matched no motor in the database exactly; it opened on the closest, AeroTech G80T \(29 mm/);
+      expect(res.openNote).toMatch(/^Motor “G80NBT” matched no motor in the database exactly; it loaded as the closest, AeroTech G80T \(29 mm/);
+    });
+
+    /**
+     * Second review of the audit: the note printed a catalogue diameter as
+     * stored (“18.000000000000004 mm”, Altaira_N-1.rkt's D12), and named
+     * AeroTech's HP-H45W and H45W alike, “AeroTech H45W” twice, on both
+     * ZephyrMod files.
+     */
+    it('names each row once and plainly: a tidy diameter, and the raw designation where two display alike', async () => {
+      const d12 = await open(rkt('D12', 'unknown', 5));
+      expect(d12.openNote).toBeDefined();
+      expect(d12.openNote).not.toMatch(/\.0000/);
+      expect(d12.openNote).toContain('Jambol D12 (18 mm');
+      const h45 = await open(rkt('H45W', 'unknown', 10));
+      expect(h45.openNote).toMatch(/loaded as AeroTech HP-H45W \(38 mm, 320 Ns/);
+      expect(h45.openNote).toContain('Another motor matches it as well: AeroTech H45W (38 mm, 289 Ns');
+    });
+
+    it('a cluster of mounts says it once, with the count', () => {
+      const note = 'Motor “F32”: the file names Quest, but it loaded as AeroTech F32T. Check it.';
+      expect(withMountCount(note, 1)).toBe(note);
+      expect(withMountCount(note, 12)).toBe('Motor “F32” (12 mounts): the file names Quest, but it loaded as AeroTech F32T. Check it.');
     });
 
     it('nothing for a motor the file confirms', async () => {
       expect((await open(rkt('G115-WT', 'Cesaroni Technology Inc.', 10))).openNote).toBeUndefined();
       expect((await open(ref())).openNote).toBeUndefined();
+      expect((await open(ref())).motor?.openNote).toBeUndefined();
+      // The makers' codes RockSim and RASAero write are the makers themselves
+      // (second review of the audit): these opened with a note saying the file
+      // named another maker. PK-12 Onyx.RKT, ThreeCarbYen-2018.CDX1.
+      for (const [d, mfr, row] of [['F25', 'A-WL', 'F25W'], ['M745WC', 'GM', 'M745WC'],
+        ['H125W', 'AT-SU', 'H125W'], ['I550R', 'Kosdon-by-Aerot', 'I550R']] as const) {
+        const res = await open(rkt(d, mfr));
+        expect(res.motor?.spec.designation, `${d} | ${mfr}`).toBe(row);
+        expect(res.openNote, `${d} | ${mfr}`).toBeUndefined();
+      }
       // A maker's own suffix after the full designation (Estes's 13 mm “T”) is
       // not worth a warning on every Estes mini-motor file.
       const a10t = await open(rkt('A10T', 'Estes', 3));
