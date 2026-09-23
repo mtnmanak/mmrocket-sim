@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { G0 } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import {
   densityAltitudeM,
@@ -401,6 +405,28 @@ describe('isaAltitudeForDensity — the ISA profile, inverted', () => {
 
   it('answers NaN for air that does not exist, rather than a figure', () => {
     for (const rho of [0, -1, NaN, Infinity]) expect(isaAltitudeForDensity(rho)).toBeNaN();
+  });
+
+  // The guide's §Atmosphere prints the troposphere inverse in closed form
+  // (spec §1.7). Read off the guide itself, so the printed constants cannot
+  // drift from the code: within a centimetre of the layered inverse, and the
+  // n and 288.15 K ÷ 0.0065 K/m it says they come from.
+  it('is the closed form the guide prints, through the troposphere', () => {
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    const form = guide.match(/h = ([\d,.]+) m · \(1 − \(ρ\/ρ₀\)\^([\d.]+)\)/);
+    const rho0 = guide.match(/`ρ₀` = ([\d.]+) kg\/m³/);
+    const n = guide.match(/`n = g\/\(0\.0065·R\)` = ([\d.]+)/);
+    expect(form && rho0 && n, 'the guide states h, ρ₀ and n').toBeTruthy();
+    const scale = Number(form![1]!.replace(/,/g, ''));
+    const exponent = Number(form![2]);
+    expect(scale).toBeCloseTo(288.15 / 0.0065, 2);
+    expect(Number(n![1])).toBeCloseTo(G0 / (0.0065 * R_AIR), 6);
+    expect(exponent).toBeCloseTo(1 / (G0 / (0.0065 * R_AIR) - 1), 7);
+    expect(Number(rho0![1])).toBeCloseTo(rhoAt(0), 8);
+    for (const h of [0, 600, 1219.2, 2170.81, 5000, 10000, 11000]) {
+      const closed = scale * (1 - Math.pow(rhoAt(h) / Number(rho0![1]), exponent));
+      expect(Math.abs(closed - isaAltitudeForDensity(rhoAt(h))), `h ${h} m`).toBeLessThan(0.01);
+    }
   });
 });
 
