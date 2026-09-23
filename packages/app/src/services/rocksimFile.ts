@@ -1658,7 +1658,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       : null;
   };
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
-  const firstMotor: OrkMotorRef | undefined = Object.values(motors)[0];
   const chosenConfigId = chosen?.id ?? null;
 
   // One note per motor that IS loaded — the opened configuration's, however
@@ -1755,7 +1754,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // a <ShroudLineCount> of 1000000 made a 540 kg parachute. Each repair is
     // named in one note.
     tree: sanitizeTree({ name, components }, notes),
-    motor: firstMotor,
     motors,
     ignored: [...ignored],
     notes,
