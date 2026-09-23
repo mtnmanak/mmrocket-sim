@@ -1167,6 +1167,37 @@ html {
   color: var(--text-primary);
 }
 
+/* The gust-to-σ chip (weather build, step 4): a full-width row of the Launch
+   panel's grid, right under the wind pair. Its own class, never .field-caution. */
+.gust-estimate {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 0.35rem 0.55rem;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: 3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.gust-estimate .file-btn {
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.gust-estimate-warn {
+  border-left-color: var(--status-warn);
+  background: color-mix(in srgb, var(--status-warn) 8%, transparent);
+}
+
+.gust-estimate-muted {
+  color: var(--text-muted);
+}
+
 /* One field's provenance under its box: "forecast", or what the forecast said. */
 .field-provenance {
   font-size: 10.5px;

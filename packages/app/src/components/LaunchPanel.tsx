@@ -7,6 +7,7 @@ import {
   padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from '../services/atmosphere.js';
 import { APPLY_KEYS, type ApplyKey, type WeatherSnapshot } from '../services/weatherSnapshot.js';
+import { GustEstimate } from './GustEstimate.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -636,6 +637,12 @@ export function LaunchPanel({
   onWeatherDismiss?: () => void;
 }) {
   const { prefs } = usePrefs();
+  // The applied forecast hour's mean wind and gust — what the σ chip works
+  // from. From the snapshot's FETCHED values, whether or not the wind was
+  // applied; the chip itself decides whether Wind avg still matches.
+  const fetched = weather?.fetched;
+  const forecastWind = typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
+    ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs } : null;
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false, help?: string, autoStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
@@ -657,6 +664,11 @@ export function LaunchPanel({
         {numField('Rod angle', 'launchRodAngleDeg', 1, ...ROD_ANGLE_DEG_RANGE)}
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
+        {/* The gust-to-σ chip (weather build, step 4): directly under the wind
+            pair, full width, and only here — never inside LaunchField, which the
+            Fly screen shares. σ above is the grid's RIGHT cell, so this row
+            starts clean; a test pins that parity. */}
+        <GustEstimate value={value} onChange={onChange} forecastWind={forecastWind} />
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
         {/* Beside Site altitude on purpose: its "(+952 vs site)" delta is read
             against the box next to it, and with both air fields blank the two

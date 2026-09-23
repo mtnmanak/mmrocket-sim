@@ -138,6 +138,8 @@ describe('the weather dialog', () => {
     const context = q('.weather-context')!.textContent!;
     expect(context).toMatch(/Wind from 294° \(WNW\) — the\s+app’s wind has no direction\./);
     expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\)/);
+    // Step 4's preview: offered in the panel after Apply, never set by it.
+    expect(context).toMatch(/σ from this gust ≈ 0\.9 m\/s — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);
     expect(context).toMatch(/Forecast grid point 1\.4 km from your site\./);
     expect(context).toMatch(/Density altitude 0 m → /);
   });

@@ -705,4 +705,29 @@ describe('applied weather in the Launch panel', () => {
     act(() => btn('Dismiss')!.click());
     expect(calls).toEqual(['undo', 'dismiss']);
   });
+
+  // Step 4: the chip is a full-width row of the grid, right under the wind
+  // pair. The grid is a fixed two columns, so σ must be a RIGHT cell (an odd
+  // index) for the chip to start a clean row — a mechanism, not a warning.
+  it('offers σ from the forecast gust in a full-width row right after σ, and writes it only on a click', () => {
+    renderWeather(APPLIED, SNAP);
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
+    const chip = cells[sigma + 1]!;
+    expect(chip.classList.contains('gust-estimate')).toBe(true);
+    // 1.75 m/s gusting 4.6: (4.6 − 1.75) / 3 = 0.95.
+    expect(lastLaunch).toBeNull();
+    act(() => chip.querySelector<HTMLButtonElement>('button')!.click());
+    expect(lastLaunch!.windStdDev).toBe(0.95);
+    expect({ ...lastLaunch!, windStdDev: APPLIED.windStdDev }).toEqual(APPLIED);
+  });
+
+  it('keeps σ a right-hand cell with no forecast too, and shows no chip then', () => {
+    renderWeather(DEFAULT_CONDITIONS, null);
+    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
+    expect(sigma % 2).toBe(1);
+    expect(host.querySelector('.gust-estimate')).toBeNull();
+  });
 });

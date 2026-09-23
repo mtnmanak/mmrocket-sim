@@ -13,6 +13,7 @@ import {
 } from '../services/weatherProposal.js';
 import { WEATHER_CREDIT, type WeatherPatch, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { densityAltitudeM, padAir } from '../services/atmosphere.js';
+import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
 import { altitudeText, farText, FIELD_LABEL, fieldText } from './weatherText.js';
 
@@ -273,6 +274,8 @@ export function WeatherDialog({
     : null), [launch, answer, place, hourUnix, choice]);
   const patch = proposal ? patchOf(proposal, ticked) : {};
   const canApply = proposal !== null && Object.keys(patch).length > 0;
+  // The step-4 preview: what the panel's σ chip will offer from this hour.
+  const gust = sigmaFromGust(proposal?.sample.windSpeedMs, proposal?.sample.windGustMs);
 
   const apply = () => {
     if (!proposal || !answer || !place || !canApply) return;
@@ -446,6 +449,10 @@ export function WeatherDialog({
               {proposal.sample.windGustMs !== null && (
                 <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before) — see
                   Wind gusts σ.</li>
+              )}
+              {gust.ok && (
+                <li>σ from this gust ≈ {fieldText('windAverage', gust.sigmaMs, units)} — offered beside Wind gusts σ
+                  once this wind is applied; Apply never sets σ.</li>
               )}
               {proposal.gridDistanceM !== null && (
                 <li>Forecast grid point {farText(units.distance, proposal.gridDistanceM)} from your site.</li>
