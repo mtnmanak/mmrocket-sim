@@ -6,6 +6,7 @@ import { NETWORK_HOSTS, NetError } from './net.js';
 import {
   addDaysYmd, clearWeatherCache, compassPoint, DateRefusal, distanceM, fetchElevation, fetchForecast, fetchWeather,
   forecastUrl, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
+  MAP_LINK_WITHOUT_COORDINATES,
   parseForecast, parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
   usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample,
 } from './openMeteo.js';
@@ -252,6 +253,34 @@ describe('parseCoordinates', () => {
     });
   });
 
+  // Review of 2026-09-23: only the '@lat,lon' form parsed, so every other map
+  // link went whole — coordinates and all — to the geocoder as a place NAME,
+  // and came back "Nothing found. Put a comma between town and state".
+  it('reads a map link that states the point as a query, however its comma is spelled', () => {
+    for (const t of [
+      'https://maps.google.com/?q=40.87,-119.06',
+      'https://www.google.com/maps/search/?api=1&query=40.87,-119.06',
+      'https://www.google.com/maps/search/?api=1&query=40.87%2C-119.06',
+      'https://www.google.com/maps?q=40.87,+-119.06&z=15',
+      'https://www.google.com/maps/place/40%C2%B052%2712.0%22N+119%C2%B003%2736.0%22W/@40.87,-119.06,17z',
+      'https://maps.apple.com/?ll=40.87,-119.06&q=Dropped%20Pin',
+    ]) {
+      const [lat, lon] = at(t);
+      expect(lat, t).toBeCloseTo(40.87, 9);
+      expect(lon, t).toBeCloseTo(-119.06, 9);
+    }
+  });
+
+  it('says a link with no coordinates in it has none, rather than searching it as a town', () => {
+    for (const t of [
+      'https://maps.app.goo.gl/abcdEFGH', 'https://goo.gl/maps/xyz123', 'maps.app.goo.gl/abcdEFGH',
+      'https://www.google.com/maps/place/Black+Rock+City', 'https://maps.google.com/?q=Gerlach+NV',
+    ]) {
+      expect(parseCoordinates(t), t).toEqual({ ok: false, error: MAP_LINK_WITHOUT_COORDINATES });
+    }
+    expect(MAP_LINK_WITHOUT_COORDINATES).toMatch(/^That link has no coordinates in it/);
+  });
+
   it('leaves a ZIP, a postcode, two bare numbers and a town name for the place search', () => {
     for (const t of ['89412', '10115', '12 34', 'Gerlach, NV', 'New York', 'Salt Lake City', '']) {
       expect(parseCoordinates(t), t).toBeNull();
@@ -281,6 +310,13 @@ describe('place search', () => {
     expect(f.urls).toEqual([]);
     expect(isDigitsOnly('89412')).toBe(true);
     expect(isDigitsOnly('Gerlach 89412')).toBe(false);
+  });
+
+  it('answers a link with no coordinates with no request at all', async () => {
+    const f = fakeFetch(() => ({ body: fixture('geocode-none.json') }));
+    expect(await searchPlace('https://maps.app.goo.gl/abcdEFGH', 'US', { fetchImpl: f.fetchImpl }))
+      .toEqual({ kind: 'none', message: MAP_LINK_WITHOUT_COORDINATES });
+    expect(f.urls).toEqual([]);
   });
 
   it('reads coordinates with no request at all', async () => {

@@ -418,6 +418,17 @@ export type ParsedCoordinates =
 /** A signed number for a message, with a real minus sign. */
 const signed = (x: number) => (x < 0 ? `−${Math.abs(x)}` : String(x));
 
+/** What the place box says about a map link that carries no coordinates. */
+export const MAP_LINK_WITHOUT_COORDINATES = 'That link has no coordinates in it (a short share link only points at '
+  + 'a page). Open it, then paste the link from the address bar — or right-click the spot in Google Maps and copy '
+  + 'the coordinates at the top of the menu.';
+
+/**
+ * Text that is a web address rather than a place: a scheme, or a bare
+ * host-and-path such as `maps.app.goo.gl/abc`.
+ */
+const isLink = (t: string): boolean => /^https?:\/\//i.test(t) || /^(?:[\w-]+\.)+[a-z]{2,}\/\S*$/i.test(t);
+
 /**
  * Typed or pasted coordinates, in any of the common forms — or null when the
  * text is not coordinates at all and should be searched as a place:
@@ -425,12 +436,14 @@ const signed = (x: number) => (x < 0 ? `−${Math.abs(x)}` : String(x));
  *   40.87, -119.06 · 40.87 -119.06 · 40.87N 119.06W · N40.87 W119.06
  *   40°52'12"N 119°03'36"W · 40° 52.2' N, 119° 3.6' W
  *   …/maps/@40.87,-119.06,15z (a Google Maps link) · 40,87; -119,06
+ *   …/maps?q=40.87,-119.06 · …?api=1&query=40.87%2C-119.06 · …?ll=40.87,-119.06
  *
  * It needs a decimal point, a degree or minute mark, a hemisphere letter or a
  * comma before it will read two numbers as coordinates, so a ZIP (`89412`),
  * a postcode (`10115`) or `12 34` is a search, not a place in the ocean. The
- * only error it reports is one a human can act on: a latitude past ±90,
- * which almost always means the pair was pasted the other way round.
+ * errors it reports are ones a human can act on: a latitude past ±90, which
+ * almost always means the pair was pasted the other way round, and a link
+ * with no coordinates in it.
  */
 export function parseCoordinates(text: string): ParsedCoordinates | null {
   let t = text.trim()
@@ -440,6 +453,23 @@ export function parseCoordinates(text: string): ParsedCoordinates | null {
   // A Google Maps link: the pair right after the '@'.
   const at = /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(t);
   if (at) return checked(Number(at[1]), Number(at[2]));
+  // A map link that states the point as a query instead — Google's ?q=, the
+  // Maps URLs API's ?query=, Apple's ?ll= — its comma often percent-encoded
+  // and its space a '+'. Any OTHER link has no coordinates to read: a
+  // maps.app.goo.gl share link is a redirect, and a place link carries a name.
+  // It says so, because returning null sent the whole URL to the geocoder as
+  // a town name, which answered "Nothing found. Put a comma between town and
+  // state" (review of 2026-09-23).
+  if (isLink(t)) {
+    let u = t.replace(/\+/g, ' ');
+    try {
+      u = decodeURIComponent(u);
+    } catch {
+      /* a stray '%': read the text as it stands */
+    }
+    const q = /[?&](?:q|query|ll|center|daddr|destination)=\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i.exec(u);
+    return q ? checked(Number(q[1]), Number(q[2])) : { ok: false, error: MAP_LINK_WITHOUT_COORDINATES };
+  }
   // Decimal commas, the pair split by ';'.
   if (t.includes(';')) {
     const halves = t.split(';');
