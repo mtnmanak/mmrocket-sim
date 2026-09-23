@@ -136,6 +136,45 @@ describe('power-on base drag: one nozzle area per stage instance, on the aft bas
     }
   });
 
+  it('credits nothing to a step whose stage sits flush on the stage below', () => {
+    // The drag sweep marks EVERY stage thrusting with every stage attached — the
+    // Drag panel's power-on curve. A sustainer that steps down from 40 to 29 mm and
+    // sits flush on a 29 mm booster has ONE base in its own line, the step, and its
+    // motors do not exhaust through it: they fire into the booster's forward end. So
+    // the sustainer's nozzle takes nothing off the step (before the fix it took one
+    // area, 0.032925 at M0.3), and a booster nozzle is credited once, on the stack's
+    // aft end. A single-base stage moves too, then, when that base is not its last
+    // component — the scope the LEDGER entry states.
+    const stack = (boosterExit: number): RocketTree => ({
+      name: 'Stack',
+      components: [
+        {
+          type: 'stage', name: 'Sustainer', nozzleExitDiameter: EXIT_D,
+          children: [
+            { type: 'nosecone', length: 0.15, aftRadius: STEP_R, thickness: 0.002 },
+            { type: 'bodytube', length: 0.3, outerRadius: STEP_R, thickness: 0.0005, density: 950 },
+            { type: 'bodytube', length: 0.3, outerRadius: CORE_R, thickness: 0.0005, density: 950 },
+          ],
+        },
+        {
+          type: 'stage', name: 'Booster', nozzleExitDiameter: boosterExit,
+          children: [{
+            type: 'bodytube', length: 0.4, outerRadius: CORE_R, thickness: 0.0005, density: 950,
+            children: [fins],
+          }],
+        },
+      ],
+    });
+    for (const model of ['kbf', 'supersonic'] as const) {
+      const [sustainerOnly] = baseCd(stack(0), model, [0.3]);
+      expect(sustainerOnly!.on).toBe(sustainerOnly!.off);
+      const [both] = baseCd(stack(EXIT_D), model, [0.3]);
+      // One area on the 40 mm reference; the pre-fix kernel took two (the step's
+      // and the booster's), 0.06585.
+      expect(both!.off - both!.on).toBeCloseTo(subsonicBaseCd(0.3) * (EXIT_D / 2) ** 2 / STEP_R ** 2, 12);
+    }
+  });
+
   it('still credits a parallel stage one area per strap-on', () => {
     // The consistency the pressure-thrust half was aligned to in code review E2:
     // N instances of a strap-on whose ONE base is its aft end recover N areas.

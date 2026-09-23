@@ -267,7 +267,10 @@ export type ComponentType =
  * stage's AFT-MOST base only: a pod's own base, or a step part way along the
  * airframe, keeps its whole base drag (2026-09-22 — until then each of those
  * took an area of its own, so two pods tripled the reduction; see
- * `nozzleBaseDrag.test.ts`). A `parallelstage` node takes the field
+ * `nozzleBaseDrag.test.ts`). A stage whose last component is not a base — one
+ * sitting flush on the stage below it — is credited nowhere, a step in it
+ * included: its motors fire into that stage, not through the step. A
+ * `parallelstage` node takes the field
  * too, and there it is ONE strap-on's equivalent exit: both halves charge one
  * area per stage INSTANCE, so N strap-ons get N areas (code review E2, fixed
  * 2026-09-22 — pressure thrust used to charge one area for the whole ring). A
@@ -553,8 +556,10 @@ export interface DragSweep {
  * instance count: two instances of a 32 N, 10 mm-exit motor at about 86 kPa flew
  * 65.203822 N against the 66.407645 N per-instance accounting gives (code review
  * E2). The kernel now charges one area per stage INSTANCE, as the drag half
- * always did, so on a parallel stage the field means ONE strap-on's equivalent
- * exit and is accepted (`pressureThrust.test.ts` pins it bit-exactly).
+ * does (on a one-base stage it always did; a stage with pods or a step took an
+ * area per base until kernel pass 2 — `nozzleBaseDrag.test.ts`), so on a
+ * parallel stage the field means ONE strap-on's equivalent exit and is accepted
+ * (`pressureThrust.test.ts` pins it bit-exactly).
  */
 function assertNoPodSetNozzle(tree: RocketTree): void {
   const walk = (nodes: readonly ComponentNode[]): void => {

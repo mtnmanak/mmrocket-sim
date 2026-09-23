@@ -1531,7 +1531,7 @@ aerodynamic model.
 - **Upstreamable:** yes, both halves — an upstream arithmetic bug, confined to one guard and
   one accessor.
 
-### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half always was (code review E2, 2026-09-22)
+### simulation/RK4SimulationStepper.java — pressure thrust is charged once per stage INSTANCE, as the drag half does (on a one-base stage always; on every stage since kernel pass 2) (code review E2, 2026-09-22)
 
 - **Why:** `calculatePressureThrust` (feature #5 above) de-duplicated its term by
   `stage.getStageNumber()` and stopped there. That is ONE number for a whole
@@ -1625,12 +1625,28 @@ aerodynamic model.
   a base exists at all. `total += instanceCount * cd` is untouched, so the one credited base
   still scales by the stage's instance count and an N-strap-on `ParallelStage` recovers N
   areas, exactly as E2 made the pressure-thrust half charge them. If the stage's last
-  component is not a base (a sustainer onto an equally wide interstage), the stage gets no
-  credit anywhere — correct, the exhaust has no base of that stage to pressurize.
+  component is not a base (a sustainer onto an equally wide interstage, or flush on the stage
+  below), the stage gets no credit anywhere, a step earlier in its line included — correct, the
+  exhaust has no base of that stage to pressurize.
 - **Scope, structurally:** the new conjunct runs only when the old credit would have been
   taken, so Classic Extended Barrowman (the gate), every design without a nozzle and every
-  coasting step execute nothing new, and a single-base stage — the whole corpus bar pods and
-  steps — takes the identical branch with identical arithmetic.
+  coasting step execute nothing new, and a stage whose one base IS its last component — the
+  whole corpus bar the three shapes below — takes the identical branch with identical
+  arithmetic.
+- **Who moves — the wording a CHANGELOG needs (corrected in review, 2026-09-23; "pods or a
+  step" alone understated it):** under Rogers Kbf / Supersonic / Auto, a stage with a nozzle
+  exit set AND a base anywhere other than its aft-most component. (a) **Pods** on the stage:
+  each pod's base had taken an area of its own. (b) **A step-down** part way along the stage's
+  own line, no transition: the step had taken one. (c) **A step on a stage that sits flush on
+  the stage below:** that stage's ONE base is the step, and it now takes NOTHING — its motors
+  fire into the stage below, not through the step. (a) and (b) lose the credit they had on top
+  of the aft base's; (c) loses its whole credit. (c) shows only while the stage below is
+  attached: always in the Drag panel's power-on curve (`getDragSweep` marks every stage
+  thrusting with every stage active), in flight only when a stage burns before the stage below
+  separates. Measured through the raw bridge at M0.3, Kbf — a sustainer of nose, 40 mm tube and
+  29 mm tube with a 20 mm exit, on a flush 29 mm finned booster: power-on base CD 0.098775 →
+  0.1317 (one area → none), found by the fix's adversarial review. Every mover gains base drag;
+  none loses any.
 - **Divergence from upstream:** none new — feature #2 is ours, gated to Rogers Kbf /
   Supersonic / Auto as before. The comment in `RK4SimulationStepper.calculatePressureThrust`'s
   javadoc that said the drag half subtracts "from each aft base" is corrected in the same
@@ -1665,6 +1681,20 @@ aerodynamic model.
   flight falls from +2.63 % to +1.84 % of apogee (Kbf). Golden fixture: `pods.kbf` 359.368 →
   354.145 m (−1.45 %), `podmotors.kbf` 541.833 → 537.388 m (−0.82 %). Every mover LOSES
   apogee: the old kernel shed base drag the pods never lost.
+- **Every tester file, scanned (review fix-up, 2026-09-23):** all 31 `.ork` files under
+  `docs/User files`, a 20 mm exit put on each stage in turn, power-on base CD at M0.3 under Kbf
+  through the app's importer on both artifacts. Four files move: the three LEM-IV copies (pods)
+  and **`TRF RASAero Files/Wildman Mach 2 this one.ork`** — shape (b): a single-stage minimum-
+  diameter design whose 56.5 mm airframe meets a boattail the file gives an explicit 55.4 mm
+  fore diameter, a 0.96 cm² step the old kernel credited a whole exit against and so zeroed.
+  Measured the LEM-IV way, with each motor's published 1.25 in exit: the file's default
+  configuration **K805G, Kbf 5024.910 → 5016.904 m (−0.16 %), Supersonic 4824.915 → 4817.597 m
+  (−0.15 %)**; L1000 −0.26 % under both; K250W, a long low-thrust burn and the largest mover
+  of the three configurations measured (of 41), **Kbf 8756.892 → 8699.200 m (−0.66 %),
+  Supersonic 8265.735 → 8215.166 m (−0.61 %)**.
+  No-nozzle flights bit-identical on both artifacts. **No tester file has shape (c):** every
+  upper stage in the seven multi-stage files sits flush with no step and is credited nothing,
+  before and after.
 - **Known residual, recorded rather than modelled:** the clamp `max(0, area − nozzleArea)` now
   applies to one base, so a stage whose motors sit ONLY in pods, on a core whose own aft base
   is smaller than the summed equivalent exit (a core tapering to a point, say), is credited
@@ -1673,13 +1703,15 @@ aerodynamic model.
   through which base — the kernel's thrusting flag is per stage, not per mount. Before this
   fix the same design was over-credited by up to one area per pod, so the error shrank and
   changed sign; no tester file has the shape (LEM-IV's motor is in the core).
-- **Behavioural guards:** `packages/engine/src/nozzleBaseDrag.test.ts`, 4 tests — the pod
+- **Behavioural guards:** `packages/engine/src/nozzleBaseDrag.test.ts`, 5 tests — the pod
   design's reduction equals the podless design's and one area, under Kbf and Supersonic, at
   M0.3 and M0.9, with the pods' power-off base drag pinned; the stepped airframe credited once;
-  a parallel stage still credited N areas for N strap-ons; and Classic inert (`on === off`) on
-  all three designs, plus the pod design with no nozzle under Kbf. The first two fail against
-  the pre-fix artifact (0.18791914387633768 and 0.06585 read where one area is due); the last
-  two pass on both, which is their job.
+  a stepped sustainer flush on its booster credited NOTHING for its own nozzle (`on === off`)
+  and exactly one area when the booster carries one; a parallel stage still credited N areas
+  for N strap-ons; and Classic inert (`on === off`) on all three single-stage designs, plus the
+  pod design with no nozzle under Kbf. The first three fail against the pre-fix artifact
+  (0.18791914387633768, 0.06585 and 0.098775 read where one area, one area and none are due);
+  the last two pass on both, which is their job.
 - **Artifact:** `packages/engine/vendor/orkengine.mjs` 2,759,604 → 2,766,975 bytes (the golden
   scenario is most of it), md5 `5f8d53e985b754d457b1710343f8a300` →
   `e04d4a5aa19e3ee46bf4c8545cc4baae`. `isStageAftBase` 0 → 2 occurrences (the definition and
