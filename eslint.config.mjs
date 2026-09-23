@@ -131,8 +131,10 @@ export default tseslint.config(
 
   {
     // ─── Browser-shipped source ───
-    // globals.browser only: a bare `process` or `require` reaching this bundle is a
-    // runtime crash for a user, not a lint nit.
+    // globals.browser only. That alone does NOT refuse a bare `process` or
+    // `require` in .ts: typescript-eslint switches no-undef off there (tsc owns
+    // undefined names, and tsc sees @types/node). no-restricted-globals below is
+    // what makes one a lint error rather than a runtime crash for a user.
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       globals: { ...globals.browser },
@@ -164,9 +166,49 @@ export default tseslint.config(
       // noUncheckedIndexedAccess. See the header for why that number is not ~284.
       '@typescript-eslint/no-non-null-assertion': 'off',
       // console.log in shipped code is a leak. warn/error survive because the app
-      // reports engine failures through them, and debug because engine/kernelLogSink.ts:35
+      // reports engine failures through them, and debug because engine/kernelLogSink.ts
       // echoes the TeaVM kernel's stdout there behind an explicit opt-in flag.
       'no-console': ['error', { allow: ['warn', 'error', 'debug'] }],
+
+      // Node-only globals. typescript-eslint turns no-undef off for .ts, and tsc
+      // accepts them because @types/node is visible to the program, so
+      // `Buffer.from(...)` passes typecheck, lint and the (Node-run) tests, then
+      // throws ReferenceError in a user's browser — and `process.env.X` reads
+      // undefined there (Vite rewrites `process.env` to `{}`) while the tests read
+      // the real value. isNaN/isFinite coerce (isFinite('') is true), where every
+      // number reader here is Number.isFinite by design (tree/nodeNum.ts).
+      // 0 hits in shipped source (2026-09-22, audit Step A); the tests block below
+      // turns it off, because tests DO run under Node.
+      'no-restricted-globals': ['error',
+        ...['process', 'Buffer', 'require', '__dirname', '__filename', 'global', 'setImmediate']
+          .map((name) => ({ name, message: `${name} is Node-only: it does not exist in the browser this source ships to.` })),
+        { name: 'isNaN', message: 'Global isNaN coerces its argument. Use Number.isNaN, or num/numOrNull (tree/nodeNum.ts).' },
+        { name: 'isFinite', message: "Global isFinite coerces its argument (isFinite('') is true). Use Number.isFinite." },
+      ],
+      // The rest of Step A, each measured at 0 hits in packages/*/src the same day,
+      // so each is a pure ratchet: code from a string (eval, new Function, a string
+      // handed to setTimeout); parseInt without a radix; x !== x as a NaN test; a
+      // loop that can only run once; a map/filter callback that forgets to return;
+      // throwing a non-Error (no stack, no `cause`); for-in without an own-property
+      // guard (the prototype-key class services/xmlUtil.ts lookupTable closes);
+      // assignment hidden in a return or a comma expression; a = b = c; labels;
+      // arguments.caller; extending a built-in prototype; new Number/String/Boolean.
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      radix: 'error',
+      'no-self-compare': 'error',
+      'no-unreachable-loop': 'error',
+      'array-callback-return': 'error',
+      'no-throw-literal': 'error',
+      'guard-for-in': 'error',
+      'no-return-assign': 'error',
+      'no-sequences': 'error',
+      'no-multi-assign': 'error',
+      'no-labels': 'error',
+      'no-caller': 'error',
+      'no-extend-native': 'error',
+      'no-new-wrappers': 'error',
     },
   },
 
@@ -225,8 +267,11 @@ export default tseslint.config(
     // Tests run under Node (vitest), some under happy-dom, and a few print measured
     // sweep numbers on purpose — see the two no-console suppressions in
     // services/lemivSweep.test.ts.
+    // no-restricted-globals is off for the same reason: the tests run under Node,
+    // and 11 sites read `process` on purpose (unhandledRejection hooks, and
+    // process.cwd() to find the repo's fixtures).
     files: ['**/*.test.{ts,tsx,mts,mjs,js}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
-    rules: { 'no-console': 'off' },
+    rules: { 'no-console': 'off', 'no-restricted-globals': 'off' },
   },
 );

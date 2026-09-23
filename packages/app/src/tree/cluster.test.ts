@@ -88,6 +88,7 @@ describe('CLUSTER_POINTS matches ClusterConfiguration.java', () => {
     const names = Object.keys(scope);
     // The kernel's own numeric literals, read from a committed source file and
     // character-checked above — never user or file input.
+    // eslint-disable-next-line no-new-func -- evaluates the carved Java source's own constant expressions, as written; see above
     const fn = new Function(...names, 'Math', `return [${expr}];`) as (...a: unknown[]) => number[];
     return fn(...names.map((n) => scope[n]), Math);
   };

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type EndShape } from './shroud.js';
+import type { EndShape } from './shroud.js';
 
 /**
  * The camera shroud's 3D shell (v0.088), replacing the `BoxGeometry` that had
