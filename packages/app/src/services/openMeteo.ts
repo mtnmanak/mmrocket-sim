@@ -249,7 +249,11 @@ export interface HourSample {
   windSpeedMs: number | null;
   /** The strongest gust in the HOUR BEFORE `unix` (Open-Meteo's hourly gust). */
   windGustMs: number | null;
-  /** Where the wind blows FROM, compass degrees. Display only — the app's wind has no direction. */
+  /**
+   * Where the wind blows FROM, compass degrees. Display only: the app's wind
+   * always blows from the east, and Rod aim — the rail's angle to it — is the
+   * user's to set; a bearing cannot say how a rail leans.
+   */
   windFromDeg: number | null;
 }
 

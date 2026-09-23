@@ -107,6 +107,15 @@ export const WEATHER_DIALOG_COPY = {
   failed: 'Could not get a location — type a town or paste coordinates.',
   townCentre: 'Town centre — for a field out of town, paste the field’s coordinates instead.',
   archive: 'ERA5 reanalysis — the weather as it was, not a forecast',
+  /**
+   * After "Wind from 294° (WNW) — ". The app's wind is not directionless: it
+   * always blows from the east, and Rod aim is measured from it — the frame
+   * the guide and the landing bearing's "downwind" use. The first build said
+   * "the app's wind has no direction", which the guide contradicted a few
+   * paragraphs away (review of 2026-09-23).
+   */
+  windNotApplied: 'not applied: the app’s wind always blows from the east, and Rod aim is measured from it — '
+    + 'set Rod aim for how your rail leans against this wind.',
   noHours: 'Open-Meteo sent no hours for that date here.',
 } as const;
 
@@ -464,8 +473,10 @@ export function WeatherDialog({
                 // either: the aim is the rod's angle TO the wind, which a
                 // bearing cannot tell without knowing the rail (weather build,
                 // step 2, trap 8). Only the user at the pad knows that.
-                <li>Wind from {Math.round(proposal.sample.windFromDeg)}° ({compassPoint(proposal.sample.windFromDeg)}) — the
-                  app’s wind has no direction; set Rod aim yourself.</li>
+                <li>
+                  {`Wind from ${Math.round(proposal.sample.windFromDeg)}° (${compassPoint(proposal.sample.windFromDeg)}) — `}
+                  {WEATHER_DIALOG_COPY.windNotApplied}
+                </li>
               )}
               {proposal.sample.windGustMs !== null && (
                 <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before) — see

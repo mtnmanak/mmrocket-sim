@@ -6,6 +6,9 @@ import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { densityAltitudeM, isaAltitudeForDensity } from './atmosphere.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Simulation warnings and landing drift, end-to-end through the REAL kernel
@@ -346,6 +349,35 @@ describe('Rod aim turns a tilted rod’s lean about the wind', () => {
     expect(fly({ ...vertical, launchRodAimDeg: 90 })).toBe(fly(vertical));
     // …while an aim that does move it, does.
     expect(fly({ ...tilted, launchRodAimDeg: 180 })).not.toBe(before);
+  }, 60000);
+
+  // THE GUIDE'S FIGURES, held in a script (review of 2026-09-23): they were
+  // measured at Wind gusts σ 1 and printed with no σ, so a reader flying the
+  // panel's default σ 0 read 321/305 where the guide said 320/303. Flown here
+  // at the default, rounded as printed, and found in the guide's own words.
+  it('re-measures the Rod aim paragraph’s apogee and drift, at the σ it states', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launchRodAimDeg: number) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      const r = rocket.simulate({
+        ...kernelSimOptions({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4, launchRodAimDeg }),
+        randomSeed: 42,
+      });
+      return [Math.round(r.summary.maxAltitude), Math.round(extractLandingDrift(r.series).distanceM!)] as const;
+    };
+    expect(DEFAULT_CONDITIONS.windStdDev).toBe(0);
+    const [into, across, acrossLeft, down] = [fly(0), fly(90), fly(-90), fly(180)];
+    expect(across).toEqual(acrossLeft);
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    const para = guide.split(/\r?\n/).find((l) => l.startsWith('**Rod aim**'))!;
+    expect(para).toContain('in a steady 4 m/s wind (Wind gusts σ 0, the default)');
+    expect(para).toContain(`${into[0]} m of apogee and ${into[1]} m of drift aimed into the wind, `
+      + `${across[0]} m and ${across[1]} m across it, ${down[0]} m and ${down[1]} m downwind`);
+    // And one frame throughout: the wind the aim is measured from always
+    // blows from the east. The weather section once said it had no direction.
+    expect(guide).not.toMatch(/wind has no (compass )?direction/);
   }, 60000);
 
   // The aim turns the ROD, never the wind, so the landing label's "downwind"

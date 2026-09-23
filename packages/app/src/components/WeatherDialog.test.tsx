@@ -136,7 +136,12 @@ describe('the weather dialog', () => {
     expect(row('longitudeDeg')!.textContent).toContain('blank (−80.6 flown)');
     expect(row('latitudeDeg')!.textContent).toContain('(Gerlach, Nevada, US — town centre)');
     const context = q('.weather-context')!.textContent!;
-    expect(context).toMatch(/Wind from 294° \(WNW\) — the\s+app’s wind has no direction; set Rod aim yourself\./);
+    // The app's wind DOES have a direction — always from the east, the frame
+    // Rod aim is measured in — so the line says that, not "no direction"
+    // (review of 2026-09-23: the guide said both).
+    expect(context).toMatch(new RegExp(`Wind from 294° \\(WNW\\) — ${WEATHER_DIALOG_COPY.windNotApplied}`));
+    expect(WEATHER_DIALOG_COPY.windNotApplied).toMatch(/always blows from the east/);
+    expect(context).not.toMatch(/no direction/);
     expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\)/);
     // Step 4's preview: offered in the panel after Apply, never set by it.
     expect(context).toMatch(/σ from this gust ≈ 0\.9 m\/s — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);
