@@ -3,6 +3,7 @@ import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
+import { FirstRunTour } from '../components/FirstRunTour.js';
 import { Modal } from '../components/Modal.js';
 import {
   HISTORY_CAP, HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory, type TreeHistoryOptions,
@@ -267,6 +268,34 @@ describe('useTreeHistory — the key binding', () => {
     act(() => dialog.unmount());
     key('z');
     expect(h.current.tree.name).toBe('0');
+  });
+
+  /**
+   * From review (audit 2026-09-22). The gate first counted every useDialog
+   * user, and the first-run tour is one — but the tour leaves the app usable
+   * behind its card and opens by itself on a first visit, so a new visitor
+   * editing around it found Ctrl+Z silently dead while the header's Undo still
+   * worked. The real tour, mounted here.
+   */
+  it('keeps working while the first-run tour (not modal) is up', () => {
+    const h = renderHistory(t('0'));
+    editApart(h, t('a'));
+    mount(<FirstRunTour onSetTab={() => {}} onClose={() => {}} />);
+    // The tour moves focus into its card; the keys arrive from the page.
+    const ev = key('z', { ctrl: true }, document.body);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(h.current.tree.name).toBe('0');
+    key('y', { ctrl: true }, document.body);
+    expect(h.current.tree.name).toBe('a');
+  });
+
+  it('a modal opened over the tour still blocks it', () => {
+    const h = renderHistory(t('0'));
+    editApart(h, t('a'));
+    mount(<FirstRunTour onSetTab={() => {}} onClose={() => {}} />);
+    mount(<Modal label="Unsaved changes" onClose={() => {}}><button>Cancel</button></Modal>);
+    key('z', { ctrl: true }, document.body);
+    expect(h.current.tree.name).toBe('a');
   });
 
   it('refuses undo and redo, keys and buttons alike, while blocked()', () => {
