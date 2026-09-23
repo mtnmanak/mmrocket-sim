@@ -4,6 +4,7 @@ import { DEFAULT_TIME_STEP_S, type LaunchConditions } from '../components/Launch
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
+import type { Sequencer } from './latestWins.js';
 import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import {
   fmtStepS, type MeasuredFigures, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult,
@@ -540,6 +541,55 @@ export function planConfigSwitch(
   };
 }
 
+/**
+ * Opens a share link (`#d=` in the URL), sequenced like every other open.
+ *
+ * THE SEQUENCE IS CLAIMED BEFORE THE FIRST AWAIT (audit 2026-09-22). This path
+ * used to claim it only inside applyImported, after the decode and the preset
+ * catalogue had been awaited, so an Open started while a long link was still
+ * decoding (a first visit's chunk loads are the slow case) was overwritten by
+ * the link when it landed. A superseded link neither offers, applies nor
+ * reports an error about a design nobody is waiting for.
+ */
+export async function openShareLink(hash: string, deps: {
+  openSeq: Sequencer;
+  /** Decode and parse the fragment (every await of this path). Throws on a bad link. */
+  read: (hash: string) => Promise<ImportedDesign>;
+  /** Ask first (a restored design the user worked on) rather than apply. */
+  offer: boolean;
+  onOffer: (imported: ImportedDesign) => void;
+  apply: (imported: ImportedDesign, openId: number) => Promise<void>;
+  onError: (e: unknown) => void;
+}): Promise<void> {
+  const openId = deps.openSeq.begin();
+  try {
+    const imported = await deps.read(hash);
+    if (!deps.openSeq.isCurrent(openId)) return;
+    if (deps.offer) deps.onOffer(imported);
+    else await deps.apply(imported, openId);
+  } catch (e) {
+    if (!deps.openSeq.isCurrent(openId)) return;
+    deps.onError(e);
+  }
+}
+
+/**
+ * May the starter rocket's C6 land now that its curve has arrived? Only on the
+ * mount it was chosen for, while that mount is still in the design on screen
+ * and nothing is loaded yet (audit 2026-09-22). The curve is one await (a
+ * chunk on a first visit), and the old check — "no motor loaded yet" alone —
+ * let it land on a design that had REPLACED the starter: a ✕ New or an Open
+ * with no motors in that window got the C6 record under a mount id their tree
+ * does not have, which reads the new design as unsaved. Every replacement
+ * mints fresh ids, so the mount's presence is the precise test; a share link
+ * that fails to decode leaves the starter, and its C6 still lands.
+ */
+export function starterMotorMayLand(
+  live: RocketTree, mountId: string, motors: Record<string, MountMotor>,
+): boolean {
+  return Object.keys(motors).length === 0 && findNode(live, mountId) !== null;
+}
+
 /** App's writers a configuration switch goes through. */
 export interface ConfigSwitchSinks {
   /** The nozzle-follow record's seed (hooks/useNozzleFollow). */
@@ -602,10 +652,18 @@ export function planOrkSave(
  * described a stage id one greater than the tree in state, and a design with
  * nothing in it was dirty the instant ✕ New was pressed. Launch and measured
  * are deliberately not reset by New, so they carry their current values.
+ *
+ * NEW SUPERSEDES ANY OPEN IN FLIGHT (audit 2026-09-22). It never claimed the
+ * open sequence, so an Open still waiting on a thrustcurve.org fetch landed on
+ * top of the new design when it finished — and marked it saved, so the next
+ * Open discarded the user's new work without asking. Passing the sequencer
+ * claims it; that open then stops at its check.
  */
 export function planNewDesign(
   keep: { launch: LaunchConditions; measured: MeasuredFigures },
+  openSeq?: Sequencer,
 ): { snapshot: DesignSnapshot; mark: string } {
+  openSeq?.begin();
   const snapshot: DesignSnapshot = {
     tree: emptyTree(),
     mountMotors: {},

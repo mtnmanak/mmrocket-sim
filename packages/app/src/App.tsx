@@ -125,8 +125,8 @@ import {
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
-  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, planConfigSwitch, planImport, planNewDesign,
-  planOrkSave, resolveImportMotors, type ImportedDesign,
+  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, openShareLink, planConfigSwitch, planImport,
+  planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
@@ -458,9 +458,13 @@ export function App() {
     let live = true;
     void loadCatalogueMotor('Estes', 'C6', 5)
       .then((m) => {
-        // Only if nothing beat it: the user may have picked a motor or opened
-        // a file in the time the bundle chunk took to arrive.
-        if (live && m) setMountMotors((prev) => (Object.keys(prev).length ? prev : { [defaultMountId!]: m }));
+        // Only if nothing beat it: the user may have picked a motor, or opened
+        // a file or pressed ✕ New, in the time the bundle chunk took to arrive
+        // (importApply.starterMotorMayLand — the mount must still be on screen).
+        if (live && m) {
+          setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)
+            ? { [defaultMountId!]: m } : prev));
+        }
       })
       .catch(() => { /* no bundled curve and no network: the design starts with no motor, honestly */ });
     return () => { live = false; };
@@ -1024,8 +1028,9 @@ export function App() {
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
     // planNewDesign says why that matters). Pressing ✕ New twice used to raise
     // "Start a new design?" on an empty design, which is the always-fires
-    // confirmation the comment on the New button warns about.
-    const { snapshot: fresh, mark } = planNewDesign({ launch, measured });
+    // confirmation the comment on the New button warns about. Handing it the
+    // open sequence supersedes any Open still in flight (audit 2026-09-22).
+    const { snapshot: fresh, mark } = planNewDesign({ launch, measured }, openSeq);
     setTree(fresh.tree);
     setMountMotors({});
     setUnmatchedRefs({});
@@ -2832,29 +2837,32 @@ export function App() {
     const hash = window.location.hash;
     // window.history explicitly: the browser's, not the design's undo history.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    void (async () => {
-      try {
+    // Sequenced like every other open, claimed before its first await
+    // (importApply.openShareLink).
+    void openShareLink(hash, {
+      openSeq,
+      read: async (h) => {
         // Cheap pre-decode cap: no real share link approaches 1 MB of
         // fragment, and a crafted one can inflate to hundreds of MB — refuse
         // it before base64/inflate ever run (same soft-fail path as a
         // corrupt link; the current design stays untouched either way).
-        if (hash.length > MAX_FRAGMENT_CHARS) {
+        if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        const imported = importOrk(await decodeShareFragment(hash), { presets: await loadPresets() });
-        // A restored session still holding the untouched starter rocket is
-        // replaced silently; a design the user actually worked on gets a
-        // confirm dialog (declining keeps it — the link is simply dropped).
-        if (session && !isPristineDefault(initialTree)) setShareOffer(imported);
-        else await applyImported(imported);
-      } catch (e) {
-        // 'warn', not the default 'info'. The message is 165 characters before the
-        // reason is appended and the collapsed bar truncates at 157, so as an info
-        // notice the reader got the first sentence, an 'i' glyph, no reason, and a
-        // bar that never opened itself — for a link that simply did not work.
-        setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`, 'warn');
-      }
-    })();
+        return importOrk(await decodeShareFragment(h), { presets: await loadPresets() });
+      },
+      // A restored session still holding the untouched starter rocket is
+      // replaced silently; a design the user actually worked on gets a
+      // confirm dialog (declining keeps it — the link is simply dropped).
+      offer: session !== null && !isPristineDefault(initialTree),
+      onOffer: setShareOffer,
+      apply: applyImported,
+      // 'warn', not the default 'info'. The message is 165 characters before the
+      // reason is appended and the collapsed bar truncates at 157, so as an info
+      // notice the reader got the first sentence, an 'i' glyph, no reason, and a
+      // bar that never opened itself — for a link that simply did not work.
+      onError: (e) => setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`, 'warn'),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
 

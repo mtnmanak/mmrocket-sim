@@ -8,9 +8,10 @@ import type { MotorMatchResult } from './motorMatch.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
 import {
-  importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, planOrkSave, resolveImportMotors,
-  type ImportedDesign, type ResolvedImportMotors,
+  importedLaunch, importMark, openShareLink, planConfigSwitch, planImport, planNewDesign, planOrkSave,
+  resolveImportMotors, starterMotorMayLand, type ImportedDesign, type ResolvedImportMotors,
 } from './importApply.js';
+import { createSequencer } from './latestWins.js';
 import { updateNode } from '../tree/treeModel.js';
 
 /**
@@ -358,5 +359,76 @@ describe('planNewDesign — ✕ New marks what it writes', () => {
     expect(snapshot.mountMotors).toEqual({});
     expect(snapshot.savedConfigs).toEqual([]);
     expect(snapshot.activeConfigId).toBeNull();
+  });
+});
+
+/**
+ * THE OPEN SEQUENCE (audit 2026-09-22). An open is asynchronous — a file
+ * read, the preset catalogue, a thrustcurve.org fetch per unmatched motor — so
+ * only the newest may write. Three paths broke that: ✕ New never claimed the
+ * sequence, the share link claimed it only after its awaits, and the starter
+ * rocket's C6 landed on whatever design was on screen when its curve arrived.
+ */
+describe('the open sequence', () => {
+  it('✕ New supersedes an open still in flight', () => {
+    const seq = createSequencer();
+    const inFlight = seq.begin();
+    planNewDesign({ launch: LAUNCH, measured: { massKg: null, cgM: null } }, seq);
+    expect(seq.isCurrent(inFlight)).toBe(false);
+  });
+
+  const deps = (seq: ReturnType<typeof createSequencer>, read: () => Promise<ImportedDesign>, offer = false) => ({
+    openSeq: seq, read, offer,
+    onOffer: vi.fn(), apply: vi.fn(async () => {}), onError: vi.fn(),
+  });
+  const linked: ImportedDesign = { name: 'linked', tree: podTree(), notes: [], motors: {} };
+
+  it('a share link claims the sequence before its first await', () => {
+    const seq = createSequencer();
+    const earlier = seq.begin();
+    void openShareLink('#d=x', deps(seq, () => new Promise(() => {})));
+    // Synchronously, before the decode has even started.
+    expect(seq.isCurrent(earlier)).toBe(false);
+  });
+
+  it('a share link superseded while decoding neither offers, applies nor reports', async () => {
+    const seq = createSequencer();
+    let finish: (d: ImportedDesign) => void = () => {};
+    const d = deps(seq, () => new Promise((r) => { finish = r; }));
+    const done = openShareLink('#d=x', d);
+    seq.begin(); // the user opens a file meanwhile
+    finish(linked);
+    await done;
+    expect(d.apply).not.toHaveBeenCalled();
+    expect(d.onOffer).not.toHaveBeenCalled();
+    const failing = deps(seq, async () => { seq.begin(); throw new Error('cut short'); });
+    await openShareLink('#d=y', failing);
+    expect(failing.onError).not.toHaveBeenCalled();
+  });
+
+  it('a current share link applies under its own claim, offers when asked to, and reports a bad link', async () => {
+    const seq = createSequencer();
+    const d = deps(seq, async () => linked);
+    await openShareLink('#d=x', d);
+    expect(d.apply).toHaveBeenCalledTimes(1);
+    const [applied, openId] = d.apply.mock.calls[0] as unknown as [ImportedDesign, number];
+    expect(applied).toBe(linked);
+    expect(seq.isCurrent(openId)).toBe(true);
+    const o = deps(seq, async () => linked, true);
+    await openShareLink('#d=x', o);
+    expect(o.onOffer).toHaveBeenCalledWith(linked);
+    expect(o.apply).not.toHaveBeenCalled();
+    const bad = deps(seq, async () => { throw new Error('cut short'); });
+    await openShareLink('#d=x', bad);
+    expect(bad.onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('the starter C6 lands only on the starter mount still on screen, with nothing loaded', () => {
+    const starter = podTree();
+    expect(starterMotorMayLand(starter, 'mmt', {})).toBe(true);
+    expect(starterMotorMayLand(starter, 'mmt', { mmt: motor('C6') })).toBe(false);
+    // ✕ New or an Open replaced the design: fresh ids, the starter mount is gone.
+    const replaced = planNewDesign({ launch: LAUNCH, measured: { massKg: null, cgM: null } }).snapshot.tree;
+    expect(starterMotorMayLand(replaced, 'mmt', {})).toBe(false);
   });
 });
