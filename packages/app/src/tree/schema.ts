@@ -274,10 +274,20 @@ export const MAX_ASSEMBLY_INSTANCES = 32;
  * Parachute shroud lines. The kernel takes any count (Parachute.setLineCount
  * has no clamp) and bills `lineCount × lineLength × line density` as mass, so a
  * .rkt saying 1,000,000 lines made a 540 kg parachute (audit 2026-09-22). The
- * largest count in the whole shipped parts catalogue is 24; 64 matches the
- * line-instance ceiling above.
+ * ceiling is the APP's, against a corrupt count, and deliberately loose.
+ *
+ * It was 64, "matching the line-instance ceiling above" — but that ceiling
+ * exists because every lug or rail-button instance is a Coordinate the kernel
+ * allocates on each pass, and a canopy's lines are no such thing: one integer,
+ * multiplied into the mass, drawn by nothing. So 64 clamped a count the kernel
+ * flies faithfully, and the one design over it in the owner's 939-file RockSim
+ * corpus — Black-Brant-IV-24mm.rkt, 66 lines — was told it had "more than any
+ * real parachute" and flew two lines light (seam review of audit 2026-09-22).
+ * 256 is over ten times the most any parachute in the shipped parts catalogue
+ * has (24; the corpus tops out at 20 bar that 66), and the 540 kg file's
+ * 600 mm canopy weighs 0.157 kg at it (0.054 kg at the old 64).
  */
-export const MAX_SHROUD_LINES = 64;
+export const MAX_SHROUD_LINES = 256;
 
 /**
  * A protuberance's `count` is an area multiplier, never a loop — this is the
@@ -409,7 +419,10 @@ const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<R
     instanceCount: { kind: 'count', hmin: 1, hmax: MAX_ASSEMBLY_INSTANCES, why: 'the most this app draws or flies' },
   },
   parachute: {
-    lineCount: { kind: 'count', hmin: 0, hmax: MAX_SHROUD_LINES, why: 'more than any real parachute' },
+    lineCount: {
+      kind: 'count', hmin: 0, hmax: MAX_SHROUD_LINES,
+      why: 'over ten times the most lines of any parachute in the parts database, and every line is weighed',
+    },
   },
   protuberance: { count: { kind: 'count', hmin: 1, hmax: MAX_PROTUBERANCE_COUNT } },
 });
