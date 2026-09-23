@@ -449,17 +449,20 @@ describe('the weather provenance record in the session', () => {
     expect(s.launch.windAverage).toBe(2);
   });
 
-  it('a session from before the feature loads with none, and its design fingerprint is unchanged', () => {
+  // What this file can hold: the loader hands back the SAME design fields
+  // (tree and launch conditions, byte for byte) whether or not a weather record
+  // rides along — it neither fills a launch key in nor takes one away. That a
+  // restored record leaves a saved-clean design clean in App itself is
+  // App.weather.test.tsx's "does not make a saved-clean design dirty".
+  it('a session from before the feature loads with none, and a record changes none of the design it restores', () => {
     saveNow();
     const s = loadSession()!;
     expect(s.weather).toBeUndefined();
-    const snap = (x: typeof s): DesignSnapshot => ({
-      tree: x.tree, mountMotors: {}, launch: x.launch, maxMotorLengthByStage: {}, savedConfigs: [],
-      activeConfigId: null, measured: { massKg: null, cgM: null },
-    });
     saveSessionDebounced({ ...state(), weather: snapshot() as never });
     vi.runAllTimers();
-    // The record is provenance, not design: carrying one changes no fingerprint.
-    expect(designFingerprint(snap(loadSession()!))).toBe(designFingerprint(snap(s)));
+    const w = loadSession()!;
+    expect(w.weather).toBeDefined();
+    expect(JSON.stringify(w.launch)).toBe(JSON.stringify(s.launch));
+    expect(JSON.stringify(w.tree)).toBe(JSON.stringify(s.tree));
   });
 });

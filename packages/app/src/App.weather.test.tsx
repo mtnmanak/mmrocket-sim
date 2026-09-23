@@ -96,6 +96,32 @@ describe('applied weather across a reload and an open', () => {
     expect(stored()!.weather).toEqual(SNAP);
   }, 30000);
 
+  // Provenance, not design: a saved-clean design that gains a weather record
+  // across a reload is still saved-clean — App's own dirty check, read through
+  // ✕ New, which asks "Start a new design?" only when there is unsaved work.
+  it('does not make a saved-clean design dirty', async () => {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.setItem('online-openrocket.workspace.v1', 'design');
+    await mountApp();
+    // A first visit is clean once the starter motor has landed and been autosaved.
+    await waitFor(() => Object.keys(stored()?.mountMotors ?? {}).length > 0, 'the starter motor to be autosaved');
+    window.dispatchEvent(new Event('pagehide'));
+    for (const { root, host } of mounted) {
+      await act(async () => { root.unmount(); });
+      host.remove();
+    }
+    mounted = [];
+    const s = stored()!;
+    expect(s.savedMark, 'the clean first visit left a mark').toBeTruthy();
+    expect(s.weather).toBeUndefined();
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...s, weather: SNAP }));
+    const host = await mountApp();
+    await settle(600);
+    const newButton = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('✕ New'))!;
+    await act(async () => { newButton.click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+
   it('is dropped when a share link opens a design with launch conditions of its own', async () => {
     const xml = exportOrk({
       name: 'Linked',
