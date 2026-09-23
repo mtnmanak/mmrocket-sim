@@ -1017,6 +1017,7 @@ export async function fetchMotorSpec(
           `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ` +
             `${motor.designation}. Check the connection and try again, or import ` +
             "the motor's .rse/.eng file.",
+          { cause: err },
         );
       }
       throw err;

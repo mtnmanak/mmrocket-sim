@@ -6,6 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
+import { numOrNull } from '../tree/nodeNum.js';
 import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
@@ -289,8 +290,7 @@ export function classifyRecoveryDevices(
   walk(scope ?? tree.components);
   if (chutes.length === 0) return { main: null, drogue: null };
 
-  const dia = (n: ComponentNode): number =>
-    typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0;
+  const dia = (n: ComponentNode): number => num(n, 'diameter') ?? 0;
   const biggest = (list: ComponentNode[]): ComponentNode | null =>
     list.reduce<ComponentNode | null>((best, n) => (best === null || dia(n) > dia(best) ? n : best), null);
 
@@ -495,10 +495,9 @@ function presetMass(p: Preset): number | null {
   return typeof p.mass === 'number' && Number.isFinite(p.mass) && p.mass >= 0 ? p.mass : null;
 }
 
+/** tree/nodeNum.ts's numOrNull, for a node that may be absent. */
 function num(n: ComponentNode | null, key: string): number | null {
-  if (!n) return null;
-  const v = n[key];
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  return n ? numOrNull(n, key) : null;
 }
 
 /**

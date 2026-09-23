@@ -9,18 +9,23 @@
     // behind — App.tsx once carried a 14-line duplicate of the .ork flight-data writer
     // that nothing called, and a fix applied to the wrong copy is invisible. Nothing
     // else in the toolchain reported unused declarations before these were turned on:
-    // vitest transpiles without checking. (The ESLint config added alongside them
-    // reports unused declarations too, everywhere including the .mjs build scripts tsc
-    // never reads; neither tool can see an unused EXPORT.) Params deliberately left
-    // unused are exempted the way the source already does it — prefix with `_`.
+    // vitest transpiles without checking. ESLint's @typescript-eslint/no-unused-vars
+    // now covers the same ground in the .ts source too, and is the only check that
+    // reaches the .mjs build scripts tsc never reads; neither tool can see an unused
+    // EXPORT. Params deliberately left unused are exempted the way the source already
+    // does it — prefix with `_`.
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     // The free half of the 2026-09-08 audit's tooling recommendation: every flag
-    // below was MEASURED at zero violations against the tree it was added to
-    // (`npx tsc -p tsconfig.json --noEmit --<flag>`), so each is a pure ratchet
-    // — it costs nothing today and refuses the next instance. They are grouped
-    // because that measurement is the reason they are here, and a future reader
-    // deciding whether to keep one should re-measure rather than assume.
+    // below was MEASURED at zero violations against the tree it was added to,
+    // so each is a pure ratchet — it costs nothing today and refuses the next
+    // instance. They are grouped because that measurement is the reason they are
+    // here, and a future reader deciding whether to keep one should re-measure
+    // rather than assume: in packages/app, `npx tsc -p tsconfig.app.json --noEmit
+    // --<flag>` and the same for tsconfig.test.json (packages/app/tsconfig.json
+    // is a solution file with no files of its own since 2026-09-22, so `-p` on it
+    // checks nothing), and `npx tsc -p tsconfig.json --noEmit --<flag>` in
+    // packages/engine.
     //
     // noImplicitReturns is the load-bearing one for THIS app: a branch that
     // silently returns undefined where a number is expected is how a wrong
@@ -31,6 +36,35 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "allowUnreachableCode": false,
+    // The 2026-09-22 audit's Step A, measured the same way (0 errors each, at
+    // 3918947). allowUnusedLabels: `(n) => { cd: n }` is a block holding a
+    // label, so the arrow meant to return an object returns undefined.
+    // noUncheckedSideEffectImports: a bare `import './x'` whose path does not
+    // resolve is otherwise NOT an error.
+    // erasableSyntaxOnly: no enum/namespace/parameter property, so every .ts file
+    // stays strippable by any tool that only erases types.
+    //
+    // verbatimModuleSyntax was declined on 2026-09-08 because it is the one flag
+    // with EMIT semantics and --noEmit does not exercise them. Re-decided on that
+    // ground: it IS live at emit here (Vite 5 hands it to esbuild, which then keeps
+    // an import it would otherwise have dropped — probed with transformWithEsbuild),
+    // and with it on, `npm run build` produced a dist/ (every chunk, sw.js and its
+    // precache revisions) and an engine dist/ byte-identical to the build without
+    // it. The one import shape it would have changed, `import { type X }` with
+    // every name type-only (tree/shroudMesh.ts), now reads `import type` — under
+    // this flag the other form keeps a bare side-effect import. What it buys: tsc
+    // refuses an import of a type without `type`, so what a file imports is what
+    // esbuild and vitest load, rather than whatever elision decides.
+    //
+    // Declined the same day, on its count: exactOptionalPropertyTypes (62 errors
+    // in the shipped source's project, packages/app/tsconfig.app.json, and 101 in
+    // the test project). That is a migration, not a ratchet.
+    // noPropertyAccessFromIndexSignature is on for the shipped source only (0
+    // there, 11 in tests): see packages/app/tsconfig.app.json.
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

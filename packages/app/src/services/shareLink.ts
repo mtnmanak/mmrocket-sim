@@ -180,8 +180,9 @@ export async function decodeShareFragment(hash: string): Promise<string> {
     // The cap error already names its condition — let it through untouched.
     if (e instanceof Error && e.name === BOMB_ERROR_NAME) throw e;
     // Chromium surfaces a bad deflate stream as a generic "Failed to fetch"
-    // (the stream read) — name the actual condition instead.
-    throw new Error('the compressed data is corrupt or cut short');
+    // (the stream read) — name the actual condition instead, and keep the
+    // original as `cause` for whoever debugs a report of it.
+    throw new Error('the compressed data is corrupt or cut short', { cause: e });
   }
   return new TextDecoder().decode(inflated);
 }

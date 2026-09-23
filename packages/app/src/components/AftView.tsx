@@ -6,6 +6,7 @@ import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/co
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal, shroudHalfWidth } from '../tree/shroud.js';
+import { num } from '../tree/nodeNum.js';
 import { RollControl } from './RollControl.js';
 
 /**
@@ -29,9 +30,6 @@ import { RollControl } from './RollControl.js';
  */
 
 interface MotorDims { length: number; diameter: number }
-
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
 
 const colorOf = (n: ComponentNode, dflt: string): string =>
   typeof n['color'] === 'string' ? (n['color'] as string) : dflt;

@@ -2,6 +2,7 @@ import { finCountOf } from './counts.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnExtent, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
+import { num } from './nodeNum.js';
 
 /**
  * One-click fin-set alignment (issue 2026-08-05e): rotates axially-overlapping
@@ -23,7 +24,7 @@ export interface FinAlignResult {
 
 const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
   if (n.id && patches.has(n.id)) return patches.get(n.id)!;
-  return typeof n['rotation'] === 'number' ? (n['rotation'] as number) : 0;
+  return num(n, 'rotation', 0);
 };
 
 /**

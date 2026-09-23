@@ -322,6 +322,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   // Single files or a whole EX-motor folder (2026-08-05e): every .eng/.rse
   // found is parsed and added to the persistent library; unreadable files are
   // reported by name instead of aborting the batch.
+  /** Catches and reports (setError) each file's read and parse failure, so
+   *  callers fire it with `void`. */
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
@@ -666,7 +668,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 aria-label="Import EX motor files (.eng or .rse)"
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);
-                  if (fs.length) importMotorFiles(fs);
+                  if (fs.length) void importMotorFiles(fs);
                   e.target.value = '';
                 }} />
             </label>
@@ -677,7 +679,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 {...({ webkitdirectory: '' } as Record<string, string>)}
                 onChange={(e) => {
                   const fs = Array.from(e.target.files ?? []);
-                  if (fs.length) importMotorFiles(fs);
+                  if (fs.length) void importMotorFiles(fs);
                   e.target.value = '';
                 }} />
             </label>
@@ -882,7 +884,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 </span>
               )}
               <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
-                onClick={load} disabled={busy}>
+                onClick={() => { void load(); }} disabled={busy}>
                 {busy ? 'Loading…' : 'Load motor'}
               </button>
             </>

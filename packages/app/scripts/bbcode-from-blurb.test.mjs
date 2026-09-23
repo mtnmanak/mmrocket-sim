@@ -3,8 +3,8 @@
  * draft and an unpostable TRF post.
  *
  * It lives here, outside `src`, because it tests a repo-level tool rather than app code:
- * `packages/app/tsconfig.json` includes only `src`, so tsc never sees it, while vitest's
- * default glob (rooted at the app package) does.
+ * the app's tsconfig projects cover only `src` and vite.config.ts, so tsc never sees it,
+ * while vitest's default glob (rooted at the app package) does.
  *
  * These tests exist because the two rules the script enforces — TRF's 10,000-character
  * limit and BBCode tag balance — were pinned by nothing at all: the CLI body ran at module

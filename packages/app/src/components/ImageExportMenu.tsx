@@ -27,7 +27,9 @@ export interface ImageExportOptions {
 export function ImageExportMenu({ label, title, onPick, fitOption }: {
   label: string;
   title: string;
-  onPick: (format: ImageFormat, widthPx: number, opts: ImageExportOptions) => void;
+  /** May be async. The menu fires it and does not wait, so a handler reports
+   *  its own failure — both callers' do, through their onError. */
+  onPick: (format: ImageFormat, widthPx: number, opts: ImageExportOptions) => void | Promise<void>;
   /** Show the "Fit rocket to frame" checkbox. The 2D export has no camera —
    *  it already draws the whole rocket at identity view — so only the 3D view
    *  opts in, and its `opts.fit` is forced false everywhere else. */
@@ -79,7 +81,7 @@ export function ImageExportMenu({ label, title, onPick, fitOption }: {
                 <button key={`${fmt}-${w}`} className="file-btn"
                   title={`${w} px wide`}
                   aria-label={`${widthLabel(w)} ${formatLabel(fmt)}, ${w} px wide`}
-                  onClick={() => { setOpen(false); onPick(fmt, w, { fit: !!fitOption && fit }); }}>
+                  onClick={() => { setOpen(false); void onPick(fmt, w, { fit: !!fitOption && fit }); }}>
                   {widthLabel(w)}
                 </button>
               )),

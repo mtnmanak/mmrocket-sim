@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
+import { num, numOpt } from '../tree/nodeNum.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -22,7 +23,7 @@ interface Pt { x: number; y: number }
 
 /** Fin outline in meters, root chord on y=0, nose-side at x=0. */
 export function finOutline(node: ComponentNode): Pt[] {
-  const n = (k: string, fb: number) => (typeof node[k] === 'number' ? (node[k] as number) : fb);
+  const n = (k: string, fb: number) => num(node, k, fb);
   switch (node.type) {
     case 'trapezoidfinset': {
       const root = n('rootChord', 0.05);
@@ -98,8 +99,9 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   /** Gap from the ruler's right end to the "50 mm" caption. */
   const CAPTION_GAP = 2;
 
-  const count = typeof node['finCount'] === 'number' ? (node['finCount'] as number) : 3;
-  const thickness = typeof node['thickness'] === 'number' ? (node['thickness'] as number) * 1000 : null;
+  const count = num(node, 'finCount', 3);
+  const thicknessM = numOpt(node, 'thickness');
+  const thickness = thicknessM === undefined ? null : thicknessM * 1000;
   const cross = typeof node['crossSection'] === 'string' ? (node['crossSection'] as string) : 'square';
   const name = node.name ?? 'Fin set';
 

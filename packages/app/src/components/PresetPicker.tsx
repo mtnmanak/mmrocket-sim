@@ -9,6 +9,7 @@ import {
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { numOpt } from '../tree/nodeNum.js';
 
 const ROW_CAP = 300;
 
@@ -69,7 +70,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
   }, [ofKind, mfr, text]);
 
   const dim = (p: Preset): string => {
-    const v = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : undefined);
+    const v = (k: string) => numOpt(p, k);
     const d = v('outsideDiameter') ?? v('aftOutsideDiameter') ?? v('diameter');
     const len = v('length');
     // One decimal in mm, as before; three significant figures where one decimal
@@ -105,6 +106,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
     !!m && (badDensity(m.density) || !m.name.trim());
   const rowIsSound = (p: Preset) => !matBad(p.material) && !matBad(p.lineMaterial);
 
+  /** Reports every failure itself (setNote), so callers fire it with `void`. */
   const importCsv = async (file: File) => {
     try {
       const parsed = csvToPresets(await file.text());
@@ -181,7 +183,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
             <input type="file" accept=".csv" className="file-btn-input" aria-label="Import presets from a CSV file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) importCsv(f);
+                if (f) void importCsv(f);
                 e.target.value = '';
               }} />
           </label>

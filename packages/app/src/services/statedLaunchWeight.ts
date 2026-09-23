@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { num } from '../tree/nodeNum.js';
 
 /**
  * A stage mass/CG override that STILL CONTAINS a motor's weight, and putting
@@ -154,8 +155,7 @@ function stageOf(tree: RocketTree, mountId: string): { stage: ComponentNode; ind
  * already depends on this module (for {@link OVERRIDE_INCLUDES_MOTOR}) and not
  * the other way round.
  */
-export const nodeLength = (n: ComponentNode): number =>
-  typeof n['length'] === 'number' ? (n['length'] as number) : 0;
+export const nodeLength = (n: ComponentNode): number => num(n, 'length', 0);
 
 /** A stage's own length: its DIRECT children only, so pods add nothing. */
 export const stageLength = (st: ComponentNode | undefined): number =>

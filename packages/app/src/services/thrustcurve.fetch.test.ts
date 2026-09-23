@@ -239,8 +239,12 @@ describe('the download has a deadline, and honours a caller cancelling it', () =
       stubHangingFetch();
       const p = tc.fetchMotorSpec(QUEST_C6, 5);
       const settled = expect(p).rejects.toThrow(/did not answer within 15 s/);
+      // The abort the deadline caused rides along as `cause` — the rocketeer
+      // reads the message, a bug report gets the original (audit 2026-09-22).
+      const cause = p.then(() => undefined, (e: unknown) => (e as Error).cause);
       await vi.advanceTimersByTimeAsync(15_000);
       await settled;
+      expect(await cause).toBeDefined();
     });
 
   it('is still pending just before the deadline — the timer is not a no-op', async () => {

@@ -100,7 +100,7 @@ export function useDesignDirty(
       savedMark.current = designFingerprint(snapshot);
       bumpDirty();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as first drawn
   }, []);
   // A pad mass the restore moved onto the ranked primary (rankedPadMass) is
   // not an edit: the file on disk carries it per configuration, not per mount,
@@ -146,7 +146,11 @@ export function useDesignDirty(
   const dirty = useMemo(
     () => isDirty(designFingerprint(snapshot), savedMark.current, flownSinceSave.current),
     // dirtyTick is how the two REFS above announce a change — markSaved and
-    // the flown-since-save flag do not re-render on their own.
+    // the flown-since-save flag do not re-render on their own. The rule sees a
+    // dep the callback never reads and calls it unnecessary; removing it would
+    // freeze `dirty` at its last value after a save or a flight, so the Open
+    // prompt and the unsaved-work guard would read a stale answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dirtyTick re-keys the memo on a ref write; see above
     [snapshot, dirtyTick],
   );
 

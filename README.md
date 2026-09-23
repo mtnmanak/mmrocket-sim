@@ -61,6 +61,15 @@ npm test          # engine + app test suites
 npm run dev       # Vite dev server
 ```
 
+A push to `main` deploys, and CI runs `npm run typecheck`, `npm run lint` (zero
+warnings allowed) and `npm test` first — run all three before pushing. New test
+files sit beside the module they test as `<module>.<aspect>.test.ts` (`.tsx` when
+the test renders JSX), e.g. `FinPointsEditor.pointer.test.tsx`, so a module's
+tests are found by name rather than by grep. A test of something that is not a
+module is named for what it checks: shipped data
+(`packages/app/scripts/preset-density.test.mjs`) or the dependency tree
+(`packages/app/scripts/dependencies.threeTypes.test.mjs`).
+
 Rebuilding the kernel from the carved Java sources (only needed when changing
 `engine-java/`) additionally requires a JDK 17:
 

@@ -32,7 +32,7 @@
 #   pull request create failed: GraphQL: GitHub Actions is not permitted to
 #   create or approve pull requests (createPullRequest)
 #
-# The `permissions:` block below is NECESSARY BUT NOT SUFFICIENT — the checkbox is
+# The publish job's `permissions:` block is NECESSARY BUT NOT SUFFICIENT — the checkbox is
 # a second, separate gate, and an organisation-level setting of the same name can
 # override the repository one. Symptom to recognise: every step green, the branch
 # pushed, and only the final step red with that GraphQL line.
@@ -46,6 +46,25 @@
 #
 # THIS WORKFLOW NEVER DEPLOYS: no wrangler, no Cloudflare secret, no push to main,
 # and no version bump. It pushes one side branch and opens one PR.
+#
+# TWO JOBS, AND WHY (audit 2026-09-22, the same split as deploy.yml). This was one
+# job, so `npm ci` and the test suite — ~550 third-party packages' code on the
+# Linux runner (593 lockfile entries), install scripts included — ran in the job
+# that held a `contents: write` token, and in this repo a push to main IS the
+# production deploy. Keeping the token out of .git/config (persist-credentials:
+# false) did not put it out of reach: a step on a hosted runner has passwordless
+# sudo, and the runner process that holds the job's token is readable to it. Now:
+#   refresh  holds a read-only token. It installs, fetches, runs the whole deploy
+#            gate on the new data, decides whether a PR is warranted, and uploads
+#            the two data files and the user guide compiled from them, with the
+#            PR's title, body and commit message.
+#   publish  holds `contents: write` and `pull-requests: write`, and runs no npm
+#            and no repository code at all: git and gh (both pre-installed) on the
+#            files refresh handed over. It runs only when refresh said open-pr.
+# What the split does NOT do: vouch for the data. A compromised dependency in the
+# refresh job can still alter the three files it uploads. They arrive as a pull
+# request, and reading that diff before merging is the review this workflow was
+# built around; what such a dependency can no longer do is push to main itself.
 #
 # scripts/check-upstream.mjs is deliberately NOT run here: it also watches the
 # preset pipeline, and a moved centering ring must not fail a motor refresh.
@@ -75,9 +94,10 @@ concurrency:
   group: motors-refresh
   cancel-in-progress: false
 
+# Read-only by default; the publish job, which runs no npm, is the only one that
+# asks for the write scopes.
 permissions:
-  contents: write        # commit the regenerated data, push the side branch
-  pull-requests: write   # open / update the PR
+  contents: read
 
 jobs:
   refresh:
@@ -90,25 +110,24 @@ jobs:
     # BATCH=50, PAUSE_MS=250, 1,155 motors) — a couple of minutes when upstream is
     # healthy. 30 minutes is headroom for a slow day, not an expectation.
     timeout-minutes: 30
+    permissions:
+      contents: read
+    # The verdict the publish job runs on (motor-diff-summary.mjs --github-output).
+    outputs:
+      open-pr: ${{ steps.diff.outputs.open-pr }}
     env:
-      BRANCH: chore/motors-refresh
       DATA: packages/app/src/data
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # NO TOKEN LEFT IN .git/config. This job holds `contents: write` and
-          # then runs `npm ci`, which installs ~590 third-party packages and runs
-          # the install script of any that declares one (the lockfile marks two
-          # today; any routine upgrade can add more), and then runs their code in
-          # the tests. At the default (true) a write-capable token sits on disk
-          # while they run, and in this repo a push to main IS the production
-          # deploy — so any one of them could deploy. deploy.yml can leave the
-          # default alone because its token is `contents: read`; this one cannot.
-          # The push below carries the token explicitly instead, for the one
-          # command that needs it.
+          # This job's token is read-only (the write scopes are the publish
+          # job's), and nothing here pushes, so there is no reason to leave it
+          # in .git/config while `npm ci` installs ~590 third-party packages and
+          # runs the install script of any that declares one (the lockfile marks
+          # two today; any routine upgrade can add more).
           persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -221,26 +240,76 @@ jobs:
             cat "$RUNNER_TEMP/pr-body.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Nothing moved: discard the re-dated files and stop. No PR, no branch, no
-      # deploy. Restoring is not cosmetic — see FRESHNESS_FLOOR_DAYS in
-      # motor-diff-summary.mjs for why shipping a date-only bump has a real cost to
-      # users (it deletes their stored catalogue overlay).
+      # Nothing moved: nothing is uploaded, so the publish job does not run. No
+      # PR, no branch, no deploy — and the re-dated files die with this runner.
+      # Not shipping them is not cosmetic: see FRESHNESS_FLOOR_DAYS in
+      # motor-diff-summary.mjs for why a date-only bump has a real cost to users
+      # (it deletes their stored catalogue overlay).
       - name: No motor changed — leave main alone
         if: steps.diff.outputs.open-pr != 'true'
         run: |
-          git checkout -- "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts"
           echo "Catalogue and curve bundle are unchanged apart from the date stamp."
           echo "No pull request opened. The numbers are in the job summary."
 
-      - name: Commit onto the refresh branch
+      # Everything the publish job needs, in one directory so the artifact holds
+      # six flat files: the two regenerated data files and the user guide
+      # compiled from them, as the gate above passed them, and the three texts
+      # motor-diff-summary.mjs wrote.
+      - name: Hand the refresh to the publish job
         if: steps.diff.outputs.open-pr == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/refresh"
+          cp "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts" \
+            "$RUNNER_TEMP/pr-body.md" "$RUNNER_TEMP/pr-title.txt" "$RUNNER_TEMP/commit-msg.txt" \
+            "$RUNNER_TEMP/refresh/"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.diff.outputs.open-pr == 'true'
+        with:
+          name: motors-refresh
+          path: ${{ runner.temp }}/refresh
+          if-no-files-found: error
+          # Read by the publish job minutes later; the PR branch is the record.
+          retention-days: 3
+
+  publish:
+    needs: refresh
+    if: needs.refresh.outputs.open-pr == 'true'
+    runs-on: ubuntu-latest
+    # git and gh only: a commit, one push and one or two API calls.
+    timeout-minutes: 10
+    permissions:
+      contents: write        # commit the regenerated data, push the side branch
+      pull-requests: write   # open / update the PR
+    env:
+      BRANCH: chore/motors-refresh
+      DATA: packages/app/src/data
+    steps:
+      # The same commit the refresh job built from (both check out this run's
+      # github.sha). Nothing is installed or run from it: it is the base the
+      # one refresh commit goes on top of.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The push below carries the token explicitly instead, for the one
+          # command that needs it.
+          persist-credentials: false
+
+      # Digest-checked on download (download-artifact fails on a mismatch).
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: motors-refresh
+          path: ${{ runner.temp }}/refresh
+
+      - name: Commit onto the refresh branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cp "$RUNNER_TEMP/refresh/motors.json" "$RUNNER_TEMP/refresh/motorCurves.json" \
+            "$RUNNER_TEMP/refresh/userGuide.ts" "$DATA/"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- "$DATA/motors.json" "$DATA/motorCurves.json" "$DATA/userGuide.ts"
-          git commit -F "$RUNNER_TEMP/commit-msg.txt"
+          git commit -F "$RUNNER_TEMP/refresh/commit-msg.txt"
           # FORCE, and always exactly one commit ahead of main. The branch content
           # is a full regeneration, so last week's is strictly superseded, and two
           # regenerations of a 1.3 MB single-line JSON cannot be merged by hand if
@@ -267,10 +336,11 @@ jobs:
 
       # gh, not a third-party action, for three reasons:
       #  1. gh is pre-installed on ubuntu-latest, so nothing new runs with
-      #     `contents: write` in this repo. deploy.yml uses only two first-party
-      #     GitHub actions and Cloudflare's own; a marketplace action here would be
-      #     this repo's first third-party code with write access to its own source,
-      #     needing a SHA pin and a watcher forever.
+      #     `contents: write` in this repo. deploy.yml uses only GitHub's own
+      #     actions and Cloudflare's; a marketplace action here would be this
+      #     repo's first third-party code with write access to its own source.
+      #     (Every action here and there is pinned to a commit SHA, and
+      #     .github/dependabot.yml watches the pins.)
       #  2. What we want is ~10 lines. peter-evans/create-pull-request earns its
       #     keep with branch/commit bookkeeping we specifically do NOT want — it
       #     manages accumulating commits, where the rule here is main + exactly one.
@@ -282,23 +352,22 @@ jobs:
       # carries no motor designation — its test pins that with a hostile fixture
       # name. Do not start passing a motor name through here.
       - name: Open or update the pull request
-        if: steps.diff.outputs.open-pr == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           n=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
           if [ -z "$n" ]; then
             n=$(gh pr create --base main --head "$BRANCH" \
-              --title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
-              --body-file "$RUNNER_TEMP/pr-body.md")
+              --title "$(cat "$RUNNER_TEMP/refresh/pr-title.txt")" \
+              --body-file "$RUNNER_TEMP/refresh/pr-body.md")
             echo "opened $n"
           else
             # The force-push already updated the PR's diff; this refreshes the
             # title and body so they describe THIS week's data rather than last
             # week's. One PR, updated — never a new one every Monday.
             gh pr edit "$n" \
-              --title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
-              --body-file "$RUNNER_TEMP/pr-body.md"
+              --title "$(cat "$RUNNER_TEMP/refresh/pr-title.txt")" \
+              --body-file "$RUNNER_TEMP/refresh/pr-body.md"
             echo "updated existing PR #$n"
           fi
           # Cosmetic, and deliberately non-fatal: a failure to assign must not

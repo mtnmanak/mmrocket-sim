@@ -1,0 +1,59 @@
+# Dependency update PRs (audit 2026-09-22). Nothing kept dependencies current:
+# @types/three had drifted 16 releases past the three.js the app runs, and the
+# dev toolchain carries 12 advisories behind major upgrades nobody scheduled.
+#
+# QUIET BY DESIGN — this is a public repo and one person reviews it:
+#   - MONTHLY, and GROUPED: one PR per ecosystem per month, never one per package.
+#   - No semver-MAJOR bumps. A major (vite 5 -> 8, vitest 2 -> 5, React 18 -> 19)
+#     is a planned upgrade with its own sitting, not a line in a monthly batch —
+#     and one unmergeable major would hold every patch in the group hostage.
+#   - three.js is 0.x and its MINOR is its major (0.169 -> 0.185 removes API), so
+#     three and @types/three take no minor bumps either. They move together, by
+#     hand; package.json's `overrides` and
+#     packages/app/scripts/dependencies.threeTypes.test.mjs hold them in step.
+#   - labels: [] — Dependabot would otherwise create and apply its own labels in
+#     this repo.
+#
+# WHAT A PR HERE DOES NOT GET: CI. deploy.yml runs on a push to main (and by
+# hand), not on pull requests, so a Dependabot PR is unchecked until it is
+# merged — and merging IS the deploy, whose build job then runs the full gate
+# and refuses to publish on any failure. Run `npm ci && npm run typecheck &&
+# npm run lint && npm test` on the branch before merging.
+#
+# The wrangler version in deploy.yml (`wranglerVersion` and the install step)
+# is not something Dependabot reads: bump those two together, by hand.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The workspace root: its package-lock.json covers packages/app and
+    # packages/engine.
+    directory: /
+    schedule:
+      interval: monthly
+    labels: []
+    commit-message:
+      prefix: chore
+    groups:
+      npm:
+        patterns: ['*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: three
+        update-types: ['version-update:semver-minor']
+      - dependency-name: '@types/three'
+        update-types: ['version-update:semver-minor']
+
+  - package-ecosystem: github-actions
+    # Reads .github/workflows/*.yml. Every action there is pinned to a commit SHA
+    # with its tag in a trailing comment; Dependabot updates both.
+    directory: /
+    schedule:
+      interval: monthly
+    labels: []
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns: ['*']
