@@ -1309,6 +1309,76 @@ export const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSU
 /** Shed float noise no one typed, the way fmtStepS does for a time step. */
 const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
 
+/**
+ * The direction (rad, the file's "from" convention) of the AVERAGE wind desktop
+ * OpenRocket flies from this `<conditions>` — replayed the way its loader
+ * reads the file: in document order, each `<windaverage>` and each
+ * `<wind model="average">`'s `<speed>` turning the wind round when negative
+ * (`PinkNoiseWindModel.setAverage`), each `<winddirection>` and block
+ * `<direction>` setting it outright, from the model's own π/2. Desktop's saver
+ * writes every direction AFTER its speed, so for any file it wrote this is the
+ * last direction stated; a negative speed with no direction after it is the
+ * case where it is not (review of 2026-09-23).
+ */
+function averageWindFromRad(condEl: Element): number {
+  let dir = Math.PI / 2;
+  const turn = (v: number) => { if (v < 0) dir += Math.PI; };
+  const set = (v: number) => { if (Number.isFinite(v)) dir = v; };
+  for (const el of Array.from(condEl.children)) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'windaverage') turn(parseDecimal(el.textContent));
+    else if (tag === 'winddirection') set(parseDecimal(el.textContent));
+    else if (tag === 'wind' && el.getAttribute('model') === 'average') {
+      for (const c of Array.from(el.children)) {
+        const t = c.tagName.toLowerCase();
+        if (t === 'speed') turn(parseDecimal(c.textContent));
+        else if (t === 'direction') set(parseDecimal(c.textContent));
+      }
+    }
+  }
+  return dir;
+}
+
+/**
+ * The direction (rad) of a MultiLevel wind profile's wind AT THE PAD, or NaN
+ * when the file has no usable level or no wind there — what desktop's rocket
+ * meets leaving the rail, and so what a manual rod direction leans against
+ * (review of 2026-09-23: measured against the average block instead, LEM-IV's
+ * multilevel simulation opened aimed into a wind desktop never flew, where
+ * desktop leans that rail 173° from the profile's).
+ *
+ * Read as `MultiLevelPinkNoiseWindModel` reads it: the LAST such block (each
+ * one clears the levels), the pad at 0 m of an AGL profile or at the launch
+ * altitude of an MSL one, the level itself at or beyond the ends, and between
+ * two levels their mean-wind VECTORS interpolated — speed × (sin, cos) of the
+ * direction, a negative speed pointing the other way as `addWindLevel` makes
+ * it — and turned back into a direction. The gusts' noise is left out: the
+ * rail leans against the mean wind.
+ */
+function profileWindAtPadRad(condEl: Element): number {
+  const blocks = Array.from(condEl.querySelectorAll(':scope > wind'))
+    .filter((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel');
+  const block = blocks[blocks.length - 1];
+  if (!block) return NaN;
+  const levels = Array.from(block.querySelectorAll(':scope > windlevel'))
+    .map((l) => {
+      const s = parseDecimal(l.getAttribute('speed'));
+      const d = parseDecimal(l.getAttribute('direction'));
+      return { alt: parseDecimal(l.getAttribute('altitude')), x: s * Math.sin(d), y: s * Math.cos(d) };
+    })
+    .filter((l) => Number.isFinite(l.alt) && Number.isFinite(l.x) && Number.isFinite(l.y))
+    .sort((a, b) => a.alt - b.alt);
+  if (levels.length === 0) return NaN;
+  const agl = (block.getAttribute('altituderef') ?? '').toLowerCase() === 'agl';
+  const h = agl ? 0 : num(condEl, 'launchaltitude', 0);
+  const lo = levels.filter((l) => l.alt <= h).pop() ?? levels[0]!;
+  const hi = levels.find((l) => l.alt >= h) ?? levels[levels.length - 1]!;
+  const f = hi.alt > lo.alt ? (h - lo.alt) / (hi.alt - lo.alt) : 0;
+  const x = lo.x + (hi.x - lo.x) * f;
+  const y = lo.y + (hi.y - lo.y) * f;
+  return Math.hypot(x, y) < 1e-9 ? NaN : Math.atan2(x, y);
+}
+
 function readLaunchConditions(
   doc: Document, notes: string[], chosenConfigId?: string | null,
 ): Partial<LaunchConditions> | undefined {
@@ -1370,14 +1440,20 @@ function readLaunchConditions(
   if (Number.isNaN(avg)) avg = num(condEl, 'windaverage', NaN);
   if (avg < 0) {
     // NOT clamped to zero: desktop's `PinkNoiseWindModel.setAverage` reads a
-    // negative average as that speed blowing the other way, and so does the
-    // kernel. The speed is what moves a flight; the app's wind has one
-    // direction, so the magnitude is the faithful import. Taken before the
-    // legacy turbulence product below, which desktop also forms from the
-    // magnitude.
-    notes.push(`The file's average wind is ${ms(avg)}. A negative wind is that speed blowing the `
-      + `other way, and the app's wind has no direction to reverse, so it was imported as `
-      + `${ms(-avg)}; the landing drift points the opposite way to the file's.`);
+    // negative average as that speed with the direction turned round, and so
+    // does the kernel. The speed is what moves a flight, so the magnitude is
+    // the faithful import. Taken before the legacy turbulence product below,
+    // which desktop also forms from the magnitude.
+    //
+    // The note says what it flies as and nothing about direction (review of
+    // 2026-09-23). It used to say the drift pointed the opposite way to the
+    // file's, which is false for every file desktop writes: its loader reads
+    // in order and its saver puts each direction AFTER its speed, so the turn
+    // is undone and the wind flies from the direction stated. Which way the
+    // wind blows in the end is `averageWindFromRad`'s to work out, for the
+    // Rod aim below; the app's own wind always blows from the east.
+    notes.push(`The file's average wind is ${ms(avg)}, which desktop OpenRocket flies as ${ms(-avg)}; `
+      + `it was imported as ${ms(-avg)}.`);
     avg = -avg;
   }
   if (!Number.isNaN(avg)) launch.windAverage = avg;
@@ -1398,26 +1474,29 @@ function readLaunchConditions(
   // the rod at the wind's own direction (SimulationOptions.getLaunchRodDirection),
   // which is aim 0 whatever <launchroddirection> says. Units differ on disk:
   // the rod direction is DEGREES (the saver multiplies by 360/2π), the wind's
-  // RADIANS, and the <wind model="average"> block beats the legacy
-  // <winddirection> as it does in desktop's handler, which reads the block
-  // last. The app's wind always blows from the east, so what travels is the
-  // rod's angle TO the wind, not either bearing. A negative average wind is
-  // NOT folded in as a half-turn (weather spec A4): the aim is measured from
-  // the direction the file states.
+  // RADIANS. The app's wind always blows from the east, so what travels is the
+  // rod's angle TO the wind, not either bearing.
+  //
+  // The wind it is measured from is the one DESKTOP FLIES at the pad (review
+  // of 2026-09-23): a MultiLevel file's profile at the pad
+  // (`profileWindAtPadRad`), else the average wind as desktop's loader leaves
+  // it (`averageWindFromRad`: file order, the last direction stated, turned
+  // round by a negative speed with none after it — weather spec A4's "from
+  // the direction the file states" for every file desktop writes).
   //
   // ALWAYS written, like longitude: App merges an open's launch over the
   // panel's, so a file that left the key out would inherit the previous
-  // design's aim. Measured on the 36 local .ork files (2026-09-23): the 27
-  // that carry a <simulation> — each into the wind, or manual at 90° against
-  // a π/2 wind — all open at 0; the other 9 carry no launch conditions at all,
-  // so they change none of the panel's, this field included.
+  // design's aim. Measured on the local .ork files (2026-09-23): every
+  // simulation opens at aim 0 but LEM-IV.ork's one MultiLevel simulation,
+  // which opens at 173° (its rail leans downwind of the profile's ground
+  // wind) on a vertical rod — so no local file's flight moves.
   const iw = text(condEl, ':scope > launchintowind');
   const intoWind = iw === null || iw.trim().toLowerCase() === 'true';
   let aim = 0;
   if (!intoWind) {
     const rodDeg = num(condEl, 'launchroddirection', 90);
-    let windRad = windEl ? num(windEl, 'direction', NaN) : NaN;
-    if (Number.isNaN(windRad)) windRad = num(condEl, 'winddirection', Math.PI / 2);
+    let windRad = multilevel ? profileWindAtPadRad(condEl) : NaN;
+    if (Number.isNaN(windRad)) windRad = averageWindFromRad(condEl);
     const a = canonicalRodAimDeg(rodDeg - (windRad * 180) / Math.PI);
     if (Number.isFinite(a)) aim = a;
   }

@@ -851,6 +851,44 @@ describe('.ork launch conditions (simulations block)', () => {
     expect(importOrk(noBlock).launch!.launchRodAimDeg).toBe(-90);
   });
 
+  // A MultiLevel file flies desktop's wind PROFILE, not its average block, so
+  // the rail's lean is measured from the profile's wind at the pad — what
+  // desktop launched into (SimulationOptions.getLaunchRodDirection reads the
+  // same) — and not from an average-wind direction that flew nothing (review
+  // of 2026-09-23). LEM-IV.ork's multilevel simulation: AGL levels, 277° at
+  // the ground, rod at 90° — leaning 173° from into the wind, nearly downwind.
+  const multilevel = (block: string, over: { intoWind?: string; model?: string; alt?: string } = {}) => DESKTOP_SIM
+    .replace('<launchintowind>true</launchintowind>', `<launchintowind>${over.intoWind ?? 'false'}</launchintowind>`)
+    .replace('<windmodeltype>Average</windmodeltype>', `${block}<windmodeltype>${over.model ?? 'MultiLevel'}</windmodeltype>`)
+    .replace('<launchaltitude>1350.0</launchaltitude>', `<launchaltitude>${over.alt ?? '1350.0'}</launchaltitude>`);
+  const LEM_LEVELS = '<wind model="multilevel" altituderef="agl">'
+    + '<windlevel altitude="0.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>'
+    + '<windlevel altitude="16.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>'
+    + '<windlevel altitude="86.0" speed="7.4" direction="4.869468613064179" standarddeviation="0.2"/>'
+    + '</wind>';
+
+  it('measures a MultiLevel file’s rod direction from the profile’s wind at the pad', () => {
+    expect(importOrk(multilevel(LEM_LEVELS)).launch!.launchRodAimDeg).toBe(173);
+    // Launching into the wind is aim 0 whatever the profile says.
+    expect(importOrk(multilevel(LEM_LEVELS, { intoWind: 'true' })).launch!.launchRodAimDeg).toBe(0);
+    // An AVERAGE-wind file flies its average block, whatever levels it also carries.
+    expect(importOrk(multilevel(LEM_LEVELS, { model: 'Average' })).launch!.launchRodAimDeg).toBe(0);
+  });
+
+  it('reads the profile at the pad as desktop does: by its altitude reference, between levels as vectors', () => {
+    // From the east at 0 m, from the south at 100 m, both 4 m/s. Halfway the
+    // vectors average to a wind from the south-east, 135°: a rod leaning east
+    // (90°) is 45° to the left of into it.
+    const levels = (ref: string) => `<wind model="multilevel" altituderef="${ref}">`
+      + `<windlevel altitude="100.0" speed="4" direction="${Math.PI}" standarddeviation="0"/>`
+      + `<windlevel altitude="0.0" speed="4" direction="${Math.PI / 2}" standarddeviation="0"/></wind>`;
+    expect(importOrk(multilevel(levels('msl'), { alt: '50.0' })).launch!.launchRodAimDeg).toBe(-45);
+    // Above sea level, the pad is at 0 m of an AGL profile.
+    expect(importOrk(multilevel(levels('agl'), { alt: '50.0' })).launch!.launchRodAimDeg).toBe(0);
+    // Past the top level, the top level's wind.
+    expect(importOrk(multilevel(levels('msl'), { alt: '500.0' })).launch!.launchRodAimDeg).toBe(-90);
+  });
+
   it('ALWAYS states the aim, so an opened file cannot keep the previous design’s', () => {
     const launch = importOrk(DESKTOP_SIM).launch!;
     expect(Object.hasOwn(launch, 'launchRodAimDeg')).toBe(true);
