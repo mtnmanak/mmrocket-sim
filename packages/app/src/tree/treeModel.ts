@@ -29,6 +29,7 @@ import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
 import { num, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
+import { ventLimit } from './canopyVent.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -1543,7 +1544,10 @@ export function engineTree(tree: RocketTree): RocketTree {
     }
     const dh = typeof n['spillHoleDiameter'] === 'number' ? (n['spillHoleDiameter'] as number) : 0;
     if (n.type === 'parachute' && dh > 0) {
-      const D = typeof n['diameter'] === 'number' ? (n['diameter'] as number) : 0.3;
+      // The canopy diameter (0.3 m when absent) and the widest vent it can
+      // carry, 0.95 D — ONE rule with the property panel's ceiling
+      // (tree/canopyVent.ts). `vent` is null unless D > 0:
+      const vent = ventLimit(n);
       // `D > 0` IS THE DIVIDE GUARD, not a tidiness check. The 0.3 fallback
       // fires only when `diameter` is ABSENT; a canopy diameter STORED as a
       // literal 0 is a `typeof 'number'` hit, so D was 0, `hole` was
@@ -1557,8 +1561,9 @@ export function engineTree(tree: RocketTree): RocketTree {
       // `services/recoverySizing.ts` `canopyCdA` — has bailed on `!(d > 0)`
       // since it was written; this is that bail. `> 0` also rejects a negative
       // or NaN diameter, which arrive here by the same route.
-      if (D > 0) {
-        const hole = Math.min(dh, D * 0.95);
+      if (vent) {
+        const D = vent.diameter;
+        const hole = Math.min(dh, vent.maxHole);
         const typedBase = typeof n['cd'] === 'number';
         const base = typedBase ? (n['cd'] as number) : KERNEL_DEFAULT_CD;
         // `cdNominal` keeps the pre-vent figure so the launch report can show
