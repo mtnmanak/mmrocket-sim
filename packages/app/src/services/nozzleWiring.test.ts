@@ -152,31 +152,21 @@ describe('App wires the nozzle-follow hook into the switch and the history', () 
 });
 
 /**
- * The two places App has to spend the nozzle exit diameter (2026-09-08), both
- * of which are absences that no other test in the suite can see.
+ * The two places App has to spend the nozzle exit diameter (2026-09-08): the
+ * notice and the launch report. The check and the sentence are pure and tested
+ * in nozzleCheck.test.ts; the report line is pure and tested in
+ * simReport.test.ts. What neither can prove is that App still CALLS them —
+ * delete either call and every one of those tests still passes while the user
+ * sees nothing.
  *
- * The check and the sentence are pure and tested in nozzleCheck.test.ts; the
- * report line is pure and tested in simReport.test.ts. What neither can prove
- * is that App still CALLS them — delete either call and every one of those
- * tests still passes while the user sees nothing.
- *
- * The NOTICE is tested by behaviour now (audit 2026-09-22, row 501): the list
- * moved into services/notices.ts, where notices.test.ts asserts the entry —
- * checked against the design and the motors loaded, keyed per stage, a
- * warning, no × — and App.render.test.tsx mounts App on a design with an
- * oversized exit and finds it on the bar. What stays a source guard here is
- * the memo's dependency list, which neither can see, and the Launch path below.
+ * The NOTICE is behaviour now (audit 2026-09-22, rows 501 and 477): the list
+ * is services/notices.ts, where notices.test.ts asserts the entry — checked
+ * against the design and the motors loaded, keyed per stage, a warning, no × —
+ * and App.render.test.tsx mounts App on a design with an oversized exit, finds
+ * it on the bar, switches the length unit and reads it again in inches (the
+ * memo key this file used to hold as a string match). The LAUNCH path below is
+ * still a source guard.
  */
-describe('App surfaces the nozzle plausibility warning', () => {
-  it('re-runs when the design, the motors or the length unit change', () => {
-    // The memo would otherwise hold a warning about a nozzle that has been
-    // corrected, or print millimetres to someone who has switched to inches.
-    // The design as `tree.components` since audit 2026-09-22 row 513: a rename
-    // is not a design change (App.render.test.tsx).
-    expect(app()).toContain('tree.components, assigned, prefs.units.length]);');
-  });
-});
-
 describe('App tells the launch report which stages flew a nozzle', () => {
   /**
    * MOTORISED, not merely nozzle-bearing (2026-09-08, review). The kernel's

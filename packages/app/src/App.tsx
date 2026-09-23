@@ -26,7 +26,7 @@ import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
 import {
   BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
-  withoutAllowance, type BallastSolution,
+  solePinnedStage, withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { Modal } from './components/Modal.js';
@@ -1253,15 +1253,17 @@ export function App() {
   /**
    * The existing allowance, if this design already carries one.
    *
-   * This memo and the four below it that read the tree — `canPinBlocker`,
-   * `notices`, `provenanceKey` and `mountSizes` — key on `tree.components`,
-   * like `mounts` and `buildResult` above, and for their reason: the Rocket
-   * name input does `setTree({ ...tree, name })` on every keystroke, and none
-   * of them reads `tree.name` (checked through every function they call).
-   * The 8 September audit named nine such memos and f5a4993 narrowed four;
-   * these are the other five (audit 2026-09-22, row 513), pinned by
-   * App.render.test.tsx. A callback that WRITES the tree is still never
-   * narrowed — see `pinBlockerToMeasured`.
+   * This memo and the four below it that read the tree — `solePinned` (the
+   * check behind `canPinBlocker`), `notices`, `provenanceKey` and `mountSizes`
+   * — key on `tree.components`, like `mounts` and `buildResult` above, and for
+   * their reason: the Rocket name input does `setTree({ ...tree, name })` on
+   * every keystroke, and none of them reads `tree.name` (checked through every
+   * function they call). The 8 September audit named nine such memos and
+   * f5a4993 narrowed four; these are the other five (audit 2026-09-22, row
+   * 513). App.render.test.tsx holds each to it by counting calls to a function
+   * that memo alone makes — exhaustive-deps cannot, because it accepts the
+   * whole `tree` wherever `tree.components` is read. A callback that WRITES the
+   * tree is still never narrowed — see `pinBlockerToMeasured`.
    */
   const allowanceNode = useMemo(
     () => findAllowance(tree),
@@ -1371,14 +1373,13 @@ export function App() {
    * per-stage, and there is no rule for which stage absorbs the difference.
    * With more than one pinned stage the box states the problem and stops,
    * which is the same refusal the RASAero importer itself makes rather than
-   * guessing.
+   * guessing. The rule is services/buildAllowance.ts's `solePinnedStage`; it
+   * reads the stages alone, so it is memoized on them — not on whether this
+   * render has a blocker — which is what lets App.render.test.tsx count its
+   * calls through a rename.
    */
-  const canPinBlocker = useMemo(() => {
-    if (!allowanceBlocker) return false;
-    const pinned = tree.components.filter((n) =>
-      n['overrideSubcomponentsMass'] === true && typeof n['overrideMass'] === 'number');
-    return pinned.length === 1 && pinned[0] === allowanceBlocker;
-  }, [allowanceBlocker, tree.components]);
+  const solePinned = useMemo(() => solePinnedStage(tree.components), [tree.components]);
+  const canPinBlocker = allowanceBlocker != null && solePinned === allowanceBlocker;
 
   /**
    * Replace the covering override with what the user actually weighed —
@@ -1742,8 +1743,7 @@ export function App() {
     // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
     // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
     // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
-    // match against every saved run, `changedSince` and the export's
-    // `flightDataForExport`.
+    // match against every saved run, and `changedSince`.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
