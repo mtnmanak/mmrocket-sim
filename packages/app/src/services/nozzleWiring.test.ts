@@ -16,7 +16,6 @@ import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { importCdx1 } from './rasaeroFile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const app = () => readFileSync(join(here, '../App.tsx'), 'utf8');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,6 +28,12 @@ const app = () => readFileSync(join(here, '../App.tsx'), 'utf8');
  * sustainer exit under a false note ("was for M745-P"), and Save then dropped
  * it. Driven here through the units App runs — the history hook, the
  * nozzle-follow hook and the switch plan — on the real file.
+ *
+ * What App hands those units is App.nozzle.test.tsx's (audit 2026-09-22, row
+ * 477), with App mounted: the seed to this switch, every tree off the undo
+ * stack to the hook, the flown stages to the launch report and `hasNozzle` to
+ * the stored-run guards. It was string matches over App.tsx at the foot of
+ * this file.
  */
 describe('a configuration switch keeps the nozzle the configuration states', () => {
   const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
@@ -128,102 +133,5 @@ describe('a configuration switch keeps the nozzle the configuration states', () 
     // The booster's 63.5 mm, just written by the switch, goes too - "was for N2501".
     expect(exit(t, 1)).toBeUndefined();
     expect(m.cleared[idOf(t, 1)]?.previousLabel).toBe('N2501-WH-P');
-  });
-});
-
-/**
- * WHAT APP HANDS THE NOZZLE-FOLLOW HOOK (audit 2026-09-22, from review). The
- * two tests above show the switch plan keeps the stated nozzle WHEN it is
- * given the hook's seed, and useNozzleFollow.test.tsx shows an undone state
- * gets the loaded motor's exit WHEN `onRestore` hands it to `restoring` — the
- * "(the defect, reproduced)" cases are what each looks like without. Neither
- * can see App do the handing, so it is held here until App renders in a test.
- */
-describe('App wires the nozzle-follow hook into the switch and the history', () => {
-  it('passes the hook’s seed to the configuration switch (audit row 279)', () => {
-    const src = app();
-    expect(src).toContain('cleared: nozzleCleared, seed: seedNozzleFollow, restoring: restoreNozzleFollow,');
-    expect(src).toMatch(/applyConfigSwitchPlan\(plan, savedConfigs, \{\s+seedNozzleFollow,/);
-  });
-
-  it('hands every tree coming off the undo stack to the hook before it is written', () => {
-    expect(app()).toMatch(/onRestore: \(t\) => \{\s+restoreNozzleFollow\(t\);\s+return spendSpentMarks\.current\(t\);/);
-  });
-});
-
-/**
- * The two places App has to spend the nozzle exit diameter (2026-09-08): the
- * notice and the launch report. The check and the sentence are pure and tested
- * in nozzleCheck.test.ts; the report line is pure and tested in
- * simReport.test.ts. What neither can prove is that App still CALLS them —
- * delete either call and every one of those tests still passes while the user
- * sees nothing.
- *
- * The NOTICE is behaviour now (audit 2026-09-22, rows 501 and 477): the list
- * is services/notices.ts, where notices.test.ts asserts the entry — checked
- * against the design and the motors loaded, keyed per stage, a warning, no × —
- * and App.render.test.tsx mounts App on a design with an oversized exit, finds
- * it on the bar, switches the length unit and reads it again in inches (the
- * memo key this file used to hold as a string match). The LAUNCH path below is
- * still a source guard.
- */
-describe('App tells the launch report which stages flew a nozzle', () => {
-  /**
-   * MOTORISED, not merely nozzle-bearing (2026-09-08, review). The kernel's
-   * own gate is `getThrust(t) > 0`, so a stage the flown configuration left
-   * empty — a two-stage RASAero import whose booster motor is not in the
-   * database is the common shape — bought exactly nothing, and the report
-   * must not name it as corrected.
-   */
-  it('passes the names of the stages that flew a MOTOR into buildSimRun', () => {
-    expect(app()).toContain('nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),');
-  });
-
-  /**
-   * Names only. Whether the term was LIVE is decided inside the report from
-   * the two model stamps, which are the kernel's own gate — App must not
-   * second-guess it here, or the two answers can disagree.
-   */
-  it('does not gate the names on the aero model itself', () => {
-    const src = app();
-    const i = src.indexOf('nozzleStages: motorisedStagesWithNozzle(tree');
-    const line = src.slice(i, src.indexOf('\n', i));
-    expect(line).not.toContain('effectiveKbf');
-    expect(line).not.toContain('usedSupersonic');
-  });
-});
-
-/**
- * THE STORED-RUN GUARD (2026-09-08, review). `designKey`, `motorSetKey` and
- * `conditionsKey` all hash app-side state, so none of them can see a KERNEL
- * change: a run of a nozzle-bearing design flown before v0.119 certified as
- * "matches the design as it stands" while the new kernel re-flies it up to
- * +29.7 % higher, and an .ork export wrote its stale apogee as that
- * configuration's authoritative result. The predicate is pure and tested in
- * simReport.test.ts; what only this file can see is that App still FEEDS it.
- */
-describe('App feeds the pressure-thrust provenance stamp', () => {
-  it('tells both match keys whether the design spends the term', () => {
-    // provenanceKey (the staleness banner) and currentMatchKey (Show charts).
-    // ONE assembly since the 2026-09-22 audit: provenanceKey is built by
-    // simReport's designMatchKeyOf, and currentMatchKey is that same key gated
-    // on a rocket and a motor — so one feed reaches both, where there used to
-    // be two to keep in step.
-    const src = app();
-    const hits = src.split('hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,').length - 1;
-    expect(hits).toBe(1);
-    expect(src).toContain('() => (built && primaryMountId ? provenanceKey : null),');
-  });
-
-  it('refuses an unstamped run in the .ork <flightdata> export too', () => {
-    // Moved out of App.tsx on 2026-09-08 into services/orkFlightData.ts, which
-    // is where it can finally be tested for BEHAVIOUR rather than for its own
-    // source text — see orkFlightData.test.ts, "refuses a run with no
-    // pressure-thrust stamp". What stays here is the wiring check: App must
-    // still tell the pure rule whether this design HAS a nozzle, because a
-    // `hasNozzle: false` passed by mistake would disable the guard silently.
-    expect(app()).toContain('hasNozzle: stagesWithNozzle(tree).length > 0,');
-    expect(readFileSync(join(here, 'orkFlightData.ts'), 'utf8')).toContain(
-      'if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) return null;');
   });
 });

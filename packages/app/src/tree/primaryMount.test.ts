@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { autoDelayBox, padMassOntoRankedPrimary, primaryMountOf } from './treeModel.js';
@@ -9,6 +6,11 @@ import { autoDelayBox, padMassOntoRankedPrimary, primaryMountOf } from './treeMo
  * What the core-first primary ranking (audit 2026-09-22, row 356) has to carry
  * with it, found in review: a weighed pad mass saved on the record that used to
  * win the tie, and an auto-delay flag on a card that no longer shows the box.
+ *
+ * App's use of both is App.render.test.tsx's (audit 2026-09-22, row 477), with
+ * App mounted on a pod design: the restore moving the pad mass in the working
+ * set and in a stored configuration, and each card's box. It was string
+ * matches over App.tsx at the foot of this file.
  */
 
 /** A core mount, a two-pod set and a two-strap-on ring in one stage; a booster below. */
@@ -124,24 +126,5 @@ describe('autoDelayBox — the auto-delay box each mount card shows', () => {
   it('a booster that is primary shows the working box once ticked, and none before', () => {
     expect(autoDelayBox(tree, 'b1', 'b1', false)).toBeNull();
     expect(autoDelayBox(tree, 'b1', 'b1', true)).toBe('optimal');
-  });
-});
-
-describe('App wires both in', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const app = readFileSync(join(here, '../App.tsx'), 'utf8');
-
-  it('moves a restored session’s pad mass, and every stored configuration’s', () => {
-    expect(app).toContain('const ranked = padMassOntoRankedPrimary(initialTree, m.motors);');
-    expect(app).toContain('const ranked = padMassOntoRankedPrimary(initialTree, c.motors);');
-    // …and says where it went: behaviour since the 2026-09-22 audit (row 501
-    // moved the sentence into services/padMassReconcile.ts). App.render.test.tsx
-    // ("a session's pad mass saved under a pod picked first") restores such a
-    // session and finds the value on the core's record and the note on the bar.
-  });
-
-  it('takes each card’s box from autoDelayBox', () => {
-    expect(app).toContain("const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);");
-    expect(app).toContain("{autoBox === 'optimal' ? 'auto (optimal)' : 'auto — top motor only'}");
   });
 });
