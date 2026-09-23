@@ -159,3 +159,27 @@ describe("a shock cord's weighed mass is not thrown away", () => {
     expect(mc['overrideCGX']).toBe(0);
   });
 });
+
+describe('a CDATA section whose text holds "<![CDATA[" (audit 2026-09-22)', () => {
+  it('is one section, closed by the first "]]>" after its own opener — as XML reads it', () => {
+    // Legal XML: only "]]>" ends a section, so an opener inside one is text.
+    // The split-on-opener pre-pass read that inner opener as a SECOND section,
+    // left the real one unterminated, and the parser refused a valid file.
+    const r = importRkt(rktXml(
+      '<MassObject><Name><![CDATA[Bay <![CDATA[ & more]]></Name><TypeCode>0</TypeCode>'
+      + '<Len>20</Len><Xb>50</Xb><LocationMode>0</LocationMode><KnownMass>30</KnownMass>'
+      + '</MassObject>'));
+    const mc = flatten(r.tree.components).find((n) => n.type === 'masscomponent')!;
+    expect(mc.name).toBe('Bay <![CDATA[ & more');
+  });
+
+  it('leaves text after an unterminated opener alone, as the regex it replaced did', () => {
+    // The opener with no "]]>" after it is not a section; nothing after it is
+    // either. A well-formed section BEFORE it is still inlined.
+    const r = importRkt(rktXml(
+      '<MassObject><Name><![CDATA[A & B]]></Name><TypeCode>0</TypeCode><Len>20</Len>'
+      + '<Xb>50</Xb><LocationMode>0</LocationMode><KnownMass>30</KnownMass></MassObject>'));
+    expect(flatten(r.tree.components).find((n) => n.type === 'masscomponent')!.name).toBe('A & B');
+    expect(() => importRkt(rktXml('<Comments><![CDATA[ never closed</Comments>'))).toThrow(/RockSim/);
+  });
+});

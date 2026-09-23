@@ -179,27 +179,31 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // no abort and the user's unsaved design behind it — defeating the zip-bomb
   // cap one layer above.
   //
-  // Split on the opener and scan each segment ONCE with indexOf. A segment with
-  // no terminator is text that was never a CDATA section, and is passed through
-  // exactly as the regex left it.
+  // Scan opener → first terminator with indexOf, each search starting where
+  // the last section ENDED, so every byte is visited once. That is exactly the
+  // regex's reading: a section is closed by the first "]]>" after its own
+  // opener, and a "<![CDATA[" inside it is just text — legal XML, since only
+  // "]]>" ends a section. Splitting on every opener instead (audit 2026-09-22)
+  // took that inner opener for a second section, left the real one
+  // unterminated, and refused a valid file as "not a valid RockSim file". An
+  // opener with no terminator after it is not a section, and neither is
+  // anything after it (no later opener can find a "]]>" the first could not),
+  // so the rest of the file passes through verbatim, as the regex left it.
   if (xml.includes('<![CDATA[')) {
     const OPEN = '<![CDATA[';
     const CLOSE = ']]>';
-    const parts = xml.split(OPEN);
-    let rebuilt = parts[0] ?? '';
-    for (let i = 1; i < parts.length; i++) {
-      const seg = parts[i]!;
-      const end = seg.indexOf(CLOSE);
-      if (end < 0) {
-        // Unterminated: not a section. Put the opener back verbatim.
-        rebuilt += OPEN + seg;
-        continue;
-      }
-      const inner = seg.slice(0, end);
-      rebuilt += inner.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        + seg.slice(end + CLOSE.length);
+    let rebuilt = '';
+    let at = 0;
+    for (;;) {
+      const open = xml.indexOf(OPEN, at);
+      if (open < 0) break;
+      const close = xml.indexOf(CLOSE, open + OPEN.length);
+      if (close < 0) break;
+      rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      at = close + CLOSE.length;
     }
-    xml = rebuilt;
+    xml = rebuilt + xml.slice(at);
   }
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   if (doc.querySelector('parsererror')) {
