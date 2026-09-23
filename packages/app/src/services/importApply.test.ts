@@ -153,6 +153,93 @@ describe('planImport — one plan, applied and marked', () => {
     expect(plan.note.severity).toBe('info');
   });
 
+  /**
+   * A motor that loaded without the file confirming it (review of audit
+   * 2026-09-23): the open says so, as a warning, in a sentence about the open
+   * — while a confirmed one still adds nothing, the Big Dog rule.
+   */
+  it('says what an unconfirmed motor opened on, and reads as a warning', () => {
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('K1075-SK') } };
+    const said = 'Motor “K1075-SK”: the file names Cesaroni Technology Inc., but it opened on AMW 2245K1075-P.';
+    const plan = planImport(imported, {
+      working: { mmt: { motor: motor('2245K1075-P'), note: 'Motor: AMW 2245K1075-P-P (loaded from the motor database).', openNote: said } },
+      configs: {},
+    }, { launch: LAUNCH, text: TEXT });
+    expect(plan.snapshot.mountMotors['mmt']!.spec.designation).toBe('2245K1075-P');
+    expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.', said]);
+    expect(plan.note.severity).toBe('warn');
+    // The success line itself still never goes in.
+    expect(plan.note.text).not.toContain('loaded from the motor database');
+  });
+
+  /**
+   * Second review of the audit. The open said it only for the configuration it
+   * showed: switching to another loaded that configuration's unconfirmed motors
+   * with “applied — now live” and nothing else, and in most affected files the
+   * sentence was never on screen at all. And a cluster built as separate mounts
+   * said the same three sentences once per mount (PELTZER_Swarm_JR.rkt, twelve).
+   */
+  describe('an unconfirmed motor in a cluster, and in a configuration the open does not show', () => {
+    const twoMounts = (): RocketTree => ({
+      name: 'Swarm',
+      components: [{
+        type: 'stage', id: 's1', name: 'Sustainer', children: [{
+          type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [
+            { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.012, thickness: 0.0005, motorMount: true } as ComponentNode,
+            { type: 'innertube', id: 'm2', length: 0.2, outerRadius: 0.012, thickness: 0.0005, motorMount: true } as ComponentNode,
+          ],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+    const said = 'Motor “F32”: the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).';
+    const unconfirmed = (): MountMotor => ({ ...motor('F32T'), openNote: said });
+    const imported = (chosen: string): ImportedDesign => ({
+      name: 'x', tree: twoMounts(), notes: [],
+      motors: chosen === 'A' ? { m1: ref('F32'), m2: ref('F32') } : { m1: ref('H100'), m2: ref('H100') },
+      configs: [config('A', { m1: ref('F32'), m2: ref('F32') }), config('B', { m1: ref('H100'), m2: ref('H100') })],
+      chosenConfigId: chosen,
+    });
+
+    it('says it once at the open, with the number of mounts', () => {
+      const plan = planImport(imported('A'), {
+        working: { m1: { motor: unconfirmed(), note: '', openNote: said }, m2: { motor: unconfirmed(), note: '', openNote: said } },
+        configs: { B: { m1: motor('H100'), m2: motor('H100') } },
+      }, { launch: LAUNCH, text: TEXT });
+      expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.',
+        'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).']);
+      expect(plan.note.severity).toBe('warn');
+    });
+
+    it('says it again when its configuration is applied, and not once the motor is replaced', () => {
+      // The file opens on B; A's F32s are the unconfirmed ones, matched in the
+      // same pass (matchImportedMotor puts the sentence on the motor).
+      const plan = planImport(imported('B'), {
+        working: { m1: { motor: motor('H100'), note: '' }, m2: { motor: motor('H100'), note: '' } },
+        configs: { A: { m1: unconfirmed(), m2: unconfirmed() } },
+      }, { launch: LAUNCH, text: TEXT });
+      expect(plan.note.text).toBe('Loaded “x”.');
+      const [A, B] = plan.snapshot.savedConfigs;
+      const state = {
+        savedConfigs: plan.snapshot.savedConfigs, activeConfigId: 'B', mountMotors: plan.snapshot.mountMotors,
+        unmatchedRefs: {}, tree: plan.snapshot.tree,
+      };
+      const toA = planConfigSwitch(state, A!, TEXT);
+      expect(toA.note).toEqual({
+        text: 'Flight configuration “A” applied — its motors and recovery settings are now live.\n'
+          + 'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).',
+        severity: 'warn',
+      });
+      // The user loads another motor on one mount: its sentence goes with it.
+      const edited = { ...toA.mountMotors, m1: motor('F32T') };
+      const toB = planConfigSwitch({ ...state, savedConfigs: toA.savedConfigs, activeConfigId: 'A', mountMotors: edited, tree: toA.tree }, B!, TEXT);
+      const backToA = planConfigSwitch({
+        ...state, savedConfigs: toB.savedConfigs, activeConfigId: 'B', mountMotors: toB.mountMotors, tree: toB.tree,
+      }, toB.savedConfigs[0]!, TEXT);
+      expect(backToA.note.text.split('\n')[1]).toBe(said);
+      expect(backToA.note.severity).toBe('warn');
+    });
+  });
+
   it('clears the previous rocket’s measured figures when the file carries none', () => {
     const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: {} };
     const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });

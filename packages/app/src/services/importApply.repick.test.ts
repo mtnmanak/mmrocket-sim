@@ -60,21 +60,21 @@ describe('planImport — opens a configuration that can leave the pad', () => {
     const lines = plan.note.text.split('\n');
     // Named, with the motor and the reason — never the matcher's "pick one via
     // Browse motor database", the wrong fix when another configuration flies.
-    expect(lines).toContain('Simulation 1 (“[J240-RL-None]”) was not opened: J240-RL isn\'t in the motor '
+    expect(lines).toContain('Simulation 1 (“[ZQ240-RL-None]”) was not opened: ZQ240-RL matched no motor in the motor '
       + 'database, so it could not leave the pad.');
     expect(plan.note.text).not.toMatch(/pick one via Browse motor database/);
     // The reader's "which simulation" sentence names the one opened, not the one skipped …
     expect(plan.note.text).toMatch(/Simulation 3 \(“\[C6-\*\]”\) was opened — switch under Flight configurations/);
-    expect(plan.note.text).not.toMatch(/Simulation 1 \(“\[J240-RL-None\]”\) was opened/);
+    expect(plan.note.text).not.toMatch(/Simulation 1 \(“\[ZQ240-RL-None\]”\) was opened/);
     // … and the notes about the skipped simulation's motor went with it: its
-    // plugged J240-RL is not on screen, the C6's "every delay" is.
-    expect(plan.note.text).not.toMatch(/J240-RL: plugged/);
+    // plugged ZQ240-RL is not on screen, the C6's "every delay" is.
+    expect(plan.note.text).not.toMatch(/ZQ240-RL: plugged/);
     expect(plan.note.text).toMatch(/Motor C6: the file asks for RockSim's “every delay” run/);
     expect(plan.note.severity).toBe('warn');
     // Every simulation is still a configuration; the skipped ones carry their debt.
     const byId = Object.fromEntries(plan.snapshot.savedConfigs.map((c) => [c.id, c]));
     expect(Object.keys(byId)).toEqual(['rocksim-sim-1', 'rocksim-sim-2', 'rocksim-sim-3']);
-    expect(byId['rocksim-sim-1']!.unmatched).toEqual(['J240-RL']);
+    expect(byId['rocksim-sim-1']!.unmatched).toEqual(['ZQ240-RL']);
     expect(byId['rocksim-sim-2']!.unmatched).toEqual(['ZQ9999X']);
     expect(byId['rocksim-sim-3']!.motors).toEqual(plan.snapshot.mountMotors);
   });
@@ -85,10 +85,10 @@ describe('planImport — opens a configuration that can leave the pad', () => {
     const none = importRkt(xml.replace('<EngineCode>C6</EngineCode>', '<EngineCode>ZQ8888X</EngineCode>'));
     const kept = await open(none);
     expect(kept.snapshot.activeConfigId).toBe('rocksim-sim-1');
-    expect(kept.note.text).toMatch(/Motor “J240-RL” isn't in the motor database — pick one via Browse motor database/);
+    expect(kept.note.text).toMatch(/Motor “ZQ240-RL” matched no motor in the motor database — pick one via Browse motor database/);
     expect(kept.note.text).not.toMatch(/was not opened/);
     // Simulation 1 given a loadable motor: it flies, and it is opened.
-    const flies = importRkt(xml.replace('<EngineCode>J240-RL</EngineCode>', '<EngineCode>D12</EngineCode>')
+    const flies = importRkt(xml.replace('<EngineCode>ZQ240-RL</EngineCode>', '<EngineCode>D12</EngineCode>')
       .replace('<EngineMfg>AeroTech</EngineMfg>', '<EngineMfg>Estes</EngineMfg>'));
     expect((await open(flies)).snapshot.activeConfigId).toBe('rocksim-sim-1');
   });
@@ -116,12 +116,12 @@ describe('planImport — opens a configuration that can leave the pad', () => {
     };
     const stub = async (r: OrkMotorRef): Promise<MotorMatchResult> => (r.designation === 'C6'
       ? { motor: motor('C6'), note: '' }
-      : { note: `Motor “${r.designation}” isn't in the motor database — pick one via Browse motor database.`, missing: 'database' });
+      : { note: `Motor “${r.designation}” matched no motor in the motor database — pick one via Browse motor database.`, missing: 'database' });
     expect((await open(imported, stub)).snapshot.activeConfigId).toBe('A');
     // The same file read by a reader that CHOSE (configSources): re-picked.
     const chose = await open({ ...imported, configSources: { A: 'Simulation 1', B: 'Simulation 2' } }, stub);
     expect(chose.snapshot.activeConfigId).toBe('B');
-    expect(chose.note.text).toContain('Simulation 1 was not opened: ZQ9999X isn\'t in the motor database');
+    expect(chose.note.text).toContain('Simulation 1 was not opened: ZQ9999X matched no motor in the motor database');
   });
 
   /**
@@ -185,7 +185,7 @@ describe('planImport — opens a configuration that can leave the pad', () => {
     expect(r.chosenConfigId).toBe('rocksim-sim-1');
     const plan = await open(r);
     expect(plan.snapshot.activeConfigId).toBe('rocksim-sim-2');
-    expect(plan.note.text).toContain('Simulation 1 was not opened: ZQ9999X isn\'t in the motor '
+    expect(plan.note.text).toContain('Simulation 1 was not opened: ZQ9999X matched no motor in the motor '
       + 'database, so it could not leave the pad.');
     expect(plan.note.text).not.toMatch(/switch under Flight configurations/);
     expect(plan.note.text).toContain('Simulation 2 puts no motor on Booster, and no simulation in this file '
@@ -208,8 +208,6 @@ describe('planImport — the owner’s designs open flyable', () => {
   const cases: [string, string | undefined, string][] = [
     ['4in WM Extreme.rkt', find(join(repo, 'docs/User files/4in WM Extreme.rkt')), 'M2700W'],
     ['Mach 3.rkt', find(join(repo, 'docs/User files/TRF RASAero Files/Mach 3.rkt')), '4LC'],
-    ['Level2-PELTZER.rkt', find(...corpora.map((c) => `${c}/Apogee Components/Level2-PELTZER.rkt`)), 'J240-RL'],
-    ['Wildman_2stage.rkt', find(...corpora.map((c) => `${c}/Wildman/Wildman_2stage.rkt`)), 'L1030-RL'],
   ];
   for (const [label, path, missing] of cases) {
     it.skipIf(!path)(`${label}: a motor on the pad and Launch available`, async () => {
@@ -218,7 +216,31 @@ describe('planImport — the owner’s designs open flyable', () => {
       expect(plan.snapshot.activeConfigId).not.toBe(r.chosenConfigId);
       // App's Launch gate is a built design with a primary mount.
       expect(primaryMountOf(plan.snapshot.tree, Object.keys(plan.snapshot.mountMotors))).not.toBeNull();
-      expect(plan.note.text).toMatch(new RegExp(`^Simulation 1 \\(“.*”\\) was not opened: ${missing} isn't in the motor database`, 'm'));
+      expect(plan.note.text).toMatch(new RegExp(`^Simulation 1 \\(“.*”\\) was not opened: ${missing} matched no motor in the motor database`, 'm'));
+    });
+  }
+
+  /**
+   * Two more needed the re-pick only because their first simulation's motor
+   * was named by Cesaroni's common name and propellant code, which the matcher
+   * could not read until audit 2026-09-23. It finds them now, so each opens on
+   * the simulation the reader picked, and flies it — Wildman_2stage's on BOTH
+   * stages since the review of that audit read “L640-DT” (Dual Thrust): with
+   * only the booster's L1030-RL found, it opened a two-stage simulation and
+   * flew the booster alone, 2375.5 m against RockSim's stored 7679.2 m.
+   */
+  const named: [string, string | undefined, string[]][] = [
+    ['Level2-PELTZER.rkt', find(...corpora.map((c) => `${c}/Apogee Components/Level2-PELTZER.rkt`)), ['806J240-16A']],
+    ['Wildman_2stage.rkt', find(...corpora.map((c) => `${c}/Wildman/Wildman_2stage.rkt`)), ['2772L640-P', '2788L1030-P']],
+  ];
+  for (const [label, path, loaded] of named) {
+    it.skipIf(!path)(`${label}: its first simulation, on the Cesaroni motors it names`, async () => {
+      const r = importRkt(readFileSync(path!, 'latin1'));
+      const plan = await open(r);
+      expect(plan.snapshot.activeConfigId).toBe(r.chosenConfigId);
+      expect(primaryMountOf(plan.snapshot.tree, Object.keys(plan.snapshot.mountMotors))).not.toBeNull();
+      expect(Object.values(plan.snapshot.mountMotors).map((m) => m.spec.designation).sort()).toEqual(loaded);
+      expect(plan.note.text).not.toMatch(/was not opened|matched no motor/);
     });
   }
 });

@@ -1689,9 +1689,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // thrust curve anywhere, and for those the matcher loads nothing and says
         // so right after this note. The reader cannot tell them apart — the
         // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
+        //
+        // NOT "the one RockSim's own run reports", which it said until audit
+        // 2026-09-23: RockSim flies the delays in ITS motor list and this takes
+        // the catalogue's. NukeProMax.RKT's H128W run flies 6, 10 and 14 s and
+        // ejects at 15.5 s; thrustcurve.org lists 4, 6, 8 and 10, so this takes 10.
         out.push(`${asks}which flies each listed delay in turn; `
           + (Number.isFinite(ref.delay)
-            ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
+            ? `this takes ${ref.delay} s, the motor browser’s own default for it: the longest delay the `
+              + 'motor database lists. RockSim flies the delays in its own list, which can differ, so '
+              + 'the delay its run reports may be another.'
             : 'the only option the motor database lists is plugged, so it is taken plugged.'));
       } else if (kind === 'every-auto') {
         out.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
@@ -1706,10 +1713,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
               + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
             : ''));
       } else if (kind === 'every-unmatched') {
-        // Not "the database lists no delay": the motor is not in it, so nothing
-        // loads on the mount and there is no delay box to send the user to. The
-        // reference is kept for Save, plugged, with the flag for a .rkt's −1.
-        out.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
+        // Not "the database lists no delay": the motor matched nothing in it, so
+        // nothing loads on the mount and there is no delay box to send the user
+        // to. The reference is kept for Save, plugged, with the flag for a
+        // .rkt's −1. "Matched nothing", not "isn't in" (review of audit
+        // 2026-09-23): the matcher cannot tell a motor the catalogue lacks from
+        // one it has under a name the file does not use.
+        out.push(`${asks}which takes its delays from the motor's own list — and this motor matched nothing in `
           + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
           + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
       }
@@ -1797,9 +1807,12 @@ function rktEjectionDelay(engineSet: Element, num: NumReader): number | 'plugged
 /**
  * What RockSim's "every delay" (−1) loads as: the motor browser's default pick
  * for the catalogue motor, so an imported motor starts where a picked one
- * would. That is its longest prescribed delay — also the delay RockSim's own
- * multi-delay run reports — and, for a motor that lists NO numeric delay
- * (KBA's letter-coded "M" / "S,M,L" since the row-363 fix), "Auto (optimal)":
+ * would. That is its longest prescribed delay in the CATALOGUE, which need not
+ * be the delay RockSim's own multi-delay run reports: that run flies the list
+ * in RockSim's motor data (an H128W: 6, 10 and 14 s there, 4–10 s at
+ * thrustcurve.org, so RockSim reports 14 and this takes 10). For a motor that
+ * lists NO numeric delay
+ * (KBA's letter-coded "M" / "S,M,L" since the row-363 fix), it is "Auto (optimal)":
  * the flag, plus the browser's provisional first flight. `defaultDelay` is null
  * only when `delayOptions` is empty, so that flight — the browser's
  * `finite[finite.length - 1] ?? 0` — is 0 s; App then re-flies at the optimum.

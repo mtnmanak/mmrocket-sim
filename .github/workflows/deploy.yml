@@ -193,7 +193,7 @@ jobs:
       # deploy necessarily has it (see the header). --no-package-lock keeps the
       # working tree clean for wrangler's dirty check.
       - name: Install the pinned wrangler (no secret in this step)
-        run: npm install --no-save --no-package-lock wrangler@4.136.0
+        run: npm install --no-save --no-package-lock wrangler@4.136.3
 
       - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
@@ -201,9 +201,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # EXACT, and the same as the install step above: a range here ("4")
           # would let a different wrangler into the step that holds the token.
-          # 4.136.0 is the version the last single-job deploy installed
-          # (run 35611837263, 2026-09-21).
-          wranglerVersion: "4.136.0"
+          # 4.136.3 is the version the last single-job deploy installed, the one
+          # that built the live v0.138 (run 35851630491, 2026-09-23).
+          wranglerVersion: "4.136.3"
           # --branch is explicit because checkout leaves a detached HEAD, and
           # without it the deploy would not be marked production.
           command: pages deploy packages/app/dist --project-name=online-open-rocket --branch=main

@@ -1305,6 +1305,26 @@ describe('RockSim ejection-delay sentinels', () => {
   });
 
   /**
+   * The note said the delay taken was "the one RockSim's own run reports"
+   * until audit 2026-09-23. It is the catalogue's: RockSim's multi-delay run
+   * flies the list in ITS motor data. NukeProMax.RKT's H128W run flies 6, 10
+   * and 14 s (<DelayTime>6.,10.,14.) and ejects at 15.5 s; thrustcurve.org
+   * lists 4, 6, 8 and 10, so the app takes 10.
+   */
+  it('−1 says the delay is the catalogue default the browser picks, not the one RockSim reports', () => {
+    const r = importRkt(rkt(['<EjectionDelay>-1.</EjectionDelay>'])
+      .replace('<EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>',
+        '<EngineCode>H128W</EngineCode><EngineMfg>Aerotech</EngineMfg>'));
+    const ref = Object.values(r.motors)[0]!;
+    expect(ref.delay).toBe(10);
+    const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
+    expect(note).toMatch(
+      /this takes 10 s, the motor browser’s own default for it: the longest delay the motor database lists\./);
+    expect(note).toMatch(/RockSim flies the delays in its own list, which can differ/);
+    expect(note).not.toMatch(/RockSim's own run reports|the longest, /);
+  });
+
+  /**
    * WHAT A SAVE WRITES FOR A REFERENCE NOTHING LOADED (review of the seam fixes,
    * 2026-09-22). v0.137 passed −1 through, so a .rkt Save handed RockSim its
    * "every delay" back. The sentinel fix resolved it to 0 s instead and every
@@ -1323,7 +1343,7 @@ describe('RockSim ejection-delay sentinels', () => {
     // audit 2026-09-22: all 8 corpus files that reach this note are unmatched
     // motors, and the old text sent the user to a delay box that does not exist).
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
-    expect(note).toMatch(/isn't in the motor database/);
+    expect(note).toMatch(/this motor matched nothing in the motor database/);
     expect(note).not.toMatch(/lists no delay|Motors & Launch|0 s/);
     // Saved the way App saves a reference nothing matched.
     const motors = { [ref.mountId!]: refToExportMotor(ref) };
@@ -1356,7 +1376,7 @@ describe('RockSim ejection-delay sentinels', () => {
     const ref = Object.values(r.motors)[0]!;
     expect(ref.delay).toBe(10);
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
-    expect(note).toMatch(/the longest, 10 s/);
+    expect(note).toMatch(/takes 10 s, the motor browser’s own default for it/);
     expect(note).not.toMatch(/loaded|Motors & Launch/);
     // And a Save of it, still unmatched, gives RockSim its −1 back.
     expect(exportRkt({ name: 'G80', tree: r.tree, motors: { [ref.mountId!]: refToExportMotor(ref) } }))

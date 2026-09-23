@@ -51,6 +51,18 @@ export interface MountMotor {
    * excluded on purpose; cluster count is included.
    */
   padMassWeighedWith?: string;
+  /**
+   * The open's sentence for a motor a design file named and did not confirm —
+   * another maker's than the file names, one of several equal matches, an
+   * out-of-production guess (motorMatch.unconfirmedMatchNote). Carried on the
+   * motor so that applying a flight configuration says it again (second review
+   * of audit 2026-09-23): the open says it only for the configuration it
+   * shows, and in 119 of the 1,070 corpus files (the owner's RockSim
+   * collection, the tester uploads, the fixtures) such motors sit only in
+   * configurations the open does not show. A motor loaded any other way has
+   * none, so the sentence goes when the motor does.
+   */
+  openNote?: string;
 }
 
 /**

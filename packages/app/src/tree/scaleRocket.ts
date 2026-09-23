@@ -733,7 +733,8 @@ export function scaleRocket(
   for (const s of statedLaunch) {
     notes.push(`“${s.name}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
       + ` it. That was a LAUNCH ${s.hadMass ? 'weight' : 'CG'} with “${s.motor}” still inside it —`
-      + ' that motor is not in the motor database, so nothing could take it out — and scaling it'
+      + ' that motor matched no motor in the motor database when the file was imported, so nothing'
+      + ' could take it out — and scaling it'
       + ' would have scaled that motor along with the airframe, which describes no rocket. The'
       + ' stage is back on its computed geometry: weigh the scaled stage and type it under'
       + ' Overrides.');
