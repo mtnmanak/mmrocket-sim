@@ -2,7 +2,7 @@ import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
-import { AERO_SHORT, aeroChoiceOf, usePrefs } from '../prefs/PrefsContext.js';
+import { AERO_SHORT, aeroChoiceOf, prefsForAeroChoice, usePrefs, type AeroChoice } from '../prefs/PrefsContext.js';
 import {
   CUSTOM_PRESET, DEFAULT_PRINT_CLEARANCE, DEFAULT_PRINT_MARGIN, PRINTER_PRESETS,
   presetMatching, printerFromPreset, type PrinterPrefs,
@@ -218,13 +218,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             aria-label="Aerodynamics model"
             value={aeroChoiceOf(prefs)}
             onChange={(e) => {
-              const v = e.target.value;
-              setPrefs({
-                ...prefs,
-                aeroModel: v === 'eb' || v === 'kbf' ? 'classic' : (v as 'supersonic' | 'auto'),
-                // Kbf rides along under Auto too (it's the better subsonic model).
-                rogersKbf: v !== 'eb',
-              });
+              // Both stored fields from the ONE mapping the strip's override
+              // flies through too (PrefsContext.prefsForAeroChoice).
+              setPrefs({ ...prefs, ...prefsForAeroChoice(e.target.value as AeroChoice) });
             }}
           >
             <option value="eb">Classic Extended Barrowman</option>

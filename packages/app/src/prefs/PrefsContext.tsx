@@ -145,6 +145,28 @@ export function aeroChoiceOf(prefs: Preferences): AeroChoice {
 }
 
 /**
+ * The stored-preference pair a choice stands for — THE one mapping from the
+ * four-way choice to the two fields the kernel is driven by (audit
+ * 2026-09-22, row 499). Preferences writes it into the store, and
+ * `effectiveAero` below flies an override through it, so the same choice made
+ * from either control is the same physics. It used to be written out in both
+ * places, kept in step by a comment.
+ *
+ * Kbf rides along under Auto and Supersonic too (it is the better subsonic
+ * model, and Auto flies subsonic until Mach 0.9) — only 'eb' turns it off.
+ * `aeroChoiceOf` is its inverse: aeroChoiceOf(prefsForAeroChoice(c)) === c.
+ */
+export function prefsForAeroChoice(choice: AeroChoice): {
+  aeroModel: 'classic' | 'supersonic' | 'auto';
+  rogersKbf: boolean;
+} {
+  return {
+    aeroModel: choice === 'eb' || choice === 'kbf' ? 'classic' : choice,
+    rogersKbf: choice !== 'eb',
+  };
+}
+
+/**
  * What the app should actually fly with, given the stored preference and any
  * session override.
  *
@@ -158,12 +180,10 @@ export function effectiveAero(prefs: Preferences, override: AeroChoice | null): 
   effectiveKbf: boolean;
 } {
   if (override) {
-    return {
-      aeroMode: override === 'eb' || override === 'kbf' ? 'classic' : override,
-      // Kbf rides along under Auto and Supersonic too, exactly as the
-      // Preferences writer does — only 'eb' turns it off.
-      effectiveKbf: override !== 'eb',
-    };
+    // Through the Preferences writer's own mapping, so the strip and the
+    // dialog cannot fly different physics for the same choice.
+    const { aeroModel, rogersKbf } = prefsForAeroChoice(override);
+    return { aeroMode: aeroModel, effectiveKbf: rogersKbf };
   }
   return {
     aeroMode: prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic'),
