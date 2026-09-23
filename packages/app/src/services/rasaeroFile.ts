@@ -4,7 +4,7 @@ import {
 } from '../components/LaunchPanel.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
-import { num as nnum } from '../tree/nodeNum.js';
+import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -557,11 +557,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // from a 3.00 in front instead of 3.25 and MESOS's from 3.15 instead of
         // 3.21 — both contradicting the files' own <BoatTail><Diameter>.
         const prev = sustainer.children![sustainer.children!.length - 1];
-        const prevAft = stationAftRadius ?? (prev
-          ? typeof prev['aftRadius'] === 'number' ? prev['aftRadius'] as number
-            : typeof prev['outerRadius'] === 'number' ? prev['outerRadius'] as number
-              : undefined
-          : undefined);
+        const prevAft = stationAftRadius
+          ?? (prev ? numOpt(prev, 'aftRadius') ?? numOpt(prev, 'outerRadius') : undefined);
         const trans: ComponentNode = {
           type: 'transition', id: freshId(),
           name: el.tagName === 'BoatTail' ? 'Boat tail' : 'Transition',

@@ -7,7 +7,7 @@ import { exportOrk } from '../services/orkFile.js';
 import { exportRkt } from '../services/rocksimFile.js';
 import { exportCdx1 } from '../services/rasaeroFile.js';
 import { componentDxf } from '../services/dxfExport.js';
-import { finOutline } from '../services/finTemplate.js';
+import { finOutline, finTemplateSvg } from '../services/finTemplate.js';
 
 const node = (fields: Record<string, unknown>): ComponentNode =>
   ({ type: 'bodytube', id: 'b', ...fields }) as ComponentNode;
@@ -160,12 +160,68 @@ describe('the consumers that carried their own reader fall back on NaN too', () 
     expect(exportCdx1({ name: 'N', tree: finTree({ rootChord: NaN }) })).not.toContain('NaN');
   });
 
-  it('the DXF label and the fin template read the default, not NaN', () => {
+  it('the DXF label and the fin outline read the default, not NaN', () => {
     // The DXF cuts its outline through solidMesh (already on this module);
     // its own copy read the label's figures: "stock thickness NaN mm".
     expect(componentDxf(finOf(finTree({ thickness: NaN })), {}, 'N')!.text).not.toContain('NaN');
     const outline = finOutline(finOf(finTree({ rootChord: NaN })));
     expect(outline.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+  });
+
+  // ─── The INLINE reads in the same writers (2026-09-23) ───
+  // Not readers of their own but the same test written in place — `typeof
+  // node['cd'] === 'number' ? node['cd'] : 'auto'`, or `if (typeof
+  // node['overrideMass'] === 'number')` around an emit — so the reader fold
+  // above left them writing NaN. eslint.config.mjs now refuses both shapes
+  // anywhere in the writer and cut-file modules.
+
+  it('the fin template label reads the default count and omits a NaN thickness', () => {
+    // Printed on the sheet a builder cuts from: "(cut NaN)", "thickness NaN mm".
+    const svg = finTemplateSvg(finOf(finTree({ finCount: NaN, thickness: NaN })), 'N');
+    expect(svg).toContain('(cut 3)');
+    expect(svg).not.toContain('thickness');
+    expect(svg).not.toContain('NaN');
+  });
+
+  it('.ork: the inline writes fall back as for an absent field', () => {
+    const tree = finTree({ filletDensity: NaN }, { maxMotorLength: NaN, motorMount: true });
+    const body = tree.components[0]!.children![1]!;
+    body.children!.push(
+      {
+        type: 'parachute', id: 'p', diameter: 0.6, cd: NaN, surfaceDensity: NaN, lineDensity: NaN,
+        overrideMass: NaN, overrideCGX: NaN, overrideCD: NaN,
+      } as ComponentNode,
+      { type: 'tubefinset', id: 't', finCount: 6, length: 0.05, outerRadius: NaN, thickness: 0.0005 } as ComponentNode,
+    );
+    tree.components[0]!.children!.push(
+      { type: 'transition', id: 'x', length: 0.04, foreRadius: NaN, aftRadius: NaN, thickness: NaN } as ComponentNode,
+    );
+    tree.components.push({
+      type: 'stage', id: 's2', name: 'Booster', separationDelay: NaN, separationAltitude: NaN,
+      children: [{ type: 'bodytube', id: 'b2', length: 0.2, outerRadius: 0.0125, thickness: 0.0005 }],
+    } as ComponentNode);
+    const xml = exportOrk({ name: 'N', tree });
+    expect(xml).toContain('<cd>auto</cd>');
+    expect(xml).toContain('<foreradius>auto</foreradius>');
+    expect(xml).toContain('<aftradius>auto</aftradius>');
+    expect(xml).toContain('<radius>auto</radius>');
+    expect(xml).toContain('<separationdelay>0</separationdelay>');
+    expect(xml).toContain('group="Fabrics">Ripstop nylon</material>');
+    expect(xml).not.toContain('<overridemass>');
+    expect(xml).not.toContain('<overridecg>');
+    expect(xml).not.toContain('<overridecd>');
+    expect(xml).not.toContain('<maxmotorlength>');
+    expect(xml).not.toContain('NaN');
+  });
+
+  it('.rkt: a NaN mass override writes the stated mass, and a NaN mount radius the default', () => {
+    const tree = finTree({}, { outerRadius: NaN, motorMount: true });
+    tree.components[0]!.children![1]!.children!.push(
+      { type: 'masscomponent', id: 'm', mass: 0.05, length: 0.02, overrideMass: NaN, overrideCGX: NaN } as ComponentNode,
+    );
+    const xml = exportRkt({ name: 'N', tree });
+    expect(xml).toContain('<KnownMass>50</KnownMass>');
+    expect(xml).not.toContain('NaN');
   });
 
   it('the reference area and a shroud frontal area stay finite', () => {

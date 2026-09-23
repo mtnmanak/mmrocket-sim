@@ -6,7 +6,7 @@ import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { sanitizeTree } from '../tree/sanitize.js';
-import { num as nnum } from '../tree/nodeNum.js';
+import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
@@ -55,7 +55,7 @@ const RAD = 2000; // mm diameter → m radius
  * radius, which is all the two ever really differed by.
  */
 const motorDia = (n: ComponentNode, defaultOuterRadius: number): number => {
-  const or = typeof n['outerRadius'] === 'number' ? n['outerRadius'] as number : defaultOuterRadius;
+  const or = nnum(n, 'outerRadius', defaultOuterRadius);
   return mountBore({ ...n, outerRadius: or }) / 2 * RAD;
 };
 const MASS = 1000; // g → kg
@@ -1073,7 +1073,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
-        const tubeR = typeof g[0]!['outerRadius'] === 'number' ? (g[0]!['outerRadius'] as number) : 0.0095;
+        const tubeR = nnum(g[0]!, 'outerRadius', 0.0095);
         const m = matchCluster(g.map((t) => radialByNode.get(t) ?? { y: 0, z: 0 }), tubeR);
         if (!m) {
           notes.push(`${g.length} identical off-axis tubes in “${parentNode.name ?? parentNode.type}” don't fit a known cluster pattern — imported as separate centerline tubes.`);
@@ -1109,7 +1109,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       const kids = parentNode.children ?? [];
       const finSets = kids.filter((k) => k.type.endsWith('finset'));
       if (finSets.length >= 2) {
-        const pLen = typeof parentNode['length'] === 'number' ? (parentNode['length'] as number) : 0.2;
+        const pLen = nnum(parentNode, 'length', 0.2);
         // Start from the kernel's length, end from the drawn outline — the
         // same pair finAlign.ts uses, so an overhanging freeform tip still
         // counts as overlap while the station stays where the kernel puts it.
@@ -1153,11 +1153,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     for (let i = 0; i < chain.length; i++) {
       const n = chain[i]!;
       if (n.type !== 'nosecone') continue;
-      const len = typeof n[PENDING_BASE_EXT] === 'number' ? (n[PENDING_BASE_EXT] as number) : 0;
+      const len = nnum(n, PENDING_BASE_EXT, 0);
       // Deleted on read, so a node reached twice by the pod walk is harmless.
       delete n[PENDING_BASE_EXT];
       if (!(len > 1e-6)) continue;
-      const or = typeof n['aftRadius'] === 'number' ? (n['aftRadius'] as number) : 0;
+      const or = nnum(n, 'aftRadius', 0);
       const tube = {
         type: 'bodytube',
         id: freshId(),
@@ -1173,7 +1173,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // tube: 8 of the 9 solid corpus cones state WallThickness 0, and
         // PELTZER-Warp-7.rkt then reads 32.97 g against RockSim's own CalcMass of
         // 38.63 g, where the solid form gives 38.631 g.
-        thickness: n['filled'] === true ? or : (typeof n['thickness'] === 'number' ? n['thickness'] : 0),
+        thickness: n['filled'] === true ? or : nnum(n, 'thickness', 0),
         position: { method: 'top', offset: 0 },
         // Durable marker so the .rkt exporter can fold it back into
         // <BaseExtensionLen>. NOT shape-matched the way the RASAero importer
@@ -1185,13 +1185,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // decomposition. Do not "fix" that.
         rktBaseExtension: true,
       } as unknown as ComponentNode;
-      if (typeof n['density'] === 'number') (tube as Record<string, unknown>)['density'] = n['density'];
+      const density = numOpt(n, 'density');
+      if (density !== undefined) (tube as Record<string, unknown>)['density'] = density;
       if (n['materialName']) (tube as Record<string, unknown>)['materialName'] = n['materialName'];
       if (n['finish']) (tube as Record<string, unknown>)['finish'] = n['finish'];
       // RockSim's <KnownMass> is the mass of the WHOLE part, extension included, so a
       // pinned cone must not gain mass here. ComponentFactory gates the override on
       // NaN rather than truthiness, so a literal 0 is a real override.
-      if (typeof n['overrideMass'] === 'number') (tube as Record<string, unknown>)['overrideMass'] = 0;
+      if (numOpt(n, 'overrideMass') !== undefined) (tube as Record<string, unknown>)['overrideMass'] = 0;
       chain.splice(i + 1, 0, tube);
       i++; extCount++;
     }
@@ -2307,17 +2308,15 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // An override, when set, IS the component's real mass — passing the
         // `mass` param unconditionally shipped the 10 g default for every
         // override-edited mass component (big CG error in RockSim).
-        const massKg = typeof node['overrideMass'] === 'number'
-          ? (node['overrideMass'] as number)
-          : nnum(node, 'mass', 0);
+        const massKg = numOpt(node, 'overrideMass') ?? nnum(node, 'mass', 0);
         // A point at the component's CG, measured from its own front: the
         // stated override (a RockSim import pins one on the file's point),
         // else the kernel's, else the body's middle — where the kernel puts a
         // MassObject's CG (MassObject.java:230-231) and where App's compInfo
         // would say it is.
         const bodyLen = nnum(node, 'length', 0.02);
-        const cg = typeof node['overrideCGX'] === 'number' ? (node['overrideCGX'] as number)
-          : (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? bodyLen / 2;
+        const cg = numOpt(node, 'overrideCGX')
+          ?? (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? bodyLen / 2;
         common(node, parent, 'Mass', {
           knownMass: massKg * MASS, useKnownCG: true, point: { cg, length: bodyLen },
         });

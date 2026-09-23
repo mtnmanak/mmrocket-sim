@@ -55,6 +55,16 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
 
+// `typeof <member> === 'number'` as the whole test of a conditional or an `if` —
+// true of NaN. Used by the two no-restricted-syntax blocks below: the reader
+// shape everywhere in src, and any such test at all in the file writers.
+const TYPEOF_NUMBER_TEST = "[test.operator='==='][test.left.operator='typeof']"
+  + "[test.left.argument.type='MemberExpression'][test.right.value='number']";
+const NUMBER_READER_SHAPES = [
+  ':function > ConditionalExpression.body',
+  ':function > BlockStatement > ReturnStatement > ConditionalExpression.argument',
+];
+
 export default tseslint.config(
   {
     // A suppression that suppresses nothing reads to a reviewer as a decision
@@ -233,24 +243,51 @@ export default tseslint.config(
 
       // A private node-number reader: a function whose whole answer is
       // `typeof n[k] === 'number' ? n[k] : fb`. `typeof NaN` is 'number', so
-      // that shape passes a NaN field straight into a written .ork/.rkt/.CDX1, a
-      // DXF label or a reference area. tree/nodeNum.ts is the one reader
-      // (Number.isFinite); fourteen copies outlived its 2026-09-08 consolidation
-      // and were folded into it on 2026-09-22, which is when this went on, at 0.
-      // It matches the READER shape (an arrow body, or a function's top-level
-      // return), not every inline test: 57 inline `typeof x[k] === 'number' ?`
-      // reads remain in src after the fold (the same test on any
-      // ConditionalExpression, counted 2026-09-22), and converting those is a
-      // separate sitting — they sit in the files every other change touches.
-      'no-restricted-syntax': ['error', ...[
-        ':function > ConditionalExpression.body',
-        ':function > BlockStatement > ReturnStatement > ConditionalExpression.argument',
-      ].map((reader) => ({
-        selector: `${reader}[test.operator='==='][test.left.operator='typeof']`
-          + "[test.left.argument.type='MemberExpression'][test.right.value='number']",
+      // that shape passes a NaN field on as a number — into a reference area, a
+      // view, or (before the writer block below) a saved file. tree/nodeNum.ts
+      // is the one reader (Number.isFinite); fourteen copies outlived its
+      // 2026-09-08 consolidation and were folded into it on 2026-09-22, which
+      // is when this went on, at 0. Here it matches the READER shape (an arrow
+      // body, or a function's top-level return), not every inline test. Outside
+      // the writers, 34 inline `typeof x[k] === 'number' ?` reads remain
+      // (PropertyPanel 10, treeModel 10, recoverySizing 8, six files with one
+      // each) and 3 `if (typeof x[k] === 'number')` (treeModel 2, importApply
+      // 1), counted 2026-09-23. Converting those is a separate sitting — they
+      // sit in the files every other change touches.
+      'no-restricted-syntax': ['error', ...NUMBER_READER_SHAPES.map((reader) => ({
+        selector: `${reader}${TYPEOF_NUMBER_TEST}`,
         message: 'A local typeof-number reader accepts NaN (typeof NaN is "number"). '
           + 'Import num / numOpt / numOrNull from tree/nodeNum.ts instead.',
       }))],
+    },
+  },
+
+  {
+    // The design-file writers and the cut-file exports refuse the INLINE test
+    // as well, as the test of any conditional or `if` in the file:
+    // `typeof node['cd'] === 'number' ? node['cd'] : 'auto'` wrote <cd>NaN</cd>
+    // into a saved .ork for a NaN field, `if (typeof node['overrideMass'] ===
+    // 'number')` wrote <overridemass>NaN</overridemass>, and finTemplate's
+    // label printed "cut NaN" / "thickness NaN mm" on a sheet meant to be cut
+    // from. Their 32 such reads (orkFile 18, rocksimFile 10, rasaeroFile 2,
+    // finTemplate 2; dxfExport had none) went through nodeNum on 2026-09-23 —
+    // every import, export, template and DXF byte-identical over the 21
+    // committed fixtures and the 108 local tester uploads, since only a
+    // non-finite field reads differently — so this is on at 0. A compound test
+    // is not matched; of those in these files all but three refuse NaN in
+    // their second half (a `>`/`>=` bound, or an `===`), and the three
+    // (`|| typeof …`, `&& v !== 0`) are import-side and only decide whether to
+    // keep a mark or fold a part. This block's no-restricted-syntax REPLACES
+    // the reader block's options for these files rather than adding to them,
+    // which is why its selector is the broad one: it covers the reader shape
+    // as well.
+    files: ['packages/app/src/services/{orkFile,rocksimFile,rasaeroFile,finTemplate,dxfExport}.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: `:matches(ConditionalExpression, IfStatement)${TYPEOF_NUMBER_TEST}`,
+        message: 'typeof-number accepts NaN (typeof NaN is "number"), and this file writes what it reads '
+          + 'into a design or cut file. Use num / numOpt / numOrNull from tree/nodeNum.ts.',
+      }],
     },
   },
 

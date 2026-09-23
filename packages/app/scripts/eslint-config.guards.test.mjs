@@ -12,7 +12,9 @@
  *     throw or read `undefined` in a user's browser. The tests themselves DO
  *     run under Node, so the rule must stay off there.
  *   - A private `typeof n[k] === 'number' ? n[k] : fb` reader passes NaN, where
- *     tree/nodeNum.ts is the one reader (audit 2026-09-22).
+ *     tree/nodeNum.ts is the one reader (audit 2026-09-22). In the design-file
+ *     writers and cut-file exports the same test is refused INLINE as well,
+ *     because there a NaN goes straight into the file a user saves or cuts.
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
  * still resolve for shipped source, its tests and the engine.
@@ -78,6 +80,34 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       "  return typeof n['length'] === 'number' ? (n['length'] as number) : 0;",
       '}',
     ].join('\n'), rules)).toEqual(['no-restricted-syntax@3', 'no-restricted-syntax@5']);
+  });
+
+  it('refuses the inline test as well in the design-file writers and cut-file exports', async () => {
+    // The block that does this REPLACES the reader-shape options for those
+    // files, so the reader shape must still fire there too (line 4).
+    const probe = [
+      "type N = { [k: string]: unknown };",
+      'export const cd = (node: N): string =>',
+      "  `<cd>${typeof node['cd'] === 'number' ? node['cd'] : 'auto'}</cd>`;",
+      "export const r = (n: N, k: string, fb: number): number => typeof n[k] === 'number' ? (n[k] as number) : fb;",
+      "export const ok = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);",
+      'export function om(node: N, out: string[]): void {',
+      "  if (typeof node['overrideMass'] === 'number') out.push(`<overridemass>${node['overrideMass']}</overridemass>`);",
+      "  if (typeof node['d'] === 'number' && (node['d'] as number) > 0) out.push('d');",
+      '}',
+    ].join('\n');
+    for (const f of ['orkFile', 'rocksimFile', 'rasaeroFile', 'finTemplate', 'dxfExport']) {
+      const rules = await rulesFor(`packages/app/src/services/${f}.ts`, READER);
+      expect(lint(probe, rules), f)
+        .toEqual(['no-restricted-syntax@3', 'no-restricted-syntax@4', 'no-restricted-syntax@7']);
+    }
+    // Elsewhere only the reader shape is refused — the inline reads left
+    // outside the writers are a separate sitting (eslint.config.mjs counts them).
+    expect(lint(probe, await rulesFor('packages/app/src/tree/treeModel.ts', READER)))
+      .toEqual(['no-restricted-syntax@4']);
+    // A writer's TEST file is not a writer.
+    expect(lint(probe, await rulesFor('packages/app/src/services/orkFile.test.ts', READER)))
+      .toEqual(['no-restricted-syntax@4']);
   });
 
   it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {
