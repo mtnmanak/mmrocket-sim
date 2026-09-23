@@ -14,8 +14,9 @@ import { applyProposal, beforeOf, type ApplyKey, type WeatherPatch, type Weather
  * here writes anything; `patchOf` is what Apply hands App.
  *
  * Kept out of openMeteo.ts (which the spec had it in) because it reads the
- * Launch panel's bounds, and LaunchPanel imports openMeteo.ts for the strip's
- * valid-time label: the other way round is an import cycle.
+ * Launch panel's bounds, and LaunchPanel reaches openMeteo.ts through its
+ * strip (WeatherStrip.tsx, for the valid-time label): with this in there, the
+ * two modules would import each other.
  */
 
 /** A row that cannot be applied, and why. */
