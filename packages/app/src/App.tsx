@@ -131,6 +131,7 @@ import {
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
+import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
 export interface MountMotor {
@@ -830,9 +831,6 @@ export function App() {
   // model the flight actually used. NOT reset by a model change any more —
   // switching models keeps the flight and marks it (see the reset effect).
   const [autoSupersonic, setAutoSupersonic] = useState(false);
-  // "Switch to Auto & re-fly" from the supersonic-flight alert: re-launch as
-  // soon as the engine rebuild with the new model lands.
-  const [pendingRelaunch, setPendingRelaunch] = useState(false);
 
   /**
    * What the user weighed, in SI: the AIRFRAME, with the motor out — mass and
@@ -3084,13 +3082,9 @@ export function App() {
 
   // "Try Auto & re-fly" from the supersonic-flight alert: once the session
   // override has propagated (aeroMode now 'auto') and the engine handle has
-  // been rebuilt with it, fire a fresh launch.
-  useEffect(() => {
-    if (!pendingRelaunch || !built || !primaryMountId) return;
-    setPendingRelaunch(false);
-    onLaunch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingRelaunch, built, primaryMountId]);
+  // been rebuilt with it, fire a fresh launch — or drop the request, if that
+  // rebuild left nothing to fly (hooks/useRelaunchLatch, audit 2026-09-22).
+  const requestRelaunch = useRelaunchLatch(!!built && !!primaryMountId, onLaunch);
 
   /**
    * The All-stats drawer, built ONCE and rendered in one of two places: inside
@@ -4501,7 +4495,7 @@ export function App() {
                   // what the button is for: trying the other model on this
                   // flight, not changing what every future session flies.
                   setAeroOverride('auto');
-                  setPendingRelaunch(true);
+                  requestRelaunch();
                 }}>
                 Try Auto &amp; re-fly (this session)
               </button>
