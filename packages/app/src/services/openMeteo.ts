@@ -717,29 +717,55 @@ export function hoursOnLocalDate(samples: readonly HourSample[], timeZone: strin
     });
 }
 
+/** `Intl` parts of `d` in `timeZone` — UTC for a zone name it does not know, rather than throwing. */
+function partsIn(d: Date, timeZone: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormatPart[] {
+  try {
+    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone }).formatToParts(d);
+  } catch {
+    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).formatToParts(d);
+  }
+}
+
+/**
+ * "Sat 26 Sep", or "Sat 14 Jun 2025" with its year — THE way the weather UI
+ * writes a date, in `timeZone` (the browser's own when undefined); "—" for a
+ * time no Date can hold. One formatter, from `Intl`'s en-US parts, because
+ * the strip used to write its fetch date with en-GB's whole-date string, and
+ * current ICU abbreviates September there as "Sept": "Sat 26 Sep · fetched
+ * 23 Sept" (review of 2026-09-23).
+ */
+export function formatDay(ms: number, timeZone: string | undefined, withYear = false): string {
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return '—';
+  const parts = partsIn(d, timeZone, {
+    weekday: 'short', day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}),
+  });
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return plainSpaces(`${get('weekday')} ${get('day')} ${get('month')}${withYear ? ` ${get('year')}` : ''}`);
+}
+
 /**
  * "2:00 PM PDT, Sat 26 Sep" — the valid time of a forecast, in the site's
- * zone; "—" for a time no Date can hold. The strip renders this from a session
- * record, where a finite but enormous `validUnix` made both Intl calls throw
- * (the UTC retry included) and took the Launch panel down on every load of
- * that session. `validWeatherSnapshot` refuses such a record now; this refuses
- * to be the thing that throws whatever reaches it.
+ * zone, with the year when `withYear` (an ERA5 date, which can be any day
+ * back to 1940); "—" for a time no Date can hold. The strip renders this from
+ * a session record, where a finite but enormous `validUnix` made both Intl
+ * calls throw (the UTC retry included) and took the Launch panel down on
+ * every load of that session. `validWeatherSnapshot` refuses such a record
+ * now; this refuses to be the thing that throws whatever reaches it.
  */
-export function formatValidTime(unix: number, timeZone: string): string {
+export function formatValidTime(unix: number, timeZone: string, withYear = false): string {
   const d = new Date(unix * 1000);
   if (!Number.isFinite(d.getTime())) return '—';
-  const safe = (opts: Intl.DateTimeFormatOptions) => {
-    try {
-      return new Intl.DateTimeFormat('en-US', { ...opts, timeZone }).formatToParts(d);
-    } catch {
-      return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).formatToParts(d);
-    }
-  };
-  const time = safe({ hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+  // The time and the day in the SAME zone: an unknown name is UTC for both.
+  let zone: string = timeZone;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+  } catch {
+    zone = 'UTC';
+  }
+  const time = partsIn(d, zone, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
     .map((p) => p.value).join('');
-  const parts = safe({ weekday: 'short', day: 'numeric', month: 'short' });
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return plainSpaces(`${time}, ${get('weekday')} ${get('day')} ${get('month')}`);
+  return plainSpaces(`${time}, ${formatDay(d.getTime(), zone, withYear)}`);
 }
 
 /** Great-circle distance (m) — how far the answering grid point is from the place. */

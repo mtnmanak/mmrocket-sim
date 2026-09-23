@@ -1,12 +1,12 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { useOnline } from '../services/net.js';
-import { formatValidTime } from '../services/openMeteo.js';
+import { formatDay, formatValidTime } from '../services/openMeteo.js';
 import {
   fieldProvenance, staleness, WEATHER_CREDIT, type ApplyKey, type WeatherSnapshot,
 } from '../services/weatherSnapshot.js';
 import { WEATHER_OFFLINE_TITLE } from './WeatherButton.js';
-import { altitudeText, fieldText, sourceHeading, sourceWord } from './weatherText.js';
+import { altitudeText, fieldText, showsYear, sourceHeading, sourceWord } from './weatherText.js';
 
 /**
  * WHERE THE APPLIED WEATHER CAME FROM, under the Launch panel's grid (weather
@@ -35,13 +35,14 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   const online = useOnline();
   const alt = (m: number) => altitudeText(prefs.units.distance, m);
   const stale = staleness(launch, weather);
-  const fetched = new Date(weather.retrievedAt);
-  const fetchedText = Number.isFinite(fetched.getTime())
-    ? fetched.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
+  // Both dates in ONE format (formatDay), and both with their year for an
+  // ERA5 answer: the valid time in the site's zone, the fetch in yours.
+  const year = showsYear(weather.endpoint);
+  const fetchedText = formatDay(Date.parse(weather.retrievedAt), undefined, year);
   return (
     <div className="weather-strip" role="status" data-weather="strip">
       {sourceHeading(weather.endpoint)}{' '}
-      <strong>{weather.place.label}</strong> · {formatValidTime(weather.validUnix, weather.timezone)} · fetched {fetchedText}
+      <strong>{weather.place.label}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
       {' '}
       <button type="button" className="file-btn" onClick={onUndo}
         title="Put back what the applied fields held — any you have edited since stay as they are">Undo</button>

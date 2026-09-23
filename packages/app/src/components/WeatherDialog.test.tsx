@@ -166,7 +166,7 @@ describe('the weather dialog', () => {
     await click(button('Fetch'));
     choose(q('.weather-when select'), String(Date.UTC(2025, 5, 14, 21) / 1000));
     await settle();
-    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun');
+    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun 2025');
     expect([...host.querySelectorAll('.weather-review thead th')].at(-1)!.textContent).toBe('Reanalysis');
     expect(row('windAverage')!.textContent).toContain('(reanalysis at 10 m / 33 ft)');
     expect(q('.weather-context')!.textContent).toMatch(/Reanalysis grid point [\d.]+ km from your site\./);

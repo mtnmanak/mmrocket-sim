@@ -72,6 +72,15 @@ export function sourceWord(endpoint: Endpoint): 'forecast' | 'reanalysis' {
   return endpoint === 'archive' ? 'reanalysis' : 'forecast';
 }
 
+/**
+ * Whether the weather UI's dates carry their year: for an ERA5 answer, which
+ * can be any day back to 1940 — the strip is saved with the session and
+ * outlives the dialog's Date box, and a re-fly's read "Sat 14 Jun" with no
+ * year (review of 2026-09-23). A forecast is never more than 92 days before
+ * or 15 after the day it is fetched, and its dates stay short.
+ */
+export const showsYear = (endpoint: Endpoint): boolean => endpoint === 'archive';
+
 /** "Forecast" / "Reanalysis" — a source word opening a line or a column. */
 export const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 

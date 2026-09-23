@@ -723,7 +723,10 @@ describe('applied weather in the Launch panel', () => {
   it('says where the numbers came from, credits Open-Meteo and GeoNames, and is not a caution', () => {
     renderWeather(APPLIED, SNAP);
     expect(strip()!.getAttribute('role')).toBe('status');
-    expect(strip()!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep · fetched 22 Sep/);
+    // Both dates in one format — "Sep", never en-GB's "Sept" — and no year
+    // on a forecast. (The fetch date is in the browser's zone: 18:00 UTC is
+    // the 22nd from UTC−12 to UTC+5.)
+    expect(strip()!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep · fetched Tue 22 Sep(?![\w])/);
     const links = [...strip()!.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(links).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/']);
     expect(strip()!.classList.contains('field-caution')).toBe(false);
@@ -765,7 +768,8 @@ describe('applied weather in the Launch panel', () => {
   it('calls an ERA5 answer a reanalysis — in the strip, the stale line, each field and the σ chip', () => {
     const ERA5: WeatherSnapshot = { ...SNAP, endpoint: 'archive', validUnix: Date.UTC(2025, 5, 14, 21) / 1000 };
     renderWeather(APPLIED, ERA5);
-    expect(strip()!.textContent).toMatch(/^ERA5 reanalysis for Gerlach, Nevada, US · 2:00 PM PDT, Sat 14 Jun/);
+    // With its year, on both dates: an ERA5 date can be any day back to 1940.
+    expect(strip()!.textContent).toMatch(/^ERA5 reanalysis for Gerlach, Nevada, US · 2:00 PM PDT, Sat 14 Jun 2025 · fetched Tue 22 Sep 2026(?![\w])/);
     expect(provenance('temperatureC')).toBe('reanalysis');
     expect(provenance('windAverage')).toBe('reanalysis');
     expect(provenance('launchAltitudeM')).toBe('terrain model');

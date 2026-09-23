@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NETWORK_HOSTS, NetError } from './net.js';
 import {
   addDaysYmd, clearWeatherCache, compassPoint, DateRefusal, distanceM, fetchElevation, fetchForecast, fetchWeather,
-  forecastUrl, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
+  forecastUrl, formatDay, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
   MAP_LINK_WITHOUT_COORDINATES,
   parseForecast, parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
   usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample,
@@ -210,6 +210,29 @@ describe('the hours of the site’s day', () => {
   it('falls back to UTC for a zone name it does not know, rather than throwing', () => {
     expect(hoursOnLocalDate(hourly(Date.UTC(2026, 8, 26), 24), 'Not/AZone', '2026-09-26')).toHaveLength(24);
     expect(formatValidTime(SAT_2PM, 'Not/AZone')).toBe('9:00 PM UTC, Sat 26 Sep');
+    expect(formatDay(SAT_2PM * 1000, 'Not/AZone')).toBe('Sat 26 Sep');
+  });
+
+  // An ERA5 date can be any day back to 1940, and the strip outlives the
+  // dialog's Date box: with its year, or a re-fly reads as this year's
+  // (review of 2026-09-23). The day and the time stay in the same zone.
+  it('writes the year when asked, in the site’s zone', () => {
+    const archive = Date.UTC(2025, 5, 14, 21) / 1000;
+    expect(formatValidTime(archive, 'America/Los_Angeles', true)).toBe('2:00 PM PDT, Sat 14 Jun 2025');
+    // 11 PM on New Year's Eve in Los Angeles is already 1 January in UTC.
+    const eve = Date.UTC(2020, 0, 1, 7) / 1000;
+    expect(formatValidTime(eve, 'America/Los_Angeles', true)).toBe('11:00 PM PST, Tue 31 Dec 2019');
+    expect(formatDay(eve * 1000, 'UTC', true)).toBe('Wed 1 Jan 2020');
+  });
+
+  // ONE date format for the weather UI (review of 2026-09-23): the strip wrote
+  // its fetch date with en-GB's whole-date string, which current ICU spells
+  // "Sept", beside the valid time's "Sep".
+  it('abbreviates every month one way, whatever the locale would', () => {
+    const months = Array.from({ length: 12 }, (_, m) => formatDay(Date.UTC(2026, m, 15, 12), 'UTC').split(' ')[2]);
+    expect(months).toEqual(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+    expect(formatDay(NaN, 'UTC')).toBe('—');
+    expect(formatDay(1e19, undefined, true)).toBe('—');
   });
 
   // The strip renders this from a session record; a time past Date's range

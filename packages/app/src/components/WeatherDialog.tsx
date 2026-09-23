@@ -15,7 +15,9 @@ import { WEATHER_CREDIT, type WeatherPatch, type WeatherSnapshot } from '../serv
 import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
-import { altitudeText, capitalise, farText, FIELD_LABEL, fieldText, sourceHeading, sourceWord } from './weatherText.js';
+import {
+  altitudeText, capitalise, farText, FIELD_LABEL, fieldText, showsYear, sourceHeading, sourceWord,
+} from './weatherText.js';
 
 /**
  * ☁ GET WEATHER (weather build, step 3): fetch one hour's forecast for one
@@ -432,7 +434,8 @@ export function WeatherDialog({
             {/* Every label that names the source reads `source`: an ERA5 answer is
                 the weather as it was, and saying "forecast" over it is wrong. */}
             <h3>
-              {sourceHeading(answer.endpoint)} {place.label} · {formatValidTime(proposal.sample.unix, answer.timezone)}
+              {sourceHeading(answer.endpoint)} {place.label}
+              {' · '}{formatValidTime(proposal.sample.unix, answer.timezone, showsYear(answer.endpoint))}
             </h3>
             {answer.endpoint === 'archive' && <p className="weather-small">{WEATHER_DIALOG_COPY.archive}</p>}
             <table>
