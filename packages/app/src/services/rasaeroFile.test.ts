@@ -748,7 +748,7 @@ describe('RASAero export', () => {
     expect(back.launch!.windAverage).toBeCloseTo(4.4704, 4);
   });
 
-  it('defaults <LaunchSite> fields: null pressure→0, null temperature→59', () => {
+  it('defaults <LaunchSite> fields: null pressure→0, null temperature at a sea-level site→59', () => {
     const xml = exportCdx1({ ...design, launch: { temperatureC: null, pressureHPa: null } });
     expect(xml).toContain('<Pressure>0</Pressure>'); // RASAero's own "unset"
     expect(xml).toContain('<Temperature>59</Temperature>'); // no unset in the format
@@ -2300,5 +2300,156 @@ describe('RASAero import — the launch site is held to the panel’s own bounds
     const r = importCdx1(site('<Altitude>150000</Altitude>'));
     expect(r.launch!.launchAltitudeM).toBe(10000);
     expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 150000 ft, .*imported as 32808\.4 ft/);
+  });
+});
+
+/**
+ * Audit 2026-09-22 row 386. RASAero measures a booster fin's <Location> from
+ * the bottom of the WHOLE booster body — the one tube the importer builds —
+ * while this exporter measured it from the fin's own parent tube. Desktop adds
+ * the later tubes' length (BoosterDTO.java:159-212, finLocationOffset). A fin
+ * on a boat tail or shoulder has no booster-body location at all.
+ */
+describe('RASAero export — booster fins are located on the whole booster body', () => {
+  const booster = (children: ComponentNode[]) => ({
+    name: 'B',
+    tree: { components: [
+      { type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+        { type: 'nosecone' as const, id: 'n', length: 0.25, aftRadius: 0.0381, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube' as const, id: 'b0', length: 0.7, outerRadius: 0.0381, thickness: 0.001 },
+      ] },
+      { type: 'stage' as const, id: 's1', name: 'Booster', children },
+    ] },
+  });
+  const fin = (): ComponentNode => ({ type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.12, tipChord: 0.05,
+    sweep: 0.05, height: 0.07, thickness: 0.003, position: { method: 'bottom', offset: 0 } });
+  const boosterFin = (xml: string) => /<Booster>[^]*?<Fin>[^]*?<Location>([^<]*)<\/Location>/.exec(xml)![1];
+
+  it('adds the tubes aft of the fin’s own tube, as desktop does', () => {
+    const d = booster([
+      { type: 'bodytube', id: 't1', length: 0.3, outerRadius: 0.0381, thickness: 0.001, children: [fin()] },
+      { type: 'bodytube', id: 't2', length: 0.2, outerRadius: 0.0381, thickness: 0.001 },
+    ]);
+    const xml = exportCdx1(d);
+    // Front edge 0.12 + 0.2 m above the booster's bottom, in inches; it was 0.12 m.
+    expect(Number(boosterFin(xml))).toBeCloseTo(0.32 * 39.37, 3);
+    // Re-opened on the one booster tube, the fin sits where it was: its
+    // trailing edge 0.2 m above the booster's bottom.
+    const back = importCdx1(xml);
+    const f = flatten(back.tree.components).find((c) => c.type === 'trapezoidfinset')!;
+    expect(f.position?.method).toBe('bottom');
+    expect(f.position?.offset).toBeCloseTo(-0.2, 4);
+  });
+
+  it('leaves a fin on the last tube where it was', () => {
+    const d = booster([
+      { type: 'bodytube', id: 't1', length: 0.3, outerRadius: 0.0381, thickness: 0.001 },
+      { type: 'bodytube', id: 't2', length: 0.2, outerRadius: 0.0381, thickness: 0.001, children: [fin()] },
+    ]);
+    expect(Number(boosterFin(exportCdx1(d)))).toBeCloseTo(0.12 * 39.37, 3);
+  });
+
+  it('refuses fins on a boat tail or a shoulder, never exports them misplaced', () => {
+    const ff = (): ComponentNode => ({ type: 'freeformfinset', id: 'ff', finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.05], [0.06, 0.05], [0.08, 0]], position: { method: 'bottom', offset: 0 } });
+    const tail = booster([
+      { type: 'bodytube', id: 't1', length: 0.5, outerRadius: 0.0381, thickness: 0.001 },
+      { type: 'transition', id: 'bt', length: 0.1, foreRadius: 0.0381, aftRadius: 0.03, thickness: 0.002,
+        shape: 'conical', children: [ff()] },
+    ]);
+    expect(() => exportCdx1(tail)).toThrow(/boat tail/);
+    const shoulder = booster([
+      { type: 'transition', id: 'sh', length: 0.05, foreRadius: 0.03, aftRadius: 0.0381, thickness: 0.002,
+        shape: 'conical', children: [ff()] },
+      { type: 'bodytube', id: 't1', length: 0.5, outerRadius: 0.0381, thickness: 0.001 },
+    ]);
+    expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
+  });
+});
+
+/**
+ * Audit 2026-09-22 row 396. A chute that leaves a field blank FLIES the
+ * kernel's value for it (ComponentFactory: diameter 0.3 m; Parachute.DEFAULT_CD
+ * 0.8; DeploymentConfiguration's 200 m), so that is what the .CDX1 must carry.
+ * The writer filled 0.9 m, Cd 0.75 and 150 m instead, so a blank-altitude
+ * main re-opened 50 m lower, on a canopy three times the size.
+ */
+describe('RASAero export — a blank recovery field writes what the kernel flies', () => {
+  const bare = {
+    name: 'R',
+    tree: { components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+      { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive' },
+      { type: 'bodytube' as const, id: 'b', length: 0.9, outerRadius: 0.0508, thickness: 0.001, children: [
+        { type: 'trapezoidfinset' as const, id: 'f', finCount: 3, rootChord: 0.15, tipChord: 0.07, sweep: 0.05,
+          height: 0.11, thickness: 0.004, position: { method: 'bottom' as const, offset: 0 } },
+        { type: 'parachute' as const, id: 'p', deployEvent: 'altitude' },
+      ] },
+    ] }] },
+  };
+
+  it('writes 200 m, 0.3 m and Cd 0.8', () => {
+    const xml = exportCdx1(bare);
+    expect(xml).toContain('<Altitude1>656.168</Altitude1>'); // 200 m in ft
+    expect(xml).toContain('<Size1>11.811</Size1>'); // 0.3 m in in
+    expect(xml).toContain('<CD1>0.8</CD1>');
+  });
+
+  it('re-opens at the altitude, size and Cd it flew', () => {
+    const chute = flatten(importCdx1(exportCdx1(bare)).tree.components).find((c) => c.type === 'parachute')!;
+    expect(chute['deployAltitude']).toBeCloseTo(200, 3);
+    expect(chute['diameter']).toBeCloseTo(0.3, 4);
+    expect(chute['cd']).toBeCloseTo(0.8, 9);
+  });
+
+  const two = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+    const d = structuredClone(bare);
+    const tube = d.tree.components[0]!.children[1]! as ComponentNode;
+    tube.children = [tube.children![0]!,
+      { type: 'parachute', id: 'a', diameter: 0.4, ...a } as ComponentNode,
+      { type: 'parachute', id: 'b', diameter: 1.2, ...b } as ComponentNode];
+    return exportCdx1(d);
+  };
+
+  it('slots a blank-altitude chute by the 200 m it opens at', () => {
+    // Ranked as 0 m, the 200 m chute took slot 2 behind one opening at 150 m.
+    const xml = two({ deployEvent: 'altitude', deployAltitude: 150 }, { deployEvent: 'altitude' });
+    expect(xml).toContain('<Altitude1>656.168</Altitude1>');
+    expect(xml).toContain('<Altitude2>492.126</Altitude2>');
+  });
+
+  it('keeps two apogee chutes in tree order, whatever altitude one of them stores', () => {
+    const xml = two({ deployEvent: 'apogee' }, { deployEvent: 'apogee', deployAltitude: 100 });
+    expect(xml).toContain('<Size1>15.748</Size1>'); // the 0.4 m chute, first in the tree
+  });
+});
+
+/**
+ * A blank temperature flies the STANDARD temperature at the site altitude
+ * (atmosphere.ts padAir, since v0.122). RASAero's <Temperature> has no
+ * "unset", so the writer has to state one — and it stated 59 °F, sea level's,
+ * whatever the site. At 2,682 m that re-opened 17.4 °C too warm.
+ */
+describe('RASAero export — a blank temperature is the site’s standard one', () => {
+  const site = { name: 'Hi', tree: { components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+    { type: 'nosecone' as const, id: 'n', length: 0.3, aftRadius: 0.0508, thickness: 0.002, shape: 'ogive' },
+    { type: 'bodytube' as const, id: 'b', length: 0.9, outerRadius: 0.0508, thickness: 0.001 },
+  ] }] } };
+
+  it('writes about 27.6 °F at 2,682 m, and re-opens in the air the flight flew', async () => {
+    const { siteAirDensity } = await import('./recoverySizing.js');
+    const launch = { launchAltitudeM: 2682, temperatureC: null, pressureHPa: null };
+    const xml = exportCdx1({ ...site, launch });
+    const f = Number(/<Temperature>([^<]*)<\/Temperature>/.exec(xml)![1]);
+    expect(f).toBeCloseTo(27.62, 2); // 270.717 K; it was 59 °F
+    const back = importCdx1(xml).launch!;
+    expect(siteAirDensity(launch)).toBeCloseTo(0.9393, 4);
+    // The 59 °F file re-opened at 0.8824 kg/m³.
+    expect(siteAirDensity({ launchAltitudeM: back.launchAltitudeM!, temperatureC: back.temperatureC ?? null,
+      pressureHPa: back.pressureHPa ?? null })).toBeCloseTo(0.9393, 4);
+  });
+
+  it('still writes a typed temperature as typed', () => {
+    const xml = exportCdx1({ ...site, launch: { launchAltitudeM: 2682, temperatureC: 30, pressureHPa: null } });
+    expect(xml).toContain('<Temperature>86</Temperature>');
   });
 });

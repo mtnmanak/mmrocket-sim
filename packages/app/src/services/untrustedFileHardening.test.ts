@@ -147,6 +147,13 @@ const rktFin = (pointList: string): string =>
 const finOf = (out: ReturnType<typeof importRkt>): [number, number][] | undefined =>
   out.tree.components[0]!.children![0]!.children![0]!['points'] as [number, number][] | undefined;
 
+/**
+ * What a REFUSED outline leaves on the set: the kernel's own default fin
+ * (FreeformFinSet.java:30-34), written out so it is on screen — audit
+ * 2026-09-22; it used to be left with no points and fly that fin invisibly.
+ */
+const REFUSED_OUTLINE: [number, number][] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
+
 describe('a freeform fin outline is capped', () => {
   it('refuses an absurd point count instead of validating it in O(n^2)', () => {
     // A monotone staircase: NOT self-intersecting, so finOutlineIntersection's
@@ -160,7 +167,7 @@ describe('a freeform fin outline is capped', () => {
     expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(4000);
     // REFUSED, not truncated (audit 2026-09-22): the first 5,000 of these
     // points are a different fin, and they used to fly with no note.
-    expect(finOf(out)).toBeUndefined();
+    expect(finOf(out)).toEqual(REFUSED_OUTLINE);
     expect(out.notes).toContain(`Fin set "f": its outline was not used — ${TOO_MANY_FIN_POINTS} `
       + 'The set keeps a default outline; redraw it in the fin editor.');
   });
@@ -179,7 +186,7 @@ describe('a freeform fin outline is capped', () => {
     const out = importRkt(rktFin(list));
     const ms = performance.now() - t0;
     expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(1500);
-    expect(finOf(out)).toBeUndefined();
+    expect(finOf(out)).toEqual(REFUSED_OUTLINE);
     expect(out.notes.some((n) => n.includes(TOO_MANY_FIN_POINTS))).toBe(true);
   });
 
@@ -193,7 +200,7 @@ describe('a freeform fin outline is capped', () => {
       return `${x},${i === 0 || i === n - 1 ? 0 : 10}`;
     });
     const out = importRkt(rktFin(pts.join('|')));
-    expect(finOf(out)).toBeUndefined();
+    expect(finOf(out)).toEqual(REFUSED_OUTLINE);
     const note = out.notes.find((m) => m.startsWith('Fin set "f"')) ?? '';
     expect(note).toContain(TOO_MANY_FIN_POINTS);
     expect(note).not.toMatch(/aft of the first/);

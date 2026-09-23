@@ -159,3 +159,93 @@ describe("a shock cord's weighed mass is not thrown away", () => {
     expect(mc['overrideCGX']).toBe(0);
   });
 });
+
+describe('a CDATA section whose text holds "<![CDATA[" (audit 2026-09-22)', () => {
+  it('is one section, closed by the first "]]>" after its own opener — as XML reads it', () => {
+    // Legal XML: only "]]>" ends a section, so an opener inside one is text.
+    // The split-on-opener pre-pass read that inner opener as a SECOND section,
+    // left the real one unterminated, and the parser refused a valid file.
+    const r = importRkt(rktXml(
+      '<MassObject><Name><![CDATA[Bay <![CDATA[ & more]]></Name><TypeCode>0</TypeCode>'
+      + '<Len>20</Len><Xb>50</Xb><LocationMode>0</LocationMode><KnownMass>30</KnownMass>'
+      + '</MassObject>'));
+    const mc = flatten(r.tree.components).find((n) => n.type === 'masscomponent')!;
+    expect(mc.name).toBe('Bay <![CDATA[ & more');
+  });
+
+  it('leaves text after an unterminated opener alone, as the regex it replaced did', () => {
+    // The opener with no "]]>" after it is not a section; nothing after it is
+    // either. A well-formed section BEFORE it is still inlined.
+    const r = importRkt(rktXml(
+      '<MassObject><Name><![CDATA[A & B]]></Name><TypeCode>0</TypeCode><Len>20</Len>'
+      + '<Xb>50</Xb><LocationMode>0</LocationMode><KnownMass>30</KnownMass></MassObject>'));
+    expect(flatten(r.tree.components).find((n) => n.type === 'masscomponent')!.name).toBe('A & B');
+    expect(() => importRkt(rktXml('<Comments><![CDATA[ never closed</Comments>'))).toThrow(/RockSim/);
+  });
+});
+
+describe('an unreadable .rkt number is named, not silently defaulted (audit 2026-09-22)', () => {
+  it('records the tag and its raw text once, and says the default stood in', () => {
+    // `<OD>2,5</OD>` is not a number; the reader's fallback (a 24 mm tube) is a
+    // real-looking size, so without a note every downstream figure is quietly wrong.
+    const r = importRkt(rktXml(
+      '<BodyTube><Name>Mount</Name><OD>2,5</OD><ID>23</ID><Len>70</Len></BodyTube>'
+      + '<BodyTube><Name>Mount 2</Name><OD>2,5</OD><ID>23</ID><Len>70</Len></BodyTube>'));
+    const note = r.notes.find((n) => /Could not read/.test(n));
+    expect(note).toBeDefined();
+    expect(note).toMatch(/<OD> “2,5”/);
+    // One entry per tag, not per part.
+    expect(note!.match(/<OD>/g)).toHaveLength(1);
+    expect(note).toMatch(/^Could not read 1 number /);
+  });
+
+  it('stays silent for an ABSENT field and for ordinary numbers', () => {
+    const r = importRkt(rktXml('<BodyTube><Name>Mount</Name><Len>70</Len></BodyTube>'));
+    expect(r.notes.some((n) => /Could not read/.test(n))).toBe(false);
+  });
+
+  it('covers the engine-set and deployment readers too', () => {
+    const xml = rktXml('<BodyTube><Name>Mount</Name><OD>24</OD><ID>23</ID><Len>70</Len>'
+      + '<IsMotorMount>1</IsMotorMount><SerialNo>9</SerialNo></BodyTube>'
+      + '<Parachute><Name>Main</Name><Dia>600</Dia><SerialNo>11</SerialNo></Parachute>')
+      .replace('</RocketDesign>', '<SimulationEventList><SimulationEvent><PartSerialNo>11</PartSerialNo>'
+        + '<Type>5</Type><DeployAltitude>1,5</DeployAltitude></SimulationEvent></SimulationEventList>'
+        + '<SimulationResultsList><SimulationResults><Stage3Engines>'
+        + '<EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>'
+        + '<EjectionDelay>five</EjectionDelay><MountSerialNo>9</MountSerialNo></EngineSet>'
+        + '</Stage3Engines></SimulationResults></SimulationResultsList></RocketDesign>');
+    const note = importRkt(xml).notes.find((n) => /Could not read/.test(n));
+    expect(note).toMatch(/<EjectionDelay> “five”/);
+    // The deployment reader's own field — an altitude main left on apogee.
+    expect(note).toMatch(/<DeployAltitude> “1,5”/);
+  });
+});
+
+describe('a refused .rkt fin outline is replaced by one the user can see (audit 2026-09-22)', () => {
+  const crossing = rktXml('<CustomFinSet><Name>Fins</Name><FinCount>3</FinCount><Thickness>3</Thickness>'
+    + '<Xb>0</Xb><LocationMode>2</LocationMode><PointList>60,0|0,30|60,30|0,0|</PointList></CustomFinSet>');
+  const finIn = (r: ReturnType<typeof importRkt>) =>
+    flatten(r.tree.components).find((n) => n.type === 'freeformfinset')!;
+
+  it('carries the outline the simulator flies, and the note says so', () => {
+    const r = importRkt(crossing);
+    // Left with no points, the kernel flew FreeformFinSet's own 50 mm default
+    // while the side view, the fin editor and every export drew nothing.
+    expect(finIn(r)['points']).toEqual([[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]]);
+    expect(r.notes.some((n) => /outline was not used — .*keeps a default outline/.test(n))).toBe(true);
+  });
+
+  it('flies exactly what the empty set flew — the kernel default, made visible', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const tree = importRkt(crossing).tree;
+    const withDefault = OrkRocket.buildTree(engineTree(tree)).staticInfo();
+    const fin = finIn({ tree } as ReturnType<typeof importRkt>);
+    delete fin['points'];
+    const empty = OrkRocket.buildTree(engineTree(tree)).staticInfo();
+    expect(withDefault.mass).toBe(empty.mass);
+    expect(withDefault.cp).toBe(empty.cp);
+    expect(withDefault.cg).toBe(empty.cg);
+  }, 60000);
+});

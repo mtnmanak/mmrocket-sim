@@ -1393,6 +1393,37 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployAltitude']).toBeUndefined();
   });
 
+  /*
+   * Audit 2026-09-22 review: each <SimulationResults> keeps its own event
+   * list, and only its MOTORS become the flight configuration. Shaped on
+   * aerotech_warthog.rkt, whose simulation 1 (E15-4) deploys at the ejection
+   * charge while the design's own list says 122 m — and nothing said so.
+   */
+  const withSim = (design: string, simEvents: string) => evXml(design)
+    .replace('<Len>500.</Len>', '<Len>500.</Len><IsMotorMount>1</IsMotorMount>')
+    .replace('</RocketDesign></DesignInformation>', '</RocketDesign></DesignInformation>'
+      + '<SimulationResultsList><SimulationResults><SimulationName>[F26FJ-6] </SimulationName>'
+      + `<SimulationEventList>${simEvents}</SimulationEventList><Stage3Engines><EngineSet>`
+      + '<EngineCode>F26FJ</EngineCode><EngineMfg>AeroTech</EngineMfg><MountSerialNo>1</MountSerialNo>'
+      + '<EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines></SimulationResults></SimulationResultsList>');
+
+  it('says when the simulation opened stored other triggers, and keeps the design’s', () => {
+    const { r, main, drogue } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(0, 0) + ev(12, 1) + ev(13, 4)));
+    expect(r.chosenConfigId).toBe('rocksim-sim-1');
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
+    expect(drogue['deployEvent']).toBe('apogee');
+    const note = r.notes.find((n) => /stored different recovery triggers/.test(n));
+    expect(note).toMatch(/^Simulation 1 \(“\[F26FJ-6\]”\) stored different recovery triggers from the ones read above: Main at the ejection charge\. /);
+    expect(note).not.toMatch(/Drogue/);
+  });
+
+  it('adds no such note when the simulation stored the design’s own triggers', () => {
+    const { r } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(12, 5, 152.4) + ev(13, 4)));
+    expect(r.chosenConfigId).toBe('rocksim-sim-1');
+    expect(r.notes.some((n) => /stored different recovery triggers/.test(n))).toBe(false);
+  });
+
   // The owner's real file is the case this was built for, but `docs/User files/`
   // is gitignored — his designs are not ours to commit — so this runs locally
   // and skips on CI, the same pattern lemivSweep.test.ts uses for the same
@@ -1702,10 +1733,13 @@ describe('RockSim mass objects are points, not bodies', () => {
       ] }] } as never,
     });
     const blocks = xml.match(/<MassObject>[\s\S]*?<\/MassObject>/g)!;
-    expect(blocks[0]).toContain('<KnownCG>200</KnownCG>');
-    expect(blocks[0]).toContain('<Xb>200</Xb>');
-    expect(blocks[1]).toContain('<KnownCG>100</KnownCG>');
-    expect(blocks[1]).toContain('<Xb>100</Xb>');
+    // Both on the component's CG, half its 20 mm length in (audit 2026-09-22 —
+    // they were on its fore end, 200 and 100): TOP 200 + 10, and BOTTOM, which
+    // RockSim counts forward from the parent's rear, 100 to the aft end + 10.
+    expect(blocks[0]).toContain('<KnownCG>210</KnownCG>');
+    expect(blocks[0]).toContain('<Xb>210</Xb>');
+    expect(blocks[1]).toContain('<KnownCG>110</KnownCG>');
+    expect(blocks[1]).toContain('<Xb>110</Xb>');
     for (const b of blocks) {
       expect(b.indexOf('<KnownCG>')).toBeLessThan(b.indexOf('<UseKnownCG>'));
     }
@@ -2140,4 +2174,348 @@ describe('RockSim airfoil fin sets take the file’s own computed mass and CG', 
     expect(info.mass).toBeCloseTo(0.138211, 9);
     expect(info.cgX).toBeCloseTo(0.15376, 6);
   }, 60000);
+});
+
+/**
+ * Audit 2026-09-22, rows 383 and 384 — where the .rkt export puts things.
+ *
+ * 383: RockSim reads a <MassObject> as a POINT at <Xb> (and this app's importer
+ * pins it there), so the point has to be the part's CG. It was written at the
+ * part's FORE end, so a 150 mm av bay reached RockSim, and this app on re-open,
+ * 75 mm forward of where it sits.
+ *
+ * 384: a cluster's copies 2..N and a pod set's instances 2..N were positioned
+ * against whatever parent the previous copy's children left behind, so "middle
+ * of parent" resolved against the wrong part.
+ */
+describe('.rkt export positions (audit 2026-09-22)', () => {
+  const stage = (children: ComponentNode[]) => ({
+    name: 'P',
+    tree: { name: 'P', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.025, thickness: 0.001, children },
+    ] }] as ComponentNode[] },
+  });
+  const blocks = (xml: string, tag: string) => xml.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g')) ?? [];
+  const xbOf = (block: string) => Number(/<Xb>([^<]*)<\/Xb>/.exec(block)![1]);
+
+  it('writes a mass component at its CG, for every position method', () => {
+    const xml = exportRkt(stage([
+      { type: 'masscomponent', id: 'top', mass: 0.25, length: 0.15, position: { method: 'top', offset: 0.1 } },
+      { type: 'masscomponent', id: 'bot', mass: 0.25, length: 0.15, position: { method: 'bottom', offset: -0.05 } },
+      { type: 'masscomponent', id: 'mid', mass: 0.25, length: 0.15, position: { method: 'middle', offset: 0.01 } },
+      // A stated CG (from the component's own front) is where the point goes.
+      { type: 'masscomponent', id: 'pin', mass: 0.25, length: 0.15, overrideCGX: 0.03,
+        position: { method: 'top', offset: 0.2 } },
+    ] as ComponentNode[]));
+    const [top, bot, mid, pin] = blocks(xml, 'MassObject');
+    // top: front 100 mm + half of 150.
+    expect(xbOf(top!)).toBeCloseTo(175, 9);
+    // bottom (RockSim measures forward from the parent's rear): aft end 50 mm
+    // forward, CG a further 75.
+    expect(xbOf(bot!)).toBeCloseTo(125, 9);
+    // middle: front at 10 + (400 − 150)/2 = 135 mm, CG at 210.
+    expect(xbOf(mid!)).toBeCloseTo(210, 9);
+    expect(xbOf(pin!)).toBeCloseTo(230, 9);
+    for (const b of [top!, bot!, mid!, pin!]) {
+      expect(b).toContain(`<KnownCG>${xbOf(b)}</KnownCG>`);
+    }
+  });
+
+  it('prefers the kernel CG it is handed, as a fairing needs', () => {
+    // A shroud with one streamlined end has its CG off centre; compInfo carries it.
+    const xml = exportRkt({
+      ...stage([{ type: 'fairing', id: 'f', mass: 0.03, length: 0.08, position: { method: 'top', offset: 0.1 } }] as ComponentNode[]),
+      compInfo: { f: { mass: 0.03, cgX: 0.035 } },
+    });
+    expect(xbOf(blocks(xml, 'MassObject')[0]!)).toBeCloseTo(135, 9);
+  });
+
+  it('round-trips a mass component with its CG where it was', () => {
+    const d = stage([{ type: 'masscomponent', id: 'bay', name: 'Av bay', mass: 0.25, length: 0.15,
+      position: { method: 'top', offset: 0.1 } }] as ComponentNode[]);
+    const back = importRkt(exportRkt(d));
+    const bay = flatten(back.tree.components).find((c) => c.type === 'masscomponent')!;
+    const cgFromParentFront = (bay.position!.offset) + (bay['overrideCGX'] as number);
+    expect(cgFromParentFront).toBeCloseTo(0.175, 9);
+    expect(bay['mass']).toBeCloseTo(0.25, 9);
+  });
+
+  it('positions every cluster copy against the cluster’s own parent', () => {
+    // An engine block inside the mount is what used to leave the stale parent.
+    const d = stage([{ type: 'innertube', id: 'mt', length: 0.07, outerRadius: 0.0095, thickness: 0.0005,
+      motorMount: true, cluster: 'double', clusterScale: 1, position: { method: 'middle', offset: 0 },
+      children: [{ type: 'engineblock', id: 'eb', length: 0.005 }] }] as ComponentNode[]);
+    const xml = exportRkt(d);
+    // Blocks nest, so pick each copy out by its own <Name>. Before the fix,
+    // copy 2 was centred in the ENGINE BLOCK'S parent (the mount itself):
+    // (70 − 70)/2 = 0, and on re-open the two no longer grouped.
+    const inner = xml.split('<BodyTube>').filter((b) => /<Name>Inner Tube/.test(b));
+    expect(inner).toHaveLength(2);
+    for (const b of inner) expect(xbOf(b)).toBeCloseTo(165, 9); // (400 − 70)/2
+    const back = importRkt(xml);
+    const mounts = flatten(back.tree.components).filter((c) => c.type === 'innertube');
+    expect(mounts).toHaveLength(1);
+    expect(mounts[0]!['cluster']).toBe('double');
+    expect(back.notes.some((n) => /centerline tubes/.test(n))).toBe(false);
+  });
+
+  it('positions every pod instance against the pod set’s own parent', () => {
+    const d = stage([{ type: 'podset', id: 'pods', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.05,
+      position: { method: 'middle', offset: 0 },
+      children: [{ type: 'bodytube', id: 'pt', length: 0.1, outerRadius: 0.01, thickness: 0.0005 }] }] as ComponentNode[]);
+    const back = importRkt(exportRkt(d));
+    const pods = flatten(back.tree.components).filter((c) => c.type === 'podset');
+    expect(pods).toHaveLength(2);
+    // The pod set has no axial length, so "middle" is the parent's midpoint.
+    for (const p of pods) expect(p.position?.offset).toBeCloseTo(0.2, 9);
+  });
+});
+
+/**
+ * Audit 2026-09-22 row 395 — where the motors go. Every RockSim-written file in
+ * the 939-file corpus that carries a motor (676 of the 843 readable ones) keeps
+ * its <EngineSet>s inside RockSimDocument > SimulationResultsList >
+ * SimulationResults, after </DesignInformation>, with all three <StageNEngines>
+ * present; none puts them under <RocketDesign>, which is where this exporter did.
+ */
+describe('.rkt export writes its motors where RockSim keeps them', () => {
+  const d = {
+    name: 'M',
+    tree: { name: 'M', components: [
+      { type: 'stage', id: 's0', children: [
+        { type: 'bodytube', id: 'm0', length: 0.2, outerRadius: 0.012, thickness: 0.0004, motorMount: true },
+      ] },
+      { type: 'stage', id: 's1', children: [
+        { type: 'bodytube', id: 'm1', length: 0.2, outerRadius: 0.012, thickness: 0.0004, motorMount: true },
+      ] },
+    ] as ComponentNode[] },
+    motors: {
+      m0: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5,
+        ignitionEvent: 'burnout', ignitionDelay: 0 },
+      m1: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 0 },
+    },
+  };
+
+  it('puts the engine sets in one SimulationResults after DesignInformation, never in RocketDesign', () => {
+    const xml = exportRkt(d);
+    const design = xml.slice(xml.indexOf('<RocketDesign>'), xml.indexOf('</RocketDesign>'));
+    expect(design).not.toContain('<EngineSet>');
+    expect(design).not.toMatch(/<Stage\dEngines>/);
+    const list = xml.slice(xml.indexOf('</DesignInformation>'));
+    expect(list).toMatch(/^<\/DesignInformation>\n<SimulationResultsList>\n<SimulationResults>/);
+    expect(list.match(/<SimulationResults>/g)).toHaveLength(1);
+    // All three, in RockSim's order; the empty third slot too.
+    const i1 = list.indexOf('<Stage1Engines>');
+    const i2 = list.indexOf('<Stage2Engines>');
+    const i3 = list.indexOf('<Stage3Engines>');
+    expect(i1).toBeGreaterThan(0);
+    expect(i1).toBeLessThan(i2);
+    expect(i2).toBeLessThan(i3);
+    expect(list).toContain('<Stage1Engines>\n</Stage1Engines>');
+    expect(xml.trimEnd().endsWith('</SimulationResultsList>\n</RockSimDocument>')).toBe(true);
+  });
+
+  it('names the simulation as RockSim does: the pad stage first, a cluster in one bracket', () => {
+    // Loadstar's "[B6-0] [A8-5] " is its B6 booster under the A8 sustainer —
+    // all 129 corpus names spelled this way for two or more stages put the
+    // bottom stage first. This wrote the sustainer's first, a bracket per motor.
+    expect(exportRkt(d)).toContain('<SimulationName>[C6-0] [C6-5] </SimulationName>');
+    const cluster = {
+      ...d,
+      tree: { name: 'M', components: [{ ...d.tree.components[0]!, children: [
+        { ...d.tree.components[0]!.children![0]!, children: [
+          { type: 'innertube', id: 'm2', length: 0.07, outerRadius: 0.0065, thickness: 0.0004, motorMount: true },
+        ] },
+      ] }, d.tree.components[1]!] as ComponentNode[] },
+      motors: { ...d.motors,
+        m2: { designation: 'A10T', manufacturer: 'Estes', diameter: 0.013, length: 0.045, delay: 3,
+          ignitionEvent: 'burnout', ignitionDelay: 0.5 } },
+    };
+    expect(exportRkt(cluster)).toContain('<SimulationName>[C6-0] [C6-5, A10T-3-0.5] </SimulationName>');
+  });
+
+  it('writes each engine set in RockSim’s own field order', () => {
+    const set = /<EngineSet>([^]*?)<\/EngineSet>/.exec(exportRkt(d))![1]!;
+    const tags = [...set.matchAll(/<(\w+)>/g)].map((m) => m[1]);
+    expect(tags).toEqual(['EngineCount', 'EngineCode', 'IgnitionDelay', 'EngineMfg', 'MountSerialNo', 'EjectionDelay']);
+  });
+
+  it('re-opens with the same motors, stages and staging', () => {
+    const back = importRkt(exportRkt(d));
+    const refs = Object.values(back.motors);
+    expect(refs).toHaveLength(2);
+    const upper = refs.find((r) => r.ignitionEvent === 'burnout')!;
+    expect(upper.delay).toBe(5);
+    expect(refs.find((r) => r !== upper)!.delay).toBe(0);
+  });
+
+  it('writes no simulation block for a design with no motor', () => {
+    const xml = exportRkt({ ...d, motors: {} });
+    expect(xml).not.toContain('<SimulationResults');
+    expect(xml).not.toContain('<EngineSet>');
+  });
+});
+
+/**
+ * Audit 2026-09-22 row 382 — a .rkt carries one motor set PER STORED
+ * SIMULATION, and they disagree (581 of the 600 corpus files with more than
+ * one engine-bearing simulation). Every <EngineSet> in the file used to be
+ * merged into one map, the last simulation to name a mount winning:
+ * Estes/Loadstar.rkt (11 simulations) opened as a B6 booster under a B4
+ * sustainer, a pairing none of its simulations flies, and nothing said which
+ * simulation was used. Shaped on Loadstar: sustainer mount serial 7, booster 14.
+ */
+describe('.rkt simulations become flight configurations', () => {
+  type Eng = { slot: 2 | 3; code: string; delay: number };
+  const sim = (name: string, engines: Eng[]) => `<SimulationResults><SimulationName>${name}</SimulationName>
+      <Stage1Engines></Stage1Engines>
+      ${[2, 3].map((slot) => `<Stage${slot}Engines>${engines.filter((e) => e.slot === slot).map((e) =>
+        `<EngineSet><EngineCount>1</EngineCount><EngineCode>${e.code}</EngineCode><IgnitionDelay>0.</IgnitionDelay>`
+        + `<EngineMfg>Estes</EngineMfg><MountSerialNo>${e.slot === 3 ? 7 : 14}</MountSerialNo>`
+        + `<EjectionDelay>${e.delay}.</EjectionDelay></EngineSet>`).join('')}</Stage${slot}Engines>`).join('')}
+    </SimulationResults>`;
+  const loadstar = (sims: string[]) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Loadstar</Name><StageCount>2</StageCount>
+    <Stage3Parts><BodyTube><Name>Upper</Name><OD>24.8</OD><ID>24.1</ID><Len>200</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo></BodyTube></Stage3Parts>
+    <Stage2Parts><BodyTube><Name>Lower</Name><OD>24.8</OD><ID>24.1</ID><Len>150</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>14</SerialNo></BodyTube></Stage2Parts>
+    </RocketDesign></DesignInformation>
+    <SimulationResultsList>${sims.join('')}</SimulationResultsList></RockSimDocument>`;
+  const LOADSTAR = loadstar([
+    sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    sim('[B6-0] [B6-6] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B6-6] ', [{ slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B6-6] ', [{ slot: 3, code: 'B6', delay: 6 }]),
+    sim('[B4-4] ', [{ slot: 3, code: 'B4', delay: 4 }]),
+  ]);
+  const byStage = (r: ReturnType<typeof importRkt>, motors: Record<string, { designation: string; delay: number }>) => {
+    const [sus, boo] = r.tree.components.map((s) => s.children![0]!.id!);
+    return [boo ? motors[boo]?.designation : undefined, motors[sus!]?.designation];
+  };
+
+  it('opens ONE simulation’s motors, never a mix of several', () => {
+    const r = importRkt(LOADSTAR);
+    // The old merge: B6 booster (last to name serial 14) under a B4 sustainer.
+    expect(byStage(r, r.motors)).toEqual(['A8', 'A8']);
+    expect(r.chosenConfigId).toBe(r.configs[0]!.id);
+    expect(Object.values(r.motors).map((m) => m.delay).sort()).toEqual([0, 5]);
+  });
+
+  it('keeps every distinct motor set as a configuration, repeats folded, in file order', () => {
+    const r = importRkt(LOADSTAR);
+    // Ids by the simulation each came from — the sixth, a repeat of the fourth, folds away.
+    expect(r.configs.map((c) => c.id)).toEqual(
+      ['rocksim-sim-1', 'rocksim-sim-2', 'rocksim-sim-3', 'rocksim-sim-4', 'rocksim-sim-6']);
+    // RockSim's own motor-derived names are not kept: they would go stale on the
+    // first motor change, where configLabel's live one does not.
+    expect(r.configs.map((c) => c.name)).toEqual([null, null, null, null, null]);
+    expect(r.configs.map((c) => byStage(r, c.motors))).toEqual(
+      [['A8', 'A8'], ['B6', 'A8'], ['B6', 'B6'], [undefined, 'B6'], [undefined, 'B4']]);
+    expect(r.configs.filter((c) => c.isDefault)).toHaveLength(1);
+    expect(r.configs[0]!.isDefault).toBe(true);
+  });
+
+  it('keeps a simulation name the user typed in RockSim', () => {
+    const r = importRkt(loadstar([
+      sim('Club launch, calm', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+      sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(r.configs.map((c) => c.name)).toEqual(['Club launch, calm', null]);
+  });
+
+  it('says which simulation was opened', () => {
+    const note = importRkt(LOADSTAR).notes.find((n) => /RockSim simulations/.test(n));
+    expect(note).toMatch(/6 RockSim simulations with motors/);
+    expect(note).toMatch(/5 different motor sets/);
+    expect(note).toMatch(/Simulation 1 \(“\[A8-0\] \[A8-5\]”\) was opened/);
+  });
+
+  it('lights a sustainer-only simulation at launch, so its configuration can fly', () => {
+    // The upper stage's 'burnout' waits on a booster that never burns — the
+    // kernel aborts "no motors ignited" (the same trap importCdx1 closed).
+    const r = importRkt(LOADSTAR);
+    const b4 = Object.values(r.configs[4]!.motors)[0]!;
+    expect(b4.ignitionEvent).toBe('launch');
+    expect(b4.ignitionDelay).toBe(0);
+    // A full stack keeps the burnout timer on the upper stage.
+    const [sus] = r.tree.components.map((s) => s.children![0]!.id!);
+    expect(r.configs[0]!.motors[sus!]!.ignitionEvent).toBe('burnout');
+  });
+
+  /*
+   * Shaped on Scratch Builds/Blackhawk_2-stage.rkt: StageCount 2 with the
+   * booster slot EMPTY, and its one simulation lighting two O5500X on the
+   * sustainer, one with IgnitionDelay 15. RockSim's stored TimeToBurnout for it
+   * is 18.9975 s — 15 s after launch plus the motor's burn — so RockSim flew
+   * that delay from launch. The first re-keying zeroed it and lit both at liftoff.
+   */
+  const BLACKHAWK = `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Blackhawk</Name><StageCount>2</StageCount>
+    <Stage3Parts><BodyTube><Name>Body</Name><OD>203</OD><ID>200</ID><Len>2000</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>2</SerialNo><AttachedParts>
+      <BodyTube><Name>Outboard mount</Name><OD>100</OD><ID>98</ID><Len>900</Len><RadialLoc>50</RadialLoc>
+        <IsMotorMount>1</IsMotorMount><SerialNo>14</SerialNo></BodyTube>
+      </AttachedParts></BodyTube></Stage3Parts>
+    <Stage2Parts></Stage2Parts><Stage1Parts></Stage1Parts>
+    </RocketDesign></DesignInformation>
+    <SimulationResultsList><SimulationResults><SimulationName>[O5500X-0-15, O5500X-0] </SimulationName>
+      <Stage1Engines></Stage1Engines><Stage2Engines></Stage2Engines><Stage3Engines>
+      <EngineSet><EngineCount>1</EngineCount><EngineCode>O5500X</EngineCode><IgnitionDelay>15.</IgnitionDelay>
+        <EngineMfg>AeroTech</EngineMfg><MountSerialNo>2</MountSerialNo><EjectionDelay>0.</EjectionDelay></EngineSet>
+      <EngineSet><EngineCount>1</EngineCount><EngineCode>O5500X</EngineCode><IgnitionDelay>0.</IgnitionDelay>
+        <EngineMfg>AeroTech</EngineMfg><MountSerialNo>14</MountSerialNo><EjectionDelay>0.</EjectionDelay></EngineSet>
+      </Stage3Engines></SimulationResults></SimulationResultsList></RockSimDocument>`;
+
+  it('keeps a re-keyed stage’s IgnitionDelay, counted from launch', () => {
+    const r = importRkt(BLACKHAWK);
+    expect(r.tree.components).toHaveLength(2);
+    const body = r.tree.components[0]!.children![0]!;
+    const outboard = body.children!.find((c) => c.name === 'Outboard mount')!;
+    expect(r.motors[body.id!]).toMatchObject({ ignitionEvent: 'launch', ignitionDelay: 15 });
+    expect(r.motors[outboard.id!]).toMatchObject({ ignitionEvent: 'launch', ignitionDelay: 0 });
+    expect(r.notes.join(' ')).toMatch(/was opened with its lowest stage's motors timed from launch/);
+  });
+
+  it('writes that delay back, so the .rkt round trip keeps it', () => {
+    const r = importRkt(BLACKHAWK);
+    const xml = exportRkt({ name: 'Blackhawk', tree: r.tree, motors: r.motors });
+    expect(xml).toContain('<SimulationName>[O5500X-0-15, O5500X-0] </SimulationName>');
+    const back = importRkt(xml);
+    expect(Object.values(back.motors).map((m) => [m.ignitionEvent, m.ignitionDelay]).sort())
+      .toEqual([['launch', 0], ['launch', 15]]);
+  });
+
+  it('opens the first simulation that motors the launch stage, and says why', () => {
+    const r = importRkt(loadstar([
+      sim('[B4-4] ', [{ slot: 3, code: 'B4', delay: 4 }]),
+      sim('[B6-0] [A8-5] ', [{ slot: 2, code: 'B6', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(byStage(r, r.motors)).toEqual(['B6', 'A8']);
+    expect(r.chosenConfigId).toBe(r.configs[1]!.id);
+    expect(r.notes.join(' ')).toMatch(/Simulation 1 \(“\[B4-4\]”\) in this file puts no motor on the launch stage/);
+    expect(r.notes.join(' ')).toMatch(/Simulation 2 \(“\[B6-0\] \[A8-5\]”\) was opened instead/);
+  });
+
+  it('adds no note, and one configuration, when every simulation flies the same motors', () => {
+    const r = importRkt(loadstar([
+      sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+      sim('[A8-0] [A8-5] ', [{ slot: 2, code: 'A8', delay: 0 }, { slot: 3, code: 'A8', delay: 5 }]),
+    ]));
+    expect(r.configs).toHaveLength(1);
+    expect(r.notes.some((n) => /RockSim simulations/.test(n))).toBe(false);
+  });
+
+  it('reads engine sets written outside any simulation (this app’s own exports before the fix)', () => {
+    const xml = loadstar([]).replace('</Stage2Parts>', '</Stage2Parts><Stage3Engines><EngineSet>'
+      + '<EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg><MountSerialNo>7</MountSerialNo>'
+      + '<EjectionDelay>5</EjectionDelay><IgnitionDelay>0</IgnitionDelay></EngineSet></Stage3Engines>'
+      + '<Stage2Engines><EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>'
+      + '<MountSerialNo>14</MountSerialNo><EjectionDelay>0</EjectionDelay></EngineSet></Stage2Engines>');
+    const r = importRkt(xml);
+    expect(r.configs).toHaveLength(1);
+    expect(r.configs[0]!.name).toBeNull();
+    expect(byStage(r, r.motors)).toEqual(['C6', 'C6']);
+  });
 });

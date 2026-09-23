@@ -5,7 +5,7 @@ import {
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import {
-  isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padPressureIssue, SITE_ALTITUDE_M_RANGE,
+  isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { findDbMotor, hasMassData } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
@@ -1710,7 +1710,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     return null;
   };
 
-  const finXml = (parent: ComponentNode): void => {
+  /**
+   * `aftOfParentM`: body length aft of `parent` that RASAero measures the fin
+   * from too — non-zero only for a booster built from several tubes (see the
+   * booster loop).
+   */
+  const finXml = (parent: ComponentNode, aftOfParentM = 0): void => {
     const finSets = (parent.children ?? []).filter((c) => c.type.endsWith('finset'));
     if (finSets.length === 0) return;
     if (finSets.length > 1) {
@@ -1738,8 +1743,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       : pos.method === 'top' ? pos.offset + plan.root - tubeLen
       : pos.method === 'middle' ? pos.offset + (plan.root - tubeLen) / 2
       : 0; // 'absolute' has no tube-relative meaning here
-    // Fin Location = front edge from the tube bottom (inches).
-    const locIn = (plan.root - bottomOffset) * IN;
+    // Fin Location = front edge from the tube bottom (inches) — from the
+    // bottom of the whole booster body on a booster, hence `aftOfParentM`.
+    const locIn = (plan.root - bottomOffset + aftOfParentM) * IN;
     const cs = String(fin['crossSection'] ?? 'square');
     // A supersonic airfoil section (feature #4) beats the plain cross section.
     // FX3 is only real for Hexagonal — RASAero derives the other TEs itself
@@ -2019,6 +2025,28 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (finParents.length > 1) {
       throw new Error(`RASAero allows ONE fin set per booster — stage "${st.name}" has several; export as .ork/.rkt.`);
     }
+    // A booster's fins sit on the booster BODY: RASAero measures their
+    // <Location> from its bottom, and the importer puts them on the one body
+    // tube it builds. A fin set on the shoulder or the boat tail has no such
+    // location (audit 2026-09-22): written relative to that transition, a fin
+    // on a boat tail re-opened on the body, moved aft by the boat tail's
+    // length. Refused, never dropped — desktop only looks for fins on the
+    // tubes (BoosterDTO.getFinSetFromBodyTube) and so loses these silently.
+    const finParent = finParents[0];
+    if (finParent && finParent.type !== 'bodytube') {
+      const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;
+      throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${finParent.name ?? where}” `
+        + `(stage "${st.name}"'s ${where}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
+    }
+    // RASAero's booster body is every tube of the stage end to end, and its
+    // fin <Location> counts from the bottom of all of them — so a fin set on
+    // one tube also sits above the tubes aft of it. Desktop adds exactly this
+    // (BoosterDTO.java:159-212, `finLocationOffset`); without it a fin on the
+    // first of two tubes moved aft by the second tube's length.
+    const aftOfFins = finParent
+      ? kids.slice(kids.indexOf(finParent) + 1).filter((c) => c.type === 'bodytube')
+        .reduce((s, t) => s + nnum(t, 'length', 0.1), 0)
+      : 0;
     emit('<Booster>');
     emit('<PartType>Booster</PartType>');
     emit(`<Length>${fmt(bodyLen * IN)}</Length>`);
@@ -2049,7 +2077,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');
     emit(`<BoattailLength>${fmt(btLen * IN)}</BoattailLength>`);
     emit(`<BoattailRearDiameter>${fmt(boattail ? nnum(boattail, 'aftRadius', 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
-    finXml(finParents[0] ?? tubes[0]!);
+    finXml(finParent ?? tubes[0]!, aftOfFins);
     emit('</Booster>');
     locM += shoulderLen + bodyLen + btLen;
   }
@@ -2086,13 +2114,19 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('</RocketDesign>');
 
   // Launch site back to RASAero units (feet / °F / in-Hg / mph). Pressure 0 is
-  // RASAero's own "unset"; Temperature has no unset, so ISA null becomes 59 °F.
+  // RASAero's own "unset" (it reads back blank, the site's standard pressure).
+  // Temperature has no unset, so it states the temperature the flight FLIES —
+  // padAir: a typed one, else the standard one at the site altitude (audit
+  // 2026-09-22). A blank used to be written as 59 °F, sea level's, whatever the
+  // site: at 2,682 m that re-opened 17.4 °C too warm, 0.8824 kg/m³ against the
+  // 0.9393 flown. 59 °F is still what a sea-level site writes.
+  const padTempK = padAir(launch ?? {}).temperatureK;
   emit('<LaunchSite>');
   emit(`<Altitude>${fmt((launch?.launchAltitudeM ?? 0) * FT)}</Altitude>`);
   emit(`<Pressure>${launch ? (launch.pressureHPa != null ? fmt(launch.pressureHPa / INHG) : '0') : '29.92'}</Pressure>`);
   emit(`<RodAngle>${fmt(launch?.launchRodAngleDeg ?? 0)}</RodAngle>`);
   emit(`<RodLength>${launch?.launchRodLengthM != null ? fmt(launch.launchRodLengthM * FT) : '10'}</RodLength>`);
-  emit(`<Temperature>${launch?.temperatureC != null ? fmt(launch.temperatureC * 9 / 5 + 32) : '59'}</Temperature>`);
+  emit(`<Temperature>${fmt((padTempK - 273.15) * 9 / 5 + 32)}</Temperature>`);
   emit(`<WindSpeed>${fmt((launch?.windAverage ?? 0) * MPH)}</WindSpeed>`);
   emit('</LaunchSite>');
 
@@ -2127,8 +2161,22 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const ev = String(c['deployEvent'] ?? 'apogee');
     return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
   };
-  chutes.sort((a, b) => eventRank(a) - eventRank(b)
-    || nnum(b, 'deployAltitude', 0) - nnum(a, 'deployAltitude', 0));
+  /*
+   * A field the chute leaves blank is written as what the kernel FLIES for it
+   * (audit 2026-09-22): ComponentFactory's 0.3 m diameter, Parachute.DEFAULT_CD
+   * 0.8, and DeploymentConfiguration's 200 m deploy altitude. This writer had
+   * its own 0.9 m, Cd 0.75 and 150 m, so a blank-altitude main re-opened 50 m
+   * lower on a canopy three times the size — and the sort below ranked a
+   * blank altitude as 0 m while it flies at 200. The sort now reads the
+   * altitude of an ALTITUDE chute only: another chute's stored altitude is not
+   * what it deploys on, and must not reorder two chutes on the same event.
+   */
+  const KERNEL_CHUTE_DIAMETER_M = 0.3;
+  const KERNEL_CHUTE_CD = 0.8;
+  const KERNEL_DEPLOY_ALTITUDE_M = 200;
+  const deployAltOf = (c: ComponentNode): number =>
+    eventRank(c) === 1 ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) : 0;
+  chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.
@@ -2137,12 +2185,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const ev = c ? String(c['deployEvent'] ?? 'apogee') : 'none';
     const evType = ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None';
     return {
-      altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', 150) * FT : 0),
+      altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) * FT : 0),
       deviceType: c ? 'Parachute' : 'None',
       event: c && evType !== 'None' ? 'True' : 'False',
-      size: fmt(c ? nnum(c, 'diameter', 0.9) * IN : 0),
+      size: fmt(c ? nnum(c, 'diameter', KERNEL_CHUTE_DIAMETER_M) * IN : 0),
       eventType: c ? evType : 'None',
-      cd: fmt(c ? nnum(c, 'cd', 0.75) : 0),
+      cd: fmt(c ? nnum(c, 'cd', KERNEL_CHUTE_CD) : 0),
     };
   });
   emit('<Recovery>');

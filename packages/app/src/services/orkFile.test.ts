@@ -2783,3 +2783,120 @@ describe('.ork round-trip of the weighed pad mass, per configuration', () => {
     }
   });
 });
+
+/**
+ * The weather design review (package B3, 2026-09-22). A blank temperature or
+ * pressure flies the STANDARD value for the site altitude (atmosphere.ts
+ * padAir, since v0.122), but the .ork writer filled a blank with SEA-LEVEL
+ * values — `(temperatureC ?? 15) + 273.15`, `(pressureHPa ?? 1013.25) * 100` —
+ * so a 2,682 m site with only the temperature typed re-opened (here and in
+ * desktop) at sea-level pressure: 1.1644 kg/m³ against the 0.83878 it flew.
+ */
+describe('.ork <atmosphere> carries the pad air the flight flies', () => {
+  const SIMPLE_TREE = {
+    name: 'Hi',
+    components: [{
+      type: 'stage' as const, name: 'Sustainer',
+      children: [
+        { type: 'nosecone' as const, length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+        { type: 'bodytube' as const, length: 0.3, outerRadius: 0.012, thickness: 0.0005 },
+      ],
+    }],
+  };
+  const site = (temperatureC: number | null, pressureHPa: number | null) => ({
+    launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 2, windStdDev: 0.2,
+    launchAltitudeM: 2682, temperatureC, pressureHPa, latitudeDeg: 39,
+  });
+  const roundTrip = (temperatureC: number | null, pressureHPa: number | null) =>
+    importOrk(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(temperatureC, pressureHPa) })).launch!;
+
+  it('writes the site-standard pressure for a blank one, and re-opens it blank', async () => {
+    const { siteAirDensity } = await import('./recoverySizing.js');
+    const { isaPressurePa } = await import('./atmosphere.js');
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) });
+    expect(xml).toContain('<basetemperature>303.15</basetemperature>');
+    expect(xml).toContain(`<basepressure>${isaPressurePa(2682)}</basepressure>`);
+    expect(siteAirDensity(site(30, null))).toBeCloseTo(0.83878, 5);
+    const back = roundTrip(30, null);
+    expect(back.pressureHPa).toBeNull();
+    expect(back.temperatureC).toBeCloseTo(30, 9);
+    expect(siteAirDensity({ launchAltitudeM: back.launchAltitudeM!, temperatureC: back.temperatureC ?? null,
+      pressureHPa: back.pressureHPa ?? null })).toBeCloseTo(0.83878, 5);
+  });
+
+  it('does the same for a blank temperature', async () => {
+    const { isaTemperatureK } = await import('./atmosphere.js');
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(null, 700) });
+    expect(xml).toContain(`<basetemperature>${isaTemperatureK(2682)}</basetemperature>`);
+    const back = roundTrip(null, 700);
+    expect(back.temperatureC).toBeNull();
+    expect(back.pressureHPa).toBeCloseTo(700, 9);
+  });
+
+  it('keeps BOTH values when both are typed, even at the standard ones', async () => {
+    const { isaPressurePa, isaTemperatureK } = await import('./atmosphere.js');
+    const back = roundTrip(isaTemperatureK(2682) - 273.15, isaPressurePa(2682) / 100);
+    expect(back.temperatureC).not.toBeNull();
+    expect(back.pressureHPa).not.toBeNull();
+  });
+
+  it('writes ISA when neither is typed, as before', () => {
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(null, null) });
+    expect(xml).toContain('<atmosphere model="isa"/>');
+  });
+
+  it('keeps a desktop file’s sea-level fill at a high site, which desktop flies', () => {
+    // Desktop's own "both or ISA": 101325 Pa beside a typed temperature at
+    // 1,500 m is what desktop flies, and not the site's standard, so it stays.
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: { ...site(20, 1013.25), launchAltitudeM: 1500 } });
+    const back = importOrk(xml).launch!;
+    expect(back.pressureHPa).toBeCloseTo(1013.25, 9);
+    expect(back.temperatureC).toBeCloseTo(20, 9);
+  });
+
+  /*
+   * Audit 2026-09-22 review: the reader first INFERRED a blank from a value
+   * equal to the site's standard, which also blanked typed values — at sea
+   * level, a typed 1013.25 hPa (desktop's own default pressure) beside 20 °C,
+   * or a typed 15 °C beside 1000 hPa. The writer now names the field it filled.
+   */
+  const atSeaLevel = (temperatureC: number | null, pressureHPa: number | null) =>
+    ({ ...site(temperatureC, pressureHPa), launchAltitudeM: 0 });
+
+  it('names the field it filled in a blank="…" attribute, and only then', () => {
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) }))
+      .toContain('<atmosphere model="extendedisa" blank="pressure">');
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(null, 700) }))
+      .toContain('<atmosphere model="extendedisa" blank="temperature">');
+    expect(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(20, 800) }))
+      .toContain('<atmosphere model="extendedisa">');
+  });
+
+  it('keeps a TYPED value that happens to be the site standard', () => {
+    for (const [t, p] of [[20, 1013.25], [15, 1000]] as const) {
+      const back = importOrk(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(t, p) })).launch!;
+      expect(back.temperatureC).toBeCloseTo(t, 9);
+      expect(back.pressureHPa).toBeCloseTo(p, 9);
+    }
+  });
+
+  it('keeps desktop’s default pressure beside a typed temperature at sea level', () => {
+    // Desktop writes no marker: 101325 Pa there is a value, not a blank.
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(20, 1013.25) })
+      .replace(/ blank="[a-z]+"/, '');
+    expect(importOrk(xml).launch!.pressureHPa).toBeCloseTo(1013.25, 9);
+  });
+
+  it('keeps the blank at sea level, where the standard is a round number', () => {
+    const back = importOrk(exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: atSeaLevel(20, null) })).launch!;
+    expect(back.pressureHPa).toBeNull();
+    expect(back.temperatureC).toBeCloseTo(20, 9);
+  });
+
+  it('never throws away a number the marker sits beside but the writer did not fill', () => {
+    // A hand-edited value under a stale marker is a value.
+    const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) })
+      .replace(/<basepressure>[^<]*<\/basepressure>/, '<basepressure>75000</basepressure>');
+    expect(importOrk(xml).launch!.pressureHPa).toBeCloseTo(750, 9);
+  });
+});
