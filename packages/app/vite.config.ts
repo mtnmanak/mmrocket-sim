@@ -1,6 +1,41 @@
+import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { checkDist } from './scripts/precache-coverage.mjs';
+
+/**
+ * Fails `vite build` when the offline precache misses a built file (audit
+ * 2026-09-22): globPatterns below names extensions, so an output of a new type
+ * would ship, work online, and be missing at a field with no signal. Runs after
+ * VitePWA has written sw.js — `order: 'post'` plus `sequential` puts it behind
+ * the plugin's own closeBundle, which generates the service worker. The check
+ * and its deliberate exclusions live in scripts/precache-coverage.mjs.
+ */
+function precacheCoversBuild(): Plugin {
+  let outDir = '';
+  return {
+    name: 'precache-covers-build',
+    apply: 'build',
+    enforce: 'post',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle: {
+      order: 'post',
+      sequential: true,
+      handler() {
+        const missing = checkDist(outDir);
+        if (missing.length > 0) {
+          throw new Error(`the service worker does not precache ${missing.length} built file(s), `
+            + `so they would be missing offline: ${missing.join(', ')}. Add the extension to `
+            + 'workbox.globPatterns in vite.config.ts, or, if it must never be cached, to '
+            + 'DELIBERATELY_UNCACHED in scripts/precache-coverage.mjs with the reason.');
+        }
+      },
+    },
+  };
+}
 
 // base './' keeps built asset URLs relative so the same build works
 // standalone AND embedded in a WordPress page or iframe.
@@ -8,7 +43,8 @@ export default defineConfig({
   plugins: [
     react(),
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
-    // ENTIRE build precaches — 24 files, about 6 MB: the engine, the parts
+    // ENTIRE build precaches — 24 files, about 6 MB (precacheCoversBuild, the
+    // last plugin, fails the build if one is left out): the engine, the parts
     // catalogue, the nozzle database, three.js and the exporters, the fonts, and
     // the bundled thrust curves. Everything lazy-loaded is precached too, so a
     // feature the user never opened online still works offline.
@@ -48,6 +84,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
+    precacheCoversBuild(),
   ],
   base: './',
   // The engine is a linked workspace package (entry imports the ESM artifact
