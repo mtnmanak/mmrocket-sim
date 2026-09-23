@@ -456,7 +456,9 @@ describe('the completion signal is actually wired up', () => {
     join(dirname(fileURLToPath(import.meta.url)), './BatchSimulate.tsx'), 'utf8');
 
   it('raises the signal when the run ends', () => {
-    expect(src).toContain('setFinished({ total: out.length, stopped });');
+    // With the count of old runs the 500-run cap removed saving them (audit
+    // 2026-09-22), which the finished line now reports as well.
+    expect(src).toContain('setFinished({ total: out.length, stopped, evicted:');
   });
 
   it('clears it when the next run starts, so it cannot go stale', () => {
