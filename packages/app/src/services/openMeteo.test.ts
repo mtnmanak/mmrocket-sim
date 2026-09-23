@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NETWORK_HOSTS, NetError } from './net.js';
 import {
   addDaysYmd, clearWeatherCache, compassPoint, DateRefusal, distanceM, fetchElevation, fetchForecast, fetchWeather,
-  forecastUrl, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseForecast,
-  parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
+  forecastUrl, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
+  parseForecast, parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
   usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample,
 } from './openMeteo.js';
 
@@ -349,6 +349,34 @@ describe('fetchWeather', () => {
     vi.setSystemTime(Date.UTC(2026, 8, 22, 20, 10, 1));
     await fetchWeather(q, { fetchImpl: f.fetchImpl });
     expect(f.urls).toHaveLength(4);
+  });
+
+  // The ERA5 archive is another host and another dataset; read here from a
+  // real archive answer, with the real terrain answer for the same place.
+  it('asks the ERA5 archive for a date more than 92 days back, and reads its answer', async () => {
+    expect(parseElevation(fixture('elevation-blackrock.json'))).toBe(1191);
+    const f = fakeFetch((u) => (u.includes('/v1/elevation')
+      ? { body: fixture('elevation-blackrock.json') }
+      : u.startsWith('https://archive-api.open-meteo.com/v1/archive?')
+        ? { body: fixture('archive-blackrock-2025-06-14.json') }
+        : { status: 404, body: { reason: `unexpected ${u}` } }));
+    const a = await fetchWeather({
+      place: { latitudeDeg: 40.87, longitudeDeg: -119.06, timezone: 'America/Los_Angeles' },
+      siteM: 1190, date: '2025-06-14', today: '2026-09-22',
+    }, { fetchImpl: f.fetchImpl });
+    expect(f.urls).toHaveLength(2);
+    expect(f.urls[1]).toContain('elevation=1190&');
+    expect(f.urls[1]).toContain('&start_date=2025-06-13&end_date=2025-06-15');
+    // Terrain 1191 m agrees with the 1190 m site within 30 m: one elevation.
+    expect(a).toMatchObject({ endpoint: 'archive', demM: 1191, elevationsM: [1190], timezone: 'America/Los_Angeles' });
+    const [v] = a.variants;
+    expect(v!.samples).toHaveLength(72);
+    // 2:00 PM PDT on Sat 14 Jun 2025, as ERA5 has it.
+    expect(v!.samples.find((s) => s.unix === Date.UTC(2025, 5, 14, 21) / 1000)).toEqual({
+      unix: Date.UTC(2025, 5, 14, 21) / 1000,
+      temperatureC: 27.3, pressureHPa: 884.5, windSpeedMs: 2.02, windGustMs: 5.3, windFromDeg: 277,
+    });
+    expect(hoursOnLocalDate(v!.samples, a.timezone, '2025-06-14')).toHaveLength(24);
   });
 
   it('flies on without the terrain height when that request fails', async () => {
