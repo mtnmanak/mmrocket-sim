@@ -65,7 +65,9 @@ import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPip
 import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
 import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult } from './services/orkFile.js';
-import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS } from './services/shareLink.js';
+import {
+  decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
+} from './services/shareLink.js';
 import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
@@ -3415,7 +3417,9 @@ export function App() {
         // reason is appended and the collapsed bar truncates at 157, so as an info
         // notice the reader got the first sentence, an 'i' glyph, no reason, and a
         // bar that never opened itself — for a link that simply did not work.
-        setFileNote(`Couldn't open the design in this link — it looks damaged or cut short (chat apps sometimes truncate very long links). Ask for the link again, or for the .ork file. (${e instanceof Error ? e.message : String(e)})`, 'warn');
+        // The sentence names the browser when this one cannot unpack links at
+        // all, rather than calling every link damaged (audit 2026-09-22).
+        setFileNote(shareLinkOpenFailure(e), 'warn');
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode

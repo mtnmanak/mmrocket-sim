@@ -113,6 +113,40 @@ function fromBase64Url(s: string): Uint8Array {
   return out;
 }
 
+/** The browser-can't error, named so the caller does not call the link damaged. */
+const UNSUPPORTED_ERROR_NAME = 'ShareLinkUnsupportedError';
+
+/**
+ * Can this browser inflate 'deflate-raw' at all? An older iPad (Safari before
+ * 16.4) has no DecompressionStream, and Chromium before 103 has one without
+ * this format. Either way every link failed inside the inflater and was
+ * reported as damaged — "ask for the link again", for a link that would fail
+ * the same way every time (audit 2026-09-22). Constructing one is the only
+ * test that sees the second case: the class exists and the format throws.
+ */
+function canInflateDeflateRaw(): boolean {
+  try {
+    new DecompressionStream('deflate-raw');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The file-note sentence for a link that would not open: which browser to use
+ * when this one cannot unpack links at all, otherwise that the link looks
+ * damaged. Both keep the reason, so a report quoting it says which it was.
+ */
+export function shareLinkOpenFailure(e: unknown): string {
+  if (e instanceof Error && e.name === UNSUPPORTED_ERROR_NAME) {
+    return `Couldn't open the design in this link: ${e.message}`;
+  }
+  return 'Couldn\'t open the design in this link — it looks damaged or cut short (chat apps sometimes'
+    + ' truncate very long links). Ask for the link again, or for the .ork file.'
+    + ` (${e instanceof Error ? e.message : String(e)})`;
+}
+
 /** Encode a .ork XML string as a URL fragment ("#d=1.…"). */
 export async function encodeShareFragment(xml: string): Promise<string> {
   const deflated = await deflate(new TextEncoder().encode(xml));
@@ -122,14 +156,22 @@ export async function encodeShareFragment(xml: string): Promise<string> {
 /**
  * Decode a share fragment (with or without the leading '#') back to the .ork
  * XML string. Throws on anything malformed — wrong shape, unknown version,
- * corrupt base64, truncated deflate stream — the caller turns that into a
- * user-facing note.
+ * corrupt base64, truncated deflate stream — and on a browser that cannot
+ * inflate at all; the caller turns that into a user-facing note
+ * (`shareLinkOpenFailure` tells the two apart).
  */
 export async function decodeShareFragment(hash: string): Promise<string> {
   const m = /^#?d=([0-9]+)\.(.+)$/.exec(hash);
   if (!m) throw new Error('not a share link (missing the d=<version>.<data> payload)');
   if (m[1] !== VERSION) {
     throw new Error(`this link was made by a newer version of the app (format ${m[1]})`);
+  }
+  if (!canInflateDeflateRaw()) {
+    const err = new Error('this browser can\'t unpack share links. Open the link in Chrome or Edge 103,'
+      + ' Firefox 113 or Safari 16.4 (iPhone and iPad: iOS 16.4) or later — or ask for the .ork'
+      + ' file, which opens here.');
+    err.name = UNSUPPORTED_ERROR_NAME;
+    throw err;
   }
   let inflated: Uint8Array;
   try {
