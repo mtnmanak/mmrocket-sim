@@ -208,7 +208,8 @@ describe('App hands the tested units what their fixes depend on', () => {
   it('the starter motor, ✕ New and a share link take their turn in the open sequence (row 303)', () => {
     const src = app();
     expect(src).toContain('setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)');
-    expect(src).toContain('planNewDesign({ launch, measured }, openSeq)');
+    // ✕ New hands planNewDesign the open sequence, with the measured figures cleared (row 297).
+    expect(src).toContain('planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq)');
     expect(src).toMatch(/void openShareLink\(hash, \{\s+openSeq,/);
   });
 });
