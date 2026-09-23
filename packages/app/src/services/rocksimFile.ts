@@ -1782,16 +1782,26 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         // Clusters: RockSim has no cluster concept — split into individual
         // tubes at the real cluster positions (the desktop does the same).
         const cluster = typeof node['cluster'] === 'string' ? (node['cluster'] as string) : undefined;
-        const offsets = clusterOffsets(cluster, nnum(node, 'outerRadius', 0.0095),
-          nnum(node, 'clusterScale', 1), nnum(node, 'clusterRotation', 0));
-        if (offsets.length === 1) {
-          emitInnerTube(node);
+        // Each tube where the KERNEL puts it (InnerTube.getClusterPoints): the
+        // pattern turned by clusterRotation − radialDirection, plus the tube's
+        // own offset of radialPosition along radialDirection. This used to pass
+        // neither angle nor offset (audit 2026-09-22, row 358, from review), so
+        // a clustered tube with its own direction was written unturned, and any
+        // tube set off the axis — clustered or single — was written ON it.
+        const rp = nnum(node, 'radialPosition', 0);
+        const rd = nnum(node, 'radialDirection', 0);
+        const centres = clusterOffsets(cluster, nnum(node, 'outerRadius', 0.0095),
+          nnum(node, 'clusterScale', 1), nnum(node, 'clusterRotation', 0), { radialDirection: rd })
+          .map((off) => ({ y: off.y + rp * Math.cos(rd), z: off.z + rp * Math.sin(rd) }));
+        // RockSim's RadialLoc/RadialAngle; an on-axis centre is written 0/0.
+        const polar = (c: { y: number; z: number }): [number, number] => {
+          const r = Math.hypot(c.y, c.z);
+          return r > 0 ? [r, Math.atan2(c.z, c.y)] : [0, 0];
+        };
+        if (centres.length === 1) {
+          emitInnerTube(node, ...polar(centres[0]!));
         } else {
-          offsets.forEach((off, i) => {
-            const r = Math.hypot(off.y, off.z);
-            const angle = Math.atan2(off.z, off.y);
-            emitInnerTube(node, r, angle, i === 0 ? '' : ` (${i + 1})`);
-          });
+          centres.forEach((c, i) => emitInnerTube(node, ...polar(c), i === 0 ? '' : ` (${i + 1})`));
         }
         break;
       }

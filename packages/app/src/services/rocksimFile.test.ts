@@ -262,6 +262,55 @@ describe('RockSim export → import round trip', () => {
     expect(back.notes.join(' ')).toMatch(/cluster/i);
   });
 
+  /**
+   * Every tube where the KERNEL puts it (InnerTube.getClusterPoints): the
+   * pattern turned by clusterRotation − radialDirection, plus the tube's own
+   * offset of radialPosition along radialDirection. The exporter passed neither
+   * (audit 2026-09-22, row 358, from review), so a clustered tube with its own
+   * direction went out unturned, and any off-axis tube went out on the axis.
+   */
+  it('writes each tube at the kernel’s position — its own direction and offset included', () => {
+    const R = 0.0095;
+    const xmlFor = (extra: Record<string, unknown>) => exportRkt({
+      name: 'C', tree: {
+        components: [{
+          type: 'stage' as const, id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube' as const, id: 'b', length: 0.3, outerRadius: 0.05, thickness: 0.001,
+            children: [{
+              type: 'innertube' as const, id: 'm', length: 0.07, outerRadius: R,
+              thickness: 0.0005, motorMount: true, ...extra,
+            }],
+          }],
+        }],
+      },
+    });
+    /** Each inside tube's centre, (y, z) in metres, from RadialLoc (mm) and RadialAngle (rad). */
+    const centres = (xml: string) => [...xml.matchAll(
+      /<IsInsideTube>1<\/IsInsideTube>\s*<RadialLoc>([^<]+)<\/RadialLoc>\s*<RadialAngle>([^<]+)<\/RadialAngle>/g)]
+      .map((m) => ({ y: (Number(m[1]) / 1000) * Math.cos(Number(m[2])), z: (Number(m[1]) / 1000) * Math.sin(Number(m[2])) }));
+    const expectAt = (got: { y: number; z: number }[], want: { y: number; z: number }[]) => {
+      expect(got.length).toBe(want.length);
+      got.forEach((c, i) => {
+        expect(c.y).toBeCloseTo(want[i]!.y, 9);
+        expect(c.z).toBeCloseTo(want[i]!.z, 9);
+      });
+    };
+    // A single tube 12 mm off the axis, at 90°.
+    expectAt(centres(xmlFor({ radialPosition: 0.012, radialDirection: Math.PI / 2 })), [{ y: 0, z: 0.012 }]);
+    // A 3-ring on the axis with a 30° direction: the kernel turns it by +30°.
+    const d = Math.PI / 6;
+    const turned = clusterOffsets('3-ring', R).map((o) => ({
+      y: o.y * Math.cos(d) - o.z * Math.sin(d), z: o.y * Math.sin(d) + o.z * Math.cos(d),
+    }));
+    expectAt(centres(xmlFor({ cluster: '3-ring', radialDirection: d })), turned);
+    // A 3-ring set 20 mm off the axis along 0°: every tube shifted with it.
+    expectAt(centres(xmlFor({ cluster: '3-ring', radialPosition: 0.02 })),
+      clusterOffsets('3-ring', R).map((o) => ({ y: o.y + 0.02, z: o.z })));
+    // And an on-axis tube still goes out as 0 / 0.
+    expect(xmlFor({})).toMatch(/<RadialLoc>0<\/RadialLoc>\s*<RadialAngle>0<\/RadialAngle>/);
+  });
+
   it('reconstructs a real-world ring despite RockSim rounding drift (Darkstar case)', () => {
     // the owner's 12in Darkstar: 6×75mm ring (RadialLoc 95.25 mm, exact 60° steps
     // in radians) around a central 98mm mount — but RockSim wrote tube 1's
