@@ -1599,9 +1599,10 @@ export interface OrkExportMotor {
    */
   autoDelay?: true;
   /**
-   * Where the PRIMARY's `delay` came from when it is on Auto: the delay its
-   * newest flight of the design as it stands flew (orkFlightData's
-   * flownAutoDelays), or — no such flight — its provisional first flight.
+   * Where the PRIMARY's `delay` came from when it is on Auto: the rounded
+   * optimum it flies there, from the newest flight of the design as it stands
+   * that flew it (orkFlightData's flownAutoDelays), or — no such flight — its
+   * provisional first flight.
    * Unset on every other mount, which flies the delay in its field
    * (flightRunner re-flies the primary only), so saving that loses nothing.
    */
@@ -1617,7 +1618,10 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): s
   if (!m.autoDelay || !m.autoDelayFrom) return null;
   const has = `“${m.designation}” is on Auto (optimal) delay, which a ${format} has no setting for`;
   return m.autoDelayFrom === 'flown'
-    ? `${has}: it is saved at ${m.delay} s, the delay its last flight here flew, and reopens fixed at that.`
+    // "The rounded optimum it flies on Auto", not "its last flight's delay":
+    // the flight it comes from is the newest that flew that optimum, and a
+    // newer one at a typed delay is passed over (flownAutoDelays).
+    ? `${has}: it is saved at ${m.delay} s, the rounded optimum it flies on Auto, and reopens fixed at that.`
     : `${has}, and no flight of the design as it stands says what Auto flies: it is saved at its provisional `
       + `${m.delay} s, and reopens fixed at that. Launch, then save, to keep the delay Auto flies.`;
 }

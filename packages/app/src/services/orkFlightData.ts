@@ -131,13 +131,25 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, M
  * longest listed, or 0 s for a motor that lists no numeric delay: on the
  * Cheetah probe a KBA G135R, loaded on Auto from RockSim's −1, flew 11 s and
  * deployed at 0.87 m/s, and reopened from either file at 0 s, deploying at
- * burnout at 250.9 m/s. The
- * delay its newest flight of the design as it stands flew — the rounded
- * optimum, `SimRun.delayS` — is what it flies, and so what the file says; a
- * primary with no such flight gets no entry, and the Save says so instead. A
- * flag of this app's own in the .ork was the other way, and was not taken:
- * desktop OpenRocket warns on an element it does not know and would still fly
- * the provisional delay.
+ * burnout at 250.9 m/s. Auto flies the rounded optimum (flightRunner.flyLaunch),
+ * so the delay its newest flight of the design as it stands flew AT that
+ * optimum is what it flies, and so what the file says; a primary with no such
+ * flight gets no entry, and the Save says so instead. A flag of this app's own
+ * in the .ork was the other way, and was not taken: desktop OpenRocket warns on
+ * an element it does not know and would still fly the provisional delay.
+ *
+ * AT THAT OPTIMUM, NOT ANY DELAY (review of the seam fixes). A run's motor-set
+ * key carries the spec delay and not the Auto flag (motorSetKeyOf), and
+ * ticking Auto changes nothing else, so a C6 flown at a fixed 3 s and then put
+ * on Auto matched as its flight, and was saved at 3 s "the delay its last
+ * flight here flew", where Auto flies it at 5 s. `recommendedDelayS` is the
+ * run's rounded optimum — the kernel's coast to apogee from burnout, computed
+ * past an early deployment (BasicEventSimulationEngine's computeCoastTime), so
+ * the delay flown does not move it — and a run that flew it flew what Auto
+ * flies, whether Auto was ticked or the same delay typed. A true Auto flight
+ * whose re-flown optimum rounds the other way (its optimum within the
+ * integrator's noise of a half second) is passed over: the Save then says it
+ * has no flight, the safe direction.
  */
 export function flownAutoDelays(input: FlightDataForExportInput): Record<string, number> {
   const out = lookupTable<number>({});
@@ -149,7 +161,9 @@ export function flownAutoDelays(input: FlightDataForExportInput): Record<string,
     if (!cfgMotors) continue;
     const primaryId = input.primaryMountOf(cfgMotors.map(([id]) => id));
     const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
-    if (primary?.meta.autoDelay === true && Number.isFinite(r.delayS)) out[key] = r.delayS;
+    if (primary?.meta.autoDelay === true && Number.isFinite(r.delayS) && r.delayS === r.recommendedDelayS) {
+      out[key] = r.delayS;
+    }
   }
   return out;
 }

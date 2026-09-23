@@ -2499,8 +2499,9 @@ export function App() {
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
-   * `primaryAuto`: set for a configuration's PRIMARY mount, with the delay its
-   * newest flight of the design flew on Auto (flownAutoDelaysNow), if any. An
+   * `primaryAuto`: set for a configuration's PRIMARY mount, with the rounded
+   * optimum it flies on Auto, from the newest flight of the design that flew
+   * that optimum (flownAutoDelaysNow), if any. An
    * Auto primary is written at that delay — what it flies — rather than its
    * provisional first flight, which a Save used to write and a reopen then
    * flew (seam review of audit 2026-09-22); with no such flight it keeps the
@@ -2651,11 +2652,11 @@ export function App() {
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
-   * The delay each Auto primary's newest flight of the design flew, by
-   * configuration id ('' for none) — what a .ork, a .rkt and a share link
-   * write for it (orkFlightData.flownAutoDelays), from the same input the
-   * results above are judged on, so a file never names one delay and carries
-   * the flight of another.
+   * The rounded optimum each Auto primary flies, from the newest flight of the
+   * design that flew it, by configuration id ('' for none) — what a .ork, a
+   * .rkt and a share link write for it (orkFlightData.flownAutoDelays), from
+   * the same input the results above are judged on, so a file never names one
+   * delay and carries the flight of another.
    */
   const flownAutoDelaysNow = (): Record<string, number> => flownAutoDelays(flightExportInput());
 

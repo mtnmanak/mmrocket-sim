@@ -291,7 +291,10 @@ describe('a Results panel that throws stays in its panel (audit 2026-09-22)', ()
  * no "Auto (optimal)", and a Save wrote the motor's provisional first-flight
  * delay, so the file reopened flying that, not what Auto flew. It now names
  * the delay the primary's newest flight of the design flew, and says when no
- * flight says what that is.
+ * flight says what that is. A flight at a FIXED delay, flown before Auto was
+ * ticked, still matches the design (the motor-set key has no Auto flag), and
+ * was taken for Auto's until the review of the seam fixes: the file said 3 s,
+ * "the delay its last flight here flew", where Auto flies 5 s.
  */
 describe('an Auto-delay motor saved as .ork', () => {
   it('is written at the delay its last flight flew, or said to be provisional', async () => {
@@ -306,7 +309,22 @@ describe('an Auto-delay motor saved as .ork', () => {
       // (the audit's own measurement), so the two delays can be told apart.
       const s = storedSession()!;
       const [mountId, starter] = Object.entries(s.mountMotors!)[0]!;
-      const rec = { ...starter, spec: { ...starter.spec, ejectionDelay: 3 }, meta: { ...starter.meta, autoDelay: true } };
+      const fixed = { ...starter, spec: { ...starter.spec, ejectionDelay: 3 } };
+      const rec = { ...fixed, meta: { ...starter.meta, autoDelay: true } };
+      const runs = () => JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1') ?? '[]') as
+        { delayS: number; recommendedDelayS: number | null }[];
+      const launch = async (host: HTMLElement) => {
+        await act(async () => {
+          [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+        });
+      };
+      // First a flight at the fixed 3 s, before Auto is ticked.
+      s.mountMotors = { [mountId]: fixed };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      await launch(await mountApp());
+      await waitFor(() => runs().length === 1, 'the fixed-delay flight to be saved');
+      expect([runs()[0]!.delayS, runs()[0]!.recommendedDelayS]).toEqual([3, 5]);
+      await unmountAll();
       s.mountMotors = { [mountId]: rec };
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
       const host = await mountApp();
@@ -319,23 +337,21 @@ describe('an Auto-delay motor saved as .ork', () => {
         const motors = vi.mocked(exportOrk).mock.calls.at(-1)![0].motors!;
         return motors[mountId]!;
       };
-      // No flight yet: the provisional delay, and the Save says so.
+      // No flight ON AUTO yet — the 3 s one flew another delay — so the
+      // provisional delay, and the Save says so.
       const before = await saveOrk();
       expect(before.delay).toBe(rec.spec.ejectionDelay);
       expect(before.autoDelayFrom).toBe('provisional');
       expect(document.body.textContent).toContain(`it is saved at its provisional ${rec.spec.ejectionDelay} s`);
       // Launch: Auto re-flies at the rounded optimum, and the run records it.
-      await act(async () => {
-        [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
-      });
-      await waitFor(() => (JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1') ?? '[]') as unknown[]).length > 0,
-        'the flight to be saved');
-      const [run] = JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1')!) as { delayS: number }[];
-      expect(run!.delayS).not.toBe(3);
+      await launch(host);
+      await waitFor(() => runs().length === 2, 'the flight to be saved');
+      const [run] = runs();
+      expect([run!.delayS, run!.recommendedDelayS]).toEqual([5, 5]);
       const after = await saveOrk();
       expect(after.delay).toBe(run!.delayS);
       expect(after.autoDelayFrom).toBe('flown');
-      expect(document.body.textContent).toContain(`it is saved at ${run!.delayS} s, the delay its last flight here flew`);
+      expect(document.body.textContent).toContain(`it is saved at ${run!.delayS} s, the rounded optimum it flies on Auto`);
     } finally {
       made.mockRestore();
       revoked.mockRestore();

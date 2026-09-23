@@ -42,6 +42,7 @@ const RUN: SimRun = {
   rodExitVelocity: 19.3,
   velocityAtDeployment: 12.1,
   optimumDelayS: 7,
+  recommendedDelayS: 7,
 } as unknown as SimRun;
 
 const CONFIG: SavedConfig = {
@@ -269,7 +270,7 @@ describe('flownAutoDelays — what an Auto primary flew, and what the file names
     expect(flownAutoDelays(input)).toEqual({ c1: 7 });
     // And the file, now naming 7 s, carries that flight's results.
     expect(Object.keys(flightDataForExport(input))).toEqual(['c1']);
-    const newer = { ...RUN, id: 'r0', delayS: 6 } as SimRun;
+    const newer = { ...RUN, id: 'r0', delayS: 6, recommendedDelayS: 6 } as SimRun;
     expect(flownAutoDelays(base({ runs: [newer, RUN], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 6 });
   });
 
@@ -279,6 +280,24 @@ describe('flownAutoDelays — what an Auto primary flew, and what the file names
       .toEqual({ '': 7 });
     // Not while a configuration is on screen: that flight was not of this set.
     expect(flownAutoDelays(base({ runs: [loose], assigned: [['m1', auto(0)]] }))).toEqual({});
+  });
+
+  /**
+   * A FLIGHT AT A FIXED DELAY IS NOT AUTO'S (review of the seam fixes). A run's
+   * motor-set key carries the spec delay and not the Auto flag (motorSetKeyOf),
+   * and ticking Auto (optimal) changes nothing else, so a C6 flown at a fixed
+   * 3 s and then put on Auto matched as its flight: saved at 3 s, "the delay
+   * its last flight here flew", where Auto flies its rounded optimum, 5 s.
+   */
+  it('takes only a flight that flew its rounded optimum — the delay Auto flies', () => {
+    const fixed = { ...RUN, id: 'r0', delayS: 3, recommendedDelayS: 5 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [fixed], assigned: [['m1', auto(3)]] }))).toEqual({});
+    // An older flight on Auto behind it still says what Auto flies.
+    const onAuto = { ...RUN, delayS: 5, recommendedDelayS: 5 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [fixed, onAuto], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 5 });
+    // No optimum at all: nothing says what Auto flies.
+    const none = { ...RUN, recommendedDelayS: null } as unknown as SimRun;
+    expect(flownAutoDelays(base({ runs: [none], assigned: [['m1', auto(3)]] }))).toEqual({});
   });
 
   it('names nothing for a primary not on Auto, or with no flight of the design as it stands', () => {

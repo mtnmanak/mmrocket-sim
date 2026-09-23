@@ -1463,7 +1463,7 @@ describe('RockSim ejection-delay sentinels', () => {
     expect(exportRkt({ name: 'C', tree: r.tree, notes: flown, motors: { [id]: c6(5, 'flown') } }))
       .toContain('<EjectionDelay>5</EjectionDelay>');
     expect(flown).toEqual(['“C6” is on Auto (optimal) delay, which a .rkt has no setting for: it is saved at 5 s, '
-      + 'the delay its last flight here flew, and reopens fixed at that.']);
+      + 'the rounded optimum it flies on Auto, and reopens fixed at that.']);
     const provisional: string[] = [];
     expect(exportRkt({ name: 'C', tree: r.tree, notes: provisional, motors: { [id]: c6(7, 'provisional') } }))
       .toContain('<EjectionDelay>7</EjectionDelay>');
