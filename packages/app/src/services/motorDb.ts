@@ -499,6 +499,15 @@ export function manufacturerMatches(fileName: string | undefined, abbrev: string
 }
 
 /**
+ * Does `short` begin `long` without cutting a number in two — is the character
+ * that follows it in `long` anything but a digit? “h128” begins “h128w” and
+ * “g115” begins “g115-wt”; “g11” does not begin “g115-wt”. See findDbMotor.
+ */
+function prefixWithoutSplit(short: string, long: string): boolean {
+  return long.startsWith(short) && !/\d/.test(long.charAt(short.length));
+}
+
+/**
  * Finds the bundled-DB motor a .ork file refers to. Desktop files store the
  * catalog designation (sometimes the display form, sometimes with prefixes),
  * so match raw designation, display designation, and common name — using the
@@ -511,6 +520,18 @@ export function manufacturerMatches(fileName: string | undefined, abbrev: string
  * resolved to AeroTech's (136.6 Ns against PML's 116.25 Ns — 17.5 % of total
  * impulse), and Apogee's E6/F10 resolved to AeroTech's. Omitting the argument
  * reproduces the old ordering exactly, so every existing caller is unchanged.
+ *
+ * A PREFIX MAY NOT CUT A NUMBER IN TWO (audit 2026-09-23). The prefix tests
+ * below were bare `startsWith`, so RockSim's “G115-WT” — Cesaroni's 38 mm G115
+ * White Thunder — began with AeroTech's “G11” and opened on that 29 mm motor
+ * plugged: Apogee's Katana-38mm.rkt fell from 533.8 m to 0.2 m, and seven more
+ * of the owner's RockSim files named it. The same shape sent CTI's G118-BS and
+ * I800-Vmax, Hypertek's J100 (to Loki's J1000) and a bare “H55” (to the H550ST)
+ * to the wrong motor. A delay or propellant suffix begins with a delimiter
+ * (“I224-15A”) or a letter (“H128W”), never with another digit, so the guard
+ * is exactly that: the character after the prefix, in the longer string, is not
+ * a digit. statedLaunchWeight's namesSameMotor has carried the same guard since
+ * 2026-09-08; the two are one rule.
  */
 export function findDbMotor(
   designation: string,
@@ -525,9 +546,9 @@ export function findDbMotor(
     const disp = displayDesignation(m.designation, m.manufacturerAbbrev).toLowerCase();
     if (raw === want || disp === want) return 0;
     // Delay-suffix tolerance: "I224-15A" in the file vs "I224" cataloged, or
-    // the file omitting the delay the catalog lists.
-    if (raw.startsWith(want) || disp.startsWith(want)
-      || want.startsWith(disp) || m.commonName.toLowerCase() === want) return 1;
+    // the file omitting the delay the catalog lists — never by cutting a number.
+    if (prefixWithoutSplit(want, raw) || prefixWithoutSplit(want, disp)
+      || prefixWithoutSplit(disp, want) || m.commonName.toLowerCase() === want) return 1;
     return -1;
   };
   const candidates = motors

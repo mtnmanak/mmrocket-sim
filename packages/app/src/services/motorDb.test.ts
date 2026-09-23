@@ -208,6 +208,35 @@ describe('findDbMotor (.ork motor matching)', () => {
     expect(findDbMotor('Z9999-XX')).toBeNull();
     expect(findDbMotor('')).toBeNull();
   });
+
+  /**
+   * A PREFIX MAY NOT CUT A NUMBER IN TWO (audit 2026-09-23). RockSim's
+   * “G115-WT” — Cesaroni's 38 mm G115 — began with AeroTech's “G11”, and eight
+   * RockSim files opened on that 29 mm motor plugged: the owner's Apogee
+   * Katana-38mm.rkt flew to 0.2 m instead of 533.8. Every case below is a
+   * reference from the owner's RockSim collection or tester uploads, with what
+   * the bare prefix used to pick.
+   */
+  it('never matches by cutting a number in two', () => {
+    const des = (d: string, mfr?: string) => findDbMotor(d, undefined, undefined, mfr)?.designation ?? null;
+    expect(des('G115-WT', 'Cesaroni Technology Inc.')).not.toBe('G11');
+    expect(des('G118-BS', 'CTI')).not.toBe('G11');
+    expect(des('G117WH', 'Cesaroni Technology Inc.')).not.toBe('G11');
+    expect(des('H55', 'unknown')).toBe('H55W');                             // was the 38 mm H550ST
+    expect(des('J100', 'HYPER')).toBeNull();                                // was Loki's J1000-LW
+    expect(des('I800-Vmax', 'Cesaroni Technology Inc.')).toBeNull();        // was RATT's I80
+    // The catalogue's own short common names now find their own rows.
+    expect(des('G8', 'AeroTech')).toBe('G8ST');                             // was the G80T
+    expect(des('H13', 'AeroTech')).toBe('H13ST');                           // was the H130W
+    expect(des('I59', 'AeroTech')).toBe('I59WN');                           // was the I599N
+  });
+
+  it('still takes a delay or propellant suffix on either side', () => {
+    expect(findDbMotor('h128')?.designation).toBe('H128W');
+    expect(findDbMotor('H128W-14A')?.designation).toBe('H128W');
+    expect(findDbMotor('I224-15A')?.designation).toBe('381I224-15A');
+    expect(findDbMotor('G80T-7', 29, undefined, 'AeroTech')?.designation).toBe('G80T');
+  });
 });
 
 /**

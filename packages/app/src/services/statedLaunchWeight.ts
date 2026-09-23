@@ -183,7 +183,9 @@ export const stageLength = (st: ComponentNode | undefined): number =>
  * with another digit, so the guard is exactly that: the character after the
  * prefix in the longer string must not be a digit. No pair in the shipped
  * 1,155-row catalogue was affected either way; this closes the shape, not a
- * reported bug.
+ * reported bug. findDbMotor itself did not carry the guard until audit
+ * 2026-09-23, so for two weeks this "mirror" had it while the matcher sent
+ * RockSim's “G115-WT” to AeroTech's G11. Both carry it now.
  *
  * Kept as string comparison rather than a `findDbMotor` call so this module
  * stays free of the 1,155-row catalogue — `orkFile.ts` imports it, and the
