@@ -698,9 +698,10 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  *
- * Bumping made them UNREACHABLE; it never freed them. Four generations have
+ * Bumping made them UNREACHABLE; it never freed them. Five generations have
  * shipped — `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
- * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` from v0.111 — and the
+ * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in v0.111-v0.115,
+ * `tc:samples:v5:` from v0.116 (below) — and the
  * beta invite went out 2026-08-22, so day-one testers hold dead generations
  * that can never be read and, until sweepDeadGenerations() below, could never
  * be freed either. Whoever bumps this next: change only the version segment,

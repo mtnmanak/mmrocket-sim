@@ -7,9 +7,8 @@ import { ComponentTree } from './ComponentTree.js';
 import { duplicateNode, moveNode, removeNode } from '../tree/treeModel.js';
 
 /**
- * The component tree is the ONLY complete list of what a design contains, and
- * the only way to reach the rocket-level property panel. Two things were
- * mouse-only or unnamed in it, and both are pinned here.
+ * The component tree is the ONLY complete list of what a design contains. Two
+ * things were mouse-only or unnamed in it, and both are pinned here.
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,10 +59,10 @@ const rootRow = () => host.querySelector('.tree-row-root') as HTMLElement;
 
 describe('the root "Rocket" row', () => {
   it('is a tab stop and activates on Enter and on Space', () => {
-    // It was a bare onClick <div>: no tabIndex, no key handler. Selecting the
-    // root is the only route to the rocket-level property panel, so that panel
-    // was unreachable without a mouse while every other row went through
-    // clickable().
+    // It was a bare onClick <div>: no tabIndex, no key handler, while every
+    // other row went through clickable(). Selecting the root is how the
+    // keyboard clears a component selection (App maps '' to none), so it was
+    // mouse-only.
     show(null);
     expect(rootRow().tabIndex).toBe(0);
 

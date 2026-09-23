@@ -255,8 +255,9 @@ export function presetPatch(
       // 0.8, line count 6, line length 0.3 m, both materials), and so does this.
       const pos = (v: number | undefined) => (v !== undefined && v > 0 ? v : undefined);
       own('diameter', pos(n(p, 'diameter')));
-      // Manufacturer-rated canopy Cd (referenced to the nominal diameter).
-      // Dropping this silently falls back to the kernel default 0.8 — a
+      // Manufacturer-rated canopy Cd — referenced to the canopy area MINUS the
+      // spill hole, not the nominal diameter (see the hole, below). Dropping
+      // this silently falls back to the kernel default 0.8 — a
       // Fruity Chutes Iris Ultra (Cd 2.2) then descends 1.66× too fast. A row
       // with no rated Cd (217 of 473, measured 2026-09-22) flies that default,
       // NOT the previous canopy's rating.

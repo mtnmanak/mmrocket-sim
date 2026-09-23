@@ -299,9 +299,10 @@ export function ComponentTree({
     <div>
       <div className="tree-box" role="tree" aria-label="Rocket components" ref={boxRef}>
         {/* The root row was a bare onClick div — no tab stop, no key handler —
-            while every other row went through clickable(). Selecting the root
-            is the ONLY way to reach the rocket-level property panel, so that
-            panel was unreachable without a mouse. */}
+            while every other row went through clickable(). It is the tree's
+            first row and its fallback tab stop (rove), and selecting it is how
+            the keyboard clears a component selection (the property panel goes
+            back to its prompt), so it has to work without a mouse. */}
         <div className="tree-row tree-row-root"
           role="treeitem" aria-level={1} aria-selected={selectedId === ''}
           aria-expanded={tree.components.length > 0}

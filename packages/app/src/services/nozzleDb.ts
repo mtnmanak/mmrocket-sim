@@ -125,11 +125,10 @@ function toEntry(m: RawMotor): NozzleEntry | null {
   // of being cast away. This is the check the old `motorId: string` lie was hiding.
   if (typeof m.motorId !== 'string' || !m.motorId) return null;
   const d = m.exitDiameterM;
-  // A motor row can exist with no usable exit. TEN do (2026-09-14, from review — this said
-  // "one does", a count that predates v0.127 and v0.131 and was not touched while the lines
-  // below it were edited, in a release whose whole subject was counts going stale): nine
-  // AeroTech rows and Loki's N3800-LW, whose throat is known and whose exit Loki do not
-  // publish above 76 mm.
+  // A motor row can exist with no usable exit. NINE do in the shipped file (2026-09-23):
+  // eight AeroTech rows (see nozzleForMotorId) and Loki's N3800-LW, whose throat is known
+  // and whose exit Loki do not publish above 76 mm. (It said "one does" until 2026-09-14,
+  // then TEN until v0.133 gave the I65W-PS its exit — the count moves with every rebuild.)
   // Returning it would fill the field with nothing, which is the one outcome
   // worse than leaving it blank.
   if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
@@ -177,16 +176,17 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  * Keyed on `motorId` and NOT on the designation: designations repeat across
  * manufacturers and across a motor's own history, and the database is built
  * against a dated catalogue snapshot. An id that has no row simply has nothing
- * published — 221 of AeroTech's 272 in-production motors have a figure since
- * v0.131 added their DMS single-use drawings, and 54 of Loki's 58. NINE
- * AeroTech rows exist with no number on purpose — this said EIGHT and then listed
- * eight, while the file held nine (2026-09-14, from review; 1+4+2+1 = 8, and the
- * Medusa was the one left out, even though v0.131's own changelog entry names it):
- * the J615ST aerospike (no exit plane at all), four 29 mm DMS motors whose nozzle is
- * moulded into the case, two on a machined part that states an O.D. and no exit, one
- * whose sheet says the nozzle was cut shorter than its mould, and the I65W-PS Medusa. Cesaroni publish nothing anyone has found; see the
- * file's own `coverage` and `gaps`, which are counted at build time rather than
- * written down, so the numbers in this sentence can be checked against it.
+ * published. Counted off the shipped file on 2026-09-23 (its `coverage`, summed
+ * per maker — `withExitDiameter`, never `withNozzleRow`): 222 of AeroTech's 272
+ * in-production motors have a figure, and 54 of Loki's 58. EIGHT AeroTech rows
+ * exist with no number on purpose: the J615ST aerospike (no exit plane at all),
+ * four 29 mm DMS motors whose nozzle is moulded into the case, two on a machined
+ * part that states an O.D. and no exit, and one whose sheet says the nozzle was
+ * cut shorter than its mould. (This said NINE, counting the I65W-PS Medusa, until
+ * v0.133 read its exit off part 01700-1.) Cesaroni publish nothing anyone has
+ * found. These figures move with every rebuild; the file's own `coverage` and
+ * `gaps` are counted at build time, so check this sentence against them rather
+ * than quoting it.
  */
 export async function nozzleForMotorId(motorId: string | undefined): Promise<NozzleEntry | null> {
   if (!motorId) return null;
