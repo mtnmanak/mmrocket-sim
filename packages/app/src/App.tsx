@@ -126,6 +126,7 @@ import {
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
+import { useTreeHistory } from './hooks/useTreeHistory.js';
 
 /** One mount's assigned motor (Release C: every mount can hold its own). */
 export interface MountMotor {
@@ -390,7 +391,16 @@ export function App() {
   // default-motor assignment and legacy migrations would key onto ghosts.
   const [initialTree] = useState<RocketTree>(
     () => normalizeTree(session?.tree ?? defaultTree()));
-  const [tree, setTreeRaw] = useState<RocketTree>(initialTree);
+  // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
+  // 2026-09-22 extraction #4). `onRestore` is read at call time, so it may name
+  // `spendSpentMarks`, declared further down (a tree off the stack under the
+  // motors mounted now).
+  const {
+    tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
+    canUndo, canRedo,
+  } = useTreeHistory(initialTree, {
+    onRestore: (t) => spendSpentMarks.current(t),
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Component clipboard (copy/cut → paste into another parent). Holds the
   // node AS COPIED — a later cut/delete of the original doesn't affect it.
@@ -1071,51 +1081,9 @@ export function App() {
 
   // ---- undo / redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / buttons) ----
   //
-  // Undo has been here since v0.013 — 50 steps, every design-tree change,
-  // gestures coalesced. v0.089 adds the other half: a REDO stack, and
-  // disabled states so the buttons stop being silent no-ops. (The owner's
-  // 2026-08-31b note assumed neither existed; the response doc corrects the
-  // record with the v0.013/v0.031/v0.033 provenance.)
-  //
-  // The stacks are REFS — they must not re-render the whole App on every
-  // push — so a tiny version counter is bumped wherever they change, and THAT
-  // is what the buttons' disabled state renders from.
-  const history = useRef<RocketTree[]>([]);
-  const future = useRef<RocketTree[]>([]);
-  const lastEditAt = useRef(0);
-  const [, bumpHist] = useReducer((x: number) => x + 1, 0);
-  /**
-   * The live tree, mirrored into a ref so the stack operations can read it
-   * WITHOUT running inside a state updater.
-   *
-   * This matters more than it looks: main.tsx wraps the app in `<StrictMode>`,
-   * and React deliberately double-invokes updater functions in development to
-   * surface impurity. Mutating `history`/`future` inside one therefore pops
-   * twice per Ctrl+Z under `npm run dev` — every other undo state skipped, and
-   * duplicate redo entries. Production is unaffected, which is exactly what
-   * makes it dangerous: the next tester bug reproduced locally would look like
-   * a shipped defect. Refs are mutated out here; the updaters take plain
-   * values and stay pure.
-   *
-   * IT IS THE LATEST TREE, NOT THE LAST RENDERED ONE (2026-09-08, from review).
-   * Every writer below advances it as it writes, so two handlers running in the
-   * SAME tick compose: the second reads what the first wrote instead of the
-   * pre-batch snapshot React has not re-rendered yet. That is not theoretical —
-   * `assignMotor` runs after an awaited curve fetch (`MotorPicker.pick`), so
-   * two quick-picks on a two-stage design can land in one flush, and building
-   * both writes from the render-time `tree` discarded the first: one stage kept
-   * its mark and its motor-inclusive override under a mounted motor, which is
-   * the exact double count the mark exists to prevent, with no route left to
-   * rescan it. Assignments happen in handlers, never inside an updater, so the
-   * StrictMode purity rule above is untouched.
-   */
-  const treeRef = useRef(tree);
-  treeRef.current = tree;
-  /** setTreeRaw + the mirror, so no writer can leave the two disagreeing. */
-  const writeTree = useCallback((next: RocketTree) => {
-    treeRef.current = next;
-    setTreeRaw(next);
-  }, []);
+  // The stacks, the 800 ms coalescing, the cap of 50 and the key binding live in
+  // hooks/useTreeHistory.ts (called with the tree state, above), tested there.
+  // What stays here is what only App knows: what a restored tree needs.
   /**
    * A tree coming BACK off the undo/redo stack, with any stated-launch-weight
    * mark a currently-mounted motor has already spent taken off it again.
@@ -1142,8 +1110,8 @@ export function App() {
    * notice bar is the one place the app says what it did to a number, and this
    * is a number it changed.
    *
-   * Held in a ref because `undo`/`redo` are `useCallback([])` and must not
-   * close over a render's `mountMotors`.
+   * Held in a ref because `undo`/`redo` are stable callbacks (the history
+   * hook's) and must not close over a render's `mountMotors`.
    */
   const spendSpentMarks = useRef<(t: RocketTree) => RocketTree>((t) => t);
   spendSpentMarks.current = (t) => {
@@ -1151,86 +1119,6 @@ export function App() {
     if (spent.notes.length) setFileNote(spent.notes.join('\n'), spent.severity);
     return spent.tree;
   };
-  const setTree = useCallback((next: RocketTree) => {
-    // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
-    // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
-    // and Ctrl+Z steps back a pixel at a time.
-    const now = Date.now();
-    if (now - lastEditAt.current > 800) {
-      history.current.push(treeRef.current);
-      if (history.current.length > 50) history.current.shift();
-    }
-    lastEditAt.current = now;
-    // EVERY user edit forks the timeline, coalesced or not. Clearing the redo
-    // stack only inside the push branch would leave a stale future that a
-    // later Ctrl+Shift+Z teleports the design into.
-    future.current = [];
-    bumpHist();
-    writeTree(next);
-  }, [writeTree]);
-  const undo = useCallback(() => {
-    const prev = history.current.pop();
-    if (!prev) return;
-    future.current.push(treeRef.current);
-    // Never coalesce ACROSS an undo: without this, an edit within 800 ms of
-    // the last pre-undo edit skips the history push and the state the user
-    // just restored becomes unrecoverable.
-    lastEditAt.current = 0;
-    bumpHist();
-    writeTree(spendSpentMarks.current(prev));
-  }, [writeTree]);
-  const redo = useCallback(() => {
-    const next = future.current.pop();
-    if (!next) return;
-    // Push UNCONDITIONALLY — bypassing the 800 ms coalesce test — and reset
-    // the clock so the next real edit cannot merge into the redone state.
-    // The same bug class the v0.031 no-coalesce-across-undo fix closed.
-    history.current.push(treeRef.current);
-    if (history.current.length > 50) history.current.shift();
-    lastEditAt.current = 0;
-    bumpHist();
-    writeTree(spendSpentMarks.current(next));
-  }, [writeTree]);
-  /**
-   * A ONE-SHOT whole-tree transform (Scale) must be exactly one undo step and
-   * must not merge with its neighbours. `setTree`'s 800 ms coalescing window is
-   * right for a drag and wrong here: press Scale within 800 ms of typing in a
-   * field and the transform would silently join that keystroke's step, so
-   * Ctrl+Z would take back both — or neither, depending on the timing.
-   *
-   * Pushes unconditionally and resets the clock afterwards, the same shape as
-   * `redo` above and for the same reason. Refs are mutated out here, never
-   * inside a `setTreeRaw` updater — see the StrictMode note on `treeRef`.
-   */
-  const commitTreeStep = useCallback((next: RocketTree) => {
-    history.current.push(treeRef.current);
-    if (history.current.length > 50) history.current.shift();
-    future.current = [];
-    lastEditAt.current = 0;
-    bumpHist();
-    writeTree(next);
-  }, [writeTree]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const z = e.key.toLowerCase() === 'z';
-      const y = e.key.toLowerCase() === 'y';
-      if ((e.ctrlKey || e.metaKey) && (z || y)) {
-        // Leave native text undo/redo alone while the user is typing.
-        const t = e.target;
-        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
-            || (t instanceof HTMLElement && t.isContentEditable)) {
-          return;
-        }
-        e.preventDefault();
-        // Shift decides BEFORE the z test: Ctrl+Shift+Z used to fall through
-        // to undo, which was a misbinding, not a feature.
-        if (y || (z && e.shiftKey)) redo();
-        else undo();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
 
   // ---- engine build + static analysis on every tree change ----
   // KEYED ON `tree.components`, NOT `tree`. The Rocket name input does
@@ -3311,7 +3199,7 @@ export function App() {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
     const hash = window.location.hash;
-    // window.history explicitly — plain `history` is this component's undo ref.
+    // window.history explicitly: the browser's, not the design's undo history.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     void (async () => {
       try {
@@ -3724,11 +3612,11 @@ export function App() {
           {/* Undo lives in the header so it's reachable from EVERY tab —
               Ctrl+Z has worked globally since v0.013, but nothing advertised
               it outside the Design tab (issue 2026-08-05a #20). */}
-          <button className="file-btn" onClick={undo} disabled={history.current.length === 0}
+          <button className="file-btn" onClick={undo} disabled={!canUndo}
             title="Undo the last change to the design tree (Ctrl+Z) — 50 steps. Motors and launch conditions are not part of undo.">
             ↩ Undo
           </button>
-          <button className="file-btn" onClick={redo} disabled={future.current.length === 0}
+          <button className="file-btn" onClick={redo} disabled={!canRedo}
             title="Redo the change you just undid (Ctrl+Shift+Z or Ctrl+Y) — a new edit clears what is left to redo">
             ↪ Redo
           </button>
@@ -4283,9 +4171,9 @@ export function App() {
               >
                 ⤢ Scale…
               </button>
-              <button className="file-btn" onClick={undo} disabled={history.current.length === 0}
+              <button className="file-btn" onClick={undo} disabled={!canUndo}
                 title="Undo the last design-tree change (Ctrl+Z)">↩ Undo</button>
-              <button className="file-btn" onClick={redo} disabled={future.current.length === 0}
+              <button className="file-btn" onClick={redo} disabled={!canRedo}
                 title="Redo (Ctrl+Shift+Z or Ctrl+Y)">↪ Redo</button>
             </div>
             <div className="field" style={{ marginBottom: 8 }}>
