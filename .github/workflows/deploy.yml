@@ -14,12 +14,35 @@
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   CLOUDFLARE_API_TOKEN   API token with the "Cloudflare Pages: Edit" permission
 #   CLOUDFLARE_ACCOUNT_ID  the account id (also shown by `npx wrangler whoami`)
+#
+# TWO JOBS, AND WHY (audit 2026-09-22). This was one job, so `npm ci`, the tests and
+# the build — ~550 third-party packages' code, install scripts included — ran in the
+# same job as CLOUDFLARE_API_TOKEN, and any one of them could have published to the
+# live beta. Now:
+#   build   holds no secret and a read-only token. It runs the whole gate, in the
+#           order it always had (version pairing -> npm ci -> typecheck -> lint ->
+#           test -> build -> copy version.json), and uploads the finished dist/.
+#   deploy  holds the Cloudflare secrets and runs NONE of the repo's dependencies.
+#           It downloads that dist/ (the artifact is digest-checked), installs the
+#           one pinned wrangler in a step with no secret in it, and publishes.
+#
+# PINNING. Every action is pinned to a commit SHA, with its release tag in the
+# comment: a tag can be moved, a SHA cannot. .github/dependabot.yml proposes the
+# bumps, one grouped PR a month. The wrangler CLI is pinned to an exact version
+# below; Dependabot does not read that, so bump it by hand.
+#
+# `main` has no branch protection: pushing to it IS the deploy (a repository
+# setting, left to the owner).
 
 name: Deploy
 
 on:
   push:
     branches: [main]
+  # "Run workflow" from the Actions tab. From main it deploys; from any other
+  # branch it runs the build job's gate only — the deploy job's `if` refuses
+  # every ref but main, because the command below hard-codes --branch=main and
+  # would otherwise publish unmerged code to every tester.
   workflow_dispatch:
 
 # Never let two deploys race; a Pages deploy replaces the live build wholesale.
@@ -31,12 +54,18 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    # Recent runs of the whole single job took 2m53s-3m58s. Without a limit a hung
+    # step holds the concurrency group for GitHub's 6 h default, and every deploy
+    # queued behind it waits — a safety hotfix included.
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -74,7 +103,8 @@ jobs:
       # green build. `npm run typecheck` is that missing local signal, and putting
       # it first here is the same fail-fast reasoning as the version-pairing step
       # above. It builds the engine package because the app typechecks against the
-      # engine's emitted dist/index.d.ts.
+      # engine's emitted dist/index.d.ts — which the type-aware lint rules in the
+      # next step read too.
       - run: npm run typecheck
 
       # ESLint. The rule set is deliberately small (see eslint.config.mjs for what
@@ -97,15 +127,72 @@ jobs:
       # committed), which also makes this the fresh-clone smoke test.
       - run: npm test
 
+      # Also fails if the offline precache misses a built file (vite.config.ts,
+      # precacheCoversBuild).
       - run: npm run build
 
       - run: cp version.json packages/app/dist/
 
-      - uses: cloudflare/wrangler-action@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-dist
+          path: packages/app/dist
+          if-no-files-found: error
+          # The deploy job reads it minutes later; Cloudflare keeps every
+          # deployment itself, so this copy is not a rollback store.
+          retention-days: 3
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Nothing here calls the GitHub API: the artifact comes from this same run,
+    # which needs no token, and the checkout below is of a public repository.
+    permissions:
+      contents: read
+    steps:
+      # ONLY for git metadata: wrangler reads the commit hash and message from the
+      # working directory and shows them against the deployment in Cloudflare's
+      # dashboard, as it did when this was one job. A sparse checkout of the root
+      # .gitignore alone: package.json and the lockfile stay OUT, so the wrangler
+      # install below cannot turn into an install of the repo's whole dependency
+      # tree, and the .gitignore keeps the downloaded dist/ and node_modules/ from
+      # reading as uncommitted changes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: /.gitignore
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: app-dist
+          path: packages/app/dist
+
+      # Installed HERE, in a step that holds no secret, not by the action below.
+      # wrangler-action exports CLOUDFLARE_API_TOKEN into its own environment
+      # BEFORE it runs `npm i wrangler@…` (v4.0.0, main(): authenticationSetup,
+      # then installWrangler), so every install script in wrangler's tree would
+      # have run with the token in reach. Given this exact version already
+      # installed, the action skips its own install. --no-package-lock keeps the
+      # working tree clean for wrangler's dirty check.
+      - name: Install the pinned wrangler (no secret in this step)
+        run: npm install --no-save --no-package-lock wrangler@4.136.0
+
+      - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4"
+          # EXACT, and the same as the install step above: a range here ("4")
+          # would let a different wrangler into the step that holds the token.
+          # 4.136.0 is the version the last single-job deploy installed
+          # (run 35611837263, 2026-09-21).
+          wranglerVersion: "4.136.0"
           # --branch is explicit because checkout leaves a detached HEAD, and
           # without it the deploy would not be marked production.
           command: pages deploy packages/app/dist --project-name=online-open-rocket --branch=main

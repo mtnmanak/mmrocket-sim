@@ -94,7 +94,7 @@ jobs:
       BRANCH: chore/motors-refresh
       DATA: packages/app/src/data
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # NO TOKEN LEFT IN .git/config. This job holds `contents: write` and
           # then runs `npm ci`, which executes the install scripts of ~1,000
@@ -106,7 +106,7 @@ jobs:
           # for the one command that needs it.
           persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -251,10 +251,11 @@ jobs:
 
       # gh, not a third-party action, for three reasons:
       #  1. gh is pre-installed on ubuntu-latest, so nothing new runs with
-      #     `contents: write` in this repo. deploy.yml uses only two first-party
-      #     GitHub actions and Cloudflare's own; a marketplace action here would be
-      #     this repo's first third-party code with write access to its own source,
-      #     needing a SHA pin and a watcher forever.
+      #     `contents: write` in this repo. deploy.yml uses only GitHub's own
+      #     actions and Cloudflare's; a marketplace action here would be this
+      #     repo's first third-party code with write access to its own source.
+      #     (Every action here and there is pinned to a commit SHA, and
+      #     .github/dependabot.yml watches the pins.)
       #  2. What we want is ~10 lines. peter-evans/create-pull-request earns its
       #     keep with branch/commit bookkeeping we specifically do NOT want — it
       #     manages accumulating commits, where the rule here is main + exactly one.
