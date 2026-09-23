@@ -9,7 +9,7 @@ import {
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, isHighPower, type MotorDbEntry } from './motorDb.js';
-import { delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
+import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './simReport.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
@@ -289,13 +289,27 @@ export function batchRowKey(configTag: string, motorIds: readonly string[]): str
  *    a charge at burnout that the motor does not have (audit 2026-09-22);
  *    batchDelayRule decides what a flight with no charge then flies.
  *
- * delayOptions never returns an empty list — no listed delays reads as [0] —
- * so the last option always exists.
+ * A motor that lists NO delay at all (delayOptions returns [] since the
+ * row-363 fix; it used to read as [0]) starts at 0 in both modes. That is
+ * what the browser flies too: its default pick for such a motor is "Auto
+ * (optimal)" (`defaultDelay(picked) ?? 'auto'`), whose first flight is
+ * `finite[finite.length - 1] ?? 0` before App re-flies at the optimum. So
+ * the sweep re-flies such a candidate at its optimum even unticked — see
+ * `listsNoDelay` and flyLegs.
  */
 export function provisionalDelay(entry: TcMotor, autoDelay: boolean): number {
-  const opts = delayOptions(entry);
-  const finite = opts.filter((d) => Number.isFinite(d));
-  return finite[finite.length - 1] ?? (autoDelay ? 0 : opts[opts.length - 1]!);
+  const finite = delayOptions(entry).filter((d) => Number.isFinite(d));
+  return autoDelay ? finite[finite.length - 1] ?? 0 : defaultDelay(entry) ?? 0;
+}
+
+/**
+ * True when the catalogue lists no delay for this motor, so the browser would
+ * default it to "Auto (optimal)". Unticked, the sweep flies such a candidate
+ * as the browser would — at its rounded optimum — rather than with a charge
+ * at burnout the motor was never sold with.
+ */
+export function listsNoDelay(entry: TcMotor): boolean {
+  return defaultDelay(entry) === null;
 }
 
 /** The deploy events the kernel does NOT read as the ejection charge (ComponentFactory.deployEventOf). */
@@ -586,7 +600,7 @@ export async function runBatchSweep(
    */
   const flyLegs = (
     rocket: OrkRocket,
-    legs: readonly { mountId: string; spec: MotorSpec }[],
+    legs: readonly { mountId: string; spec: MotorSpec; noListedDelay?: boolean }[],
     probeTree: RocketTree,
     replacedMountId?: string,
   ) => {
@@ -630,10 +644,13 @@ export async function runBatchSweep(
       usedSupersonic = true;
       res = flyTimed();
     }
+    // A candidate whose every motor lists no delay flies its optimum even
+    // unticked — the browser's "Auto (optimal)" default for such a motor.
+    const legsAuto = autoDelay || (legs.length > 0 && legs.every((l) => l.noListedDelay));
     const plan = batchDelayRule({
       flownDelays: legs.map((l) => l.spec.ejectionDelay),
       optimum: res.summary.optimumDelay,
-      autoDelay,
+      autoDelay: legsAuto,
       deploysOnCharge,
     });
     if (plan.refly) {
@@ -645,6 +662,7 @@ export async function runBatchSweep(
       execMs,
       flownDelay: plan.delay,
       optimumForPlugged: plan.optimumForPlugged,
+      autoDelay: legsAuto,
       // Both stamps are permanent on the stored run, and flightPipeline owns
       // them — these were hand-rolled copies of it, twice over.
       aeroModel: aeroModelFor(aeroMode, usedSupersonic),
@@ -680,7 +698,8 @@ export async function runBatchSweep(
       // for a motor with no published exit — about two thirds of a 54 mm
       // sweep — which gets the nozzle-free handle and today's numbers.
       const exitM = await exitForCandidate(entry, target.motorCount);
-      const f = flyLegs(sweepHandle(exitM), [{ mountId: target.id, spec: flown }], tree);
+      const f = flyLegs(sweepHandle(exitM),
+        [{ mountId: target.id, spec: flown, noListedDelay: listsNoDelay(entry) }], tree);
       const run = buildSimRun({
         result: f.res,
         info,
@@ -689,7 +708,7 @@ export async function runBatchSweep(
           label: entry.designation,
           manufacturer: entry.manufacturerAbbrev,
           availableDelays: delayOptions(entry).filter((d) => Number.isFinite(d)),
-          autoDelay,
+          autoDelay: f.autoDelay,
           type: entry.type,
           propellant: entry.propInfo,
           motorCase: entry.caseInfo,
@@ -780,7 +799,8 @@ export async function runBatchSweep(
         // not exist in `tree`, and the replaced cluster mount's motor is not
         // aboard (see batchProbeCutoff).
         const f = flyLegs(comboHandle(exitM),
-          split.mountIds.map((id, k) => ({ mountId: id, spec: specs[k]! })), split.tree, target.id);
+          split.mountIds.map((id, k) => ({ mountId: id, spec: specs[k]!, noListedDelay: listsNoDelay(entries[k]!) })),
+          split.tree, target.id);
         const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
         const run = buildSimRun({
           result: f.res,
@@ -789,7 +809,7 @@ export async function runBatchSweep(
           meta: {
             label,
             manufacturer: manuf,
-            autoDelay,
+            autoDelay: f.autoDelay,
             motorCount: split.groupSize * split.mountIds.length,
             highPower: entries.some((e) => isHighPower(e)),
           },

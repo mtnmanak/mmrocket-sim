@@ -7,13 +7,13 @@ import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.
 import { engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, type MotorDbEntry } from './motorDb.js';
 import type { NozzleEntry } from './nozzleDb.js';
-import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { commentLevelsAlign, recommendDelay } from './simReport.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../App.js';
 import {
-  batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, provisionalDelay,
+  batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
   runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
@@ -141,8 +141,13 @@ describe('provisionalDelay — what a candidate flies before any optimum is know
     for (const auto of [false, true]) {
       expect(provisionalDelay(entry('a', 'X', 'A', '3,5,7'), auto)).toBe(7);
       expect(provisionalDelay(entry('a', 'X', 'A', '6,10,P'), auto)).toBe(10);
-      // Unlisted delays read as [0] in delayOptions — unknown, not plugged.
+      // No listed delay (delayOptions → [] since the row-363 fix): the first
+      // flight is at 0 in both modes, and flyLegs then re-flies it at the
+      // optimum — the browser's "Auto (optimal)" default for such a motor.
       expect(provisionalDelay(entry('a', 'X', 'A', ''), auto)).toBe(0);
+      expect(listsNoDelay(entry('a', 'X', 'A', ''))).toBe(true);
+      expect(listsNoDelay(entry('a', 'X', 'A', '6,10,P'))).toBe(false);
+      expect(listsNoDelay(entry('a', 'X', 'A', 'P'))).toBe(false);
     }
   });
 
@@ -161,15 +166,19 @@ describe('provisionalDelay — what a candidate flies before any optimum is know
    */
   it("matches the motor browser's first flight in both modes, for every motor in the shipped catalogue", () => {
     const browser = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../components/MotorBrowser.tsx'), 'utf8');
-    // Its default pick (a fixed delay), and what its auto load flies before App re-flies at the optimum.
-    expect(browser).toContain('setDelay(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);');
+    // Its default pick (defaultDelay, or "Auto (optimal)" for a motor that
+    // lists no delay), and what its auto load flies before App re-flies at the optimum.
+    expect(browser).toContain("if (picked) setDelay(defaultDelay(picked) ?? 'auto');");
     expect(browser).toContain("const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0");
     let pluggedOnly = 0;
     for (const m of MOTOR_DB) {
       const opts = delayOptions(m);
       const finite = opts.filter((d) => Number.isFinite(d));
       if (finite.length === 0 && opts.includes(Infinity)) pluggedOnly++;
-      expect(provisionalDelay(m, false), m.designation).toBe(finite[finite.length - 1] ?? opts[opts.length - 1] ?? 0);
+      // Unticked, the browser starts from defaultDelay; a null default is its
+      // "Auto" pick, whose first flight is the auto load's.
+      const pick = defaultDelay(m);
+      expect(provisionalDelay(m, false), m.designation).toBe(pick ?? (finite[finite.length - 1] ?? 0));
       expect(provisionalDelay(m, true), m.designation).toBe(finite[finite.length - 1] ?? 0);
     }
     expect(pluggedOnly).toBeGreaterThan(100);
