@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
+import { parseDecimal } from './xmlUtil.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
@@ -427,8 +428,11 @@ export function csvToPresets(csv: string): Preset[] {
       // spreadsheet left holding a single space imported as the NUMBER ZERO —
       // a zero mass (which used to become `overrideMass: 0`), a zero diameter,
       // a zero length — rather than being skipped as the blank it is.
+      // DECIMAL ONLY (seam review of audit 2026-09-22): `Number` also read
+      // "0x10" as 16 and "0b110" as 6 — a 16 m canopy from a typo — where every
+      // design-file reader refuses them (parseDecimal). A refused cell is blank.
       const raw = (row[c] ?? '').trim();
-      const v = Number(raw);
+      const v = parseDecimal(raw);
       if (raw !== '' && Number.isFinite(v)) p[c] = v;
     }
     if (row['shape']) p['shape'] = row['shape'];
