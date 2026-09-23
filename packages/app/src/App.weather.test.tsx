@@ -207,9 +207,14 @@ describe('applied weather across a reload and an open', () => {
     });
     await waitFor(() => host.querySelector('[data-weather="strip"]') === null, 'the strip to go');
     expect(host.querySelector('[data-provenance]')).toBeNull();
+    // The link's Longitude was blank, and it opens blank — the greyed −80.6
+    // it flies, not a typed one (review of 2026-09-23).
+    const lon = [...host.querySelectorAll('input')].find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'))!;
+    expect(lon.value).toBe('');
+    expect(lon.placeholder).toBe('-80.6');
     window.dispatchEvent(new Event('pagehide'));
     const s = stored()!;
     expect(s.weather).toBeUndefined();
-    expect(s.launch).toMatchObject({ windAverage: 3, launchAltitudeM: 300 });
+    expect(s.launch).toMatchObject({ windAverage: 3, launchAltitudeM: 300, longitudeDeg: null });
   }, 30000);
 });

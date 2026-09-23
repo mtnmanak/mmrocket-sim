@@ -1542,6 +1542,24 @@ function readLaunchConditions(
   launch.longitudeDeg = Number.isFinite(lon)
     ? importLaunchValue(lon, LONGITUDE_DEG_RANGE, { what: 'launch longitude', field: 'Longitude', show: deg }, notes)
     : null;
+  // THE DEFAULT READS AS BLANK (review of 2026-09-23). A blank Longitude
+  // flies −80.6, and the writer states that; read back as a number, every
+  // save and share link turned a blank into a TYPED −80.6 — the greyed
+  // placeholder became "-80.6" in the box, and the weather review's "blank
+  // (−80.6 flown)" read "−80.6°". The same repair <atmosphere blank="…">
+  // gets below, marked the other way round: here the BLANK is the common case
+  // and the typed default the rare one, and the unmarked −80.6 is also what
+  // every file written before the field carries (the old writer's constant)
+  // and what desktop writes as its own default — none of them a number
+  // anybody typed. So −80.6 reads blank unless the element says
+  // typed="true", which the writer adds only for a −80.6 typed into the box.
+  // No flight moves either way: flownLongitudeDeg flies −80.6 and blank
+  // identically, kernelSimOptions omits both, and conditionsKeyOf never hashes
+  // longitude.
+  if (launch.longitudeDeg === KERNEL_DEFAULT_LONGITUDE_DEG
+    && condEl.querySelector(':scope > launchlongitude')?.getAttribute('typed') !== 'true') {
+    launch.longitudeDeg = null;
+  }
 
   const atmEl = condEl.querySelector(':scope > atmosphere');
   if (atmEl) {
@@ -2841,9 +2859,15 @@ export function exportOrk({
       emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
       // The Longitude field (weather build, step 3); a blank one writes what it
       // flies, the kernel's and desktop's default −80.6 — the exact line every
-      // export carried before the field existed, so those files are unchanged.
-      emit(4, `<launchlongitude>${typeof launch.longitudeDeg === 'number' && Number.isFinite(launch.longitudeDeg)
-        ? launch.longitudeDeg : KERNEL_DEFAULT_LONGITUDE_DEG}</launchlongitude>`);
+      // export carried before the field existed, so those files are unchanged,
+      // and the reader takes it back as blank. Only a −80.6 TYPED into the box
+      // says so, with typed="true" (desktop reads the number and ignores the
+      // attribute), so it reopens typed.
+      const lonTyped = typeof launch.longitudeDeg === 'number' && Number.isFinite(launch.longitudeDeg)
+        ? launch.longitudeDeg : null;
+      emit(4, lonTyped === KERNEL_DEFAULT_LONGITUDE_DEG
+        ? `<launchlongitude typed="true">${lonTyped}</launchlongitude>`
+        : `<launchlongitude>${lonTyped ?? KERNEL_DEFAULT_LONGITUDE_DEG}</launchlongitude>`);
       emit(4, '<geodeticmethod>spherical</geodeticmethod>');
       // THE PAD AIR THE FLIGHT FLIES — padAir, the one reading the flight and
       // the recovery sizing already share. KELVIN / PASCAL on disk, and they

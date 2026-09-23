@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';
+import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkMotorRef } from './orkFile.js';
 import { loadPresets } from './presets.js';
 
@@ -751,6 +752,10 @@ describe('.ork launch conditions (simulations block)', () => {
   // LONGITUDE (weather build, step 3). It moves no flight number, but it is
   // the flight-data file's Longitude column and the weather lookup's place.
   const launchWith = (longitudeDeg: number | null | undefined) => ({ ...DEFAULT_CONDITIONS, longitudeDeg });
+  const SNAPSHOT_BASE: Omit<DesignSnapshot, 'launch'> = {
+    tree: SIMPLE_TREE, mountMotors: {}, maxMotorLengthByStage: {}, savedConfigs: [], activeConfigId: null,
+    measured: { massKg: null, cgM: null },
+  };
 
   it('imports a desktop file’s longitude', () => {
     expect(importOrk(DESKTOP_SIM).launch!.longitudeDeg).toBe(-108.55);
@@ -771,15 +776,50 @@ describe('.ork launch conditions (simulations block)', () => {
     for (const blank of [null, undefined, NaN]) {
       expect(at(blank), String(blank)).toContain('<launchlongitude>-80.6</launchlongitude>');
     }
+    // Only a TYPED −80.6 needs saying; desktop reads the number either way.
+    expect(at(-80.6)).toContain('<launchlongitude typed="true">-80.6</launchlongitude>');
   });
 
-  it('round-trips a longitude, and the default as the default', () => {
-    for (const lon of [-119.355, 151.2, -180, 180, 0]) {
+  // Review of 2026-09-23: a blank Longitude came back from every save and
+  // share link as a TYPED −80.6 — the greyed placeholder turned into a number
+  // in the box. A blank now comes back blank, a typed −80.6 typed, and no
+  // flight, stored run's key or saved design's fingerprint moves.
+  it('round-trips a longitude, a blank as blank, and a typed −80.6 as typed', () => {
+    for (const lon of [-119.355, 151.2, -180, 180, 0, -80.6]) {
       const xml = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(lon) });
       expect(importOrk(xml).launch!.longitudeDeg).toBe(lon);
     }
-    const blank = exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: launchWith(null) });
-    expect(importOrk(blank).launch!.longitudeDeg).toBe(-80.6);
+    for (const blank of [null, undefined, NaN]) {
+      const saved = launchWith(blank);
+      const back = { ...DEFAULT_CONDITIONS, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: saved })).launch! };
+      expect(back.longitudeDeg, String(blank)).toBeNull();
+      // What the flight is handed, and what a stored run is keyed by, are
+      // exactly what they were when the blank came back as −80.6.
+      const asBefore = { ...back, longitudeDeg: -80.6 };
+      expect(kernelSimOptions(back)).toEqual(kernelSimOptions(asBefore));
+      expect(conditionsKeyOf(back)).toBe(conditionsKeyOf(asBefore));
+    }
+    // A saved blank reopens as the design that was saved: the fingerprint the
+    // unsaved-work guard compares differs only by the two keys every file
+    // states outright (the time step and Rod aim) — longitude is no longer a
+    // third.
+    const saved = { ...DEFAULT_CONDITIONS, windAverage: 3, longitudeDeg: null };
+    const reopened = { ...saved, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: saved })).launch! };
+    const statedByFile = { timeStepS: reopened.timeStepS, launchRodAimDeg: reopened.launchRodAimDeg };
+    expect(designFingerprint({ ...SNAPSHOT_BASE, launch: reopened }))
+      .toBe(designFingerprint({ ...SNAPSHOT_BASE, launch: { ...saved, ...statedByFile } }));
+  });
+
+  // −80.6 is what a file written before the field carries (the old writer's
+  // constant) and desktop's own default — nobody typed it, and it reads blank.
+  it('reads a desktop file’s or an older export’s default −80.6 as blank', () => {
+    const desk = importOrk(DESKTOP_SIM.replace('-108.55</launchlongitude>', '-80.6</launchlongitude>')).launch!;
+    expect(desk.longitudeDeg).toBeNull();
+    const typed = importOrk(DESKTOP_SIM.replace('<launchlongitude>-108.55', '<launchlongitude typed="true">-80.6')).launch!;
+    expect(typed.longitudeDeg).toBe(-80.6);
+    // The attribute keeps only the default typed; any other number is a number.
+    const other = importOrk(DESKTOP_SIM.replace('<launchlongitude>-108.55', '<launchlongitude typed="true">-81')).launch!;
+    expect(other.longitudeDeg).toBe(-81);
   });
 
   it('ALWAYS states it, so a file without one cannot keep the previous design’s', () => {
