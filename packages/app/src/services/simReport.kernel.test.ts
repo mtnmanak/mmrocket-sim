@@ -327,6 +327,27 @@ describe('Rod aim turns a tilted rod’s lean about the wind', () => {
     expect(Math.max(...drifts) - Math.min(...drifts)).toBeLessThan(0.02 * Math.max(...drifts));
   }, 60000);
 
+  // EVERY EXISTING FLIGHT IS UNCHANGED: an aim that does not move the flight
+  // (0, a whole turn, or any aim on a vertical rod) flies byte-for-byte the
+  // flight of a design saved before the field, full series and all.
+  it('flies aim 0, a whole turn, and any aim on a vertical rod as the flight with no aim at all', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const fly = (launch: typeof DEFAULT_CONDITIONS) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return JSON.stringify(rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42, series: 'full' }));
+    };
+    const tilted = { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, windAverage: 4, windStdDev: 1 };
+    const before = fly(tilted);
+    expect(fly({ ...tilted, launchRodAimDeg: 0 })).toBe(before);
+    expect(fly({ ...tilted, launchRodAimDeg: 360 })).toBe(before);
+    const vertical = { ...tilted, launchRodAngleDeg: 0 };
+    expect(fly({ ...vertical, launchRodAimDeg: 90 })).toBe(fly(vertical));
+    // …while an aim that does move it, does.
+    expect(fly({ ...tilted, launchRodAimDeg: 180 })).not.toBe(before);
+  }, 60000);
+
   // The aim turns the ROD, never the wind, so the landing label's "downwind"
   // stays the kernel's own: from KERNEL_WIND_FROM_RAD, toward that plus 180°.
   it('keeps the landing label’s "downwind" true: the wind still blows toward 270°', async () => {
