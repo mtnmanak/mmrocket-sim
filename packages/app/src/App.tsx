@@ -50,6 +50,7 @@ const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ de
 import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
+import { PanelBoundary } from './components/PanelBoundary.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
@@ -5150,20 +5151,28 @@ export function App() {
               Press <strong>Launch</strong> to fly the current design.
             </div>
           )}
+          {/* Each panel below draws stored or computed data, so each has its
+              own boundary (audit 2026-09-22): a throw in one says so in place,
+              and the rest of the tab — the run table included, where a bad
+              run can be deleted — keeps working instead of the app going down. */}
           {shownResult && lastRun ? (
             <>
-              <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
-              <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
-                designName={tree.name}
-                /* The two downloads re-fly the design AS IT STANDS, so they
-                   refuse where the 📈 Charts button already does. The
-                   aerodynamics model is excluded on purpose —
-                   fetchFullSeriesResult puts the flown model back before it
-                   runs, so a model switch is a labelling matter, not a
-                   different rocket. */
-                staleReason={changedSinceNonModel.length > 0
-                  ? listAnd(changedSinceNonModel) : null} />
+              <PanelBoundary what="This flight's report" resetKey={lastRun}>
+                <FlightStats run={lastRun} />
+                <SimRunDetails run={lastRun} hasSeries changedSince={changedSince} />
+              </PanelBoundary>
+              <PanelBoundary what="The flight plots" resetKey={shownResult}>
+                <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
+                  designName={tree.name}
+                  /* The two downloads re-fly the design AS IT STANDS, so they
+                     refuse where the 📈 Charts button already does. The
+                     aerodynamics model is excluded on purpose —
+                     fetchFullSeriesResult puts the flown model back before it
+                     runs, so a model switch is a labelling matter, not a
+                     different rocket. */
+                  staleReason={changedSinceNonModel.length > 0
+                    ? listAnd(changedSinceNonModel) : null} />
+              </PanelBoundary>
             </>
           ) : lastRun ? (
             // A stored run whose series nobody has computed in this session —
@@ -5171,8 +5180,10 @@ export function App() {
             // The tiles and the report come from the stored scalars; the plots
             // need series, which run history does not carry.
             <>
-              <FlightStats run={lastRun} />
-              <SimRunDetails run={lastRun} changedSince={changedSince} />
+              <PanelBoundary what="This flight's report" resetKey={lastRun}>
+                <FlightStats run={lastRun} />
+                <SimRunDetails run={lastRun} changedSince={changedSince} />
+              </PanelBoundary>
               <div className="panel placeholder empty-state">
                 <p><strong>Flight plots aren&apos;t saved with a run</strong></p>
                 <p>
@@ -5214,9 +5225,13 @@ export function App() {
               )}
             </div>
           )}
-          {built && <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
-            aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
-            designName={tree.name} fileMachAlt={fileMachAlt} />}
+          {built && (
+            <PanelBoundary what="The drag chart" resetKey={built}>
+              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
+                aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
+                designName={tree.name} fileMachAlt={fileMachAlt} />
+            </PanelBoundary>
+          )}
           {runsQuotaWarn && (
             <div className="file-note file-note-warn" role="alert">
               {runs.length === 0
@@ -5232,21 +5247,23 @@ export function App() {
               <button className="file-note-dismiss" onClick={() => setRunsQuotaWarn(false)} aria-label="Dismiss">×</button>
             </div>
           )}
-          <SimHistory
-            runs={runs}
-            onRunsChange={recordRuns}
-            selectedId={lastRun?.id ?? null}
-            // Selecting a row no longer destroys the in-memory flight: the
-            // result carries the id of the run it belongs to, so the charts
-            // decide for themselves whether they are showing this run. Coming
-            // back to the run you just flew restores its charts for free.
-            onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
-            canShowCharts={canShowCharts}
-            onShowCharts={(r) => { void showChartsFor(r); }}
-            reflyingId={reflying}
-            hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
-            designName={tree.name}
-          />
+          <PanelBoundary what="The run history" resetKey={runs}>
+            <SimHistory
+              runs={runs}
+              onRunsChange={recordRuns}
+              selectedId={lastRun?.id ?? null}
+              // Selecting a row no longer destroys the in-memory flight: the
+              // result carries the id of the run it belongs to, so the charts
+              // decide for themselves whether they are showing this run. Coming
+              // back to the run you just flew restores its charts for free.
+              onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
+              canShowCharts={canShowCharts}
+              onShowCharts={(r) => { void showChartsFor(r); }}
+              reflyingId={reflying}
+              hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
+              designName={tree.name}
+            />
+          </PanelBoundary>
         </main>
         )}
       </div>

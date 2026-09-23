@@ -12,6 +12,18 @@ vi.mock('./services/orkFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/orkFile.js')>();
   return { ...real, exportOrk: vi.fn(real.exportOrk) };
 });
+// The real report, unless a test sets `reportThrows` (the boundary test).
+let reportThrows = false;
+vi.mock('./components/SimResults.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/SimResults.js')>();
+  return {
+    ...real,
+    SimRunDetails: (props: Parameters<typeof real.SimRunDetails>[0]) => {
+      if (reportThrows) throw new Error('a stored run the report cannot read');
+      return <real.SimRunDetails {...props} />;
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -233,6 +245,30 @@ describe('Save .ork that throws (audit 2026-09-22)', () => {
       expect(host.textContent).toContain('Start a new design?');
     } finally {
       process.off('unhandledRejection', onRejection);
+    }
+  }, 30000);
+});
+
+describe('a Results panel that throws stays in its panel (audit 2026-09-22)', () => {
+  it('the report says it could not be drawn; the app, the plots and the run table carry on', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    reportThrows = true;
+    try {
+      const host = await mountApp();
+      await waitFor(starterStored, 'the starter motor to be autosaved');
+      await act(async () => {
+        [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+      });
+      await waitFor(() => (host.textContent ?? '').includes('Saved simulations (1)'), 'the flight to be listed');
+      expect(host.textContent).toContain('This flight\'s report could not be drawn.');
+      expect(host.textContent).toContain('a stored run the report cannot read');
+      // Not the whole app: the workspace tabs and the rest of the tab are still there.
+      expect(host.textContent).not.toContain('Something went wrong');
+      expect([...host.querySelectorAll('[role="tab"]')].length).toBeGreaterThan(0);
+      expect(button(host, 'Clear all')).toBeTruthy();
+    } finally {
+      reportThrows = false;
+      errors.mockRestore();
     }
   }, 30000);
 });

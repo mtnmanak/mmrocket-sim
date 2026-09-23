@@ -450,3 +450,40 @@ export function clearSession(): void {
     localStorage.removeItem(KEY);
   } catch { /* ignore */ }
 }
+
+/**
+ * The stored autosave exactly as it sits in the slot, or null — for the
+ * crash-recovery download (services/autosaveBackup.ts), which falls back to
+ * these bytes when they cannot be turned into a design file.
+ */
+export function sessionPayload(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The write a conflict is holding back — this tab's design, which the slot
+ * does not have (see "ONE SLOT, SEVERAL TABS"). null when there is no
+ * conflict. The crash-recovery download takes this over the slot, which then
+ * holds another tab's design.
+ */
+export function heldSession(): Omit<SessionState, 'savedAt'> | null {
+  return conflicted ? pending : null;
+}
+
+/**
+ * "Start fresh" after a crash: drop the autosave AND any write still waiting
+ * in the debounce. Clearing the key alone is not enough — the crashed App's
+ * last edit can still be pending, and it would land 400 ms later and restore
+ * the very design the user is escaping on the next load (audit 2026-09-22).
+ */
+export function discardSession(): void {
+  if (timer) { clearTimeout(timer); timer = null; }
+  pending = null;
+  clearSession();
+  seenStamp = null;
+  setConflicted(false);
+}

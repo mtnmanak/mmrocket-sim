@@ -562,9 +562,11 @@ const NO_VALUE = '—';
  * so the null path is a routine flight, not an edge case.
  *
  * Two ways it used to break, both fixed here:
- *  - `r.maxMach.toFixed(2)` threw `Cannot read properties of null`. There is no
- *    error boundary above FlightStats (the only one in the app wraps the site
- *    band), so React 18 unmounted the whole tree and the user lost the design.
+ *  - `r.maxMach.toFixed(2)` threw `Cannot read properties of null`. There was no
+ *    error boundary above FlightStats then (the only one in the app wrapped the
+ *    site band), so React 18 unmounted the whole tree and the user lost the
+ *    design. (Since audit 2026-09-22 a PanelBoundary wraps the report, and
+ *    AppBoundary the app.)
  *  - fmtSi divides by the unit factor and JS coerces null to 0, so an unguarded
  *    tile printed "Landing rate 0.000 ft/s" — the safest possible reading of
  *    the most safety-relevant tile on the page — for a rocket that never left
