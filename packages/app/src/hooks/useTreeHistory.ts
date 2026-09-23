@@ -120,9 +120,10 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
   }, []);
 
   const setTree = useCallback((next: RocketTree) => {
-    // Coalesce rapid-fire edits (schematic drags, slider moves, keystrokes)
-    // into ONE undo step — otherwise a 2 s drag floods the 50-entry buffer
-    // and Ctrl+Z steps back a pixel at a time.
+    // Coalesce rapid-fire edits (slider moves, keystrokes) into ONE undo step
+    // — otherwise a 2 s slider drag floods the 50-entry buffer and Ctrl+Z
+    // steps back a pixel at a time. (The 2D view's axial drag no longer needs
+    // this: it previews locally and writes once, on release — useAxialDrag.)
     const now = Date.now();
     if (now - lastEditAt.current > HISTORY_COALESCE_MS) pushCapped(history.current, treeRef.current);
     lastEditAt.current = now;

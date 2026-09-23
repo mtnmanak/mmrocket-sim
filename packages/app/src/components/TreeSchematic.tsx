@@ -219,6 +219,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const rollW = vertical ? 0 : ROLL_COL;
   const rollBar = vertical ? ROLL_BAR : 0;
   const hasInfo = !!info;
+  // From the COMMITTED design, not the drag preview: the frame reads lengths
+  // and radii, never a position, so the two give the same frame — and the
+  // drag needs the frame's scale before it can say where the part is.
   const frame = useMemo(() => schematicFrame(tree, {
     cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, lanes: hasInfo, topReserve,
   }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve]);
@@ -235,7 +238,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     onNaturalHeightRef.current?.(naturalH);
   }, [naturalH, vertical, fillHeight]);
 
-  const axial = useAxialDrag({ onPatchNode, svgRef, viewWidth: w, pxPerMetre: scale * zoom.k });
+  // The axial drag, and the design to DRAW while one is live — the part at
+  // the pointer, committed once on release (hooks/useAxialDrag.ts).
+  const axial = useAxialDrag({ tree, onPatchNode, svgRef, viewWidth: w, pxPerMetre: scale * zoom.k });
 
   /**
    * Clears the "this press became a drag" latch at the START of every press.
@@ -423,10 +428,13 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // --- the layout: every shape, as data (tree/schematicLayout.ts) ---
   // Memoised on what moves geometry. Selection and hover are NOT inputs: they
   // restyle what is already placed (below), so a hover no longer re-walks the
-  // whole rocket once per component the pointer crosses.
-  const layout = useMemo(() => layoutSchematic(tree, {
+  // whole rocket once per component the pointer crosses. During a drag it is
+  // the PREVIEW that is laid out, once per move that changes the part's
+  // offset — a walk of the design, never a kernel rebuild.
+  const shown = axial.shown;
+  const layout = useMemo(() => layoutSchematic(shown, {
     scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid,
-  }), [tree, scale, frame.cy, frame.x0, roll, motors, vertical, uid]);
+  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid]);
 
   /**
    * The pointer and keyboard half of one drawn shape: what makes it a hover,
