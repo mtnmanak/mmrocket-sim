@@ -4067,7 +4067,8 @@ export function App() {
             This clears “{tree.name ?? 'the current rocket'}” — all components,
             overrides and the current simulation. Make sure it's saved as an
             .ork file first: Ctrl+Z brings the components back, but not the
-            motors, the flight configurations or the flight.
+            motors, the flight configurations, the Measured mass &amp; CG or the
+            flight.
           </p>
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>

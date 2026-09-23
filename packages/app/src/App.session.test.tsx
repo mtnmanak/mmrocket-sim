@@ -156,6 +156,11 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
     await type(input(host, 'Measured mass'), '2000');
     await type(input(host, 'Measured balance point'), '250');
     await act(async () => { button(host, '✕ New').click(); });
+    // Undo covers the tree only, so the question says the weighing is not
+    // coming back with it (from review; ScaleDialog says the same).
+    expect(host.textContent).toContain(
+      'Ctrl+Z brings the components back, but not the motors, the flight configurations,'
+      + ' the Measured mass & CG or the flight.');
     await act(async () => { button(host, 'Discard & start new').click(); });
     await settle(600);
     window.dispatchEvent(new Event('pagehide'));
