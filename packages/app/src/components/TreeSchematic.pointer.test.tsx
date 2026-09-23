@@ -264,9 +264,11 @@ describe('a drag is a local preview, committed once on release', () => {
   });
 
   it('the shape under the pointer is the same element for the whole drag', () => {
-    // A stable key (tree/schematicLayout.ts): the preview re-renders the view
-    // on every move, and a remounted element would drop the pointer capture
-    // the drag holds on it.
+    // The preview re-renders the view on every move, and a remounted element
+    // would drop the pointer capture the drag holds on it. A move adds and
+    // removes no shape, so this guards against a key that carried the part's
+    // POSITION; the next case is the one that tells an identity key from a
+    // counter.
     host();
     const before = finShape();
     pointer(before, 'pointerdown', { x: 200 });
@@ -275,6 +277,38 @@ describe('a drag is a local preview, committed once on release', () => {
     pointer(svgEl(), 'pointerup', { x: 260 });
     expect(finShape()).toBe(before);
     expect(stats.patches).toBe(1);
+  });
+
+  it('a shape that appears ahead of the grabbed one mid-drag does not remount it', () => {
+    // A motor loaded into the tube the fins sit on draws its case BEFORE the
+    // fins (tree/schematicLayout.ts). Under the old counter keys every shape
+    // after it was renumbered — the grabbed fin among them — and React
+    // remounted it under the pointer. An identity key leaves it alone.
+    let loadMotor!: () => void;
+    const patches: Patch[] = [];
+    function MotorHost() {
+      const [motors, setMotors] = useState<Record<string, { length: number; diameter: number; label?: string }>>();
+      loadMotor = () => setMotors({ b1: { length: 0.07, diameter: 0.018, label: 'F42' } });
+      return (
+        <TreeSchematic tree={rocket([fin({ method: 'top', offset: 0.1 })])} info={null} motors={motors}
+          onSelect={() => {}} onPatchNode={(id, patch) => patches.push({ id, patch })} />
+      );
+    }
+    act(() => root.render(<MotorHost />));
+    const before = finShape();
+    const rects = svgEl().querySelectorAll('rect').length;
+    pointer(before, 'pointerdown', { x: 200 });
+    pointer(svgEl(), 'pointermove', { x: 230 });
+    act(() => loadMotor());
+    // The case is drawn now...
+    expect(svgEl().querySelectorAll('rect').length).toBeGreaterThan(rects);
+    // ...and the fin under the pointer is still the element it pressed.
+    expect(finShape()).toBe(before);
+    pointer(svgEl(), 'pointermove', { x: 260 });
+    expect(finShape()).toBe(before);
+    pointer(svgEl(), 'pointerup', { x: 260 });
+    expect(patches).toHaveLength(1);
+    expect(offsetOf(patches[0])).toBeGreaterThan(0.1);
   });
 });
 

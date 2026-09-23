@@ -36,9 +36,12 @@ import { num, numOpt } from './nodeNum.js';
  *    — tag, presentation attributes, the part it belongs to — in paint order,
  *    with a key built from the part's IDENTITY (its id, its role, which
  *    instance), never from its place in the list. A counter key renumbered
- *    every shape after the first one that appeared or vanished; a stable key
- *    keeps the element under a dragged pointer the same element, and the
- *    pointer capture on it alive.
+ *    every shape after the first one that appeared or vanished — a motor
+ *    loaded, a shoulder given a length — and React remounted each of them;
+ *    one that happened mid-drag remounted the element under the pointer and
+ *    lost the capture on it. An axial drag itself adds and removes no shape,
+ *    so the drag alone never showed the difference (schematicLayout.test.ts
+ *    and TreeSchematic.pointer.test.tsx pin both halves).
  *
  * What stays in the component: selection and hover (both restyle shapes this
  * layout has already placed, so neither re-walks the rocket), the handlers,

@@ -58,9 +58,10 @@ describe('keys are identities', () => {
   });
 
   it('moving a part moves its shapes and renames nothing', () => {
-    // The drag preview re-lays the design out on every move: a key that
-    // followed the list position would remount the element under the pointer
-    // and drop the pointer capture on it.
+    // The drag preview re-lays the design out on every move, so a move must
+    // rename nothing and redraw nothing but the part. (A move adds and removes
+    // no shape, so a list-position key would pass this too — the case after
+    // it is the one that tells an identity key from a counter.)
     const before = lay(busy).l;
     const moved = updateNode(busy, 'f1', { position: { method: 'bottom', offset: -0.04 } });
     const after = lay(moved).l;
@@ -74,6 +75,27 @@ describe('keys are identities', () => {
     const others = (l: typeof before) => l.shapes.filter((s) => !s.key.startsWith('f1:'))
       .map((s) => JSON.stringify(s.attrs));
     expect(others(after)).toEqual(others(before));
+  });
+
+  it('a shape that appears ahead of a part renames nothing drawn after it', () => {
+    // A motor loaded into b1 draws its case right after the tube — ahead of
+    // the tube's fins, inner tubes and lugs. The counter the old render body
+    // keyed with renumbered every one of those, and React remounted them all.
+    const f = schematicFrame(busy, FRAME);
+    const at = (motors?: Record<string, { length: number; diameter: number; label?: string }>) =>
+      layoutSchematic(busy, { scale: f.scale, cy: f.cy, x0: f.x0, roll: 0, idPrefix: 't', motors }).shapes;
+    const plain = at();
+    const loaded = at({ b1: { length: 0.07, diameter: 0.018, label: 'F42' } });
+    const added = loaded.filter((s) => !plain.some((p) => p.key === s.key)).map((s) => s.key);
+    expect(added.length).toBeGreaterThan(0);
+    for (const k of added) expect(k).toMatch(/^b1:motor/);
+    const idx = (k: string) => loaded.findIndex((s) => s.key === k);
+    expect(idx(added[0]!)).toBeLessThan(idx('f1:fin0'));
+    // Every shape already drawn keeps its key AND what that key draws.
+    const byKey = new Map(loaded.map((s) => [s.key, s]));
+    for (const s of plain) {
+      expect(JSON.stringify(byKey.get(s.key)?.attrs), s.key).toBe(JSON.stringify(s.attrs));
+    }
   });
 
   it('a duplicated id still gets distinct keys', () => {
