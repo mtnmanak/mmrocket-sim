@@ -71,6 +71,23 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe('PropertyPanel — an entry that converts to infinity is refused', () => {
+  it('a density of 1e306 g/cm³ (1e309 kg/m³) commits nothing', () => {
+    // Finite as typed, infinite in SI: stored, the kernel flew the default
+    // density while a saved .ork wrote density="Infinity" (claim check of the
+    // v0.141 notes). A value that stays finite still commits.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: 'g/cm³' } }));
+    mount(onBody({ id: 'i1', type: 'innertube', name: 'Mount', length: 0.07, outerRadius: 0.009,
+      thickness: 0.0005, density: 1100 }));
+    const el = box('Material density (g/cm³)');
+    act(() => { el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+    type(el, '1e306');
+    expect(patches).toEqual([]);
+    type(el, '2');
+    expect(patches).toEqual([{ density: 2000, materialName: undefined }]);
+  });
+});
+
 describe('PropertyPanel — fin count stops at the kernel\'s 8', () => {
   it('takes a typed 12 on a planar fin set as 8, flagged until blur', () => {
     mount(onBody({ id: 'f1', type: 'trapezoidfinset', name: 'Fins', finCount: 4,

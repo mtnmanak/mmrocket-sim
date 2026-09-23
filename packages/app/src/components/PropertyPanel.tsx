@@ -665,6 +665,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       // Last, so it wins over the cross-field caps above: a tube-fin count the
       // radius caps at 0 is still the kernel's minimum of 1.
       if (limit) next = applyFieldLimit(limit, next);
+      // A finite entry can still convert to an infinite one: 1e306 g/cm³ is
+      // 1e309 kg/m³, which is Infinity, and applyFieldLimit passes a non-finite
+      // value through. Stored, the kernel flew the default density while a
+      // saved .ork said density="Infinity" (claim check of the v0.141 notes).
+      // Refused like any other entry the field cannot take: nothing commits.
+      if (!Number.isFinite(next)) return;
       const patch: Partial<ComponentNode> = { [f.key]: next };
       // A hand-typed density is no longer the named material's density.
       if (f.key === 'density') patch['materialName'] = undefined;
