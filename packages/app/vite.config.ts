@@ -133,7 +133,8 @@ export default defineConfig({
     // A bare vi.useFakeTimers() faked seven things under vitest 2 (this list,
     // read from its defaults); vitest 5 fakes every clock it knows but
     // nextTick and queueMicrotask, so under happy-dom performance,
-    // requestAnimationFrame and Intl go onto the fake clock too (probed). Seven
+    // requestAnimationFrame / cancelAnimationFrame, Intl and process.hrtime go
+    // onto the fake clock too (probed; re-verification added the last two). Seven
     // files call it bare. They pass either way, measured, and this keeps them
     // on the clocks they were written against. A call that names its own
     // toFake replaces the list.
