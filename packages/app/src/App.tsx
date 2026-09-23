@@ -450,6 +450,16 @@ export function App() {
   useEffect(() => { restoreCatalogueOverlay(); }, []);
 
   const wantsStarterMotor = !session?.mountMotors && !session?.motor && !!defaultMountId;
+  /**
+   * The starter motor as it arrives, held until the render that has it in
+   * state, where the first-visit saved mark is re-taken over it (the effect
+   * after the mark's seed, below). Without that, the mark described the
+   * rocket with NO motor — it is seeded on mount, one await before the C6
+   * lands — so the untouched starter read as unsaved, the stale mark was
+   * autosaved, and every newcomer's Open and ✕ New asked about a rocket they
+   * never touched, on every reload (audit 2026-09-22).
+   */
+  const starterLanding = useRef<MountMotor | null>(null);
   useEffect(() => {
     if (!wantsStarterMotor) return;
     let live = true;
@@ -457,7 +467,9 @@ export function App() {
       .then((m) => {
         // Only if nothing beat it: the user may have picked a motor or opened
         // a file in the time the bundle chunk took to arrive.
-        if (live && m) setMountMotors((prev) => (Object.keys(prev).length ? prev : { [defaultMountId!]: m }));
+        if (!live || !m) return;
+        starterLanding.current = m;
+        setMountMotors((prev) => (Object.keys(prev).length ? prev : { [defaultMountId!]: m }));
       })
       .catch(() => { /* no bundled curve and no network: the design starts with no motor, honestly */ });
     return () => { live = false; };
@@ -987,6 +999,28 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // ...and when the starter motor lands (one await after that seed), take the
+  // mark again over the rocket WITH it — but only if the mark still describes
+  // everything else on screen. An edit, a pick or an open that got in first
+  // has already moved the design off the seed, and that work keeps its prompt
+  // (audit 2026-09-22). No motor ever landing (no bundle, no network) leaves
+  // the seed standing, which is the design on screen.
+  useEffect(() => {
+    const m = starterLanding.current;
+    if (m === null) return;
+    if (designSnapshot.mountMotors[defaultMountId ?? ''] !== m) {
+      // Not in state yet — or beaten, in which case it never will be.
+      if (Object.keys(designSnapshot.mountMotors).length > 0) starterLanding.current = null;
+      return;
+    }
+    starterLanding.current = null;
+    if (savedMark.current !== null
+      && designFingerprint({ ...designSnapshot, mountMotors: {} }) === savedMark.current) {
+      savedMark.current = designFingerprint(designSnapshot);
+      bumpDirty();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- defaultMountId is fixed at mount
+  }, [designSnapshot]);
 
   /**
    * "Is there work a file on disk does not have?" — the guard behind the Open
