@@ -274,23 +274,38 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   const radii = (xml: string): Set<unknown> => new Set(flatten(importOrk(xml).tree.components)
     .filter((c) => c.type === 'bodytube').map((c) => c['outerRadius']));
 
-  it('chains every tube to a stated radius AHEAD of it', () => {
-    const t0 = performance.now();
-    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>0.03</aftradius>'
-      + `</nosecone>${tube('auto').repeat(6000)}`));
-    const ms = performance.now() - t0;
-    expect([...got]).toEqual([0.03]);
-    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  // Timed as a RATIO, not a stopwatch: 4x the chain costs ~4x at the linear
+  // resolver and ~16x at the old one, on any machine. An absolute budget of a
+  // few seconds sat at a third of vitest's own 5 s test timeout on a fast
+  // desktop, and a CI runner is several times slower (review of the merge,
+  // 2026-09-22).
+  const ahead = (n: number) => '<nosecone><name>n</name><length>0.1</length><aftradius>0.03</aftradius>'
+    + `</nosecone>${tube('auto').repeat(n)}`;
+  const behind = (n: number) => '<nosecone><name>n</name><length>0.1</length><aftradius>auto</aftradius>'
+    + `</nosecone>${tube('auto').repeat(n)}${tube('0.03')}`;
+  const timeRatio = (xml: (n: number) => string): number => {
+    const time = (n: number) => { const t = performance.now(); radii(orkXml(xml(n))); return performance.now() - t; };
+    time(250); // warm the parser and the JIT so the small run is not charged for it
+    return time(2000) / Math.max(time(500), 0.5);
+  };
+
+  it('chains every tube to a stated radius AHEAD of it, in linear time', () => {
+    expect([...radii(orkXml(ahead(2000)))]).toEqual([0.03]);
+    const ratio = timeRatio(ahead);
+    expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
   });
 
-  it('chains every tube to a stated radius BEHIND it, without recursing the length of the chain', () => {
-    const t0 = performance.now();
-    const got = radii(orkXml('<nosecone><name>n</name><length>0.1</length><aftradius>auto</aftradius>'
-      + `</nosecone>${tube('auto').repeat(8000)}${tube('0.03')}`));
-    const ms = performance.now() - t0;
-    expect([...got]).toEqual([0.03]);
-    expect(ms, `import took ${ms.toFixed(0)} ms`).toBeLessThan(5000);
+  it('chains every tube to a stated radius BEHIND it, in linear time', () => {
+    expect([...radii(orkXml(behind(2000)))]).toEqual([0.03]);
+    const ratio = timeRatio(behind);
+    expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
   });
+
+  it('resolves 8,000 tubes behind without recursing the length of the chain', () => {
+    // The old resolver recursed once per tube and overflowed the stack here
+    // ("Maximum call stack size exceeded"); the answer itself is the guard.
+    expect([...radii(orkXml(behind(8000)))]).toEqual([0.03]);
+  }, 60_000);
 });
 
 describe('method attributes are written from their closed sets', () => {
