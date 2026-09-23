@@ -51,7 +51,8 @@ full GPLv3 text is in this repository's [`LICENSE`](LICENSE) file.
 
 ## Building
 
-Requires Node 20+. The physics kernel ships as a committed build artifact
+Requires Node 22.12+, Vitest 5's floor (the deploy runs Node 22). The physics
+kernel ships as a committed build artifact
 (`packages/engine/vendor/orkengine.mjs`), so a normal build needs **no JDK**.
 
 ```bash

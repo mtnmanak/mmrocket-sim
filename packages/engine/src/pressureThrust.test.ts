@@ -141,7 +141,9 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
       // in this burn, not merely survive at the level of a rounding.
       expect(Math.max(...rows.map((i) => f.thrust[i]! - PLATEAU_N))).toBeGreaterThan(1);
     }
-  });
+    // Up to 3.1 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('approaches the vacuum limit A_exit x 101325', () => {
     // An 80 km "pad" is inside ExtendedISAModel's 84,852 m ceiling and puts the
@@ -235,7 +237,9 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
         expect(bare.thrust[i]).toBe(PLATEAU_N);
       }
     }
-  });
+    // Up to 2.2 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('credits a stage ONCE, not once per motor in a cluster', () => {
     // The stage field holds the cluster's SINGLE EQUIVALENT nozzle, with the exit
@@ -351,7 +355,9 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
       expect(f.thrust[i]).toBe(PLATEAU_N);
       expect(pressureTerm(0.03, f.pressure[i]!)).toBeGreaterThan(1); // would have shown
     }
-  });
+    // Up to 2.8 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   it('leaves the minimum-diameter parity flight at 329.6097045289919 m', () => {
     // The regression that pins the WHOLE gate end to end: the mindia design carries
@@ -450,7 +456,9 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
       }
       expect(Math.max(...rows.map((i) => f.thrust[i]! - curve))).toBeGreaterThan(n * 1.2);
     }
-  });
+    // Up to 4.9 s on the deploy runner (v0.138-v0.140). Vitest 2 never timed out
+    // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
+  }, 60000);
 
   /**
    * A POD SET is still refused: it is not a stage, the bridge never hands the

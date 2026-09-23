@@ -48,7 +48,8 @@
 // (packages/app/scripts/preset-density.test.mjs), the dependency tree
 // (scripts/dependencies.threeTypes.test.mjs reads package-lock.json), and this
 // config, whose guard is scripts/eslint-config.guards.test.mjs — not
-// eslint.config.*, because vitest's default exclude drops every `*.config.*` file.
+// eslint.config.*, because the test exclude drops `eslint.config.*` with the other
+// tools' config names (vitest 2's default list, kept in packages/app/vite.config.ts).
 //
 // The file extension is .mjs because the root package.json has no "type": "module".
 
@@ -332,7 +333,8 @@ export default tseslint.config(
     // tsconfig.test or packages/engine's (packages/app/tsconfig.json says why).
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
-      // Not import.meta.dirname: that needs Node 20.11, and the README promises 20.
+      // Not import.meta.dirname, which needs Node 20.11: written when the README
+      // promised 20. Its floor is 22.12 since the vitest 5 upgrade (AUDIT row 528).
       parserOptions: { projectService: true, tsconfigRootDir: fileURLToPath(new URL('.', import.meta.url)) },
     },
     rules: {

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 
@@ -139,6 +139,27 @@ async function importFiles(h: Harness, files: { name: string; text: string }[]):
   for (let i = 0; i < 20; i++) await settle(5);
 }
 
+/**
+ * `vi.spyOn(localStorage, 'setItem')`, and `unspy` to take it off. Since
+ * vitest 3.2 a spy on an INHERITED method is restored by deleting the
+ * instance's property, and happy-dom's Storage proxy refuses that delete (its
+ * deleteProperty trap removes stored items only), so `vi.restoreAllMocks()`
+ * left the throwing setItem on localStorage for the rest of this file (AUDIT
+ * row 528, vitest 2 -> 5). `unspy` puts happy-dom's own bound copy back
+ * through the proxy's defineProperty trap, the way the spy went on; it also
+ * runs when the test ends, so a failing test cannot leave it behind.
+ */
+function spyOnSetItem() {
+  const own = localStorage.setItem;
+  const unspy = () => {
+    Object.defineProperty(localStorage, 'setItem', {
+      ...Object.getOwnPropertyDescriptor(Object.getPrototypeOf(localStorage), 'setItem'), value: own,
+    });
+  };
+  onTestFinished(unspy);
+  return { spy: vi.spyOn(window.localStorage, 'setItem'), unspy };
+}
+
 const ENG_K550 = `; AeroTech K550W
 K550W 54 410 0-6-10 0.919744 1.48736 AT
    0.065 604.264
@@ -209,7 +230,8 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
   it('on a full storage says the motors are NOT saved — and they still load this session', async () => {
     h = openBrowser({ mountDiameterMm: 54 });
     const real = Storage.prototype.setItem;
-    vi.spyOn(window.localStorage, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+    const { spy, unspy } = spyOnSetItem();
+    spy.mockImplementation(function (this: Storage, k: string, v: string) {
       if (k === 'online-openrocket.ex-motors.v1') throw new DOMException('full', 'QuotaExceededError');
       return real.call(this, k, v);
     });
@@ -223,6 +245,7 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
     expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
     // Leave no session-only library behind for the next test.
     vi.restoreAllMocks();
+    unspy();
     const { deleteExMotor } = await import('../services/exMotors.js');
     deleteExMotor('none');
   });

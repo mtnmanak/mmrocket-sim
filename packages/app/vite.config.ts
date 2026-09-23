@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
@@ -87,9 +88,47 @@ export default defineConfig({
     precacheCoversBuild(),
   ],
   base: './',
+  // The browsers the build is written for: vite 5's 'modules' default, stated
+  // (AUDIT row 528, vite 5 -> 8). Vite 7 and 8 raised the default (now Chrome
+  // 111, Firefox 114, Safari 16.4), so the same source built with the ES2021
+  // and ES2022 syntax these targets lower — `||=`, which Firefox 78 cannot
+  // parse, and class fields — and Lightning CSS dropped the -webkit- and -moz-
+  // prefixes they keep. With this list every chunk parses as ES2020 again, as
+  // it did. A tester's older iPad or ESR Firefox is not something to drop as a
+  // side effect of a toolchain upgrade; raising it is its own decision.
+  build: {
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+  },
   // The engine is a linked workspace package (entry imports the ESM artifact
   // vendor/orkengine.mjs). Prebundle it so dev mode resolves it like prod.
   optimizeDeps: {
     include: ['@online-openrocket/engine'],
+  },
+  // Vitest reads this file too (there is no vitest.config.ts). All three
+  // settings keep the suite what it was under vitest 2 (AUDIT row 528,
+  // vitest 2 -> 5):
+  test: {
+    // Vitest 4 cut its default exclude to node_modules and .git. This is
+    // vitest 2's own list, so exactly the same files are collected — dist/
+    // included, and the `*.config.*` rule that
+    // scripts/eslint-config.guards.test.mjs is named around.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/cypress/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*',
+    ],
+    // Vitest 5 clears every mock's calls before each test by default. Vitest 2
+    // did not, and a `not.toHaveBeenCalled()` written against the old
+    // behaviour could only get easier to pass; each file resets what it means
+    // to (restoreAllMocks and friends in its own hooks).
+    clearMocks: false,
+    // Vitest 5 picks its 'minimal' reporter when it detects an AI agent
+    // (CLAUDECODE, AI_AGENT), and that one swallows what a passing test
+    // prints — the numbers a measurement driver such as
+    // services/lemivSweep.test.ts exists to print. Vitest 2's choice, which is
+    // also what CI still gets: 'default', plus 'github-actions' there.
+    reporters: process.env['GITHUB_ACTIONS'] === 'true' ? ['default', 'github-actions'] : ['default'],
   },
 });

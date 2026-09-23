@@ -292,17 +292,21 @@ describe('a long chain of automatic radii resolves in linear time', () => {
     return time(2000) / Math.max(time(500), 0.5);
   };
 
+  // Up to 2.3 s on the deploy runner (v0.138-v0.140), and both are
+  // synchronous: vitest 2 never timed out a synchronous test; vitest 3.1 and
+  // later fail one past 5 s (AUDIT row 528). So each states its budget like the
+  // 8,000-tube test below — the ratio is the check, not the stopwatch.
   it('chains every tube to a stated radius AHEAD of it, in linear time', () => {
     expect([...radii(orkXml(ahead(2000)))]).toEqual([0.03]);
     const ratio = timeRatio(ahead);
     expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
-  });
+  }, 60_000);
 
   it('chains every tube to a stated radius BEHIND it, in linear time', () => {
     expect([...radii(orkXml(behind(2000)))]).toEqual([0.03]);
     const ratio = timeRatio(behind);
     expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
-  });
+  }, 60_000);
 
   it('resolves 8,000 tubes behind without recursing the length of the chain', () => {
     // The old resolver recursed once per tube and overflowed the stack here

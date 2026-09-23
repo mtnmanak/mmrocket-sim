@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 
@@ -22,6 +22,17 @@ async function openTab(): Promise<SessionModule> {
   tab.loadSession(); // every App mount reads the slot first
   return tab;
 }
+
+/**
+ * The file's first import of session.ts transforms its whole graph
+ * (simReport, and LaunchPanel with React behind it): 1.0-2.4 s alone under
+ * vitest 5, measured, where a re-import after vi.resetModules costs ~25 ms.
+ * Paid inside the first test, it took that test to 5.5 s in one full-suite
+ * run, timed it out and left its hundred saves running into the next (AUDIT
+ * row 528, vitest 2 -> 5). session.ts has no import-time side effects, so the
+ * copy imported here is inert; every tab below is still a fresh module.
+ */
+beforeAll(async () => { await import('./session.js'); }, 60000);
 
 const state = (name: string) => ({
   tree: { name, components: [] } as unknown as RocketTree,

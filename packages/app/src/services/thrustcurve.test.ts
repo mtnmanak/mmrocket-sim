@@ -122,7 +122,9 @@ describe('thrustcurve transforms', () => {
     expect(result.summary.maxAltitude).toBeGreaterThan(50);
     expect(result.events.map((e) => e.type)).toContain('APOGEE');
     expect(result.events.map((e) => e.type)).toContain('GROUND_HIT');
-  });
+    // Up to 1.9 s on the deploy runner (v0.138-v0.140): a kernel flight states
+    // its budget, as the suite's other slow flights do (AUDIT row 528).
+  }, 60000);
 });
 
 /**
