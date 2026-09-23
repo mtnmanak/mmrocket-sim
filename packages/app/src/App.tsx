@@ -4244,8 +4244,9 @@ export function App() {
         {/* A NAV with aria-current, not a tablist (audit 2026-09-22) — the
             same call DragPanel made for its toggles on 2026-09-08. A tablist
             promises tabpanels, aria-controls, one tab stop and arrow keys, and
-            this had none of them: NVDA announced "tab 1 of 4" and Right Arrow
-            then did nothing on the main navigation. The workspaces are whole
+            this had none of them: NVDA announced "tab 1 of 3" (Fly is hidden on
+            a desktop) and Right Arrow then did nothing on the main navigation.
+            The workspaces are whole
             pages — each has its own <main> — so "current page" is what these
             buttons really are, and Tab reaches every one of them. */}
         <nav className="workspace-tabs" aria-label="Workspace">
