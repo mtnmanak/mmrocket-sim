@@ -77,7 +77,12 @@ export interface OrkMotorRef {
 export interface OrkTreeImportResult {
   name: string;
   tree: RocketTree;
-  /** First motor found (legacy callers). */
+  /**
+   * First motor found, in document order. TEST-ONLY: no production code reads
+   * it (every caller uses `motors`); orkFile.test.ts and importLimits.test.ts
+   * do, ~47 assertions (audit 2026-09-22, Dead code row 575). Do not build on
+   * it — read `motors`.
+   */
   motor?: OrkMotorRef;
   /** EVERY mount's motor, keyed by the mount's editor node id. */
   motors: Record<string, OrkMotorRef>;
@@ -1601,7 +1606,11 @@ export interface OrkTreeExportInput {
   tree: RocketTree;
   /** Motors keyed by mount node id (Release C: one per mount). */
   motors?: Record<string, OrkExportMotor>;
-  /** Legacy single-motor form (tests/back-compat). */
+  /**
+   * Legacy single-motor form, merged into `motors` under `mountId`. TEST-ONLY:
+   * no production caller passes either (audit 2026-09-22, Dead code row 575);
+   * pass `motors`.
+   */
   motor?: OrkExportMotor;
   mountId?: string | null;
   /** Launch-site conditions — written as one <simulation> when present. */
