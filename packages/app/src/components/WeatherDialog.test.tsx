@@ -8,6 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
+import { gustNote } from './weatherText.js';
 import { clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
 import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
 
@@ -143,12 +144,24 @@ describe('the weather dialog', () => {
     expect(context).toMatch(new RegExp(`Wind from 294° \\(WNW\\) — ${WEATHER_DIALOG_COPY.windNotApplied}`));
     expect(WEATHER_DIALOG_COPY.windNotApplied).toMatch(/always blows from the east/);
     expect(context).not.toMatch(/no direction/);
-    expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\)/);
+    expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\) — see Wind gusts σ\./);
     // Step 4's preview: offered in the panel after Apply, never set by it.
     // The σ the chip will write, with the digits the σ box will show.
     expect(context).toMatch(/σ from this gust ≈ 0\.95 m\/s — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);
     expect(context).toMatch(/Forecast grid point 1\.4 km from your site\./);
     expect(context).toMatch(/Density altitude 0 m → /);
+  });
+
+  // A gust no stronger than the wind is common — 30 of the 72 captured hours —
+  // and it offers no σ. The review used to point at "Wind gusts σ" anyway, a
+  // row that never appears (review of 2026-09-23); it says why there is none.
+  it('says there is no σ estimate when the gust is no stronger than the wind', async () => {
+    await reviewGerlach();
+    choose(q('.weather-when select'), String(Date.UTC(2026, 8, 26, 18) / 1000)); // 11 AM: wind 2.12, gust 1.8
+    await settle();
+    const context = q('.weather-context')!.textContent!;
+    expect(context).toMatch(/Gust 1\.8 m\/s \(strongest in the hour before\) — no stronger than this hour’s wind, so there is no σ estimate\./);
+    expect(context).not.toMatch(/σ from this gust|see Wind gusts σ/);
   });
 
   // A date more than 92 days back is answered by the ERA5 archive: the weather
@@ -429,5 +442,16 @@ describe('the weather dialog', () => {
     render({ initialPlace: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' } });
     expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
     expect(button('Fetch')).toBeTruthy();
+  });
+});
+
+describe('gustNote', () => {
+  it('points at the σ row only when there is one, and otherwise says why not', () => {
+    expect(gustNote(1.75, 4.6)).toBe('see Wind gusts σ.');
+    expect(gustNote(3.4, 3.2)).toBe('no stronger than this hour’s wind, so there is no σ estimate.');
+    expect(gustNote(3.4, 3.4)).toBe('no stronger than this hour’s wind, so there is no σ estimate.');
+    expect(gustNote(2.4, 2.5)).toBe('within Open-Meteo’s 0.1 m/s resolution of this hour’s wind, so there is no σ estimate.');
+    expect(gustNote(0, 2)).toBe('the wind is calm this hour, so there is no σ estimate.');
+    expect(gustNote(null, 2)).toBe('Open-Meteo has no wind for this hour, so there is no σ estimate.');
   });
 });

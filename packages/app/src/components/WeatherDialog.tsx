@@ -16,7 +16,7 @@ import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
 import {
-  altitudeText, capitalise, farText, FIELD_LABEL, fieldText, showsYear, sourceHeading, sourceWord,
+  altitudeText, capitalise, farText, FIELD_LABEL, fieldText, gustNote, showsYear, sourceHeading, sourceWord,
 } from './weatherText.js';
 
 /**
@@ -519,8 +519,8 @@ export function WeatherDialog({
                 </li>
               )}
               {proposal.sample.windGustMs !== null && (
-                <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before) — see
-                  Wind gusts σ.</li>
+                <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before)
+                  {' — '}{gustNote(proposal.sample.windSpeedMs, proposal.sample.windGustMs)}</li>
               )}
               {gust.ok && (
                 <li>σ from this gust ≈ {fieldText('windAverage', gust.sigmaMs, units)} — offered beside Wind gusts σ

@@ -171,6 +171,19 @@ describe('parseForecast', () => {
     expect(v!.samples[0]!.temperatureC).toBeNull();
     expect(v!.samples[1]!.windSpeedMs).toBe(0);
   });
+
+  // The guide's "Wind gusts from a forecast" quotes this count: a gust no
+  // stronger than the wind is common in a forecast — the wind is the value at
+  // the hour, the gust the strongest in the hour before — and the σ chip then
+  // offers nothing (review of 2026-09-23). The ERA5 capture has none.
+  it('finds a gust no stronger than the wind in 30 of the 72 captured Gerlach hours', () => {
+    const count = (name: string, elevations: number[]) => {
+      const s = parseForecast(fixture(name), elevations)[0]!.samples;
+      return [s.filter((h) => h.windGustMs! <= h.windSpeedMs!).length, s.length];
+    };
+    expect(count('forecast-gerlach-0-1202m.json', [0, 1202])).toEqual([30, 72]);
+    expect(count('archive-blackrock-2025-06-14.json', [1190])).toEqual([0, 72]);
+  });
 });
 
 describe('the hours of the site’s day', () => {

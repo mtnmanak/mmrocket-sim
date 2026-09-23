@@ -1,6 +1,27 @@
 import { fmtAltitude, fmtFieldValue, fmtSi, siToUi, type UnitSelection } from '../prefs/units.js';
+import { GUST_RESOLUTION_MS, sigmaFromGust } from '../services/gustSigma.js';
 import type { Endpoint } from '../services/openMeteo.js';
 import type { ApplyKey } from '../services/weatherSnapshot.js';
+
+/**
+ * What the review says after "Gust 4.6 m/s (strongest in the hour before) —":
+ * where its σ estimate is, or — when the gust gives none — why. The first
+ * build said "see Wind gusts σ" whatever the gust, so a 3.2 m/s gust beside a
+ * 3.4 m/s wind pointed at a row that never appears (review of 2026-09-23).
+ * A gust at or below the wind is common, not an error: the wind is the value
+ * AT the hour and the gust the strongest in the hour BEFORE, two different
+ * numbers — 30 of the 72 hours in the captured Gerlach forecast
+ * (openMeteo.test pins that count, which the guide quotes).
+ */
+export function gustNote(meanMs: number | null, gustMs: number): string {
+  const g = sigmaFromGust(meanMs, gustMs);
+  if (g.ok) return 'see Wind gusts σ.';
+  if (meanMs === null || !Number.isFinite(meanMs)) return 'Open-Meteo has no wind for this hour, so there is no σ estimate.';
+  if (g.reason === 'calm') return 'the wind is calm this hour, so there is no σ estimate.';
+  return gustMs <= meanMs
+    ? 'no stronger than this hour’s wind, so there is no σ estimate.'
+    : `within Open-Meteo’s ${GUST_RESOLUTION_MS} m/s resolution of this hour’s wind, so there is no σ estimate.`;
+}
 
 /**
  * How the weather UI words its numbers (weather build, step 3) — the review,
