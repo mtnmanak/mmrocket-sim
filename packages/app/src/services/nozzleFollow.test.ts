@@ -92,6 +92,44 @@ describe('stageMotors', () => {
     expect(out[0]!.motors.map((m) => m.motorId)).toEqual(['aero-core']);
   });
 
+  /**
+   * A POD SET's motors burn in the stage that carries it, once per pod — the
+   * kernel count `mountMotorCount.kernel.test.ts` pins. The cluster alone
+   * counted one pod, so three pods with a 20 mm exit each were filled with one
+   * pod's 20 mm where the stage's equivalent is 34.6 mm (audit 2026-09-22,
+   * row 351).
+   */
+  it('counts a pod set’s motor once per pod, and a cluster in each pod on top', () => {
+    const podTree = (instanceCount: number | undefined, cluster?: string): RocketTree => ({
+      name: 'Pods',
+      components: [{
+        type: 'stage', id: 'sus', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'bt', length: 0.5,
+          children: [{
+            type: 'podset', id: 'pods', name: 'Pods',
+            ...(instanceCount === undefined ? {} : { instanceCount }),
+            children: [{
+              type: 'bodytube', id: 'pod-bt', length: 0.3,
+              children: [{ type: 'innertube', id: 'pm', length: 0.2, ...(cluster ? { cluster } : {}) } as ComponentNode],
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+    const count = (t: RocketTree) => stageMotors(t, [['pm', mm('aero-pod')]])[0]!.motors[0]!.count;
+    expect(count(podTree(3))).toBe(3);
+    expect(count(podTree(2, 'double'))).toBe(4);
+    // A cleared Instances field is the kernel's two.
+    expect(count(podTree(undefined))).toBe(2);
+    // And the equivalent the autofill writes for three 20 mm exits.
+    const [s] = stageMotors(podTree(3), [['pm', mm('aero-pod')]]);
+    const equiv = equivalentExitDiameterM(s!.motors.map((m) => ({ count: m.count, exitDiameterM: 0.020 })));
+    expect(equiv! * 1000).toBeCloseTo(20 * Math.sqrt(3), 9);
+    // The pod count is part of the loadout key: adding a pod changes the stage.
+    expect(stageMotorKey(s!)).not.toBe(stageMotorKey(stageMotors(podTree(2), [['pm', mm('aero-pod')]])[0]!));
+  });
+
   it('ignores a record whose mount the tree no longer has', () => {
     const tree = design([{ id: 'sus', mounts: [['m1']] }]);
     const out = stageMotors(tree, [['m1', mm('aero-1')], ['gone', mm('aero-2')]]);

@@ -5,8 +5,7 @@ import { stableJson } from './dirtyState.js';
 import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
 } from './hardwareMass.js';
-import { clusterCount } from '../tree/cluster.js';
-import { findNode, motorMounts, primaryMountOf } from '../tree/treeModel.js';
+import { motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
 
 /**
  * The working motor set ↔ the flight configuration it belongs to (v0.118).
@@ -186,7 +185,12 @@ export function assignMotorRecord(
   const adoptedKg = adoptsRefPadMass(droppedRef, fresh.spec.designation);
   if (adoptedKg !== undefined) {
     const inTree = new Set(motorMounts(tree).map((n) => n.id));
-    const count = (id: string) => clusterCount(findNode(tree, id)?.['cluster'] as string | undefined);
+    // The SAME count App's `currentSetKey` builds with (`mountMotorCount`:
+    // cluster times every enclosing pod set and strap-on). The cluster alone
+    // gave a mount inside a pod set a different count from the live set, so
+    // an adopted pad mass read 'stale-set' the moment it was attached (audit
+    // 2026-09-22, row 351).
+    const count = (id: string) => mountMotorCount(tree, id);
     const key = motorSetIdentity([
       ...Object.entries(next).filter(([id]) => inTree.has(id))
         .map(([id, mm]) => [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),

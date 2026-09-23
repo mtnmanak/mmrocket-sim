@@ -271,6 +271,26 @@ export function mountMotorCount(tree: RocketTree, mountId: string): number {
 }
 
 /**
+ * How a mount card says how many motors it fires, or '' for one: "cluster ×4"
+ * when the cluster is the whole story, and the total with where the rest come
+ * from when a pod set or strap-on ring repeats the mount — "×3 — one per pod",
+ * "×6 — a cluster of 3 per strap-on". The card used to print the cluster alone
+ * (audit 2026-09-22, row 351), so a motor in a three-pod set read as one while
+ * the pad mass, the recovery weight and the flight all carried three. "Per"
+ * names the NEAREST repeating assembly, which keeps it true when pods sit
+ * inside a strap-on.
+ */
+export function mountCountNote(tree: RocketTree, mountId: string): string {
+  const total = mountMotorCount(tree, mountId);
+  if (total <= 1) return '';
+  const cluster = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  if (total === cluster) return `cluster ×${total}`;
+  const nearest = ancestorsOf(tree, mountId).find((a) => a.type === 'podset' || a.type === 'parallelstage');
+  const per = nearest?.type === 'parallelstage' ? 'strap-on' : 'pod';
+  return `×${total} — ${cluster > 1 ? `a cluster of ${cluster}` : 'one'} per ${per}`;
+}
+
+/**
  * The nearest ancestor whose "Use instead of everything inside" actually suppresses this
  * node's own value for the given quantity, or null when nothing does.
  *

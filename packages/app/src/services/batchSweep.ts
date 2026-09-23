@@ -40,7 +40,7 @@ export interface BatchMountOption {
   id: string;
   label: string;
   diameterMm: number;
-  /** Cluster count — each candidate fires ×N. */
+  /** Motors a candidate fires on this mount (`mountMotorCount`: cluster × enclosing pods/strap-ons) — ×N. */
   motorCount: number;
   /** Effective max motor length (override ?? mount design value), SI m. */
   maxMotorLengthM: number | null;

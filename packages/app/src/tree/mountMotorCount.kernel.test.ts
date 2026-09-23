@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { engineTree, mountMotorCount } from './treeModel.js';
+import { engineTree, mountCountNote, mountMotorCount } from './treeModel.js';
 
 /**
  * EVERY MOTOR COUNT CHECKED AGAINST THE KERNEL THAT FLIES IT (audit
@@ -150,5 +150,25 @@ describe('mountMotorCount — what the kernel flies (strap-on booster)', () => {
     } as ComponentNode);
     expect(await kernelCount(tree, 'pm')).toBeCloseTo(12, 9);
     expect(mountMotorCount(tree, 'pm')).toBe(12);
+  });
+});
+
+/**
+ * The card's wording for the same count (audit 2026-09-22, row 351): the card
+ * printed the cluster alone, so a motor in a three-pod set read as one.
+ */
+describe('mountCountNote', () => {
+  it('says nothing for one motor, and "cluster ×N" when the cluster is all of it', () => {
+    expect(mountCountNote(withAssembly('podset', { instanceCount: 1 }), 'pm')).toBe('');
+    expect(mountCountNote(withAssembly('podset', { instanceCount: 3 }), 'core')).toBe('');
+    expect(mountCountNote(withAssembly('podset', { instanceCount: 1 }, { cluster: '4-ring' }), 'pm'))
+      .toBe('cluster ×4');
+  });
+
+  it('names the pods or strap-ons that repeat the mount, with the total the kernel flies', () => {
+    expect(mountCountNote(withAssembly('podset', { instanceCount: 3 }), 'pm')).toBe('×3 — one per pod');
+    expect(mountCountNote(withAssembly('podset', {}), 'pm')).toBe('×2 — one per pod');
+    expect(mountCountNote(withAssembly('parallelstage', { instanceCount: 2 }, { cluster: '3-ring' }), 'pm'))
+      .toBe('×6 — a cluster of 3 per strap-on');
   });
 });

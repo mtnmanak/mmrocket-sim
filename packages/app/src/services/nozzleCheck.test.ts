@@ -123,6 +123,40 @@ describe('nozzleOversize', () => {
     expect(nozzleOversize(design(equivalent), [['mount', withStaleMeta]]).length).toBe(1);
   });
 
+  /**
+   * A POD SET multiplies the motors the same way a cluster does — once per pod,
+   * the kernel's count (`mountMotorCount.kernel.test.ts`). Reading the cluster
+   * alone accused an honest three-pod equivalent of being wider than ONE pod's
+   * casing (audit 2026-09-22, row 351).
+   */
+  it('counts a pod set once per pod, so an honest three-pod equivalent is silent', () => {
+    const pods = (nozzleMm: number, instanceCount?: number): RocketTree => ({
+      name: 'Pods',
+      components: [{
+        type: 'stage', id: 'sus', name: 'Sustainer', nozzleExitDiameter: nozzleMm / 1000,
+        children: [{
+          type: 'bodytube', id: 'bt', length: 0.5,
+          children: [{
+            type: 'podset', id: 'pods', ...(instanceCount === undefined ? {} : { instanceCount }),
+            children: [{
+              type: 'bodytube', id: 'pod-bt', length: 0.3,
+              children: [{ type: 'innertube', id: 'mount', length: 0.2 } as ComponentNode],
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    });
+    const equivalent = 20 * Math.sqrt(3); // three 20 mm exits: 34.64 mm
+    expect(nozzleOversize(pods(equivalent, 3), [['mount', mm(29)]])).toEqual([]);
+    const out = nozzleOversize(pods(60, 3), [['mount', mm(29)]]);
+    expect(out.length).toBe(1);
+    expect(out[0]!.casingEquivalentM).toBeCloseTo(0.029 * Math.sqrt(3), 9);
+    expect(out[0]!.motorCount).toBe(3);
+    // A cleared Instances field is the kernel's two pods: 29·√2 = 41.0 mm.
+    expect(nozzleOversize(pods(40, undefined), [['mount', mm(29)]])).toEqual([]);
+    expect(nozzleOversize(pods(42, undefined), [['mount', mm(29)]])[0]!.motorCount).toBe(2);
+  });
+
   it('adds up two different mounts in the same stage', () => {
     const t: RocketTree = {
       name: 'Two mounts',

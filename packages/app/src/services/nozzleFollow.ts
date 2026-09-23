@@ -1,7 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../App.js';
-import { clusterCount } from '../tree/cluster.js';
-import { findNode, kernelStageIdByNode, stages } from '../tree/treeModel.js';
+import { kernelStageIdByNode, mountMotorCount, stages } from '../tree/treeModel.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -38,11 +37,11 @@ import { findNode, kernelStageIdByNode, stages } from '../tree/treeModel.js';
  * only on a CHANGE, so a load seeds and a motor swap fires.
  */
 
-/** One stage and the motors currently loaded in it, cluster counts included. */
+/** One stage and the motors currently loaded in it, cluster and pod counts included. */
 export interface StageMotors {
   stageId: string;
   stageName: string;
-  /** In mount order. A cluster is ONE entry with `count` above 1. */
+  /** In mount order. A cluster, or a mount inside a pod set, is ONE entry with `count` above 1. */
   motors: { mountId: string; motorId: string; count: number; label: string }[];
 }
 
@@ -84,7 +83,14 @@ export function stageMotors(
     list.push({
       mountId,
       motorId,
-      count: clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined),
+      // Every motor the kernel burns in this stage: the cluster times each
+      // enclosing POD SET's count (audit 2026-09-22, row 351). The cluster
+      // alone filled a stage with one pod's exit — 20 mm where three pods
+      // with a 20 mm exit each are a 34.6 mm equivalent — so the pods' other
+      // exits never collected their pressure thrust. No parallel stage can
+      // enclose a mount that reaches this line (kernel ownership, above), so
+      // `mountMotorCount` is exactly the per-stage count here.
+      count: mountMotorCount(tree, mountId),
       label: mm.label,
     });
     byStage.set(stageId, list);
