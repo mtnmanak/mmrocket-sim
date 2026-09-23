@@ -355,8 +355,13 @@ describe('estimateMotorRoom', () => {
  * search used to span every frame in the stage, so a pod's nose cone "limited"
  * the core motor — measured 1.00 m without the pod, 0.30 m with it — and since
  * the minimum over a stage's mounts feeds Room for and Estimate, the motor
- * browser was filtered by a pod. And inside a pod the chain did not stack, so a
- * pod mount measured from the wrong place.
+ * browser was filtered by a stop no motor in the stage ever meets. And inside a
+ * pod the chain did not stack, so a pod mount measured from the wrong place.
+ *
+ * The stage figure is STILL the minimum over its mounts, pods included: one
+ * per-stage limit filters every mount's browser in that stage, so it has to be
+ * a length every one of them can take. What changed is that each mount's own
+ * figure is now true, so the minimum is a real room, named by a real stop.
  */
 describe('a pod set or strap-on is its own airframe', () => {
   /** The dual-deploy core of the tests above, with a ring on the booster tube. */
@@ -439,10 +444,19 @@ describe('a pod set or strap-on is its own airframe', () => {
     expect(r.limitedBy).toBe('the front of the pod');
   });
 
-  it('takes the core’s room for the stage, not a pod’s, when both are asked', () => {
-    // estimateMotorRoomForMounts is the stage figure; with only the core mount
-    // asked it must not be cut down by anything inside the pod.
-    expect(estimateMotorRoomForMounts(withRing('podset'), ['mt'])!.lengthM).toBeCloseTo(1.00, 9);
+  it('the stage figure is the tightest mount’s OWN room — never a pod blocking the core', () => {
+    // estimateMotorRoomForMounts is the stage figure. Asked for the core alone
+    // it is the core's 1.00 m — nothing inside the pod cuts it down…
+    const core = estimateMotorRoomForMounts(withRing('podset'), ['mt'])!;
+    expect(core.lengthM).toBeCloseTo(1.00, 9);
+    expect(core.limitedBy).toBe('Ebay floor');
+    // …and asked for the core and the pod, as App asks for a stage holding
+    // both, it is the pod's own 0.445 m to its own bulkhead: the one length
+    // both mounts take. Before, both figures were wrong — the core stopped at
+    // the pod's nose and the pod measured from the pod set's start.
+    const both = estimateMotorRoomForMounts(withRing('podset'), ['mt', 'pm'])!;
+    expect(both.lengthM).toBeCloseTo(0.445, 9);
+    expect(both.limitedBy).toBe('Pod bulkhead');
   });
 });
 

@@ -88,10 +88,11 @@ describe('mountMotorCount — what the kernel flies (pod set)', () => {
     ['three pods', { instanceCount: 3 }, {}, 3],
     ['two pods, each a 3-ring cluster', { instanceCount: 2 }, { cluster: '3-ring' }, 6],
     // The kernel's own default, ComponentFactory.applyAssembly's
-    // `(int) dbl(node, "instanceCount", 2)` — the Instances field is nullable,
-    // so clearing it stores nothing and the kernel still builds two.
+    // `(int) dbl(node, "instanceCount", 2)`. The panel no longer lets the
+    // Instances field be cleared, but a session saved while it could be, or a
+    // hand-edited file, still carries no count, and the kernel builds two.
     ['instanceCount absent', {}, {}, 2],
-    ['instanceCount null (a cleared field)', { instanceCount: null }, {}, 2],
+    ['instanceCount null (an older session’s cleared field)', { instanceCount: null }, {}, 2],
     // `(int)` truncates: 2.7 builds two, where rounding said three.
     ['instanceCount 2.7', { instanceCount: 2.7 }, {}, 2],
     // PodSet.setInstanceCount ignores anything below one, so the constructor's

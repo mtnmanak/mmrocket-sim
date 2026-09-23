@@ -120,7 +120,7 @@ describe('stageMotors', () => {
     const count = (t: RocketTree) => stageMotors(t, [['pm', mm('aero-pod')]])[0]!.motors[0]!.count;
     expect(count(podTree(3))).toBe(3);
     expect(count(podTree(2, 'double'))).toBe(4);
-    // A cleared Instances field is the kernel's two.
+    // An absent count (an older session's cleared field) is the kernel's two.
     expect(count(podTree(undefined))).toBe(2);
     // And the equivalent the autofill writes for three 20 mm exits.
     const [s] = stageMotors(podTree(3), [['pm', mm('aero-pod')]]);

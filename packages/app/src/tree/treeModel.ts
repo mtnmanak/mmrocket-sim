@@ -349,11 +349,14 @@ export function mountMotorCount(tree: RocketTree, mountId: string): number {
 /**
  * How many copies of a pod set or strap-on the KERNEL builds (audit
  * 2026-09-22, row 352): `ComponentFactory.applyAssembly` hands it
- * `(int) dbl(node, "instanceCount", 2)` — absent (the Instances field is
- * nullable, so clearing it stores nothing), null or non-finite is TWO, and a
- * fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount` ignore
- * anything below one, which leaves their constructors' two standing.
- * `mountMotorCount` used to read an absent count as ONE, so a cleared field
+ * `(int) dbl(node, "instanceCount", 2)` — absent, null or non-finite is TWO,
+ * and a fraction truncates — and `PodSet`/`ParallelStage.setInstanceCount`
+ * ignore anything below one, which leaves their constructors' two standing.
+ * The panel no longer lets the Instances field be cleared (it is not
+ * `optional` in schema.ts, so an empty draft is discarded), and the .ork
+ * importer always writes a count; an absent one now comes from a session saved
+ * while the field could still be cleared, or from a hand-edited file.
+ * `mountMotorCount` used to read an absent count as ONE, so such a design
  * subtracted one motor from a weighed pad mass where the kernel flies two, and
  * the missing motor flew again as phantom hardware on every flight; `AftView`,
  * `TreeSchematic` and `mountAngle` already drew two.

@@ -152,7 +152,7 @@ describe('nozzleOversize', () => {
     expect(out.length).toBe(1);
     expect(out[0]!.casingEquivalentM).toBeCloseTo(0.029 * Math.sqrt(3), 9);
     expect(out[0]!.motorCount).toBe(3);
-    // A cleared Instances field is the kernel's two pods: 29·√2 = 41.0 mm.
+    // An absent count (an older session's cleared field) is the kernel's two pods: 29·√2 = 41.0 mm.
     expect(nozzleOversize(pods(40, undefined), [['mount', mm(29)]])).toEqual([]);
     expect(nozzleOversize(pods(42, undefined), [['mount', mm(29)]])[0]!.motorCount).toBe(2);
   });
