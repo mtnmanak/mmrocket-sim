@@ -126,8 +126,10 @@ export function FirstRunTour({ onSetTab, onClose }: {
   useEffect(() => { markTourDone(); }, []);
 
   // Escape dismisses the tour (and keyboard focus starts in the card, so Next
-  // is reachable without a mouse). Same contract as every other dialog here.
-  const dialogRef = useDialog<HTMLDivElement>(close);
+  // is reachable without a mouse). Same contract as every other dialog here —
+  // except that it is not MODAL: the app stays usable behind it, so it must
+  // not hold the design's Ctrl+Z (useDialog's openModalCount, audit 2026-09-22).
+  const dialogRef = useDialog<HTMLDivElement>(close, { modal: false });
 
   // Keep the target's tab active. Runs before measuring (same commit), so the
   // measurement effect below sees the right DOM one frame later.

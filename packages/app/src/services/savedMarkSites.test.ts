@@ -3,53 +3,151 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import type { RocketTree } from '@online-openrocket/engine';
+import type { MountMotor } from '../App.js';
+import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
+import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
+import {
+  applyImportPlan, planImport, planNewDesign, type ImportedDesign, type ImportSinks,
+} from './importApply.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = () => readFileSync(join(here, '../App.tsx'), 'utf8');
 
 /**
- * WHICH actions are allowed to say "this design is saved".
+ * WHICH actions are allowed to say "this design is saved", and that each one
+ * marks the design it actually leaves on screen.
  *
- * `markSaved` clears the unsaved-changes guard, so every call site is a place
- * the Open prompt can be silenced. Three are correct, and the rest of the
- * app's "save" and "share" actions must NOT be in the list:
+ * `markSaved` clears the unsaved-changes guard, so every mark is a place the
+ * Open prompt can be silenced. Three are correct:
  *
  *  - a .ork save        — the only format that round-trips everything
  *  - an import          — the design now IS the file on disk
  *  - New                — an empty design is not work anybody would mind losing
  *
- * Deliberately excluded, and this is the part worth pinning:
- *  - .rkt / .CDX1 exports are LOSSY. RockSim drops launch conditions, flight
- *    configurations and the measured mass/CG; RASAero keeps launch but drops
- *    configurations, measured and flight data. Marking either as saved would
- *    let the next Open discard precisely the parts the file does not hold.
- *  - Copying a share link puts nothing on disk, and on the clipboard fallback
- *    the URL goes into a window.prompt() where the app cannot tell whether it
- *    was ever copied.
+ * BEHAVIOUR FIRST (audit 2026-09-22). This file used to be regexes over
+ * App.tsx, and a regex stays green while a mark describes a different design
+ * from the one on screen. The import and New marks are now taken inside
+ * services/importApply.ts from the same plan App writes, so they are tested
+ * here by what they DO: apply the plan, rebuild the state App would hold from
+ * what it was handed, and check that state reads clean.
  *
- * These are absences, and an absence is invisible to every other test in the
- * suite: adding `markSaved` to onSaveRkt would break nothing and would quietly
- * re-open the data-loss hole. Hence a source-text guard.
+ * What stays a source guard is what has no unit to call: the ABSENCES. The
+ * .rkt / .CDX1 exports are LOSSY (RockSim drops launch conditions, flight
+ * configurations and the measured mass/CG; RASAero keeps launch but drops
+ * configurations, measured and flight data), and a share link puts nothing on
+ * disk — marking any of them would let the next Open discard precisely what
+ * the file does not hold. An absence is invisible to every behavioural test.
+ * So are App's HAND-OFFS to the tested units, until App renders in a test:
+ * those are the last block.
  */
-describe('only a full-fidelity save clears the unsaved-changes mark', () => {
-  it('marks from exactly three places', () => {
-    const calls = app().match(/\bmarkSaved\(/g) ?? [];
-    // onSaveOrk, applyImported, startNewDesign — plus its own definition,
-    // which is `const markSaved = (` and does not match this pattern.
-    expect(calls.length, 'a new markSaved call site appeared — is it full fidelity?')
-      .toBe(3);
+
+const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
+
+const motor = (designation: string): MountMotor => ({
+  label: `${designation}-P`,
+  spec: {
+    designation, diameter: 0.029, length: 0.2, cgX: 0.1, ejectionDelay: Infinity,
+    times: [0, 1], thrusts: [0, 0], masses: [0.2, 0.1],
+  },
+  meta: { label: designation, manufacturer: 'AeroTech', motorId: `db-${designation}` },
+  ignition: { event: 'automatic', delay: 0 },
+});
+
+const design = (): RocketTree => ({
+  name: 'Rocket',
+  components: [{ type: 'stage', id: 'st', name: 'Sustainer', children: [
+    { type: 'bodytube', id: 'bt', length: 0.5, outerRadius: 0.03, thickness: 0.001, children: [
+      { type: 'innertube', id: 'mmt', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true },
+    ] },
+  ] }],
+});
+
+/** App's writers, recorded — and a stand-in for the history hook's reset. */
+function recordingSinks(): { sinks: ImportSinks; held: () => DesignSnapshot; mark: () => string } {
+  const got: Partial<DesignSnapshot> = {};
+  let mark = '';
+  const sinks: ImportSinks = {
+    history: { reset: (t?: RocketTree) => { if (t) got.tree = t; } },
+    setMountMotors: (v) => { got.mountMotors = v; },
+    setUnmatchedRefs: () => {},
+    setSavedConfigs: (v) => { got.savedConfigs = v; },
+    setActiveConfigId: (v) => { got.activeConfigId = v; },
+    setMaxMotorLen: (v) => { got.maxMotorLengthByStage = v; },
+    setLaunch: (v) => { got.launch = v; },
+    setMeasured: (v) => { got.measured = v; },
+    setMachAlt: () => {},
+    setNote: () => {},
+    setShroudPrompt: () => {},
+    markSaved: (m) => { mark = m; },
+  };
+  return { sinks, held: () => got as DesignSnapshot, mark: () => mark };
+}
+
+describe('an import marks the design it leaves on screen', () => {
+  it('reads clean straight after the open, plugged motor and file launch included', () => {
+    const imported: ImportedDesign = {
+      name: 'Rocket', tree: design(), notes: [],
+      motors: { mmt: { designation: 'H100', manufacturer: 'AeroTech', diameter: 0.029, length: 0.2, delay: Infinity } },
+      launch: { windAverage: 5, timeStepS: 0.02 }, measured: { massKg: 0.9, cgM: 0.31 },
+    };
+    const plan = planImport(imported, { working: { mmt: { motor: motor('H100'), note: '' } }, configs: {} },
+      { launch: DEFAULT_CONDITIONS, text: TEXT });
+    const rec = recordingSinks();
+    applyImportPlan(plan, rec.sinks);
+    expect(rec.mark()).not.toBe('');
+    expect(isDirty(designFingerprint(rec.held()), rec.mark(), false)).toBe(false);
   });
 
-  it('the .ork save marks, and only after a real write', () => {
-    const src = app();
-    expect(src).toContain("if (out.kind !== 'cancelled') markSaved(mark);");
-    // The mark is taken before the await, or edits made while the Save-As
-    // picker sits open get blessed as saved. Since v0.118 it is taken over the
-    // configurations with the working set written back into the active one
-    // (configSync.withActiveConfigSynced), so a switch away and back after the
-    // save does not read as unsaved.
-    expect(/const mark = designFingerprint\(\{ \.\.\.snapshotNow\(\), savedConfigs: synced \}\);[\s\S]{0,400}?await download\(exportOrk/
-      .test(src)).toBe(true);
+  it('marks the launch it wrote, not one captured before the open', () => {
+    const before: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 0 };
+    const typedDuringOpen: LaunchConditions = { ...before, windAverage: 8 };
+    const imported: ImportedDesign = { name: 'f', tree: design(), notes: [], motors: {} };
+    const plan = planImport(imported, { working: {}, configs: {} }, { launch: typedDuringOpen, text: TEXT });
+    const rec = recordingSinks();
+    applyImportPlan(plan, rec.sinks);
+    expect(rec.held().launch.windAverage).toBe(8);
+    expect(isDirty(designFingerprint(rec.held()), rec.mark(), false)).toBe(false);
+    // The mark describes the wind handed in, not another: a mark over the
+    // launch the open STARTED under would read dirty against this one. This
+    // half is the plan's (one merge, marked from the object it writes); the
+    // other half — that App hands in the mirror's launch after its last await,
+    // not the render's — is the source guard at the foot of this file.
+    expect(designFingerprint({ ...rec.held(), launch: { ...before, timeStepS: undefined } })).not.toBe(rec.mark());
+  });
+});
+
+describe('✕ New marks the empty design it writes', () => {
+  it('reads clean, however many times it is pressed', () => {
+    const measured = { massKg: null, cgM: null };
+    for (let i = 0; i < 3; i++) {
+      const { snapshot, mark } = planNewDesign({ launch: DEFAULT_CONDITIONS, measured });
+      // The tree it hands back is the one it marked: one emptyTree(), not two.
+      expect(isDirty(designFingerprint(snapshot), mark, false)).toBe(false);
+    }
+  });
+});
+
+describe('only a full-fidelity save clears the unsaved-changes mark (App-only absences)', () => {
+  it('names markSaved in exactly three places', () => {
+    // onSaveOrk and startNewDesign call it; applyImported hands it to
+    // applyImportPlan (tested above). Its own definition and comments do not
+    // count.
+    const code = app().split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    const refs = code.match(/\bmarkSaved\b(?! = \()/g) ?? [];
+    expect(refs.length, 'a new markSaved site appeared — is it full fidelity?').toBe(3);
+  });
+
+  it('the .ork save marks only after a real write', () => {
+    expect(app()).toContain("if (out.kind !== 'cancelled') markSaved(mark);");
+  });
+
+  it('the .ork save takes its mark BEFORE the Save-As picker opens', () => {
+    // The picker can sit open indefinitely with the user editing behind it; a
+    // mark taken after the await would bless those edits as saved. planOrkSave
+    // is tested in importApply.test.ts; that App calls it FIRST is not.
+    expect(app()).toMatch(
+      /const \{ savedConfigs: synced, mark \} = planOrkSave\(snapshotNow\(\), unmatchedRefs\);[\s\S]{0,600}?await download\(exportOrk/);
   });
 
   it('the lossy exports do NOT mark', () => {
@@ -59,10 +157,9 @@ describe('only a full-fidelity save clears the unsaved-changes mark', () => {
       expect(start, `${fn} not found`).toBeGreaterThan(-1);
       // Body runs to the next top-level `const on...` declaration.
       const rest = src.slice(start + 10);
-      const end = rest.search(/\n  const on[A-Z]/);
+      const end = rest.search(/\n {2}const on[A-Z]/);
       const body = rest.slice(0, end === -1 ? 4000 : end);
-      expect(body.includes('markSaved'), `${fn} must not clear the unsaved-changes mark`)
-        .toBe(false);
+      expect(body.includes('markSaved'), `${fn} must not clear the unsaved-changes mark`).toBe(false);
     }
   });
 
@@ -74,5 +171,44 @@ describe('only a full-fidelity save clears the unsaved-changes mark', () => {
     const start = src.lastIndexOf('const frag = await encodeShareFragment', i);
     expect(src.slice(start, i + 400).includes('markSaved'),
       'copying a share link must not clear the unsaved-changes mark').toBe(false);
+  });
+});
+
+/**
+ * THE APP WIRING THE UNITS ABOVE DEPEND ON (audit 2026-09-22, from review).
+ * Each of these fixes lives in a unit that is tested by behaviour — importApply,
+ * session, useTreeHistory — and each needs App to hand that unit the right
+ * thing. Reverting all of the hand-offs at once left the whole suite green, so
+ * until App itself renders in a test, each one is held here as a source guard.
+ * A guard names the WIRING, never the behaviour, which is tested where it lives.
+ */
+describe('App hands the tested units what their fixes depend on', () => {
+  it('an Open merges the launch from the mirror, after its last await (audit row 304)', () => {
+    // The render-captured `launch` was the one the open STARTED under, so a
+    // wind typed while the file loaded made the just-opened design read dirty.
+    expect(app()).toContain('planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText })');
+  });
+
+  it('the autosave writes the unresolved motor references and the restore reads them (row 299)', () => {
+    const src = app();
+    const start = src.indexOf('saveSessionDebounced({');
+    expect(start).toBeGreaterThan(-1);
+    const call = src.slice(start, src.indexOf('});', start));
+    expect(call).toMatch(/\n\s+unmatchedRefs,\r?\n/);
+    expect(src).toContain('}, [designSnapshot, dirtyTick, unmatchedRefs]);');
+    expect(src).toMatch(/restoreUnmatchedRefs\(session\?\.savedConfigs, session\?\.activeConfigId, session\?\.mountMotors \?\? \{\},\s+session\?\.unmatchedRefs\)/);
+  });
+
+  it('undo and redo are refused while a flight holds the engine handle (row 278)', () => {
+    const src = app();
+    expect(src).toContain('blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,');
+    expect(src).toContain('flightHoldsHandle.current = simulating || reflying !== null;');
+  });
+
+  it('the starter motor, ✕ New and a share link take their turn in the open sequence (row 303)', () => {
+    const src = app();
+    expect(src).toContain('setMountMotors((prev) => (starterMotorMayLand(treeRef.current, defaultMountId!, prev)');
+    expect(src).toContain('planNewDesign({ launch, measured }, openSeq)');
+    expect(src).toMatch(/void openShareLink\(hash, \{\s+openSeq,/);
   });
 });

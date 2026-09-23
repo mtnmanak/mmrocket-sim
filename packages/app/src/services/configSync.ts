@@ -1,11 +1,11 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../App.js';
-import type { OrkMotorRef } from './orkFile.js';
+import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import { stableJson } from './dirtyState.js';
 import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
 } from './hardwareMass.js';
-import { motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
+import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
 
 /**
  * The working motor set ↔ the flight configuration it belongs to (v0.118).
@@ -18,9 +18,38 @@ import { motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.
  * the only copy of a configuration's unresolved motors was the configuration
  * itself. These helpers close both: the working set is written BACK into the
  * active configuration before a switch and before the mark a save takes, and
- * the working references are seeded from the active configuration at
- * restore. Pure — no React, no kernel — so each is a unit test.
+ * the working references are seeded at restore — from the session's own copy
+ * since the 2026-09-22 audit, from the active configuration for a session
+ * written before. Pure — no React, no kernel — so each is a unit test.
  */
+
+/**
+ * THE key a weighed pad mass is stored under, and compared against: the motor
+ * SET it was weighed with — each mount's motor identity and the kernel's motor
+ * count for that mount (a pod set or parallel stage around it multiplies its
+ * cluster) — plus an `unmatched:<designation>` sentinel for every reference the
+ * file named that nothing could load, so a set only half loaded is never
+ * applied against a partial catalogue sum (hardwareMass 'stale-set').
+ *
+ * ONE rule (audit 2026-09-22). It was built three times — at import from the
+ * configuration's own set, for the set on screen, and when the file's own motor
+ * adopts the file's weighing (assignMotorRecord) — kept in step by hand, and the
+ * third had drifted: it counted the mount's cluster where the others count the
+ * kernel's motors. When they drift, a weighing reads as another set's and
+ * carries nothing. `refs` is empty for the set on screen: the working references
+ * are not loaded motors, and the sentinel is what keeps the weighing pending
+ * until they are.
+ */
+export function padMassSetKey(
+  tree: RocketTree, motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {},
+): string {
+  return motorSetIdentity([
+    ...Object.entries(motors).map(([id, mm]) =>
+      [id, motorIdentity(mm.meta, mm.spec.designation), mountMotorCount(tree, id)] as const),
+    ...Object.entries(refs).map(([id, ref]) =>
+      [id, `unmatched:${ref.designation}`, mountMotorCount(tree, id)] as const),
+  ]);
+}
 
 /**
  * The working set written back into the active configuration. Returns
@@ -58,6 +87,118 @@ export function withActiveConfigSynced(
     ? { ...rest, motors }
     : { ...rest, motors, unmatched, unmatchedRefs };
   return configs.map((row, i) => (i === at ? next : row));
+}
+
+/** One override field: the type the node must carry it as, and what it flies without one. */
+interface OverrideField { kind: 'string' | 'number'; fallback?: string | number }
+
+/**
+ * The values a node flies when it carries no field of its own — what the .ork
+ * writer puts in the bare tags for the live configuration. A recovery device's
+ * missing `deployEvent` has no such value (the .ork writer reads it as
+ * ejection, the .CDX1 writer as apogee), so it has none here either.
+ */
+const DEPLOY_FIELDS: Record<keyof OrkDeployOverride, OverrideField> = {
+  deployEvent: { kind: 'string' },
+  deployAltitude: { kind: 'number', fallback: 200 },
+  deployDelay: { kind: 'number', fallback: 0 },
+};
+const SEPARATION_FIELDS: Record<keyof OrkSeparationOverride, OverrideField> = {
+  separationEvent: { kind: 'string', fallback: 'ejection' },
+  separationDelay: { kind: 'number', fallback: 0 },
+  separationAltitude: { kind: 'number', fallback: 200 },
+};
+
+/**
+ * One node's live values in the shape of its stored override. A field the
+ * entry already governs takes the node's value (the fallback when the node has
+ * none). A field the entry does not govern is added only when the node carries
+ * a value other than the fallback — something set on this configuration, which
+ * a switch back must restore — so a configuration nobody edited reads exactly
+ * as it was stored.
+ */
+function liveOverride<T extends object>(
+  node: Record<string, unknown>, stored: T, fields: Record<keyof T & string, OverrideField>,
+): T {
+  const had = stored as Record<string, string | number | undefined>;
+  const out: Record<string, string | number> = {};
+  for (const [k, f] of Object.entries(fields) as [string, OverrideField][]) {
+    const v = node[k];
+    const own = f.kind === 'string'
+      ? (typeof v === 'string' ? v : undefined)
+      : (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const was = had[k];
+    if (was !== undefined) out[k] = own ?? f.fallback ?? was;
+    else if (own !== undefined && own !== f.fallback) out[k] = own;
+  }
+  return out as T;
+}
+
+/**
+ * The live tree written back into the active configuration: its recovery
+ * deployments, stage separations and (RASAero) nozzles, for exactly the nodes
+ * the configuration governs. Returns `configs` BY IDENTITY when there is no
+ * active row or nothing differs under `stableJson`, the same contract as
+ * `withActiveConfigSynced`.
+ *
+ * WHY (audit 2026-09-22). Only the MOTORS were written back, so a deployment,
+ * separation or nozzle changed in the app while A was active was overwritten
+ * by B's on the switch and then by A's FILE values on the way back — A→B→A
+ * reverted the edit, the next Launch on A flew the file's deployment, not the
+ * user's, and a Save while B was active wrote A's stale values (the .ork writer
+ * replays every non-active configuration from its stored copy). A node the tree
+ * no longer has keeps its stored entry; a node the configuration does not
+ * govern (a chute added in the app) is tree-level and stays out of it.
+ */
+export function withActiveConfigTreeSynced(
+  configs: SavedConfig[], activeId: string | null, tree: RocketTree,
+): SavedConfig[] {
+  if (activeId === null) return configs;
+  const at = configs.findIndex((c) => c.id === activeId);
+  if (at === -1) return configs;
+  const c = configs[at]!;
+  const sync = <V>(stored: Record<string, V> | undefined, capture: (node: Record<string, unknown>, v: V) => V) => {
+    if (!stored) return stored;
+    let changed = false;
+    const out: Record<string, V> = {};
+    for (const [id, v] of Object.entries(stored)) {
+      const node = findNode(tree, id);
+      const next = node ? capture(node, v) : v;
+      if (stableJson(next) !== stableJson(v)) changed = true;
+      out[id] = next;
+    }
+    return changed ? out : stored;
+  };
+  const deployments = sync(c.deployments, (n, o) => liveOverride(n, o, DEPLOY_FIELDS));
+  const separations = sync(c.separations, (n, o) => liveOverride(n, o, SEPARATION_FIELDS));
+  // 0 = no nozzle, the stored shape's own convention (applyStageNozzles deletes
+  // the key on 0).
+  const nozzles = sync(c.nozzles, (n) => {
+    const d = n['nozzleExitDiameter'];
+    return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0;
+  });
+  if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles) return configs;
+  const next: SavedConfig = {
+    ...c,
+    ...(deployments ? { deployments } : {}),
+    ...(separations ? { separations } : {}),
+    ...(nozzles ? { nozzles } : {}),
+  };
+  return configs.map((row, i) => (i === at ? next : row));
+}
+
+/**
+ * Everything live written back into the active configuration — its motors and
+ * unresolved references (`withActiveConfigSynced`) and what the tree holds for
+ * it (`withActiveConfigTreeSynced`). What a switch, "None" and a .ork save call
+ * before they read or mark the configurations. Identity when nothing changed.
+ */
+export function syncActiveConfig(
+  configs: SavedConfig[], activeId: string | null,
+  live: { motors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>; tree: RocketTree },
+): SavedConfig[] {
+  return withActiveConfigTreeSynced(
+    withActiveConfigSynced(configs, activeId, live.motors, live.unmatchedRefs), activeId, live.tree);
 }
 
 /**
@@ -184,19 +325,16 @@ export function assignMotorRecord(
   // 2. The file's value adopted by the file's own motor.
   const adoptedKg = adoptsRefPadMass(droppedRef, fresh.spec.designation);
   if (adoptedKg !== undefined) {
+    // THE key rule (padMassSetKey), over the in-tree records and references.
+    // It counted each mount's CLUSTER here while the set on screen counts the
+    // kernel's motors, so on a mount inside a pod set the adopted weighing read
+    // as another set's and carried nothing (audit 2026-09-22).
     const inTree = new Set(motorMounts(tree).map((n) => n.id));
-    // The SAME count App's `currentSetKey` builds with (`mountMotorCount`:
-    // cluster times every enclosing pod set and strap-on). The cluster alone
-    // gave a mount inside a pod set a different count from the live set, so
-    // an adopted pad mass read 'stale-set' the moment it was attached (audit
-    // 2026-09-22, row 351).
-    const count = (id: string) => mountMotorCount(tree, id);
-    const key = motorSetIdentity([
-      ...Object.entries(next).filter(([id]) => inTree.has(id))
-        .map(([id, mm]) => [id, motorIdentity(mm.meta, mm.spec.designation), count(id)] as const),
-      ...Object.entries(remainingRefs).filter(([id]) => id !== mountId && inTree.has(id))
-        .map(([id, ref]) => [id, `unmatched:${ref.designation}`, count(id)] as const),
-    ]);
+    const key = padMassSetKey(
+      tree,
+      Object.fromEntries(Object.entries(next).filter(([id]) => inTree.has(id))),
+      Object.fromEntries(Object.entries(remainingRefs).filter(([id]) => id !== mountId && inTree.has(id))),
+    );
     next[mountId] = { ...record, padMassKg: adoptedKg, padMassWeighedWith: key };
   }
   // 3. The primary's sentinel for this mount satisfied.
@@ -238,17 +376,23 @@ export function withoutStoredRef(configs: SavedConfig[], activeId: string | null
 }
 
 /**
- * The working set's unmatched references at restore: the active
- * configuration's stored refs (the session's only copy — the working set is
- * not persisted), minus any mount that has a record in `motors` (a motor
- * assigned to that mount after the import superseded the reference).
+ * The working set's unmatched references at restore, minus any mount that has
+ * a record in `motors` (a motor assigned to that mount after the import
+ * superseded the reference).
+ *
+ * The session's own copy (`stored`) when it carries one — since the 2026-09-22
+ * audit the working references are persisted, because a configuration-less
+ * import (a .rkt naming a motor the catalogue lacks) has no configuration to
+ * keep them in: they lived in React state alone, a reload lost them (the
+ * service worker's post-deploy reload included), and Save then wrote the
+ * mount with no motor. A session written before that carries none, and falls
+ * back to the ACTIVE configuration's stored refs, as v0.118 did.
  */
 export function restoreUnmatchedRefs(
   configs: SavedConfig[] | undefined, activeId: string | null | undefined,
-  motors: Record<string, MountMotor>,
+  motors: Record<string, MountMotor>, stored?: Record<string, OrkMotorRef>,
 ): Record<string, OrkMotorRef> {
-  if (!configs || !activeId) return {};
-  const refs = configs.find((c) => c.id === activeId)?.unmatchedRefs;
+  const refs = stored ?? (configs && activeId ? configs.find((c) => c.id === activeId)?.unmatchedRefs : undefined);
   if (!refs) return {};
   const out: Record<string, OrkMotorRef> = {};
   for (const [id, ref] of Object.entries(refs)) {

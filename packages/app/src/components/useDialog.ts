@@ -41,6 +41,28 @@ const FOCUSABLE = [
 
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
+/** The open dialogs on that stack that are MODAL — see `openModalCount`. */
+const modals = new Set<symbol>();
+
+/**
+ * How many MODAL dialogs are open right now.
+ *
+ * For the design history's Ctrl+Z / Ctrl+Y binding (audit 2026-09-22). The
+ * handler below owns Escape and Tab and lets every other key through, so undo
+ * reached the design BEHIND a dialog: Ctrl+Z during a Batch sweep rebuilt the
+ * rocket the sweep was flying, and behind the Save/Discard modal it undid the
+ * design unseen, which Save then wrote. The undo binding refuses while this is
+ * above zero.
+ *
+ * Modal only, not the whole stack: the first-run tour uses this hook for its
+ * Escape and focus but leaves the app usable behind its card (its scrim and
+ * ring take no pointer events), and it opens by itself on a first visit. A
+ * visitor editing the design around it would otherwise find Ctrl+Z silently
+ * dead while the header's Undo button still worked.
+ */
+export function openModalCount(): number {
+  return modals.size;
+}
 
 function focusableWithin(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -48,16 +70,26 @@ function focusableWithin(node: HTMLElement): HTMLElement[] {
   );
 }
 
-export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () => void) {
+export function useDialog<T extends HTMLElement = HTMLDivElement>(
+  onClose: () => void,
+  /**
+   * `modal: false` for a dialog that leaves the app usable behind it (the
+   * first-run tour): it still owns Escape and Tab, but does not hold the
+   * design's undo binding — see `openModalCount`. Read once, at open.
+   */
+  opts: { modal?: boolean } = {},
+) {
   const ref = useRef<T>(null);
   // Kept in a ref so a caller passing a fresh closure every render does not
   // re-run the effect (which would re-steal focus on every parent render).
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const modal = useRef(opts.modal !== false);
 
   useEffect(() => {
     const id = Symbol('dialog');
     stack.push(id);
+    if (modal.current) modals.add(id);
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const node = ref.current;
@@ -103,6 +135,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
       document.removeEventListener('keydown', onKeyDown, true);
       const i = stack.indexOf(id);
       if (i >= 0) stack.splice(i, 1);
+      modals.delete(id);
       // Only restore if focus is still inside (or was lost to) this dialog —
       // never yank it away from something the close handler focused on purpose.
       const active = document.activeElement;

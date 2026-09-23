@@ -5,8 +5,8 @@ import type { OrkMotorRef } from './orkFile.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, restoreUnmatchedRefs, stripPadMass, stripRefPadMass,
-  withActiveConfigSynced, withoutStoredRef,
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
+  stripRefPadMass, syncActiveConfig, withActiveConfigSynced, withActiveConfigTreeSynced, withoutStoredRef,
 } from './configSync.js';
 
 /**
@@ -169,6 +169,27 @@ describe('withActiveConfigSynced', () => {
     expect(restoreUnmatchedRefs(configs, undefined, {})).toEqual({});
     expect(restoreUnmatchedRefs(configs, 'Z', {})).toEqual({});
     expect(restoreUnmatchedRefs([cfg('C', {})], 'C', {})).toEqual({});
+  });
+
+  /**
+   * Audit 2026-09-22. A configuration-less import (a .rkt naming a motor the
+   * catalogue lacks) has no configuration to hold its unresolved references,
+   * so the working set was their only copy and a reload lost them — Save then
+   * wrote the mount empty. The session now carries them, and its copy wins.
+   */
+  it('restores the session’s own copy of the working references when it carries one', () => {
+    const rkt = { 'b-mmt': { ...ref('K1100T'), delay: Infinity } };
+    // No configurations at all: the fallback has nothing to read.
+    expect(restoreUnmatchedRefs(undefined, null, {})).toEqual({});
+    expect(restoreUnmatchedRefs(undefined, null, {}, rkt)).toEqual(rkt);
+    // Still minus a mount that has a record now.
+    expect(restoreUnmatchedRefs(undefined, null, { 'b-mmt': motor('K1100T') }, rkt)).toEqual({});
+    // The session's copy is the working set's truth, even with an active
+    // configuration that still stores a reference the user has since removed.
+    const A = cfg('A', { 's-mmt': motor('J540R') }, { unmatched: ['K1100T'], unmatchedRefs: { 'b-mmt': ref('K1100T') } });
+    expect(restoreUnmatchedRefs([A], 'A', A.motors, {})).toEqual({});
+    // A session written before the field: the active configuration's, as v0.118.
+    expect(restoreUnmatchedRefs([A], 'A', A.motors, undefined)).toEqual({ 'b-mmt': ref('K1100T') });
   });
 
   it('returns the input by identity when there is no active configuration', () => {
@@ -408,5 +429,127 @@ describe('withoutStoredRef', () => {
     expect(withoutStoredRef(configs, 'Z', 'b-mmt')).toBe(configs);
     expect(withoutStoredRef(configs, 'B', 'b-mmt')).toBe(configs);
     expect(withoutStoredRef(configs, 'A', 's-mmt')).toBe(configs);
+  });
+});
+
+/**
+ * THE TREE'S HALF OF THE WRITE-BACK (audit 2026-09-22). Only the motors went
+ * back into the configuration being left, so a deployment, separation or nozzle
+ * changed in the app while A was active was overwritten by B's on the switch
+ * and by A's FILE values on the way back — and a Save while B was active wrote
+ * A's stale copy, because the .ork writer replays every non-active
+ * configuration from what it stores.
+ */
+describe('withActiveConfigTreeSynced', () => {
+  /** twoStage() plus a chute under the sustainer, a booster separation and a nozzle. */
+  const live = (patch: { chute?: Record<string, unknown>; booster?: Record<string, unknown> } = {}): RocketTree => {
+    const t = twoStage();
+    const sus = t.components[0]!;
+    sus.children![0]!.children = [...(sus.children![0]!.children ?? []),
+      { type: 'parachute', id: 'chute', deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0, ...patch.chute } as ComponentNode];
+    Object.assign(t.components[1]!, { nozzleExitDiameter: 0.0254, ...patch.booster });
+    return t;
+  };
+  const A = cfg('A', { 's-mmt': motor('J540R') }, {
+    deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } },
+    separations: { s2: { separationEvent: 'ejection', separationDelay: 0 } },
+    nozzles: { s2: 0.0254 },
+  });
+
+  it('returns the input by identity when the tree still says what the configuration stores', () => {
+    const configs = [A, cfg('B', {})];
+    expect(withActiveConfigTreeSynced(configs, 'A', live())).toBe(configs);
+    // A node carrying NO separation fields flies the fallbacks — 'ejection', 0 —
+    // which is what A stores: still identity (the importer leaves defaults off).
+    expect(live().components[1]!['separationEvent']).toBeUndefined();
+    expect(withActiveConfigTreeSynced(configs, 'A', live())).toBe(configs);
+    // No active row, or an id nothing has.
+    expect(withActiveConfigTreeSynced(configs, null, live({ chute: { deployAltitude: 90 } }))).toBe(configs);
+    expect(withActiveConfigTreeSynced(configs, 'Z', live({ chute: { deployAltitude: 90 } }))).toBe(configs);
+  });
+
+  it('captures a deployment, a separation and a nozzle edited in the app', () => {
+    const B = cfg('B', {});
+    const out = withActiveConfigTreeSynced([A, B], 'A', live({
+      chute: { deployEvent: 'altitude', deployAltitude: 150 },
+      booster: { separationEvent: 'never', separationDelay: 2, nozzleExitDiameter: 0.03 },
+    }));
+    expect(out[0]!.deployments).toEqual({ chute: { deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0 } });
+    // separationAltitude was not governed and the node flies the fallback: still not governed.
+    expect(out[0]!.separations).toEqual({ s2: { separationEvent: 'never', separationDelay: 2 } });
+    expect(out[0]!.nozzles).toEqual({ s2: 0.03 });
+    expect(out[0]!.motors).toBe(A.motors);
+    expect(out[1]).toBe(B);
+    expect(A.deployments!['chute']!.deployAltitude).toBe(200); // the input is untouched
+  });
+
+  it('adds a field the configuration did not govern only when the node carries a non-fallback value', () => {
+    const out = withActiveConfigTreeSynced([A], 'A', live({ booster: { separationAltitude: 350 } }));
+    expect(out[0]!.separations).toEqual({ s2: { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 350 } });
+    const same = [A];
+    expect(withActiveConfigTreeSynced(same, 'A', live({ booster: { separationAltitude: 200 } }))).toBe(same);
+  });
+
+  it('writes a cleared nozzle as 0, the stored shape for "no nozzle"', () => {
+    const t = live();
+    delete t.components[1]!['nozzleExitDiameter'];
+    expect(withActiveConfigTreeSynced([A], 'A', t)[0]!.nozzles).toEqual({ s2: 0 });
+  });
+
+  it('keeps the stored entry for a node the tree no longer has, and leaves ungoverned nodes out', () => {
+    const t = live({ chute: { deployAltitude: 90 } });
+    // The chute is gone from the tree; the configuration keeps what it stored.
+    t.components[0]!.children![0]!.children = t.components[0]!.children![0]!.children!.filter((n) => n.id !== 'chute');
+    const configs = [A];
+    expect(withActiveConfigTreeSynced(configs, 'A', t)).toBe(configs);
+    // A configuration that governs no nozzle (an .ork) does not grow one.
+    const ork = cfg('A', {}, { deployments: A.deployments! });
+    expect(withActiveConfigTreeSynced([ork], 'A', live())[0]!).toBe(ork);
+  });
+
+  it('A→B→A through syncActiveConfig keeps the deployment edited on A', () => {
+    const B = cfg('B', {}, { deployments: { chute: { deployEvent: 'apogee', deployAltitude: 300, deployDelay: 1 } } });
+    const edited = live({ chute: { deployAltitude: 120 } });
+    const leavingA = syncActiveConfig([A, B], 'A', { motors: A.motors, unmatchedRefs: {}, tree: edited });
+    expect(leavingA[0]!.deployments!['chute']!.deployAltitude).toBe(120);
+    // Before the fix the stored copy was still the file's 200, so coming back
+    // to A flew 200, and a Save while B was active wrote 200 for A.
+    expect(leavingA[1]).toBe(B);
+  });
+});
+
+/**
+ * ONE PAD-MASS KEY RULE (audit 2026-09-22, extraction #3). The key a weighing
+ * is stored under must be the key the set on screen is compared with — App's
+ * `currentSetKey`, configSync.padMassSetKey — or hardwareMass reads the value
+ * as weighed with another set ('stale-set') and carries none of it. The file's
+ * pad mass adopted by its own motor was keyed with the mount's CLUSTER count
+ * while the set on screen counts the KERNEL's motors, so on a mount inside a
+ * pod set of two the adopted weighing never applied.
+ */
+describe('assignMotorRecord keys an adopted pad mass by the on-screen rule', () => {
+  const podTree = (): RocketTree => ({
+    name: 'pods',
+    components: [{
+      type: 'stage', id: 's1', name: 'Sustainer', children: [{
+        type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.03, thickness: 0.001, children: [{
+          type: 'podset', id: 'pods', instanceCount: 2, radiusOffset: 0.05, children: [{
+            type: 'bodytube', id: 'pt', length: 0.3, outerRadius: 0.016, thickness: 0.001, children: [{
+              type: 'innertube', id: 'p-mmt', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true,
+            } as ComponentNode],
+          } as ComponentNode],
+        } as ComponentNode],
+      } as ComponentNode],
+    } as ComponentNode],
+  });
+
+  it('on a mount inside a pod set of two, the adopted key is the key the set on screen has', () => {
+    const tree = podTree();
+    const fresh = motor('J540R');
+    const next = assignMotorRecord({}, 'p-mmt', fresh, {
+      tree, primaryMountId: null, droppedRef: { ...ref('J540R'), padMassKg: 2.4 }, remainingRefs: {},
+    });
+    expect(next['p-mmt']!.padMassKg).toBe(2.4);
+    expect(next['p-mmt']!.padMassWeighedWith).toBe(padMassSetKey(tree, next));
   });
 });
