@@ -1200,7 +1200,7 @@ export function referenceArea(tree: RocketTree): number {
  * there would charge the curvature of a tube the shroud is not touching.
  *
  * The per-type expressions are exactly the ones all three views already use
- * (Rocket3D.tsx:336/346/365, TreeSchematic.tsx:1236/1254/1269,
+ * (Rocket3D.tsx:336/346/365, schematicLayout.ts's renderChain,
  * AftView.tsx:228-232), and the fallbacks are ComponentFactory's own
  * (ll. 66, 146) so the radius measured here is the radius the kernel builds
  * the parent with.

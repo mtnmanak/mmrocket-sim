@@ -1,20 +1,10 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from 'react';
-import type { ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import {
-  anchorStarts, axialLength, axialStart, offsetForStart, snapStart, startFromPosition,
-} from '../tree/position.js';
-import { finTabFront } from '../tree/finTab.js';
-import { clusterOffsets } from '../tree/cluster.js';
-import { tubeFinRadius } from '../tree/tubefins.js';
-import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/counts.js';
+import { createElement, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
-import { DISPLAY_NAME } from '../tree/schema.js';
 import {
-  assemblyBoundingRadius, assemblyChainLength, isAssembly,
-  resolveAssemblyRadius, ringInstanceOffsets,
-} from '../tree/assembly.js';
-import { outerProfile } from '../tree/shapeProfile.js';
-import { shroudEnds } from '../tree/shroud.js';
+  layoutSchematic, RULER_LEFT, RULER_TOP, schematicFrame, type SchematicShape, type ShapePart,
+} from '../tree/schematicLayout.js';
+import { PAN_SLOP, useAxialDrag } from '../hooks/useAxialDrag.js';
 import {
   downloadImage, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
@@ -38,43 +28,18 @@ import { clickable as keyActivation } from './clickable.js';
  * axially (snapping to structural anchors — tube ends, sibling edges).
  * Clustered inner tubes draw one outline per cluster position.
  * CG/CP markers use standard rocketry symbols.
+ *
+ * The walk itself — every shape's geometry — is `tree/schematicLayout.ts`,
+ * pure and tested apart from this component; the axial drag is
+ * `hooks/useAxialDrag.ts` (audit 2026-09-22). What is left here is the
+ * drawing's state (size, zoom, pan, hover, roll), the handlers, and the
+ * decoration drawn over the layout: CG/CP markers, callouts, rulers.
  */
 
-interface Ctx {
-  scale: number;
-  cy: number;
-  x0: number;
-}
-
-/**
- * One drawn instance of a fin set in the side view.
- *
- * `p` is the foreshortening on its radial coordinates: cos(clock angle), so
- * +1 is straight up, 0 edge on, −1 straight down. That much the desktop also
- * computes (FinSetShapes.getShapesSide plots (x, y) after rotate_x, 24.12).
- *
- * `near` is the half a silhouette cannot express and the reason the roll
- * slider read as a see-saw for three releases: a fin at +z is in FRONT of the
- * airframe and you see all of it, one at −z is behind and the tube covers its
- * root. Draw both the same way — as v0.078 did in front and v0.080/81 did
- * behind — and the two lower fins of a three-fin set become identical shapes,
- * so all that is left to watch is their heights swapping.
- */
-interface FinInstance {
-  p: number;
-  near: boolean;
-}
-
-const num = (n: ComponentNode, key: string, fb: number): number =>
-  typeof n[key] === 'number' ? (n[key] as number) : fb;
-
-const fillOf = (n: ComponentNode, dflt: string): string =>
-  typeof n['color'] === 'string' ? (n['color'] as string) : dflt;
-
-/** Client px a press may wander before it counts as a pan or a drag rather
- *  than a click — ONE threshold for both gestures in onMove, because a
- *  physical click jitters 1-3 px whichever of them it could turn into. */
-const PAN_SLOP = 4;
+// The ruler gutters are the layout's (it sizes the drawing around them);
+// re-exported here for the views that sit beside this one and have to agree
+// with it (StatTiles, the stats chip), with the centreline rule its tests pin.
+export { centrelineY, RULER_LEFT, RULER_TOP } from '../tree/schematicLayout.js';
 
 // Which press may start a drag or pan, and a release this view never saw:
 // `startsGesture` / `releasedDuring` (chartPanZoom.ts), one rule shared with the
@@ -82,18 +47,6 @@ const PAN_SLOP = 4;
 
 const MARKER_R = 9;
 
-/**
- * Ruler gutter thickness (viewBox px). The desktop uses one 20 px band for
- * both (ScaleScrollPane.RULER_SIZE); the left band is wider here because its
- * labels are drawn INSIDE it horizontally — the same thing the desktop does,
- * but its numbers are radii (small, few digits) and ours may be a diameter in
- * millimetres.
- */
-export const RULER_TOP = 18;
-export const RULER_LEFT = 30;
-
-/** Total viewBox px of height reserved for the two callout lanes (S2). */
-export const CALLOUT_LANES = 34;
 /** Lane-center distance from the airframe edge (or marker edge, if wider). */
 const LANE_GAP = 13;
 /** CP label footprint in the lower lane, relative to cpX: dot (r 4) plus
@@ -150,57 +103,6 @@ export function calloutLayout(
     margin = { x, y: laneBottom };
   }
   return { cg, cp, margin };
-}
-
-interface DragState {
-  childId: string;
-  parent: ComponentNode;
-  child: ComponentNode;
-  pLen: number;
-  /** parent-relative start at pointer-down (m) */
-  relStart: number;
-  pointerX: number;
-  /** viewBox px per client px */
-  clientScale: number;
-  /** The pointer that owns this drag; every other pointer's moves are ignored. */
-  pointerId: number;
-  /** The element the drag captured the pointer to — the only one whose
-   *  lostpointercapture ends it (see onLostCapture). */
-  captured: Element;
-  /** Past PAN_SLOP yet. Until then the press is a click and patches NOTHING. */
-  active: boolean;
-  /** The offset the node carries now — the press's own, then each one patched. */
-  offset: number;
-}
-
-/**
- * Where the drawing's centreline sits in a box of height `h`.
- *
- * Centring is the default and is exactly what happens when nothing asks for
- * headroom (`topReserve` 0 — every caller but the hero canvas).
- *
- * When the host DOES ask, the reserve is spent ABOVE the rocket instead of
- * being split in half by centring. That split is why the hero canvas's 140px
- * chip reserve never worked: it was added to the container, then divided
- * evenly, so 70px of it landed below the rocket where nothing needed it while
- * the stats chip — 124px tall — sat on the nose cone.
- *
- * Two clamps keep it honest, and both matter:
- *  - it only ever spends SLACK (`skyBelow - keepBelow`), so a height-fitted
- *    drawing, which has none, is untouched;
- *  - `keepBelow` preserves the bottom padding and the bottom callout lane,
- *    exactly what a symmetric layout gives them, so the rocket can never be
- *    pushed down onto its own CP callout.
- */
-export function centrelineY({ h, gutY, pad, lanes, halfDrawn, topReserve }: {
-  h: number; gutY: number; pad: number; lanes: number; halfDrawn: number; topReserve: number;
-}): number {
-  const centred = gutY + (h - gutY) / 2;
-  const keepBelow = pad + lanes / 2;
-  const skyAbove = centred - halfDrawn - gutY;
-  const skyBelow = h - (centred + halfDrawn);
-  const bias = Math.max(0, Math.min(topReserve - skyAbove, skyBelow - keepBelow));
-  return centred + bias;
 }
 
 export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, topReserve = 0, roll: rollProp, onRoll }: {
@@ -276,10 +178,6 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const uid = useId().replace(/:/g, '');
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<DragState | null>(null);
-  // True once the current gesture moved far enough to be a drag — a click
-  // that follows a real drag must not change the selection.
-  const dragMoved = useRef(false);
   // Container width (CSS px). The viewBox adopts it 1:1, so the drawing fills
   // the column at native pixel scale on any monitor instead of a fixed 640px
   // canvas stretched to fit.
@@ -305,67 +203,6 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     captured: Element | null;
   } | null>(null);
 
-  // --- measure the axial chain ---
-  // Stages flatten into one nose-to-tail chain (sustainer first, boosters
-  // after — the desktop's stacking order); legacy flat trees pass through.
-  const chain = tree.components.flatMap((n) => (n.type === 'stage' ? n.children ?? [] : [n]));
-  let totalLen = 0;
-  let maxR = 0.001;
-  for (const n of chain) {
-    if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') {
-      totalLen += num(n, 'length', 0);
-      maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
-    }
-  }
-  // A fin set's vertical span: freeform fins carry no 'height' key — their
-  // reach is the outline's y-max (the 0.03 default clipped tall freeform fins
-  // out of the adaptive-height frame).
-  const finSpan = (n: ComponentNode): number => {
-    if (!n.type.endsWith('finset')) return 0;
-    if (n.type === 'freeformfinset') {
-      const pts = n['points'];
-      if (Array.isArray(pts) && pts.length > 0) {
-        return Math.max(0, ...pts.map((p) => (Array.isArray(p) ? Number(p[1]) || 0 : 0)));
-      }
-    }
-    // Tube fins reach one tube diameter above the body surface.
-    if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
-    return num(n, 'height', 0.03);
-  };
-  const protuberanceSpan = (n: ComponentNode): number =>
-    (n.type === 'fairing' ? num(n, 'height', 0.02)
-      : (n.type as string) === 'protuberance' ? num(n, 'height', 0.01)
-        : 0);
-  const finH = Math.max(
-    0,
-    ...collect(tree.components, finSpan),
-    ...collect(tree.components, protuberanceSpan),
-  );
-  totalLen = Math.max(totalLen, 0.05);
-
-  // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
-  // reach (its centerline radius + its own body + its fins) so pods don't clip.
-  let vHalf = maxR + finH;
-  const scanRadial = (nodes: ComponentNode[], parentR: number) => {
-    for (const n of nodes) {
-      if (isAssembly(n.type)) {
-        const podFin = Math.max(0, ...collect(n.children ?? [], finSpan));
-        vHalf = Math.max(vHalf, resolveAssemblyRadius(n, parentR) + assemblyBoundingRadius(n) + podFin);
-        scanRadial(n.children ?? [], assemblyBoundingRadius(n));
-      } else {
-        const r = Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0)) || parentR;
-        scanRadial(n.children ?? [], r);
-      }
-    }
-  };
-  scanRadial(chain, maxR);
-
-  // Vertical mode swaps the container roles BEFORE layout: all layout math
-  // stays horizontal (length along x) and the finished drawing rotates
-  // nose-up as one group, so the length axis fits the container HEIGHT and
-  // the cross extent its width.
-  const w = Math.max(320, vertical ? chPx : cw);
-  const pad = 26;
   /**
    * Dimensional rulers (@atestani, 26 Aug: "Scales as in OpenRocket like the
    * top and left side"). Off in ⟳90° mode: that drawing is one rigid rotation
@@ -375,48 +212,18 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const rulersPref = prefs.rulers2d ?? true;
   const rulers = !vertical && rulersPref;
-  // The roll slider's column, and the ruler gutters. All three are surrendered
-  // by the DRAWING, so every fit below works from the inset box — and every
-  // pointer↔model conversion is unaffected, because they move the origin
-  // without touching `scale`.
+  // The roll slider's column (⟳90°: its bar across the bottom). Both are
+  // surrendered by the DRAWING — schematicFrame fits the rocket to what is
+  // left, and every pointer↔model conversion is unaffected, because they move
+  // the origin without touching the scale.
   const rollW = vertical ? 0 : ROLL_COL;
-  const gutX = rollW + (rulers ? RULER_LEFT : 0);
-  const gutY = rulers ? RULER_TOP : 0;
-  // ⟳90° puts the roll control across the BOTTOM instead of the side, so the
-  // strip comes off the far end of the length axis. Layout stays horizontal
-  // and rotates as one group, and rotate(90) maps large layout x to screen
-  // bottom — so shortening the length reserves exactly the bottom band.
   const rollBar = vertical ? ROLL_BAR : 0;
-  // Height follows the rocket's own proportions (clamped): a long thin
-  // rocket gets a wide low band, not a fixed frame of empty sky. When info
-  // is present the CG/CP callout lanes need sky of their own, so their
-  // allowance is added to the height AND kept out of the vertical fit —
-  // otherwise a height-limited short/fat rocket would fill it and clip them.
-  const lanes = info ? CALLOUT_LANES : 0;
-  const crossCap = vertical ? Math.max(160, cw) : maxHeight;
-  // The adaptive content height, uncapped — what the drawing would take if
-  // nothing constrained it. The fillHeight branch still fills its container;
-  // this is what the container itself sizes FROM (via onNaturalHeight).
-  const naturalRaw = Math.round(Math.max(
-    200, 2 * vHalf * ((w - 2 * pad - gutX - rollBar) / totalLen) + 2 * pad + lanes + gutY,
-  ));
-  // Reported quantized to 8px: naturalRaw moves with every 1px of container
-  // width, and each NEW reported value re-renders the whole App — a window
-  // drag-resize would cascade an app-wide render per tick (review finding,
-  // v0.076). Quantized, most ticks report the same value and React bails.
-  const naturalH = Math.round(naturalRaw / 8) * 8;
-  const h = vertical || !fillHeight
-    ? Math.round(Math.min(crossCap, Math.max(200, naturalRaw)))
-    : Math.max(200, chPx);
-  const scale = Math.max(1e-6, Math.min(
-    (w - 2 * pad - gutX - rollBar) / totalLen,
-    (h - 2 * pad - lanes - gutY) / (2 * vHalf),
-  ));
-  const ctx: Ctx = {
-    scale,
-    cy: centrelineY({ h, gutY, pad, lanes, halfDrawn: vHalf * scale, topReserve }),
-    x0: pad + gutX,
-  };
+  const hasInfo = !!info;
+  const frame = useMemo(() => schematicFrame(tree, {
+    cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, lanes: hasInfo, topReserve,
+  }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve]);
+  const { w, h, gutX, gutY, scale, vHalf, naturalH } = frame;
+  const ctx = { scale, cy: frame.cy, x0: frame.x0 };
 
   // Report the natural height to the hero stage (fit-to-content, v0.076).
   // Callback identity rides a ref so a new inline closure per parent render
@@ -428,37 +235,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     onNaturalHeightRef.current?.(naturalH);
   }, [naturalH, vertical, fillHeight]);
 
-  const beginDrag = (child: ComponentNode, parent: ComponentNode, pLen: number) =>
-    (e: React.PointerEvent) => {
-      if (!onPatchNode || !child.id || !startsGesture(e)) return;
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect || rect.width === 0) return;
-      e.stopPropagation(); // don't also start a background pan
-      dragMoved.current = false;
-      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      const captured = e.currentTarget as Element;
-      drag.current = {
-        pointerId: e.pointerId,
-        captured,
-        active: false,
-        offset: pos.offset,
-        childId: child.id,
-        parent,
-        child,
-        pLen,
-        // axialLength is the KERNEL's length: 0 for a rail button (resolving
-        // the drag in a 25 mm frame while the drawing used the 9.7 mm outer
-        // diameter is what made a snapped button land 15.3 mm from the anchor
-        // it snapped to) and the root chord for a freeform fin, so the drag
-        // starts from the station the fin is drawn at below (l. 921).
-        relStart: startFromPosition(pos, axialLength(child), pLen),
-        pointerX: e.clientX,
-        clientScale: w / rect.width,
-      };
-      // Taken INSIDE pointerdown, so on touch it replaces the browser's
-      // implicit capture before that one ever lands: no lostpointercapture.
-      captured.setPointerCapture?.(e.pointerId);
-    };
+  const axial = useAxialDrag({ onPatchNode, svgRef, viewWidth: w, pxPerMetre: scale * zoom.k });
 
   /**
    * Clears the "this press became a drag" latch at the START of every press.
@@ -469,7 +246,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * body tube, transition) has no pointerdown handler of its own to clear it.
    * Clicking those became a permanent no-op while children kept working.
    */
-  const resetDragLatch = () => { dragMoved.current = false; };
+  const resetDragLatch = axial.resetLatch;
 
   /**
    * Arms a background pan — but does NOT start one, and deliberately does not
@@ -477,14 +254,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    *
    * This handler runs for every press that reaches the svg, which is every
    * press on the axial chain (nose cone, body tube, transition): only
-   * draggable CHILDREN stopPropagation in beginDrag. It used to pan on the
-   * very first pointermove and capture the pointer immediately, so the 1-3 px
-   * of jitter in an ordinary physical click dragged the whole drawing out from
-   * under the pointer between press and release. The click then landed on the
-   * <svg> instead of the shape and selecting those parts did nothing at all —
-   * while children stayed fine, and the vertical view (which attaches neither
-   * handler) worked perfectly. Capturing on press made it worse by retargeting
-   * the release as well.
+   * draggable CHILDREN stopPropagation (useAxialDrag's begin). It used to pan
+   * on the very first pointermove and capture the pointer immediately, so the
+   * 1-3 px of jitter in an ordinary physical click dragged the whole drawing
+   * out from under the pointer between press and release. The click then
+   * landed on the <svg> instead of the shape and selecting those parts did
+   * nothing at all — while children stayed fine, and the vertical view (which
+   * attaches neither handler) worked perfectly. Capturing on press made it
+   * worse by retargeting the release as well.
    *
    * Both now wait for real movement, so a click stays a click.
    */
@@ -499,38 +276,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   const onMove = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (d && onPatchNode) {
-      if (e.pointerId !== d.pointerId) return;
-      if (releasedDuring(e)) { endDrag(e); return; }
-      // THE THRESHOLD GATES THE PATCH, not just the click (audit 2026-09-22).
-      // It used to set dragMoved and nothing else, so every pointermove of an
-      // ordinary click patched the tree and the snap below ran at zero
-      // distance: 2 px of jitter moved a fin set 1.5 mm, a fin 3 mm from the
-      // tube end snapped onto it without moving at all, and each one was a
-      // real edit — CG/CP moved, an undo step went, the design went unsaved.
-      if (!d.active) {
-        if (Math.abs(e.clientX - d.pointerX) <= PAN_SLOP) return;
-        d.active = true;
-        dragMoved.current = true;
-      }
-      const dxModel = ((e.clientX - d.pointerX) * d.clientScale) / (scale * zoom.k);
-      // The anchor ladder, the drag start above and the commit below all use
-      // axialLength — the kernel's frame — so a snapped part lands ON the
-      // anchor it snapped to.
-      const anchors = anchorStarts(d.parent, d.child);
-      const epsilon = (6 * 1) / (scale * zoom.k); // ~6 screen px of magnetism
-      const snapped = snapStart(d.relStart + dxModel, anchors, epsilon);
-      const pos = (d.child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      const offset = offsetForStart(pos.method, snapped, axialLength(d.child), d.pLen);
-      // Inside a snap zone every move lands on the same anchor. Writing that
-      // again is a whole-tree update and a kernel rebuild in App's render for
-      // a part that has not moved — 73 ms a move on kitchensink.ork.
-      if (offset === d.offset) return;
-      d.offset = offset;
-      onPatchNode(d.childId, { position: { method: pos.method, offset } });
-      return;
-    }
+    // A live axial drag owns the move — every pointer's, not just its own, so
+    // a second finger cannot pan the drawing out from under it.
+    const dragged = axial.move(e);
+    if (dragged === 'released') { endDrag(e); return; }
+    if (dragged === 'busy') return;
     const p = pan.current;
     if (p) {
       if (e.pointerId !== p.pointerId) return;
@@ -555,7 +305,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   /** Ends the gesture its OWN pointer started — a second finger lifting (or
    *  leaving, or being cancelled) must not end the first finger's drag. */
   const endDrag = (e: React.PointerEvent) => {
-    if (drag.current?.pointerId === e.pointerId) drag.current = null;
+    axial.end(e);
     if (pan.current?.pointerId === e.pointerId) pan.current = null;
   };
 
@@ -572,8 +322,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * An armed pan holds no capture of its own, so nothing here can end it.
    */
   const onLostCapture = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (d?.pointerId === e.pointerId && e.target === d.captured) drag.current = null;
+    axial.lostCapture(e);
     const p = pan.current;
     if (p?.pointerId === e.pointerId && p.captured && e.target === p.captured) pan.current = null;
   };
@@ -666,889 +415,96 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     setZoom((z) => ({ ...z, x: z.x + d[0] * 0.1 * w, y: z.y + d[1] * 0.1 * h }));
   };
 
-  // Selection sync: click any drawn component to select it in the tree; the
-  // selected component draws with an accent outline.
-  const isSel = (n: ComponentNode) => !!selectedId && n.id === selectedId;
-  /**
-   * Props that make one drawn shape a selection target.
-   *
-   * It used to be called `clickable` and it was pointer-only, which SHADOWED
-   * the project's shared `clickable()` (components/clickable.ts) — the helper
-   * whose entire purpose is the tab stop and the Enter/Space handler that were
-   * missing here. The shadowing is why nobody noticed: the component tree
-   * spreads the shared one (ComponentTree.tsx:38), so the same affordance was
-   * live in one panel and dead in the other, and the svg's own aria-label was
-   * telling keyboard users they could select and drag components here. Renamed
-   * so the two names cannot be confused again.
-   *
-   * `role="button"` + a name: a bare tabbable <rect> announces nothing.
-   *
-   * These props go on every drawn INSTANCE of the part; keepFirstTabStops
-   * below leaves the keyboard half on the first of them only.
-   */
-  const selectable = (n: ComponentNode) => {
-    // Enter/Space from the shared helper; the pointer path keeps its own
-    // onClick because it must stopPropagation (or the svg's background
-    // handler also fires) and must ignore a click that was really a drag.
-    const onKeyDown = onSelect && n.id ? keyActivation(() => onSelect(n.id!)).onKeyDown : null;
-    if (onKeyDown) tabStopOwner.set(onKeyDown, n.id!);
-    return {
-      ...(n.id
-        ? {
-          onPointerEnter: () => setHoverId(n.id!),
-          onPointerLeave: () => setHoverId((cur) => (cur === n.id ? null : cur)),
-        }
-        : {}),
-      ...(onSelect && onKeyDown
-        ? {
-          onKeyDown,
-          tabIndex: 0,
-          role: 'button',
-          'aria-label': `Select ${n.name ?? DISPLAY_NAME[n.type]}`,
-          onClick: (e: React.MouseEvent) => {
-            e.stopPropagation();
-            if (!dragMoved.current) onSelect(n.id!);
-          },
-          style: { cursor: 'pointer' } as React.CSSProperties,
-        }
-        : {}),
-    };
-  };
-
-  /**
-   * ONE TAB STOP PER PART, not one per drawn instance (audit 2026-09-22). A fin
-   * set draws a shape per fin, a cluster a rect per tube, a rail button one per
-   * line instance, a pod ring its whole chain once per instance — and each of
-   * them carried the part's tab stop, so Tab stepped through "Select
-   * Trapezoidal fins" three times running (8 stops for 5 components,
-   * measured). selectable() records which part each keyboard handler it hands
-   * out belongs to; this one pass over what is actually DRAWN, in document
-   * order (which is tab order), keeps the keys on each part's first instance
-   * and takes them off the rest, which keep their pointer handlers. Run over
-   * the finished layers rather than at each spread, so an instance that is
-   * built but never pushed — a fin hidden inside the airframe — cannot take
-   * the part's only stop with it, and a new multi-instance drawing needs
-   * nothing of its own to get this right.
-   */
-  const tabStopOwner = new Map<unknown, string>();
-  const keepFirstTabStops = (layers: React.ReactNode[][]) => {
-    const seen = new Set<string>();
-    for (const layer of layers) {
-      layer.forEach((el, i) => {
-        if (!isValidElement<Record<string, unknown>>(el)) return;
-        const id = tabStopOwner.get(el.props['onKeyDown']);
-        if (id === undefined) return;
-        if (!seen.has(id)) { seen.add(id); return; }
-        layer[i] = cloneElement(el, {
-          onKeyDown: undefined, tabIndex: undefined, role: undefined, 'aria-label': undefined,
-        });
-      });
-    }
-  };
-  const selStroke = (n: ComponentNode, dflt: string) => (isSel(n) ? 'var(--accent)' : dflt);
-  const selWidth = (n: ComponentNode, dflt: number | string = 1) => (isSel(n) ? 2 : dflt);
-
   // Nose-up rendering rotates the whole drawing; every text label counter-
   // rotates about its own anchor so it still reads horizontally.
   const textUp = (x: number, y: number) =>
     (vertical ? { transform: `rotate(-90 ${x} ${y})` } : {});
 
-  // --- render chain + children ---
-  const shapes: React.ReactNode[] = [];
-  // Dashed "shadow" shapes (inner components, shoulders) paint AFTER the whole
-  // hull: SVG stacks by document order, so a coupler overhanging into the NEXT
-  // tube used to vanish under that tube's opaque fill (while the overhang into
-  // the PREVIOUS tube, already painted, stayed visible — the owner's ebay report).
-  const overlay: React.ReactNode[] = [];
-  // Wireframe fin outlines and their hit surfaces, painted after overlay:
-  // a loaded motor case is an overlay rect at 0.85 opacity, and whenever the
-  // mount follows the fin set in child order it landed exactly on the in-body
-  // run of each rolled fin — the segment the wireframe exists to keep visible.
-  const wires: React.ReactNode[] = [];
-  let key = 0;
+  // --- the layout: every shape, as data (tree/schematicLayout.ts) ---
+  // Memoised on what moves geometry. Selection and hover are NOT inputs: they
+  // restyle what is already placed (below), so a hover no longer re-walks the
+  // whole rocket once per component the pointer crosses.
+  const layout = useMemo(() => layoutSchematic(tree, {
+    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid,
+  }), [tree, scale, frame.cy, frame.x0, roll, motors, vertical, uid]);
 
-  // Hovered component's drawn extent (layout px), unioned across instances
-  // (cluster copies, pod rings) as the shapes render.
-  const hoverBoxes: { x0: number; y0: number; x1: number; y1: number }[] = [];
-  let hoverName = '';
-  const noteHover = (n: ComponentNode, x0: number, y0: number, x1: number, y1: number) => {
-    if (!hoverId || n.id !== hoverId) return;
-    hoverName = n.name ?? DISPLAY_NAME[n.type];
-    hoverBoxes.push({
-      x0: Math.min(x0, x1), y0: Math.min(y0, y1),
-      x1: Math.max(x0, x1), y1: Math.max(y0, y1),
-    });
-  };
-
-  // Loaded motor case (S5): launch-orange tint at the real case size, with
-  // the designation printed in the case when it's long enough to carry it.
-  const motorShapes = (
-    motor: { length: number; diameter: number; label?: string },
-    mStart: number, cY: number,
-  ): React.ReactNode[] => {
-    const mR = motor.diameter / 2;
-    const out: React.ReactNode[] = [
-      <rect key={key++} x={ctx.x0 + mStart * ctx.scale} y={cY - mR * ctx.scale}
-        width={Math.max(2, motor.length * ctx.scale)} height={Math.max(2, 2 * mR * ctx.scale)}
-        rx="1" fill="var(--launch)" fillOpacity="0.85"
-        stroke="#e0764a" strokeWidth="0.8"
-        style={{ pointerEvents: 'none' }} />,
-    ];
-    if (motor.label && motor.length * ctx.scale > 36) {
-      const lx = ctx.x0 + (mStart + motor.length / 2) * ctx.scale;
-      out.push(
-        <text key={key++} x={lx} y={cY} textAnchor="middle" dominantBaseline="central"
-          fontSize="10" fontWeight="bold" fill="#ffffff" {...textUp(lx, cY)}
-          style={{ pointerEvents: 'none' }}>
-          {motor.label}
-        </text>,
-      );
+  /**
+   * The pointer and keyboard half of one drawn shape: what makes it a hover,
+   * selection and (for a child part) drag target.
+   *
+   * The keyboard half — a tab stop, `role="button"`, a name, Enter/Space from
+   * the project's shared clickable() (components/clickable.ts) — goes on ONE
+   * shape per part (`stop`), not one per drawn instance (audit 2026-09-22). A
+   * fin set draws a shape per fin, a cluster a rect per tube, a rail button
+   * one per line instance, a pod ring its whole chain once per instance — and
+   * each of them carried the part's tab stop, so Tab stepped through "Select
+   * Trapezoidal fins" three times running (8 stops for 5 components,
+   * measured). The stop goes on each part's first shape in paint order (which
+   * is tab order) that the layout actually placed, so a fin hidden inside the
+   * airframe cannot take it; every instance keeps the pointer.
+   *
+   * `role="button"` + a name: a bare tabbable <rect> announces nothing. The
+   * pointer path keeps its own onClick because it must stopPropagation (or the
+   * svg's background handler also fires) and must ignore a click that was
+   * really a drag.
+   */
+  const interaction = (part: ShapePart, stop: boolean): Record<string, unknown> => {
+    const out: Record<string, unknown> = {
+      onPointerEnter: () => setHoverId(part.id),
+      onPointerLeave: () => setHoverId((cur) => (cur === part.id ? null : cur)),
+    };
+    if (onSelect) {
+      if (stop) {
+        Object.assign(out, {
+          onKeyDown: keyActivation(() => onSelect(part.id)).onKeyDown,
+          tabIndex: 0,
+          role: 'button',
+          'aria-label': `Select ${part.name}`,
+        });
+      }
+      out['onClick'] = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!axial.moved()) onSelect(part.id);
+      };
+      out['style'] = { cursor: 'pointer' };
+    }
+    const grip = part.grip ? layout.grips.get(part.id) : undefined;
+    if (grip && onPatchNode && !vertical) {
+      out['onPointerDown'] = (e: React.PointerEvent) => axial.begin(grip, e);
+      out['style'] = { cursor: 'grab' };
     }
     return out;
   };
 
-  /**
-   * ROLLED = WIREFRAME, **FOR FINS ONLY**. The moment the roll slider leaves
-   * zero, every fin is drawn as a plain outline, over the body, nothing hidden
-   * and nothing occluded — desktop OpenRocket's convention exactly. The owner
-   * chose it on 2026-08-30, from a side-by-side mockup, after four releases of
-   * trying to keep a filled drawing followable.
-   *
-   * **`solidWhileRolled`** — camera shrouds, protuberances, launch lugs and
-   * rail buttons do NOT take this path, and must not be "unified" into it. The
-   * outline works for a fin because a fin IS a thin plate seen edge-on: the
-   * outline is the honest picture of it. A 20 mm-tall camera shroud drawn as an
-   * outline reads as a thin line and lies about the part (owner report,
-   * 2026-08-31: *"That makes them look like thin lines even though they are
-   * thick. Using the outlines for the fins works because they are inherently
-   * thin — it doesn't look weird for them."*). Those four stay filled at every
-   * roll angle, cut at the airframe wall when they pass behind it, which is
-   * byte-identical to what they already did at rest.
-   *
-   * Its figure is a WIREFRAME: `RocketFigure.paintComponent` is
-   * `g2.draw(rcs.shape)`, and the only `g2.fill` in the whole method is the
-   * motor rectangle (RocketFigure.java:314, :384, 24.12). So all N fins are on
-   * screen at every angle, including the ones lying inside the body, and each
-   * one can be followed round. That is the property a filled drawing cannot
-   * reproduce: v0.078 drew the covered part flat across the tube then dropped
-   * it, v0.080 clipped it away, v0.081 made it a hidden line, v0.082 gave each
-   * instance its own side, v0.083 put the hidden line at full strength. Every
-   * one of those is geometrically continuous, and not one of them lets you
-   * watch a single fin go round — which is the entire point of the slider.
-   *
-   * The projection was measured first and was never the problem: off the
-   * owner's own screen recordings of the same rocket, the up/down extent ratio
-   * sweeps 0.50–2.01 here and 0.51–2.00 in desktop, against 0.50–2.00
-   * predicted for a three-fin set. Only the drawing convention differed.
-   *
-   * AT REST the view is unchanged — the filled drawing, near fins whole and
-   * far fins cut at the wall. A still figure has nothing to follow, and the
-   * fill is what says which side of the rocket each fin is on.
-   */
-  const wire = roll !== 0;
-
-  /**
-   * One clip per (centreline, body radius) pair, memoised: everything OUTSIDE
-   * the airframe band, as two rects. Sign-free, so it serves flat fins and
-   * tube fins alike, including a tube lying across the axis. At rest it cuts
-   * a far fin's fill at the wall; while rolled the DRAWING clips nothing, but
-   * the same clip bounds each wire fin's invisible hit surface (see wireInk).
-   */
-  const clipDefs: React.ReactNode[] = [];
-  const airframeClips = new Map<string, string>();
-  const airframeClip = (baseY: number, pRadius: number): string => {
-    const top = baseY - pRadius * ctx.scale;
-    const bottom = baseY + pRadius * ctx.scale;
-    const memo = `${top.toFixed(3)}:${bottom.toFixed(3)}`;
-    const seen = airframeClips.get(memo);
-    if (seen) return seen;
-    const id = `${uid}-outside-${airframeClips.size}`;
-    airframeClips.set(memo, id);
-    // FAR is any distance that certainly covers the drawing in local user
-    // space; the clip lives inside the view transform, so it scales with it.
-    const FAR = 1e4;
-    clipDefs.push(
-      <clipPath key={id} id={id}>
-        <rect x={-FAR} y={-FAR} width={2 * FAR} height={FAR + top} />
-        <rect x={-FAR} y={bottom} width={2 * FAR} height={FAR} />
-      </clipPath>,
-    );
-    return id;
+  /** One layout shape as an element; selection restyles its stroke. */
+  const element = (s: SchematicShape, stop: boolean): ReactNode => {
+    const props: Record<string, unknown> = { key: s.key, ...s.attrs };
+    if (s.sel && !!selectedId && s.part?.id === selectedId) {
+      props['stroke'] = 'var(--accent)';
+      props['strokeWidth'] = 2;
+    }
+    if (s.part) Object.assign(props, interaction(s.part, stop));
+    const children: ReactNode[] = [];
+    if (s.title !== undefined) children.push(createElement('title', { key: 'title' }, s.title));
+    for (const c of s.children ?? []) children.push(createElement(c.tag, { key: c.key, ...c.attrs }));
+    if (s.text !== undefined) children.push(s.text);
+    return createElement(s.tag, props, ...children);
   };
-
-  /**
-   * Ink for a fin drawn as wireframe: the component's own display colour on
-   * the outline — desktop strokes each component in its colour
-   * (RocketFigure.java:287-292), and it is the one view whose purpose is
-   * telling fins apart — with selection carried by the same helpers as the
-   * filled drawing.
-   */
-  const wireInk = (n: ComponentNode, grab: Record<string, unknown>) => ({
-    ...grab,
-    'data-fin': 'wire',
-    fill: 'none',
-    stroke: selStroke(n, fillOf(n, '#7a786f')),
-    strokeWidth: selWidth(n, 1.4),
+  const stops = new Set<string>();
+  const drawn = layout.shapes.map((s) => {
+    const stop = !!onSelect && !!s.part && !s.part.hit && !stops.has(s.part.id);
+    if (stop) stops.add(s.part!.id);
+    return element(s, stop);
   });
-
-  /**
-   * One wire fin = the visible outline plus an invisible hit surface CLIPPED
-   * TO OUTSIDE the airframe band. A hollow shape takes pointer events only on
-   * its stroke; blanket `pointerEvents: all` (the first cut of v0.084) fixed
-   * that by making the whole invisible interior the topmost target — so a
-   * click or drag aimed at bare body tube landed on a fin nobody could see,
-   * and the drag MOVED it. Outside the band the space belongs to the fin;
-   * inside it, only the drawn line does.
-   */
-  const pushWire = (
-    n: ComponentNode, grab: Record<string, unknown>, clip: string,
-    shape: (extra: Record<string, unknown>) => React.ReactNode,
-  ) => {
-    wires.push(shape(wireInk(n, grab)));
-    // The hit surface is an INVISIBLE duplicate of the outline above, so it
-    // takes the pointer props and drops the keyboard ones: it must never be
-    // the shape that holds the part's tab stop — focus would land on nothing
-    // visible. (keepFirstTabStops collapses the instances to one stop; this
-    // keeps the invisible copies out of the running for it.)
-    const { tabIndex: _t, role: _r, onKeyDown: _k, 'aria-label': _a, ...pointerOnly } =
-      grab as Record<string, unknown>;
-    wires.push(shape({
-      ...pointerOnly, 'data-fin-hit': '', fill: 'transparent', stroke: 'none',
-      clipPath: `url(#${clip})`,
-    }));
-  };
-
-  /**
-   * A part that sits ON the airframe surface at one clock angle: shrouds,
-   * protuberances, launch lugs, rail buttons. Its own `angleOffset` places it
-   * around the body (0 = the top of this drawing, which is also where an
-   * un-rotated fin set puts its first fin), and the view roll turns it from
-   * there.
-   *
-   * Both halves were missing before v0.086/v0.087: the parts were pinned to
-   * the top of the airframe, so rolling turned the fins and left them behind,
-   * and there was no angle to place them at in the first place. A camera
-   * shroud in line with a fin has the fin in shot, which is exactly the thing
-   * an owner steers away from (Eric, 2026-08-30).
-   *
-   * Same projection as a fin: a surface point at radius r lands at r·cos θ,
-   * and sin θ ≥ 0 puts it in FRONT of the airframe.
-   */
-  const surfaceAt = (n: ComponentNode): FinInstance => {
-    const a = num(n, 'angleOffset', 0) + roll;
-    return { p: Math.cos(a), near: Math.sin(a) >= 0 };
-  };
-
-  /**
-   * Where each fin of a set lands in the side view: a signed foreshortening
-   * factor on its radial coordinates, +1 straight up, 0 edge on, −1 straight
-   * down. Exactly what the desktop computes — `FinSetShapes.getShapesSide`
-   * transforms the fin's own points by `rotate_x(clock angle)` and plots
-   * (x, y), so a point at radius r lands at `r·cos θ`
-   * (FinSetShapes.java:41-60 + RocketFigure.axialRotation, 24.12).
-   *
-   * EVERY instance comes back, including the ones the airframe hides. What
-   * happens to a hidden one is the renderer's business — at rest the clip cuts
-   * its fill at the wall, rolled it is a wire outline — but nothing is dropped
-   * here, so nothing can pop.
-   */
-  const finFactors = (n: ComponentNode): FinInstance[] => {
-    // finCountOf: the kernel's 1..8, never the raw count. A .rkt FinCount of
-    // 70,000 made the `Math.min(...ys)` spread below throw RangeError and took
-    // the whole app down (audit 2026-09-22).
-    const count = finCountOf(n);
-    const base = num(n, 'rotation', 0) + roll;
-    const out: FinInstance[] = [];
-    for (let i = 0; i < count; i++) {
-      const a = base + (2 * Math.PI * i) / count;
-      out.push({ p: Math.cos(a), near: Math.sin(a) >= 0 });
-    }
-    // Furthest-out last. Same-colored fins overlap once a set is rolled off
-    // its symmetry, and the one that reaches past the others reads best on top.
-    return out.sort((x, y) => Math.abs(x.p) - Math.abs(y.p));
-  };
-
-  /**
-   * Hover extent for a fin set: the union of what is actually DRAWN. Before
-   * the projection landed both fins reached full span, so the un-foreshortened
-   * ±reach box matched the drawing exactly; with a 3-fin set at rest it would
-   * now paint a third of its height over empty sky below the lower pair.
-   */
-  const noteHoverFins = (
-    n: ComponentNode, x0: number, x1: number, baseY: number, reach: number,
-    pRadius: number, projections: FinInstance[],
-  ) => {
-    if (!projections.length) return;
-    // Tip AND the airframe edge the fin emerges from. A far fin's projected
-    // root is clipped away, so the wash would over-reach into the tube; a near
-    // fin is drawn whole, so its own root is the honest edge. Taking both
-    // keeps the box on the drawing, and gives a ONE-fin set a box with height
-    // (tip-to-tip alone would be a zero-height rect).
-    const ys = projections.flatMap(({ p, near }) => [
-      baseY - reach * p * ctx.scale,
-      baseY - pRadius * (near || wire ? p : Math.sign(p)) * ctx.scale,
-    ]);
-    noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
-  };
-
-  const renderChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number) => {
-    for (const child of parent.children ?? []) {
-      const t = child.type;
-      // Off-axis assembly: draw its whole chain once per ring instance at the
-      // instance's projected baseline (side view projects y, ignores depth z).
-      if (isAssembly(t)) {
-        const podChain = child.children ?? [];
-        const podLen = assemblyChainLength(child);
-        const podRadius = resolveAssemblyRadius(child, pRadius);
-        const podStart = axialStart(child, podLen, pStart, pLen);
-        const count = assemblyInstanceCount(child);
-        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
-          // −y: the cross-section frame's +y is UP, and SVG y grows down.
-          renderChain(podChain, podStart, baseY - off.y * ctx.scale);
-        }
-        continue;
-      }
-      const grab = {
-        ...selectable(child),
-        ...(onPatchNode && child.id && !vertical
-          ? {
-            onPointerDown: beginDrag(child, parent, pLen),
-            style: { cursor: 'grab' } as React.CSSProperties,
-          }
-          : {}),
-      };
-      // Through-the-wall fin tab: dashed rect from the body surface inward,
-      // foreshortened with the fin instance it belongs to.
-      const renderTab = (finStart: number, finLen: number, p: number) => {
-        const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
-        const tabLen = num(child, 'tabLength', 0);
-        if (tabH <= 0 || tabLen <= 0) return;
-        const front = finStart + finTabFront(child, finLen);
-        const yInner = baseY - (pRadius - tabH) * p * ctx.scale;
-        const ySurface = baseY - pRadius * p * ctx.scale;
-        // A tab lies inside the airframe by definition, so while the figure is
-        // a wireframe it loses its wash and becomes an outline like everything
-        // else — and goes over the body rather than under it. No size floors
-        // there either: an edge-on instance's tab projects to nothing, and a
-        // floored 1.5 px band riding the centreline is not nothing.
-        const hPx = Math.abs(yInner - ySurface);
-        if (wire && hPx < 0.5) return;
-        (wire ? wires : shapes).push(
-          <rect key={key++} x={ctx.x0 + front * ctx.scale} y={Math.min(yInner, ySurface)}
-            width={Math.max(2, tabLen * ctx.scale)} height={wire ? hPx : Math.max(1.5, hPx)}
-            fill={wire ? 'none' : fillOf(child, '#b9b7b0')} fillOpacity={wire ? undefined : '0.35'}
-            stroke="#7a786f" strokeWidth="1" strokeDasharray="3 2"
-            style={{ pointerEvents: 'none' }} />,
-        );
-      };
-      if (t === 'freeformfinset') {
-        const raw = (child['points'] as [number, number][] | undefined) ?? [];
-        if (raw.length >= 3) {
-          // TWO different lengths, deliberately. `chord` is the drawn EXTENT —
-          // a freeform fin may legitimately overhang its own root, and the
-          // silhouette (and its hover box) has to show that. `axialLength` is
-          // the kernel's LENGTH for the same fin (FreeformFinSet.java: the
-          // last point's x, the root chord), and BOTH the fin's station and
-          // its tab are resolved against that. v0.105 aligned the tab and
-          // left the station on `chord`, so a 'bottom'/'middle'-anchored fin
-          // with an overhanging tip was drawn forward of where the kernel
-          // flew it by the overhang — 119.5 mm on `ninja_4in_54mm-MMT.ork`,
-          // with the property panel printing the kernel's station beside it.
-          // finCutOutline (solidMesh.ts:372) and the printed template
-          // (finTemplate.ts) both use the kernel's definition too.
-          const chord = Math.max(...raw.map((p) => p[0]));
-          const tabChord = Math.max(0, raw[raw.length - 1]![0]);
-          const start = axialStart(child, axialLength(child), pStart, pLen);
-          const ymax = Math.max(0, ...raw.map((p) => p[1]));
-          const reach = pRadius + ymax;
-          const projections = finFactors(child);
-          noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
-            baseY, reach, pRadius, projections);
-          const clip = airframeClip(baseY, pRadius);
-          for (const { p, near } of projections) {
-            const ptsStr = raw
-              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
-              .join(' ');
-            // Rolled: an outline, unclipped, over the body. Every instance is
-            // drawn — including one lying flat inside the airframe, which is
-            // exactly the one you need on screen to follow a fin round.
-            if (wire) {
-              pushWire(child, grab, clip,
-                (extra) => <polygon key={key++} points={ptsStr} {...extra} />);
-              renderTab(start, tabChord, p);
-              continue;
-            }
-            const body = (
-              <polygon key={key++} points={ptsStr} clipPath={near ? undefined : `url(#${clip})`}
-                fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-                strokeWidth={selWidth(child)} {...grab} />
-            );
-            // The same extent rule for both sides: a fin whose whole
-            // silhouette is inside the airframe outline has nothing to draw,
-            // and a NEAR one at that angle is edge-on — drawing it unclipped
-            // would put a bar down the centreline of the fin can.
-            if (reach * Math.abs(p) > pRadius) {
-              (near ? overlay : shapes).push(body);
-              renderTab(start, tabChord, p);
-            }
-          }
-        }
-      } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
-        const root = num(child, 'rootChord', 0.05);
-        const tip = t === 'trapezoidfinset' ? num(child, 'tipChord', root * 0.6) : 0;
-        const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
-        const height = num(child, 'height', 0.03);
-        const start = axialStart(child, root, pStart, pLen);
-        const reach = pRadius + height;
-        const projections = finFactors(child);
-        noteHoverFins(child, ctx.x0 + start * ctx.scale,
-          ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
-          baseY, reach, pRadius, projections);
-        const finClip = airframeClip(baseY, pRadius);
-        for (const { p, near } of projections) {
-          const y0 = baseY - pRadius * p * ctx.scale;
-          const yh = baseY - reach * p * ctx.scale;
-          const X = ctx.x0 + start * ctx.scale;
-          // A TRUE half-ellipse, by arc. It used to be a quadratic with the
-          // tip as the CONTROL point — and a quadratic passes through
-          // (P0 + 2C + P2)/4, i.e. exactly halfway to its control, so an
-          // elliptical fin drew at 57 % of the height its own property panel,
-          // its 1:1 cut template, the Aft view and the 3D mesh all give it.
-          //
-          // The 2 px ry floor is for the AT-REST drawing only (a sliver of a
-          // fin still reads as one). Wired, the floor kept an edge-on ellipse
-          // as a 2 px lens whose bulge side flips with the sign of p — the
-          // raw value lets it degenerate to the line the other shapes draw
-          // (an arc with ry 0 renders as a straight segment, per SVG).
-          const ry = Math.abs(y0 - yh);
-          const ellipse = `M ${X} ${y0} A ${(root / 2) * ctx.scale} ${wire ? ry : Math.max(2, ry)} 0 0 ${p > 0 ? 1 : 0} ${X + root * ctx.scale} ${y0} Z`;
-          const trap = `${X},${y0} ${X + sweep * ctx.scale},${yh} ${X + (sweep + tip) * ctx.scale},${yh} ${X + root * ctx.scale},${y0}`;
-          if (wire) {
-            pushWire(child, grab, finClip, (extra) => (
-              t === 'trapezoidfinset'
-                ? <polygon key={key++} points={trap} {...extra} />
-                : <path key={key++} d={ellipse} {...extra} />
-            ));
-            renderTab(start, root, p);
-            continue;
-          }
-          const outsideClip = near ? undefined : `url(#${finClip})`;
-          const body = t === 'trapezoidfinset' ? (
-            <polygon key={key++} clipPath={outsideClip} points={trap}
-              fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-              strokeWidth={selWidth(child)} {...grab} />
-          ) : (
-            <path key={key++} clipPath={outsideClip} d={ellipse}
-              fill={fillOf(child, '#b9b7b0')} stroke={selStroke(child, '#7a786f')}
-              strokeWidth={selWidth(child)} {...grab} />
-          );
-          if (reach * Math.abs(p) > pRadius) {
-            (near ? overlay : shapes).push(body);
-            renderTab(start, root, p);
-          }
-        }
-      } else if (t === 'tubefinset') {
-        // Side view: every tube of the ring, at its projected height. A tube
-        // runs PARALLEL to the body axis, so unlike a fin it is not squashed
-        // by roll — its silhouette stays 2·rt tall and only its centre moves,
-        // to (pRadius + rt)·cos θ. Tubes whose silhouette falls entirely
-        // inside the airframe are hidden behind it and dropped; that is the
-        // honest form of the old "side tubes project onto the body — omitted"
-        // shortcut, which drew exactly two tubes whatever the count.
-        const len = num(child, 'length', 0.1);
-        const rt = tubeFinRadius(child, pRadius);
-        const start = axialStart(child, len, pStart, pLen);
-        const X = ctx.x0 + start * ctx.scale;
-        noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
-          X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
-        const tubes = finFactors(child);
-        const tubeClip = airframeClip(baseY, pRadius);
-        for (const { p, near } of tubes) {
-          const yc = baseY - (pRadius + rt) * p * ctx.scale;
-          const half = rt * ctx.scale;
-          const w2 = Math.max(2, len * ctx.scale);
-          if (wire) {
-            pushWire(child, grab, tubeClip, (extra) => (
-              <rect key={key++} x={X} y={yc - half} width={w2} height={2 * half}
-                rx="2" {...extra} />
-            ));
-            wires.push(
-              <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc}
-                stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
-                style={{ pointerEvents: 'none' }} />,
-            );
-            continue;
-          }
-          const cut = near ? undefined : `url(#${tubeClip})`;
-          const shown = (pRadius + rt) * Math.abs(p) + rt > pRadius;
-          if (shown) {
-            const into = near ? overlay : shapes;
-            into.push(
-              <rect key={key++} x={X} y={yc - half} clipPath={cut}
-                width={w2} height={2 * half}
-                rx="2" fill={fillOf(child, '#c8c5be')} fillOpacity="0.6"
-                stroke={selStroke(child, '#7a786f')} strokeWidth={selWidth(child)} {...grab} />,
-              <line key={key++} x1={X} y1={yc} x2={X + len * ctx.scale} y2={yc} clipPath={cut}
-                stroke="#7a786f" strokeWidth="0.8" strokeDasharray="4 3"
-                style={{ pointerEvents: 'none' }} />,
-            );
-          }
-        }
-      } else if (t === 'fairing') {
-        // External shroud: SOLID, at its own mounting angle (v0.087), turned
-        // from there by the view roll. It stays solid EVEN WHILE ROLLED — see
-        // `solidWhileRolled`.
-        const len = num(child, 'length', 0.08);
-        const hgt = num(child, 'height', 0.02);
-        const ends = shroudEnds(child);
-        const start = axialStart(child, len, pStart, pLen);
-        const { p: sp, near: snear } = surfaceAt(child);
-        const X = ctx.x0 + start * ctx.scale;
-        const y0 = baseY - pRadius * sp * ctx.scale;
-        const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
-        const Xe = X + len * ctx.scale;
-        noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
-        // Behind the airframe: cut at the wall, rolled or not. A shroud is an
-        // opaque solid and the tube really does hide it.
-        const surfInk = {
-          fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
-          strokeWidth: selWidth(child),
-          ...(snear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
-          ...grab,
-        };
-        // ONE path, two independently-shaped ends (v0.088). The three
-        // treatments are exactly the ones the old whole-part switch drew — a
-        // 30 % ramp, a quadratic dome, a square edge — but each end now picks
-        // its own, because a real camera shroud is domed where the lens looks
-        // out and tapered at the other end (Eric, 2026-08-31).
-        //
-        // The runs are clamped in PIXELS, not as a fraction of length: on a
-        // short shroud two 30 % ramps meeting in the middle is fine, but two
-        // 8 px dome insets are not, and an unclamped inset makes the path
-        // self-intersect. `runFor` never lets the two ends claim more than half
-        // the drawn length each.
-        const px = Math.max(2, len * ctx.scale);
-        const runFor = (s: string): number =>
-          s === 'box' ? 0
-            : Math.min(px / 2, s === 'streamlined' ? 0.3 * px : Math.min(8, 0.25 * px));
-        const foreRun = runFor(ends.fore);
-        const aftRun = runFor(ends.aft);
-        // A dome's shoulder starts 35 % of the way up the face, as it always
-        // has; a ramp and a square edge start at the surface.
-        const shoulder = (s: string): number => (s === 'halfround' ? yh + 0.35 * (y0 - yh) : y0);
-        // Coordinates are written `x,y` rather than `x y` — both are legal SVG,
-        // and the comma form is what the extent helpers in the view tests parse
-        // out of a `points` list, so one selector serves polygons and paths.
-        const endIn = (s: string, xa: number, xb: number): string =>
-          s === 'halfround'
-            ? `L ${xa},${shoulder(s)} Q ${xa},${yh} ${xb},${yh}`
-            : `L ${xb},${yh}`;
-        const endOut = (s: string, xa: number, xb: number): string =>
-          s === 'halfround'
-            ? `L ${xa},${yh} Q ${xb},${yh} ${xb},${shoulder(s)} L ${xb},${y0}`
-            : `L ${xb},${y0}`;
-        shapes.push(
-          <path key={key++} data-part="shroud"
-            d={`M ${X},${y0} `
-              + endIn(ends.fore, X, X + foreRun)
-              + ` L ${Xe - aftRun},${yh} `
-              + endOut(ends.aft, Xe - aftRun, Xe)
-              + ' Z'}
-            {...surfInk} />,
-        );
-      } else if ((t as string) === 'protuberance') {
-        // A drag bump on the outside: solid, shaped by its RASAero class — a
-        // ramp for an inclined flat plate, a faired nose with a blunt back for
-        // "with base drag", faired both ends for "no base drag". Sits at its
-        // own mounting angle (v0.087) and stays solid while rolled.
-        const len = num(child, 'length', 0.06);
-        const hgt = num(child, 'height', 0.01);
-        const cls = String(child['dragClass'] ?? 'streamlinedbase');
-        const start = axialStart(child, len, pStart, pLen);
-        const { p: pp, near: pnear } = surfaceAt(child);
-        const X = ctx.x0 + start * ctx.scale;
-        const y0 = baseY - pRadius * pp * ctx.scale;
-        const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
-        const Xe = X + len * ctx.scale;
-        noteHover(child, X, Math.min(y0, yh), Xe, Math.max(y0, yh));
-        const nose = Math.min(0.35 * (Xe - X), Math.max(2, Math.abs(y0 - yh)));
-        shapes.push(
-          <polygon key={key++}
-            points={cls === 'plate'
-              ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
-              : cls === 'streamlined'
-                ? `${X},${y0} ${X + nose},${yh} ${Xe - nose},${yh} ${Xe},${y0}`
-                : `${X},${y0} ${X + nose},${yh} ${Xe},${yh} ${Xe},${y0}`}
-            {...{
-              fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
-              strokeWidth: selWidth(child),
-              ...(pnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
-              ...grab,
-            }} />,
-        );
-      } else if (t === 'launchlug' || t === 'railbutton') {
-        // A rail button has no axial 'length' — it is about as long as it is
-        // wide, so the outer diameter sets the axial extent. What it stands OFF
-        // the tube by is a separate dimension, and until v0.103 this view used
-        // the diameter for that too (`2 * r`), with a 4 mm fallback against the
-        // kernel's 9.7 — so the side view, the 3D view and the flown part each
-        // claimed a different button height. Both fallbacks are now the kernel
-        // constructor's own (RailButton.java:58-64).
-        const btnDia = t === 'railbutton' ? num(child, 'outerDiameter', 0.0097) : 0;
-        // A lug's drawn length is `axialLength`'s — the kernel's, and what the
-        // drag and the snap ladder resolve it with — so a lug with no length
-        // of its own draws where it flies, 50 mm, not 10 (audit 2026-09-22).
-        const len = t === 'railbutton' ? btnDia : axialLength(child);
-        const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
-        const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
-        // A BUTTON IS CENTRED ON ITS STATION; a lug starts at it (v0.105).
-        // `axialLength` is 0 for a rail button and the lug's own length for a
-        // lug, so `axialStart` returns the button's CENTRE and the lug's
-        // leading edge — matching `RailButton.getInstanceBoundingBox`, which
-        // reaches ±OD/2 about the station, and `RocketComponent.java:86`'s
-        // `length = 0` that RailButton never overwrites. Drawing the button
-        // aft of its station (the old `axialStart(child, btnDia, …)`) put it
-        // 4.85 mm from where it flies on a 'top'- or 'bottom'-anchored button,
-        // in the opposite direction each way.
-        const start = t === 'railbutton'
-          ? axialStart(child, axialLength(child), pStart, pLen) - len / 2
-          : axialStart(child, len, pStart, pLen);
-        // Its own mounting angle places it (v0.087); the view roll turns it
-        // from there. Solid at every roll — a button is a lump, not a line.
-        const { p: lp, near: lnear } = surfaceAt(child);
-        const ySurf = baseY - pRadius * lp * ctx.scale;
-        const yOut = baseY - (pRadius + btnH) * lp * ctx.scale;
-        // LINE INSTANCES (v0.089): one node is N collinear copies at the same
-        // clock angle, instance 0 forward and the rest marching AFT at
-        // `instanceSeparation` spacing — the kernel's own convention
-        // (RailButton.getInstanceOffsets), which the sim now flies too.
-        const liCount = lineInstanceCount(child);
-        const liSep = num(child, 'instanceSeparation', 0);
-        noteHover(child, ctx.x0 + start * ctx.scale, Math.min(ySurf, yOut),
-          ctx.x0 + (start + len + (liCount - 1) * liSep) * ctx.scale, Math.max(ySurf, yOut));
-        for (let li = 0; li < liCount; li++) {
-          const x0 = start + li * liSep;
-          shapes.push(
-            <rect key={key++} x={ctx.x0 + x0 * ctx.scale}
-              y={Math.min(ySurf, yOut)}
-              width={Math.max(2, len * ctx.scale)} height={Math.max(2, Math.abs(ySurf - yOut))}
-              {...{
-                fill: fillOf(child, '#c8c5be'), stroke: selStroke(child, '#7a786f'),
-                strokeWidth: selWidth(child),
-                ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
-                ...grab,
-              }} />,
-          );
-        }
-      } else {
-        // Internal component: dashed outline inside the parent. A clustered
-        // inner tube draws once per cluster position (side-view projection).
-        // Per-type stroke color + a small tag differentiate what used to be
-        // identical grey boxes (issue 2026-08-05a #21) — tubes/couplers stay
-        // neutral (they really are tube segments), payload-type parts get
-        // muted colors from the theme-safe midrange.
-        const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
-          parachute: { stroke: '#b06a35', tag: 'chute' },
-          streamer: { stroke: '#a08c2e', tag: 'strmr' },
-          shockcord: { stroke: '#8f7a8d', tag: 'cord' },
-          masscomponent: { stroke: '#a85f5c', tag: 'mass' },
-          centeringring: { stroke: '#6f8a5c', tag: 'CR' },
-          bulkhead: { stroke: '#66748c', tag: 'BH' },
-          engineblock: { stroke: '#7d7050', tag: 'EB' },
-        };
-        const style = TYPE_STYLE[child.type];
-        // `axialLength`: the kernel's length, a cleared one included — the one
-        // the drag resolves the position with, so the part does not jump when
-        // grabbed (audit 2026-09-22; it used to fall back to 25 mm here and
-        // there alike, where the kernel builds a 70 mm inner tube).
-        const len = axialLength(child);
-        const r = Math.min(
-          pRadius * 0.85,
-          num(child, 'outerRadius', num(child, 'radius', num(child, 'packedRadius', pRadius * 0.7))),
-        );
-        const start = axialStart(child, len, pStart, pLen);
-        const offsets = child.type === 'innertube'
-          // The view's roll as its own turn, not added to the rotation — the
-          // kernel turns a pattern by MINUS its rotation (cluster.ts).
-          ? clusterOffsets(
-            child['cluster'] as string | undefined,
-            num(child, 'outerRadius', 0.0095),
-            num(child, 'clusterScale', 1),
-            num(child, 'clusterRotation', 0),
-            { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
-          )
-          : [{ y: 0, z: 0 }];
-        // An inner tube can also sit OFF the centreline on its own, with no
-        // cluster involved — desktop's "split cluster" is exactly that, each
-        // motor tube at its own radius and angle. The aft view has drawn it
-        // since v0.078 (AftView.tsx:215-217) and this view did not, so a split
-        // cluster spread out end-on and stacked on the axis from the side.
-        // Only the +y component projects into a side view; the view roll turns
-        // the pair, same as every other radial part here.
-        const radY = child.type === 'innertube'
-          ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + roll)
-          : 0;
-        // Loaded motor: a brownish silhouette at the REAL case size, seated
-        // flush against the mount's aft end (how motors actually load).
-        const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
-        for (const off of offsets) {
-          // −y: the cross-section frame's +y is UP, and SVG y grows down.
-          const oy = baseY - (radY + off.y) * ctx.scale;
-          const inkColor = isSel(child) ? 'var(--accent)' : fillOf(child, style?.stroke ?? '#9a978f');
-          noteHover(child, ctx.x0 + start * ctx.scale, oy - r * ctx.scale,
-            ctx.x0 + (start + len) * ctx.scale, oy + r * ctx.scale);
-          overlay.push(
-            <rect key={key++} x={ctx.x0 + start * ctx.scale}
-              y={oy - r * ctx.scale}
-              width={Math.max(2, len * ctx.scale)} height={2 * r * ctx.scale}
-              fill={child.type === 'bulkhead' ? 'url(#bulkhead-hatch)' : 'rgba(127,127,127,0.001)'}
-              stroke={inkColor} strokeWidth={selWidth(child)}
-              strokeDasharray="3 2" {...grab}>
-              <title>{child.name ?? DISPLAY_NAME[child.type]}</title>
-            </rect>,
-          );
-          // Miniature glyphs (the owner's pick, 2026-08-05b #21): a picture inside
-          // the box for chutes, mass items, centering rings and shock cords,
-          // drawn whenever there's room; the text tag stays for the rest.
-          const bw = len * ctx.scale;
-          const bh = 2 * r * ctx.scale;
-          const gcx = ctx.x0 + (start + len / 2) * ctx.scale;
-          const gcy = oy;
-          const gs = Math.min(bw * 0.8, bh * 0.7); // glyph box size
-          if (gs >= 8) {
-            const g = gs / 2;
-            const glyphProps = { stroke: fillOf(child, style?.stroke ?? '#9a978f'), fill: 'none', strokeWidth: 1.2, style: { pointerEvents: 'none' as const } };
-            if (child.type === 'parachute') {
-              overlay.push(
-                <g key={key++} {...glyphProps}>
-                  <path d={`M ${gcx - g} ${gcy} A ${g} ${g} 0 0 1 ${gcx + g} ${gcy}`} />
-                  <path d={`M ${gcx - g} ${gcy} L ${gcx} ${gcy + g} L ${gcx + g} ${gcy} M ${gcx - g * 0.45} ${gcy - g * 0.65} L ${gcx} ${gcy + g} M ${gcx + g * 0.45} ${gcy - g * 0.65} L ${gcx} ${gcy + g}`} />
-                </g>,
-              );
-            } else if (child.type === 'masscomponent') {
-              overlay.push(
-                <g key={key++} {...glyphProps}>
-                  <rect x={gcx - g * 0.7} y={gcy - g * 0.35} width={g * 1.4} height={g * 1.05}
-                    fill={fillOf(child, style?.stroke ?? '#9a978f')} fillOpacity="0.35" />
-                  <path d={`M ${gcx - g * 0.35} ${gcy - g * 0.35} A ${g * 0.4} ${g * 0.5} 0 0 1 ${gcx + g * 0.35} ${gcy - g * 0.35}`} />
-                </g>,
-              );
-            } else if (child.type === 'centeringring') {
-              // Ring cross-section: material near the walls, bore in the middle.
-              overlay.push(
-                <g key={key++} {...glyphProps}>
-                  <line x1={gcx} y1={gcy - bh / 2 + 1.5} x2={gcx} y2={gcy - bh * 0.16} strokeWidth={Math.max(2, bw * 0.5)} />
-                  <line x1={gcx} y1={gcy + bh * 0.16} x2={gcx} y2={gcy + bh / 2 - 1.5} strokeWidth={Math.max(2, bw * 0.5)} />
-                </g>,
-              );
-            } else if (child.type === 'shockcord') {
-              const seg = gs / 4;
-              overlay.push(
-                <path key={key++} {...glyphProps}
-                  d={`M ${gcx - g} ${gcy} ${[1, 2, 3, 4].map((i) => `L ${gcx - g + i * seg * 2 - seg} ${gcy + (i % 2 ? -1 : 1) * g * 0.45} L ${gcx - g + i * seg * 2} ${gcy}`).join(' ')}`} />,
-              );
-            }
-          }
-          // Type tag, when the box has room for it — glyph types skip the
-          // text once their picture is drawn. Counter-rotated tags read
-          // horizontally in vertical mode, so the room roles swap.
-          const hasGlyph = gs >= 8
-            && ['parachute', 'masscomponent', 'centeringring', 'shockcord'].includes(child.type);
-          const tagRoom = vertical
-            ? 2 * r * ctx.scale > 26 && len * ctx.scale > 11
-            : len * ctx.scale > 26 && 2 * r * ctx.scale > 11;
-          if (style && !hasGlyph && tagRoom) {
-            const tx = ctx.x0 + (start + len / 2) * ctx.scale;
-            const ty = oy;
-            overlay.push(
-              <text key={key++} x={tx} y={ty}
-                textAnchor="middle" dominantBaseline="central"
-                fontSize="8.5" fill={fillOf(child, style.stroke)} {...textUp(tx, ty)}
-                style={{ pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {style.tag}
-              </text>,
-            );
-          }
-          if (motor) {
-            overlay.push(...motorShapes(
-              motor, start + len - motor.length + num(child, 'motorOverhang', 0),
-              oy));
-          }
-        }
-        // Children ride the tube's own radial offset (not its cluster copies —
-        // there is one child set, and AftView.tsx:234 makes the same choice).
-        renderChildren(child, start, len, r, baseY - radY * ctx.scale);
-      }
-    }
-  };
-
-  // Dashed outline for a shoulder sliding inside the adjacent tube. Painted in
-  // the overlay pass — an aft shoulder lives inside the NEXT tube, which is
-  // drawn later and would otherwise cover it.
-  const shoulderRect = (startX: number, lenSi: number, rSi: number, color: string, baseY: number) => {
-    if (lenSi <= 0 || rSi <= 0) return;
-    overlay.push(
-      <rect key={key++} x={ctx.x0 + startX * scale} y={baseY - rSi * scale}
-        width={Math.max(1.5, lenSi * scale)} height={2 * rSi * scale}
-        fill="rgba(127,127,127,0.001)" stroke={color} strokeWidth="1"
-        strokeDasharray="3 2" style={{ pointerEvents: 'none' }} />,
-    );
-  };
-
-  // Draws an axial nose→tail chain with its centerline at screen `baseY`
-  // (ctx.cy for the core rocket; offset for each off-axis pod instance).
-  const renderChain = (nodes: ComponentNode[], xStart: number, baseY: number) => {
-    let cx = xStart;
-    for (const n of nodes) {
-      const len = num(n, 'length', 0);
-      if (n.type === 'nosecone') {
-        const r = num(n, 'aftRadius', 0.012);
-        noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
-        shapes.push(<path key={key++} d={profilePath(ctx, n, cx, len, 0, r, baseY)} fill={fillOf(n, '#d5d2cb')}
-          stroke={selStroke(n, '#7a786f')} strokeWidth={selWidth(n)} {...selectable(n)} />);
-        shoulderRect(cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY);
-        cx += len;
-      } else if (n.type === 'bodytube') {
-        const r = num(n, 'outerRadius', 0.012);
-        noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
-        shapes.push(
-          <rect key={key++} x={ctx.x0 + cx * scale} y={baseY - r * scale}
-            width={len * scale} height={2 * r * scale}
-            fill={fillOf(n, '#e7e5e0')} stroke={selStroke(n, '#7a786f')}
-            strokeWidth={selWidth(n)} {...selectable(n)} />,
-        );
-        // Min-diameter: a motor loaded directly in this body tube draws at its
-        // real case size, seated flush against the tube's aft end.
-        const tubeMotor = n.id ? motors?.[n.id] : undefined;
-        if (tubeMotor) {
-          shapes.push(...motorShapes(
-            tubeMotor, cx + len - tubeMotor.length + num(n, 'motorOverhang', 0), baseY));
-        }
-        renderChildren(n, cx, len, r, baseY);
-        cx += len;
-      } else if (n.type === 'transition') {
-        const rf = num(n, 'foreRadius', 0.012);
-        const ra = num(n, 'aftRadius', 0.009);
-        noteHover(n, ctx.x0 + cx * scale, baseY - Math.max(rf, ra) * scale,
-          ctx.x0 + (cx + len) * scale, baseY + Math.max(rf, ra) * scale);
-        shapes.push(
-          <path key={key++} d={profilePath(ctx, n, cx, len, rf, ra, baseY)}
-            fill={fillOf(n, '#d5d2cb')} stroke={selStroke(n, '#7a786f')}
-            strokeWidth={selWidth(n)} {...selectable(n)} />,
-        );
-        const fsl = num(n, 'foreShoulderLength', 0);
-        shoulderRect(cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY);
-        shoulderRect(cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, Math.max(rf, ra), baseY);
-        cx += len;
-      }
-    }
-  };
-
-  renderChain(chain, 0, ctx.cy);
-  // The three layers in the order they are painted below — and tabbed.
-  keepFirstTabStops([shapes, overlay, wires]);
+  // FAR is any distance that certainly covers the drawing in local user
+  // space; the clip lives inside the view transform, so it scales with it.
+  const FAR = 1e4;
+  const clipDefs = layout.clips.map(({ id, top, bottom }) => (
+    <clipPath key={id} id={id}>
+      <rect x={-FAR} y={-FAR} width={2 * FAR} height={FAR + top} />
+      <rect x={-FAR} y={bottom} width={2 * FAR} height={FAR} />
+    </clipPath>
+  ));
 
   const aero = !!info && hasAerodynamicForce(info);
   const cgX = info ? ctx.x0 + info.cg * scale : null;
@@ -1621,13 +577,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   // Hover overlay (S5): a light accent wash over the hovered component's
   // extent plus a name tag — deliberately fainter than the solid width-2
-  // selection outline so the two stay distinguishable.
-  const hoverBox = hoverBoxes.length
-    ? hoverBoxes.reduce((a, b) => ({
-      x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0),
-      x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1),
-    }))
-    : null;
+  // selection outline so the two stay distinguishable. The extent is the
+  // union of every instance the layout drew (cluster copies, pod rings).
+  const hovered = hoverId ? layout.extents.get(hoverId) : undefined;
+  const hoverBox = hovered ? { x0: hovered.x0, y0: hovered.y0, x1: hovered.x1, y1: hovered.y1 } : null;
+  const hoverName = hovered?.name ?? '';
   let hoverTag: { x: number; y: number; tw: number } | null = null;
   if (hoverBox) {
     const tw = hoverName.length * 6.2 + 14;
@@ -1689,9 +643,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         <g transform={vertical
           ? `rotate(90 ${h / 2} ${h / 2})`
           : `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
-          {shapes}
-          {overlay}
-          {wires}
+          {drawn}
           {/* pointerEvents none on BOTH marker groups: they are decoration
               drawn on the centreline — precisely where you click to select a
               nose cone or body tube — and an 18px opaque disc with no handler
@@ -1824,38 +776,4 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       </div>}
     </div>
   );
-}
-
-function collect<T>(nodes: ComponentNode[], f: (n: ComponentNode) => T): T[] {
-  const out: T[] = [];
-  const walk = (ns: ComponentNode[]) => {
-    for (const n of ns) {
-      out.push(f(n));
-      walk(n.children ?? []);
-    }
-  };
-  walk(nodes);
-  return out;
-}
-
-/**
- * Closed side-view outline of a nose cone (foreR = 0) or transition, sampled
- * from the kernel-exact profile: top edge fore→aft, aft edge down, bottom
- * edge aft→fore, Z closes the fore edge.
- */
-function profilePath(
-  ctx: Ctx, n: ComponentNode, x: number, len: number,
-  foreR: number, aftR: number, baseY: number,
-): string {
-  const shape = typeof n['shape'] === 'string' ? (n['shape'] as string)
-    : n.type === 'transition' ? 'conical' : 'ogive';
-  const param = typeof n['shapeParameter'] === 'number' ? (n['shapeParameter'] as number) : undefined;
-  // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
-  // transition draws the way it simulates; absent = kernel default (clipped).
-  const pts = outerProfile(shape, param, len, foreR, aftR, 24, undefined,
-    typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
-  const px = (xi: number) => ctx.x0 + (x + xi) * ctx.scale;
-  const top = pts.map(([xi, r]) => `${px(xi)} ${baseY - r * ctx.scale}`);
-  const bottom = pts.slice().reverse().map(([xi, r]) => `${px(xi)} ${baseY + r * ctx.scale}`);
-  return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
 }

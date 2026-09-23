@@ -306,9 +306,9 @@ describe('click-to-select after a drag (the dragMoved latch)', () => {
    * for the rest of the session, while children kept working because their own
    * beginDrag reset the flag on every press.
    */
-  // happy-dom reports every rect as 0x0, and beginDrag bails on a zero-width
-  // svg — without this stub no drag ever starts and the latch is never set,
-  // which would make these tests pass for the wrong reason.
+  // happy-dom reports every rect as 0x0, and the drag's begin (useAxialDrag)
+  // bails on a zero-width svg — without this stub no drag ever starts and the
+  // latch is never set, which would make these tests pass for the wrong reason.
   let rectSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({

@@ -572,7 +572,7 @@ export function componentLoop(
       const wall = num(node, 'thickness', 0.002);
       const { shape, param } = shapeOf(node);
       // node['clipped'] (.ork <shapeclipped>) MUST ride along, exactly as
-      // Rocket3D.tsx and TreeSchematic.tsx forward it: absent = the kernel
+      // Rocket3D.tsx and schematicLayout.ts forward it: absent = the kernel
       // default (clipped), an explicit false = the unclipped delta shape.
       // Dropping it printed the clipped continuation for a transition drawn
       // and flown unclipped — on a 76.2 mm -> 38.1 mm power (p=0.5) reducer

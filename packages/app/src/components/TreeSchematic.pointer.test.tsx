@@ -77,9 +77,10 @@ const click = (el: Element) => act(() => {
 });
 
 beforeEach(() => {
-  // happy-dom lays everything out at 0x0 and beginDrag bails on a zero-width
-  // svg — without this no drag would start and every "no patch" below would
-  // pass for the wrong reason. 640 client px on a 640-wide viewBox = 1:1.
+  // happy-dom lays everything out at 0x0 and the drag's begin (useAxialDrag)
+  // bails on a zero-width svg — without this no drag would start and every
+  // "no patch" below would pass for the wrong reason. 640 client px on a
+  // 640-wide viewBox = 1:1.
   rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
     x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 240, width: 640, height: 240,
     toJSON: () => ({}),

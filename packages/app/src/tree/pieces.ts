@@ -147,7 +147,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // reaches the same call without ever mounting the 3D view.
     //
     // Skip the set rather than substitute a made-up fin: >= 3 is the same test
-    // TreeSchematic.tsx:875, orkFile.ts:533 and FinPointsEditor use, so all
+    // schematicLayout.ts, orkFile.ts:533 and FinPointsEditor use, so all
     // four agree that a sub-3-point set draws nothing at all.
     if (child.type === 'freeformfinset' && ffPoints.length < 3) return;
     const root = child.type === 'freeformfinset' && ffPoints.length

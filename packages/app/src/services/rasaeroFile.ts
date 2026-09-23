@@ -586,7 +586,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // when the previous child is a nose cone or transition, :66-75). We only
         // do it when a <Booster> follows. It is numerically free either way
         // (ARCAS-Long - 2 measures 53.5001 in / CG 37.4201 / CP 40.6627 /
-        // 1.4412 cal inline AND pod-ised), but TreeSchematic.tsx computes the
+        // 1.4412 cal inline AND pod-ised), but schematicLayout.ts computes the
         // drawing's totalLen from the TOP-LEVEL chain only, so a pod that
         // overhangs its host tube draws off the right edge and mis-scales the
         // whole schematic. Under this narrower rule no pod this importer builds
