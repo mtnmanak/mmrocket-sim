@@ -6,7 +6,7 @@ import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { axialLength, drawnExtent, startFromPosition } from '../tree/position.js';
 import { sanitizeTree } from '../tree/sanitize.js';
-import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from './orkFile.js';
 import type { OrkExportMotor, OrkFlightConfig, OrkImportResult, OrkMotorRef } from './orkFile.js';
@@ -1129,7 +1129,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
   deCollideFins(components);
-  readDeploymentEvents(doc, serialToNode, notes, num);
+  const appliedDeploy = readDeploymentEvents(doc, serialToNode, notes, num);
   applyPresetLinks(pendingLinks, opts?.presets, notes);
 
   // A nose cone's <BaseExtensionLen> becomes a real body tube directly behind it.
@@ -1410,6 +1410,36 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       + `different motor sets; each set is a flight configuration here. ${simLabel(chosen)} was opened `
       + '— switch under Flight configurations.');
   }
+  // RECOVERY IS NOT READ PER SIMULATION (audit 2026-09-22 review). Each
+  // <SimulationResults> keeps its own event list as well as its motors, and
+  // only the motors become the configuration: recovery is readDeploymentEvents'
+  // — the file's first list, the design's own in 662 of the 685 corpus files
+  // that carry one — in every configuration. When the simulation opened stored
+  // something else, say so, rather than let "Simulation N was opened" imply its
+  // recovery came too: AeroTech/aerotech_warthog.rkt's simulation 1 (E15-4)
+  // deploys at the ejection charge where the design says 122 m. Read with
+  // plain xmlNum: these numbers are compared, never used.
+  const chosenSim = chosen ? cfgSim.get(chosen)?.number : null;
+  if (chosen && chosenSim != null) {
+    const own = new Map<string, string>();
+    for (const ev of Array.from(simEls[chosenSim - 1]!.querySelectorAll('SimulationEvent'))) {
+      const serial = text(ev, ':scope > PartSerialNo');
+      if (!serial || serial === '0' || own.has(serial)) continue;
+      const node = serialToNode.get(serial);
+      if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
+      const t = rktTrigger(ev, xmlNum);
+      if (t === null || typeof t === 'number') continue;
+      const a = appliedDeploy.get(serial);
+      own.set(serial, a && a.deployEvent === t.deployEvent && a.deployDelay === t.deployDelay
+        && a.deployAltitude === t.deployAltitude ? '' : `${node.name ?? node.type} ${t.says}`);
+    }
+    const differ = [...own.values()].filter(Boolean);
+    if (differ.length) {
+      notes.push(`${simLabel(chosen)} stored different recovery triggers from the ones read above: `
+        + `${differ.join('; ')}. Recovery is not read per simulation, so every flight configuration here `
+        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.');
+    }
+  }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const firstMotor: OrkMotorRef | undefined = Object.values(motors)[0];
   const chosenConfigId = chosen?.id ?? null;
@@ -1545,14 +1575,17 @@ function catalogueDefaultDelay(designation: string, manufacturer: string): numbe
  * Pro's multi-condition elaboration. `Type` + `DeployAltitude` + `DeplyTime` is
  * the simple pair every file agrees with; the Pro triplet has no analogue in our
  * one-trigger model, and inventing one would be a guess.
+ *
+ * Returns what it applied, per part serial, so the caller can compare the
+ * opened simulation's own list against it.
  */
 const readDeploymentEvents = (
   doc: Document,
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
-): void => {
-  const seen = new Set<string>();
+): Map<string, RktTrigger> => {
+  const seen = new Map<string, RktTrigger>();
   const unknown = new Set<number>();
   const applied: string[] = [];
   for (const ev of Array.from(doc.querySelectorAll('SimulationEvent'))) {
@@ -1560,43 +1593,17 @@ const readDeploymentEvents = (
     if (!serial || serial === '0' || seen.has(serial)) continue;
     const node = serialToNode.get(serial);
     if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
-    const type = Math.round(num(ev, 'Type', 0));
-    if (type === 0) continue;
-    seen.add(serial);
-    const label = node.name ?? node.type;
-    switch (type) {
-      case 1:
-        node['deployEvent'] = 'ejection';
-        applied.push(`${label} at the ejection charge`);
-        break;
-      case 2: {
-        node['deployEvent'] = 'ejection';
-        const delay = num(ev, 'DeplyTime', 0);
-        if (delay > 0) node['deployDelay'] = delay;
-        applied.push(`${label} at the ejection charge${delay > 0 ? ` + ${delay} s` : ''}`);
-        break;
-      }
-      case 4:
-        node['deployEvent'] = 'apogee';
-        applied.push(`${label} at apogee`);
-        break;
-      case 5: {
-        const alt = num(ev, 'DeployAltitude', 0);
-        if (alt > 0) {
-          node['deployEvent'] = 'altitude';
-          node['deployAltitude'] = alt;
-          applied.push(`${label} at ${Math.round(alt)} m`);
-        } else {
-          // Altitude trigger with no altitude: apogee is the only honest reading.
-          node['deployEvent'] = 'apogee';
-          applied.push(`${label} at apogee (the file asks for an altitude but names none)`);
-        }
-        break;
-      }
-      default:
-        unknown.add(type);
-        seen.delete(serial);
+    const t = rktTrigger(ev, num);
+    if (t === null) continue;
+    if (typeof t === 'number') {
+      unknown.add(t);
+      continue;
     }
+    seen.set(serial, t);
+    node['deployEvent'] = t.deployEvent;
+    if (t.deployDelay !== undefined) node['deployDelay'] = t.deployDelay;
+    if (t.deployAltitude !== undefined) node['deployAltitude'] = t.deployAltitude;
+    applied.push(`${node.name ?? node.type} ${t.says}`);
   }
   if (applied.length) {
     notes.push(`Recovery deployment read from the file: ${applied.join('; ')}.`);
@@ -1609,7 +1616,50 @@ const readDeploymentEvents = (
       + 'check the deployment settings before flying.',
     );
   }
+  return seen;
 };
+
+/** One <SimulationEvent>'s trigger, as readDeploymentEvents applies it. */
+interface RktTrigger {
+  deployEvent: 'ejection' | 'apogee' | 'altitude';
+  deployDelay?: number;
+  deployAltitude?: number;
+  /** For a note: "at apogee", "at 152 m", … */
+  says: string;
+}
+
+/**
+ * The type codes readDeploymentEvents documents, for ONE event: null for the
+ * empty slot (type 0), the code itself when it is not one of them. Split out
+ * (audit 2026-09-22 review) so the opened simulation's own list can be read
+ * the same way and compared.
+ */
+function rktTrigger(ev: Element, num: NumReader): RktTrigger | number | null {
+  const type = Math.round(num(ev, 'Type', 0));
+  switch (type) {
+    case 0:
+      return null;
+    case 1:
+      return { deployEvent: 'ejection', says: 'at the ejection charge' };
+    case 2: {
+      const delay = num(ev, 'DeplyTime', 0);
+      return delay > 0
+        ? { deployEvent: 'ejection', deployDelay: delay, says: `at the ejection charge + ${delay} s` }
+        : { deployEvent: 'ejection', says: 'at the ejection charge' };
+    }
+    case 4:
+      return { deployEvent: 'apogee', says: 'at apogee' };
+    case 5: {
+      const alt = num(ev, 'DeployAltitude', 0);
+      // Altitude trigger with no altitude: apogee is the only honest reading.
+      return alt > 0
+        ? { deployEvent: 'altitude', deployAltitude: alt, says: `at ${Math.round(alt)} m` }
+        : { deployEvent: 'apogee', says: 'at apogee (the file asks for an altitude but names none)' };
+    }
+    default:
+      return type;
+  }
+}
 
 /**
  * RockSim PointList: "x,y|x,y|…" in mm; reversed when RockSim-ordered.

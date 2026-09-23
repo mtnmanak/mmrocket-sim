@@ -206,13 +206,18 @@ describe('an unreadable .rkt number is named, not silently defaulted (audit 2026
 
   it('covers the engine-set and deployment readers too', () => {
     const xml = rktXml('<BodyTube><Name>Mount</Name><OD>24</OD><ID>23</ID><Len>70</Len>'
-      + '<IsMotorMount>1</IsMotorMount><SerialNo>9</SerialNo></BodyTube>')
-      .replace('</RocketDesign>', '<SimulationResultsList><SimulationResults><Stage3Engines>'
+      + '<IsMotorMount>1</IsMotorMount><SerialNo>9</SerialNo></BodyTube>'
+      + '<Parachute><Name>Main</Name><Dia>600</Dia><SerialNo>11</SerialNo></Parachute>')
+      .replace('</RocketDesign>', '<SimulationEventList><SimulationEvent><PartSerialNo>11</PartSerialNo>'
+        + '<Type>5</Type><DeployAltitude>1,5</DeployAltitude></SimulationEvent></SimulationEventList>'
+        + '<SimulationResultsList><SimulationResults><Stage3Engines>'
         + '<EngineSet><EngineCode>C6</EngineCode><EngineMfg>Estes</EngineMfg>'
         + '<EjectionDelay>five</EjectionDelay><MountSerialNo>9</MountSerialNo></EngineSet>'
         + '</Stage3Engines></SimulationResults></SimulationResultsList></RocketDesign>');
     const note = importRkt(xml).notes.find((n) => /Could not read/.test(n));
     expect(note).toMatch(/<EjectionDelay> “five”/);
+    // The deployment reader's own field — an altitude main left on apogee.
+    expect(note).toMatch(/<DeployAltitude> “1,5”/);
   });
 });
 

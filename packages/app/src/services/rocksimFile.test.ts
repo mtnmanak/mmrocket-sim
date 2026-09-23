@@ -1217,6 +1217,37 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployAltitude']).toBeUndefined();
   });
 
+  /*
+   * Audit 2026-09-22 review: each <SimulationResults> keeps its own event
+   * list, and only its MOTORS become the flight configuration. Shaped on
+   * aerotech_warthog.rkt, whose simulation 1 (E15-4) deploys at the ejection
+   * charge while the design's own list says 122 m — and nothing said so.
+   */
+  const withSim = (design: string, simEvents: string) => evXml(design)
+    .replace('<Len>500.</Len>', '<Len>500.</Len><IsMotorMount>1</IsMotorMount>')
+    .replace('</RocketDesign></DesignInformation>', '</RocketDesign></DesignInformation>'
+      + '<SimulationResultsList><SimulationResults><SimulationName>[F26FJ-6] </SimulationName>'
+      + `<SimulationEventList>${simEvents}</SimulationEventList><Stage3Engines><EngineSet>`
+      + '<EngineCode>F26FJ</EngineCode><EngineMfg>AeroTech</EngineMfg><MountSerialNo>1</MountSerialNo>'
+      + '<EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines></SimulationResults></SimulationResultsList>');
+
+  it('says when the simulation opened stored other triggers, and keeps the design’s', () => {
+    const { r, main, drogue } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(0, 0) + ev(12, 1) + ev(13, 4)));
+    expect(r.chosenConfigId).toBe('rocksim-sim-1');
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
+    expect(drogue['deployEvent']).toBe('apogee');
+    const note = r.notes.find((n) => /stored different recovery triggers/.test(n));
+    expect(note).toMatch(/^Simulation 1 \(“\[F26FJ-6\]”\) stored different recovery triggers from the ones read above: Main at the ejection charge\. /);
+    expect(note).not.toMatch(/Drogue/);
+  });
+
+  it('adds no such note when the simulation stored the design’s own triggers', () => {
+    const { r } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(12, 5, 152.4) + ev(13, 4)));
+    expect(r.chosenConfigId).toBe('rocksim-sim-1');
+    expect(r.notes.some((n) => /stored different recovery triggers/.test(n))).toBe(false);
+  });
+
   // The owner's real file is the case this was built for, but `docs/User files/`
   // is gitignored — his designs are not ours to commit — so this runs locally
   // and skips on CI, the same pattern lemivSweep.test.ts uses for the same
