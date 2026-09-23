@@ -2,15 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../App.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
-import { designFingerprint, isDirty } from './dirtyState.js';
+import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
 import type { MotorMatchResult } from './motorMatch.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
 import {
-  importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, resolveImportMotors,
+  importedLaunch, importMark, planConfigSwitch, planImport, planNewDesign, planOrkSave, resolveImportMotors,
   type ImportedDesign, type ResolvedImportMotors,
 } from './importApply.js';
+import { updateNode } from '../tree/treeModel.js';
 
 /**
  * What an Open, a configuration switch and ✕ New put on screen (audit
@@ -246,6 +247,94 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     expect(plan.unmatchedRefs).toEqual({ m1: ref('Z1') });
     expect(plan.note.severity).toBe('warn');
     expect(plan.note.text).toContain('Motor “Z1” couldn\'t be matched');
+  });
+});
+
+/**
+ * A→B→A KEEPS WHAT WAS EDITED ON A (audit 2026-09-22). Only the motors were
+ * written back into the configuration being left, so a chute deployment or a
+ * nozzle changed in the app on A came back as the FILE's after a round trip,
+ * and the next Launch on A flew the file's deployment.
+ */
+describe('planConfigSwitch — the round trip', () => {
+  const tree = (): RocketTree => ({
+    name: 'two',
+    components: [
+      { type: 'stage', id: 's1', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true } as ComponentNode,
+          { type: 'parachute', id: 'chute', diameter: 0.5, deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } as ComponentNode,
+        ] } as ComponentNode,
+      ] } as ComponentNode,
+      { type: 'stage', id: 's2', name: 'Booster', nozzleExitDiameter: 0.03, children: [
+        { type: 'bodytube', id: 'b2', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'innertube', id: 'm2', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true } as ComponentNode,
+        ] } as ComponentNode,
+      ] } as ComponentNode,
+    ],
+  });
+  const A: SavedConfig = {
+    id: 'A', name: 'A', isDefault: true, motors: { m1: motor('H100'), m2: motor('M1350') },
+    deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } }, nozzles: { s2: 0.03 },
+  };
+  const B: SavedConfig = {
+    id: 'B', name: 'B', isDefault: false, motors: { m1: motor('H100'), m2: motor('K627') },
+    deployments: { chute: { deployEvent: 'altitude', deployAltitude: 300, deployDelay: 0 } }, nozzles: { s2: 0.0254 },
+  };
+
+  it('brings back the deployment and nozzle edited on A, not the file’s', () => {
+    // On A, the user moves the chute to 90 m on a 1 s delay and corrects the booster exit.
+    let t = updateNode(tree(), 'chute', { deployDelay: 1, deployAltitude: 90, deployEvent: 'altitude' });
+    t = { ...t, components: t.components.map((st) => (st.id === 's2' ? { ...st, nozzleExitDiameter: 0.032 } : st)) };
+    const toB = planConfigSwitch({ savedConfigs: [A, B], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: t }, B, TEXT);
+    expect(toB.tree.components[1]!['nozzleExitDiameter']).toBe(0.0254);
+    // What a Save while B is active writes for A: the edit, not the file's 200.
+    expect(toB.savedConfigs[0]!.deployments!['chute']).toEqual({ deployEvent: 'altitude', deployAltitude: 90, deployDelay: 1 });
+    const backToA = planConfigSwitch({
+      savedConfigs: toB.savedConfigs, activeConfigId: 'B', mountMotors: toB.mountMotors, unmatchedRefs: {}, tree: toB.tree,
+    }, toB.savedConfigs[0]!, TEXT);
+    const chute = backToA.tree.components[0]!.children![0]!.children![1]!;
+    expect(chute['deployAltitude']).toBe(90);
+    expect(chute['deployDelay']).toBe(1);
+    expect(chute['deployEvent']).toBe('altitude');
+    expect(backToA.tree.components[1]!['nozzleExitDiameter']).toBe(0.032);
+    // B, untouched in between, is written back as it was.
+    expect(backToA.savedConfigs[1]!.deployments).toEqual(B.deployments);
+  });
+});
+
+describe('planOrkSave — the mark a .ork save takes', () => {
+  it('reads clean after a switch away and back, with no edit in between', () => {
+    const tree: RocketTree = {
+      name: 'r',
+      components: [{ type: 'stage', id: 's1', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b1', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [
+          { type: 'innertube', id: 'm1', length: 0.2, outerRadius: 0.015, thickness: 0.0005, motorMount: true } as ComponentNode,
+          { type: 'parachute', id: 'chute', deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } as ComponentNode,
+        ] } as ComponentNode,
+      ] } as ComponentNode],
+    };
+    const A: SavedConfig = { id: 'A', name: 'A', isDefault: true, motors: { m1: motor('H100') },
+      deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } } };
+    const B: SavedConfig = { id: 'B', name: 'B', isDefault: false, motors: { m1: motor('I200') },
+      deployments: { chute: { deployEvent: 'altitude', deployAltitude: 250, deployDelay: 0 } } };
+    // Edited on A, then saved.
+    const onA = updateNode(tree, 'chute', { deployAltitude: 150, deployEvent: 'altitude' });
+    const working = { m1: { ...A.motors['m1']!, label: 'H100-14' } };
+    const snap: DesignSnapshot = {
+      tree: onA, mountMotors: working, launch: LAUNCH, maxMotorLengthByStage: {},
+      savedConfigs: [A, B], activeConfigId: 'A', measured: { massKg: null, cgM: null },
+    };
+    const saved = planOrkSave(snap, {});
+    expect(saved.mark).toBe(designFingerprint({ ...snap, savedConfigs: saved.savedConfigs }));
+    // A→B→A.
+    const toB = planConfigSwitch({ savedConfigs: saved.savedConfigs, activeConfigId: 'A', mountMotors: working, unmatchedRefs: {}, tree: onA }, B, TEXT);
+    const back = planConfigSwitch({ savedConfigs: toB.savedConfigs, activeConfigId: 'B', mountMotors: toB.mountMotors, unmatchedRefs: {}, tree: toB.tree },
+      toB.savedConfigs[0]!, TEXT);
+    const after: DesignSnapshot = {
+      ...snap, tree: back.tree, mountMotors: back.mountMotors, savedConfigs: back.savedConfigs, activeConfigId: back.activeConfigId,
+    };
+    expect(isDirty(designFingerprint(after), saved.mark, false)).toBe(false);
   });
 });
 

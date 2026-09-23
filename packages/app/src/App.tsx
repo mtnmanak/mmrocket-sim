@@ -119,7 +119,7 @@ import {
 } from './services/hardwareMass.js';
 import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
-  stripRefPadMass, withActiveConfigSynced, withoutStoredRef,
+  stripRefPadMass, syncActiveConfig, withoutStoredRef,
 } from './services/configSync.js';
 import {
   reconcileAllIncludedMotors, reconcileIncludedMotor,
@@ -127,7 +127,7 @@ import {
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
   applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, planConfigSwitch, planImport, planNewDesign,
-  resolveImportMotors, type ImportedDesign,
+  planOrkSave, resolveImportMotors, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
@@ -2606,14 +2606,11 @@ export function App() {
     // editing behind it — marking from post-await state would bless those
     // edits as saved when the file on disk does not have them.
     //
-    // The working set is written back into the active configuration FIRST and
-    // the mark taken over the synced set: the writer swaps the live motors into
-    // the active configuration anyway, so the file already had them — but the
-    // stored configuration did not, and a switch away and back after the save
-    // read as unsaved work. Identity when nothing changed (configSync).
-    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+    // Everything live — motors, references and what the tree holds for the
+    // active configuration — is written back into it FIRST and the mark taken
+    // over the synced set (importApply.planOrkSave says why).
+    const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
     if (synced !== savedConfigs) setSavedConfigs(synced);
-    const mark = designFingerprint({ ...snapshotNow(), savedConfigs: synced });
     // WITH launch: the .ork's first <simulation> carries the pad and weather,
     // so the file (and the desktop app) round-trips the whole flight setup.
     const out = await download(exportOrk({
@@ -2809,10 +2806,11 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
-    // The working set goes back into its configuration before it is emptied,
-    // for the same reason applyConfig does it: "None" is a switch, not a
-    // discard, and the configuration must still hold the edits made on it.
-    const synced = withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs);
+    // The working set — and what the tree holds for the configuration — goes
+    // back into it before it is emptied, for the same reason applyConfig does
+    // it: "None" is a switch, not a discard, and the configuration must still
+    // hold the edits made on it.
+    const synced = syncActiveConfig(savedConfigs, activeConfigId, { motors: mountMotors, unmatchedRefs, tree });
     if (synced !== savedConfigs) setSavedConfigs(synced);
     const had = Object.keys(mountMotors).length > 0;
     setMountMotors({});

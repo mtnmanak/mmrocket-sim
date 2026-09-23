@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../App.js';
-import type { OrkMotorRef } from './orkFile.js';
+import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import { stableJson } from './dirtyState.js';
 import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
@@ -85,6 +85,118 @@ export function withActiveConfigSynced(
     ? { ...rest, motors }
     : { ...rest, motors, unmatched, unmatchedRefs };
   return configs.map((row, i) => (i === at ? next : row));
+}
+
+/** One override field: the type the node must carry it as, and what it flies without one. */
+interface OverrideField { kind: 'string' | 'number'; fallback?: string | number }
+
+/**
+ * The values a node flies when it carries no field of its own — what the .ork
+ * writer puts in the bare tags for the live configuration. A recovery device's
+ * missing `deployEvent` has no such value (the .ork writer reads it as
+ * ejection, the .CDX1 writer as apogee), so it has none here either.
+ */
+const DEPLOY_FIELDS: Record<keyof OrkDeployOverride, OverrideField> = {
+  deployEvent: { kind: 'string' },
+  deployAltitude: { kind: 'number', fallback: 200 },
+  deployDelay: { kind: 'number', fallback: 0 },
+};
+const SEPARATION_FIELDS: Record<keyof OrkSeparationOverride, OverrideField> = {
+  separationEvent: { kind: 'string', fallback: 'ejection' },
+  separationDelay: { kind: 'number', fallback: 0 },
+  separationAltitude: { kind: 'number', fallback: 200 },
+};
+
+/**
+ * One node's live values in the shape of its stored override. A field the
+ * entry already governs takes the node's value (the fallback when the node has
+ * none). A field the entry does not govern is added only when the node carries
+ * a value other than the fallback — something set on this configuration, which
+ * a switch back must restore — so a configuration nobody edited reads exactly
+ * as it was stored.
+ */
+function liveOverride<T extends object>(
+  node: Record<string, unknown>, stored: T, fields: Record<keyof T & string, OverrideField>,
+): T {
+  const had = stored as Record<string, string | number | undefined>;
+  const out: Record<string, string | number> = {};
+  for (const [k, f] of Object.entries(fields) as [string, OverrideField][]) {
+    const v = node[k];
+    const own = f.kind === 'string'
+      ? (typeof v === 'string' ? v : undefined)
+      : (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const was = had[k];
+    if (was !== undefined) out[k] = own ?? f.fallback ?? was;
+    else if (own !== undefined && own !== f.fallback) out[k] = own;
+  }
+  return out as T;
+}
+
+/**
+ * The live tree written back into the active configuration: its recovery
+ * deployments, stage separations and (RASAero) nozzles, for exactly the nodes
+ * the configuration governs. Returns `configs` BY IDENTITY when there is no
+ * active row or nothing differs under `stableJson`, the same contract as
+ * `withActiveConfigSynced`.
+ *
+ * WHY (audit 2026-09-22). Only the MOTORS were written back, so a deployment,
+ * separation or nozzle changed in the app while A was active was overwritten
+ * by B's on the switch and then by A's FILE values on the way back — A→B→A
+ * reverted the edit, the next Launch on A flew the file's deployment, not the
+ * user's, and a Save while B was active wrote A's stale values (the .ork writer
+ * replays every non-active configuration from its stored copy). A node the tree
+ * no longer has keeps its stored entry; a node the configuration does not
+ * govern (a chute added in the app) is tree-level and stays out of it.
+ */
+export function withActiveConfigTreeSynced(
+  configs: SavedConfig[], activeId: string | null, tree: RocketTree,
+): SavedConfig[] {
+  if (activeId === null) return configs;
+  const at = configs.findIndex((c) => c.id === activeId);
+  if (at === -1) return configs;
+  const c = configs[at]!;
+  const sync = <V>(stored: Record<string, V> | undefined, capture: (node: Record<string, unknown>, v: V) => V) => {
+    if (!stored) return stored;
+    let changed = false;
+    const out: Record<string, V> = {};
+    for (const [id, v] of Object.entries(stored)) {
+      const node = findNode(tree, id);
+      const next = node ? capture(node, v) : v;
+      if (stableJson(next) !== stableJson(v)) changed = true;
+      out[id] = next;
+    }
+    return changed ? out : stored;
+  };
+  const deployments = sync(c.deployments, (n, o) => liveOverride(n, o, DEPLOY_FIELDS));
+  const separations = sync(c.separations, (n, o) => liveOverride(n, o, SEPARATION_FIELDS));
+  // 0 = no nozzle, the stored shape's own convention (applyStageNozzles deletes
+  // the key on 0).
+  const nozzles = sync(c.nozzles, (n) => {
+    const d = n['nozzleExitDiameter'];
+    return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0;
+  });
+  if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles) return configs;
+  const next: SavedConfig = {
+    ...c,
+    ...(deployments ? { deployments } : {}),
+    ...(separations ? { separations } : {}),
+    ...(nozzles ? { nozzles } : {}),
+  };
+  return configs.map((row, i) => (i === at ? next : row));
+}
+
+/**
+ * Everything live written back into the active configuration — its motors and
+ * unresolved references (`withActiveConfigSynced`) and what the tree holds for
+ * it (`withActiveConfigTreeSynced`). What a switch, "None" and a .ork save call
+ * before they read or mark the configurations. Identity when nothing changed.
+ */
+export function syncActiveConfig(
+  configs: SavedConfig[], activeId: string | null,
+  live: { motors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>; tree: RocketTree },
+): SavedConfig[] {
+  return withActiveConfigTreeSynced(
+    withActiveConfigSynced(configs, activeId, live.motors, live.unmatchedRefs), activeId, live.tree);
 }
 
 /**

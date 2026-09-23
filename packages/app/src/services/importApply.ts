@@ -8,7 +8,7 @@ import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import {
   fmtStepS, type MeasuredFigures, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult,
 } from './orkFile.js';
-import { padMassSetKey, withActiveConfigSynced } from './configSync.js';
+import { padMassSetKey, syncActiveConfig } from './configSync.js';
 import {
   reconcileAllIncludedMotors, type AttachedMotor, type StatedWeightText,
 } from './statedLaunchWeight.js';
@@ -404,12 +404,16 @@ export interface ConfigSwitchPlan {
  * Loads a flight-configuration preset into the working set (Stage B).
  *
  * The working set is written BACK into the configuration it came from first
- * (configSync.withActiveConfigSynced — identity when nothing changed), and the
+ * (configSync.syncActiveConfig — identity when nothing changed), and the
  * target is read from the synced set: a delay, an ignition change or a weighed
  * pad mass made on A survives A→B→A, and pressing Apply on the configuration
  * already on screen KEEPS the edits rather than reverting them to the file's —
  * the three `setSavedConfigs` sites were init / New / import only, unchanged
  * since v0.050, so every in-app motor edit used to live in the working set alone.
+ * Since the 2026-09-22 audit the same holds for what the configuration puts on
+ * the TREE — its recovery deployments, separations and nozzle: until then only
+ * the motors went back, so A→B→A reverted a deployment edited on A to the
+ * file's, and the next Launch on A flew the file's chute.
  */
 export function planConfigSwitch(
   state: {
@@ -422,7 +426,8 @@ export function planConfigSwitch(
   requested: SavedConfig,
   text: StatedWeightText,
 ): ConfigSwitchPlan {
-  const synced = withActiveConfigSynced(state.savedConfigs, state.activeConfigId, state.mountMotors, state.unmatchedRefs);
+  const synced = syncActiveConfig(state.savedConfigs, state.activeConfigId,
+    { motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, tree: state.tree });
   const cfg = synced.find((c) => c.id === requested.id) ?? requested;
   // A configuration is its motors AND its recovery deployment. These were
   // carried for export only, so applying one here switched the motors and
@@ -551,6 +556,22 @@ export function applyConfigSwitchPlan(
   sinks.setActiveConfigId(plan.activeConfigId);
   sinks.history.reset(plan.tree);
   sinks.setNote(plan.note.text, plan.note.severity);
+}
+
+/**
+ * A .ork save's configurations and its mark. Everything live is written back
+ * into the active configuration FIRST (configSync.syncActiveConfig) and the
+ * mark taken over the synced set: the writer swaps the live motors and tree
+ * values into the active configuration anyway, so the file already has them —
+ * but the stored configuration did not, and a switch away and back after the
+ * save read as unsaved work. Identity when nothing changed.
+ */
+export function planOrkSave(
+  snapshot: DesignSnapshot, unmatchedRefs: Record<string, OrkMotorRef>,
+): { savedConfigs: SavedConfig[]; mark: string } {
+  const savedConfigs = syncActiveConfig(snapshot.savedConfigs, snapshot.activeConfigId,
+    { motors: snapshot.mountMotors, unmatchedRefs, tree: snapshot.tree });
+  return { savedConfigs, mark: designFingerprint({ ...snapshot, savedConfigs }) };
 }
 
 /**
