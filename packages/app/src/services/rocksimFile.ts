@@ -1678,7 +1678,10 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // forward of where it sits. In mode 2 Xb counts forward from the parent's
     // rear to the part's AFT end, and the CG is (length − cg) further forward.
     // A RockSim-imported mass object is pinned at its fore end (mode 0/1) or aft
-    // end (mode 2), so its Xb comes back out unchanged. Summed in millimetres,
+    // end (mode 2), so its Xb comes back out unchanged. A deliberate divergence
+    // from desktop, whose MassObjectDTO writes the fore end exactly as this
+    // did (BasePartDTO.java:95-105, then setKnownCG(getXb())) and so hands
+    // RockSim the same misplaced point. Summed in millimetres,
     // so 200 + 10 writes "210" rather than the metre sum's 210.00000000000003.
     const pt = opts?.point;
     const shift = !pt ? 0 : mode === 2 ? pt.length - pt.cg : pt.cg;
