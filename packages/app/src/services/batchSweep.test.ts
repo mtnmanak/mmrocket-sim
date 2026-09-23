@@ -11,7 +11,7 @@ import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { commentLevelsAlign, recommendDelay } from './simReport.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import {
   batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
   runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,

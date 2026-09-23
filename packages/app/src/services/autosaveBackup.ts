@@ -1,4 +1,4 @@
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { primaryMountOf, motorMounts } from '../tree/treeModel.js';
 import { loadExMotors } from './exMotors.js';
 import { safeName } from './fileName.js';

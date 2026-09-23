@@ -3,7 +3,7 @@ import { act, useMemo, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { stageMotors, type StageMotors } from '../services/nozzleFollow.js';
 import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from './useNozzleFollow.js';

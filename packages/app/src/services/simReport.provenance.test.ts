@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
   changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,

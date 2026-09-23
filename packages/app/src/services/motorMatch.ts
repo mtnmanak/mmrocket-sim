@@ -1,5 +1,5 @@
 import type { MotorSpec } from '@online-openrocket/engine';
-import type { MountMotor } from '../App.js';
+import type { MountMotor } from '../model/design.js';
 import {
   displayDesignation, findDbMotor, isHighPower, type MotorDbEntry,
 } from './motorDb.js';
