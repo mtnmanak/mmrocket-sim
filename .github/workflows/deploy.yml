@@ -17,14 +17,23 @@
 #
 # TWO JOBS, AND WHY (audit 2026-09-22). This was one job, so `npm ci`, the tests and
 # the build — ~550 third-party packages' code, install scripts included — ran in the
-# same job as CLOUDFLARE_API_TOKEN, and any one of them could have published to the
-# live beta. Now:
+# same job as CLOUDFLARE_API_TOKEN, an account-level "Pages: Edit" token, and any one
+# of them could have copied it out: to publish anything later, outside this
+# workflow, or to edit the account's other Pages projects. Now:
 #   build   holds no secret and a read-only token. It runs the whole gate, in the
 #           order it always had (version pairing -> npm ci -> typecheck -> lint ->
 #           test -> build -> copy version.json), and uploads the finished dist/.
-#   deploy  holds the Cloudflare secrets and runs NONE of the repo's dependencies.
+#   deploy  holds the Cloudflare secrets and runs none of the repo's dependencies.
 #           It downloads that dist/ (the artifact is digest-checked), installs the
 #           one pinned wrangler in a step with no secret in it, and publishes.
+#           Wrangler's own code, and its dependency tree, do run with the token —
+#           it is what publishes — which is why its version is exact.
+# What the split does NOT do: keep hostile content off the live beta. A compromised
+# build-time dependency can still rewrite dist/ inside the build job, and deploy
+# publishes that artifact exactly as built. The split protects the credential, not
+# the build's output; what stands between a dependency and the output is the
+# lockfile, which `npm ci` installs exactly, and reading what a Dependabot bump
+# changes before merging it.
 #
 # PINNING. Every action is pinned to a commit SHA, with its release tag in the
 # comment: a tag can be moved, a SHA cannot. .github/dependabot.yml proposes the
@@ -179,7 +188,9 @@ jobs:
       # BEFORE it runs `npm i wrangler@…` (v4.0.0, main(): authenticationSetup,
       # then installWrangler), so every install script in wrangler's tree would
       # have run with the token in reach. Given this exact version already
-      # installed, the action skips its own install. --no-package-lock keeps the
+      # installed, the action skips its own install. That keeps INSTALL-time
+      # scripts away from the token and no more: the code wrangler then runs to
+      # deploy necessarily has it (see the header). --no-package-lock keeps the
       # working tree clean for wrangler's dirty check.
       - name: Install the pinned wrangler (no secret in this step)
         run: npm install --no-save --no-package-lock wrangler@4.136.0
