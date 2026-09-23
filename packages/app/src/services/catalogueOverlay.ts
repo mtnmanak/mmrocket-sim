@@ -131,34 +131,9 @@ const isOverlay = (v: unknown): v is CatalogueOverlay => {
 };
 
 /**
- * A stored overlay's rows through TODAY's screen. The screen runs when a check
- * writes the overlay, so an overlay written before a rule existed carries rows
- * that rule refuses — and one written before the screen required burnTimeS and
- * commonName (audit 2026-09-22) can hold a row the motor browser throws on
- * while drawing its table. The Check-again and Discard buttons that would
- * replace it live inside that browser, so the bad row stuck until a release
- * changed the shipped catalogue's date. Refused rows move to `rejected` the way
- * a check refuses them, and a refused change keeps the shipped row.
- */
-function rescreen(o: CatalogueOverlay): CatalogueOverlay {
-  const rejected = [...o.rejected];
-  const passes = (entry: unknown): boolean => {
-    const reason = entry && typeof entry === 'object'
-      ? screenEntry(entry as Partial<MotorDbEntry>) : 'not a motor row';
-    if (reason) rejected.push({ entry: (entry ?? {}) as Partial<MotorDbEntry>, reason });
-    return !reason;
-  };
-  const added = o.added.filter(passes);
-  const changed = o.changed.filter((c) => passes((c as CatalogueChange | null)?.after));
-  if (added.length === o.added.length && changed.length === o.changed.length) return o;
-  return { ...o, added, changed, rejected };
-}
-
-/**
  * The persisted overlay, or null — and null when the shipped catalogue has
  * moved on from the base it was diffed against, in which case it is also
  * deleted: a release supersedes the overlay, and the next check starts clean.
- * What it returns has been through today's screen (rescreen, above).
  */
 export function loadStoredOverlay(): CatalogueOverlay | null {
   try {
@@ -167,7 +142,7 @@ export function loadStoredOverlay(): CatalogueOverlay | null {
     const parsed: unknown = JSON.parse(raw);
     if (!isOverlay(parsed)) { localStorage.removeItem(OVERLAY_KEY); return null; }
     if (parsed.baseGenerated !== MOTOR_DB_DATE) { localStorage.removeItem(OVERLAY_KEY); return null; }
-    return rescreen(parsed);
+    return parsed;
   } catch {
     return null;
   }
