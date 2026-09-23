@@ -2063,3 +2063,70 @@ describe('.rkt export positions (audit 2026-09-22)', () => {
     for (const p of pods) expect(p.position?.offset).toBeCloseTo(0.2, 9);
   });
 });
+
+/**
+ * Audit 2026-09-22 row 395 — where the motors go. Every RockSim-written file in
+ * the 939-file corpus that carries a motor (676 of the 843 readable ones) keeps
+ * its <EngineSet>s inside RockSimDocument > SimulationResultsList >
+ * SimulationResults, after </DesignInformation>, with all three <StageNEngines>
+ * present; none puts them under <RocketDesign>, which is where this exporter did.
+ */
+describe('.rkt export writes its motors where RockSim keeps them', () => {
+  const d = {
+    name: 'M',
+    tree: { name: 'M', components: [
+      { type: 'stage', id: 's0', children: [
+        { type: 'bodytube', id: 'm0', length: 0.2, outerRadius: 0.012, thickness: 0.0004, motorMount: true },
+      ] },
+      { type: 'stage', id: 's1', children: [
+        { type: 'bodytube', id: 'm1', length: 0.2, outerRadius: 0.012, thickness: 0.0004, motorMount: true },
+      ] },
+    ] as ComponentNode[] },
+    motors: {
+      m0: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5,
+        ignitionEvent: 'burnout', ignitionDelay: 0 },
+      m1: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 0 },
+    },
+  };
+
+  it('puts the engine sets in one SimulationResults after DesignInformation, never in RocketDesign', () => {
+    const xml = exportRkt(d);
+    const design = xml.slice(xml.indexOf('<RocketDesign>'), xml.indexOf('</RocketDesign>'));
+    expect(design).not.toContain('<EngineSet>');
+    expect(design).not.toMatch(/<Stage\dEngines>/);
+    const list = xml.slice(xml.indexOf('</DesignInformation>'));
+    expect(list).toMatch(/^<\/DesignInformation>\n<SimulationResultsList>\n<SimulationResults>/);
+    expect(list.match(/<SimulationResults>/g)).toHaveLength(1);
+    // All three, in RockSim's order; the empty third slot too.
+    const i1 = list.indexOf('<Stage1Engines>');
+    const i2 = list.indexOf('<Stage2Engines>');
+    const i3 = list.indexOf('<Stage3Engines>');
+    expect(i1).toBeGreaterThan(0);
+    expect(i1).toBeLessThan(i2);
+    expect(i2).toBeLessThan(i3);
+    expect(list).toContain('<Stage1Engines>\n</Stage1Engines>');
+    expect(list).toContain('<SimulationName>[C6-5] [C6-0] </SimulationName>');
+    expect(xml.trimEnd().endsWith('</SimulationResultsList>\n</RockSimDocument>')).toBe(true);
+  });
+
+  it('writes each engine set in RockSim’s own field order', () => {
+    const set = /<EngineSet>([^]*?)<\/EngineSet>/.exec(exportRkt(d))![1]!;
+    const tags = [...set.matchAll(/<(\w+)>/g)].map((m) => m[1]);
+    expect(tags).toEqual(['EngineCount', 'EngineCode', 'IgnitionDelay', 'EngineMfg', 'MountSerialNo', 'EjectionDelay']);
+  });
+
+  it('re-opens with the same motors, stages and staging', () => {
+    const back = importRkt(exportRkt(d));
+    const refs = Object.values(back.motors);
+    expect(refs).toHaveLength(2);
+    const upper = refs.find((r) => r.ignitionEvent === 'burnout')!;
+    expect(upper.delay).toBe(5);
+    expect(refs.find((r) => r !== upper)!.delay).toBe(0);
+  });
+
+  it('writes no simulation block for a design with no motor', () => {
+    const xml = exportRkt({ ...d, motors: {} });
+    expect(xml).not.toContain('<SimulationResults');
+    expect(xml).not.toContain('<EngineSet>');
+  });
+});

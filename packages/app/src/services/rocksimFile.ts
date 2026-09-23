@@ -2104,39 +2104,63 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     }
     emit(`</${slots[i]}>`);
   }
-  // Motors: the desktop exporter omits these; we write EngineSets so RockSim
-  // (and our own re-import) sees the loaded motors.
-  for (let i = 0; i < stagesIn.length; i++) {
-    const stageMotorEntries = Object.entries(motors ?? {}).filter(([id]) =>
-      (function inStage(nodes: ComponentNode[]): boolean {
-        return nodes.some((n) => n.id === id || inStage(n.children ?? []));
-      })(stagesIn[i]!.children ?? []));
-    if (stageMotorEntries.length === 0) continue;
-    emit(`<Stage${3 - i}Engines>`);
-    for (const [id, m] of stageMotorEntries) {
-      emit('<EngineSet>');
-      emit('<EngineCount>1</EngineCount>');
-      emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
-      emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
-      // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
-      // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
-      emit(`<EjectionDelay>${Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
-      // Staging timer, so a .rkt written here round-trips through our own
-      // importer (and through RockSim) with its staging intact. RockSim
-      // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
-      // what the importer maps to `ignitionEvent: 'burnout'` — so only a
-      // burnout-triggered motor has a delay to write. A launch-stage motor, or
-      // one on a different ignition event we cannot express in this format,
-      // writes 0 (RockSim's own default).
-      const rktIgnitionDelay = m.ignitionEvent === 'burnout' ? (m.ignitionDelay ?? 0) : 0;
-      emit(`<IgnitionDelay>${rktIgnitionDelay}</IgnitionDelay>`);
-      emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
-      emit('</EngineSet>');
-    }
-    emit(`</Stage${3 - i}Engines>`);
-  }
   emit('</RocketDesign>');
   emit('</DesignInformation>');
+  // Motors: the desktop exporter omits these; we write EngineSets so RockSim
+  // (and our own re-import) sees the loaded motors — WHERE RockSim keeps them
+  // (audit 2026-09-22). This used to write the <StageNEngines> blocks directly
+  // under <RocketDesign>, a place no RockSim-written file uses: in the 939-file
+  // corpus, all 676 files that carry a motor keep their engine sets in
+  // RockSimDocument > SimulationResultsList > SimulationResults, after
+  // </DesignInformation>, with all three <StageNEngines> present even when a
+  // slot is empty, and every engine set in the field order below. So one
+  // simulation, the loaded motors, in that shape. NOT verified in RockSim
+  // itself: a RockSim-written simulation has about 140 children (results,
+  // launch conditions, events; 141 in Estes/Loadstar.rkt) where this writes
+  // four, and whether RockSim reads the motors of a block without the rest is
+  // unknown here. It is RockSim's own placement, which
+  // the old one was not. No motor, no block, as before.
+  const stageMotors = [0, 1, 2].map((i) => (i >= stagesIn.length ? [] : Object.entries(motors ?? {}).filter(([id]) =>
+    (function inStage(nodes: ComponentNode[]): boolean {
+      return nodes.some((n) => n.id === id || inStage(n.children ?? []));
+    })(stagesIn[i]!.children ?? []))));
+  if (stageMotors.some((s) => s.length > 0)) {
+    emit('<SimulationResultsList>');
+    emit('<SimulationResults>');
+    // RockSim names a simulation by its motors, "[C6-5] [C6-0] " (a trailing
+    // space after each), "-P" for plugged — the name its simulation list shows.
+    const simName = stageMotors.flat().map(([, m]) =>
+      `[${m.designation}-${Number.isFinite(m.delay) ? m.delay : 'P'}] `).join('');
+    emit(`<SimulationName>${esc(simName)}</SimulationName>`);
+    // Bottom slot first, as RockSim writes them: Stage1Engines is the stage
+    // that leaves the pad, Stage3Engines the sustainer (our stage 0).
+    for (const slot of [1, 2, 3]) {
+      emit(`<Stage${slot}Engines>`);
+      for (const [id, m] of stageMotors[3 - slot]!) {
+        emit('<EngineSet>');
+        emit('<EngineCount>1</EngineCount>');
+        emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
+        // Staging timer, so a .rkt written here round-trips through our own
+        // importer (and through RockSim) with its staging intact. RockSim
+        // measures IgnitionDelay from the stage below's BURNOUT, which is exactly
+        // what the importer maps to `ignitionEvent: 'burnout'` — so only a
+        // burnout-triggered motor has a delay to write. A launch-stage motor, or
+        // one on a different ignition event we cannot express in this format,
+        // writes 0 (RockSim's own default).
+        const rktIgnitionDelay = m.ignitionEvent === 'burnout' ? (m.ignitionDelay ?? 0) : 0;
+        emit(`<IgnitionDelay>${rktIgnitionDelay}</IgnitionDelay>`);
+        emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
+        emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
+        // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
+        // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
+        emit(`<EjectionDelay>${Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
+        emit('</EngineSet>');
+      }
+      emit(`</Stage${slot}Engines>`);
+    }
+    emit('</SimulationResults>');
+    emit('</SimulationResultsList>');
+  }
   emit('</RockSimDocument>');
   return lines.join('\n');
 }
