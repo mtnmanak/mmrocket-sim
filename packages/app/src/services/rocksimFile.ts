@@ -959,11 +959,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
       }
-      case 'RingTail':
-        // The desktop importer has no RingTail handler either — parity.
-        ignored.add(tag);
-        return null;
       default:
+        // Includes RingTail: the desktop importer has no handler for it
+        // either — parity.
         ignored.add(tag);
         return null;
     }
