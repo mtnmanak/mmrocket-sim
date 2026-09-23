@@ -9,8 +9,9 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { finCountOf } from '../tree/counts.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
-import { shapeParamDefault } from './orkFile.js';
-import type { OrkExportMotor, OrkFlightConfig, OrkImportResult, OrkMotorRef } from './orkFile.js';
+import {
+  autoDelaySaveNote, shapeParamDefault, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+} from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
 import { defaultDelay } from './thrustcurve.js';
@@ -998,13 +999,30 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // RockSim files carry a cluster as N separate inner tubes at radial
   // positions. Regroup identical siblings whose offsets fit one of the
   // kernel's cluster patterns into ONE tagged cluster tube (motor serials of
-  // the dropped twins re-point at the kept tube). Unmatched layouts stay as
-  // separate tubes (with a note) — our schema has no off-axis single tube.
+  // the dropped twins re-point at the kept tube). Tubes that fit no pattern,
+  // or carry different motors, stay separate — and every tube that stays on
+  // its own keeps its place off the axis (radialPosition / radialDirection,
+  // below the reconstruction).
+  //
+  // THE PATTERN IS FITTED ABOUT THE TUBES' OWN CENTRE, not the rocket's axis
+  // (seam review of audit 2026-09-22). Every kernel pattern is centred on the
+  // tube's axis, and the kernel then sets the whole cluster off the rocket's
+  // by the tube's radialPosition along its radialDirection
+  // (InnerTube.getClusterPoints), which the .rkt writer has written since the
+  // same audit. Fitted about the rocket's axis, such a cluster matched nothing
+  // and came back as N separate tubes: a 3-ring 6 mm off the axis reopened as
+  // three mounts carrying one motor between them. The offset found is handed
+  // back as the tube's own radialPosition / radialDirection; one under 10 µm is
+  // RockSim's rounding of a centred cluster, not a placement, and is dropped.
   const matchCluster = (
     pts: { y: number; z: number }[], tubeR: number,
-  ): { pattern: string; scale: number; rotation: number } | null => {
+  ): { pattern: string; scale: number; rotation: number; offset: { y: number; z: number } } | null => {
     const eps = 1e-6;
-    const p = pts.map((q) => ({ x: q.y, y: q.z }));
+    const cy = pts.reduce((a, q) => a + q.y, 0) / pts.length;
+    const cz = pts.reduce((a, q) => a + q.z, 0) / pts.length;
+    const centred = Math.hypot(cy, cz) < 1e-5;
+    const offset = centred ? { y: 0, z: 0 } : { y: cy, z: cz };
+    const p = pts.map((q) => ({ x: q.y - offset.y, y: q.z - offset.z }));
     for (const [pattern, flat] of Object.entries(CLUSTER_POINTS)) {
       if (pattern === 'single' || flat.length / 2 !== p.length) continue;
       const u: { x: number; y: number }[] = [];
@@ -1040,12 +1058,80 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           // round-tripped our own exports, but gave a real RockSim cluster a
           // rotation the kernel and desktop turn the other way.
           const rot = Math.atan2(Math.sin(-phi), Math.cos(-phi)); // normalize (−π, π]
-          return { pattern, scale: sep / (2 * tubeR), rotation: rot };
+          return { pattern, scale: sep / (2 * tubeR), rotation: rot, offset };
         }
       }
     }
     return null;
   };
+  // The file's stored simulations — read here for the tubes' loadouts, and
+  // again below, once the tubes are regrouped, for the configurations.
+  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  /** Per stored simulation, its engine sets and the tube each names, before any regrouping. */
+  const simSets = simEls.map((sim) => Array.from(sim.querySelectorAll('EngineSet')).flatMap((el) => {
+    const serial = text(el, ':scope > MountSerialNo');
+    const node = serial ? serialToNode.get(serial) : undefined;
+    return node ? [{ el, node }] : [];
+  }));
+  /** One engine set as a comparable string: code, maker and both delays, as numbers. */
+  const setKey = (el: Element): string => {
+    const norm = (tag: string): string => {
+      const raw = text(el, `:scope > ${tag}`) ?? '';
+      const v = parseDecimal(raw);
+      return Number.isFinite(v) ? String(v) : raw.trim().toLowerCase();
+    };
+    return [text(el, ':scope > EngineCode') ?? '', text(el, ':scope > EngineMfg') ?? '',
+      norm('EjectionDelay'), norm('IgnitionDelay')].join('|');
+  };
+  /**
+   * Engine sets moved off the tube their MountSerialNo names, onto an
+   * identical sibling — the repair in `groupLoadouts` — for readEngineSet.
+   */
+  const movedSets = new Map<Element, ComponentNode>();
+  /**
+   * How every simulation loads a group of identical tubes, and whether any two
+   * of them differ. Tubes are merged into one cluster only when EVERY
+   * simulation loads them alike.
+   *
+   * IDENTICAL TUBES ARE NOT IDENTICAL MOUNTS (seam review of audit 2026-09-22).
+   * The regrouping looked at size and place alone, and the merged tube then
+   * took ONE engine set per simulation, the last: 8 in Goblin 4 x 75mm.rkt's
+   * simulation 90 (M2050X on two tubes, L1170FJ on the other two) opened as
+   * L1170FJ × 4; Cluster Duck.rkt's alternating C6 and C6Q as C6Q × 6. Engine
+   * sets outside any simulation — this app's own export before that audit,
+   * which wrote one set for a whole cluster — are left out of the test, so
+   * those files still merge.
+   *
+   * A tube holds one motor, so a simulation that names ONE tube in two of its
+   * engine sets has a stale serial — 65 simulations in 13 corpus files, most
+   * of them Public Missiles', do (EclipseB_38mmRedlineEllis.rkt: H148R at 30 s
+   * and at 0 s, both on serial 22, with its twin tube carrying none). Within
+   * a group the extra sets go, in file order, to the group's tubes that carry
+   * none in that simulation: merged, the pair used to fly as two of the last;
+   * apart, un-repaired, it would fly one.
+   */
+  const groupLoadouts = (g: ComponentNode[]): { differ: boolean; moves: Map<Element, ComponentNode> } => {
+    const moves = new Map<Element, ComponentNode>();
+    let differ = false;
+    for (const sets of simSets) {
+      const on = new Map<ComponentNode, Element[]>(g.map((t) => [t, []]));
+      for (const { el, node } of sets) on.get(node)?.push(el);
+      const empty = g.filter((t) => on.get(t)!.length === 0);
+      for (const t of g) {
+        const list = on.get(t)!;
+        while (list.length > 1 && empty.length > 0) {
+          const el = list.splice(1, 1)[0]!;
+          const to = empty.shift()!;
+          on.get(to)!.push(el);
+          moves.set(el, to);
+        }
+      }
+      if (new Set(g.map((t) => on.get(t)!.map(setKey).sort().join('\n'))).size > 1) differ = true;
+    }
+    return { differ, moves };
+  };
+  /** The kept tube of each merged cluster: its own RadialLoc is one copy's, not the cluster's place. */
+  const mergedKeep = new Set<ComponentNode>();
   const reconstructClusters = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
       const kids = parentNode.children ?? [];
@@ -1073,10 +1159,48 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
+        const where = parentNode.name ?? parentNode.type;
+        // "Motor tubes" only when they are: LEM-M2B.ork's two nose-cone tubes,
+        // written out and read back, were called that with no mount among them.
+        const kind = g.some((t) => t['motorMount'] === true) ? 'motor tubes' : 'tubes';
+        const loads = groupLoadouts(g);
+        if (loads.differ) {
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical ${kind} in “${where}” carry different motors in the file's simulations, `
+            + 'so each stays a mount of its own, where the file puts it — merged into one cluster, a '
+            + 'simulation would fly one of those motors in every tube.');
+          continue;
+        }
+        // ONE TUBE'S MASS IS NOT THE CLUSTER'S (review of the seam fixes). A
+        // RockSim <KnownMass> is its own tube's — desktop, which reads a
+        // cluster as N separate tubes, counts every one, as RockSim does — but
+        // the kernel's override on a cluster tube is the WHOLE cluster's
+        // (MassCalculation.calculateStructure weighs it at getOverrideMass(),
+        // where a computed mass is multiplied by the instance count). The kept
+        // tube took one copy's, so every merged cluster the file weighs flew
+        // (N − 1) tubes light — the owner's 12in Darkstar six 892 g tubes as
+        // one, 4.46 kg — and once tubes that carry different motors stayed
+        // apart, 8 in Goblin 4 x 75mm.rkt weighed 1,325 g more or less by how
+        // its simulations loaded them. A merged cluster carries the tubes'
+        // masses added together; tubes the file weighs differently — one
+        // weighed and another computed, or balanced at different points — have
+        // no single cluster mass or balance point, and stay apart, each with
+        // its own. (0 of the 20 weighed ring groups in the corpus do.)
+        const weighedTubes = g.filter((t) => typeof t['overrideMass'] === 'number');
+        const balance = new Set(g.map((t) => (typeof t['overrideCGX'] === 'number'
+          ? Math.round((t['overrideCGX'] as number) * 1e4) : null))); // to 0.1 mm
+        if ((weighedTubes.length > 0 && weighedTubes.length < g.length) || balance.size > 1) {
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical ${kind} in “${where}” are weighed differently in the file, so each `
+            + 'stays a part of its own, where the file puts it — a cluster carries one mass and one balance '
+            + 'point for all its tubes.');
+          continue;
+        }
         const tubeR = typeof g[0]!['outerRadius'] === 'number' ? (g[0]!['outerRadius'] as number) : 0.0095;
         const m = matchCluster(g.map((t) => radialByNode.get(t) ?? { y: 0, z: 0 }), tubeR);
         if (!m) {
-          notes.push(`${g.length} identical off-axis tubes in “${parentNode.name ?? parentNode.type}” don't fit a known cluster pattern — imported as separate centerline tubes.`);
+          for (const [el, to] of loads.moves) movedSets.set(el, to);
+          notes.push(`${g.length} identical off-axis ${kind} in “${where}” don't fit a known cluster pattern — imported as separate tubes, each where the file puts it.`);
           continue;
         }
         // Keep the tube that carries children (our own exports put them on the
@@ -1084,19 +1208,49 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         const keep = g.find((t) => (t.children ?? []).length > 0) ?? g[0]!;
         keep['cluster'] = m.pattern;
         keep['clusterScale'] = Number(m.scale.toFixed(4));
-        if (Math.abs(m.rotation) > 1e-4) keep['clusterRotation'] = m.rotation;
+        let rotation = m.rotation;
+        const off = Math.hypot(m.offset.y, m.offset.z);
+        if (off > 0) {
+          const dir = Math.atan2(m.offset.z, m.offset.y);
+          keep['radialPosition'] = off;
+          keep['radialDirection'] = dir;
+          // The kernel turns the pattern by radialDirection − clusterRotation
+          // (cluster.ts clusterOffsets), so the tube's own direction goes into
+          // the rotation too, leaving each tube where the file has it.
+          rotation = Math.atan2(Math.sin(rotation + dir), Math.cos(rotation + dir));
+        }
+        if (Math.abs(rotation) > 1e-4) keep['clusterRotation'] = rotation;
         keep.name = keep.name?.replace(/ \(\d+\)$/, '');
+        // Summed in grams, as the file states them, so 4 × 441.75 reads "1767".
+        const clusterG = weighedTubes.length > 0
+          ? Number(g.reduce((a, t) => a + (t['overrideMass'] as number) * MASS, 0).toFixed(6)) : null;
+        if (clusterG !== null) keep['overrideMass'] = clusterG / MASS;
+        mergedKeep.add(keep);
         const dropped = new Set(g.filter((t) => t !== keep));
         for (const [serial, node] of serialToNode) {
           if (dropped.has(node)) serialToNode.set(serial, keep);
         }
         parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
-        notes.push(`Cluster: ${g.length} identical motor tubes in “${parentNode.name ?? parentNode.type}” imported as one ${m.pattern} cluster.`);
+        notes.push(`Cluster: ${g.length} identical ${kind} in “${where}” imported as one ${m.pattern} cluster`
+          + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`
+          + (clusterG !== null ? ` Its mass is the ${g.length} tube masses the file states, added together: ${clusterG} g.` : ''));
       }
       reconstructClusters(parentNode.children ?? []);
     }
   };
   reconstructClusters(components);
+  // A TUBE ON ITS OWN OFF THE AXIS STAYS THERE (seam review of audit
+  // 2026-09-22). The schema has carried an inner tube's radialPosition and
+  // radialDirection all along (the Design tab's "Distance off centerline"),
+  // and the .rkt writer has written them since that audit, but this reader put
+  // every such tube back on the axis — a 12 mm / 50° tube reopened at 0 / 0
+  // with no note. RockSim's RadialLoc is millimetres from the axis and its
+  // RadialAngle the direction, in radians: the pair the kernel takes.
+  for (const [node, c] of radialByNode) {
+    if (mergedKeep.has(node)) continue;
+    node['radialPosition'] = Math.hypot(c.y, c.z);
+    node['radialDirection'] = Math.atan2(c.z, c.y);
+  }
 
   // ---- Fin de-collision (2026-08-05d) ----
   // RockSim renders interleaved fin sets without storing an angle, so tube
@@ -1262,7 +1416,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     const code = text(engineSet, ':scope > EngineCode');
     if (!code) return null;
     const mountSerial = text(engineSet, ':scope > MountSerialNo');
-    let mount = mountSerial ? serialToNode.get(mountSerial) : undefined;
+    // A set the regrouping moved off a tube that already carried one (see
+    // groupLoadouts) goes to the twin it was given.
+    let mount = movedSets.get(engineSet) ?? (mountSerial ? serialToNode.get(mountSerial) : undefined);
     if (!mount || mount['motorMount'] !== true) {
       // Stale serial: Stage3Engines→stage 0, Stage2Engines→1, Stage1Engines→2.
       const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
@@ -1295,7 +1451,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // with an explicit 0 still means "at the stage below's burnout", which is a
     // different event from 'automatic'. The bottom stage is left 'automatic' —
     // the kernel resolves that to launch there — so single-stage .rkt files are
-    // untouched.
+    // untouched, UNLESS it states a delay: nothing burns below the bottom stage,
+    // so RockSim counts that delay from launch — an air start (seam review of
+    // audit 2026-09-22). It was dropped, so every such motor lit at liftoff,
+    // although this app's own writer has written it since the same audit.
+    // RockSim's stored results say so. In PELTZER - LOC Bruiser EXP
+    // v2_1x54mm_6x29mm.rkt (one stage) simulations 5 and 6 differ only in the
+    // H13ST cluster's IgnitionDelay, 1 s against 0, and their TimeToBurnout by
+    // exactly 1.0000 s (16.4325 / 15.4325); simulation 2 burns six H115DM out
+    // at 1.69375 s, and simulation 3, the same six at 2 s under an I599N, at
+    // 3.69375 s — 2 s later, to the digit.
     const ignitionDelay = num(engineSet, 'IgnitionDelay', 0);
     const isBottomStage = components.length <= 1
       || mountsIn(components[components.length - 1]?.children ?? []).some((m) => m.id === mount!.id);
@@ -1316,7 +1481,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       // burnout the day the motor became loadable. The flag gives a .rkt its −1.
       delay: read === 'plugged' ? Infinity : read === 'every' ? (every?.delay ?? Infinity) : read,
       mountId: mount.id,
-      ...(isBottomStage ? {} : { ignitionEvent: 'burnout' as const, ignitionDelay }),
+      ...(!isBottomStage ? { ignitionEvent: 'burnout' as const, ignitionDelay }
+        : ignitionDelay > 0 ? { ignitionEvent: 'launch' as const, ignitionDelay } : {}),
       ...(every?.autoDelay ? { autoDelay: true as const } : {}),
       ...(read === 'every' ? { rktEveryDelay: true as const } : {}),
     };
@@ -1345,7 +1511,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
    * export wrote them until the same audit — read as one more set, first. And
    * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
-  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
   const simGroups: { number: number | null; name: string | null; sets: Element[] }[] = [];
   const loose = Array.from(doc.querySelectorAll('EngineSet')).filter((e) => !e.closest('SimulationResults'));
   if (loose.length) simGroups.push({ number: null, name: null, sets: loose });
@@ -1414,27 +1579,57 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   }
   // Which configuration to open: the first that puts a motor on the launch
   // stage, which is the one that has to light first — importCdx1's choice.
+  // The reader cannot see the motor catalogue, so this is a first pick:
+  // importApply.planImport opens another when this one's motors cannot load
+  // and another's can (seam review of audit 2026-09-22 — 31 real designs,
+  // seven of them the owner's, opened on a simulation that could not fly).
   const bottomIdx = components.length - 1;
-  const flyable = configs.find((c) => Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx));
+  const motorsBottom = (c: OrkFlightConfig): boolean =>
+    Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx);
+  const flyable = configs.find(motorsBottom);
   const chosen = flyable ?? configs[0];
   const simLabel = (c: OrkFlightConfig): string => {
     const s = cfgSim.get(c)!;
     const quoted = s.name ? ` (“${s.name}”)` : '';
     return s.number === null ? `The motors listed outside the file's simulations${quoted}` : `Simulation ${s.number}${quoted}`;
   };
-  if (chosen && flyable && configs[0] && flyable !== configs[0]) {
-    notes.push(`${simLabel(configs[0])} in this file puts no motor on the launch stage, so it would not `
-      + `leave the pad. ${simLabel(chosen)} was opened instead — switch under Flight configurations.`);
-  } else if (chosen && !flyable && components.length > 1) {
-    const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
-    notes.push(`No simulation in this file puts a motor on ${bottomName}. ${simLabel(chosen)} was opened `
-      + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
-      + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.');
-  } else if (chosen && configs.length > 1) {
-    notes.push(`This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
-      + `different motor sets; each set is a flight configuration here. ${simLabel(chosen)} was opened `
-      + '— switch under Flight configurations.');
-  }
+  const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
+  /**
+   * The sentence saying which simulation was opened, as it reads when `c` is
+   * the one. For the reader's own pick it is exactly the three cases this
+   * wrote before planImport could re-pick; the fourth (`c` motors no bottom
+   * stage while another simulation does) is reachable only through that re-pick.
+   *
+   * AND ONLY WHEN NOTHING THAT MOTORS THE BOTTOM STAGE FLIES (review of the
+   * seam fixes). importApply's flyablePick prefers a configuration that motors
+   * the bottom stage whenever one can leave the pad, so it lands on one that
+   * does not only when every one that does has no loadable motor there. This
+   * sentence used to end "switch under Flight configurations to fly one that
+   * motors it" — to the configurations just passed over because they cannot
+   * fly. It gives the same way out the no-booster case below does instead.
+   */
+  const openedNoteFor = (c: OrkFlightConfig): string | null => {
+    if (components.length > 1 && !motorsBottom(c)) {
+      return flyable
+        ? `${simLabel(c)} puts no motor on ${bottomName}, and no simulation in this file that motors `
+          + `${bottomName} has a motor there the app can load. It was opened with its lowest stage's motors `
+          + `timed from launch, so ${bottomName} flies along unpowered. Delete that stage in the Design tab to `
+          + 'fly without it, or select its mount there and pick a motor.'
+        : `No simulation in this file puts a motor on ${bottomName}. ${simLabel(c)} was opened `
+          + `with its lowest stage's motors timed from launch, so ${bottomName} flies along unpowered. Delete that `
+          + 'stage in the Design tab to fly without it, or select its mount there and pick a motor.';
+    }
+    if (configs[0] && !motorsBottom(configs[0]) && c !== configs[0]) {
+      return `${simLabel(configs[0])} in this file puts no motor on the launch stage, so it would not `
+        + `leave the pad. ${simLabel(c)} was opened instead — switch under Flight configurations.`;
+    }
+    if (configs.length > 1) {
+      return `This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
+        + `different motor sets; each set is a flight configuration here. ${simLabel(c)} was opened `
+        + '— switch under Flight configurations.';
+    }
+    return null;
+  };
   // RECOVERY IS NOT READ PER SIMULATION (audit 2026-09-22 review). Each
   // <SimulationResults> keeps its own event list as well as its motors, and
   // only the motors become the configuration: recovery is readDeploymentEvents'
@@ -1444,10 +1639,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // recovery came too: AeroTech/aerotech_warthog.rkt's simulation 1 (E15-4)
   // deploys at the ejection charge where the design says 122 m. Read with
   // plain xmlNum: these numbers are compared, never used.
-  const chosenSim = chosen ? cfgSim.get(chosen)?.number : null;
-  if (chosen && chosenSim != null) {
+  const recoveryNoteFor = (c: OrkFlightConfig): string | null => {
+    const simNumber = cfgSim.get(c)?.number;
+    if (simNumber == null) return null;
     const own = new Map<string, string>();
-    for (const ev of Array.from(simEls[chosenSim - 1]!.querySelectorAll('SimulationEvent'))) {
+    for (const ev of Array.from(simEls[simNumber - 1]!.querySelectorAll('SimulationEvent'))) {
       const serial = text(ev, ':scope > PartSerialNo');
       if (!serial || serial === '0' || own.has(serial)) continue;
       const node = serialToNode.get(serial);
@@ -1459,12 +1655,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         && a.deployAltitude === t.deployAltitude ? '' : `${node.name ?? node.type} ${t.says}`);
     }
     const differ = [...own.values()].filter(Boolean);
-    if (differ.length) {
-      notes.push(`${simLabel(chosen)} stored different recovery triggers from the ones read above: `
+    return differ.length
+      ? `${simLabel(c)} stored different recovery triggers from the ones read above: `
         + `${differ.join('; ')}. Recovery is not read per simulation, so every flight configuration here `
-        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.');
-    }
-  }
+        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.'
+      : null;
+  };
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const firstMotor: OrkMotorRef | undefined = Object.values(motors)[0];
   const chosenConfigId = chosen?.id ?? null;
@@ -1474,52 +1670,66 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // meaning, however many mounts carry it: a cluster built as separate mounts
   // carries one set each, and PELTZER_Swarm_JR.rkt's twelve E30 mounts gave
   // twelve identical lines (seam review of audit 2026-09-22).
-  const sentinelNotes = new Map<string, { ref: OrkMotorRef; mounts: number }>();
-  for (const ref of Object.values(motors)) {
-    const kind = sentinelRefs.get(ref);
-    if (!kind) continue;
-    const key = `${kind}|${ref.manufacturer}|${ref.designation}|${ref.delay}`;
-    const seen = sentinelNotes.get(key);
-    if (seen) seen.mounts++;
-    else sentinelNotes.set(key, { ref, mounts: 1 });
-  }
-  for (const { ref, mounts } of sentinelNotes.values()) {
-    const kind = sentinelRefs.get(ref);
-    const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
-    const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
-    if (kind === 'plugged') {
-      notes.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
-        + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
-    } else if (kind === 'every') {
-      // What the REFERENCE takes, never "loaded": 80 catalogue motors have no
-      // thrust curve anywhere, and for those the matcher loads nothing and says
-      // so right after this note. The reader cannot tell them apart — the
-      // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
-      notes.push(`${asks}which flies each listed delay in turn; `
-        + (Number.isFinite(ref.delay)
-          ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
-          : 'the only option the motor database lists is plugged, so it is taken plugged.'));
-    } else if (kind === 'every-auto') {
-      notes.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
-        + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
-        // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
-        // a browser pick, so the rest of a cluster built as separate mounts
-        // flies the provisional 0 s: the Cheetah probe with its G135R mount
-        // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
-        // Worded for any of them, since the primary may sit in another stage.
-        + (mounts > 1
-          ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
-            + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
-          : ''));
-    } else if (kind === 'every-unmatched') {
-      // Not "the database lists no delay": the motor is not in it, so nothing
-      // loads on the mount and there is no delay box to send the user to. The
-      // reference is kept for Save, plugged, with the flag for a .rkt's −1.
-      notes.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
-        + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
-        + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
+  const sentinelNotesFor = (c: OrkFlightConfig): string[] => {
+    const out: string[] = [];
+    const sentinelNotes = new Map<string, { ref: OrkMotorRef; mounts: number }>();
+    for (const ref of Object.values(c.motors)) {
+      const kind = sentinelRefs.get(ref);
+      if (!kind) continue;
+      const key = `${kind}|${ref.manufacturer}|${ref.designation}|${ref.delay}`;
+      const seen = sentinelNotes.get(key);
+      if (seen) seen.mounts++;
+      else sentinelNotes.set(key, { ref, mounts: 1 });
     }
+    for (const { ref, mounts } of sentinelNotes.values()) {
+      const kind = sentinelRefs.get(ref);
+      const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
+      const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
+      if (kind === 'plugged') {
+        out.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
+          + 'make sure recovery deploys on apogee/altitude, not the ejection charge.');
+      } else if (kind === 'every') {
+        // What the REFERENCE takes, never "loaded": 80 catalogue motors have no
+        // thrust curve anywhere, and for those the matcher loads nothing and says
+        // so right after this note. The reader cannot tell them apart — the
+        // curves are a lazy bundle (review of the seam fixes, 2026-09-22).
+        out.push(`${asks}which flies each listed delay in turn; `
+          + (Number.isFinite(ref.delay)
+            ? `this takes the longest, ${ref.delay} s — the one RockSim's own run reports.`
+            : 'the only option the motor database lists is plugged, so it is taken plugged.'));
+      } else if (kind === 'every-auto') {
+        out.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
+          + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
+          // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
+          // a browser pick, so the rest of a cluster built as separate mounts
+          // flies the provisional 0 s: the Cheetah probe with its G135R mount
+          // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
+          // Worded for any of them, since the primary may sit in another stage.
+          + (mounts > 1
+            ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
+              + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
+            : ''));
+      } else if (kind === 'every-unmatched') {
+        // Not "the database lists no delay": the motor is not in it, so nothing
+        // loads on the mount and there is no delay box to send the user to. The
+        // reference is kept for Save, plugged, with the flag for a .rkt's −1.
+        out.push(`${asks}which takes its delays from the motor's own list — and this motor isn't in `
+          + 'the motor database, so there is no list to take one from. The reference is kept: a .rkt '
+          + 'Save hands RockSim its −1 back, and a .ork, which has no “every delay”, gets it plugged.');
+      }
+    }
+    return out;
+  };
+  // Every configuration's own notes, the opened one's in `notes` — in the
+  // order they always came: which simulation, its recovery, its sentinels.
+  const configNotes: Record<string, string[]> = {};
+  const configSources: Record<string, string> = {};
+  for (const c of configs) {
+    configNotes[c.id] = [openedNoteFor(c), recoveryNoteFor(c), ...sentinelNotesFor(c)]
+      .filter((n): n is string => n !== null);
+    configSources[c.id] = simLabel(c);
   }
+  if (chosen) notes.push(...configNotes[chosen.id]!);
 
   // Last, because the engine-set and deployment readers above record into the
   // same map. No cause is claimed: none of the 843 readable corpus files carries
@@ -1546,6 +1756,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     ...(measured ? { measured } : {}),
     configs,
     chosenConfigId,
+    configSources,
+    configNotes,
   };
 }
 
@@ -1814,14 +2026,23 @@ export interface RktExportInput {
    * data error in RockSim.
    */
   compInfo?: Record<string, { mass: number; cgX: number }>;
+  /**
+   * Filled with what the file cannot say — one sentence each, for the Save
+   * note. A .rkt is lossy by design (App's onSaveRkt never marks the design
+   * saved), but a loss that changes how the rocket FLIES when the file is
+   * opened again is said out loud rather than left to be found at the field.
+   */
+  notes?: string[];
 }
 
-export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInput): string {
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
   let serial = 0;
   /** node id → RockSim SerialNo (links motors back to mounts). */
   const nodeSerial = new Map<string, number>();
+  /** Mount node id → the SerialNo of every copy written (cluster tubes, pod instances). */
+  const mountCopies = new Map<string, number[]>();
 
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) {
@@ -1907,6 +2128,12 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
        * front (m), `length` is its body length (m). See the MassObject branches.
        */
       point?: { cg: number; length: number };
+      /**
+       * How many RockSim parts this node goes out as — a cluster's tubes. Its
+       * override and computed mass are the whole cluster's; each part's
+       * <KnownMass> and <CalcMass> is its own share.
+       */
+      copies?: number;
     },
   ) => {
     const { mode, xb: xbEnd } = rocksimXb(node, parent);
@@ -1929,6 +2156,13 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // First write wins: cluster copies re-emit the same node — motor
     // references must point at the FIRST copy (the one carrying children).
     if (node.id && !nodeSerial.has(node.id)) nodeSerial.set(node.id, serial);
+    // And EVERY copy of a mount, for its engine sets: a cluster's tubes and a
+    // pod set's instances each carry a motor, and RockSim wants one set each.
+    if (node.id && node['motorMount'] === true) {
+      const copies = mountCopies.get(node.id);
+      if (copies) copies.push(serial);
+      else mountCopies.set(node.id, [serial]);
+    }
     const hasMassOv = typeof node['overrideMass'] === 'number';
     const hasCgOv = typeof node['overrideCGX'] === 'number';
     const override = hasMassOv || hasCgOv;
@@ -1938,9 +2172,18 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // in the un-overridden field is the data error the compInfo map exists to
     // prevent, and it stays wrong even with the flag off — a reader is entitled
     // to look at the number regardless.
+    //
+    // ONE COPY'S SHARE (review of the seam fixes). A cluster goes out as one
+    // <BodyTube> per tube, each re-emitting the same node, and the kernel's
+    // override and computed mass on a cluster tube are the whole cluster's
+    // (componentInfo's getMass) where RockSim's <KnownMass> and <CalcMass> are
+    // the one tube's. Written whole on every copy, a 300 g 3-ring reached
+    // RockSim and desktop — which read the tubes as three parts — at 900 g,
+    // and this app's reader, adding the tubes back together, would say so too.
+    const share = opts?.copies ?? 1;
     const knownMass = opts?.knownMass
       ?? ((hasMassOv ? (node['overrideMass'] as number)
-        : override ? info?.mass ?? 0 : 0) * MASS);
+        : override ? info?.mass ?? 0 : 0) * MASS) / share;
     emit(`<KnownMass>${knownMass}</KnownMass>`);
     // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
     // never carry node.density — orkFile stores them as surfaceDensity (chute /
@@ -2012,7 +2255,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // sets — an overridden set exports UseKnownCG=1, where desktop's airfoil branch
     // never runs. Real RockSim files put these right here, after <Xb>.
     if (info) {
-      emit(`<CalcMass>${info.mass * MASS}</CalcMass>`);
+      emit(`<CalcMass>${(info.mass * MASS) / share}</CalcMass>`);
       emit(`<CalcCG>${info.cgX * LEN}</CalcCG>`);
     }
   };
@@ -2024,10 +2267,10 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
   };
 
   const emitInnerTube = (
-    node: ComponentNode, parent: ComponentNode | null, radialLocM = 0, radialAngle = 0, suffix = '',
+    node: ComponentNode, parent: ComponentNode | null, radialLocM = 0, radialAngle = 0, suffix = '', copies = 1,
   ) => {
     emit('<BodyTube>');
-    common(node, parent, `Inner Tube${suffix}`);
+    common(node, parent, `Inner Tube${suffix}`, { copies });
     emit(`<OD>${nnum(node, 'outerRadius', 0.0095) * RAD}</OD>`);
     emit(`<ID>${(nnum(node, 'outerRadius', 0.0095) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
     emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
@@ -2130,7 +2373,7 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
         if (centres.length === 1) {
           emitInnerTube(node, parent, ...polar(centres[0]!));
         } else {
-          centres.forEach((c, i) => emitInnerTube(node, parent, ...polar(c), i === 0 ? '' : ` (${i + 1})`));
+          centres.forEach((c, i) => emitInnerTube(node, parent, ...polar(c), i === 0 ? '' : ` (${i + 1})`, centres.length));
         }
         break;
       }
@@ -2384,13 +2627,103 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // delay from launch — its stored results show it above an empty booster
     // slot (Blackhawk_2-stage.rkt) and on single-stage air-start clusters
     // (8 in Goblin 4 x 75mm.rkt: K828FJ at 3.2 s, TimeToBurnout 5.70 s) — so
-    // a 'launch' motor there writes its delay too (audit 2026-09-22 review).
-    // The importer's re-keying reads it back above an empty stage. Every
-    // other motor writes 0 (RockSim's own default), as before.
+    // a 'launch' motor there writes its delay too (audit 2026-09-22 review),
+    // and the importer reads it back as 'launch' on the bottom stage and above
+    // an empty one alike.
+    //
+    // EVERY EVENT ROCKSIM CAN SAY, SAID (seam review of the same audit). The
+    // writer took only 'burnout', and 'launch' on the lowest stage, so the
+    // kernel's default — 'automatic' — lost its delay everywhere: fx 38-54
+    // 2-stage.CDX1's M1350W on automatic/12 s flew IGNITION@12.00 and reopened
+    // from a .rkt at 0.00. 'automatic' is the kernel's LAUNCH on the bottom
+    // stage and on a strap-on (AxialStage / ParallelStage.isLaunchStage), and
+    // there it is written as a launch. Above it, 'automatic' is the EJECTION
+    // CHARGE of the stage directly below (IgnitionEvent.EJECTION_CHARGE), which
+    // RockSim cannot name — but when every motor on that stage has the same
+    // finite delay d, its charge fires d s after its burnout, so the file says
+    // d + delay after burnout and the flight is the same. What is left —
+    // launch above the pad stage, burnout or a charge on the pad stage (where
+    // nothing burns below: the kernel never lights it), a charge below whose
+    // motors disagree or are plugged, and 'never' — RockSim has no words for,
+    // and each is named in `notes` with what the file says instead.
     const lowestSlot = Math.max(...[0, 1, 2].filter((i) => stageMotors[i]!.length > 0));
-    const rktIgnitionDelay = (i: number, m: OrkExportMotor): number =>
-      m.ignitionEvent === 'burnout' || (m.ignitionEvent === 'launch' && i === lowestSlot)
-        ? (m.ignitionDelay ?? 0) : 0;
+    const bottomSlot = stagesIn.length - 1;
+    const strapOn = (id: string): boolean => {
+      const walk = (nodes: ComponentNode[], inStrap: boolean): boolean | null => {
+        for (const n of nodes) {
+          const here = inStrap || n.type === 'parallelstage';
+          if (n.id === id) return here;
+          const found = walk(n.children ?? [], here);
+          if (found !== null) return found;
+        }
+        return null;
+      };
+      return walk(stagesIn.flatMap((s) => s.children ?? []), false) === true;
+    };
+    /** The one finite ejection delay every motor on slot `i + 1` shares, else null. */
+    const sharedDelayBelow = (i: number): number | null => {
+      const below = stageMotors[i + 1] ?? [];
+      const delays = new Set(below.map(([, m]) => (m.rktEveryDelay ? NaN : m.delay)));
+      const [d] = delays;
+      return below.length > 0 && delays.size === 1 && d !== undefined && Number.isFinite(d) ? d : null;
+    };
+    /**
+     * Every motor on slot `i + 1` plugged. A plugged motor fires no charge —
+     * the kernel schedules EJECTION_CHARGE only for a motor that has one
+     * (BasicEventSimulationEngine, BURNOUT: `motorState.hasEjectionCharge()`)
+     * — so a stage above waiting for one never lights in this app, while the
+     * .rkt lights it at that burnout. One plugged motor does share one delay,
+     * 'plugged', which the note used to deny (review of the seam fixes).
+     */
+    const pluggedBelow = (i: number): number => {
+      const below = stageMotors[i + 1] ?? [];
+      return below.every(([, m]) => !m.rktEveryDelay && !Number.isFinite(m.delay)) ? below.length : 0;
+    };
+    const writtenIgnition = new Map<string, number>();
+    const lostIgnition = new Set<string>();
+    for (const i of [0, 1, 2]) {
+      for (const [id, m] of stageMotors[i]!) {
+        const delay = m.ignitionDelay ?? 0;
+        const raw = m.ignitionEvent ?? 'automatic';
+        const event = raw !== 'automatic' ? raw
+          : i === bottomSlot || strapOn(id) ? 'launch' : 'ejectioncharge';
+        const shared = event === 'ejectioncharge' && i !== lowestSlot ? sharedDelayBelow(i) : null;
+        const said = i === lowestSlot ? event === 'launch'
+          : event === 'burnout' || shared !== null;
+        // Summed in whole microseconds, so 0.1 + 0.2 writes "0.3".
+        writtenIgnition.set(id, shared !== null ? Math.round((shared + delay) * 1e6) / 1e6 : delay);
+        if (said) continue;
+        const after = i === lowestSlot ? 'after launch' : 'after the burnout of the stage below';
+        const what = event === 'never' ? 'is set never to light'
+          : event === 'launch' ? 'lights at launch, above the stage that leaves the pad'
+            : event === 'burnout' ? 'lights on the burnout of the stage below'
+              : 'lights on the ejection charge of the stage below';
+        const plugged = event === 'ejectioncharge' && i !== lowestSlot ? pluggedBelow(i) : 0;
+        const why = i === lowestSlot && (event === 'burnout' || event === 'ejectioncharge')
+          ? ' — which never comes on the stage that leaves the pad, so it does not light here either'
+          : plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged — with no charge to fire, it does not light here either`
+            : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
+        lostIgnition.add(`“${m.designation}” ${what}${why}. RockSim times the stage that leaves the pad from `
+          + `launch and every other stage from the burnout of the one below, so the .rkt lights it ${delay} s ${after}.`);
+      }
+    }
+    notes?.push(...lostIgnition);
+    const rktIgnitionDelay = (id: string): number => writtenIgnition.get(id) ?? 0;
+    // AUTO DELAY BACK AS RockSim's "EVERY DELAY" (seam review of audit
+    // 2026-09-22). A motor whose listing gives no numeric delay (KBA's letter
+    // codes) is loaded on Auto from RockSim's −1 (rktEveryDelay), and a Save
+    // wrote its provisional 0 s, which reopened as a charge at burnout. −1
+    // reads back as Auto; a motor that lists delays would read −1 back as its
+    // longest instead, so it keeps the delay App hands over and the Save says
+    // so (autoDelaySaveNote).
+    const everyDelay = (m: OrkExportMotor): boolean => m.rktEveryDelay === true
+      || (m.autoDelay === true && rktEveryDelay(m.designation, m.manufacturer ?? 'unknown')?.autoDelay === true);
+    for (const i of [0, 1, 2]) {
+      for (const [, m] of stageMotors[i]!) {
+        const said = everyDelay(m) ? null : autoDelaySaveNote(m, '.rkt');
+        if (said) notes?.push(said);
+      }
+    }
     // RockSim names a simulation by its motors, the stage that leaves the pad
     // first: one bracket per stage, a cluster's motors comma-separated inside
     // it, "-P" for plugged ("-*" for a kept "every delay" −1, as RockSim names
@@ -2400,30 +2733,46 @@ export function exportRkt({ name, tree, motors, compInfo }: RktExportInput): str
     // Blackhawk's pair with one lit 15 s late. Of the corpus names this spells
     // exactly for two or more stages, all 129 put the bottom stage first and
     // none the sustainer (audit 2026-09-22 review: it was sustainer first, one
-    // bracket per motor).
-    const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.map(([, m]) => {
-      const ign = rktIgnitionDelay(i, m);
-      return `${m.designation}-${m.rktEveryDelay ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+    // bracket per motor). One entry per MOTOR, as RockSim writes it — a
+    // 3-tube cluster of A8-3 is Semroc-Defender.rkt's "[A8-3, A8-3, A8-3] " —
+    // so a cluster or a pod set names each of its copies.
+    const copiesOf = (id: string): number[] => mountCopies.get(id) ?? [nodeSerial.get(id) ?? -1];
+    const simName = [2, 1, 0].filter((i) => stageMotors[i]!.length > 0).map((i) => `[${stageMotors[i]!.flatMap(([id, m]) => {
+      const ign = rktIgnitionDelay(id);
+      const entry = `${m.designation}-${everyDelay(m) ? '*' : Number.isFinite(m.delay) ? m.delay : 'P'}${ign ? `-${ign}` : ''}`;
+      return copiesOf(id).map(() => entry);
     }).join(', ')}] `).join('');
     emit(`<SimulationName>${esc(simName)}</SimulationName>`);
     // Bottom slot first, as RockSim writes them: Stage1Engines is the stage
     // that leaves the pad, Stage3Engines the sustainer (our stage 0).
     for (const slot of [1, 2, 3]) {
       emit(`<Stage${slot}Engines>`);
+      // ONE ENGINE SET PER TUBE (seam review of audit 2026-09-22). A cluster
+      // went out as N IsMotorMount tubes and ONE set on the first copy, so
+      // RockSim, which lists a set per tube — every one of the 14,434 sets in
+      // the 939-file corpus says <EngineCount>1</EngineCount>, and a cluster's
+      // tubes each carry one (Quest_Quad_Runner.rkt: four B4-4, serials 3, 13,
+      // 15, 17) — flew one motor where the design flies N. This app's own
+      // importer hid it for an on-axis cluster by merging the tubes back, and
+      // could not once the tubes were written at their true off-axis place:
+      // three came back as three mounts carrying one motor between them.
       for (const [id, m] of stageMotors[3 - slot]!) {
-        emit('<EngineSet>');
-        emit('<EngineCount>1</EngineCount>');
-        emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
-        emit(`<IgnitionDelay>${rktIgnitionDelay(3 - slot, m)}</IgnitionDelay>`);
-        emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
-        emit(`<MountSerialNo>${nodeSerial.get(id) ?? -1}</MountSerialNo>`);
-        // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
-        // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
-        // A reference nothing loaded that the file gave RockSim's "every delay"
-        // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay).
-        emit(`<EjectionDelay>${m.rktEveryDelay ? RKT_EVERY_DELAY
-          : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
-        emit('</EngineSet>');
+        for (const copySerial of copiesOf(id)) {
+          emit('<EngineSet>');
+          emit('<EngineCount>1</EngineCount>');
+          emit(`<EngineCode>${esc(m.designation)}</EngineCode>`);
+          emit(`<IgnitionDelay>${rktIgnitionDelay(id)}</IgnitionDelay>`);
+          emit(`<EngineMfg>${esc(m.manufacturer ?? 'unknown')}</EngineMfg>`);
+          emit(`<MountSerialNo>${copySerial}</MountSerialNo>`);
+          // Never "Infinity" (audit 2026-09-22): a plugged motor is RockSim's own −2,
+          // which RockSim reads as plugged and so does our importer (rktEjectionDelay).
+          // A reference nothing loaded that the file gave RockSim's "every delay"
+          // goes back as the −1 it came in as (OrkMotorRef.rktEveryDelay), and
+          // so does an Auto motor with no numeric delay (everyDelay above).
+          emit(`<EjectionDelay>${everyDelay(m) ? RKT_EVERY_DELAY
+            : Number.isFinite(m.delay) ? m.delay : RKT_PLUGGED_DELAY}</EjectionDelay>`);
+          emit('</EngineSet>');
+        }
       }
       emit(`</Stage${slot}Engines>`);
     }

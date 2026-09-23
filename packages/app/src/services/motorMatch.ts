@@ -111,6 +111,13 @@ export interface MotorMatchResult {
    * result from an older session still typechecks.
    */
   approximated?: boolean;
+  /**
+   * Why nothing loaded, when nothing did: the catalogue has no such motor, or
+   * has it with no thrust curve anywhere. For a sentence that has to say it
+   * without the note's "pick one via Browse motor database" — the wrong advice
+   * when the file has another configuration that flies (importApply.planImport).
+   */
+  missing?: 'database' | 'curve';
 }
 
 /** Injection points, so the network and the catalog can be stubbed in tests. */
@@ -234,7 +241,10 @@ export async function matchImportedMotor(
   // (thrustcurve.ts bundledSimFiles) this branch is reached only for the ~80
   // catalogued motors thrustcurve.org has no simulator file for at all.
   if (dbMatch) {
-    return { note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.` };
+    return {
+      note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.`,
+      missing: 'curve',
+    };
   }
-  return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.` };
+  return { note: `Motor “${ref.designation}” isn't in the motor database — pick one via Browse motor database.`, missing: 'database' };
 }

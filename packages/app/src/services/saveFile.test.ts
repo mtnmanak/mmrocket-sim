@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { downloadBlob, saveFile } from './saveFile.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { downloadBlob, saveFile, saveOutcomeNote } from './saveFile.js';
 
 /**
  * A tester on Windows 10 + Chrome: *"When I click on save ORK or others it
@@ -176,5 +179,36 @@ describe('saveFile — the download fallback (Firefox, Safari)', () => {
     expect(revoke).not.toHaveBeenCalled();
     vi.advanceTimersByTime(60_000);
     expect(revoke).toHaveBeenCalledWith('blob:test');
+  });
+});
+
+/**
+ * WHAT A SAVE COULD NOT CARRY, SAID UNDER THE SAVE LINE (seam review of audit
+ * 2026-09-22). A .rkt cannot say every ignition event this app flies; the
+ * writer names each one it had to change, and the note is where the user reads
+ * it — as a warning, since the file reopens flying differently.
+ */
+describe('saveOutcomeNote — the save line, and the losses under it', () => {
+  const loss = '“K250W” is set never to light. RockSim times … so the .rkt lights it 0 s after launch.';
+
+  it('says where the file went, as information when nothing was lost', () => {
+    expect(saveOutcomeNote({ kind: 'saved', name: 'R.rkt' })).toEqual({ text: 'Saved “R.rkt”.', severity: 'info' });
+    expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt' }))
+      .toEqual({ text: 'Saved “R.rkt” to your browser\'s download folder.', severity: 'info' });
+    expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt', fellBack: 'disk full' })?.severity).toBe('warn');
+  });
+
+  it('puts each loss on its own line under it, as a warning — and says nothing for a cancel', () => {
+    expect(saveOutcomeNote({ kind: 'saved', name: 'R.rkt' }, [loss]))
+      .toEqual({ text: `Saved “R.rkt”.\n${loss}`, severity: 'warn' });
+    expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt' }, [loss, loss])!.text.split('\n')).toHaveLength(3);
+    expect(saveOutcomeNote({ kind: 'cancelled' }, [loss])).toBeNull();
+  });
+
+  it('App hands the .rkt writer’s losses to the save line', () => {
+    const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
+    expect(app).toMatch(/exportRkt\(\{[^}]*notes: losses,?\s*\}\)/);
+    expect(app).toContain("await download(xml, 'rkt', '', losses);");
+    expect(app).toContain('const said = saveOutcomeNote(out, losses);');
   });
 });

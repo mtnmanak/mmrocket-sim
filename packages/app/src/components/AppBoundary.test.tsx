@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBoundary } from './AppBoundary.js';
 import { defaultTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
-import { saveSessionDebounced } from '../services/session.js';
+import { discardSession, saveSessionDebounced, watchOtherTabs } from '../services/session.js';
 import { saveFile } from '../services/saveFile.js';
 
 /**
@@ -57,6 +57,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  // The session module's conflict state outlives a test; this tab lets go.
+  discardSession();
   vi.useRealTimers();
   vi.restoreAllMocks();
   localStorage.clear();
@@ -125,5 +127,69 @@ describe('AppBoundary', () => {
     act(() => { button('Cancel').click(); });
     expect(reloads).toBe(0);
     expect(localStorage.getItem(SESSION)).not.toBeNull();
+  });
+});
+
+/**
+ * A CRASH DURING A MULTI-TAB CONFLICT (seam review of audit 2026-09-22). While
+ * another tab owns the autosave, this tab's changes are held in memory only
+ * (services/session.ts), and App's leave-page prompt — the one guard on them —
+ * unmounted with App when it threw. The panel then said the design "is still
+ * in this browser's autosave" while the slot held the other tab's, and closing
+ * the tab lost this one's work without a word.
+ */
+describe('AppBoundary — this tab’s changes held back by another tab', () => {
+  /** Another tab takes the slot, then this tab edits: the edit is held, not written. */
+  const holdAnEdit = () => {
+    const mine = JSON.parse(localStorage.getItem(SESSION)!) as Record<string, unknown>;
+    localStorage.setItem(SESSION, JSON.stringify({ ...mine, stamp: 'othertab', tree: { ...defaultTree(), name: 'Other Tab' } }));
+    saveSessionDebounced({ tree: { ...defaultTree(), name: 'Crash Test, edited' }, mountMotors: {}, launch: DEFAULT_CONDITIONS });
+    vi.runAllTimers();
+  };
+  const leaving = () => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+
+  it('keeps asking before the page is left, and says the autosave does not hold this design', () => {
+    holdAnEdit();
+    renderCrashed();
+    const lead = host.querySelector('[role="alert"] p')!.textContent!;
+    expect(lead).not.toContain('still in this browser');
+    expect(lead).toContain('not in this browser’s autosave');
+    expect(leaving()).toBe(true);
+  });
+
+  it('lets the page go once this tab’s design has been downloaded', async () => {
+    holdAnEdit();
+    renderCrashed();
+    await act(async () => { button('Download the autosaved design').click(); });
+    expect(String(vi.mocked(saveFile).mock.calls[0]![0])).toContain('<name>Crash Test, edited</name>');
+    expect(leaving()).toBe(false);
+  });
+
+  it('does not ask when the autosave holds this tab’s design, as it usually does', () => {
+    renderCrashed();
+    expect(host.querySelector('[role="alert"] p')!.textContent).toContain('still in this browser');
+    expect(leaving()).toBe(false);
+  });
+
+  it('asks, and says so, when another tab takes the autosave over after the crash', () => {
+    const stop = watchOtherTabs();
+    try {
+      renderCrashed();
+      expect(leaving()).toBe(false);
+      // Another tab's "Keep this tab's design" writes over this tab's own, naming it.
+      // (`over` sits right after the stamp, where session.ts writes and reads it.)
+      const { stamp, ...rest } = JSON.parse(localStorage.getItem(SESSION)!) as { stamp: string };
+      const theirs = JSON.stringify({ stamp: 'othertab', over: stamp, ...rest, tree: { ...defaultTree(), name: 'Other Tab' } });
+      localStorage.setItem(SESSION, theirs);
+      act(() => { window.dispatchEvent(new StorageEvent('storage', { key: SESSION, newValue: theirs })); });
+      expect(host.querySelector('[role="alert"] p')!.textContent).toContain('not in this browser’s autosave');
+      expect(leaving()).toBe(true);
+    } finally {
+      stop();
+    }
   });
 });

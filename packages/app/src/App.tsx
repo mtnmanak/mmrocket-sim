@@ -66,7 +66,7 @@ import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { flyLaunch, reflyRun, writeMountMotor } from './services/flightRunner.js';
 import { loadExMotors } from './services/exMotors.js';
-import { exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
+import { autoDelaySaveNote, exportOrk, fmtStepS, importOrk, type MeasuredFigures, type OrkDeployOverride, type OrkSeparationOverride, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -74,7 +74,7 @@ import { exportRkt, importRkt } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
-import { saveFile, type SaveOutcome } from './services/saveFile.js';
+import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1, importCdx1 } from './services/rasaeroFile.js';
 import {
@@ -101,7 +101,9 @@ import {
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { DRAWER_CLOSE_BELOW_PX, drawerAutoState } from './components/heroDrawer.js';
-import { flightDataForExport as flightDataForExportPure } from './services/orkFlightData.js';
+import {
+  flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
+} from './services/orkFlightData.js';
 import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -428,6 +430,12 @@ export function App() {
    * `padMassNote` seed, for the same reason as `legacyPadMass`.
    */
   const rankedPadMass = useRef<{ from?: string; to?: string; kg?: number } | null>(null);
+  /**
+   * The working set and configurations exactly as the session stored them,
+   * kept only when padMassOntoRankedPrimary moved a pad mass in either — for
+   * the one re-take of the saved mark below the mark's seed.
+   */
+  const preRankRestore = useRef<{ motors: Record<string, MountMotor>; configs: SavedConfig[] } | null>(null);
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) {
       // The pad mass moved from the measured box onto the motor's record in
@@ -443,6 +451,7 @@ export function App() {
       // core's carries it on the record that has just stopped being primary.
       const ranked = padMassOntoRankedPrimary(initialTree, m.motors);
       rankedPadMass.current = ranked;
+      if (ranked.motors !== m.motors) preRankRestore.current = { motors: m.motors, configs: session.savedConfigs ?? [] };
       return ranked.motors;
     }
     if (!defaultMountId) return {};
@@ -514,10 +523,19 @@ export function App() {
   // same way the working set's does above (audit 2026-09-22, row 356), or
   // applying one saved with a pod motor picked first would orphan it again.
   // A row nothing moves in is kept by identity.
-  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => (session?.savedConfigs ?? []).map((c) => {
-    const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
-    return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
-  }));
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => {
+    const stored = session?.savedConfigs ?? [];
+    const next = stored.map((c) => {
+      const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
+      return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
+    });
+    // Recorded for the saved-mark re-take, with the working set as it was
+    // restored (moved or not — the initializer above ran first).
+    if (next.some((c, i) => c !== stored[i])) {
+      preRankRestore.current = { motors: preRankRestore.current?.motors ?? mountMotors, configs: stored };
+    }
+    return next;
+  });
   const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
   /**
    * The WORKING SET's unmatched motor references, keyed by mount node id — the
@@ -1111,6 +1129,24 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A pad mass the restore moved onto the ranked primary (rankedPadMass) is
+  // not an edit: the file on disk carries it per configuration, not per mount,
+  // so it already IS the moved design. But the stored mark was taken over the
+  // design before the move, and the move changes the fingerprinted records —
+  // so a design the user had saved read as unsaved, ✕ New and Open asked, and
+  // the stale mark was autosaved to ask again on every reload (seam review of
+  // audit 2026-09-22). Re-taken over the moved design exactly when it
+  // described the design before the move, the same guard as the starter
+  // landing's below; a mark that did not (unsaved work) keeps its prompt.
+  useEffect(() => {
+    const pre = preRankRestore.current;
+    preRankRestore.current = null;
+    if (pre === null || savedMark.current === null) return;
+    if (designFingerprint({ ...designSnapshot, mountMotors: pre.motors, savedConfigs: pre.configs }) !== savedMark.current) return;
+    savedMark.current = designFingerprint(designSnapshot);
+    bumpDirty();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as restored
+  }, []);
   // ...and when the starter motor lands (one await after that seed), take the
   // mark again over the rocket WITH it — but only if the mark still describes
   // everything else on screen. An edit, a pick or an open that got in first
@@ -1189,6 +1225,9 @@ export function App() {
     setFileNote(null);
     setSimError(null);
     setShroudPrompt(null);
+    // And where a restored pad mass went: it names the motors and mounts of the
+    // design being cleared (seam review of audit 2026-09-22).
+    setPadMassNote(null);
     // A measured mass & CG describe the rocket that was WEIGHED, which is the
     // one being cleared — as an import and a Scale already treat them. Kept,
     // the pad-mass arithmetic (services/hardwareMass.ts) took the old rocket's
@@ -2459,7 +2498,16 @@ export function App() {
   }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
-  const toExportMotor = (mm: MountMotor): OrkExportMotor => {
+  /**
+   * `primaryAuto`: set for a configuration's PRIMARY mount, with the rounded
+   * optimum it flies on Auto, from the newest flight of the design that flew
+   * that optimum (flownAutoDelaysNow), if any. An
+   * Auto primary is written at that delay — what it flies — rather than its
+   * provisional first flight, which a Save used to write and a reopen then
+   * flew (seam review of audit 2026-09-22); with no such flight it keeps the
+   * provisional delay and the Save says so (autoDelaySaveNote).
+   */
+  const toExportMotor = (mm: MountMotor, primaryAuto?: { flownS: number | undefined }): OrkExportMotor => {
     // EX motors: the file gets the REAL manufacturer from the imported
     // .eng/.rse, never the "EX" browser badge (the desktop would hunt for a
     // manufacturer literally named EX and lose the motor), and never a
@@ -2482,6 +2530,7 @@ export function App() {
     // <type> per the desktop Motor.Type names: the file's own value verbatim
     // when the motor came from a .ork, else mapped from the thrustcurve
     // catalog type; omitted (never guessed) when neither is known.
+    const auto = mm.meta.autoDelay === true;
     const type = mm.meta.orkType
       ?? (mm.meta.type === 'SU' ? 'single'
         : mm.meta.type === 'reload' ? 'reload'
@@ -2497,7 +2546,9 @@ export function App() {
       ...(!ex && mm.meta.orkDigest ? { digest: mm.meta.orkDigest } : {}),
       diameter: mm.spec.diameter,
       length: mm.spec.length,
-      delay: mm.spec.ejectionDelay,
+      delay: (auto ? primaryAuto?.flownS : undefined) ?? mm.spec.ejectionDelay,
+      ...(auto ? { autoDelay: true as const } : {}),
+      ...(auto && primaryAuto ? { autoDelayFrom: primaryAuto.flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
       ignitionEvent: mm.ignition.event,
       ignitionDelay: mm.ignition.delay,
       // The weighed pad mass rides out with the motor it was weighed with; the
@@ -2533,10 +2584,10 @@ export function App() {
     return out;
   };
 
-  const exportMotorsMap = (): Record<string, OrkExportMotor> => {
+  const exportMotorsMap = (flown: Record<string, number> = {}): Record<string, OrkExportMotor> => {
     const motors: Record<string, OrkExportMotor> = {};
     for (const [id, mm] of assigned) {
-      motors[id] = toExportMotor(mm);
+      motors[id] = toExportMotor(mm, id === primaryMountId ? { flownS: flown[activeConfigId ?? ''] } : undefined);
     }
     // Motors the import could not resolve ride back out VERBATIM on any mount
     // that still has nothing on it. Without this the file the user saved came
@@ -2574,8 +2625,7 @@ export function App() {
    * file desktop OpenRocket renders indistinguishably from a fresh result. This
    * is the adapter that hands them the app's state.
    */
-  const flightDataForExport = useCallback((): Record<string, OrkExportFlightData> => (
-    flightDataForExportPure({
+  const flightExportInput = useCallback((): FlightDataForExportInput => ({
       runs,
       savedConfigs,
       activeConfigId,
@@ -2598,9 +2648,17 @@ export function App() {
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
-    })
-  ), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
+  }), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
+  const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
+  /**
+   * The rounded optimum each Auto primary flies, from the newest flight of the
+   * design that flew it, by configuration id ('' for none) — what a .ork, a
+   * .rkt and a share link write for it (orkFlightData.flownAutoDelays), from
+   * the same input the results above are judged on, so a file never names one
+   * delay and carries the flight of another.
+   */
+  const flownAutoDelaysNow = (): Record<string, number> => flownAutoDelays(flightExportInput());
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2609,7 +2667,9 @@ export function App() {
    * defaults to state; onSaveOrk passes the set it has just written the
    * working set back into, so the file and the mark agree.
    */
-  const exportConfigs = (configs: SavedConfig[] = savedConfigs): OrkExportConfig[] => configs.map((c) => ({
+  const exportConfigs = (
+    configs: SavedConfig[] = savedConfigs, flown: Record<string, number> = {},
+  ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
     // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
     // for any mount this configuration could not match, so a preset the user
@@ -2619,8 +2679,11 @@ export function App() {
     motors: padMassOnPrimaryOnly({
       ...Object.fromEntries(
         Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
-      ...Object.fromEntries(
-        Object.entries(c.motors).map(([id, mm]) => [id, toExportMotor(mm)])),
+      ...(() => {
+        const primary = primaryMountOf(tree, Object.keys(c.motors));
+        return Object.fromEntries(Object.entries(c.motors).map(([id, mm]) =>
+          [id, toExportMotor(mm, id === primary ? { flownS: flown[c.id] } : undefined)]));
+      })(),
     }, tree),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
@@ -2649,7 +2712,13 @@ export function App() {
    * where — "I did a save as a CDX1 and I don't know where it went" is a
    * tester's own sentence, and silence is what made it possible.
    */
-  const download = async (content: string | Uint8Array, ext: string, suffix = '') => {
+  const download = async (
+    content: string | Uint8Array, ext: string, suffix = '',
+    // What the written file could not carry (exportRkt's `notes`), said under
+    // the save line as a warning — never when the user cancelled, because
+    // then no file exists to have lost anything.
+    losses: readonly string[] = [],
+  ) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
     // Same convention as the flight-data and run-history CSVs (SimResults).
@@ -2662,20 +2731,10 @@ export function App() {
       extensions: [`.${ext}`],
       description: info.description,
     });
-    if (out.kind === 'downloaded') {
-      setFileNote(out.fellBack
-        // The dialog opened and then the write failed — a full disk, a locked
-        // file, a revoked permission. Reporting a plain success there would
-        // send the user looking in the folder they picked.
-        ? `Couldn't write to the folder you chose (${out.fellBack}) — `
-          + `“${out.name}” went to your browser's download folder instead.`
-        : `Saved “${out.name}” to your browser's download folder.`,
-      out.fellBack ? 'warn' : 'info');
-    } else if (out.kind === 'saved') {
-      setFileNote(`Saved “${out.name}”.`);
-    }
-    // 'cancelled' says nothing — the user pressed Cancel, and an app that
-    // reports on that is an app that nags.
+    // Where it went, and what it could not carry (saveOutcomeNote); a
+    // cancelled dialog says nothing.
+    const said = saveOutcomeNote(out, losses);
+    if (said) setFileNote(said.text, said.severity);
     return out;
   };
 
@@ -2707,13 +2766,21 @@ export function App() {
       // over the synced set (importApply.planOrkSave says why).
       const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
       if (synced !== savedConfigs) setSavedConfigs(synced);
+      // Every Auto primary at the delay it flew, and a line for each the file
+      // cannot carry that way (autoDelaySaveNote) — once per motor, though the
+      // active configuration's goes through both maps.
+      const flown = flownAutoDelaysNow();
+      const motors = exportMotorsMap(flown);
+      const configs = exportConfigs(synced, flown);
+      const losses = [...new Set([...Object.values(motors), ...configs.flatMap((c) => Object.values(c.motors))]
+        .map((m) => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
       // WITH launch: the .ork's first <simulation> carries the pad and weather,
       // so the file (and the desktop app) round-trips the whole flight setup.
       const out = await download(exportOrk({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
-        configs: exportConfigs(synced), activeConfigId, measured,
+        name: tree.name ?? 'My Rocket', tree, motors, launch,
+        configs, activeConfigId, measured,
         flightData: flightDataForExport(),
-      }), 'ork');
+      }), 'ork', '', losses);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (out.kind !== 'cancelled') markSaved(mark);
@@ -2759,7 +2826,11 @@ export function App() {
         };
         collect(tree.components);
       }
-      await download(exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), compInfo }), 'rkt');
+      const losses: string[] = [];
+      const xml = exportRkt({
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,
+      });
+      await download(xml, 'rkt', '', losses);
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -2882,8 +2953,11 @@ export function App() {
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
     // A simulation error belonged to the design that threw it, and that design
-    // has just been replaced.
+    // has just been replaced — as did the motors and mounts a pad-mass notice
+    // names (seam review of audit 2026-09-22). One the opened file earns is
+    // written after this, by the reconcile effect.
     setSimError(null);
+    setPadMassNote(null);
     setSelectedId(null);
   };
 
@@ -3054,12 +3128,13 @@ export function App() {
    */
   const onCopyShareLink = async () => {
     try {
+      const flown = flownAutoDelaysNow();
       const xml = exportOrk({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(), launch,
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
         // Included so a share link reproduces exactly what saving the file
         // reproduces — the recipient sees the sender's weighed build, which is
         // the rocket the "Build allowance" in the tree belongs to.
-        configs: exportConfigs(), activeConfigId, measured,
+        configs: exportConfigs(savedConfigs, flown), activeConfigId, measured,
         // Same rule: a link must open to the same file a save would write.
         flightData: flightDataForExport(),
       });

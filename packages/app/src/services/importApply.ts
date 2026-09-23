@@ -7,7 +7,8 @@ import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import type { Sequencer } from './latestWins.js';
 import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import {
-  fmtStepS, type MeasuredFigures, type OrkImportResult, type OrkMotorRef, type OrkTreeImportResult,
+  fmtStepS, type MeasuredFigures, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+  type OrkTreeImportResult,
 } from './orkFile.js';
 import { padMassSetKey, syncActiveConfig } from './configSync.js';
 import {
@@ -18,7 +19,8 @@ import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import { separationEventOrDefault } from '../tree/sanitize.js';
 import {
-  applyStageNozzles, emptyTree, findNode, motorMounts, normalizeTree, primaryMountOf, updateNode,
+  applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountsIn, normalizeTree, primaryMountOf,
+  updateNode,
 } from '../tree/treeModel.js';
 
 /**
@@ -53,7 +55,7 @@ import {
  * flight-configuration fields.
  */
 export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId'>>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & { machAlt?: [number, number][] };
@@ -105,6 +107,13 @@ export interface ResolvedImportMotors {
    * its motors are `working`, reused rather than re-fetched.
    */
   configs: Record<string, Record<string, MountMotor | undefined>>;
+  /**
+   * The same matches whole — note and reason included — for the configuration
+   * planImport opens instead of the reader's pick (see flyablePick), whose
+   * unloaded motors then have to be reported the way `working`'s are. Optional
+   * so a hand-built resolution in a test need not carry it.
+   */
+  configResults?: Record<string, Record<string, MotorMatchResult>>;
 }
 
 /**
@@ -122,15 +131,173 @@ export async function resolveImportMotors(
   }
   const chosenId = imported.chosenConfigId ?? null;
   const configs: Record<string, Record<string, MountMotor | undefined>> = {};
+  const configResults: Record<string, Record<string, MotorMatchResult>> = {};
   for (const cfg of imported.configs ?? []) {
     if (cfg.id === chosenId) continue;
     const matched: Record<string, MountMotor | undefined> = {};
+    const results: Record<string, MotorMatchResult> = {};
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
-      matched[nodeId] = (await match(ref)).motor;
+      results[nodeId] = await match(ref);
+      matched[nodeId] = results[nodeId].motor;
     }
     configs[cfg.id] = matched;
+    configResults[cfg.id] = results;
   }
-  return { working, configs };
+  return { working, configs, configResults };
+}
+
+/** The configuration planImport opens in place of the reader's pick, and why. */
+interface FlyablePick {
+  cfg: OrkFlightConfig;
+  /** Its references' matches, in `working`'s shape. */
+  matches: Record<string, MotorMatchResult>;
+  /** The warning that names the simulation passed over and the motor it lacks. */
+  skipNote: string;
+}
+
+/**
+ * WHICH CONFIGURATION AN OPEN SHOWS, once the catalogue has been asked (seam
+ * review of audit 2026-09-22 — the one outcome regression on real designs).
+ *
+ * The .rkt reader makes each stored simulation a configuration and opens the
+ * first that motors the launch stage, but it cannot see the catalogue. 31 real
+ * designs — seven of them the owner's: Level2-PELTZER.rkt, 4in WM Extreme.rkt,
+ * Wildman_2stage.rkt … — flew on open at v0.137, when the last engine set in
+ * the file won each mount, and afterwards opened on a first simulation whose
+ * motor is not in the database (Level2-PELTZER's J240-RL): no motor loaded, no
+ * primary mount, Launch unavailable, and a note sending the user to Browse
+ * motor database while six of its seven configurations fly. Swept offline over
+ * the 593 multi-configuration .rkt files in the owner's RockSim corpus and the
+ * tester uploads, 36 opened that way; with this all 36 open on one that can
+ * leave the pad, and the 6 still opening with no motor have none that could.
+ *
+ * So: when the reader's pick puts nothing loadable on the stage that lifts off
+ * (its own lowest motorised stage) and another configuration does, open the
+ * first such — one that motors the tree's bottom stage before one that only
+ * motors a stage above it, the reader's own preference. Only where the READER
+ * chose (`configSources`): a .ork names its default configuration itself, and
+ * that is its author's choice, kept even when it cannot fly. A reader's pick
+ * with no motors, or with nothing better to go to, is kept as it was.
+ *
+ * The .rkt reader's sentence for a configuration that motors only an upper
+ * stage (its openedNoteFor) says no simulation that motors the bottom stage has
+ * a motor there that loads — true only because of the preference above. Keep
+ * the two together.
+ */
+function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): FlyablePick | null {
+  const sources = imported.configSources;
+  const configs = imported.configs ?? [];
+  const chosen = configs.find((c) => c.id === imported.chosenConfigId);
+  if (!sources || !chosen || configs.length < 2) return null;
+  const stageOf = new Map<string, number>();
+  asStageNodes(imported.tree).forEach((s, i) => {
+    for (const m of mountsIn(s.children ?? [])) if (m.id) stageOf.set(m.id, i);
+  });
+  const bottom = asStageNodes(imported.tree).length - 1;
+  const loaded = (c: OrkFlightConfig, id: string): boolean =>
+    c === chosen ? !!resolved.working[id]?.motor : !!resolved.configs[c.id]?.[id];
+  /** The mounts that light first: the configuration's lowest motorised stage. */
+  const liftoff = (c: OrkFlightConfig): string[] => {
+    const ids = Object.keys(c.motors).filter((id) => stageOf.has(id));
+    if (ids.length === 0) return [];
+    const lowest = Math.max(...ids.map((id) => stageOf.get(id)!));
+    return ids.filter((id) => stageOf.get(id) === lowest);
+  };
+  const flies = (c: OrkFlightConfig): boolean => liftoff(c).some((id) => loaded(c, id));
+  const own = liftoff(chosen);
+  if (own.length === 0 || flies(chosen)) return null;
+  const candidates = configs.filter((c) => c !== chosen && flies(c));
+  const cfg = candidates.find((c) => liftoff(c).some((id) => stageOf.get(id) === bottom)) ?? candidates[0];
+  if (!cfg) return null;
+  const results = resolved.configResults?.[cfg.id] ?? {};
+  const matches: Record<string, MotorMatchResult> = {};
+  for (const [id, ref] of Object.entries(cfg.motors)) {
+    const motor = resolved.configs[cfg.id]?.[id];
+    matches[id] = results[id] ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${ref.designation}” could not be loaded.` };
+  }
+  // Why the reader's pick was passed over, per motor, in the matcher's own
+  // terms but WITHOUT its advice: "pick one via Browse motor database" is the
+  // wrong fix when another configuration of the same file flies.
+  const why = own.map((id) => {
+    const d = chosen.motors[id]!.designation;
+    const missing = resolved.working[id]?.missing;
+    return missing === 'database' ? `${d} isn't in the motor database`
+      : missing === 'curve' ? `${d} is in the motor database but has no thrust curve`
+        : `${d} could not be loaded`;
+  });
+  const skipNote = `${sources[chosen.id] ?? 'The first simulation'} was not opened: `
+    + `${[...new Set(why)].join('; ')}, so it could not leave the pad.`;
+  return { cfg, matches, skipNote };
+}
+
+/**
+ * The reader's notes with one configuration's (`configNotes`) swapped for
+ * another's, at the place the first one's stood — the rest keep their order.
+ */
+function swapConfigNotes(
+  notes: readonly string[], configNotes: Record<string, string[]> | undefined,
+  from: string, to: string, lead: string,
+): string[] {
+  const out = [...notes];
+  let at = -1;
+  for (const n of configNotes?.[from] ?? []) {
+    const i = out.indexOf(n);
+    if (i < 0) continue;
+    if (at < 0 || i < at) at = i;
+    out.splice(i, 1);
+  }
+  out.splice(at < 0 ? out.length : at, 0, lead, ...(configNotes?.[to] ?? []));
+  return out;
+}
+
+/**
+ * A configuration's recovery deployments, separations and nozzles written onto
+ * the tree — what switching to it puts there beyond its motors. ONE rule, for
+ * the configuration switch and for an open that shows a configuration other
+ * than the one the reader baked into the tree (flyablePick).
+ */
+export function configOntoTree(
+  tree: RocketTree,
+  cfg: Pick<SavedConfig, 'deployments' | 'separations' | 'nozzles'>,
+): RocketTree {
+  const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
+  const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
+  const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
+  let next = tree;
+  if (!hasDeploy && !hasSep && !hasNozzles) return next;
+  // The nozzle is the flown motor's, so it switches with the motors: a
+  // RASAero file's simulations can each state a different one (0 removes
+  // it — the previous configuration's must not linger, same rule as the
+  // separation write below).
+  if (hasNozzles) next = applyStageNozzles(next, cfg.nozzles!);
+  for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
+    if (!findNode(next, nodeId)) continue;
+    next = updateNode(next, nodeId, {
+      ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
+      ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
+      ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
+    });
+  }
+  // Separation must be written even when it is the kernel default
+  // ("ejection"): the point is to REPLACE whatever the previously applied
+  // configuration left behind, so skipping the default would strand a
+  // "never" from the last one.
+  //
+  // The event in the kernel's spelling, or desktop's default: a saved
+  // configuration lives outside the tree, so the load boundary's sanitize
+  // pass never sees it, and OrkEngine THROWS on a value it does not know —
+  // which failed the whole build the moment the configuration was applied
+  // (audit 2026-09-22). The .ork reader repairs one with a note; this
+  // guards a configuration a session saved before it did.
+  for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
+    if (!findNode(next, nodeId)) continue;
+    next = updateNode(next, nodeId, {
+      ...(sep.separationEvent !== undefined ? { separationEvent: separationEventOrDefault(sep.separationEvent) } : {}),
+      ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
+      ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
+    });
+  }
+  return next;
 }
 
 /** What App writes for an opened design, and the mark it takes over it. */
@@ -161,7 +328,17 @@ export function planImport(
   ctx: { launch: LaunchConditions; text: StatedWeightText },
 ): ImportPlan {
   const massText = ctx.text.mass;
-  const notes: string[] = [`Loaded “${imported.name}”.`, ...imported.notes];
+  // The configuration to show: the reader's, unless it cannot leave the pad
+  // and another can (flyablePick). Everything below reads these three — the
+  // working set's references, their matches and the reader's notes — so a
+  // re-pick opens the design exactly as if the reader had chosen it.
+  const pick = flyablePick(imported, resolved);
+  const openRefs = pick ? pick.cfg.motors : imported.motors;
+  const openMatches = pick ? pick.matches : resolved.working;
+  const readerNotes = pick
+    ? swapConfigNotes(imported.notes, imported.configNotes, imported.chosenConfigId!, pick.cfg.id, pick.skipNote)
+    : imported.notes;
+  const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
   // Load EVERY mount's motor (staged/multi-mount files included).
   //
   // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched
@@ -176,8 +353,8 @@ export function planImport(
   // The refs nothing resolved, kept whole so Save writes them back verbatim
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
   const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
-  for (const [nodeId, ref] of Object.entries(imported.motors)) {
-    const { motor: mm, note, approximated } = resolved.working[nodeId] ?? { note: '' };
+  for (const [nodeId, ref] of Object.entries(openRefs)) {
+    const { motor: mm, note, approximated } = openMatches[nodeId] ?? { note: '' };
     if (mm) nextMotors[nodeId] = mm;
     else nextUnmatchedRefs[nodeId] = ref;
     // A built-in standing in for a database motor whose curve would not
@@ -188,12 +365,14 @@ export function planImport(
   // Stage B: every configuration in the file becomes a ready-to-apply
   // preset, matched in the same pass. Only the APPLIED config's notes
   // surface — a preset's failures are reported if/when it is applied.
-  const chosenId = imported.chosenConfigId ?? null;
+  const chosenId = pick?.cfg.id ?? imported.chosenConfigId ?? null;
   // Normalised BEFORE the configuration loop (it keeps ids): the pad-mass
-  // attach below needs the tree's stage order and cluster counts.
+  // attach below needs the tree's stage order and cluster counts. A re-pick
+  // puts ITS configuration's recovery, separation and nozzle on the tree, as
+  // switching to it would — the reader baked in its own pick's.
   // `let`, because the stated-launch-weight reconcile below may rewrite a
   // stage's overrides once the applied configuration's motors are known.
-  let importedTree = normalizeTree(imported.tree);
+  let importedTree = pick ? configOntoTree(normalizeTree(imported.tree), pick.cfg) : normalizeTree(imported.tree);
   const nextConfigs: SavedConfig[] = [];
   for (const cfg of imported.configs ?? []) {
     const cfgMotors: Record<string, MountMotor> = {};
@@ -201,8 +380,11 @@ export function planImport(
     const cfgUnmatchedRefs: Record<string, OrkMotorRef> = {};
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       // The applied config's motors were matched (and reported) above —
-      // reused rather than re-fetching the same thrust curves.
-      const mm = cfg.id === chosenId ? nextMotors[nodeId] : resolved.configs[cfg.id]?.[nodeId];
+      // reused rather than re-fetching the same thrust curves; the reader's
+      // pick, when planImport opened another, from `working`.
+      const mm = cfg.id === chosenId ? nextMotors[nodeId]
+        : cfg.id === imported.chosenConfigId ? resolved.working[nodeId]?.motor
+          : resolved.configs[cfg.id]?.[nodeId];
       if (mm) cfgMotors[nodeId] = mm;
       else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
     }
@@ -280,8 +462,9 @@ export function planImport(
   // import note orange — the same signal pollution the time-step note is
   // deliberately counted after (see its comment below). The reconcile's own
   // severity is ORed in separately, so a reconcile that had to CLEAR an
-  // override still warns.
-  const motorTrouble = notes.length > 1 + imported.notes.length;
+  // override still warns. A re-pick is trouble too: the file's own first
+  // choice names a motor this app cannot load.
+  const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length;
   const spent = reconcileAllIncludedMotors(importedTree, attachedSet(nextMotors), ctx.text);
   importedTree = spent.tree;
   notes.push(...spent.notes);
@@ -450,45 +633,9 @@ export function planConfigSwitch(
   // it — the one thing picking a configuration at file-open used to do that
   // this panel could not. Applying them makes the panel a complete switch,
   // which is what lets the open-time picker go away.
-  // Folded into one tree, so the switch is written once.
-  const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
-  const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
+  // Folded into one tree, so the switch is written once (configOntoTree).
   const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
-  let next = state.tree;
-  if (hasDeploy || hasSep || hasNozzles) {
-    // The nozzle is the flown motor's, so it switches with the motors: a
-    // RASAero file's simulations can each state a different one (0 removes
-    // it — the previous configuration's must not linger, same rule as the
-    // separation write below).
-    if (hasNozzles) next = applyStageNozzles(next, cfg.nozzles!);
-    for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
-      if (!findNode(next, nodeId)) continue;
-      next = updateNode(next, nodeId, {
-        ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
-        ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
-        ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
-      });
-    }
-    // Separation must be written even when it is the kernel default
-    // ("ejection"): the point is to REPLACE whatever the previously applied
-    // configuration left behind, so skipping the default would strand a
-    // "never" from the last one.
-    //
-    // The event in the kernel's spelling, or desktop's default: a saved
-    // configuration lives outside the tree, so the load boundary's sanitize
-    // pass never sees it, and OrkEngine THROWS on a value it does not know —
-    // which failed the whole build the moment the configuration was applied
-    // (audit 2026-09-22). The .ork reader repairs one with a note; this
-    // guards a configuration a session saved before it did.
-    for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
-      if (!findNode(next, nodeId)) continue;
-      next = updateNode(next, nodeId, {
-        ...(sep.separationEvent !== undefined ? { separationEvent: separationEventOrDefault(sep.separationEvent) } : {}),
-        ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
-        ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
-      });
-    }
-  }
+  let next = configOntoTree(state.tree, cfg);
   // Applying a configuration is the THIRD way a motor lands on a mount, and
   // until 2026-09-08 it was the one that ran no reconcile at all — so a
   // RASAero stage still holding an unidentified motor's weight got the new

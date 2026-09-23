@@ -2030,8 +2030,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     // tube it builds. A fin set on the shoulder or the boat tail has no such
     // location (audit 2026-09-22): written relative to that transition, a fin
     // on a boat tail re-opened on the body, moved aft by the boat tail's
-    // length. Refused, never dropped — desktop only looks for fins on the
-    // tubes (BoosterDTO.getFinSetFromBodyTube) and so loses these silently.
+    // length. Refused, never dropped — as desktop refuses it, though in other
+    // words: it looks for fins on the booster's tubes alone
+    // (BoosterDTO.getFinSetFromBodyTube), finds none, and throws
+    // RASAeroExport.error16, "Body tube '…' in stage '…' must have a
+    // TrapezoidFinSet", which RASAeroSaver adds to the save's errors and the
+    // save fails. It does not lose them silently, as this comment used to say.
     const finParent = finParents[0];
     if (finParent && finParent.type !== 'bodytube') {
       const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;

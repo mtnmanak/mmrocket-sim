@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flightDataForExport, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
+import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import type { SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../App.js';
 
@@ -42,6 +42,7 @@ const RUN: SimRun = {
   rodExitVelocity: 19.3,
   velocityAtDeployment: 12.1,
   optimumDelayS: 7,
+  recommendedDelayS: 7,
 } as unknown as SimRun;
 
 const CONFIG: SavedConfig = {
@@ -248,5 +249,60 @@ describe('flightDataForExport — the flown delay must be the one the file names
   it('writes a plugged motor’s run — Infinity is the delay it flew and the one the file names', () => {
     const plugged = withDelay(Infinity);
     expect(ids({ runs: [{ ...RUN, delayS: Infinity } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
+  });
+});
+
+/**
+ * AUTO DELAY THROUGH A SAVE (seam review of audit 2026-09-22). Neither a .ork
+ * nor a .rkt can hold "Auto (optimal)", and a Save wrote the motor's
+ * provisional first-flight delay — 0 s for a motor that lists no numeric
+ * delay, which reopened firing at burnout. The delay the Auto primary's newest
+ * flight of the design as it stands flew is what the file now names, and the
+ * flight data written beside it is that flight's.
+ */
+describe('flownAutoDelays — what an Auto primary flew, and what the file names', () => {
+  const auto = (spec: number): MountMotor =>
+    ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: spec }, meta: { ...MOTOR.meta, autoDelay: true } }) as MountMotor;
+
+  it('takes the delay the newest matching flight of an Auto primary flew', () => {
+    // Provisional 3 s; the flight re-flew at the optimum, 7 s.
+    const input = base({ assigned: [['m1', auto(3)]] });
+    expect(flownAutoDelays(input)).toEqual({ c1: 7 });
+    // And the file, now naming 7 s, carries that flight's results.
+    expect(Object.keys(flightDataForExport(input))).toEqual(['c1']);
+    const newer = { ...RUN, id: 'r0', delayS: 6, recommendedDelayS: 6 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [newer, RUN], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 6 });
+  });
+
+  it('reads a design with no configurations from its configuration-less flights', () => {
+    const loose = { ...RUN, flightConfigId: undefined } as unknown as SimRun;
+    expect(flownAutoDelays(base({ runs: [loose], savedConfigs: [], activeConfigId: null, assigned: [['m1', auto(0)]] })))
+      .toEqual({ '': 7 });
+    // Not while a configuration is on screen: that flight was not of this set.
+    expect(flownAutoDelays(base({ runs: [loose], assigned: [['m1', auto(0)]] }))).toEqual({});
+  });
+
+  /**
+   * A FLIGHT AT A FIXED DELAY IS NOT AUTO'S (review of the seam fixes). A run's
+   * motor-set key carries the spec delay and not the Auto flag (motorSetKeyOf),
+   * and ticking Auto (optimal) changes nothing else, so a C6 flown at a fixed
+   * 3 s and then put on Auto matched as its flight: saved at 3 s, "the delay
+   * its last flight here flew", where Auto flies its rounded optimum, 5 s.
+   */
+  it('takes only a flight that flew its rounded optimum — the delay Auto flies', () => {
+    const fixed = { ...RUN, id: 'r0', delayS: 3, recommendedDelayS: 5 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [fixed], assigned: [['m1', auto(3)]] }))).toEqual({});
+    // An older flight on Auto behind it still says what Auto flies.
+    const onAuto = { ...RUN, delayS: 5, recommendedDelayS: 5 } as SimRun;
+    expect(flownAutoDelays(base({ runs: [fixed, onAuto], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 5 });
+    // No optimum at all: nothing says what Auto flies.
+    const none = { ...RUN, recommendedDelayS: null } as unknown as SimRun;
+    expect(flownAutoDelays(base({ runs: [none], assigned: [['m1', auto(3)]] }))).toEqual({});
+  });
+
+  it('names nothing for a primary not on Auto, or with no flight of the design as it stands', () => {
+    expect(flownAutoDelays(base())).toEqual({});
+    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], designKey: 'design-B' }))).toEqual({});
+    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], motorSetKeyOf: () => 'set-B' }))).toEqual({});
   });
 });
