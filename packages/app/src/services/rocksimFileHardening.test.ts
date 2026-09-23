@@ -215,3 +215,32 @@ describe('an unreadable .rkt number is named, not silently defaulted (audit 2026
     expect(note).toMatch(/<EjectionDelay> “five”/);
   });
 });
+
+describe('a refused .rkt fin outline is replaced by one the user can see (audit 2026-09-22)', () => {
+  const crossing = rktXml('<CustomFinSet><Name>Fins</Name><FinCount>3</FinCount><Thickness>3</Thickness>'
+    + '<Xb>0</Xb><LocationMode>2</LocationMode><PointList>60,0|0,30|60,30|0,0|</PointList></CustomFinSet>');
+  const finIn = (r: ReturnType<typeof importRkt>) =>
+    flatten(r.tree.components).find((n) => n.type === 'freeformfinset')!;
+
+  it('carries the outline the simulator flies, and the note says so', () => {
+    const r = importRkt(crossing);
+    // Left with no points, the kernel flew FreeformFinSet's own 50 mm default
+    // while the side view, the fin editor and every export drew nothing.
+    expect(finIn(r)['points']).toEqual([[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]]);
+    expect(r.notes.some((n) => /outline was not used — .*keeps a default outline/.test(n))).toBe(true);
+  });
+
+  it('flies exactly what the empty set flew — the kernel default, made visible', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const tree = importRkt(crossing).tree;
+    const withDefault = OrkRocket.buildTree(engineTree(tree)).staticInfo();
+    const fin = finIn({ tree } as ReturnType<typeof importRkt>);
+    delete fin['points'];
+    const empty = OrkRocket.buildTree(engineTree(tree)).staticInfo();
+    expect(withDefault.mass).toBe(empty.mass);
+    expect(withDefault.cp).toBe(empty.cp);
+    expect(withDefault.cg).toBe(empty.cg);
+  }, 60000);
+});

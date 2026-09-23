@@ -69,6 +69,16 @@ const PENDING_BASE_EXT = '__rktBaseExt';
  */
 type NumReader = (el: Element, tag: string, fb: number) => number;
 
+/**
+ * The outline a FreeformFinSet is born with in the kernel (carved
+ * FreeformFinSet.java:30-34: (0,0) (0.025,0.05) (0.075,0.05) (0.05,0), metres)
+ * — what a freeform set with no `points` flies. Given explicitly to a set whose
+ * file outline is refused, so the fin that flies is the fin on screen.
+ */
+const KERNEL_DEFAULT_FIN_POINTS: readonly (readonly [number, number])[] = [
+  [0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0],
+];
+
 const NOSE_SHAPES: Record<string, string> = lookupTable({
   '0': 'conical', '1': 'ogive', '2': 'ellipsoid', '3': 'ellipsoid',
   '4': 'power', '5': 'parabolic', '6': 'haack',
@@ -704,6 +714,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           if (!outlineProblem) {
             n['points'] = parsed.pts;
           } else {
+            // The default outline is WRITTEN, not implied (audit 2026-09-22).
+            // Left with no points the node reached the kernel as a
+            // FreeformFinSet with its own constructor outline — a 50 mm fin —
+            // while the side view, the fin editor and every export drew
+            // nothing, so the stability came from a fin the user could neither
+            // see nor edit. The same outline, stated, flies the same numbers
+            // and makes this note's "keeps a default outline" true on screen.
+            n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
             const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
             if (!notes.includes(note)) notes.push(note);
           }
