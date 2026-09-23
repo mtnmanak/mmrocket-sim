@@ -136,7 +136,7 @@ describe('the weather dialog', () => {
     expect(row('longitudeDeg')!.textContent).toContain('blank (−80.6 flown)');
     expect(row('latitudeDeg')!.textContent).toContain('(Gerlach, Nevada, US — town centre)');
     const context = q('.weather-context')!.textContent!;
-    expect(context).toMatch(/Wind from 294° \(WNW\) — the\s+app’s wind has no direction\./);
+    expect(context).toMatch(/Wind from 294° \(WNW\) — the\s+app’s wind has no direction; set Rod aim yourself\./);
     expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\)/);
     // Step 4's preview: offered in the panel after Apply, never set by it.
     expect(context).toMatch(/σ from this gust ≈ 0\.9 m\/s — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);

@@ -457,8 +457,12 @@ export function WeatherDialog({
 
             <ul className="weather-context">
               {proposal.sample.windFromDeg !== null && (
+                // Display only, never applied — and never written into Rod aim
+                // either: the aim is the rod's angle TO the wind, which a
+                // bearing cannot tell without knowing the rail (weather build,
+                // step 2, trap 8). Only the user at the pad knows that.
                 <li>Wind from {Math.round(proposal.sample.windFromDeg)}° ({compassPoint(proposal.sample.windFromDeg)}) — the
-                  app’s wind has no direction.</li>
+                  app’s wind has no direction; set Rod aim yourself.</li>
               )}
               {proposal.sample.windGustMs !== null && (
                 <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before) — see
