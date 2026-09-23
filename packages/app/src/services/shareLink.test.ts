@@ -57,6 +57,15 @@ describe('share-link codec', () => {
     await expect(decodeShareFragment('#d=1.AAAAAAAA')).rejects.toThrow();
   });
 
+  it('names a damaged stream plainly, and keeps the browser\'s own error as its cause', async () => {
+    // The rethrow replaces Chromium's misleading "Failed to fetch" for the
+    // user, but the original is what a bug report needs (audit 2026-09-22).
+    const err = await decodeShareFragment('#d=1.AAAAAAAA').then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('the compressed data is corrupt or cut short');
+    expect((err as Error).cause).toBeDefined();
+  });
+
   it('rejects a truncated link (the chat-app failure mode)', async () => {
     const frag = await encodeShareFragment(XML);
     await expect(decodeShareFragment(frag.slice(0, Math.floor(frag.length / 2))))

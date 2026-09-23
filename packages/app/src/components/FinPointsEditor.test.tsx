@@ -146,4 +146,31 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(alertText()).toContain('crosses itself');
     expect(alertText()).not.toContain('The fin is unchanged.');
   });
+
+  it('shows the 3-point starter for a set with too few points, and an edit never leaks into it', () => {
+    // Pins the fallback outline across the 2026-09-22 lint fix that moved it
+    // to module scope (one shared array instead of a fresh one per render).
+    const starterRows = () => [
+      field('Point 2 x').value, field('Point 2 y').value, field('Point 3 x').value,
+    ];
+    render([]);
+    expect(starterRows()).toEqual(['20', '30', '50']);
+
+    type(field('Point 2 y'), '25');
+    expect(committed).toEqual([[[0, 0], [0.020, 0.025], [0.050, 0]]]);
+    const add = [...host.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('Add point'))!;
+    act(() => { add.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // The prop never changed, so this splits the STARTER's last edge.
+    const split = committed[1]!;
+    expect(split.length).toBe(4);
+    expect(split[2]![0]).toBeCloseTo(0.035, 12);
+    expect(split[2]![1]).toBeCloseTo(0.015, 12);
+    // A consumer that edits the emitted outline in place must not reach the
+    // starter the next freeform set is drawn from.
+    try { split[1]![1] = 0.099; split[3]![0] = 0.099; } catch { /* a frozen starter refuses: also fine */ }
+
+    render([[0, 0], [0.050, 0]]);
+    expect(starterRows()).toEqual(['20', '30', '50']);
+  });
 });

@@ -1149,7 +1149,11 @@ export function App() {
   const dirty = useMemo(
     () => isDirty(designFingerprint(designSnapshot), savedMark.current, flownSinceSave.current),
     // dirtyTick is how the two REFS above announce a change — markSaved and
-    // the flown-since-save flag do not re-render on their own.
+    // the flown-since-save flag do not re-render on their own. The rule sees a
+    // dep the callback never reads and calls it unnecessary; removing it would
+    // freeze `dirty` at its last value after a save or a flight, so the Open
+    // prompt and the unsaved-work guard would read a stale answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dirtyTick re-keys the memo on a ref write; see above
     [designSnapshot, dirtyTick],
   );
   /**
@@ -1702,7 +1706,12 @@ export function App() {
     // Results tab says which model it was flown on when that is no longer the
     // current one, and the strip's Apogee cell carries the same mark. Silent
     // re-labelling is the thing to avoid, not the stale number itself.
-  }, [physicsKey, mountMotors, launch]);
+    //
+    // reflightCache IS listed, and never re-runs this: it is a ref's
+    // `.current`, one Map for the life of the app. It is named so the rule can
+    // see the whole closure — the lint ceiling is 0, so a genuinely missing
+    // dep added here later cannot hide behind this one.
+  }, [physicsKey, mountMotors, launch, reflightCache]);
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -1883,7 +1892,7 @@ export function App() {
       + ` and CG ${fmtSi('length', prefs.units.length, measured.cgM, 3)} ${prefs.units.length}. `
       + 'Clear it under Overrides to go back to the computed geometry.');
     setSelectedId(blocker.id);
-  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote]);
+  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree]);
 
   /**
    * Everything transient the user should see, in one channel with a severity.

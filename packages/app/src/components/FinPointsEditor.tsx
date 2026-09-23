@@ -34,6 +34,17 @@ const HIT_RADIUS = 12; // screen px, generous grab target
 /** Client px a press may wander before it moves a point: a physical click
  *  jitters 1-3 px. The same 4 px the 2D side view gives a click (its PAN_SLOP). */
 const PRESS_SLOP = 4;
+/**
+ * The outline shown for a set with fewer than 3 points. Module-level so its
+ * identity is stable: built inline it was a fresh array every render, which
+ * re-ran the two `[committed]` memos below on every render. FROZEN because it
+ * is now shared: "+ Add point" emits an outline that reuses its tuples, and a
+ * consumer writing into those would otherwise redraw the next set's starter
+ * (FinPointsEditor.test.tsx pins that it cannot).
+ */
+const STARTER_OUTLINE: FinPoint[] = [[0, 0], [0.02, 0.03], [0.05, 0]];
+for (const p of STARTER_OUTLINE) Object.freeze(p);
+Object.freeze(STARTER_OUTLINE);
 
 /** The press this editor is following — see onPointerMove. */
 interface Press {
@@ -111,7 +122,7 @@ export function FinPointsEditor({ points, onChange }: {
   onChange: (next: FinPoint[]) => void;
 }) {
   const { prefs } = usePrefs();
-  const committed: FinPoint[] = points.length >= 3 ? points : [[0, 0], [0.02, 0.03], [0.05, 0]];
+  const committed: FinPoint[] = points.length >= 3 ? points : STARTER_OUTLINE;
 
   // Live points during a drag (null = not dragging → render committed).
   const [livePts, setLivePts] = useState<FinPoint[] | null>(null);

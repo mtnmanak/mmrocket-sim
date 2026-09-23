@@ -82,13 +82,14 @@ jobs:
       # eight suppression comments in the source sat inert for months because no
       # linter was installed to honour them. Errors fail the job.
       #
-      # Warnings do not fail it, but the COUNT is now a ceiling (2026-09-08). It
-      # had drifted from 12 to 17 with 5 of those pure rot; it is 8 now — inert suppressions
-      # honouring nothing — and a number that only ever climbs is one nobody
-      # reads. --max-warnings pins it at the count on the day it was set, so the
-      # figure can go down and never up; lower it when you clear some, and think
-      # twice before raising it.
-      - run: npm run lint -- --max-warnings 8
+      # Warnings fail it too: the ceiling is ZERO (2026-09-22). It was a count
+      # (12 -> 17 -> 8 from 2026-09-08) and sat exactly AT 8, where one push could
+      # clear an old warning, add a real stale-closure warning, and stay green at
+      # the same figure. The 7 that cost nothing were cleared and the one
+      # deliberate case (App.tsx's dirtyTick) carries a reasoned disable comment,
+      # so a warning in this log is always new. Do not raise it: suppress a
+      # deliberate case at its site, with the reason after `--`.
+      - run: npm run lint -- --max-warnings 0
 
       # A push IS a release here, so the suite that guards the physics and the
       # file formats runs BEFORE anything reaches the live beta. `npm test`

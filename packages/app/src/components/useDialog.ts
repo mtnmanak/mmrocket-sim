@@ -138,8 +138,12 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       modals.delete(id);
       // Only restore if focus is still inside (or was lost to) this dialog —
       // never yank it away from something the close handler focused on purpose.
+      // `node`, the element captured at open, not `ref.current`: on a real
+      // unmount React 18 detaches the ref BEFORE passive cleanups run (probed
+      // 2026-09-22), so `ref.current` read here was null on every close and
+      // its clause could never fire.
       const active = document.activeElement;
-      if (!active || active === document.body || ref.current?.contains(active)) {
+      if (!active || active === document.body || node?.contains(active)) {
         previouslyFocused?.focus?.();
       }
     };

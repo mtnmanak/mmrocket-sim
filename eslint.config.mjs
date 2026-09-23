@@ -112,12 +112,12 @@ export default tseslint.config(
       // two-space indent. `{2}` would hide what the pattern is anchored to.
       'no-regex-spaces': 'off',
 
-      // 2 hits (services/shareLink.ts:142, services/thrustcurve.ts:650), both
-      // deliberate: Chromium reports a corrupt deflate stream and a stalled body read
-      // with messages that name the wrong condition, so the rethrow replaces them.
-      // Attaching `cause` there would still be an improvement, so this stays visible
-      // as a warning rather than being switched off.
-      'preserve-caught-error': 'warn',
+      // Was a warning over 2 deliberate rethrows (shareLink's decodeShareFragment and
+      // thrustcurve's download deadline): Chromium reports a corrupt deflate stream and
+      // a stalled body read with messages that name the wrong condition, so the rethrow
+      // replaces the MESSAGE. Both now keep the original as `cause` (2026-09-22, pinned
+      // by their tests), so the rule costs nothing and refuses the next one.
+      'preserve-caught-error': 'error',
 
       // 4 hits, and 3 are one member of a group of siblings declared together where the
       // others ARE reassigned: tree/solidMesh.ts:215 (a, beside b and c, which the
@@ -141,10 +141,13 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      // WARN, not error: eight deliberate suppressions already exist and each carries a
-      // written reason. As an error this would either fail the deploy on day one or
-      // force those eight to be rewritten blind. A warning still puts a NEW stale dep
-      // array in the CI log, which is the failure this whole config is here to catch.
+      // WARN in an editor, but CI runs with --max-warnings 0 (2026-09-22), so a new
+      // stale dep array fails the deploy exactly as an error would. The count had sat
+      // AT its old ceiling of 8, where one push could clear an old warning, add a real
+      // stale closure and stay green. The deliberate exceptions (21 on 2026-09-22:
+      // `git grep -c "eslint-disable.*exhaustive-deps" -- packages`) each carry a
+      // written reason after `--`, and reportUnusedDisableDirectives above fails any
+      // that stops suppressing something.
       'react-hooks/exhaustive-deps': 'warn',
       // The free half of the 2026-09-08 audit's recommendation: all three were
       // MEASURED at zero violations against this tree before being turned on, so
