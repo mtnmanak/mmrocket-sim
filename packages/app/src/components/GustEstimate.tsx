@@ -1,8 +1,8 @@
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi } from '../prefs/units.js';
-import { GUST_PEAK_FACTOR, sigmaFromGust } from '../services/gustSigma.js';
+import { GUST_CONVECTIVE_INTENSITY, GUST_PEAK_FACTOR, sigmaFromGust } from '../services/gustSigma.js';
 import type { LaunchConditions } from './LaunchPanel.js';
+import { windNumber } from './weatherText.js';
 
 /**
  * THE GUST-TO-σ CHIP (weather build, step 4) — a full-width row directly under
@@ -39,16 +39,24 @@ export function GustEstimate({ value, onChange, forecastWind }: {
   if (!meanMatches && !applied) return null;
 
   const sym = prefs.units.windspeed;
-  const num = (ms: number) => fmtSi('windspeed', sym, ms, 1);
+  // Every speed with the digits its box shows (weatherText.windNumber): the σ
+  // offered is the number the Wind gusts σ box then reads, and the average in
+  // the arithmetic is the Wind avg box's.
+  const num = (ms: number) => windNumber(sym, ms);
   const speed = (ms: number) => `${num(ms)} ${sym}`;
   const gust = speed(forecastWind.gustMs);
   const warn = est.convective;
   const source = forecastWind.source ?? 'forecast';
+  // The warning is for σ STRICTLY above 30 % of the average, so a share that
+  // rounds to 30 — 30.2 % at 5 m/s gusting 9.53 — must not print as "30 %".
+  const pct = Math.round(est.intensity * 100);
+  const threshold = Math.round(GUST_CONVECTIVE_INTENSITY * 100);
+  const share = pct > threshold ? `${pct} %` : `just over ${threshold} %`;
   const extras = (
     <>
       {warn && (
         <>
-          {' '}That gust is far above the average (σ is {Math.round(est.intensity * 100)} % of it), which usually means
+          {' '}That gust is far above the average (σ is {share} of it), which usually means
           thermals or showers rather than steady turbulence, and this estimate is least reliable there.
         </>
       )}
@@ -75,10 +83,9 @@ export function GustEstimate({ value, onChange, forecastWind }: {
             Wind gusts σ is an estimate from the {source}: ({num(forecastWind.gustMs)} − {speed(forecastWind.meanMs)})
             {/* Capped, the division's own result is printed and then the cap:
                 "= 1 m/s" after "(6 − 1 m/s) ÷ 3" would be an equation that
-                does not add up. Two decimals, so a quotient just over the
-                mean does not print as the mean it was capped to. */}
+                does not add up. */}
             {' '}÷ {GUST_PEAK_FACTOR} = {est.capped
-              ? <>{fmtSi('windspeed', sym, est.rawSigmaMs, 2)} {sym}, capped at {speed(est.sigmaMs)}</>
+              ? <>{speed(est.rawSigmaMs)}, capped at {speed(est.sigmaMs)}</>
               : speed(est.sigmaMs)}, taking {gust} as the hour’s strongest 3-second gust.
             Good to about ±25 %. See <em>Launch Conditions → Wind gusts from a forecast</em> in the Guide.{extras}
           </>

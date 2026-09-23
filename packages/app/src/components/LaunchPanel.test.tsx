@@ -811,6 +811,31 @@ describe('applied weather in the Launch panel', () => {
     expect({ ...lastLaunch!, windStdDev: APPLIED.windStdDev }).toEqual(APPLIED);
   });
 
+  // What the chip offers, what it writes and what the σ box then shows are one
+  // number, and the average in its arithmetic is the Wind avg box's — in m/s
+  // and in mph (review of 2026-09-23: the chip printed 0.9 and 1.8 over boxes
+  // reading 0.95 and 1.75).
+  it('offers the σ the box will show, and states the arithmetic in the boxes’ own digits', () => {
+    const box = (label: string) => [...host.querySelectorAll('input')]
+      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!.value;
+    const chip = () => host.querySelector('.gust-estimate')!.textContent!;
+    for (const unit of ['m/s', 'mph']) {
+      // A fresh root, so PrefsProvider reads the unit afresh.
+      act(() => root.unmount());
+      root = createRoot(host);
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { windspeed: unit } }));
+      renderWeather(APPLIED, SNAP);
+      const offered = /σ ≈ ([\d.]+) /.exec(chip())![1]!;
+      act(() => host.querySelector<HTMLButtonElement>('.gust-estimate button')!.click());
+      renderWeather(lastLaunch!, SNAP);
+      expect(box('Wind gusts σ'), unit).toBe(offered);
+      const sum = /\(([\d.]+) − ([\d.]+) \S+\)\s+÷ 3 = ([\d.]+) /.exec(chip())!;
+      expect(sum[2], unit).toBe(box('Wind avg'));
+      expect(sum[3], unit).toBe(offered);
+    }
+    localStorage.removeItem('online-openrocket.prefs.v1');
+  });
+
   it('keeps σ a right-hand cell with no forecast too, and shows no chip then', () => {
     renderWeather(DEFAULT_CONDITIONS, null);
     const cells = [...host.querySelectorAll('.field-grid > *')];

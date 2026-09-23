@@ -106,11 +106,28 @@ describe('the gust-to-σ chip', () => {
   it('reads in mph, and still stores σ in m/s exactly', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { windspeed: 'mph' } }));
     render(FIVE);
-    expect(text()).toContain('σ ≈ 4.5 mph from a 24.6 mph gust.');
+    // The digits the mph boxes show (NumField: three decimals), not 0.1 mph.
+    expect(text()).toContain('σ ≈ 4.474 mph from a 24.606 mph gust.');
     act(() => button()!.click());
     expect(changes[0]!.windStdDev).toBe(2);
     render({ ...FIVE, windStdDev: 2 });
-    expect(text()).toMatch(/\(24\.6 − 11\.2 mph\)\s+÷ 3 = 4\.5 mph/);
+    expect(text()).toMatch(/\(24\.606 − 11\.185 mph\)\s+÷ 3 = 4\.474 mph/);
+  });
+
+  // Review of 2026-09-23: the chip printed σ and the average to 0.1 m/s while
+  // the boxes above it read the 0.01 m/s values — "0.9" over a σ box reading
+  // 0.95, the number the chip had just written. Every speed now prints with
+  // the boxes' own digits.
+  it('prints σ and the average with the digits their boxes show', () => {
+    const GERLACH = { meanMs: 1.75, gustMs: 4.6 };
+    render({ ...FIVE, windAverage: 1.75 }, GERLACH);
+    expect(text()).toContain('σ ≈ 0.95 m/s from a 4.6 m/s gust.');
+    act(() => button()!.click());
+    const written = changes[0]!.windStdDev;
+    expect(written).toBe(0.95);
+    render({ ...FIVE, windAverage: 1.75, windStdDev: written }, GERLACH);
+    expect(text()).toMatch(/\(4\.6 − 1\.75 m\/s\)\s+÷ 3 = 0\.95 m\/s, taking 4\.6 m\/s/);
+    expect(text()).not.toMatch(/\b0\.9 m\/s|\b1\.8 m\/s/);
   });
 
   it('says when σ was capped at the average, and gives no convective warning at exactly 30 %', () => {
@@ -118,7 +135,7 @@ describe('the gust-to-σ chip', () => {
     expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
     // Applied and capped: the arithmetic still adds up — the quotient, THEN the cap.
     render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 6 });
-    expect(text()).toMatch(/\(6 − 1 m\/s\)\s+÷ 3 = 1\.67 m\/s, capped at 1 m\/s, taking 6 m\/s as the hour’s strongest 3-second gust\./);
+    expect(text()).toMatch(/\(6 − 1 m\/s\)\s+÷ 3 = 1\.667 m\/s, capped at 1 m\/s, taking 6 m\/s as the hour’s strongest 3-second gust\./);
     expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
     // Not capped (raw exactly the mean): the plain equation.
     render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 4 });
@@ -128,5 +145,16 @@ describe('the gust-to-σ chip', () => {
     expect(text()).toContain('σ ≈ 1.5 m/s');
     expect(text()).not.toMatch(/far above the average/);
     expect(chip()!.classList.contains('gust-estimate-warn')).toBe(false);
+  });
+
+  // The warning is for σ strictly ABOVE 30 % of the average; 30.2 % rounds to
+  // 30, and "σ is 30 % of it" under a rule that says "above 30 %" reads as a
+  // contradiction (review of 2026-09-23).
+  it('never words a warned share as the 30 % it is above', () => {
+    render(FIVE, { meanMs: 5, gustMs: 9.53 });
+    expect(chip()!.classList.contains('gust-estimate-warn')).toBe(true);
+    expect(text()).toContain('(σ is just over 30 % of it)');
+    render(FIVE, { meanMs: 5, gustMs: 9.6 });
+    expect(text()).toContain('(σ is 31 % of it)');
   });
 });

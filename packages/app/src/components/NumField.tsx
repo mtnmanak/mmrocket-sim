@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { fmtSig, readDecimal } from '../prefs/units.js';
+import { fmtFieldValue, readDecimal } from '../prefs/units.js';
 
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
@@ -134,8 +134,9 @@ export function NumField({
   // Three decimals, or three significant figures where three decimals would
   // round a real value away: in metres a 0.4 mm wall is 0.0004, and it used to
   // show as "0" (audit 2026-09-22). Values of 0.1 and up read exactly as before.
+  // One definition (units.ts), which the weather UI's text also prints with.
   const fmtDisplay = (v: number | undefined) =>
-    v === undefined ? '' : fmtSig(v, 3, 3);
+    v === undefined ? '' : fmtFieldValue(v);
   const fmtEdit = (v: number | undefined) =>
     v === undefined ? '' : String(Number(v.toFixed(9)));
 

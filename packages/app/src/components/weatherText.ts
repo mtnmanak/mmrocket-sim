@@ -1,4 +1,4 @@
-import { fmtAltitude, fmtSi, type UnitSelection } from '../prefs/units.js';
+import { fmtAltitude, fmtFieldValue, fmtSi, siToUi, type UnitSelection } from '../prefs/units.js';
 import type { Endpoint } from '../services/openMeteo.js';
 import type { ApplyKey } from '../services/weatherSnapshot.js';
 
@@ -27,6 +27,22 @@ export function farText(sym: string, m: number): string {
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${imperial ? 'mi' : 'km'}`;
 }
 
+/**
+ * A wind speed (m/s) in the user's unit, with the digits the Wind avg and
+ * Wind gusts σ boxes show — NumField's own formatter, not a coarser one. So
+ * the σ the gust chip offers is the number the σ box then reads, and the
+ * average in its arithmetic is the one the Wind avg box reads (review of
+ * 2026-09-23: both printed to 0.1, "0.9" and "1.8" over boxes reading 0.95
+ * and 1.75). The gust, which has no box, prints the same way, so the
+ * arithmetic adds up in any unit.
+ */
+export function windNumber(sym: string, ms: number): string {
+  return Number.isFinite(ms) ? fmtFieldValue(siToUi('windspeed', sym, ms)) : '—';
+}
+
+/** `windNumber` with its unit: "0.95 m/s". */
+export const windText = (sym: string, ms: number): string => `${windNumber(sym, ms)} ${sym}`;
+
 /** One weather field's stored value, as the user reads it, with its unit. */
 export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): string {
   switch (key) {
@@ -35,7 +51,7 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): 
     case 'pressureHPa':
       return `${fmtSi('pressure', units.pressure, stored * 100, PRESSURE_DIGITS[units.pressure] ?? 2)} ${units.pressure}`;
     case 'windAverage':
-      return `${fmtSi('windspeed', units.windspeed, stored, 1)} ${units.windspeed}`;
+      return windText(units.windspeed, stored);
     case 'launchAltitudeM':
       return altitudeText(units.distance, stored);
     case 'latitudeDeg':
