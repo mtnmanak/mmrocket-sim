@@ -208,6 +208,14 @@ describe('the hours of the site’s day', () => {
 
   it('falls back to UTC for a zone name it does not know, rather than throwing', () => {
     expect(hoursOnLocalDate(hourly(Date.UTC(2026, 8, 26), 24), 'Not/AZone', '2026-09-26')).toHaveLength(24);
+    expect(formatValidTime(SAT_2PM, 'Not/AZone')).toBe('9:00 PM UTC, Sat 26 Sep');
+  });
+
+  // The strip renders this from a session record; a time past Date's range
+  // made both Intl calls throw — the UTC retry too — and took the Launch panel
+  // down on every load of that session (review of 2026-09-23).
+  it('reads a time no calendar can hold as unknown, and never throws', () => {
+    for (const unix of [1e16, -1e16, NaN, Infinity]) expect(formatValidTime(unix, 'UTC'), String(unix)).toBe('—');
   });
 });
 

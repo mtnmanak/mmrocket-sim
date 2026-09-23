@@ -115,6 +115,8 @@ describe('validWeatherSnapshot', () => {
       { ...snap(), fetched: { ...snap().fetched, windGustMs: 'NaN' } },
       { ...snap(), place: { ...snap().place, latitudeDeg: null } },
       { ...snap(), forAltitudeM: null },
+      // Finite, but past what a Date can hold: the strip could not show it.
+      { ...snap(), validUnix: 1e16 }, { ...snap(), validUnix: -1e16 },
     ];
     for (const b of bad) expect(validWeatherSnapshot(b), JSON.stringify(b)).toBeNull();
   });

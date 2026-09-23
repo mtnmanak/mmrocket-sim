@@ -181,6 +181,9 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   const dem = finiteOrNull(x.demElevationM);
   if (gLat === undefined || gLon === undefined || dem === undefined) return null;
   if (!finite(x.forAltitudeM) || typeof x.timezone !== 'string' || !finite(x.validUnix) || typeof x.retrievedAt !== 'string') return null;
+  // Finite is not enough: an hour the strip is to name must be one a Date can
+  // hold (±8.64e12 s), or the strip has no time to show for it.
+  if (!Number.isFinite(new Date(x.validUnix * 1000).getTime())) return null;
   const f = x.fetched;
   if (!isObj(f)) return null;
   const fetched = {

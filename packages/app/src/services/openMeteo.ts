@@ -683,9 +683,17 @@ export function hoursOnLocalDate(samples: readonly HourSample[], timeZone: strin
     });
 }
 
-/** "2:00 PM PDT, Sat 26 Sep" — the valid time of a forecast, in the site's zone. */
+/**
+ * "2:00 PM PDT, Sat 26 Sep" — the valid time of a forecast, in the site's
+ * zone; "—" for a time no Date can hold. The strip renders this from a session
+ * record, where a finite but enormous `validUnix` made both Intl calls throw
+ * (the UTC retry included) and took the Launch panel down on every load of
+ * that session. `validWeatherSnapshot` refuses such a record now; this refuses
+ * to be the thing that throws whatever reaches it.
+ */
 export function formatValidTime(unix: number, timeZone: string): string {
   const d = new Date(unix * 1000);
+  if (!Number.isFinite(d.getTime())) return '—';
   const safe = (opts: Intl.DateTimeFormatOptions) => {
     try {
       return new Intl.DateTimeFormat('en-US', { ...opts, timeZone }).formatToParts(d);
