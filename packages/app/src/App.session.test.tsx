@@ -4,8 +4,16 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { ComponentNode } from '@online-openrocket/engine';
 import type { SessionState } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
+import { padMassSetKey } from './services/configSync.js';
+import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 // The real writer, passed through; one test makes a single save throw.
 vi.mock('./services/orkFile.js', async (importOriginal) => {
@@ -332,5 +340,113 @@ describe('an Auto-delay motor saved as .ork', () => {
       made.mockRestore();
       revoked.mockRestore();
     }
+  }, 30000);
+});
+
+/**
+ * A PAD MASS THE RESTORE MOVES (seam review of audit 2026-09-22). A session
+ * saved with a pod's motor picked before the core's carries its weighed pad
+ * mass on the pod's record; the core-first ranking moves it onto the core's
+ * at restore (treeModel.padMassOntoRankedPrimary). The saved mark, stored over
+ * the design before the move, then no longer matched, so a design the user
+ * had saved read as unsaved — ✕ New asked, on every reload. And the notice
+ * saying where the value went stayed up over ✕ New and over an opened file,
+ * describing a rocket no longer on screen.
+ */
+describe('a pad mass the restore moves onto the core', () => {
+  /** A session with a core mount and a two-pod set, both on the starter's C6, 0.3 kg weighed on `padOn`. */
+  async function seedPodSession(padOn: 'pod' | 'core', inConfig = false): Promise<void> {
+    localStorage.removeItem(SESSION_KEY);
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await unmountAll();
+    const s = storedSession()!;
+    const [core, c6] = Object.entries(s.mountMotors!)[0]!;
+    const stage = s.tree.components[0]!;
+    const body = stage.children!.find((n) => n.type === 'bodytube')!;
+    const pods = {
+      type: 'podset', id: 'pods', name: 'Pods', instanceCount: 2, radiusOffset: 0.03,
+      children: [{
+        type: 'bodytube', id: 'podtube', name: 'Pod tube', length: 0.2, outerRadius: 0.012, thickness: 0.0004,
+        children: [{ type: 'innertube', id: 'podmount', name: 'Pod MMT', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true }],
+      }],
+    } as ComponentNode;
+    const tree = { ...s.tree, components: [{ ...stage, children: stage.children!.map((n) => (n === body ? { ...body, children: [...body.children!, pods] } : n)) }] };
+    // Pod picked first: its key comes first, which the old ranking made primary.
+    const bare = { podmount: c6, [core]: c6 };
+    const key = padMassSetKey(tree, bare);
+    const onPod = { podmount: { ...c6, padMassKg: 0.3, padMassWeighedWith: key }, [core]: c6 };
+    const onCore = { podmount: c6, [core]: { ...c6, padMassKg: 0.3, padMassWeighedWith: key } };
+    // `inConfig`: the working set is the core-weighed one, and only a SECOND,
+    // non-active flight configuration — as an opened .ork carries — holds `padOn`.
+    const mountMotors = inConfig || padOn === 'core' ? onCore : onPod;
+    const savedConfigs = inConfig
+      ? [{ id: 'A', name: 'A', isDefault: true, motors: onCore }, { id: 'B', name: 'B', isDefault: false, motors: padOn === 'pod' ? onPod : onCore }]
+      : s.savedConfigs ?? [];
+    const activeConfigId = inConfig ? 'A' : s.activeConfigId ?? null;
+    const saved = { ...s, tree, mountMotors, savedConfigs, activeConfigId };
+    // Saved as the file on disk has it: the mark over exactly this design.
+    const snapshot: DesignSnapshot = {
+      tree, mountMotors, launch: s.launch, maxMotorLengthByStage: s.maxMotorLengthByStage ?? {},
+      savedConfigs, activeConfigId, measured: s.measured!,
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...saved, savedMark: designFingerprint(snapshot), flownSinceSave: false }));
+  }
+  const MOVED = 'now sits under';
+  /** Every notice in the bar — expanded, since the collapsed bar shows the lead one and a "+N". */
+  const notices = async (host: HTMLElement): Promise<string> => {
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    return host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+  };
+
+  it('keeps a saved design saved, and the notice goes with ✕ New', async () => {
+    // Control: nothing moves, nothing asks — the harness's mark is the App's own.
+    await seedPodSession('core');
+    let host = await mountApp();
+    await settle(600);
+    expect(host.textContent).not.toContain(MOVED);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+    await unmountAll();
+
+    await seedPodSession('pod');
+    host = await mountApp();
+    await settle(600);
+    expect(await notices(host)).toContain(MOVED);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+    // New replaced the design: the notice about the old one went with it.
+    expect(await notices(host)).not.toContain(MOVED);
+  }, 30000);
+
+  it('keeps it saved when only another flight configuration had its pad mass moved', async () => {
+    await seedPodSession('core', true);
+    let host = await mountApp();
+    await settle(600);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+    await unmountAll();
+    await seedPodSession('pod', true);
+    host = await mountApp();
+    await settle(600);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+
+  it('the notice goes when a file is opened over it', async () => {
+    await seedPodSession('pod');
+    const host = await mountApp();
+    await settle(600);
+    expect(await notices(host)).toContain(MOVED);
+    const file = new File([readFileSync(join(here, 'services/__fixtures__/rocksimTestRocket1.rkt'), 'utf8')], 'rocksimTestRocket1.rkt');
+    const picker = input(host, 'Open a design file');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [file] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    // Whether or not the design reads as saved (the case above), the file opens.
+    const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+    if (past) await act(async () => { past.click(); });
+    await waitFor(() => (document.body.textContent ?? '').includes('FooBar Test'), 'the file to open');
+    expect(await notices(host)).not.toContain(MOVED);
   }, 30000);
 });

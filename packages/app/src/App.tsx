@@ -430,6 +430,12 @@ export function App() {
    * `padMassNote` seed, for the same reason as `legacyPadMass`.
    */
   const rankedPadMass = useRef<{ from?: string; to?: string; kg?: number } | null>(null);
+  /**
+   * The working set and configurations exactly as the session stored them,
+   * kept only when padMassOntoRankedPrimary moved a pad mass in either — for
+   * the one re-take of the saved mark below the mark's seed.
+   */
+  const preRankRestore = useRef<{ motors: Record<string, MountMotor>; configs: SavedConfig[] } | null>(null);
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
     if (session?.mountMotors) {
       // The pad mass moved from the measured box onto the motor's record in
@@ -445,6 +451,7 @@ export function App() {
       // core's carries it on the record that has just stopped being primary.
       const ranked = padMassOntoRankedPrimary(initialTree, m.motors);
       rankedPadMass.current = ranked;
+      if (ranked.motors !== m.motors) preRankRestore.current = { motors: m.motors, configs: session.savedConfigs ?? [] };
       return ranked.motors;
     }
     if (!defaultMountId) return {};
@@ -516,10 +523,19 @@ export function App() {
   // same way the working set's does above (audit 2026-09-22, row 356), or
   // applying one saved with a pod motor picked first would orphan it again.
   // A row nothing moves in is kept by identity.
-  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => (session?.savedConfigs ?? []).map((c) => {
-    const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
-    return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
-  }));
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => {
+    const stored = session?.savedConfigs ?? [];
+    const next = stored.map((c) => {
+      const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
+      return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
+    });
+    // Recorded for the saved-mark re-take, with the working set as it was
+    // restored (moved or not — the initializer above ran first).
+    if (next.some((c, i) => c !== stored[i])) {
+      preRankRestore.current = { motors: preRankRestore.current?.motors ?? mountMotors, configs: stored };
+    }
+    return next;
+  });
   const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
   /**
    * The WORKING SET's unmatched motor references, keyed by mount node id — the
@@ -1113,6 +1129,24 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A pad mass the restore moved onto the ranked primary (rankedPadMass) is
+  // not an edit: the file on disk carries it per configuration, not per mount,
+  // so it already IS the moved design. But the stored mark was taken over the
+  // design before the move, and the move changes the fingerprinted records —
+  // so a design the user had saved read as unsaved, ✕ New and Open asked, and
+  // the stale mark was autosaved to ask again on every reload (seam review of
+  // audit 2026-09-22). Re-taken over the moved design exactly when it
+  // described the design before the move, the same guard as the starter
+  // landing's below; a mark that did not (unsaved work) keeps its prompt.
+  useEffect(() => {
+    const pre = preRankRestore.current;
+    preRankRestore.current = null;
+    if (pre === null || savedMark.current === null) return;
+    if (designFingerprint({ ...designSnapshot, mountMotors: pre.motors, savedConfigs: pre.configs }) !== savedMark.current) return;
+    savedMark.current = designFingerprint(designSnapshot);
+    bumpDirty();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as restored
+  }, []);
   // ...and when the starter motor lands (one await after that seed), take the
   // mark again over the rocket WITH it — but only if the mark still describes
   // everything else on screen. An edit, a pick or an open that got in first
@@ -1191,6 +1225,9 @@ export function App() {
     setFileNote(null);
     setSimError(null);
     setShroudPrompt(null);
+    // And where a restored pad mass went: it names the motors and mounts of the
+    // design being cleared (seam review of audit 2026-09-22).
+    setPadMassNote(null);
     // A measured mass & CG describe the rocket that was WEIGHED, which is the
     // one being cleared — as an import and a Scale already treat them. Kept,
     // the pad-mass arithmetic (services/hardwareMass.ts) took the old rocket's
@@ -2915,8 +2952,11 @@ export function App() {
     // the next autosave writes really was parsed by the running build.
     parsedByVersion.current = APP_VERSION;
     // A simulation error belonged to the design that threw it, and that design
-    // has just been replaced.
+    // has just been replaced — as did the motors and mounts a pad-mass notice
+    // names (seam review of audit 2026-09-22). One the opened file earns is
+    // written after this, by the reconcile effect.
     setSimError(null);
+    setPadMassNote(null);
     setSelectedId(null);
   };
 
