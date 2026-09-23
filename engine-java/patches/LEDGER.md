@@ -1332,7 +1332,18 @@ aerodynamic model.
   without a wider rewrite; (b) an off-axis motor's thrust still makes no moment
   (upstream's own `TODO: HIGH` on `RK4SimulationStepper.calculateThrust`); (c) the pitch
   spread of a RadiusRingComponent LINE pattern (rings strung along x) is still missing
-  from Iyy — the same species on the other axis, upstream, untouched here.
+  from Iyy — the same species on the other axis, upstream, untouched here; (d) for a
+  layout whose mass centre is itself OFF the axis — a single off-axis mount is the case —
+  roll inertia is taken about the BODY axis, not the axis through the true CG, so it
+  overstates by `M·ȳ²` for the CG's lateral offset ȳ. It follows from the choice above to
+  keep the CG on the axis, and it is zero for every symmetric layout (a split pair, every
+  dropdown cluster), whose CG IS on the axis. Measured on the golden
+  `inertia.offaxis.single` (M = 0.8637187376489845 kg; tube + motor 0.3595818575934489 kg
+  at 30 mm, so ȳ = 12.49 mm and `M·ȳ²` = 1.3473e-4 kg·m², 7.3 % of the reported figure):
+  Ixx 1.8421849153740075e-3 kg·m² against 1.70745e-3 about the CG axis, **7.9 % high** —
+  where the pre-fix 1.5185612435399036e-3 was **11.1 % low**, so this entry shrank that
+  design's error and flipped its sign. Not listed until the seam review of the audit's
+  wave A (2026-09-22) measured it; documentation only, no code change.
 - **Divergence from upstream:** YES, deliberate, in ALL THREE aerodynamic models — masscalc
   has no carrier for the model flags, exactly as the v0.088 entry above records. It makes
   the app's mass model disagree with desktop OpenRocket 24.12 on purpose for any design
