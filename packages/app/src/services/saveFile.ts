@@ -88,6 +88,18 @@ function viaDownload(data: BlobPart, mime: string, name: string): SaveOutcome {
   return { kind: 'downloaded', name };
 }
 
+/**
+ * "text/csv;charset=utf-8" → "text/csv". The picker's `accept` keys must be a
+ * bare type/subtype: Chrome throws TypeError on one carrying parameters, which
+ * the catch below reads as "no picker" — so the Run table and Flight data CSVs
+ * (built with a charset) went straight to Downloads while the XLSX beside them
+ * got a Save As dialog (audit 2026-09-22). Only the picker gets the essence;
+ * the Blob keeps its full type.
+ */
+function mimeEssence(mime: string): string {
+  return mime.split(';', 1)[0]!.trim() || 'application/octet-stream';
+}
+
 /** Narrows the union so `fellBack` can be spread onto a viaDownload result. */
 function asDownloaded(o: SaveOutcome): { kind: 'downloaded'; name: string } {
   return o as { kind: 'downloaded'; name: string };
@@ -107,7 +119,7 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
     try {
       handle = await (window as PickerWindow).showSaveFilePicker!({
         suggestedName: opts.suggestedName,
-        types: [{ description: opts.description, accept: { [opts.mime]: opts.extensions } }],
+        types: [{ description: opts.description, accept: { [mimeEssence(opts.mime)]: opts.extensions } }],
       });
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return { kind: 'cancelled' };
