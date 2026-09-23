@@ -971,7 +971,7 @@ export function bodyDragReference(tree: RocketTree): BodyDragReference {
 /**
  * Drops both body-CD caches. Deliberately NOT wired to resetEngine(): a cached
  * pair is four plain numbers, not a kernel handle, so freeing the engine cannot
- * make one wrong — and App.tsx calls resetEngine() inside its build memo on
+ * make one wrong — and the design build (services/buildDesign.ts) calls resetEngine() on
  * every tree edit, so clearing there would re-probe the kernel on every edit
  * and delete the caches' whole reason for existing. Toggling an aero
  * preference cannot stale a cached pair either: the probe always runs

@@ -20,7 +20,7 @@ const flatten = (ns: readonly ComponentNode[]): ComponentNode[] =>
 const ofType = (tree: RocketTree, type: string): ComponentNode =>
   flatten(tree.components).find((n) => n.type === type)!;
 
-/** Build the way App.tsx's buildResult does; the kernel's message, or null. */
+/** Build the way services/buildDesign.ts does; the kernel's message, or null. */
 function build(tree: RocketTree): string | null {
   try {
     resetEngine();

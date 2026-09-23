@@ -29,7 +29,7 @@ const rocket = (kids: Record<string, unknown>[], extraStages: Record<string, unk
 
 const kid = (tree: RocketTree, i = 0): ComponentNode => tree.components[0]!.children![1]!.children![i]!;
 
-/** Build the way App.tsx's buildResult does; the kernel's message, or null. */
+/** Build the way services/buildDesign.ts does; the kernel's message, or null. */
 function build(tree: RocketTree): string | null {
   try {
     resetEngine();
@@ -275,7 +275,7 @@ describe('explainBuildFailure — naming the part (audit 2026-09-22)', () => {
 });
 
 describe('explainBuildFailure — the omit-one-part fallback (audit 2026-09-22)', () => {
-  /** The kernel's buildTree alone, the way App.tsx's build catch passes it. */
+  /** The kernel's buildTree alone, the way buildDesign's catch passes it. */
   let calls = 0;
   const buildsBare = (t: RocketTree): boolean => {
     calls++;
