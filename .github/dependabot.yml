@@ -23,9 +23,15 @@
 # WHAT A PR HERE DOES NOT GET: CI. deploy.yml runs on a push to main (and by
 # hand), not on pull requests, so a Dependabot PR is unchecked until it is
 # merged — and merging IS the deploy, whose build job then runs the full gate
-# and refuses to publish on any failure. Run `npm ci && npm run typecheck &&
-# npm run lint -- --max-warnings 0 && npm test` on the branch before merging
-# (the deploy gate fails on ANY lint warning; bare `npm run lint` does not).
+# and refuses to publish on any failure.
+#
+# THE POLICY (the owner's ruling, 2026-09-24): these PRs are ROUTINE. Check the
+# branch out, run the full gate under Node 22 as CI does — `npm ci && npm run
+# typecheck && npm run lint -- --max-warnings 0 && npm test && npm run build`,
+# then `npm audit` (the deploy gate fails on ANY lint warning; bare `npm run
+# lint` does not) — read the lockfile diff for added packages and install
+# scripts, merge if green, and report it. PR #2 (eslint, typescript-eslint,
+# happy-dom) was the first, merged 2026-09-24 as a fast-forward.
 #
 # The wrangler version in deploy.yml (`wranglerVersion` and the install step)
 # is not something Dependabot reads: bump those two together, by hand.
