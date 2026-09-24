@@ -309,7 +309,8 @@ function BandSection({
   const cdSaid = advice.cdSource === 'this device'
     ? `the Cd of the ${advice.role} in this design`
     : advice.cdSource === 'the design’s other chute'
-      ? 'the Cd of the other chute in this design — this slot is empty'
+      ? `the Cd of the other chute in this design — ${advice.slotHolds
+        ? `the ${advice.role} here states no Cd of its own` : 'this slot is empty'}`
       : 'the simulator’s default for a canopy that states no Cd';
   const anyFlagged = advice.candidates.some((c) => c.flagged);
   const anyUnverified = advice.candidates.some((c) => c.fit === 'unverified');

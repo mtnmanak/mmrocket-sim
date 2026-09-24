@@ -657,6 +657,27 @@ describe('classifyRecoveryDevices', () => {
     expect(drogue?.id).toBe('p0');
   });
 
+  it('ranks a chute with no diameter at the 0.3 m the kernel flies it at, not at 0', () => {
+    // The v0.141 claim check's C12: two apogee chutes, a 0.2 m canopy and one
+    // stating no diameter. The kernel flies the second at 0.3 m (ComponentFactory
+    // reads dbl(node, "diameter", 0.3)), so it is the bigger canopy and the main.
+    // Ranked at 0 it lost to the 0.2 m, and the Main and Drogue lines described
+    // each other's canopy.
+    const t = tube(0.3, [{ diameter: 0.2, cd: 0.8 }, { cd: 0.8 }]);
+    const { main, drogue } = classifyRecoveryDevices(t);
+    expect(main?.id).toBe('p1');
+    expect(drogue?.id).toBe('p0');
+    // A NaN or infinite diameter reads as absent the same way — it is flown at
+    // 0.3 m too (JSON sends a non-finite number as null).
+    for (const bad of [NaN, Infinity]) {
+      const u = tube(0.3, [{ diameter: 0.2, cd: 0.8 }, { diameter: bad, cd: 0.8 }]);
+      expect(classifyRecoveryDevices(u).main?.id).toBe('p1');
+    }
+    // …and it still loses to a canopy really wider than 0.3 m.
+    const w = tube(0.3, [{ diameter: 0.5, cd: 0.8 }, { cd: 0.8 }]);
+    expect(classifyRecoveryDevices(w).main?.id).toBe('p0');
+  });
+
   it('ignores streamers — their Cd is referenced to strip area, not a diameter', () => {
     const t: RocketTree = {
       name: 's', components: [{
@@ -846,6 +867,22 @@ describe('the Cd the size line is quoted at — never a bare diameter', () => {
     const r = ok(sizing({ tree: t }));
     expect(r.drogue.cd).toBe(2.2);
     expect(r.drogue.cdSource).toBe('the design’s other chute');
+    expect(r.drogue.slotHolds).toBe(false);
+  });
+
+  it('borrows it too when the slot’s chute states no Cd — and says the slot is NOT empty', () => {
+    // The drogue slot holds a chute with no Cd of its own: the size line still
+    // borrows the main's Cd (their own fabric), but the slot has a chute in it,
+    // so the panel must not call it empty (the v0.141 claim check's C12).
+    const t = tube(0.3, [
+      { diameter: 0.9, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, deployEvent: 'apogee' },
+    ]);
+    const r = ok(sizing({ tree: t }));
+    expect(r.drogue.cdSource).toBe('the design’s other chute');
+    expect(r.drogue.cd).toBe(2.2);
+    expect(r.drogue.slotHolds).toBe(true);
+    expect(r.main.slotHolds).toBe(true);
   });
 
   it('falls back to the kernel’s own 0.8, and says so', () => {

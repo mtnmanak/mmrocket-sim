@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { ventLimit } from '../tree/canopyVent.js';
+import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
@@ -293,7 +293,14 @@ export function classifyRecoveryDevices(
   walk(scope ?? tree.components);
   if (chutes.length === 0) return { main: null, drogue: null };
 
-  const dia = (n: ComponentNode): number => num(n, 'diameter') ?? 0;
+  // Ranked at the diameter the kernel FLIES: a chute stating none — or a NaN
+  // or infinite one — flies at 0.3 m (ComponentFactory's dbl(node, "diameter",
+  // 0.3); JSON sends a non-finite number as null), the same fallback the size
+  // line's vent reads through ventLimit. Ranked at 0 it lost to any smaller
+  // canopy deploying on the same kind of event, and the Main and Drogue lines
+  // described each other's chute (the v0.141 claim check's C12). A diameter
+  // stated as 0 or less is a real number and stays one.
+  const dia = (n: ComponentNode): number => nnum(n, 'diameter', CANOPY_DIAMETER_FALLBACK);
   const biggest = (list: ComponentNode[]): ComponentNode | null =>
     list.reduce<ComponentNode | null>((best, n) => (best === null || dia(n) > dia(best) ? n : best), null);
 
@@ -409,6 +416,12 @@ export interface BandAdvice {
   ventFactor: number;
   /** Where that Cd came from, so the UI can say whose number it is. */
   cdSource: 'this device' | 'the design’s other chute' | 'default';
+  /**
+   * Whether the design has a chute in this slot. A slot can hold one and still
+   * borrow the other chute's Cd, when its own chute states none — so
+   * `cdSource` alone cannot say whether the slot is empty.
+   */
+  slotHolds: boolean;
   /** Mass the size line was computed against (kg). */
   massKg: number;
   /**
@@ -777,8 +790,8 @@ function bandAdvice(
   }));
 
   return {
-    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
-    candidates, inBand, excludedForFit, mergedVariants,
+    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, slotHolds: device !== null,
+    massKg, instances, candidates, inBand, excludedForFit, mergedVariants,
   };
 }
 

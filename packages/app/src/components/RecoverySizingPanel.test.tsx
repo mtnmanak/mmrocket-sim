@@ -193,6 +193,20 @@ describe('RecoverySizingPanel', () => {
     expect(text()).toContain('the Cd of the main in this design');
   });
 
+  it('says the slot is empty only when it is — a chute with no Cd of its own is still a chute', async () => {
+    // One chute: the drogue slot is empty and borrows the main's Cd.
+    await mount({ tree: tree([{ diameter: 1.6, cd: 2.2, deployEvent: 'altitude' }]) });
+    expect(text()).toContain('the Cd of the other chute in this design — this slot is empty');
+    // Two chutes, the drogue stating no Cd: it borrows the main's Cd too, but
+    // the slot holds a chute (the v0.141 claim check's C12).
+    await mount({ tree: tree([
+      { diameter: 1.6, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, deployEvent: 'apogee' },
+    ]) });
+    expect(text()).not.toContain('this slot is empty');
+    expect(text()).toContain('the Cd of the other chute in this design — the drogue here states no Cd of its own');
+  });
+
   it('lists real catalogue parts with the rate each would give this rocket', async () => {
     await mount();
     const main = rows(0);
