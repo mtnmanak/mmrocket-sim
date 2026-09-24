@@ -359,8 +359,8 @@ function BandSection({
       </p>
 
       {advice.candidates.length > 0 ? (
-        // A LIST, not a table. This panel lives in the design page's 290 px
-        // left column; five columns of numbers with their own unit chips do
+        // A LIST, not a table. This panel lives in the design page's 320 px
+        // right column; five columns of numbers with their own unit chips do
         // not fit in it, and the name — the thing a reader carries to a shop —
         // is the one field that must never be truncated. So each canopy gets
         // two lines: what it is and what it does, then the details.

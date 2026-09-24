@@ -10,7 +10,7 @@ import {
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB_DATE, classLabel, classesFittingMount,
-  displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isHighPower,
+  displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
@@ -810,7 +810,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                         ? `Longer than your max motor length — may hit internal components. Still selectable.`
                         : undefined}
                   >
-                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{m.availability !== 'regular' && <span className="motor-oop">OOP</span>}</td>
+                    <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{!isAvailable(m) && <span className="motor-oop">OOP</span>}</td>
                     <td>{m.manufacturerAbbrev}</td>
                     <td>{dimUi(m.diameter).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{dimUi(m.length).toFixed(motorSym === 'mm' ? 0 : 2)}</td>

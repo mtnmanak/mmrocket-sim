@@ -8,7 +8,9 @@ import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
-import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
+import {
+  findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, suppressingAncestor,
+} from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
@@ -136,8 +138,12 @@ export const DROGUE_BAND: Band = {
   cautionTo: SAFETY.warnDrogueDescentRate,
 };
 
-/** The Cd the kernel gives a canopy that states none — `treeModel.ts:968`. */
-export const DEFAULT_CANOPY_CD = 0.8;
+/**
+ * The Cd the kernel gives a canopy that states none — the same constant
+ * engineTree flies (tree/treeModel.ts KERNEL_DEFAULT_CD), not a copy of it, so
+ * the size line and the flown Cd cannot drift apart.
+ */
+export const DEFAULT_CANOPY_CD = KERNEL_DEFAULT_CD;
 
 /** How many candidates a band lists, and how many one manufacturer may own. */
 const LIST_LIMIT = 5;

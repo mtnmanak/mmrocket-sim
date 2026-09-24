@@ -531,3 +531,24 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     expect(h.host.textContent).not.toMatch(/No motors match/);
   });
 });
+
+describe('MotorBrowser — the OOP badge marks out-of-production motors only', () => {
+  let h: Harness;
+  afterEach(() => closeBrowser(h));
+
+  it('an occasionally produced motor carries no OOP badge; an out-of-production one does', () => {
+    // thrustcurve.org's availability has three values. 'occasional' (27 motors,
+    // Jambol's line and Ultra's) means produced intermittently, not gone — the
+    // app's own isAvailable says so — but the badge tested `!== 'regular'` and
+    // labelled all 27 OOP (glossary review, 2026-09-24).
+    h = openBrowser({ mountDiameterMm: 11, filters: { includeOOP: true } });
+    search(h, 'A2');
+    const badge = (tr: HTMLTableRowElement | undefined) => tr?.cells[0]?.querySelector('.motor-oop') ?? null;
+    const jambol = rowFor(h, 'Jambol', 'A2');
+    const apogee = rowFor(h, 'Apogee', 'A2');
+    expect(jambol).toBeDefined();
+    expect(apogee).toBeDefined();
+    expect(badge(jambol)).toBeNull();
+    expect(badge(apogee)?.textContent).toBe('OOP');
+  });
+});
