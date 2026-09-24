@@ -193,6 +193,44 @@ describe('RecoverySizingPanel', () => {
     expect(text()).toContain('the Cd of the main in this design');
   });
 
+  it('says whose Cd it quoted, and says "no parachute" only when there is none', async () => {
+    // One chute: the drogue role has no parachute and borrows the main's Cd.
+    await mount({ tree: tree([{ diameter: 1.6, cd: 2.2, deployEvent: 'altitude' }]) });
+    expect(text()).toContain('there is no drogue parachute in this design, so this is the other chute’s Cd');
+    // Two chutes, the drogue stating no Cd: it is quoted at the automatic 0.8
+    // it flies (review of board Tier 1 row 31), and nothing calls it absent.
+    await mount({ tree: tree([
+      { diameter: 1.6, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, deployEvent: 'apogee' },
+    ]) });
+    expect(text()).not.toContain('no drogue parachute');
+    expect(text()).toContain('the drogue in this design states no Cd, so it flies the simulator’s default');
+    expect(sizeLine(1).replace(/\s+/g, ' ')).toContain('at Cd 0.8');
+  });
+
+  it('names the chute a vented Cd came from, borrowed or automatic', async () => {
+    // Borrowed from a vented main: "its" is the other chute, which the clause
+    // before it has just named.
+    await mount({ tree: tree([{ diameter: 1.6, cd: 2.2, spillHoleDiameter: 0.3, deployEvent: 'altitude' }]) });
+    expect(text().replace(/\s+/g, ' ')).toContain(
+      'there is no drogue parachute in this design, so this is the other chute’s Cd, its rated Cd 2.2 scaled for its spill hole');
+    // Automatic, on a drogue with its own hole: 0.8 scaled, never "rated".
+    await mount({ tree: tree([
+      { diameter: 1.6, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, spillHoleDiameter: 0.1, deployEvent: 'apogee' },
+    ]) });
+    expect(text().replace(/\s+/g, ' ')).toContain('so it flies the simulator’s default, 0.8 scaled for its spill hole');
+  });
+
+  it('does not call a streamer’s role empty — it says there is no parachute in it', async () => {
+    const t = tree([{ diameter: 1.6, cd: 2.2, deployEvent: 'altitude' }]);
+    ((t.components[0]!.children![0]!.children!) as ComponentNode[]).push(
+      { type: 'streamer', id: 'st', stripLength: 1, stripWidth: 0.1, deployEvent: 'apogee' } as unknown as ComponentNode);
+    await mount({ tree: t });
+    expect(text()).not.toContain('slot is empty');
+    expect(text()).toContain('there is no drogue parachute in this design');
+  });
+
   it('lists real catalogue parts with the rate each would give this rocket', async () => {
     await mount();
     const main = rows(0);

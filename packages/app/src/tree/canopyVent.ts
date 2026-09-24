@@ -23,7 +23,14 @@ import { num } from './nodeNum.js';
  * it flew vented; it reads ventLimit since the review of audit row 522.
  */
 
-/** A canopy with no stated diameter is flown at this (m) — engineTree's fallback. */
+/**
+ * A canopy with no stated diameter is flown at this (m) — engineTree's fallback.
+ * Everything that reads a canopy's size reads an absent one as this: the
+ * recovery panel's ranking when it picks the bigger of two chutes
+ * (`classifyRecoveryDevices`), the property panel's placeholder
+ * (schema.ts BLANK_BY_TYPE), and the Scale tool, which scales it like a stated
+ * one (tree/scaleRocket.ts).
+ */
 export const CANOPY_DIAMETER_FALLBACK = 0.3;
 /** The widest vent flown, as a fraction of the canopy's diameter. */
 export const SPILL_HOLE_MAX_FRACTION = 0.95;

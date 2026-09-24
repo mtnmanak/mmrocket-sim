@@ -1127,3 +1127,27 @@ describe('scaleRocket — guardrails and reporting', () => {
     expect(notes.join(' ')).toContain('Reynolds');
   });
 });
+
+describe('scaleRocket — a parachute with no diameter', () => {
+  it('scales it from the 0.3 m it flies, so its vent ratio and its flown Cd hold', () => {
+    // Review of board Tier 1 row 31 (2026-09-24): an absent canopy diameter
+    // flies 0.3 m, it does not size itself. Scaled present-only, the canopy
+    // stayed 0.3 m while its spill hole doubled: Cd 1.5 with a 0.1 m hole flew
+    // 1.33 before a 2x scale and 0.83 after.
+    const t = {
+      name: 'p', components: [{
+        type: 'stage', id: 's', children: [{
+          type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.03, thickness: 0.001,
+          children: [{ type: 'parachute', id: 'pc', cd: 1.5, spillHoleDiameter: 0.1 }],
+        }],
+      }],
+    } as unknown as RocketTree;
+    const out = scaleRocket(t, 2).tree;
+    const pc = findNode(out, 'pc')!;
+    expect(pc['diameter']).toBeCloseTo(0.6, 12);
+    expect(pc['spillHoleDiameter']).toBeCloseTo(0.2, 12);
+    const flownCd = (tree: RocketTree): number => findNode(engineTree(tree), 'pc')!['cd'] as number;
+    expect(flownCd(t)).toBeCloseTo(1.5 * (1 - (0.1 / 0.3) ** 2), 12);
+    expect(flownCd(out)).toBeCloseTo(flownCd(t), 12);
+  });
+});

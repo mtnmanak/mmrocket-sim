@@ -6,7 +6,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { ventLimit } from '../tree/canopyVent.js';
+import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import { findParent, isSeparatingParallelStage, mountMotorCount, suppressingAncestor } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
@@ -293,7 +293,14 @@ export function classifyRecoveryDevices(
   walk(scope ?? tree.components);
   if (chutes.length === 0) return { main: null, drogue: null };
 
-  const dia = (n: ComponentNode): number => num(n, 'diameter') ?? 0;
+  // Ranked at the diameter the kernel FLIES: a chute stating none — or a NaN
+  // or infinite one — flies at 0.3 m (ComponentFactory's dbl(node, "diameter",
+  // 0.3); JSON sends a non-finite number as null), the same fallback the size
+  // line's vent reads through ventLimit. Ranked at 0 it lost to any smaller
+  // canopy deploying on the same kind of event, and the Main and Drogue lines
+  // described each other's chute (the v0.141 claim check's C12). A diameter
+  // stated as 0 or less is a real number and stays one.
+  const dia = (n: ComponentNode): number => nnum(n, 'diameter', CANOPY_DIAMETER_FALLBACK);
   const biggest = (list: ComponentNode[]): ComponentNode | null =>
     list.reduce<ComponentNode | null>((best, n) => (best === null || dia(n) > dia(best) ? n : best), null);
 
@@ -407,8 +414,14 @@ export interface BandAdvice {
    * The UI needs it to say WHICH convention the size line quoted.
    */
   ventFactor: number;
-  /** Where that Cd came from, so the UI can say whose number it is. */
-  cdSource: 'this device' | 'the design’s other chute' | 'default';
+  /**
+   * Where that Cd came from, so the UI can say whose number it is:
+   * 'this device' — the Cd the slot's chute states; 'automatic' — the slot's
+   * chute states none, so it flies the kernel's automatic 0.8; 'the design’s
+   * other chute' — the slot holds no parachute and borrows the other one's;
+   * 'default' — no parachute in the slot and none with a Cd beside it.
+   */
+  cdSource: 'this device' | 'automatic' | 'the design’s other chute' | 'default';
   /** Mass the size line was computed against (kg). */
   massKg: number;
   /**
@@ -656,25 +669,46 @@ function bandAdvice(
   const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, instances, canopies } = opts;
 
   // --- the size line -------------------------------------------------------
-  // Quoted at the Cd of the chute in THIS slot when there is one (it is the
-  // number they are already flying); failing that the design's other chute,
-  // which is still their own fabric; failing that the kernel's 0.8. A diameter
-  // with no Cd beside it is not an answer, so the source travels with it — and
-  // so does that chute's SPILL HOLE, folded into the quoted Cd (see
-  // `ventFactor`), because the rated figure is referenced to the vented area.
+  // Quoted at the Cd the chute in THIS slot FLIES, when the slot holds one — it
+  // is the number they are already flying: the Cd it states, or, when it states
+  // none, the kernel's automatic 0.8 (ComponentFactory calls setCD only for a
+  // finite cd; flownRecoveryDevices reports it as "0.80 (auto)"). An EMPTY
+  // slot borrows the design's other chute's Cd, which is still their own
+  // fabric; failing that, the kernel's 0.8. A diameter with no Cd beside it is
+  // not an answer, so the source travels with it — and so does the SPILL HOLE
+  // of the chute the Cd came from, folded into the quoted Cd (see
+  // `ventFactor`), because a rated figure is referenced to the vented area.
+  //
+  // A slot holding a chute with no Cd used to borrow the other chute's too,
+  // though it flies at 0.8: beside a Cd 2.2 main, a hand-added drogue was sized
+  // at 2.2, and a drogue built to that size, flown as the design stands,
+  // descends about 1.66 times the target rate (review of board Tier 1 row 31,
+  // 2026-09-24). makeNode writes no Cd, and 217 of the 473 catalogue canopies
+  // carry none, so that was the common case, not a rare one.
   const own = num(device, 'cd');
   const other = num(otherDevice, 'cd');
-  const cdNominal = own ?? other ?? DEFAULT_CANOPY_CD;
-  const cdSource: BandAdvice['cdSource'] = own !== null ? 'this device'
-    : other !== null ? 'the design’s other chute'
-      : 'default';
-  // The vent travels with the Cd it was measured against — from the SAME chute,
-  // never a mix of one canopy's coefficient and another's hole. The
-  // DEFAULT_CANOPY_CD fallback is deliberately left at 1: the kernel's 0.8 is
-  // not a manufacturer's figure and implies no vent.
-  const vent = own !== null ? ventFactor(device)
-    : other !== null ? ventFactor(otherDevice)
-      : 1;
+  let cdNominal: number;
+  let cdSource: BandAdvice['cdSource'];
+  let vent: number;
+  if (device !== null) {
+    // Its own hole scales even the automatic 0.8: engineTree vents
+    // KERNEL_DEFAULT_CD exactly as it vents a typed Cd (tree/treeModel.ts).
+    cdNominal = own ?? DEFAULT_CANOPY_CD;
+    cdSource = own !== null ? 'this device' : 'automatic';
+    vent = ventFactor(device);
+  } else if (other !== null) {
+    // The vent travels with the Cd it was measured against — from the SAME
+    // chute, never a mix of one canopy's coefficient and another's hole.
+    cdNominal = other;
+    cdSource = 'the design’s other chute';
+    vent = ventFactor(otherDevice);
+  } else {
+    // No chute in the slot: the kernel's 0.8 is not a manufacturer's figure
+    // and implies no vent.
+    cdNominal = DEFAULT_CANOPY_CD;
+    cdSource = 'default';
+    vent = 1;
+  }
   const cd = cdNominal * vent;
   // The size line uses the recovery weight AS THE DESIGN STANDS. A canopy that
   // has not been chosen has no mass to substitute, so there is nothing honest

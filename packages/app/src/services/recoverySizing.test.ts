@@ -657,6 +657,27 @@ describe('classifyRecoveryDevices', () => {
     expect(drogue?.id).toBe('p0');
   });
 
+  it('ranks a chute with no diameter at the 0.3 m the kernel flies it at, not at 0', () => {
+    // The v0.141 claim check's C12: two apogee chutes, a 0.2 m canopy and one
+    // stating no diameter. The kernel flies the second at 0.3 m (ComponentFactory
+    // reads dbl(node, "diameter", 0.3)), so it is the bigger canopy and the main.
+    // Ranked at 0 it lost to the 0.2 m, and the Main and Drogue lines described
+    // each other's canopy.
+    const t = tube(0.3, [{ diameter: 0.2, cd: 0.8 }, { cd: 0.8 }]);
+    const { main, drogue } = classifyRecoveryDevices(t);
+    expect(main?.id).toBe('p1');
+    expect(drogue?.id).toBe('p0');
+    // A NaN or infinite diameter reads as absent the same way — it is flown at
+    // 0.3 m too (JSON sends a non-finite number as null).
+    for (const bad of [NaN, Infinity]) {
+      const u = tube(0.3, [{ diameter: 0.2, cd: 0.8 }, { diameter: bad, cd: 0.8 }]);
+      expect(classifyRecoveryDevices(u).main?.id).toBe('p1');
+    }
+    // …and it still loses to a canopy really wider than 0.3 m.
+    const w = tube(0.3, [{ diameter: 0.5, cd: 0.8 }, { cd: 0.8 }]);
+    expect(classifyRecoveryDevices(w).main?.id).toBe('p0');
+  });
+
   it('ignores streamers — their Cd is referenced to strip area, not a diameter', () => {
     const t: RocketTree = {
       name: 's', components: [{
@@ -846,6 +867,37 @@ describe('the Cd the size line is quoted at — never a bare diameter', () => {
     const r = ok(sizing({ tree: t }));
     expect(r.drogue.cd).toBe(2.2);
     expect(r.drogue.cdSource).toBe('the design’s other chute');
+  });
+
+  it('quotes a slot whose chute states no Cd at the automatic 0.8 it FLIES, not the other chute’s', () => {
+    // Review of board Tier 1 row 31: the drogue slot holds a chute with no Cd
+    // (makeNode writes none; 217 of 473 catalogue canopies carry none). The
+    // kernel flies it at its automatic 0.8, so that is the Cd to size at.
+    // Borrowing the main's 2.2 quoted a drogue that, built to that size and
+    // flown as the design stands, descends about 1.66 times the target.
+    const t = tube(0.3, [
+      { diameter: 0.9, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, deployEvent: 'apogee' },
+    ]);
+    const r = ok(sizing({ tree: t }));
+    expect(r.drogue.cdSource).toBe('automatic');
+    expect(r.drogue.cd).toBe(DEFAULT_CANOPY_CD);
+    expect(r.drogue.ventFactor).toBe(1);
+    expect(r.main.cdSource).toBe('this device');
+  });
+
+  it('vents the automatic 0.8 by the chute’s own hole, exactly as the flight does', () => {
+    const t = tube(0.3, [
+      { diameter: 0.9, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, spillHoleDiameter: 0.1, deployEvent: 'apogee', name: 'Drogue' },
+    ]);
+    const r = ok(sizing({ tree: t }));
+    expect(r.drogue.cdSource).toBe('automatic');
+    expect(r.drogue.cdNominal).toBe(DEFAULT_CANOPY_CD);
+    expect(r.drogue.cd).toBeCloseTo(0.8 * (1 - (0.1 / 0.4) ** 2), 12);
+    // The flight's own coefficient for that chute, from the tree the kernel gets.
+    const flown = (engineTree(t).components[0]!.children![0]!.children![1] as ComponentNode)['cd'];
+    expect(r.drogue.cd).toBeCloseTo(flown as number, 12);
   });
 
   it('falls back to the kernel’s own 0.8, and says so', () => {

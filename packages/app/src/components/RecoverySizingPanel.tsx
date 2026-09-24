@@ -306,11 +306,18 @@ function BandSection({
   massSym: string;
 }) {
   const title = advice.role === 'main' ? 'Main' : 'Drogue';
+  // WHOSE Cd, said so it cannot be misread. A slot holding a chute that states
+  // no Cd is quoted at the automatic 0.8 it flies; only a slot with NO
+  // parachute borrows the other chute's — and "no parachute" is the honest
+  // phrase for it, because a streamer in that role is left out of sizing (its
+  // Cd is referenced to strip area) and the slot is not empty.
   const cdSaid = advice.cdSource === 'this device'
     ? `the Cd of the ${advice.role} in this design`
-    : advice.cdSource === 'the design’s other chute'
-      ? 'the Cd of the other chute in this design — this slot is empty'
-      : 'the simulator’s default for a canopy that states no Cd';
+    : advice.cdSource === 'automatic'
+      ? `the ${advice.role} in this design states no Cd, so it flies the simulator’s default`
+      : advice.cdSource === 'the design’s other chute'
+        ? `there is no ${advice.role} parachute in this design, so this is the other chute’s Cd`
+        : 'the simulator’s default for a canopy that states no Cd';
   const anyFlagged = advice.candidates.some((c) => c.flagged);
   const anyUnverified = advice.candidates.some((c) => c.fit === 'unverified');
   // WHICH Cd CONVENTION THE SIZE LINE QUOTED. `advice.cd` is vent-corrected —
@@ -339,7 +346,9 @@ function BandSection({
       </p>
       <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
         for {rate(advice.band.target)} {velSym} — {cdSaid}
-        {vented && <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>}.
+        {vented && (advice.cdSource === 'automatic'
+          ? <>, {cdNum(advice.cdNominal)} scaled for its spill hole</>
+          : <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>)}.
         {/* A chute in a pod set is one canopy per pod (audit 2026-09-22), so
             the size is per canopy and the rates are for all of them — said,
             or "about 14 in" reads as the whole answer. */}
