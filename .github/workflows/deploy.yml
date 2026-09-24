@@ -40,8 +40,13 @@
 # bumps, one grouped PR a month. The wrangler CLI is pinned to an exact version
 # below; Dependabot does not read that, so bump it by hand.
 #
-# `main` has no branch protection: pushing to it IS the deploy (a repository
-# setting, left to the owner).
+# BRANCH RULES. Pushing to `main` IS the deploy, and nothing requires a pull
+# request or a passing check first. Since 2026-09-24 a repository ruleset
+# (23941726, "main: no force-push, no deletion", no bypass actors) refuses a
+# force-push to `main` and its deletion, so the deployed history cannot be
+# rewritten; disable that ruleset for a history purge and re-enable it after.
+# It is a RULESET, so `gh api …/branches/main/protection` still answers "Branch
+# not protected" — read `…/rules/branches/main` instead.
 
 name: Deploy
 
