@@ -3,6 +3,7 @@ import {
   classLabel, classesFittingMount, diameterClass, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
+import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { findParent, motorMounts } from './treeModel.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
@@ -492,6 +493,17 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   for (const key of LENGTH_KEYS[type] ?? []) {
     const v = num(n, key);
     if (v !== null) out[key] = round(v * k);
+  }
+  // A PARACHUTE WITH NO DIAMETER FLIES 0.3 m, it does not size itself — absent
+  // here is not "automatic", as it is for the keys the loop above skips. Left
+  // alone it stayed 0.3 m while its spill hole was scaled, so the vent ratio the
+  // comment on LENGTH_KEYS relies on broke (Cd 1.5 with a 0.1 m hole flew 1.33
+  // before a 2x scale and 0.83 after), and a canopy that does not grow with the
+  // rocket breaks the Scale dialog's "descent goes as roughly the square root
+  // of the factor". Scale the diameter it flies (review of board Tier 1 row 31,
+  // 2026-09-24).
+  if (type === 'parachute' && num(n, 'diameter') === null) {
+    out['diameter'] = round(CANOPY_DIAMETER_FALLBACK * k);
   }
 
   // A freeform fin's planform lives entirely in `points` — [x along the body,

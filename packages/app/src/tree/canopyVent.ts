@@ -25,8 +25,11 @@ import { num } from './nodeNum.js';
 
 /**
  * A canopy with no stated diameter is flown at this (m) — engineTree's fallback.
- * The recovery panel ranks such a chute at it too (`classifyRecoveryDevices`),
- * so the chute it calls the main is the one the kernel flies bigger.
+ * Everything that reads a canopy's size reads an absent one as this: the
+ * recovery panel's ranking when it picks the bigger of two chutes
+ * (`classifyRecoveryDevices`), the property panel's placeholder
+ * (schema.ts BLANK_BY_TYPE), and the Scale tool, which scales it like a stated
+ * one (tree/scaleRocket.ts).
  */
 export const CANOPY_DIAMETER_FALLBACK = 0.3;
 /** The widest vent flown, as a fraction of the canopy's diameter. */

@@ -91,6 +91,22 @@ describe('PropertyPanel — a blank that flies one known value', () => {
     expect(patches.at(-1)).toEqual({ lineCount: 5 });
   });
 
+  it('a parachute saved with no canopy diameter shows the 0.3 m the kernel flies, and steps from it', () => {
+    // ComponentFactory :426 dbl(node, "diameter", 0.3). The box was empty with
+    // no placeholder and ▴ committed nothing, while the kernel flew 0.3 m and
+    // recovery sizing ranked the chute at it (review of board Tier 1 row 31).
+    const n = makeNode('parachute');
+    delete n['diameter'];
+    show(n);
+    const d = inputStarting('Canopy diameter');
+    expect(d.value).toBe('');
+    expect(d.placeholder).toMatch(/^default: \S/);
+    spin(d, 0);
+    const up = patches.at(-1)!['diameter'] as number;
+    expect(up).toBeGreaterThan(0.3);
+    expect(up).toBeLessThan(0.32);
+  });
+
   it('a fin set saved with no count steps from the fins it flies: 3, or 6 tubes', () => {
     // finCountDefault — the kernel constructors' own, and what every drawing uses.
     const legacy = (type: EditorComponentType) => {

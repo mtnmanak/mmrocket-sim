@@ -867,22 +867,37 @@ describe('the Cd the size line is quoted at — never a bare diameter', () => {
     const r = ok(sizing({ tree: t }));
     expect(r.drogue.cd).toBe(2.2);
     expect(r.drogue.cdSource).toBe('the design’s other chute');
-    expect(r.drogue.slotHolds).toBe(false);
   });
 
-  it('borrows it too when the slot’s chute states no Cd — and says the slot is NOT empty', () => {
-    // The drogue slot holds a chute with no Cd of its own: the size line still
-    // borrows the main's Cd (their own fabric), but the slot has a chute in it,
-    // so the panel must not call it empty (the v0.141 claim check's C12).
+  it('quotes a slot whose chute states no Cd at the automatic 0.8 it FLIES, not the other chute’s', () => {
+    // Review of board Tier 1 row 31: the drogue slot holds a chute with no Cd
+    // (makeNode writes none; 217 of 473 catalogue canopies carry none). The
+    // kernel flies it at its automatic 0.8, so that is the Cd to size at.
+    // Borrowing the main's 2.2 quoted a drogue that, built to that size and
+    // flown as the design stands, descends about 1.66 times the target.
     const t = tube(0.3, [
       { diameter: 0.9, cd: 2.2, deployEvent: 'altitude' },
       { diameter: 0.4, deployEvent: 'apogee' },
     ]);
     const r = ok(sizing({ tree: t }));
-    expect(r.drogue.cdSource).toBe('the design’s other chute');
-    expect(r.drogue.cd).toBe(2.2);
-    expect(r.drogue.slotHolds).toBe(true);
-    expect(r.main.slotHolds).toBe(true);
+    expect(r.drogue.cdSource).toBe('automatic');
+    expect(r.drogue.cd).toBe(DEFAULT_CANOPY_CD);
+    expect(r.drogue.ventFactor).toBe(1);
+    expect(r.main.cdSource).toBe('this device');
+  });
+
+  it('vents the automatic 0.8 by the chute’s own hole, exactly as the flight does', () => {
+    const t = tube(0.3, [
+      { diameter: 0.9, cd: 2.2, deployEvent: 'altitude' },
+      { diameter: 0.4, spillHoleDiameter: 0.1, deployEvent: 'apogee', name: 'Drogue' },
+    ]);
+    const r = ok(sizing({ tree: t }));
+    expect(r.drogue.cdSource).toBe('automatic');
+    expect(r.drogue.cdNominal).toBe(DEFAULT_CANOPY_CD);
+    expect(r.drogue.cd).toBeCloseTo(0.8 * (1 - (0.1 / 0.4) ** 2), 12);
+    // The flight's own coefficient for that chute, from the tree the kernel gets.
+    const flown = (engineTree(t).components[0]!.children![0]!.children![1] as ComponentNode)['cd'];
+    expect(r.drogue.cd).toBeCloseTo(flown as number, 12);
   });
 
   it('falls back to the kernel’s own 0.8, and says so', () => {

@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
+import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { CLUSTER_OPTIONS } from './cluster.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { num } from './nodeNum.js';
@@ -1184,6 +1185,13 @@ const BLANK_BY_TYPE: Record<string, Record<string, number>> = lookupTable<Record
   parallelstage: { instanceCount: 2 },
   // treeModel's protuberance lowering: an absent count is one, an absent plate angle 45°.
   protuberance: { count: 1, plateAngle: Math.PI / 4 },
+  // :426 dbl(node, "diameter", 0.3). A PARACHUTE's diameter only — a streamer
+  // has none, and every other part's `diameter` means something else. An
+  // absent one reaches the panel from a design autosaved before the field could
+  // no longer be cleared, or from a user CSV preset row with no usable diameter
+  // (review of board Tier 1 row 31, 2026-09-24); it showed an empty box with a
+  // dead spinner while the kernel flew, and recovery sizing ranked, 0.3 m.
+  parachute: { diameter: CANOPY_DIAMETER_FALLBACK },
 });
 
 /**
