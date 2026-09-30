@@ -216,10 +216,14 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		return angle < 0 ? angle + 2 * Math.PI : angle;
 	}
 
-	/** MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): group absolute azimuths.
-	 * On-axis points form their own line and never supplement an off-axis line.
-	 * Split at the largest circular gap, then group from each line's first angle.
-	 * A line spans at most one degree; tolerance chains cannot merge distant lines.
+	/** MMRocket Sim patch (K9-A2, 2026-09-30; LEDGER.md): every window of azimuths
+	 * no wider than one degree, anchored at each button, is a candidate rail line, and
+	 * the best window's second station guides. Windows, not a partition: a greedy
+	 * partition could hand one button of the only usable pair to a neighbour's group
+	 * and find no line at all (review finding, 2026-09-30). Any set of buttons within
+	 * one degree lies inside the window anchored at its lowest angle, so no usable
+	 * line is missed. On-axis points form their own line and never supplement an
+	 * off-axis line.
 	 */
 	private static double buttonGuidePosition(List<Coordinate> buttons) {
 		List<Coordinate> radial = new ArrayList<>();
@@ -229,30 +233,18 @@ public class SimulationStatus implements Cloneable, Monitorable {
 			else radial.add(p);
 		}
 		double best = secondStation(axis);
-		if (radial.isEmpty()) return best;
-		radial.sort((a, b) -> Double.compare(buttonAngle(a), buttonAngle(b)));
-		int start = 0;
-		double largestGap = -1;
-		for (int i = 0; i < radial.size(); i++) {
-			double next = i + 1 == radial.size() ? buttonAngle(radial.get(0)) + 2 * Math.PI
-					: buttonAngle(radial.get(i + 1));
-			double gap = next - buttonAngle(radial.get(i));
-			if (gap > largestGap) { largestGap = gap; start = (i + 1) % radial.size(); }
-		}
-		List<Double> line = new ArrayList<>();
-		double firstAngle = 0;
-		for (int i = 0; i < radial.size(); i++) {
-			int index = (start + i) % radial.size();
-			Coordinate p = radial.get(index);
-			double angle = buttonAngle(p) + (index < start ? 2 * Math.PI : 0);
-			if (!line.isEmpty() && angle - firstAngle > Math.PI / 180.0 + 1e-12) {
-				best = Math.max(best, secondStation(line));
-				line.clear();
+		double width = Math.PI / 180.0 + 1e-12;
+		for (Coordinate anchor : radial) {
+			double start = buttonAngle(anchor);
+			List<Double> line = new ArrayList<>();
+			for (Coordinate p : radial) {
+				double offset = buttonAngle(p) - start;
+				if (offset < 0) offset += 2 * Math.PI;
+				if (offset <= width) line.add(p.x);
 			}
-			if (line.isEmpty()) firstAngle = angle;
-			line.add(p.x);
+			best = Math.max(best, secondStation(line));
 		}
-		return Math.max(best, secondStation(line));
+		return best;
 	}
 
 	/** MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): the aft-most edge anchors

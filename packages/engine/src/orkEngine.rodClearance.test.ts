@@ -167,6 +167,10 @@ describe('two-button guidance geometry and bridge/kernel agreement', { timeout: 
     { name: 'one degree tolerance joins a line', guides: [button(0.1, 0), button(0.3, 0.9)], gap: 0.3, reason: 'buttons' },
     { name: 'exactly one degree joins a line', guides: [button(0.1, 0), button(0.3, 1)], gap: 0.3, reason: 'buttons' },
     { name: 'outside one degree separates lines', guides: [button(0.1, 0), button(0.3, 1.1)], gap: 1, reason: 'single-button' },
+    // Review finding 2026-09-30: a greedy angle partition split these usable pairs
+    // (the neighbour at the forward station took the pair's forward button).
+    { name: 'a neighbour below the pair cannot split it', guides: [button(0.3, 0), button(0.1, 0.9), button(0.3, -0.5)], gap: 0.3, reason: 'buttons' },
+    { name: 'a neighbour below a rotated pair cannot split it', guides: [button(0.3, 0.5), button(0.1, 1.4), button(0.3, 0)], gap: 0.3, reason: 'buttons' },
     { name: 'azimuth wrap at 180 degrees', guides: [button(0.1, 179.6), button(0.3, -179.6)], gap: 0.3, reason: 'buttons' },
     { name: 'azimuth wrap at zero degrees', guides: [button(0.1, -0.4), button(0.3, 0.4)], gap: 0.3, reason: 'buttons' },
     { name: 'best of two viable lines', guides: [button(0.1), button(0.2), button(0.3, 180), button(0.4, 180)], gap: 0.2, reason: 'buttons' },

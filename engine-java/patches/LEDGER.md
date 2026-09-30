@@ -156,8 +156,16 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   review accepted by the orchestrator (CODEX-AMEND-1.md). Rail buttons group by
   absolute atan2(z,y) azimuth with a 1 degree tolerance, wrapping at +/-180.
   On-axis (y=z=0) instances form their own line and never supplement other lines.
-  The largest angular gap sets a deterministic circular seam; each line spans
-  at most 1 degree from its first sorted angle, without transitive tolerance chains.
+  **K9-A2 (same day, review finding):** candidate lines are WINDOWS, not a
+  partition — for every button, the buttons within 1 degree above its azimuth (with
+  wrap) form one candidate, and the best candidate's second station guides. The
+  first cut (sort, cut at the largest angular gap, group greedily from each line's
+  first angle) could hand one button of the only usable pair to a neighbour's group:
+  buttons at 0 deg (forward) and 0.9 deg (aft) plus a third at -0.5 deg beside the
+  forward station flew ZERO guided distance. Any set within 1 degree lies inside the
+  window anchored at its lowest angle, so no usable line can be missed. Regression:
+  orkEngine.rodClearance.test.ts "a neighbour below the pair cannot split it" and its
+  rotated twin — both fail on the greedy code, pass on the windows (37/37).
 - **Stations:** within a line, edges within 0.5 mm of its aft-most station edge
   are one station, not independent guides. Sort aft-first; the second distinct
   station's most-aft edge controls. Choose the most-aft such point over usable
