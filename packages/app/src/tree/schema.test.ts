@@ -51,12 +51,12 @@ describe('the recovery Cd slider cannot be dragged to zero drag', () => {
  * strength of the old label is now spent on a safety number, so the box has to
  * say what it buys.
  */
-describe('the nozzle exit diameter label states both halves', () => {
+describe('the nozzle exit diameter field explains both halves', () => {
   const f = () => field('stage', 'nozzleExitDiameter')!;
 
   it('names thrust as well as drag', () => {
-    expect(f().label).toMatch(/thrust/i);
-    expect(f().label).toMatch(/drag/i);
+    expect(f().help).toMatch(/thrust/i);
+    expect(f().help).toMatch(/drag/i);
   });
 
   it('no longer promises drag alone', () => {
@@ -64,14 +64,11 @@ describe('the nozzle exit diameter label states both halves', () => {
   });
 
   it('still says what 0 means — it is the only way back to the published curve on the design', () => {
-    expect(f().label).toMatch(/0 = /);
+    expect(f().help).toMatch(/0 to switch off/);
   });
 
   /**
-   * FieldDef has no tooltip, so a label is the ONLY copy the box gets — and
-   * the panel lays labels out beside their input. The first draft of this one
-   * ran to 76 characters, nearly double the longest label the panel had ever
-   * had. The full explanation belongs in the guide and the import note.
+   * The short label has associated visible help, leaving the input readable.
    */
   it('stays inside the length band the property panel already lays out', () => {
     const longest = Math.max(...Object.values(FIELDS).flat()
@@ -79,7 +76,7 @@ describe('the nozzle exit diameter label states both halves', () => {
     expect(f().label.length).toBeLessThanOrEqual(longest + 12);
   });
 
-  it('is still the same mm field, 1-200, so no stored design is reinterpreted', () => {
+  it('keeps the same mm scale and 1 mm step, with zero available', () => {
     expect(f().unit).toBe('mm');
     expect(f().smin).toBe(0);
     expect(f().smax).toBe(200);

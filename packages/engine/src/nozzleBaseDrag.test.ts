@@ -18,6 +18,8 @@ import { OrkRocket, type ComponentNode, type RocketTree } from './orkEngine.js';
  * body component of the stage's own line, never a pod's), and the instance count
  * multiplies it exactly as it always did, so an N-strap-on parallel stage still
  * recovers N areas.
+ * The pods-only tests below pin the subsequent aggregate allocation to loaded
+ * pod lines (or declared mounts in a preview), including a pointed core.
  *
  * These are the BEHAVIOURAL guards: engine-java's difftest compares a JVM run
  * against a TeaVM run with no stored baseline, so a change that moves both
@@ -101,6 +103,138 @@ function baseCd(tree: RocketTree, model: Model, machs: number[]) {
 }
 
 const MACHS = [0.3, 0.9];
+
+/** Geometry oracle for the pods-only allocation: a 60 mm core and pod radii below. */
+const POD_CORE_R = 0.03;
+const podOnlyDesign = (opts: {
+  exit?: number; aft?: number; radii?: number[]; repeats?: number; stepped?: boolean;
+  overrideFirst?: boolean; coreMount?: boolean; decorative?: boolean; flush?: boolean;
+  crossSection?: 'rounded' | 'airfoil';
+} = {}): RocketTree => ({ name: 'Pods only', components: [{
+  type: 'stage', nozzleExitDiameter: opts.exit ?? 0.02, children: [
+    { type: 'nosecone', length: 0.15, aftRadius: POD_CORE_R, thickness: 0.001 },
+    { type: 'bodytube', id: 'core-body', length: 0.6, outerRadius: POD_CORE_R, thickness: 0.001, children: [
+      { type: 'freeformfinset', finCount: 4, points: [[0, 0], [0.08, 0.06], [0.15, 0.06], [0.2, 0]], thickness: 0.003, crossSection: opts.crossSection ?? 'rounded' },
+      ...(opts.coreMount ? [{ type: 'innertube', id: 'empty-core', motorMount: true, length: 0.1, outerRadius: 0.009, thickness: 0.001 } as ComponentNode] : []),
+      ...(opts.radii ?? [0.012]).map((radius, i): ComponentNode => ({
+        type: 'podset', id: `pod-${i}`, instanceCount: opts.repeats ?? 2, radiusMethod: 'relative', radiusOffset: 0,
+        position: { method: 'bottom', offset: 0 }, children: [
+          { type: 'nosecone', length: 0.06, aftRadius: opts.stepped ? 0.022 : radius, thickness: 0.001 },
+          ...(opts.stepped ? [{ type: 'bodytube', outerRadius: 0.022, length: 0.08, thickness: 0.001 } as ComponentNode] : []),
+          { type: 'bodytube', id: `pod-base-${i}`, length: 0.2, outerRadius: radius, thickness: 0.001,
+            ...(opts.overrideFirst && i === 0 ? { overrideCD: 0.2 } : {}), children: [
+              { type: 'innertube', id: `pod-mount-${i}`, motorMount: true, length: 0.1, outerRadius: 0.008, thickness: 0.001 },
+            ] },
+          ...(opts.flush ? [{ type: 'bodytube', length: 0.05, outerRadius: radius, thickness: 0.001,
+            // The terminal base is overridden, so the earlier flush component must get nothing.
+            overrideCD: 0.2 } as ComponentNode] : []),
+        ],
+      })),
+      ...(opts.decorative ? [{ ...pods, id: 'decorative', instanceCount: 5 } as ComponentNode] : []),
+    ] },
+    { type: 'transition', length: 0.1, foreRadius: POD_CORE_R, aftRadius: opts.aft ?? 0, thickness: 0.001, shape: 'conical' },
+  ],
+}] });
+
+describe('pods-only aggregate nozzle allocation', () => {
+  // 1e-12 in dimensionless CD is far below model/data precision, above roundoff.
+  const cut = (tree: RocketTree, model: Model = 'kbf') => {
+    const [s] = baseCd(tree, model, [0.3]);
+    return s!.off - s!.on;
+  };
+  const expected = (exit: number, capacityRadiusSquared: number, multiplicity = 1) =>
+    multiplicity * subsonicBaseCd(0.3) * Math.min((exit / 2) ** 2, capacityRadiusSquared) / POD_CORE_R ** 2;
+
+  it('recovers one budget on pointed and small finite cores using the static mount layout', () => {
+    for (const model of ['kbf', 'supersonic'] as const) {
+      for (const aft of [0, 0.003]) {
+        for (const crossSection of ['rounded', 'airfoil'] as const) {
+          expect(cut(podOnlyDesign({ aft, crossSection }), model)).toBeCloseTo(expected(0.02, 2 * 0.012 ** 2), 12);
+        }
+      }
+    }
+  });
+
+  it('caps by summed unequal pod bases, excluding decorative bases and intermediate steps', () => {
+    for (const exit of [0.02, 0.1]) {
+      const t = podOnlyDesign({ exit, radii: [0.01, 0.015], stepped: true, decorative: true });
+      expect(cut(t)).toBeCloseTo(expected(exit, 2 * (0.01 ** 2 + 0.015 ** 2)), 12);
+    }
+  });
+
+  it('does not redistribute the share of an overridden unequal base', () => {
+    const t = podOnlyDesign({ exit: 0.02, radii: [0.01, 0.015], overrideFirst: true });
+    const remainingShare = 0.015 ** 2 / (0.01 ** 2 + 0.015 ** 2);
+    expect(cut(t)).toBeCloseTo(expected(0.02, 2 * (0.01 ** 2 + 0.015 ** 2)) * remainingShare, 12);
+    expect(cut(podOnlyDesign({ flush: true }))).toBe(0);
+  });
+
+  it('normalizes nested pod capacity within each repeated strap-on', () => {
+    for (const n of [1, 3]) {
+      for (const exit of [0.01, 0.1]) {
+        const original = podOnlyDesign({ exit, radii: [0.01], repeats: 2 });
+        const parallel: ComponentNode = { ...original.components[0]!, type: 'parallelstage', instanceCount: n, separationEvent: 'never' };
+        const t: RocketTree = { name: 'Nested', components: [{ type: 'stage', children: [
+          { type: 'nosecone', length: 0.1, aftRadius: POD_CORE_R, thickness: 0.001 },
+          { type: 'bodytube', length: 0.9, outerRadius: POD_CORE_R, thickness: 0.001, children: [parallel] },
+        ] }] };
+        expect(cut(t)).toBeCloseTo(expected(exit, 2 * 0.01 ** 2, n), 12);
+      }
+    }
+  });
+
+  it('uses installed pod motors despite an empty core mount; installed core motors retain the legacy path', () => {
+    const t = podOnlyDesign({ coreMount: true, aft: 0.003 });
+    const r = OrkRocket.buildTree(t);
+    r.setRogersModifiedBarrowman(true);
+    const motor = { designation: 'Test', diameter: 0.012, length: 0.06, times: [0, 1, 2],
+      thrusts: [0, 32, 0], masses: [0.1, 0.075, 0.05], cgX: 0.03, ejectionDelay: 5 };
+    const reduction = () => {
+      const s = r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 });
+      return s.powerOff.base[0]! - s.powerOn.base[0]!;
+    };
+    // No motors: the preview's declared core mount keeps the core path.
+    expect(reduction()).toBeCloseTo(expected(0.02, 0.003 ** 2), 12);
+    r.setMotorById('pod-mount-0', motor);
+    expect(reduction()).toBeCloseTo(expected(0.02, 2 * 0.012 ** 2), 12);
+    r.setMotorById('empty-core', motor);
+    expect(reduction()).toBeCloseTo(expected(0.02, 0.003 ** 2), 12);
+  });
+
+  it('does not use unloaded pod lines when another pod line has an installed motor', () => {
+    const r = OrkRocket.buildTree(podOnlyDesign({ exit: 0.1, radii: [0.01, 0.015] }));
+    r.setRogersModifiedBarrowman(true);
+    r.setMotorById('pod-mount-0', { designation: 'Test', diameter: 0.012, length: 0.06,
+      times: [0, 1, 2], thrusts: [0, 32, 0], masses: [0.1, 0.075, 0.05], cgX: 0.03, ejectionDelay: 5 });
+    const s = r.dragSweep({ machMin: 0.3, machMax: 0.3, machStep: 1 });
+    expect(s.powerOff.base[0]! - s.powerOn.base[0]!).toBeCloseTo(expected(0.1, 2 * 0.01 ** 2), 12);
+  });
+
+  it('keeps nested parallel motors out of the enclosing stage’s allocation', () => {
+    const t = podOnlyDesign({ exit: 0.1, radii: [0.01] });
+    t.components[0]!.children![1]!.children!.push({ type: 'parallelstage', instanceCount: 3,
+      nozzleExitDiameter: 0, children: [{ type: 'bodytube', motorMount: true,
+        id: 'other-stage-mount', length: 0.2, outerRadius: 0.025, thickness: 0.001 }] });
+    expect(cut(t)).toBeCloseTo(expected(0.1, 2 * 0.01 ** 2), 12);
+  });
+
+  it('uses the disk radius for a zero-length terminal pod component', () => {
+    const t = podOnlyDesign({ exit: 0.1, radii: [0.01] });
+    const pod = t.components[0]!.children![1]!.children!.find((n) => n.type === 'podset')!;
+    pod.children!.push({ type: 'transition', length: 0, foreRadius: 0.01, aftRadius: 0.005,
+      thickness: 0.001, shape: 'conical' });
+    expect(cut(t)).toBeCloseTo(expected(0.1, 2 * 0.01 ** 2), 12);
+  });
+
+  it('keeps Classic, OFF, and no-layout fallback behavior', () => {
+    expect(cut(podOnlyDesign(), 'classic')).toBe(0);
+    expect(cut(podOnlyDesign({ exit: 0 }))).toBe(0);
+    const t = podOnlyDesign({ aft: 0.003 });
+    const walk = (nodes: ComponentNode[]) => { for (const n of nodes) { delete n['motorMount']; walk(n.children ?? []); } };
+    walk(t.components);
+    expect(cut(t)).toBeCloseTo(expected(0.02, 0.003 ** 2), 12);
+  });
+});
 
 describe('power-on base drag: one nozzle area per stage instance, on the aft base', () => {
   it('credits a pod-set design ONE nozzle area, not one per pod base', () => {

@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { kernelStageIdByNode, mountMotorCount, stages } from '../tree/treeModel.js';
+import { kernelStageIdByNode, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -59,13 +59,7 @@ export function stageMotors(
   tree: RocketTree,
   assigned: readonly (readonly [string, MountMotor])[],
 ): StageMotors[] {
-  // KERNEL ownership, not the app's grouping (2026-09-21). A mount inside a
-  // parallel stage belongs to THAT stage for pressure thrust and power-on base
-  // drag, so its exit area must not be summed into the serial stage hosting
-  // it: the core was being credited a strap-on's nozzle, and only while the
-  // core's own motor burned. A parallel stage is not in `stages(tree)`, so its
-  // motors drop out of this list entirely — which is the honest outcome until
-  // the field exists on a parallel stage (board: the parallel-stage nozzle).
+  // The nearest serial or parallel stage owns the per-instance exit budget.
   const stageOfNode = kernelStageIdByNode(tree);
   const byStage = new Map<string, StageMotors['motors']>();
   for (const [mountId, mm] of assigned) {
@@ -83,20 +77,14 @@ export function stageMotors(
     list.push({
       mountId,
       motorId,
-      // Every motor the kernel burns in this stage: the cluster times each
-      // enclosing POD SET's count (audit 2026-09-22, row 351). The cluster
-      // alone filled a stage with one pod's exit — 20 mm where three pods
-      // with a 20 mm exit each are a 34.6 mm equivalent — so the pods' other
-      // exits never collected their pressure thrust. No parallel stage can
-      // enclose a mount that reaches this line (kernel ownership, above), so
-      // `mountMotorCount` is exactly the per-stage count here.
-      count: mountMotorCount(tree, mountId),
+      // Multiplicities strictly below the owning stage only.
+      count: nozzleMotorCount(tree, mountId),
       label: mm.label,
     });
     byStage.set(stageId, list);
   }
   const out: StageMotors[] = [];
-  stages(tree).forEach((s, i) => {
+  nozzleStages(tree).forEach((s, i) => {
     // A stage with no id cannot be named on either side of the join, and
     // `applyStageNozzles` could not write to it either.
     if (!s.id) return;
@@ -201,7 +189,7 @@ export function followNozzle(input: {
   publishedM: number | null;
 }): NozzleFollow {
   const { hadMotorsBefore, previousLabel, currentValueM, publishedM } = input;
-  if (!hadMotorsBefore) return { kind: 'none' };
+  if (!hadMotorsBefore || currentValueM === 0) return { kind: 'none' };
   if (publishedM !== null) {
     if (currentValueM !== null && Math.abs(currentValueM - publishedM) <= SAME_M) return { kind: 'none' };
     return { kind: 'set', exitDiameterM: publishedM };

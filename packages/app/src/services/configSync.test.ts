@@ -490,9 +490,11 @@ describe('withActiveConfigTreeSynced', () => {
     expect(withActiveConfigTreeSynced(same, 'A', live({ booster: { separationAltitude: 200 } }))).toBe(same);
   });
 
-  it('writes a cleared nozzle as 0, the stored shape for "no nozzle"', () => {
+  it('writes blank as null, preserving explicit zero separately', () => {
     const t = live();
     delete t.components[1]!['nozzleExitDiameter'];
+    expect(withActiveConfigTreeSynced([A], 'A', t)[0]!.nozzles).toEqual({ s2: null });
+    t.components[1]!['nozzleExitDiameter'] = 0;
     expect(withActiveConfigTreeSynced([A], 'A', t)[0]!.nozzles).toEqual({ s2: 0 });
   });
 

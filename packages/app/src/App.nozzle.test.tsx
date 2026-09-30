@@ -18,7 +18,7 @@ import { PHYSICS_REVISION, type SimRun } from './services/simReport.js';
 import { reflyRun } from './services/flightRunner.js';
 import type { FlightCharts } from './components/FlightCharts.js';
 import type { SimHistory } from './components/SimResults.js';
-import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, findNode, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
 /**
@@ -197,6 +197,42 @@ beforeEach(() => {
 afterEach(async () => {
   await unmountAll();
   vi.unstubAllGlobals();
+});
+
+describe('strap-on nozzle controls in App', () => {
+  it('fills one clustered strap-on, keeps core separate, and restores explicit OFF', async () => {
+    const t = defaultTree();
+    const mount = motorMounts(t)[0]!;
+    const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    body.children = [...(body.children ?? []), {
+      type: 'parallelstage', id: 'nozzle-boost', name: 'Nozzle boosters', instanceCount: 3,
+      separationEvent: 'never', children: [{
+        type: 'bodytube', id: 'nozzle-booster-body', length: 0.2, outerRadius: 0.02, thickness: 0.001,
+        children: [{ type: 'innertube', id: 'nozzle-mount', motorMount: true,
+          length: 0.1, outerRadius: 0.005, thickness: 0.0005, cluster: '4-ring' }],
+      }],
+    }];
+    const d13 = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+    expect(d13).toBeTruthy();
+    seedSession(t, { [mount.id!]: await c6(), 'nozzle-mount': d13 });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await waitFor(() => Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value) > 0, 'strap-on autofill');
+    expect(Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value)).toBeCloseTo(2 * 4.775, 2);
+    expect(host.textContent).toContain('Exit areas summed over the 4 motors in one strap-on.');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession().tree.components[0]!['nozzleExitDiameter']).toBeUndefined();
+    await type(input(host, 'Nozzle exit diameter for Nozzle boosters'), '0');
+    await settle(50);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(findNode(storedSession().tree, 'nozzle-boost')!['nozzleExitDiameter']).toBe(0);
+    await unmountAll();
+    const restored = await mountApp();
+    await openTab(restored, 'Motors & Launch');
+    await settle(50);
+    expect(input(restored, 'Nozzle exit diameter for Nozzle boosters').value).toBe('0');
+    expect(restored.querySelector('[data-nozzle="off"]')).not.toBeNull();
+  }, 30000);
 });
 
 /**

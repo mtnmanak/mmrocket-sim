@@ -456,9 +456,9 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * {@code applyThrustState} builds its thrusting-stage set.
 	 * <p>
 	 * PER INSTANCE, because that is what the drag half already does: it subtracts
-	 * the area from the stage's aft-most base (only that one since 2026-09-22 -
-	 * {@code BarrowmanCalculator.isStageAftBase}; before, every base in the stage,
-	 * pods included, took an area of its own) and then scales, {@code total +=
+	 * the area from the stage's aft-most base, or distributes one budget across
+	 * motor-carrying pod bases for a pods-only loadout (2026-09-30). The drag credit
+	 * is capped by eligible base area; this pressure term is not. It then scales, {@code total +=
 	 * instanceCount * cd}, so an N-instance {@code ParallelStage} recovers N areas
 	 * of base drag. For a serial stage N is 1 and nothing changes; for a parallel stage the field
 	 * therefore means ONE strap-on's equivalent exit, in both halves. Until

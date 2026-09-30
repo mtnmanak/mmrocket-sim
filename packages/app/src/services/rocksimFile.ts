@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { nozzleExportNotes } from './nozzleExport.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -2051,6 +2052,7 @@ export interface RktExportInput {
 }
 
 export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInput): string {
+  notes?.push(...nozzleExportNotes(tree, '.rkt'));
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
   let serial = 0;

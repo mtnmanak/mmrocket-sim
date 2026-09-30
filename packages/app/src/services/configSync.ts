@@ -171,11 +171,10 @@ export function withActiveConfigTreeSynced(
   };
   const deployments = sync(c.deployments, (n, o) => liveOverride(n, o, DEPLOY_FIELDS));
   const separations = sync(c.separations, (n, o) => liveOverride(n, o, SEPARATION_FIELDS));
-  // 0 = no nozzle, the stored shape's own convention (applyStageNozzles deletes
-  // the key on 0).
+  // Preserve explicit OFF separately from blank/automatic.
   const nozzles = sync(c.nozzles, (n) => {
     const d = n['nozzleExitDiameter'];
-    return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0;
+    return typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
   });
   if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles) return configs;
   const next: SavedConfig = {

@@ -71,6 +71,46 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('preserves explicit OFF across swaps, unloads and a pending lookup', async () => {
+    const h = harness(tree(0));
+    await h.show(loadout('J1'));
+    await h.show(loadout('K1'));
+    await h.show(loadout());
+    expect(exitOf(h.treeRef.current)).toBe(0);
+    expect(h.writes).toEqual([]);
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    // Reuse this harness; a late lookup must consult the current tree's OFF.
+    const slow: NozzleLookup = async (id) => { await gate; return lookup(id); };
+    act(() => root!.unmount());
+    host?.remove();
+    const pending = harness(tree(0.012), slow);
+    await pending.show(loadout('J1'));
+    await pending.show(loadout('K1'));
+    pending.treeRef.current = tree(0);
+    await act(async () => { release(); await gate; });
+    expect(exitOf(pending.treeRef.current)).toBe(0);
+    expect(pending.writes).toEqual([]);
+  });
+
+  it('follows a parallel loadout per instance and respects configuration seeding', async () => {
+    const nested = (d: number): RocketTree => ({ name: 'r', components: [{ type: 'stage', children: [
+      { type: 'parallelstage', id: 's1', nozzleExitDiameter: d, instanceCount: 3 },
+    ] }] });
+    const h = harness(nested(0.03));
+    await h.show(loadout('J1'));
+    expect(h.writes).toHaveLength(0);
+    const four = loadout('K1'); four[0]!.motors[0]!.count = 4;
+    await h.show(four);
+    expect(h.treeRef.current.components[0]!.children![0]!['nozzleExitDiameter']).toBe(0.032);
+    h.out.seed(loadout('J1'));
+    h.treeRef.current = nested(0);
+    await h.show(loadout('J1'));
+    expect(h.treeRef.current.components[0]!.children![0]!['nozzleExitDiameter']).toBe(0);
+    await h.show(loadout());
+    expect(h.treeRef.current.components[0]!.children![0]!['nozzleExitDiameter']).toBe(0);
+  });
   it('seeds a stage it has not seen — an opened file keeps its own nozzle', async () => {
     const h = harness(tree(0.02));
     await h.show(loadout('J1'));
@@ -246,6 +286,17 @@ describe('useNozzleFollow under the undo history', () => {
   };
   const undo = async (m: { current: Mini }) => { await act(async () => { m.current.h.undo(); }); await settle(); };
   const redo = async (m: { current: Mini }) => { await act(async () => { m.current.h.redo(); }); await settle(); };
+
+  it('restores explicit OFF on undo and redo even after a motor swap', async () => {
+    const m = mountMini(withMount(0), 'J1');
+    await settle();
+    await edit(m, (t) => ({ ...t, name: 'renamed' }));
+    await swap(m, 'K1');
+    await undo(m);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0);
+    await redo(m);
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0);
+  });
 
   it('Ctrl+Z on an edit made before a motor change keeps the loaded motor’s exit', async () => {
     const m = mountMini(withMount(0.012), 'J1');

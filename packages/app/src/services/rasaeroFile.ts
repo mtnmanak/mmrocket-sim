@@ -943,8 +943,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   /** Per config id, per stage index: where its nozzle came from — for the ONE note. */
   const nozzleSource = new Map<string, ('sim' | 'design' | null)[]>();
   const carriesNozzle = (sim: Element): boolean => NOZZLE_TAGS.some((t) => num(sim, t.sim, 0) > 0);
-  const readNozzles = (sim: Element | null, cfgId: string): Record<string, number> => {
-    const out: Record<string, number> = {};
+  const readNozzles = (sim: Element | null, cfgId: string): Record<string, number | null> => {
+    const out: Record<string, number | null> = {};
     const sources: ('sim' | 'design' | null)[] = [];
     for (const [stageIdx, t] of NOZZLE_TAGS.entries()) {
       const stage = stages[stageIdx];
@@ -952,7 +952,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       const simIn = sim ? Math.max(0, num(sim, t.sim, 0)) : 0;
       const designIn = designNozzleIn[stageIdx] ?? 0;
       const inches = simIn > 0 ? simIn : designIn;
-      out[stage.id] = inches / IN;
+      out[stage.id] = inches > 0 ? inches / IN : null;
       sources.push(simIn > 0 ? 'sim' : designIn > 0 ? 'design' : null);
     }
     nozzleSource.set(cfgId, sources);
@@ -1103,7 +1103,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const openingNozzles = chosen?.nozzles ?? readNozzles(nozzleSim, 'design');
   for (const [stageId, m] of Object.entries(openingNozzles)) {
     const stage = stages.find((s) => s.id === stageId);
-    if (stage && m > 0) stage['nozzleExitDiameter'] = m;
+    if (stage && m !== null && m > 0) stage['nozzleExitDiameter'] = m;
   }
   const openingSources = nozzleSource.get(chosen?.id ?? 'design') ?? [];
 
@@ -1531,7 +1531,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     for (const [i, src] of openingSources.entries()) {
       const st = stages[i];
       const m = st?.id !== undefined ? openingNozzles[st.id] : undefined;
-      if (!src || !st || !(m !== undefined && m > 0)) continue;
+      if (!src || !st || !(m != null && m > 0)) continue;
       (src === 'sim' ? fromSim : fromDesign).push(`${st.name ?? `Stage ${i}`} ${inTxt(m)}`);
     }
     if (fromSim.length > 0 || fromDesign.length > 0) {
@@ -1545,7 +1545,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       // Only worth a sentence when some other configuration would show a
       // different number in the same box.
       const differs = configs.some((c) => c !== chosen && Object.entries(c.nozzles ?? {})
-        .some(([id, m]) => Math.abs(m - (openingNozzles[id] ?? 0)) > 1e-9));
+        .some(([id, m]) => Math.abs((m ?? 0) - (openingNozzles[id] ?? 0)) > 1e-9));
       // The clause about thrust was added 2026-09-08, when the same value
       // started buying thrust as well as trimming drag: an imported RASAero
       // design is the ONE place the number arrives without anyone typing it,

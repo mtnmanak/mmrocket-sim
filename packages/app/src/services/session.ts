@@ -27,6 +27,8 @@ export interface SessionState {
   mountId?: string | null;
   /** The file's flight configurations as ready-to-apply presets (Stage B, v0.050+). */
   savedConfigs?: SavedConfig[];
+  /** Configuration nozzle maps distinguish persistent zero from automatic null. */
+  nozzleModeVersion?: 1;
   /** Which preset the working motor set came from; null/absent = custom/none. */
   activeConfigId?: string | null;
   /**
@@ -282,6 +284,16 @@ export function loadSession(): SessionState | null {
       seenStamp = null;
       return null;
     }
+    // Older configuration maps used 0 as a removal command, not persistent OFF.
+    // Preserve their automatic behavior; tree values themselves are untouched.
+    if (s.nozzleModeVersion !== 1) {
+      for (const cfg of s.savedConfigs ?? []) {
+        for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
+          if (value === 0) cfg.nozzles![id] = null;
+        }
+      }
+      s.nozzleModeVersion = 1;
+    }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.
@@ -429,7 +441,7 @@ function writeNow(): void {
     // silently turn that into null, so round-trip it as a string.
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
-      { appVersion: APP_VERSION, ...state }, (_k, v) =>
+      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1 }, (_k, v) =>
       typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),
     // so re-writing the same design is the same stamp. Spliced rather than

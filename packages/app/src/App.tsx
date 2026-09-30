@@ -108,7 +108,7 @@ import {
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, findNode,
+  addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, findNode,
   findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
   isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
@@ -127,6 +127,7 @@ import { designNotices, type HeldNote } from './services/notices.js';
 import {
   reconcileLegacyPadMass, restoredPadMassNote, type PadMassText,
 } from './services/padMassReconcile.js';
+import { nozzleExportNotes } from './services/nozzleExport.js';
 import { stageMotors } from './services/nozzleFollow.js';
 import type { DesignSnapshot } from './services/dirtyState.js';
 import { createSequencer } from './services/latestWins.js';
@@ -2340,7 +2341,7 @@ export function App() {
         motors: exportMotorsMap(),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1')].filter((n): n is string => n !== null));
+      }), 'CDX1', '', [...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1')].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -3950,17 +3951,6 @@ export function App() {
               // identical arguments (docs/AUDIT.md), and it builds a per-stage
               // station map each time.
               const stRoom = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
-              // The motors mounted in THIS stage, for the published-nozzle
-              // lookup. WITH THEIR CLUSTER COUNTS (2026-09-13): the field is
-              // the stage's single EQUIVALENT nozzle with exit areas summed
-              // (schema.ts), so a 4x cluster is twice one motor's diameter —
-              // and the comment that used to sit here said the opposite ("a
-              // cluster of identical motors is still one nozzle"), which is
-              // how the auto-fill came to under-fill every cluster by the
-              // cluster count in AREA. One source for it, shared with the
-              // follow-the-motor effect above, so the two cannot drift.
-              const stMotorList = stageMotorLoadout.find((x) => x.stageId === st.id)?.motors ?? [];
-              const stMotorLabel = stMotorList[0]?.label ?? null;
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
@@ -4013,19 +4003,21 @@ export function App() {
                         stage field — this is a second view of it, not a second
                         value — and it fills itself in from AeroTech's published
                         drawings with the provenance shown. */}
-                    {st.id && (
-                      <NozzleField
-                        stageName={stName}
-                        exitDiameterM={numOrNull(st, 'nozzleExitDiameter')}
-                        motors={stMotorList}
-                        motorLabel={stMotorLabel}
-                        clearedFor={nozzleCleared[st.id] ?? null}
-                        // applyStageNozzles, not updateNode: clearing the field
-                        // must DELETE the key, and updateNode cannot (its own
-                        // docstring says so). 0 is its "remove it" value.
-                        onCommit={(m) => setTree(applyStageNozzles(tree, { [st.id!]: m ?? 0 }))}
-                      />
-                    )}
+                    {nozzleStages({ ...tree, components: [st] }).filter((s) => s.id).map((nozzleStage) => {
+                      const loadout = stageMotorLoadout.find((s) => s.stageId === nozzleStage.id)?.motors ?? [];
+                      return <div key={nozzleStage.id}>
+                        {nozzleStage.type === 'parallelstage' && <div className="motor-stage-header">{nozzleStage.name ?? 'Strap-on'}</div>}
+                        <NozzleField
+                          stageName={nozzleStage.name ?? stName}
+                          parallel={nozzleStage.type === 'parallelstage'}
+                          exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
+                          motors={loadout}
+                          motorLabel={loadout[0]?.label ?? null}
+                          clearedFor={nozzleCleared[nozzleStage.id!] ?? null}
+                          onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
+                        />
+                      </div>;
+                    })}
                   </div>
                   {stMounts.map((m) => {
               const mm = mountMotors[m.id!];

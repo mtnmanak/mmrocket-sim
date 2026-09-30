@@ -137,7 +137,7 @@ export function useNozzleFollow(opts: {
       // make it again, and the new motor flew the previous motor's exit. Now a
       // stage is decided here unless a NEWER loadout has been recorded for it
       // since, in which case that run decides it.
-      const updates: Record<string, number> = {};
+      const updates: Record<string, number | null> = {};
       const clearedNow: Record<string, NozzleCleared> = {};
       const forgotten: string[] = [];
       const nowDecided = new Map(decided.current);
@@ -159,7 +159,7 @@ export function useNozzleFollow(opts: {
         });
         if (act.kind === 'set') { updates[s.stageId] = act.exitDiameterM; forgotten.push(s.stageId); }
         else if (act.kind === 'clear') {
-          updates[s.stageId] = 0; // applyStageNozzles deletes the key on 0
+          updates[s.stageId] = null; // unknown: automatic, not explicit OFF
           clearedNow[s.stageId] = { previousLabel: act.previousLabel, previousM: act.previousM };
         } else forgotten.push(s.stageId);
       }
