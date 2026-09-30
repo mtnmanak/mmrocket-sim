@@ -391,7 +391,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
 
-  // Motors longer than the rocket's max motor length are EXCLUDED here (not
+  // Motors longer than the selected mount's max motor length are EXCLUDED here (not
   // just flagged): in a batch there's no point flying motors that don't fit.
   const { candidates, tooLongCount } = useMemo(() => {
     const filtered = filterMotors({
@@ -729,7 +729,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
             {pairMode && pairSplit
               && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} mixed 4+2 / 2+2+2 combinations`}
-            {tooLongCount > 0 && ` · ${tooLongCount} excluded (over max motor length)`}
+            {tooLongCount > 0 && ` · ${tooLongCount} excluded — over this mount’s max motor length`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
           </span>

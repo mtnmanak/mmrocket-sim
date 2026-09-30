@@ -1,3 +1,5 @@
+import { MotorLengthField } from './MotorLengthField.js';
+import { motorLengthLimit } from '../tree/motorLength.js';
 import { Fragment, useId, useMemo, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
@@ -951,6 +953,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       </div>
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
+          if (f.key === 'maxMotorLength') {
+            return node['motorMount'] === true ? <MotorLengthField key={f.key}
+              mountName={node.name ?? 'Motor mount'} value={motorLengthLimit(node)}
+              onCommit={(value) => onPatch({ maxMotorLength: value })} /> : null;
+          }
           // Conical and ellipsoid profiles have no shape parameter.
           if (f.key === 'shapeParameter'
               && !shapeUsesParameter(String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive')))) {

@@ -38,7 +38,9 @@ export interface SessionState {
    * configuration (configSync.restoreUnmatchedRefs).
    */
   unmatchedRefs?: Record<string, OrkMotorRef>;
-  /** Per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
+  /** Prevents old filter preferences from returning after a mount is cleared. */
+  motorLengthLimitsMigrated?: boolean;
+  /** Legacy per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
   maxMotorLengthByStage?: Record<string, number | null>;
   /** Legacy universal max motor length (pre-v0.015) — migrated onto every stage on load. */
   maxMotorLengthM?: number | null;

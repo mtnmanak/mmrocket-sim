@@ -15,8 +15,74 @@ import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { APP_VERSION } from './version.js';
 import { sanitizeTree } from './tree/sanitize.js';
+import { findNode, motorMounts } from './tree/treeModel.js';
+import { motorLengthLimit } from './tree/motorLength.js';
+import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+describe('per-mount maximum motor length', () => {
+  it('migrates once, estimates only its own mount, and autosaves edits without stage state', async () => {
+    // Synthetic SI geometry: 0.60 m core, 0.25 m pod; the old stage limit is 0.4 m.
+    const tree = sanitizeTree({ name: 'Mount length fixture', components: [{
+      type: 'stage', id: 's', name: 'Stage', children: [{
+        type: 'bodytube', id: 'core', name: 'Core', length: 0.60, outerRadius: 0.03,
+        thickness: 0.001, motorMount: true, maxMotorLength: 0.5,
+        children: [{ type: 'podset', id: 'pods', instanceCount: 2, children: [{
+          type: 'bodytube', id: 'pod', name: 'Pod', length: 0.25, outerRadius: 0.015,
+          thickness: 0.001, motorMount: true,
+        }] }],
+      }],
+    }] });
+    const snapshot: DesignSnapshot = { tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+      maxMotorLengthByStage: { s: 0.4 }, savedConfigs: [], activeConfigId: null,
+      measured: { massKg: null, cgM: null } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...snapshot, appVersion: APP_VERSION,
+      savedAt: Date.now(), savedMark: designFingerprint(snapshot), flownSinceSave: false }));
+    const host = await mountApp();
+    await settle(600);
+    expect(storedSession()!.savedMark).toBe(designFingerprint({ ...snapshot,
+      tree: storedSession()!.tree, maxMotorLengthByStage: {} }));
+    await act(async () => { button(host, 'Motors & Launch').click(); });
+    expect(motorMounts(storedSession()!.tree).map(motorLengthLimit)).toEqual([0.5, 0.4]);
+    expect(host.textContent).not.toContain('Max motor length (override)');
+    const estimate = host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Core"]')!;
+    expect(estimate).not.toBeNull();
+    await act(async () => { estimate.click(); });
+    await settle(600);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'core'))).toBeCloseTo(0.60, 9);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBe(0.4);
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Pod"]')!.click(); });
+    await settle(600);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBeCloseTo(0.25, 9);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'core'))).toBeCloseTo(0.60, 9);
+    expect(storedSession()!.maxMotorLengthByStage).toBeUndefined();
+    expect(storedSession()!.motorLengthLimitsMigrated).toBe(true);
+    // Both card browsers consume only their own mount's value.
+    for (const [name, limitMm] of [['Core', 600], ['Pod', 250]] as const) {
+      const card = input(host, 'Max motor length for ' + name).closest('.mount-card')!;
+      const browse = [...card.querySelectorAll('button')].find((b) => b.textContent?.includes('Browse motors'))!;
+      await act(async () => { browse.click(); });
+      expect(host.querySelector('[role="dialog"]')?.textContent).toContain('≤ ' + limitMm + ' mm');
+      await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Close motor browser"]')!.click(); });
+    }
+    // App must also pass each mount's own limit into Batch, not the first mount's.
+    await type(input(host, 'Max motor length for Pod'), '0');
+    await act(async () => { button(host, 'Batch simulate motors').click(); });
+    const target = [...host.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === 'pod'))!;
+    await act(async () => { target.value = 'pod'; target.dispatchEvent(new Event('change', { bubbles: true })); });
+    const pool = filterMotors({ manufacturers: new Set(), classes: new Set(), boreMm: 28, includeOOP: false, text: '' }, MOTOR_DB);
+    const fitting = pool.filter((m) => m.length / 1000 <= 0).length;
+    expect(host.querySelector('[role="dialog"] .motor-load-row')?.textContent).toContain(fitting + ' candidate motors');
+    await act(async () => { button(host.querySelector('[role="dialog"]') as HTMLElement, 'Close').click(); });
+    await type(input(host, 'Max motor length for Pod'), '');
+    await unmountAll();
+    localStorage.setItem('online-openrocket.motor-filters.v1', JSON.stringify({ maxLength: 0.1 }));
+    await mountApp();
+    await settle(600);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBeNull();
+  }, 30000);
+});
 
 // The real writer, passed through; one test makes a single save throw.
 vi.mock('./services/orkFile.js', async (importOriginal) => {

@@ -213,3 +213,25 @@ describe('auto-place rail buttons targets the CG the kernel flies', () => {
     });
   }
 });
+
+
+describe('shared mount length field', () => {
+  it.each(['bodytube', 'innertube'])('edits and clears the %s mount in SI metres', (type) => {
+    const node = { id: 'mount', type, name: 'Test mount', motorMount: true, maxMotorLength: 0.6, length: 0.6, outerRadius: 0.03, thickness: 0.001 };
+    mount(treeWith(node), node);
+    const field = host.querySelector<HTMLInputElement>('[aria-label="Max motor length for Test mount"]')!;
+    expect(field, 'mount length control').not.toBeNull();
+    expect(field.value).toBe('600');
+    expect(host.querySelector('label[for="' + field.id + '"]')?.textContent).toContain('Max motor length');
+    const write = (value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    write('250');
+    expect(patches.at(-1)).toEqual({ maxMotorLength: 0.25 });
+    write('');
+    expect(patches.at(-1)).toEqual({ maxMotorLength: undefined });
+    mount(treeWith(node), { ...node, motorMount: false });
+    expect(host.querySelector('[aria-label="Max motor length for Test mount"]')).toBeNull();
+  });
+});

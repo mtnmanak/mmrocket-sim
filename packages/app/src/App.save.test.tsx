@@ -595,3 +595,31 @@ describe('a Save .rkt that could not carry an ignition', () => {
     expect(item?.className).toContain('notice-warn');
   }, 30000);
 });
+
+
+describe('maximum motor length export losses', () => {
+  it.each(['.rkt', '.CDX1'])('reports a mount limit only when present on %s export', async (format) => {
+    await mountApp();
+    await waitFor(starterStored, 'starter session');
+    await unmountAll();
+    const saved = storedSession()!;
+    const tree = defaultTree();
+    const mounts = motorMounts(tree);
+    expect(mounts.length).toBeGreaterThan(0);
+    // The ordinary starter is supported by both exporters. Zero is a real limit.
+    for (const limit of [undefined, 0]) {
+      mounts[0]!.maxMotorLength = limit;
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...saved, tree, mountMotors: {}, savedConfigs: [] }));
+      const host = await mountApp();
+      await saveAs(host, 'Save ' + format);
+      await settle(50);
+      expect(vi.mocked(saveFile).mock.calls.length).toBeGreaterThan(0);
+      const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+      if (toggle) await act(async () => { toggle.click(); });
+      const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+      expect(notes.includes('Maximum motor length settings are not saved in ' + format)).toBe(limit !== undefined);
+      await unmountAll();
+      vi.mocked(saveFile).mockClear();
+    }
+  }, 30000);
+});

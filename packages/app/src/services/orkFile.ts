@@ -696,6 +696,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['outerRadius'] = autoDim(el, 'radius', 0.012, autoRadii.bodyTube);
         n['thickness'] = num(el, 'thickness', 0.0005);
         readMotor(el, n);
+        const mml = num(el, 'maxmotorlength', -1);
+        if (mml >= 0) n['maxMotorLength'] = mml;
         // Extension tag: sub-minimum flag (motor case is the airframe).
         if (text(el, ':scope > caseairframe') === 'true') n['caseAirframe'] = true;
         return n;
@@ -821,8 +823,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           n['clusterRotation'] = (num(el, 'clusterrotation', 0) * Math.PI) / 180;
         }
         // Our extension tag: the mount's physical motor-length limit.
-        const mml = num(el, 'maxmotorlength', 0);
-        if (mml > 0) n['maxMotorLength'] = mml;
+        const mml = num(el, 'maxmotorlength', -1);
+        if (mml >= 0) n['maxMotorLength'] = mml;
         readRadialPlacement(el, n);
         readMotor(el, n);
         return n;
@@ -2320,6 +2322,10 @@ export function exportOrk({
         // Extension tag (desktop warns-and-ignores): sub-minimum flag.
         if (node['caseAirframe'] === true) {
           emit(depth + 1, '<caseairframe>true</caseairframe>');
+        }
+        const maxMotorLength = numOpt(node, 'maxMotorLength');
+        if (maxMotorLength !== undefined) {
+          emit(depth + 1, `<maxmotorlength>${maxMotorLength}</maxmotorlength>`);
         }
         // Min-diameter: the body tube itself is the motor mount.
         if (node['motorMount'] === true || mountConfigs(node.id).length > 0) {

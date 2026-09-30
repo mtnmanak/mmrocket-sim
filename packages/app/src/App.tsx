@@ -70,7 +70,7 @@ import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
 import { AERO_SHORT, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from './prefs/units.js';
+import { fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { refToExportMotor } from './services/motorMatch.js';
@@ -117,7 +117,9 @@ import { num, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
-import { estimateMotorRoomForMounts } from './tree/motorRoom.js';
+import { estimateMotorRoom } from './tree/motorRoom.js';
+import { legacyStageLimits, migrateMotorLengths, motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
+import { MotorLengthField } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { interleaveRotation } from './tree/schema.js';
@@ -305,12 +307,14 @@ export function App() {
   // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
   // so a second call yields ids that don't exist in the tree state — the
   // default-motor assignment and legacy migrations would key onto ghosts.
-  const [{ initialTree, restoreNotes }] = useState(() => {
+  const [{ initialTree, restoreNotes, preLengthRestore }] = useState(() => {
     // Name autosave repairs just like file imports (open-items, 22–23 September:
     // "A restored session is repaired without a note").
     const restoreNotes: string[] = [];
-    const initialTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
-    return { initialTree, restoreNotes };
+    const before = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
+    const limits = legacyStageLimits(before, session, legacyMaxMotorLength());
+    const initialTree = migrateMotorLengths(before, limits);
+    return { initialTree, restoreNotes, preLengthRestore: { tree: before, maxMotorLengthByStage: limits } };
   });
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
@@ -504,21 +508,6 @@ export function App() {
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
-  // Max motor length is a physical property of each STAGE's airframe (a
-  // staged rocket's booster and sustainer have different room), keyed by
-  // stage node id. Legacy sessions carried ONE universal value — seed every
-  // stage with it.
-  const [maxMotorLen, setMaxMotorLen] = useState<Record<string, number | null>>(() => {
-    if (session?.maxMotorLengthByStage) return session.maxMotorLengthByStage;
-    const legacy = session && 'maxMotorLengthM' in session
-      ? session.maxMotorLengthM ?? null
-      : legacyMaxMotorLength();
-    if (legacy === null) return {};
-    return Object.fromEntries(
-      stages(initialTree)
-        .filter((st) => st.id)
-        .map((st) => [st.id!, legacy]));
-  });
   const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
@@ -843,20 +832,15 @@ export function App() {
    * reads, which is the same list the autosave effect below uses.
    */
   const designSnapshot = useMemo<DesignSnapshot>(() => {
-    // Prune limits for stages that no longer exist. The Set is built ONCE,
-    // not inside the filter callback — it was per-entry.
-    const stageIds = new Set(stages(tree).map((s) => s.id));
     return {
       tree,
       mountMotors,
       launch,
-      maxMotorLengthByStage: Object.fromEntries(
-        Object.entries(maxMotorLen).filter(([id]) => stageIds.has(id))),
       savedConfigs,
       activeConfigId,
       measured,
     };
-  }, [tree, mountMotors, launch, maxMotorLen, savedConfigs, activeConfigId, measured]);
+  }, [tree, mountMotors, launch, savedConfigs, activeConfigId, measured]);
 
   /**
    * "Is there work a file on disk does not have?" — hooks/useDesignDirty.ts:
@@ -873,12 +857,13 @@ export function App() {
    */
   const {
     dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
-  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore);
+  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore);
 
   // Autosave the working state so a closed tab or crash never loses work.
   useEffect(() => {
     saveSessionDebounced({
       ...designSnapshot,
+      motorLengthLimitsMigrated: true,
       // Not part of the design fingerprint, but the only copy of a
       // configuration-less import's unresolved motors (audit 2026-09-22).
       unmatchedRefs,
@@ -932,7 +917,6 @@ export function App() {
     setUnmatchedRefs({});
     setSavedConfigs([]);
     setActiveConfigId(null);
-    setMaxMotorLen({});
     setSelectedId(null);
     setResult(null);
     setLastRun(null);
@@ -2307,7 +2291,7 @@ export function App() {
       const xml = exportRkt({
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,
       });
-      losses.push(...windProfileSaveNotes(launch, '.rkt'));
+      losses.push(...windProfileSaveNotes(launch, '.rkt'), ...motorLengthLossNotes(tree, '.rkt'));
       await download(xml, 'rkt', '', losses);
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -2338,7 +2322,7 @@ export function App() {
         motors: exportMotorsMap(),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1')].filter((n): n is string => n !== null));
+      }), 'CDX1', '', [cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
@@ -2427,7 +2411,7 @@ export function App() {
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
     applyImportPlan(plan, {
       history: { reset: resetHistory },
-      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setMaxMotorLen, setLaunch, setMeasured,
+      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setLaunch, setMeasured,
       setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
@@ -3214,7 +3198,6 @@ export function App() {
           // (the owner's Darkstar) needs the RING selectable, not just the primary.
           mounts={mounts.map((m) => {
             const mNode = findNode(tree, m.id!);
-            const stId = stageList[stageIndexOf(tree, m.id!)]?.id ?? '';
             // Every motor a candidate fires on this mount: the cluster times any
             // enclosing pod set or strap-on ring (audit 2026-09-22, row 351). It
             // feeds the candidate's equivalent stage exit (exitForCandidate), so
@@ -3225,7 +3208,7 @@ export function App() {
               label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
               diameterMm: mountDiaMm(mNode),
               motorCount,
-              maxMotorLengthM: maxMotorLen[stId] ?? (mNode ? numOrNull(mNode, 'maxMotorLength') : null),
+              maxMotorLengthM: motorLengthLimit(mNode),
             };
           })}
           // The mount with a motor when there is one; otherwise the first mount,
@@ -3933,21 +3916,6 @@ export function App() {
               const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
               if (stMounts.length === 0) return null;
               const stName = st.name ?? `Stage ${stIdx + 1}`;
-              // Effective limit: the per-stage override when typed, else the
-              // first mount tube carrying a design-time maxMotorLength (a
-              // finite one, audit row 522).
-              const designMax = stMounts
-                .map((m) => {
-                  const mNode = findNode(tree, m.id!);
-                  return mNode ? numOrNull(mNode, 'maxMotorLength') : null;
-                })
-                .find((v): v is number => v !== null) ?? null;
-              const stMax = (st.id ? maxMotorLen[st.id] : null) ?? designMax;
-              // ONE call, read by the Estimate button and the "Room for" line
-              // below it. It was called twice per stage per render with
-              // identical arguments (docs/AUDIT.md), and it builds a per-stage
-              // station map each time.
-              const stRoom = estimateMotorRoomForMounts(tree, stMounts.map((m) => m.id!));
               // The motors mounted in THIS stage, for the published-nozzle
               // lookup. WITH THEIR CLUSTER COUNTS (2026-09-13): the field is
               // the stage's single EQUIVALENT nozzle with exit areas summed
@@ -3962,49 +3930,7 @@ export function App() {
               return (
                 <div key={st.id}>
                   {isStaged && <div className="motor-stage-header">{stName}</div>}
-                  {/* The PRIMARY limit lives on the mount tube in the design
-                      (persists in the tree and .ork). This field is a
-                      per-stage OVERRIDE on top; clearing it falls back to the
-                      design value (2026-08-05 chat). */}
-                  <div className="field" style={{ marginBottom: 8 }}
-                    title={`Longest motor ${isStaged ? `the ${stName} stage's` : 'the'} airframe has room for. The design value is set on the motor mount tube itself (Design tab) and travels with the rocket; typing here overrides it for this stage. Longer motors are flagged in the browser and excluded from batch simulation.`}>
-                    <label>Max motor length {stMax !== null && st.id && maxMotorLen[st.id] == null ? '(from design)' : '(override)'} <UnitChip quantity="motorDimensions" /></label>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <NumField
-                        value={st.id && maxMotorLen[st.id] != null
-                          ? siToUi('motorDimensions', prefs.units.motorDimensions, maxMotorLen[st.id]!)
-                          : undefined}
-                        step={niceStep(siToUi('motorDimensions', prefs.units.motorDimensions, 0.005))}
-                        nullable
-                        placeholder={stMax !== null
-                          ? `design: ${fmtSi('motorDimensions', prefs.units.motorDimensions, stMax)}`
-                          : 'no limit'}
-                        ariaLabel={`Maximum motor length override for ${stName}`}
-                        onCommit={(v) => setMaxMotorLen((prev) => {
-                          const next = { ...prev };
-                          if (v === null) delete next[st.id!]; // back to the design value
-                          else next[st.id!] = uiToSi('motorDimensions', prefs.units.motorDimensions, v);
-                          return next;
-                        })}
-                      />
-                      {(() => {
-                        const room = stRoom;
-                        if (!room || !st.id) return null;
-                        return (
-                          <button className="file-btn" style={{ whiteSpace: 'nowrap' }}
-                            title={`Measure it: ${fmtSi('motorDimensions', prefs.units.motorDimensions, room.lengthM)} ${prefs.units.motorDimensions} from the aft of the mount forward to ${room.limitedBy}. A motor may be longer than its mount tube, so this walks on up the stage to the first real stop — usually an ebay bulkhead. An estimate: it cannot see wadding, a baffle modelled as something else, or a chute packed against the block, and a design with nothing modelled inside it will measure most of its own airframe.`}
-                            onClick={() => setMaxMotorLen((prev) => ({ ...prev, [st.id!]: room.lengthM }))}>
-                            ⌾ Estimate
-                          </button>
-                        );
-                      })()}
-                    </div>
-                    {stRoom ? (
-                      <p className="comp-stats" style={{ margin: '3px 0 0' }}>
-                        Room for {fmtSi('motorDimensions', prefs.units.motorDimensions, stRoom.lengthM)}
-                        {' '}{prefs.units.motorDimensions} to {stRoom.limitedBy}.
-                      </p>
-                    ) : null}
+                  <div className="field" style={{ marginBottom: 8 }}>
                     {/* The nozzle exit diameter, beside the motor it belongs to
                         (Eric, 2026-09-08b: he went looking for it here and it
                         was on the stage in the Property Panel). Still the SAME
@@ -4068,9 +3994,12 @@ export function App() {
                         }}>✕</button>
                     )}
                   </div>
+                  <MotorLengthField mountName={m.name ?? 'Motor mount'}
+                    value={motorLengthLimit(mNode)} room={estimateMotorRoom(tree, m.id!)}
+                    onCommit={(value) => setTree(updateNode(tree, m.id!, { maxMotorLength: value }))} />
                   <MotorPicker
                     mountDiameterMm={mountDiaMm(mNode)}
-                    maxMotorLengthM={stMax}
+                    maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer }))}

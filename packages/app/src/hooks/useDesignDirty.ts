@@ -71,12 +71,14 @@ export interface DesignDirty {
  * @param preRank the design as the session stored it, when the restore moved
  *   a pad mass onto the ranked primary (App's restore writes the ref); read
  *   once, on mount.
+ * @param preLength the tree and stage limits before the one-time mount migration.
  */
 export function useDesignDirty(
   snapshot: DesignSnapshot,
   seed: DirtySeed | null,
   starter: { landing: MutableRefObject<MountMotor | null>; mountId: string | undefined },
   preRank?: MutableRefObject<PreRankRestore | null>,
+  preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>,
 ): DesignDirty {
   /**
    * The design fingerprint as of the last save or import — what is on disk.
@@ -111,11 +113,14 @@ export function useDesignDirty(
   // audit 2026-09-22). Re-taken over the moved design exactly when it
   // described the design before the move, the same guard as the starter
   // landing's below; a mark that did not (unsaved work) keeps its prompt.
+  // Apply the same rule to motor-length migration. Compare BOTH migrations
+  // together so a session needing both never loses its original clean/dirty state.
   useEffect(() => {
     const pre = preRank?.current ?? null;
     if (preRank) preRank.current = null;
-    if (pre === null || savedMark.current === null) return;
-    if (designFingerprint({ ...snapshot, mountMotors: pre.motors, savedConfigs: pre.configs }) !== savedMark.current) return;
+    if (savedMark.current === null) return;
+    const before = { ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}) };
+    if (designFingerprint(before) !== savedMark.current) return;
     savedMark.current = designFingerprint(snapshot);
     bumpDirty();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as restored
