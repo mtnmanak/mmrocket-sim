@@ -332,6 +332,32 @@ describe('DragPanel — sweep conditions', () => {
       expect(caption()).toMatch(/ISA at 10000 ft/);
     });
 
+    it.each(['km', 'mi'])('refuses a conversion overflow in %s without sweeping on blur', (unit) => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: unit } }));
+      mount();
+      openPanel();
+      setSelect(condSelect(), 'altitude');
+      type(altInput()!, '2');
+      const previous = lastAlt();
+      const before = calls.length;
+      const input = typeFocused(['1e306']);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.className).toBe('num-invalid');
+      expect(calls.length).toBe(before);
+      act(() => input.blur());
+      expect(calls.length).toBe(before);
+      expect(lastAlt()).toBe(previous);
+      expect(input.value).toBe('2');
+      typeFocused(['3']);
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      act(() => input.blur());
+      expect(calls.length).toBe(before + 1);
+      expect(lastAlt()).toBeGreaterThan(previous!);
+      typeFocused(['']);
+      act(() => input.blur());
+      expect(lastAlt()).toBeUndefined();
+    });
+
     it('Enter lets go of the box, and sweeps', () => {
       mount();
       openPanel();

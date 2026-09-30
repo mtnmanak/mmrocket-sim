@@ -109,6 +109,17 @@ afterEach(() => {
 });
 
 describe('NumField — typing', () => {
+  it('flags and refuses a conversion overflow, including with clampToMax', () => {
+    render({ value: 2, max: 10, clampToMax: true, validate: (v) => Number.isFinite(v * 1000) });
+    type('1e306');
+    expect(commits).toEqual([]);
+    expect(input().className).toBe('num-invalid');
+    expect(input().getAttribute('aria-invalid')).toBe('true');
+    type('3');
+    expect(commits).toEqual([3]);
+    expect(input().hasAttribute('aria-invalid')).toBe(false);
+  });
+
   it('shows a committed value capped at 3 decimals, full precision on focus', () => {
     render({ value: 12.3456789 });
     expect(input().value).toBe('12.346');
@@ -242,6 +253,18 @@ describe('NumField — typing', () => {
 });
 
 describe('NumField — stepping', () => {
+  it('refuses a step whose conversion overflows', () => {
+    render({ value: 1e305, step: 1e306, validate: (v) => Number.isFinite(v * 1000) });
+    key('ArrowUp');
+    expect(commits).toEqual([]);
+  });
+
+  it('refuses a step that is itself non-finite', () => {
+    render({ value: 1e308, step: 1e308 });
+    click(spinners()[0]!);
+    expect(commits).toEqual([]);
+  });
+
   it('steps from the current value and snaps float noise', () => {
     render({ value: 0.2, step: 0.1 });
     key('ArrowUp');

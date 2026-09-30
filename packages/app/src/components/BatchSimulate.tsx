@@ -653,12 +653,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
               Apogee min <UnitChip quantity="distance" />
               <NumField value={distUi(criteria.minApogee)} step={10} nullable placeholder="—"
                 ariaLabel={`Minimum apogee (${dist})`}
+                validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
                 onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
             <label className="motor-inline-label">
               max <UnitChip quantity="distance" />
               <NumField value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
                 ariaLabel={`Maximum apogee (${dist})`}
+                validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
                 onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
             <label className="motor-inline-label" title="Which physics model the batch flies. Auto is recommended: candidates often straddle Mach 1, and each motor gets the model its own flight calls for.">

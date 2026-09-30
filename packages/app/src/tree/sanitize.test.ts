@@ -6,7 +6,7 @@ import {
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
-  MAX_SHROUD_LINES, MIN_POSITIVE_DIMENSION_M, type EditorComponentType,
+  MAX_SHROUD_LINES, MIN_POSITIVE_DIMENSION_M, MAX_BULK_DENSITY, type EditorComponentType,
 } from './schema.js';
 
 /**
@@ -39,6 +39,35 @@ function build(tree: RocketTree): string | null {
     return e instanceof Error ? e.message : String(e);
   }
 }
+
+describe('sanitizeTree — bulk density', () => {
+  it('clamps bulk and fillet density with one note per repair, and normalizes idempotently', () => {
+    const notes: string[] = [];
+    const tree = rocket([{ id: 'f1', type: 'trapezoidfinset', name: 'Fins', density: 1e33,
+      filletDensity: 1e30, rootChord: 0.05, height: 0.03 }]);
+    const fixed = sanitizeTree(tree, notes);
+    expect(kid(fixed)['density']).toBe(MAX_BULK_DENSITY);
+    expect(kid(fixed)['filletDensity']).toBe(MAX_BULK_DENSITY);
+    expect(notes).toHaveLength(2);
+    for (const note of notes) expect(note).toMatch(/density .* is over the limit of 30000 kg\/m³ — set to 30000 kg\/m³\./);
+    expect(kid(normalizeTree(tree))['density']).toBe(MAX_BULK_DENSITY);
+    const again: string[] = [];
+    sanitizeTree(fixed, again);
+    expect(again).toEqual([]);
+  });
+
+  it.each([0, 8906.2656504, 22_600, 30_000])('preserves a legitimate bulk density of %s without a note', (density) => {
+    const notes: string[] = [];
+    const fixed = sanitizeTree(rocket([{ id: 'i1', type: 'innertube', density }]), notes);
+    expect(kid(fixed)['density']).toBe(density);
+    expect(notes).toEqual([]);
+  });
+
+  it('does not apply a volume-density ceiling to area or line density', () => {
+    expect(fieldLimit('parachute', 'surfaceDensity')?.hmax).toBeUndefined();
+    expect(fieldLimit('shockcord', 'lineDensity')?.hmax).toBeUndefined();
+  });
+});
 
 describe('sanitizeTree — counts', () => {
   it('brings every count inside the kernel\'s (or the app\'s) ceiling, one note each', () => {

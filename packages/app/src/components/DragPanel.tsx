@@ -295,6 +295,7 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
       }}>
       <NumField
         ariaLabel={`Sweep altitude (${distUnit})`}
+        validate={(v) => Number.isFinite(toSi(v))}
         value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
         step={niceStep(siToUi('distance', distUnit, 100))}
         nullable

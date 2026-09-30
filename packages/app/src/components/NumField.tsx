@@ -31,7 +31,7 @@ import { fmtFieldValue, readDecimal } from '../prefs/units.js';
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
   integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
-  clampToMax = false,
+  clampToMax = false, validate,
 }: {
   value: number | undefined;
   /** Called with each valid typed value; null only when nullable and cleared. */
@@ -88,6 +88,8 @@ export function NumField({
    * audit 2026-09-22). Below `min`, fractions and junk are still refused.
    */
   clampToMax?: boolean;
+  /** Extra draft/step check, e.g. a finite display value that overflows in SI. */
+  validate?: (v: number) => boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   /**
@@ -124,6 +126,9 @@ export function NumField({
     if (lowBound !== undefined && v < lowBound) return null;
     if (capped && max !== undefined && v > max) return null;
     if (integer && !Number.isInteger(v)) return null;
+    // Register: Batch/Drag typed overflows. Refuse and flag the same draft,
+    // before any caller can store an infinite unit conversion.
+    if (validate && !validate(v)) return null;
     return v;
   };
 
@@ -201,6 +206,7 @@ export function NumField({
     if (lowBound !== undefined && next < lowBound) next = lowBound;
     if (max !== undefined && next > max) next = max;
     if (integer) next = Math.round(next);
+    if (!Number.isFinite(next) || (validate && !validate(next))) return;
     // Focused, the draft follows the step so the box shows it and a second
     // step works off it. Unfocused, the parent's re-render with the committed
     // value is what the box shows — see `focused` above.

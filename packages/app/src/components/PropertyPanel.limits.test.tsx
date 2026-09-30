@@ -72,6 +72,16 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — an entry that converts to infinity is refused', () => {
+  it('flags a deployment-altitude overflow even without a density ceiling', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'km' } }));
+    mount(onBody({ id: 'p1', type: 'parachute', deployEvent: 'altitude', deployAltitude: 300 }));
+    const el = box('Deploy altitude (AGL) (km)');
+    act(() => el.focus());
+    type(el, '1e306');
+    expect(patches).toEqual([]);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+  });
+
   it('a density of 1e306 g/cm³ (1e309 kg/m³) commits nothing', () => {
     // Finite as typed, infinite in SI: stored, the kernel flew the default
     // density while a saved .ork wrote density="Infinity" (claim check of the
@@ -83,8 +93,47 @@ describe('PropertyPanel — an entry that converts to infinity is refused', () =
     act(() => { el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
     type(el, '1e306');
     expect(patches).toEqual([]);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
     type(el, '2');
     expect(patches).toEqual([{ density: 2000, materialName: undefined }]);
+  });
+});
+
+describe('PropertyPanel — bulk density ceiling', () => {
+  it.each(['g/cm³', 'kg/m³', 'oz/in³', 'lb/ft³'])('keeps key-by-key prefixes within the ceiling in %s', (unit) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: unit } }));
+    const { tree, node } = onBody({ id: 'i1', type: 'innertube', name: 'Mount', length: 0.07,
+      outerRadius: 0.009, thickness: 0.0005, density: 1100 });
+    function Live() {
+      const [n, setN] = useState(node);
+      return <PropertyPanel tree={tree} node={n} onPatch={(p) => {
+        patches.push(p); setN((old) => ({ ...old, ...p }) as ComponentNode);
+      }} />;
+    }
+    act(() => root.render(<PrefsProvider><Live /></PrefsProvider>));
+    const el = box(`Material density (${unit})`);
+    act(() => el.focus());
+    for (const draft of ['1', '1e', '1e3', '1e30', '1e306']) type(el, draft);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+    expect(patches.length).toBeGreaterThan(0);
+    for (const patch of patches) expect(patch['density']).toBeLessThanOrEqual(30_000);
+    const count = patches.length;
+    type(el, '1e306');
+    expect(patches).toHaveLength(count);
+    act(() => el.blur());
+    expect(el.value).not.toBe('1e306');
+  });
+
+  it('accepts the bulk ceiling and refuses a value above it', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: 'g/cm³' } }));
+    mount(onBody({ id: 'i1', type: 'innertube', density: 1100 }));
+    const el = box('Material density (g/cm³)');
+    act(() => el.focus());
+    type(el, '30');
+    expect(patches).toEqual([{ density: 30_000, materialName: undefined }]);
+    type(el, '31');
+    expect(patches).toHaveLength(1);
+    expect(el.getAttribute('aria-invalid')).toBe('true');
   });
 });
 

@@ -136,6 +136,34 @@ describe('the batch dialog', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
 
+  it.each(['km', 'mi'])('refuses apogee conversion overflows in %s, preserving both criteria', (unit) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: unit } }));
+    mount();
+    for (const label of ['Minimum', 'Maximum']) {
+      const input = host.querySelector(`input[aria-label="${label} apogee (${unit})"]`) as HTMLInputElement;
+      const type = (value: string) => act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => input.focus());
+      type('2');
+      type('1e306');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.className).toBe('num-invalid');
+      act(() => input.blur());
+      expect(input.value).toBe('2');
+      act(() => input.focus());
+      type('3');
+      expect(input.hasAttribute('aria-invalid')).toBe(false);
+      act(() => input.blur());
+      expect(input.value).toBe('3');
+      act(() => input.focus());
+      type('');
+      act(() => input.blur());
+      expect(input.value).toBe('');
+    }
+  });
+
   /** The rocket Icon renders before the label, so the text has a leading space. */
   const primaryText = () => (primary().textContent ?? '').trim();
   const primary = () => Array.from(host.querySelectorAll('button'))

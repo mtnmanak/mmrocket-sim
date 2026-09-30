@@ -573,9 +573,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // (NumField `clampToMax`, below): typing 12 fins stores 8 and flags the
     // box until blur shows 8 (the kernel flies at most 8, and the app used to
     // draw and export 12). Refusing it instead kept the "1" committed on the
-    // way to "12" — a one-fin set. Every other bound is enforced in `commit`
-    // below — a tube-fin length or shroud height of 0 at the slider's left
-    // stop failed the whole build.
+    // way to "12" — a one-fin set. Bulk density also gets a typed ceiling
+    // below, refusing absurd prefixes (register: "Typed one key at a time...").
+    // The commit enforces the remaining bounds, including the positive floor
+    // for a tube-fin length or shroud height that would fail a build at 0.
     const limit = fieldLimit(node.type, f.key);
     if (f.unit === 'count' && limit?.hmax !== undefined) {
       maxCount = Math.min(maxCount ?? Infinity, limit.hmax);
@@ -627,9 +628,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // hair so typing the limit as NumField shows it (three decimals, or three
     // figures below 0.1) still lands; the commit clamp below keeps the stored
     // SI value exactly at the ceiling.
+    const inputMaxSi = maxSi ?? (limit?.kind === 'density' ? limit.hmax : undefined);
     const maxUi = f.unit === 'count'
       ? maxCount
-      : maxSi !== undefined ? Math.ceil(toDisplay(maxSi) * 1e4) / 1e4 : undefined;
+      : inputMaxSi !== undefined ? Math.ceil(toDisplay(inputMaxSi) * 1e4) / 1e4 : undefined;
 
     const label = asDiameter
       ? f.label.replace(/radius/gi, (m) => (m[0] === 'R' ? 'Diameter' : 'diameter'))
@@ -669,7 +671,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
       // 1e309 kg/m³, which is Infinity, and applyFieldLimit passes a non-finite
       // value through. Stored, the kernel flew the default density while a
       // saved .ork said density="Infinity" (claim check of the v0.141 notes).
-      // Refused like any other entry the field cannot take: nothing commits.
+      // NumField's validate check also flags the refused draft (register:
+      // "Typed one key at a time, an overflowing density...").
       if (!Number.isFinite(next)) return;
       const patch: Partial<ComponentNode> = { [f.key]: next };
       // A hand-typed density is no longer the named material's density.
@@ -717,6 +720,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           integer={f.unit === 'count'}
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
+          validate={(v) => Number.isFinite(fromDisplay(v))}
           clampToMax={f.unit === 'count'}
           placeholder={autoPlaceholder}
           autoValue={autoValue}
