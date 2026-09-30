@@ -9,6 +9,8 @@ import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
 import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { affectsRollInertia, hasRollForcing } from './revisionInertia.js';
+import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -911,7 +913,12 @@ export function changedSinceRun(
   // function was never given, and must keep answering "unknown" rather than
   // naming a difference in a design it cannot be attributed to.
   if (run.designKey && !runCarriesNozzleStamp(run, cur)) changed.push(PRESSURE_THRUST_CHANGED);
-  if (run.designKey && !runCarriesPhysicsRevision(run, cur)) changed.push(KERNEL_PHYSICS_CHANGED);
+  if (run.designKey && !runCarriesPhysicsRevision(run, cur)) {
+    // Name only the revisions this run predates that reach this design; a caller
+    // with the bare boolean cannot say which, and keeps the generic line.
+    changed.push(cur.physicsRevisions
+      ? physicsChangedText(physicsRevisionsMissed(run, cur)) : KERNEL_PHYSICS_CHANGED);
+  }
   if (changed.length > 0) return changed;
 
   // NOTHING DIFFERS — but silence and a clean bill of health are not the same
@@ -1041,19 +1048,58 @@ export function runCarriesNozzleStamp(
 /** Named in the staleness banner when {@link runCarriesNozzleStamp} refuses. */
 export const PRESSURE_THRUST_CHANGED = 'the motor thrust model';
 
+/**
+ * One kernel physics change a saved run may predate. `affects` is tested on every
+ * component; `affectsTree` is for a change whose reach depends on ownership
+ * (which stage a mount belongs to, whether a motor sits in a pod), which a
+ * one-node test cannot see. `description` finishes "the … physics" in the banner.
+ */
+export interface PhysicsRevision {
+  id: string;
+  description: string;
+  affects?: (n: ComponentNode) => boolean;
+  affectsTree?: (tree: RocketTree) => boolean;
+}
+
 /** Append revisions in flight order; each entry names only the designs it changes. */
-export const PHYSICS_REVISIONS: readonly { id: string; description: string; affects: (n: ComponentNode) => boolean }[] = [
+export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   { id: 'guide-clearance-transition-mass-v1', description: 'launch-guide and transition-shoulder', affects: (n) => n.type === 'launchlug' || n.type === 'railbutton' || (n.type === 'transition' && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0)) },
   { id: 'two-button-guidance-v2', description: 'rail-line and station guidance', affects: (n) => n.type === 'railbutton' },
+  // v0.144: roll inertia about the true CG axis. Only a design that can roll —
+  // a canted fin — flies differently; see hasRollForcing.
+  { id: 'true-cg-roll-inertia-v3', description: 'roll-inertia', affectsTree: (t) => affectsRollInertia(t) && hasRollForcing(t) },
+  // v0.144: a strap-on's own nozzle exit reaches the kernel (auto-filled).
+  { id: 'strap-on-nozzle-v4', description: 'strap-on nozzle', affectsTree: affectsStrapOnNozzle },
+  // v0.144: a pods-only stage's base-drag credit spreads over the pods' bases.
+  { id: 'pods-only-base-drag-v5', description: 'pods-only base-drag', affectsTree: affectsPodsOnlyBase },
 ];
 export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
-export const KERNEL_PHYSICS_CHANGED = `the ${PHYSICS_REVISIONS.map(r => r.description).join(' and ')} physics`;
+
+/** "the a physics", "the a and b physics", "the a, b and c physics". */
+export function physicsChangedText(revisions: readonly PhysicsRevision[]): string {
+  const d = revisions.map((r) => r.description);
+  return `the ${d.length > 1 ? `${d.slice(0, -1).join(', ')} and ${d[d.length - 1]}` : (d[0] ?? 'kernel')} physics`;
+}
+export const KERNEL_PHYSICS_CHANGED = physicsChangedText(PHYSICS_REVISIONS);
 
 export function physicsRevisionsFor(tree: RocketTree): string[] {
-  return PHYSICS_REVISIONS.filter(({ affects }) => {
-    const visit = (n: ComponentNode): boolean => affects(n) || (n.children ?? []).some(visit);
+  return PHYSICS_REVISIONS.filter(({ affects, affectsTree }) => {
+    if (affectsTree) return affectsTree(tree);
+    const visit = (n: ComponentNode): boolean => (affects?.(n) ?? false) || (n.children ?? []).some(visit);
     return tree.components.some(visit);
   }).map(({ id }) => id);
+}
+
+/** The revisions a run predates that reach the current design, in flight order. */
+export function physicsRevisionsMissed(
+  run: Pick<SimRun, 'physicsRevision'>,
+  cur: { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
+): PhysicsRevision[] {
+  // Older callers with only the boolean conservatively require the latest stamp.
+  const affected = cur.physicsRevisions
+    ?? (cur.requiresPhysicsRevision === true ? [PHYSICS_REVISION] : []);
+  const flownIndex = PHYSICS_REVISIONS.findIndex(({ id }) => id === run.physicsRevision);
+  return PHYSICS_REVISIONS.filter(({ id }, i) => i > flownIndex && affected.includes(id));
 }
 
 export function requiresPhysicsRevision(tree: RocketTree): boolean {
@@ -1064,11 +1110,7 @@ export function runCarriesPhysicsRevision(
   run: Pick<SimRun, 'physicsRevision'>,
   cur: { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
 ): boolean {
-  // Older callers with only the boolean conservatively require the latest stamp.
-  const affected = cur.physicsRevisions
-    ?? (cur.requiresPhysicsRevision === true ? [PHYSICS_REVISION] : []);
-  const flownIndex = PHYSICS_REVISIONS.findIndex(({ id }) => id === run.physicsRevision);
-  return !PHYSICS_REVISIONS.some(({ id }, i) => i > flownIndex && affected.includes(id));
+  return physicsRevisionsMissed(run, cur).length === 0;
 }
 
 /**

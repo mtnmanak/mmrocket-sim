@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { OrkRocket, type ComponentNode } from '@online-openrocket/engine';
 import { probeFlight } from './services/autoDelay.testSupport.js';
 import type { DelayResolution } from './services/autoDelaySolver.js';
-import { findNode, findParent } from './tree/treeModel.js';
+import { findNode, findParent, motorMounts } from './tree/treeModel.js';
 import type { SessionState } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
@@ -18,7 +18,6 @@ import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { APP_VERSION } from './version.js';
 import { sanitizeTree } from './tree/sanitize.js';
-import { findNode, motorMounts } from './tree/treeModel.js';
 import { motorLengthLimit } from './tree/motorLength.js';
 import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 

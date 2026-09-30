@@ -351,7 +351,8 @@ function checkBareFigures(raw, tokens) {
   for (const [key, value] of Object.entries(tokens)) {
     const kind = TOKEN_KIND[key];
     if (kind === 'count') {
-      rules.push({ key, re: new RegExp(String.raw`(?<![\d.,])${esc(value)}(?![\d]|[.,]\d)${UNIT_AFTER}`, 'g') });
+      // Not after a letter: a figure glued to one is a designation (a G80), not a count.
+      rules.push({ key, re: new RegExp(String.raw`(?<![\d.,A-Za-z])${esc(value)}(?![\d]|[.,]\d)${UNIT_AFTER}`, 'g') });
     } else if (kind === 'percent') {
       rules.push({ key, re: new RegExp(String.raw`(?<![\d.,])${esc(value)}\s*%`, 'g') });
     } else if (kind === 'date') {

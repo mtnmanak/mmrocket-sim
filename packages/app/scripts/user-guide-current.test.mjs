@@ -50,6 +50,21 @@ describe('glossary anchors', () => {
   });
 });
 
+describe('bare-figure check', () => {
+  // A section needs its anchor; the current value of a count token is read back
+  // through the compiler itself.
+  const doc = (body) => `<a id="s"></a>\n## S\n\n${body}`;
+  const tokenValue = (key) => {
+    const { ts } = compileGuide({ markdown: doc(`X{{${key}}}Y`) });
+    return JSON.parse(ts.match(/"html": (".*")/)[1]).match(/X([\d,]+)Y/)[1];
+  };
+  it('reads a figure glued to a letter as a designation, and still refuses the bare count', () => {
+    const n = tokenValue('CURVE_MISSING');
+    expect(() => compileGuide({ markdown: doc(`A makerless G${n} loads the other maker's motor.`) })).not.toThrow();
+    expect(() => compileGuide({ markdown: doc(`${n} have no published curve.`) })).toThrow(/typed by hand/);
+  });
+});
+
 describe('the committed userGuide.ts is current', () => {
   it('matches a fresh compile of user-guide.md and the shipped motor data, byte for byte', () => {
     const { ts } = compileGuide();

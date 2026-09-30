@@ -11,6 +11,20 @@ const asymmetricParts = new Set(['fairing', 'protuberance', 'launchlug', 'railbu
  * symmetric layouts and already-correct ballast are intentionally included.
  * Motor schedules, separation and overrides can destroy launch-time symmetry.
  */
+/**
+ * Whether anything in the tree can drive roll: a fin set with a nonzero cant.
+ * Roll torque in the kernel comes only from fin cant, and roll damping only from
+ * a roll rate, so a flight with no canted fin never rolls and its trajectory
+ * does not depend on the roll inertia at all — only the reported Ir does. The
+ * saved-run revision for the true-CG roll inertia is gated on this, so v0.143
+ * runs on uncanted designs are not sent back for a Launch that changes nothing.
+ */
+export function hasRollForcing(tree: RocketTree): boolean {
+  const canted = (node: ComponentNode): boolean =>
+    (fins.has(node.type) && num(node, 'cant', 0) !== 0) || (node.children?.some(canted) ?? false);
+  return tree.components.some(canted);
+}
+
 export function affectsRollInertia(tree: RocketTree): boolean {
   const affected = (node: ComponentNode): boolean => {
     if (node.type === 'podset' || node.type === 'parallelstage') return true;

@@ -6,7 +6,8 @@ import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
   changedSinceRun, designMatchKeyOf, KERNEL_PHYSICS_CHANGED, PHYSICS_REVISION,
-  physicsRevisionsFor, requiresPhysicsRevision, runCarriesPhysicsRevision, runMatchesDesign, type SimRun,
+  physicsChangedText, physicsRevisionsFor, physicsRevisionsMissed, requiresPhysicsRevision,
+  runCarriesPhysicsRevision, runMatchesDesign, type SimRun,
 } from './simReport.js';
 import { flightDataForExport, flownAutoDelays, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRun, loadRuns, runsToCsv, runsToTable } from './simStore.js';
@@ -138,15 +139,53 @@ describe('ordered physics revision history', () => {
       launch: DEFAULT_CONDITIONS, aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
       hasNozzle: false, physicsRevisions: physicsRevisionsFor(tree) });
     const run = { ...key, id: 'old', physicsRevision: 'guide-clearance-transition-mass-v1',
+      delayResolution: testResolution([['mount', motor]], [5]),
       aeroModel: 'classic', rogersKbf: false, delayS: 5, recommendedDelayS: 5, flightConfigId: 'A', when: 1, maxAltitude: 100, comments: '' } as unknown as SimRun;
     const input: FlightDataForExportInput = { ...key, runs: [run], savedConfigs: [{ id: 'A', name: 'A', isDefault: true, motors: { mount: motor } }], activeConfigId: 'A',
       assigned: [['mount', motor]], mountIds: ['mount'], model: key, hasNozzle: false,
       motorSetKeyOf: () => key.motorSetKey, primaryMountOf: () => 'mount', hardwareDeltaKg: 0 };
     expect(runMatchesDesign(run, key)).toBe(accepted);
-    expect(changedSinceRun(run, key)).toEqual(accepted ? [] : [KERNEL_PHYSICS_CHANGED]);
+    // With the per-revision list, the banner names only what this run missed.
+    expect(changedSinceRun(run, key)).toEqual(accepted ? [] : ['the rail-line and station guidance physics']);
     expect(Object.keys(flightDataForExport(input)).length > 0).toBe(accepted);
     expect(Object.keys(flownAutoDelays(input)).length > 0).toBe(accepted);
     expect(runCarriesPhysicsRevision({ physicsRevision: PHYSICS_REVISION }, key)).toBe(true);
     expect(runCarriesPhysicsRevision({}, key)).toBe(String(node.type) === 'protuberance');
+  });
+});
+
+describe('v0.144 revisions: roll inertia, strap-on nozzle, pods-only base', () => {
+  const fin = (cant: number): ComponentNode => ({ type: 'trapezoidfinset', finCount: 3, cant });
+  const lug: ComponentNode = { type: 'launchlug' };
+  const stage = (...children: ComponentNode[]): RocketTree => ({
+    components: [{ type: 'stage', children: [{ type: 'bodytube', children }] }],
+  });
+  const mount: ComponentNode = { type: 'innertube', motorMount: true };
+  const strapOn: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', children: [
+    { type: 'parallelstage', children: [{ type: 'bodytube', children: [mount] }] }] }] }] };
+  const podsOnly: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', children: [
+    { type: 'podset', children: [{ type: 'bodytube', children: [mount] }] }] }] }] };
+
+  it.each([
+    ['an uncanted design with a lug', stage(lug, fin(0)), []],
+    ['a canted design with a lug', stage(lug, fin(0.05)), ['true-cg-roll-inertia-v3']],
+    ['a design canted the other way with a lug', stage(lug, fin(-0.05)), ['true-cg-roll-inertia-v3']],
+    ['a canted, symmetric, lug-free design', stage(fin(0.05)), []],
+    ['a strap-on that owns a mount', strapOn, ['strap-on-nozzle-v4']],
+    ['a pod that owns a mount', podsOnly, ['pods-only-base-drag-v5']],
+  ] as [string, RocketTree, string[]][])('%s: v0.144 revisions %j', (_, tree, expected) => {
+    const later = physicsRevisionsFor(tree).filter((id) => /-v[345]$/.test(id));
+    expect(later).toEqual(expected);
+  });
+
+  it('names only the revisions a run missed, in order', () => {
+    const tree = stage(lug, { type: 'railbutton' }, fin(0.05));
+    const cur = { physicsRevisions: physicsRevisionsFor(tree) };
+    const missed = physicsRevisionsMissed({ physicsRevision: 'guide-clearance-transition-mass-v1' }, cur);
+    expect(missed.map((r) => r.id)).toEqual(['two-button-guidance-v2', 'true-cg-roll-inertia-v3']);
+    expect(physicsChangedText(missed)).toBe('the rail-line and station guidance and roll-inertia physics');
+    expect(physicsChangedText(physicsRevisionsMissed({}, { physicsRevisions: ['strap-on-nozzle-v4'] })))
+      .toBe('the strap-on nozzle physics');
+    expect(physicsRevisionsMissed({ physicsRevision: PHYSICS_REVISION }, cur)).toEqual([]);
   });
 });
