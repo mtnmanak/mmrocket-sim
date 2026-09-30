@@ -1711,15 +1711,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       } else if (kind === 'every-auto') {
         out.push(`${asks}which flies each listed delay in turn; the motor database lists no numeric delay `
           + 'for it, so it is set to Auto (optimal), the motor browser’s own default for it.'
-          // Auto re-flies the PRIMARY mount only (flightRunner.flyLaunch), as for
-          // a browser pick, so the rest of a cluster built as separate mounts
-          // flies the provisional 0 s: the Cheetah probe with its G135R mount
-          // cloned twice deployed at burnout, 1.05 s (review of the seam fixes).
-          // Worded for any of them, since the primary may sit in another stage.
-          + (mounts > 1
-            ? ` Auto re-flies the rocket's primary mount only: any of these ${mounts} that is not it flies the`
-              + ' provisional 0 s, so its charge fires at burnout — give those a delay of their own.'
-            : ''));
+          + ' Auto targets each mount\'s recovery-free branch apogee, rounded to a whole second; '
+          + 'an unresolved Auto delay refuses the flight.');
       } else if (kind === 'every-unmatched') {
         // Not "the database lists no delay": the motor matched nothing in it, so
         // nothing loads on the mount and there is no delay box to send the user

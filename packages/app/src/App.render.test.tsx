@@ -540,7 +540,7 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
  * match.
  */
 describe('the Auto delay box on a motor card', () => {
-  it('is "auto (optimal)" on the core\'s card and "auto — top motor only" on the pods\'', async () => {
+  it('is "auto (optimal)" on the core\'s card and "auto (optimal)" on the pods\'', async () => {
     const probe = podTree(defaultTree());
     const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;
     const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
@@ -554,7 +554,7 @@ describe('the Auto delay box on a motor card', () => {
       ?.querySelector('input[type="checkbox"]:checked')?.parentElement?.textContent?.trim();
     // The ticked box on each card — "plugged" is the other checkbox, unticked here.
     expect(box(core.name!)).toBe('auto (optimal)');
-    expect(box('Pod MMT')).toBe('auto — top motor only');
+    expect(box('Pod MMT')).toBe('auto (optimal)');
   }, 30000);
 });
 

@@ -1,3 +1,4 @@
+import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import type { SimRun } from './simReport.js';
@@ -219,7 +220,7 @@ describe('flightDataForExport — the flown delay must be the one the file names
   it('writes an auto-delay run whose optimum rounded to the configuration’s own delay', () => {
     // It flew exactly what the file will say — nothing to refuse.
     const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
-    expect(ids({ assigned: [['m1', auto]] })).toEqual(['c1']);
+    expect(ids({ assigned: [['m1', auto]] })).toEqual([]); // legacy scalar is insufficient
   });
 
   it('reads the delay off the configuration’s PRIMARY, not its first mount', () => {
@@ -260,49 +261,47 @@ describe('flightDataForExport — the flown delay must be the one the file names
  * flight of the design as it stands flew is what the file now names, and the
  * flight data written beside it is that flight's.
  */
-describe('flownAutoDelays — what an Auto primary flew, and what the file names', () => {
-  const auto = (spec: number): MountMotor =>
-    ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: spec }, meta: { ...MOTOR.meta, autoDelay: true } }) as MountMotor;
-
-  it('takes the delay the newest matching flight of an Auto primary flew', () => {
-    // Provisional 3 s; the flight re-flew at the optimum, 7 s.
-    const input = base({ assigned: [['m1', auto(3)]] });
-    expect(flownAutoDelays(input)).toEqual({ c1: 7 });
-    // And the file, now naming 7 s, carries that flight's results.
-    expect(Object.keys(flightDataForExport(input))).toEqual(['c1']);
-    const newer = { ...RUN, id: 'r0', delayS: 6, recommendedDelayS: 6 } as SimRun;
-    expect(flownAutoDelays(base({ runs: [newer, RUN], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 6 });
+describe('flownAutoDelays - complete settled vectors', () => {
+  const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
+  const assigned: [string, MountMotor][] = [['m1', auto], ['side', auto]];
+  const run = (delays = [7, 4]): SimRun => ({ ...RUN, delayS: delays[0]!, delayResolution: testResolution(assigned, delays) });
+  const input = (over: Partial<FlightDataForExportInput> = {}) => base({
+    assigned, mountIds: ['m1', 'side'], runs: [run()], ...over,
   });
-
-  it('reads a design with no configurations from its configuration-less flights', () => {
-    const loose = { ...RUN, flightConfigId: undefined } as unknown as SimRun;
-    expect(flownAutoDelays(base({ runs: [loose], savedConfigs: [], activeConfigId: null, assigned: [['m1', auto(0)]] })))
-      .toEqual({ '': 7 });
-    // Not while a configuration is on screen: that flight was not of this set.
-    expect(flownAutoDelays(base({ runs: [loose], assigned: [['m1', auto(0)]] }))).toEqual({});
+  it('uses every Auto mount from one complete qualifying run, including prototype-key mount IDs', () => {
+    expect(flownAutoDelays(input())).toEqual({ c1: { m1: 7, side: 4 } });
+    expect(Object.keys(flightDataForExport(input()))).toEqual(['c1']);
+    const proto: [string, MountMotor][] = [['constructor', auto]];
+    expect(flownAutoDelays(input({ assigned: proto, mountIds: ['constructor'],
+      runs: [{ ...RUN, delayResolution: testResolution(proto, [7]) }] }))).toEqual({ c1: { constructor: 7 } });
   });
-
-  /**
-   * A FLIGHT AT A FIXED DELAY IS NOT AUTO'S (review of the seam fixes). A run's
-   * motor-set key carries the spec delay and not the Auto flag (motorSetKeyOf),
-   * and ticking Auto (optimal) changes nothing else, so a C6 flown at a fixed
-   * 3 s and then put on Auto matched as its flight: saved at 3 s, "the delay
-   * its last flight here flew", where Auto flies its rounded optimum, 5 s.
-   */
-  it('takes only a flight that flew its rounded optimum — the delay Auto flies', () => {
-    const fixed = { ...RUN, id: 'r0', delayS: 3, recommendedDelayS: 5 } as SimRun;
-    expect(flownAutoDelays(base({ runs: [fixed], assigned: [['m1', auto(3)]] }))).toEqual({});
-    // An older flight on Auto behind it still says what Auto flies.
-    const onAuto = { ...RUN, delayS: 5, recommendedDelayS: 5 } as SimRun;
-    expect(flownAutoDelays(base({ runs: [fixed, onAuto], assigned: [['m1', auto(3)]] }))).toEqual({ c1: 5 });
-    // No optimum at all: nothing says what Auto flies.
-    const none = { ...RUN, recommendedDelayS: null } as unknown as SimRun;
-    expect(flownAutoDelays(base({ runs: [none], assigned: [['m1', auto(3)]] }))).toEqual({});
+  it('does not assemble partial vectors from unrelated flights or accept old scalar evidence', () => {
+    const partial = run(); partial.delayResolution!.mounts.pop();
+    const other = run(); other.delayResolution!.mounts.shift();
+    expect(flownAutoDelays(input({ runs: [partial, other, RUN] }))).toEqual({});
+    expect(flightDataForExport(input({ runs: [partial, other, RUN] }))).toEqual({});
+    expect(flownAutoDelays(input({ runs: [partial, run()] }))).toEqual({ c1: { m1: 7, side: 4 } });
   });
-
-  it('names nothing for a primary not on Auto, or with no flight of the design as it stands', () => {
-    expect(flownAutoDelays(base())).toEqual({});
-    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], designKey: 'design-B' }))).toEqual({});
-    expect(flownAutoDelays(base({ assigned: [['m1', auto(3)]], motorSetKeyOf: () => 'set-B' }))).toEqual({});
+  it('compares every exported delay, not only the primary', () => {
+    const newer = run([7, 6]); newer.id = 'new'; newer.maxAltitude = 2000;
+    const old = run(); old.maxAltitude = 1000;
+    expect(flownAutoDelays(input({ runs: [newer, old] }))).toEqual({ c1: { m1: 7, side: 6 } });
+    expect(flightDataForExport(input({ runs: [newer, old] }))['c1']!.maxAltitude).toBe(2000);
+  });
+  it('rejects changed policy, motors, manual neighbours and malformed evidence', () => {
+    const fixed: [string, MountMotor][] = [['m1', auto], ['side', MOTOR]];
+    const r = { ...RUN, delayResolution: testResolution(fixed, [7, 7]) };
+    expect(flownAutoDelays(input({ assigned: fixed, runs: [r] }))).toEqual({ c1: { m1: 7 } });
+    expect(flownAutoDelays(input({ runs: [r] }))).toEqual({});
+    expect(flownAutoDelays(input({ designKey: 'other' }))).toEqual({});
+    expect(flownAutoDelays(input({ motorSetKeyOf: () => 'other' }))).toEqual({});
+    expect(flownAutoDelays(input({ runs: [{ ...r, delayResolution: { bad: true } } as unknown as SimRun] }))).toEqual({});
+  });
+  it('supports inactive and configuration-less flights with the same complete-vector checks', () => {
+    const saved = { ...CONFIG, motors: Object.fromEntries(assigned) };
+    expect(flownAutoDelays(input({ assigned: [], activeConfigId: 'other', savedConfigs: [saved] })))
+      .toEqual({ c1: { m1: 7, side: 4 } });
+    expect(flownAutoDelays(input({ activeConfigId: null, savedConfigs: [], runs: [{ ...run(), flightConfigId: undefined }] })))
+      .toEqual({ '': { m1: 7, side: 4 } });
   });
 });

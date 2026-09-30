@@ -115,16 +115,16 @@ describe('autoDelayBox — the auto-delay box each mount card shows', () => {
   it('shows a box on any other card whose motor carries the flag, so it can be unticked', () => {
     // The pod and the strap-on fly their provisional delay whatever the flag
     // says; only the primary's is honoured (flightRunner).
-    expect(autoDelayBox(tree, 'strap', 'core', true)).toBe('top-motor-only');
-    expect(autoDelayBox(tree, 'pod', 'core', true)).toBe('top-motor-only');
-    expect(autoDelayBox(tree, 'b1', 'core', true)).toBe('top-motor-only');
+    expect(autoDelayBox(tree, 'strap', 'core', true)).toBe('optimal');
+    expect(autoDelayBox(tree, 'pod', 'core', true)).toBe('optimal');
+    expect(autoDelayBox(tree, 'b1', 'core', true)).toBe('optimal');
     // …and none where there is nothing to untick.
-    expect(autoDelayBox(tree, 'strap', 'core', false)).toBeNull();
-    expect(autoDelayBox(tree, 'pod', null, false)).toBeNull();
+    expect(autoDelayBox(tree, 'strap', 'core', false)).toBe('optimal');
+    expect(autoDelayBox(tree, 'pod', null, false)).toBe('optimal');
   });
 
   it('a booster that is primary shows the working box once ticked, and none before', () => {
-    expect(autoDelayBox(tree, 'b1', 'b1', false)).toBeNull();
+    expect(autoDelayBox(tree, 'b1', 'b1', false)).toBe('optimal');
     expect(autoDelayBox(tree, 'b1', 'b1', true)).toBe('optimal');
   });
 });

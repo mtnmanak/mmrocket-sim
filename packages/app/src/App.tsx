@@ -75,6 +75,8 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
+import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
+import { autoDelayCardText } from './components/MountDelayReport.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotors } from './services/exMotors.js';
@@ -1134,7 +1136,14 @@ export function App() {
     measuredDryMassKg: measured.massKg,
     primaryMountId,
     currentSetKey,
-  }, KERNEL_HANDLES),
+  }, {
+    ...KERNEL_HANDLES,
+    // Auto yields between probes. A render may build a newer design while the
+    // captured flight still owns its handle; keep that handle alive until done.
+    reset: () => {
+      if (!flightHoldsHandle.current && fullSeriesHolds.current === 0) KERNEL_HANDLES.reset();
+    },
+  }),
     // `tree.components`, not `tree` — see the note on `mounts` above. Renaming
     // the rocket is not a design change: `engineTree` passes `tree.name`
     // through structurally and nothing the app reads comes back OUT of the
@@ -1709,21 +1718,24 @@ export function App() {
   };
 
   const onLaunch = () => {
-    if (!built || !primaryMountId) return;
+    if (!built || !primaryMountId || simulating || flightHoldsHandle.current) return;
+    flightHoldsHandle.current = true;
     const primary = mountMotors[primaryMountId]!;
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there, focus
     // included: on the Results <main>, before the flight blocks the thread,
     // because the button just pressed is gone or disabled (see resultsMainRef).
     setTab('results');
-    void afterPaint().then(() => {
+    void afterPaint().then(async () => {
       resultsMainRef.current?.focus();
       try {
         // The probe, the auto-aero upgrade, the auto delay and the handle
         // protocol they share all live in services/flightRunner.ts, where a
         // test can fly them (audit 2026-09-22, extraction #1).
-        const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs } = flyLaunch(built.rocket, {
+        const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
           assigned,
+          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? m.id!])),
+          refusedMountIds: built.motorFailures.map((m) => m.mountId),
           hardware: built.hardware,
           primaryMountId,
           simOptions: kernelSimOptions(launch),
@@ -1746,6 +1758,7 @@ export function App() {
           : savedConfigs.find((c) => c.id === activeConfigId);
         const run = buildSimRun({
           result: res,
+          delayResolution, primaryMountId,
           info: built.info,
           motor: { ...primary.spec, ejectionDelay: flownDelay },
           meta: {
@@ -1874,8 +1887,9 @@ export function App() {
   const canShowCharts = useCallback((run: SimRun): boolean => {
     if (!currentMatchKey || !built || !primaryMountId) return false;
     if (reflightCache.has(run.id)) return false;
-    return runMatchesDesign(run, currentMatchKey);
-  }, [currentMatchKey, built, primaryMountId, reflightCache]);
+    return runMatchesDesign(run, currentMatchKey)
+      && canReplayDelays(run.delayResolution, assigned, primaryMountId, run.delayS);
+  }, [currentMatchKey, built, primaryMountId, reflightCache, assigned]);
 
   /**
    * The newest stored run this design could still reproduce — what the
@@ -1914,7 +1928,7 @@ export function App() {
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf };
       const res = reflyRun(built.rocket, {
         assigned, hardware: built.hardware, primaryMountId,
-        delayS: run.delayS,
+        delayS: run.delayS, delayResolution: run.delayResolution,
         simOptions: kernelSimOptions(launch),
         fly: current,
         restore: current,
@@ -1962,7 +1976,7 @@ export function App() {
       return reflyRun(built.rocket, {
         assigned, hardware: built.hardware, primaryMountId,
         // Auto delay flew the rounded optimum, recorded on the run.
-        delayS: lastRun.delayS,
+        delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         simOptions: { ...kernelSimOptions(launch), series: 'full' },
         fly: { supersonic: wasSupersonic, kbf: wasKbf },
         // Hand the shared handle back on the CURRENT model: the drag panel and
@@ -1976,15 +1990,14 @@ export function App() {
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
-   * `primaryAuto`: set for a configuration's PRIMARY mount, with the rounded
-   * optimum it flies on Auto, from the newest flight of the design that flew
-   * that optimum (flownAutoDelaysNow), if any. An
-   * Auto primary is written at that delay — what it flies — rather than its
+   * `mountAuto`: each Auto mount's rounded delay from the newest complete
+   * qualifying flight (flownAutoDelaysNow), if any. The
+   * Auto mount is written at that delay — what it flies — rather than its
    * provisional first flight, which a Save used to write and a reopen then
    * flew (seam review of audit 2026-09-22); with no such flight it keeps the
    * provisional delay and the Save says so (autoDelaySaveNote).
    */
-  const toExportMotor = (mm: MountMotor, primaryAuto?: { flownS: number | undefined }): OrkExportMotor => {
+  const toExportMotor = (mm: MountMotor, mountAuto?: { flownS: number | undefined }): OrkExportMotor => {
     // EX motors: the file gets the REAL manufacturer from the imported
     // .eng/.rse, never the "EX" browser badge (the desktop would hunt for a
     // manufacturer literally named EX and lose the motor), and never a
@@ -2023,9 +2036,9 @@ export function App() {
       ...(!ex && mm.meta.orkDigest ? { digest: mm.meta.orkDigest } : {}),
       diameter: mm.spec.diameter,
       length: mm.spec.length,
-      delay: (auto ? primaryAuto?.flownS : undefined) ?? mm.spec.ejectionDelay,
+      delay: (auto ? mountAuto?.flownS : undefined) ?? mm.spec.ejectionDelay,
       ...(auto ? { autoDelay: true as const } : {}),
-      ...(auto && primaryAuto ? { autoDelayFrom: primaryAuto.flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
+      ...(auto && mountAuto ? { autoDelayFrom: mountAuto.flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
       ignitionEvent: mm.ignition.event,
       ignitionDelay: mm.ignition.delay,
       // The weighed pad mass rides out with the motor it was weighed with; the
@@ -2061,10 +2074,10 @@ export function App() {
     return out;
   };
 
-  const exportMotorsMap = (flown: Record<string, number> = {}): Record<string, OrkExportMotor> => {
+  const exportMotorsMap = (flown: Record<string, Record<string, number>> = {}): Record<string, OrkExportMotor> => {
     const motors: Record<string, OrkExportMotor> = {};
     for (const [id, mm] of assigned) {
-      motors[id] = toExportMotor(mm, id === primaryMountId ? { flownS: flown[activeConfigId ?? ''] } : undefined);
+      motors[id] = toExportMotor(mm, { flownS: flown[activeConfigId ?? '']?.[id] });
     }
     // Motors the import could not resolve ride back out VERBATIM on any mount
     // that still has nothing on it. Without this the file the user saved came
@@ -2131,13 +2144,13 @@ export function App() {
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
-   * The rounded optimum each Auto primary flies, from the newest flight of the
-   * design that flew it, by configuration id ('' for none) — what a .ork, a
+   * Each Auto mount's rounded optimum from one complete flight of the
+   * design, by configuration id ('' for none) and mount id — what a .ork, a
    * .rkt and a share link write for it (orkFlightData.flownAutoDelays), from
    * the same input the results above are judged on, so a file never names one
    * delay and carries the flight of another.
    */
-  const flownAutoDelaysNow = (): Record<string, number> => flownAutoDelays(flightExportInput());
+  const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownAutoDelays(flightExportInput());
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2147,7 +2160,7 @@ export function App() {
    * working set back into, so the file and the mark agree.
    */
   const exportConfigs = (
-    configs: SavedConfig[] = savedConfigs, flown: Record<string, number> = {},
+    configs: SavedConfig[] = savedConfigs, flown: Record<string, Record<string, number>> = {},
   ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
     // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
@@ -2159,9 +2172,8 @@ export function App() {
       ...Object.fromEntries(
         Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
       ...(() => {
-        const primary = primaryMountOf(tree, Object.keys(c.motors));
         return Object.fromEntries(Object.entries(c.motors).map(([id, mm]) =>
-          [id, toExportMotor(mm, id === primary ? { flownS: flown[c.id] } : undefined)]));
+          [id, toExportMotor(mm, { flownS: flown[c.id]?.[id] })]));
       })(),
     }, tree),
     ...(c.deployments ? { deployments: c.deployments } : {}),
@@ -2245,7 +2257,7 @@ export function App() {
       // over the synced set (importApply.planOrkSave says why).
       const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
       if (synced !== savedConfigs) setSavedConfigs(synced);
-      // Every Auto primary at the delay it flew, and a line for each the file
+      // Every Auto mount at the delay it flew, and a line for each the file
       // cannot carry that way (autoDelaySaveNote) — once per motor, though the
       // active configuration's goes through both maps.
       const flown = flownAutoDelaysNow();
@@ -3252,6 +3264,7 @@ export function App() {
           // AUTOMATIC. An imported single-stage design can hold a `never` or
           // a delayed mount even though this app shows the control only on a
           // staged design.
+          assignedAutoDelays={Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true]))}
           assignedIgnitions={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, mm.ignition]))}
           weighed={batchWeighed}
@@ -4027,15 +4040,14 @@ export function App() {
               // count the mass figures carry, not the cluster alone.
               const count = mountMotorCount(tree, m.id!);
               const countNote = mountCountNote(tree, m.id!);
-              // The working "auto (optimal)" box goes on the PRIMARY's card —
-              // the one mount flightRunner writes the rounded optimum onto
-              // (audit 2026-09-22, row 356). It used to show on every
-              // sustainer-stage card, so a strap-on or a second core mount
-              // carried a ticked "auto (optimal)" that flew its spec delay. Any
-              // other card whose motor still carries the flag (the browser
-              // offers Auto on every mount) gets a box that says it applies to
-              // the top motor only, so it can be unticked (treeModel.autoDelayBox).
+              // Every loaded mount has its own Auto policy and flown evidence.
               const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
+              const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
+                && resolutionMatches(r.delayResolution, delayMountsOf(assigned)))
+                ?? runs.find((r) => validDelayResolution(r.delayResolution)
+                  && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'));
+              const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
+                && resolutionMatches(delayRun.delayResolution, delayMountsOf(assigned));
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -4132,9 +4144,7 @@ export function App() {
                         </label>
                         {autoBox && (
                           <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
-                            title={autoBox === 'top-motor-only'
-                              ? 'Only the top motor flies at its simulated optimum delay. This one flies the delay in the field; untick to label it with that number.'
-                              : undefined}>
+                            title="Auto targets this mount’s recovery-free branch apogee, rounded to a whole second.">
                             <input
                               type="checkbox"
                               checked={mm.meta.autoDelay === true}
@@ -4151,12 +4161,15 @@ export function App() {
                                 }));
                               }}
                             />
-                            {autoBox === 'optimal' ? 'auto (optimal)' : 'auto — top motor only'}
+                            auto (optimal)
                           </label>
                         )}
                       </div>
                     </div>
                   )}
+                  {mm?.meta.autoDelay && <p className="field-hint">{autoDelayCardText(
+                    delayRun?.delayResolution?.mounts.find((d) => d.mountId === m.id), delayCurrent,
+                  )}</p>}
                   {mm && isStaged && (
                     <div className="field" style={{ marginTop: 6 }}
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">

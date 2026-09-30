@@ -1,3 +1,4 @@
+import { MountDelayReport } from './MountDelayReport.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -230,9 +231,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           ? 'Raw per-timestep flight data downloads under Flight plots, below.'
           : 'Re-fly this design to download its raw flight data — time series aren’t saved with run history.'}
       </p>
-      {(run.optimumDelayS !== null || run.recommendedDelayS !== null) && (
+      <MountDelayReport resolution={run.delayResolution} />
+      {!run.delayResolution && (run.optimumDelayS !== null || run.recommendedDelayS !== null) && (
         <p className="simdet-delay">
-          Optimal delay <strong>{s(run.optimumDelayS, 1)} s</strong>
+          Legacy summary optimum <strong>{s(run.optimumDelayS, 1)} s</strong>
           {run.recommendedDelayS !== null && (
             <> · recommended (drill to fit) <strong>{run.recommendedDelayS} s</strong></>
           )}

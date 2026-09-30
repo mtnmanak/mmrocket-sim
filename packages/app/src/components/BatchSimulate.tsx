@@ -255,7 +255,7 @@ export function batchProgressAnnouncement(done: number, total: number): string |
   return `${Math.round((done / total) * 100)} percent — ${group(done)} of ${group(total)} flights.`;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, assignedIgnitions, weighed, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -292,6 +292,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    * ways in two places (2026-09-21, from the 19 Sep review).
    */
   assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
+  assignedAutoDelays?: Record<string, boolean>;
   /** The weighed pad mass, when the design page is carrying one (see
    *  {@link BatchWeighed}); the candidate matching it on its mount flies
    *  shifted, every other row at catalogue weight. */
@@ -454,7 +455,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     try {
       const { rows: out, stopped } = await runBatchSweep({
         tree, info, mounts, target: sel, candidates, splits,
-        assignedMotors, assignedMotorIds, assignedIgnitions, weighed,
+        assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed,
         model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
       // The run ENDING used to be invisible: the progress bar and its

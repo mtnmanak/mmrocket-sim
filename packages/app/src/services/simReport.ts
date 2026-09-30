@@ -1,3 +1,4 @@
+import type { DelayResolution } from './autoDelaySolver.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
@@ -383,6 +384,8 @@ export interface BranchReport {
 }
 
 export interface SimRun extends WindProfileConditions {
+  /** Complete flown mount vector and independent delay-policy provenance. */
+  delayResolution?: DelayResolution;
   id: string;
   /** epoch ms */
   when: number;
@@ -1641,6 +1644,8 @@ export function extractMaxRollRate(series: FlightSeries): number | null {
 }
 
 export function buildSimRun(input: {
+  delayResolution?: DelayResolution;
+  primaryMountId?: string;
   result: FlightResult;
   info: StaticInfo;
   motor: MotorSpec;
@@ -1819,7 +1824,8 @@ export function buildSimRun(input: {
       tGround ?? series.time[series.time.length - 1] ?? 0) ?? landingGroundSpeed);
   const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
 
-  const optimumDelayS = summary.optimumDelay ?? null;
+  const primaryDelay = input.delayResolution?.mounts.find((m) => m.mountId === input.primaryMountId);
+  const optimumDelayS = primaryDelay?.mode === 'auto' ? primaryDelay.rawOptimum : summary.optimumDelay ?? null;
   const recommendedDelayS = recommendDelay(optimumDelayS);
 
   // Landing drift + peak roll rate come from the symbol-keyed series (Pl /
@@ -2023,6 +2029,7 @@ export function buildSimRun(input: {
     motorCase: meta?.motorCase ?? '',
     motorCount: meta?.motorCount ?? 1,
     delayS: motor.ejectionDelay,
+    ...(input.delayResolution ? { delayResolution: input.delayResolution } : {}),
     maxAltitude: summary.maxAltitude,
     maxVelocity: summary.maxVelocity,
     maxMach: summary.maxMachNumber,
