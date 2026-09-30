@@ -1661,7 +1661,7 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployEvent']).toBe('altitude');
     expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
     expect(drogue['deployEvent']).toBe('apogee');
-    expect(drogue['deployAltitude']).toBeUndefined();
+    expect(drogue['deployAltitude']).toBe(200);
     expect(r.notes.some((n) => /Recovery deployment read from the file/.test(n))).toBe(true);
   });
 
@@ -1670,7 +1670,7 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployEvent']).toBe('ejection');
     expect(main['deployDelay']).toBe(2);
     expect(drogue['deployEvent']).toBe('ejection');
-    expect(drogue['deployDelay']).toBeUndefined();
+    expect(drogue['deployDelay']).toBe(0);
   });
 
   it("the padding slots RockSim writes (serial 0, type 0) are skipped, not mapped", () => {
@@ -1678,7 +1678,7 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
     expect(main['deployEvent']).toBe('apogee');
   });
 
-  it('the FIRST simulation slot wins when the repeated lists disagree', () => {
+  it('the first recognized event in one list wins when entries repeat', () => {
     // 2,4-D.rkt really does this: serial 26 is type 2 / 2 s in the first slot
     // and type 5 / 152.4 m in the second.
     const { main } = chutes(evXml(ev(12, 4) + ev(12, 5, 152.4)));
@@ -1687,14 +1687,14 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
 
   it('an unrecognised code leaves the device alone and SAYS so, rather than guessing', () => {
     const { r, main } = chutes(evXml(ev(12, 28)));
-    expect(main['deployEvent']).toBeUndefined();
+    expect(main['deployEvent']).toBe('ejection');
     expect(r.notes.some((n) => /does not recognise \(28\)/.test(n))).toBe(true);
   });
 
   it("an altitude trigger naming no altitude reads as apogee, not as 0 m", () => {
     const { main } = chutes(evXml(ev(12, 5, 0)));
     expect(main['deployEvent']).toBe('apogee');
-    expect(main['deployAltitude']).toBeUndefined();
+    expect(main['deployAltitude']).toBe(200);
   });
 
   /*
@@ -1711,15 +1711,14 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
       + '<EngineCode>F26FJ</EngineCode><EngineMfg>AeroTech</EngineMfg><MountSerialNo>1</MountSerialNo>'
       + '<EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines></SimulationResults></SimulationResultsList>');
 
-  it('says when the simulation opened stored other triggers, and keeps the design’s', () => {
+  it('applies the opened simulation recovery and reports its resolved settings', () => {
     const { r, main, drogue } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(0, 0) + ev(12, 1) + ev(13, 4)));
     expect(r.chosenConfigId).toBe('rocksim-sim-1');
-    expect(main['deployEvent']).toBe('altitude');
-    expect(main['deployAltitude']).toBeCloseTo(152.4, 6);
+    expect(main['deployEvent']).toBe('ejection');
+    expect(main['deployAltitude']).toBe(200);
+    expect(main['deployDelay']).toBe(0);
     expect(drogue['deployEvent']).toBe('apogee');
-    const note = r.notes.find((n) => /stored different recovery triggers/.test(n));
-    expect(note).toMatch(/^Simulation 1 \(“\[F26FJ-6\]”\) stored different recovery triggers from the ones read above: Main at the ejection charge\. /);
-    expect(note).not.toMatch(/Drogue/);
+    expect(r.notes.join(' ')).toContain('Main at the ejection charge; Drogue at apogee');
   });
 
   it('adds no such note when the simulation stored the design’s own triggers', () => {
@@ -2738,7 +2737,7 @@ describe('.rkt simulations become flight configurations', () => {
   it('says which simulation was opened', () => {
     const note = importRkt(LOADSTAR).notes.find((n) => /RockSim simulations/.test(n));
     expect(note).toMatch(/6 RockSim simulations with motors/);
-    expect(note).toMatch(/5 different motor sets/);
+    expect(note).toMatch(/5 different motor and recovery settings/);
     expect(note).toMatch(/Simulation 1 \(“\[A8-0\] \[A8-5\]”\) was opened/);
   });
 

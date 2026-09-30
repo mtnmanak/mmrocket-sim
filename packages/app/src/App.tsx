@@ -11,6 +11,7 @@ import {
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
+import { recoveryScope } from './components/recoveryContext.js';
 import { Icon } from './components/Icon.js';
 import { LazyDialog } from './components/LazyDialog.js';
 import { FirstRunTour } from './components/FirstRunTour.js';
@@ -3838,6 +3839,7 @@ export function App() {
               key={selectedNode.id}
               tree={tree}
               node={selectedNode}
+              recoveryContext={recoveryScope(savedConfigs, activeConfigId, selectedNode.id!)}
               info={selectedInfo}
               rocketInfo={built?.info ?? null}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
@@ -4307,6 +4309,7 @@ export function App() {
           {savedConfigs.length > 1 && (
             <ConfigPanel
               configs={savedConfigs}
+              tree={tree}
               activeConfigId={activeConfigId}
               hasMotors={Object.keys(mountMotors).length > 0}
               onApply={applyConfig}

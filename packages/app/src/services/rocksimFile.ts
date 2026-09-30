@@ -8,11 +8,11 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
 import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
-import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlNum, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import {
-  autoDelaySaveNote, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+  autoDelaySaveNote, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
@@ -1075,6 +1075,18 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   // The file's stored simulations — read here for the tubes' loadouts, and
   // again below, once the tubes are regrouped, for the configurations.
   const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  const designRecoveryNotes: string[] = [];
+  const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
+  const simulationRecoveryNotes = simEls.map(() => [] as string[]);
+  const simulationRecovery = simEls.map((el, i) =>
+    readDeploymentEvents(el, serialToNode, simulationRecoveryNotes[i]!, num));
+  const originalSerial = new Map([...serialToNode].map(([serial, node]) => [node, serial]));
+  const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): OrkDeployOverride => {
+    const serial = originalSerial.get(node) ?? '';
+    const trigger = simulation?.get(serial) ?? designRecovery.get(serial);
+    return { deployEvent: trigger?.deployEvent ?? 'ejection',
+      deployAltitude: trigger?.deployAltitude ?? 200, deployDelay: trigger?.deployDelay ?? 0 };
+  };
   /** Per stored simulation, its engine sets and the tube each names, before any regrouping. */
   const simSets = simEls.map((sim) => Array.from(sim.querySelectorAll('EngineSet')).flatMap((el) => {
     const serial = text(el, ':scope > MountSerialNo');
@@ -1138,10 +1150,34 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
     return { differ, moves };
   };
+  // Child order defines the descendant-reference pairing; generated IDs and
+  // names do not affect physical equivalence.
+  const subtreeValue = (node: ComponentNode): unknown => {
+    const fields = Object.fromEntries(Object.entries(node)
+      .filter(([key]) => !['id', 'name', 'children'].includes(key))
+      .sort(([a], [b]) => a.localeCompare(b)));
+    const recovery = node.type === 'parachute' || node.type === 'streamer'
+      ? [deploymentFor(node), ...simulationRecovery.map((sim) => deploymentFor(node, sim))] : [];
+    const loads = simSets.map((sets) => sets.filter((s) => (movedSets.get(s.el) ?? s.node) === node)
+      .map((s) => setKey(s.el)).sort());
+    const preset = pendingLinks.find((link) => link.node === node);
+    return [fields, radialByNode.get(node) ?? null, recovery, loads,
+      preset ? [preset.manufacturer, preset.partNo] : null,
+      (node.children ?? []).map(subtreeValue)];
+  };
+  const remapSubtree = (from: ComponentNode, to: ComponentNode): void => {
+    for (const [serial, node] of serialToNode) if (node === from) serialToNode.set(serial, to);
+    for (const sets of simSets) for (const set of sets) if (set.node === from) set.node = to;
+    for (const [el, node] of movedSets) if (node === from) movedSets.set(el, to);
+    (from.children ?? []).forEach((child, i) => remapSubtree(child, to.children![i]!));
+  };
   /** The kept tube of each merged cluster: its own RadialLoc is one copy's, not the cluster's place. */
   const mergedKeep = new Set<ComponentNode>();
   const reconstructClusters = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
+      // Resolve descendants first: duplicated stale child-mount references must
+      // be repaired within each physical parent before equivalent parents fold.
+      reconstructClusters(parentNode.children ?? []);
       const kids = parentNode.children ?? [];
       // TOLERANT grouping: RockSim rounds the same physical tube differently
       // between copies (the owner's Darkstar cluster: OD 79.38 on tube 1 vs 79.375
@@ -1178,6 +1214,18 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
             + 'simulation would fly one of those motors in every tube.');
           continue;
         }
+        // Repair candidates are deliberately broader than merge candidates.
+        for (const [el, to] of loads.moves) movedSets.set(el, to);
+        const differentOverhang = g.some((t) =>
+          Math.abs(nnum2(t, 'motorOverhang') - nnum2(g[0]!, 'motorOverhang')) > 1e-9);
+        const childrenKey = (t: ComponentNode): string => JSON.stringify((t.children ?? []).map(subtreeValue));
+        const differentChildren = new Set(g.map(childrenKey)).size > 1;
+        if (differentOverhang || differentChildren) {
+          notes.push(`${g.length} similar ${kind} in “${where}” have different `
+            + `${differentOverhang ? 'motor overhangs' : 'child parts or child motor/recovery settings'}; `
+            + 'each stays a separate tube with its own parts and settings.');
+          continue;
+        }
         // ONE TUBE'S MASS IS NOT THE CLUSTER'S (review of the seam fixes). A
         // RockSim <KnownMass> is its own tube's — desktop, which reads a
         // cluster as N separate tubes, counts every one, as RockSim does — but
@@ -1212,9 +1260,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
           notes.push(`${g.length} identical off-axis ${kind} in “${where}” don't fit a known cluster pattern — imported as separate tubes, each where the file puts it.`);
           continue;
         }
-        // Keep the tube that carries children (our own exports put them on the
-        // first copy); default to the first.
-        const keep = g.find((t) => (t.children ?? []).length > 0) ?? g[0]!;
+        const keep = g[0]!;
         keep['cluster'] = m.pattern;
         keep['clusterScale'] = Number(m.scale.toFixed(4));
         let rotation = m.rotation;
@@ -1236,15 +1282,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         if (clusterG !== null) keep['overrideMass'] = clusterG / MASS;
         mergedKeep.add(keep);
         const dropped = new Set(g.filter((t) => t !== keep));
-        for (const [serial, node] of serialToNode) {
-          if (dropped.has(node)) serialToNode.set(serial, keep);
-        }
+        for (const node of dropped) remapSubtree(node, keep);
         parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
         notes.push(`Cluster: ${g.length} identical ${kind} in “${where}” imported as one ${m.pattern} cluster`
           + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`
           + (clusterG !== null ? ` Its mass is the ${g.length} tube masses the file states, added together: ${clusterG} g.` : ''));
       }
-      reconstructClusters(parentNode.children ?? []);
     }
   };
   reconstructClusters(components);
@@ -1297,7 +1340,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
   };
   deCollideFins(components);
-  const appliedDeploy = readDeploymentEvents(doc, serialToNode, notes, num);
+  const recoveryIn = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((node) => [
+    ...(node.type === 'parachute' || node.type === 'streamer' ? [node] : []),
+    ...recoveryIn(node.children ?? []),
+  ]);
+  // A device without a source serial cannot be targeted by an event, but still
+  // needs a complete default map so switching configurations clears old edits.
+  const recoveryNodes = recoveryIn(components);
+  const deploymentsFor = (simulation?: Map<string, RktTrigger>): Record<string, OrkDeployOverride> =>
+    Object.fromEntries(recoveryNodes.filter((n) => n.id).map((n) => [n.id!, deploymentFor(n, simulation)]));
+  for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
 
   // A nose cone's <BaseExtensionLen> becomes a real body tube directly behind it.
@@ -1527,6 +1579,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const configs: OrkFlightConfig[] = [];
   /** Per configuration: the simulation it came from (file order, 1-based; null = outside any). */
   const cfgSim = new Map<OrkFlightConfig, { number: number | null; name: string | null }>();
+  const foldedSources = new Map<OrkFlightConfig, string[]>();
+  const foldedDiagnostics = new Map<OrkFlightConfig, string[]>();
   const seenSets = new Map<string, OrkFlightConfig>();
   let engineSims = 0;
   for (const g of simGroups) {
@@ -1561,10 +1615,18 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // The two "every delay" flags are part of the set: an Auto load flies 0 s
     // first and a kept unmatched −1 is plugged, so without them a simulation on
     // an explicit 0 s, or on RockSim's −2, would fold into one that is not.
-    const key = entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
+    const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
+    const key = JSON.stringify(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
       r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : ''].join('|')).sort().join('\n');
-    if (seenSets.has(key)) continue;
+    const same = seenSets.get(key);
+    if (same) {
+      const label = `Simulation ${g.number}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
+      foldedSources.get(same)!.push(label);
+      if (g.number !== null) foldedDiagnostics.get(same)!.push(
+        ...simulationRecoveryNotes[g.number - 1]!.map((note) => `${label}: ${note}`));
+      continue;
+    }
     const name = g.name?.trim() || null;
     const cfg: OrkFlightConfig = {
       id: g.number === null ? 'rocksim-design' : `rocksim-sim-${g.number}`,
@@ -1575,9 +1637,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       // the note below still quotes it. A name typed in RockSim is kept.
       name: name && !/^(\[[^\]]*\]\s*)+$/.test(name) ? name : null,
       isDefault: configs.length === 0,
-      motors: cfgMotors, deployments: {}, separations: {},
+      motors: cfgMotors, deployments, separations: {},
     };
     seenSets.set(key, cfg);
+    foldedSources.set(cfg, []);
+    foldedDiagnostics.set(cfg, []);
     cfgSim.set(cfg, { number: g.number, name });
     configs.push(cfg);
   }
@@ -1629,42 +1693,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
     if (configs.length > 1) {
       return `This file stores ${engineSims} RockSim simulations with motors, in ${configs.length} `
-        + `different motor sets; each set is a flight configuration here. ${simLabel(c)} was opened `
+        + `different motor and recovery settings; each combination is a flight configuration here. ${simLabel(c)} was opened `
         + '— switch under Flight configurations.';
     }
     return null;
   };
-  // RECOVERY IS NOT READ PER SIMULATION (audit 2026-09-22 review). Each
-  // <SimulationResults> keeps its own event list as well as its motors, and
-  // only the motors become the configuration: recovery is readDeploymentEvents'
-  // — the file's first list, the design's own in 662 of the 685 corpus files
-  // that carry one — in every configuration. When the simulation opened stored
-  // something else, say so, rather than let "Simulation N was opened" imply its
-  // recovery came too: AeroTech/aerotech_warthog.rkt's simulation 1 (E15-4)
-  // deploys at the ejection charge where the design says 122 m. Read with
-  // plain xmlNum: these numbers are compared, never used.
-  const recoveryNoteFor = (c: OrkFlightConfig): string | null => {
-    const simNumber = cfgSim.get(c)?.number;
-    if (simNumber == null) return null;
-    const own = new Map<string, string>();
-    for (const ev of Array.from(simEls[simNumber - 1]!.querySelectorAll('SimulationEvent'))) {
-      const serial = text(ev, ':scope > PartSerialNo');
-      if (!serial || serial === '0' || own.has(serial)) continue;
-      const node = serialToNode.get(serial);
-      if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
-      const t = rktTrigger(ev, xmlNum);
-      if (t === null || typeof t === 'number') continue;
-      const a = appliedDeploy.get(serial);
-      own.set(serial, a && a.deployEvent === t.deployEvent && a.deployDelay === t.deployDelay
-        && a.deployAltitude === t.deployAltitude ? '' : `${node.name ?? node.type} ${t.says}`);
-    }
-    const differ = [...own.values()].filter(Boolean);
-    return differ.length
-      ? `${simLabel(c)} stored different recovery triggers from the ones read above: `
-        + `${differ.join('; ')}. Recovery is not read per simulation, so every flight configuration here `
-        + 'flies the ones read above — change a device’s deployment to fly the simulation’s.'
-      : null;
+  const recoveryNotesFor = (c: OrkFlightConfig): string[] => {
+    const number = cfgSim.get(c)?.number;
+    const summary = recoveryNodes.map((n) => {
+      const d = c.deployments[n.id!]!;
+      return (n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
+        ? 'at ' + d.deployAltitude + ' m descending' : d.deployEvent === 'apogee'
+          ? 'at apogee' : 'at the ejection charge') + (d.deployDelay ? ' + ' + d.deployDelay + ' s' : '');
+    });
+    return [...designRecoveryNotes, ...(number == null ? [] : simulationRecoveryNotes[number - 1]!),
+      ...(summary.length ? [simLabel(c) + ' recovery: ' + summary.join('; ') + '.'] : [])];
   };
+  if (chosen) for (const node of recoveryNodes) Object.assign(node, chosen.deployments[node.id!]);
+  else {
+    notes.push(...designRecoveryNotes);
+    if (designRecovery.size) notes.push('Recovery deployment read from the file design defaults.');
+  }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const chosenConfigId = chosen?.id ?? null;
 
@@ -1738,9 +1787,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const configNotes: Record<string, string[]> = {};
   const configSources: Record<string, string> = {};
   for (const c of configs) {
-    configNotes[c.id] = [openedNoteFor(c), recoveryNoteFor(c), ...sentinelNotesFor(c)]
+    const folded = foldedSources.get(c)!;
+    configNotes[c.id] = [openedNoteFor(c), ...recoveryNotesFor(c), ...sentinelNotesFor(c), ...foldedDiagnostics.get(c)!,
+      ...(folded.length ? [`Also represents ${folded.join('; ')}: the motors, ignition and recovery settings agree.`] : [])]
       .filter((n): n is string => n !== null);
-    configSources[c.id] = simLabel(c);
+    configSources[c.id] = [simLabel(c), ...folded].join('; ');
   }
   if (chosen) notes.push(...configNotes[chosen.id]!);
 
@@ -1864,37 +1915,30 @@ export function rktEveryDelay(
  *        unknown, so it is LEFT ALONE (kernel default) and named in a note
  *        rather than guessed — a wrong deployment event is worse than none.
  *
- * FIRST SIMULATION WINS. RockSim stores several simulation slots and repeats the
- * whole event list in each, and they can disagree (2,4-D's serial 26 is type 2 /
- * 2 s in the first and type 5 / 152.4 m in the second). Taking the first match
- * per serial mirrors how the `.ork` reader takes launch conditions from the
- * file's FIRST `<simulation>`. In practice the first list is usually the
- * design's own, under <RocketDesign> ahead of every simulation's — 662 of the
- * 685 corpus files that carry one (audit 2026-09-22 review) — and it applies
- * in every flight configuration; importRkt says when the one opened differs.
- *
- * NOT READ, deliberately: `TestType` / `TestCondition` / `TestValue*`, RockSim
- * Pro's multi-condition elaboration. `Type` + `DeployAltitude` + `DeplyTime` is
- * the simple pair every file agrees with; the Pro triplet has no analogue in our
- * one-trigger model, and inventing one would be a guess.
- *
- * Returns what it applied, per part serial, so the caller can compare the
- * opened simulation's own list against it.
+ * Lists are scoped to the design or ONE simulation. Missing entries inherit
+ * the design, then kernel defaults; never another simulation.
  */
 const readDeploymentEvents = (
-  doc: Document,
+  scope: Element,
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
 ): Map<string, RktTrigger> => {
   const seen = new Map<string, RktTrigger>();
   const unknown = new Set<number>();
-  const applied: string[] = [];
-  for (const ev of Array.from(doc.querySelectorAll('SimulationEvent'))) {
+  const pro = new Set<string>();
+  for (const ev of Array.from(scope.querySelectorAll(':scope > SimulationEventList > SimulationEvent, :scope > SimulationEvents > SimulationEvent'))) {
     const serial = text(ev, ':scope > PartSerialNo');
     if (!serial || serial === '0' || seen.has(serial)) continue;
     const node = serialToNode.get(serial);
     if (!node || (node.type !== 'parachute' && node.type !== 'streamer')) continue;
+    const hasProCondition = Array.from(ev.children).some((field) =>
+      /^Test(?:Type|Condition|Value)/.test(field.tagName)
+      && (field.textContent ?? '').split(',').some((raw) => {
+        const value = parseDecimal(raw);
+        return value !== 0 && !(field.tagName === 'TestType' && value === 28);
+      }));
+    if (num(ev, 'ProEvent', 0) !== 0 || hasProCondition) pro.add(node.name ?? node.type);
     const t = rktTrigger(ev, num);
     if (t === null) continue;
     if (typeof t === 'number') {
@@ -1902,14 +1946,12 @@ const readDeploymentEvents = (
       continue;
     }
     seen.set(serial, t);
-    node['deployEvent'] = t.deployEvent;
-    if (t.deployDelay !== undefined) node['deployDelay'] = t.deployDelay;
-    if (t.deployAltitude !== undefined) node['deployAltitude'] = t.deployAltitude;
-    applied.push(`${node.name ?? node.type} ${t.says}`);
+    if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {
+      notes.push(`${node.name ?? node.type} ${t.says}.`);
+    }
   }
-  if (applied.length) {
-    notes.push(`Recovery deployment read from the file: ${applied.join('; ')}.`);
-  }
+  if (pro.size) notes.push('RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
+    + 'only the simple deployment trigger is read. Check the deployment settings before flying.');
   if (unknown.size) {
     notes.push(
       `${unknown.size === 1 ? 'One deployment trigger uses' : 'Some deployment triggers use'} a RockSim `
@@ -2058,6 +2100,26 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   const nodeSerial = new Map<string, number>();
   /** Mount node id → the SerialNo of every copy written (cluster tubes, pod instances). */
   const mountCopies = new Map<string, number[]>();
+  const recoveryCopies: { node: ComponentNode; serial: number }[] = [];
+  const emitRecovery = (wrapper: 'SimulationEventList' | 'SimulationEvents') => {
+    emit(`<${wrapper}>`);
+    for (const { node, serial } of recoveryCopies) {
+      const event = node['deployEvent'] ?? 'ejection';
+      const delay = nnum(node, 'deployDelay', 0);
+      const altitude = nnum(node, 'deployAltitude', 200);
+      const type = event === 'ejection' ? (delay > 0 ? 2 : 1)
+        : event === 'apogee' ? 4 : event === 'altitude' ? 5 : null;
+      if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
+        || (event === 'altitude' && altitude <= 0)) {
+        throw new Error(`Recovery device “${node.name ?? node.type}”: .rkt cannot faithfully save `
+          + `${event} deployment${event === 'altitude' ? ` at ${altitude} m` : ''} with ${delay} s delay. Save as .ork to keep these settings.`);
+      }
+      emit(`<SimulationEvent><PartSerialNo>${serial}</PartSerialNo><Type>${type}</Type>`
+        + `<DeployAltitude>${event === 'altitude' ? altitude : 0}</DeployAltitude>`
+        + `<DeplyTime>${delay}</DeplyTime></SimulationEvent>`);
+    }
+    emit(`</${wrapper}>`);
+  };
 
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) {
@@ -2170,8 +2232,8 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     const shift = !pt ? 0 : mode === 2 ? pt.length - pt.cg : pt.cg;
     const xbMm = xbEnd * LEN + shift * LEN;
     serial += 1;
-    // First write wins: cluster copies re-emit the same node — motor
-    // references must point at the FIRST copy (the one carrying children).
+    // The first serial remains the fallback for motor references; copy maps
+    // below record every physical mount and recovery device that is emitted.
     if (node.id && !nodeSerial.has(node.id)) nodeSerial.set(node.id, serial);
     // And EVERY copy of a mount, for its engine sets: a cluster's tubes and a
     // pod set's instances each carry a motor, and RockSim wants one set each.
@@ -2180,6 +2242,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       if (copies) copies.push(serial);
       else mountCopies.set(node.id, [serial]);
     }
+    if (node.type === 'parachute' || node.type === 'streamer') recoveryCopies.push({ node, serial });
     // Finite overrides only (audit row 522). These two flags were a typeof
     // test, which the writer block's lint rule did not see (it matched the test
     // of a conditional or an `if`), so a NaN override still wrote
@@ -2302,7 +2365,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     emit(`<RadialLoc>${radialLocM * LEN}</RadialLoc>`);
     emit(`<RadialAngle>${radialAngle}</RadialAngle>`);
     emit('<AttachedParts>');
-    if (!suffix) for (const kid of node.children ?? []) emitPart(kid, node);
+    for (const kid of node.children ?? []) emitPart(kid, node);
     emit('</AttachedParts>');
     emit('</BodyTube>');
   };
@@ -2626,6 +2689,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     }
     emit(`</${slots[i]}>`);
   }
+  emitRecovery('SimulationEventList');
   emit('</RocketDesign>');
   emit('</DesignInformation>');
   // Motors: the desktop exporter omits these; we write EngineSets so RockSim
@@ -2639,7 +2703,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   // simulation, the loaded motors, in that shape. NOT verified in RockSim
   // itself: a RockSim-written simulation has about 140 children (results,
   // launch conditions, events; 141 in Estes/Loadstar.rkt) where this writes
-  // four, and whether RockSim reads the motors of a block without the rest is
+  // five, and whether RockSim reads the motors of a block without the rest is
   // unknown here. It is RockSim's own placement, which
   // the old one was not. No motor, no block, as before.
   const stageMotors = [0, 1, 2].map((i) => (i >= stagesIn.length ? [] : Object.entries(motors ?? {}).filter(([id]) =>
@@ -2806,6 +2870,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       }
       emit(`</Stage${slot}Engines>`);
     }
+    emitRecovery('SimulationEvents');
     emit('</SimulationResults>');
     emit('</SimulationResultsList>');
   }

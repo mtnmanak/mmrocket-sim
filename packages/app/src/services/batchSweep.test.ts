@@ -12,6 +12,7 @@ import { commentLevelsAlign, recommendDelay } from './simReport.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../model/design.js';
+import { configOntoTree } from './importApply.js';
 import {
   batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
   runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
@@ -135,6 +136,54 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
+
+it('Batch builds and flies the switched recovery tree and retains the existing plugged policy', async () => {
+  const config = (deployEvent: string, deployAltitude = 200) => ({
+    motors: {}, deployments: { chute: { deployEvent, deployAltitude, deployDelay: 0 } }, separations: {},
+  });
+  const electronic = configOntoTree(rocket(), config('altitude', 50));
+  const ejection = configOntoTree(electronic, config('ejection'));
+  const back = configOntoTree(ejection, config('altitude', 50));
+  const f13 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'AeroTech' && m.designation === 'F13-RCT')!;
+  for (const [tree, charge] of [[ejection, true], [back, false]] as const) {
+    expect(deploysOnEjectionCharge(tree)).toBe(charge);
+    const inp = input(tree, { candidates: [f13], autoDelay: false });
+    const build = vi.spyOn(OrkRocket, 'buildTree');
+    const result = await sweep(inp, { fetchSpec: fetchMotorSpec, nozzleFor: nozzles({}) });
+    expect(result.rows[0]!.error).toBeUndefined();
+    expect(result.rows[0]!.optimumForPlugged === true).toBe(charge);
+    expect(Number.isFinite(result.rows[0]!.run!.delayS)).toBe(charge);
+    expect(build.mock.calls.length).toBeGreaterThan(0);
+    for (const [builtTree] of build.mock.calls) {
+      expect(JSON.stringify(builtTree)).toContain(`"deployEvent":"${charge ? 'ejection' : 'altitude'}"`);
+    }
+    build.mockRestore();
+  }
+});
+
+it('the shipped engine deploys at the switched altitude or delayed charge', () => {
+  const base = rocket();
+  for (const [deployEvent, deployAltitude, deployDelay] of [['altitude', 50, 0], ['ejection', 200, 2]] as const) {
+    const tree = configOntoTree(base, { separations: {},
+      deployments: { chute: { deployEvent, deployAltitude, deployDelay } } });
+    const handle = OrkRocket.buildTree(engineTree(tree));
+    handle.setMotorById('mount', curve('E20'));
+    const flight = handle.simulate({ launchRodLength: 1, windAverage: 0 });
+    const deployed = flight.events.find((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!;
+    expect(deployed).toBeDefined();
+    if (deployEvent === 'ejection') {
+      const charge = flight.events.find((e) => e.type === 'EJECTION_CHARGE')!;
+      // Adaptive event stepping can cross a scheduled time by one step (< 0.05 s).
+      expect(Math.abs(deployed.time - charge.time - 2)).toBeLessThan(0.05);
+    } else {
+      const apogee = flight.events.find((e) => e.type === 'APOGEE')!;
+      expect(deployed.time).toBeGreaterThan(apogee.time);
+      const at = flight.series.time.findIndex((t) => t >= deployed.time);
+      // Descending integration step plus sample placement: within 2 m of the requested 50 m.
+      expect(Math.abs(flight.series.altitude[at]! - 50)).toBeLessThan(2);
+    }
+  }
+});
 
 describe('provisionalDelay — what a candidate flies before any optimum is known', () => {
   it('is the longest prescribed delay in either mode', () => {

@@ -325,9 +325,10 @@ const COLOR_PRESETS = [
   '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
 ];
 
-export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAll, onAutoAlignFins }: {
+export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, onPatch, onPatchAll, onAutoAlignFins }: {
   tree: RocketTree;
   node: ComponentNode;
+  recoveryContext?: string | null;
   /** Engine-computed stats for THIS component (null while a build is broken). */
   info?: ComponentInfo | null;
   /**
@@ -949,6 +950,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
           )}
         </div>
       </div>
+      {(node.type === 'parachute' || node.type === 'streamer') && recoveryContext && (
+        <p className="comp-stats">{recoveryContext}</p>
+      )}
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
           // Conical and ellipsoid profiles have no shape parameter.
