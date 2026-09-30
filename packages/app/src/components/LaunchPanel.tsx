@@ -14,6 +14,7 @@ import { UnitChip } from './UnitChip.js';
 import { WeatherButton } from './WeatherButton.js';
 import { provenanceText, WeatherStrip } from './WeatherStrip.js';
 import { sourceWord } from './weatherText.js';
+import { coordinateLabel } from '../services/coordinates.js';
 
 export interface LaunchConditions {
   launchRodLengthM: number;
@@ -502,6 +503,13 @@ export function LaunchField({
           onChange({ ...value, [field]: fromUi(ui) });
         }}
       />
+      {(field === 'latitudeDeg' || field === 'longitudeDeg') && (
+        <span className="field-provenance" data-coordinate={field}>
+          {coordinateLabel(value[field] ?? KERNEL_DEFAULT_LONGITUDE_DEG,
+            field === 'latitudeDeg' ? 'latitude' : 'longitude', 6)}
+          {value[field] == null ? ' (blank; flown default)' : ''}
+        </span>
+      )}
       {provenance ? <span className="field-provenance" data-provenance={field}>{provenance}</span> : null}
     </div>
   );

@@ -1,6 +1,7 @@
 import { fmtAltitude, fmtFieldValue, fmtSi, siToUi, type UnitSelection } from '../prefs/units.js';
 import { GUST_RESOLUTION_MS, sigmaFromGust } from '../services/gustSigma.js';
 import type { Endpoint } from '../services/openMeteo.js';
+import { coordinateLabel } from '../services/coordinates.js';
 import type { ApplyKey } from '../services/weatherSnapshot.js';
 
 /**
@@ -90,8 +91,9 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): 
     case 'launchAltitudeM':
       return altitudeText(units.distance, stored);
     case 'latitudeDeg':
+      return coordinateLabel(stored, 'latitude', 5);
     case 'longitudeDeg':
-      return `${Number(stored.toFixed(5))}°`.replace(/^-/, '−');
+      return coordinateLabel(stored, 'longitude', 5);
   }
 }
 

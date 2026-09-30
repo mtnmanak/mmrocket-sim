@@ -10,7 +10,7 @@ import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
 import { fieldText, gustNote } from './weatherText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
-import { clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
+import { clearWeatherCache, ymdInZone, type WeatherPlace } from '../services/openMeteo.js';
 import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,13 +49,14 @@ beforeEach(() => {
   localStorage.clear();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   act(() => root.unmount());
   host.remove();
   localStorage.clear();
 });
 
 function render(opts: { launch?: LaunchConditions; route?: Route; geolocation?: Pick<Geolocation, 'getCurrentPosition'> | null;
-    initialPlace?: WeatherPlace; initialHour?: { validUnix: number; timezone: string } } = {}) {
+    initialPlace?: WeatherPlace; initialHour?: { validUnix: number; timezone: string }; now?: () => number } = {}) {
   const route = opts.route ?? GERLACH;
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
@@ -66,7 +67,7 @@ function render(opts: { launch?: LaunchConditions; route?: Route; geolocation?: 
   act(() => {
     root.render(
       <PrefsProvider>
-        <WeatherDialog launch={opts.launch ?? DEFAULT_CONDITIONS} fetchImpl={fetchImpl} now={() => NOW}
+        <WeatherDialog launch={opts.launch ?? DEFAULT_CONDITIONS} fetchImpl={fetchImpl} now={opts.now ?? (() => NOW)}
           geolocation={opts.geolocation === undefined ? null : opts.geolocation}
           initialPlace={opts.initialPlace} initialHour={opts.initialHour}
           onApply={(patch, snapshot) => { applied.push({ patch, snapshot }); }}
@@ -102,6 +103,197 @@ function choose(el: HTMLSelectElement | null, value: string) {
 const row = (key: string) => q(`tr[data-row="${key}"]`);
 const GERLACH_PLACE: WeatherPlace = { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' };
 
+const LEM_SITE = { ...DEFAULT_CONDITIONS, latitudeDeg: 26.380273, longitudeDeg: 80.126879, launchAltitudeM: 3.048 };
+// Synthetic terrain/zone evidence from the research, not measured Open-Meteo heights.
+const LEM_WEATHER: Route = (u) => {
+  const params = new URL(u).searchParams;
+  const west = Number(params.get('longitude')!.split(',')[0]) < 0;
+  if (u.includes('/v1/elevation')) return { body: { elevation: [west ? 4 : 125] } };
+  const captured = fixture('forecast-gerlach-0-1202m.json') as Record<string, unknown>[];
+  const variants = params.get('elevation')!.split(',').map((elevation, i) => ({
+    ...captured[i], latitude: 26.38, longitude: west ? -80.13 : 80.13,
+    elevation: Number(elevation), timezone: west ? 'America/New_York' : 'Asia/Kolkata',
+  }));
+  return { body: variants.length === 1 ? variants[0] : variants };
+};
+
+async function reviewLem(opts: { launch?: LaunchConditions; route?: Route } = {}) {
+  vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+  render({ launch: LEM_SITE, route: LEM_WEATHER, ...opts });
+  await click(button(/^This design’s site/));
+  typeInto(q('input[type="date"]'), '2026-09-26');
+  await click(button('Fetch'));
+}
+
+describe('the design-site longitude check', () => {
+  it('uses only the chosen site’s existing fetch and shows hemispheres in the review', async () => {
+    await reviewLem();
+    expect(host.textContent).toContain('Check the longitude’s sign.');
+    expect(host.textContent).toContain('Asia/Kolkata');
+    expect(host.textContent).toContain('125 m');
+    expect(row('latitudeDeg')!.textContent).toContain('26.38027° N');
+    expect(row('longitudeDeg')!.textContent).toContain('80.12688° E');
+    expect(button('Fetch for 80.127° W instead')).toBeTruthy();
+    expect(button('Keep 80.127° E')).toBeTruthy();
+    expect(urls).toHaveLength(2);
+    expect(urls.every((u) => new URL(u).searchParams.get('longitude')!.startsWith('80.127'))).toBe(true);
+    expect(applied).toEqual([]);
+    await click(button('Cancel'));
+    expect(applied).toEqual([]);
+  });
+
+  it('fetches the opposite longitude on click and applies its FULL precision only on Apply', async () => {
+    await reviewLem();
+    await click(button('Fetch for 80.127° W instead'));
+    expect(applied).toEqual([]);
+    expect(LEM_SITE.longitudeDeg).toBe(80.126879);
+    expect(urls).toHaveLength(4);
+    expect(urls[2]).toContain('latitude=26.380&longitude=-80.127');
+    expect(q('.weather-chosen')!.textContent).toContain('26.380° N, 80.127° W');
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+    expect(host.textContent).toContain('ground here 4 m');
+    await click(button('Apply'));
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.patch).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: -80.126879 });
+    expect(applied[0]!.snapshot.place).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: -80.126879 });
+    expect(closed).toBe(1);
+  });
+
+  it('preserves the untouched default date when correcting longitude across midnight', async () => {
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    let now = new Date(2026, 8, 26, 23, 59).getTime();
+    render({ launch: LEM_SITE, route: LEM_WEATHER, now: () => now });
+    await click(button(/^This design’s site/));
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(q('.weather-review')).toBeTruthy();
+
+    now = new Date(2026, 8, 27, 0, 1).getTime();
+    await click(button('Fetch for 80.127° W instead'));
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    const requests = urls.filter((u) => u.includes('/v1/forecast')).map((u) => new URL(u).searchParams);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.get('longitude')).toBe('-80.127');
+    // The service asks for D-1 through D+1, then reviews only the chosen day.
+    expect(requests[1]!.get('start_date')).toBe('2026-09-25');
+    expect(requests[1]!.get('end_date')).toBe('2026-09-27');
+    expect(q('.weather-review h3')!.textContent).toMatch(/26 Sep/);
+    expect(button('Apply')!.disabled).toBe(false);
+    await click(button('Apply'));
+    expect(applied).toHaveLength(1);
+    const { patch, snapshot } = applied[0]!;
+    expect(patch.longitudeDeg).toBe(-80.126879);
+    expect(snapshot.timezone).toBe('America/New_York');
+    expect(ymdInZone(snapshot.validUnix * 1000, snapshot.timezone)).toBe('2026-09-26');
+  });
+
+  it('does not offer old east-site weather if the chosen west fetch fails', async () => {
+    await reviewLem({ route: (u) => new URL(u).searchParams.get('longitude')!.startsWith('-')
+      ? { status: 503, body: {} } : LEM_WEATHER(u) });
+    await click(button('Fetch for 80.127° W instead'));
+    expect(q('[role="alert"]')!.textContent).toContain('503');
+    expect(q('.weather-review')).toBeNull();
+    expect(button('Apply')!.disabled).toBe(true);
+    expect(applied).toEqual([]);
+  });
+
+  it('leaves Longitude out of Apply when its corrected row is unticked', async () => {
+    await reviewLem();
+    await click(button('Fetch for 80.127° W instead'));
+    await click(q('input[aria-label="Apply Longitude"]'));
+    await click(button('Apply'));
+    expect(applied[0]!.patch).not.toHaveProperty('longitudeDeg');
+    expect(applied[0]!.snapshot.place.longitudeDeg).toBe(-80.126879);
+  });
+
+  it('disables both sign choices during another request', async () => {
+    await reviewLem({ route: (u) => u.includes('geocoding-api')
+      ? new Promise(() => {}) : LEM_WEATHER(u) });
+    typeInto(q('input[aria-label="Place"]'), 'Another town');
+    await click(button('Search'));
+    expect(button('Fetch for 80.127° W instead')!.disabled).toBe(true);
+    expect(button('Keep 80.127° E')!.disabled).toBe(true);
+    await click(q('form button'));
+    expect(button('Fetch for 80.127° W instead')!.disabled).toBe(false);
+    expect(button('Keep 80.127° E')!.disabled).toBe(false);
+  });
+
+  it('lets the user cancel a mirrored fetch and ignores its late answer', async () => {
+    let finish: (() => void) | undefined;
+    await reviewLem({ route: async (u) => {
+      if (new URL(u).searchParams.get('longitude')!.startsWith('-')) {
+        await new Promise<void>((resolve) => { finish = resolve; });
+      }
+      return LEM_WEATHER(u);
+    } });
+    await click(button('Fetch for 80.127° W instead'));
+    expect(host.textContent).toContain('Asking Open-Meteo');
+    expect(button('Apply')!.disabled).toBe(true);
+    await click(q('.weather-when button'));
+    finish!();
+    await settle();
+    expect(q('.weather-review')).toBeNull();
+    expect(applied).toEqual([]);
+  });
+
+  it.each(['coordinates', 'device'] as const)('never checks a %s selection, even at the design coordinates', async (method) => {
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    const launch = { ...LEM_SITE, latitudeDeg: 26.38, longitudeDeg: 80.13 };
+    render({ launch, route: LEM_WEATHER, geolocation: {
+      getCurrentPosition: (ok) => ok({ coords: { latitude: 26.38, longitude: 80.13, accuracy: 30 } } as GeolocationPosition),
+    } });
+    await click(button(/^This design’s site/));
+    if (method === 'coordinates') {
+      typeInto(q('input[aria-label="Place"]'), '26.38, 80.13');
+      await click(button('Search'));
+    } else await click(button(WEATHER_DIALOG_COPY.locate));
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(q('.weather-review')).toBeTruthy();
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+  });
+
+  it('does not flag Kanpur with a matching browser offset, even with an altitude mismatch', async () => {
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330);
+    render({ launch: LEM_SITE, route: LEM_WEATHER });
+    await click(button(/^This design’s site/));
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(q('.weather-review')).toBeTruthy();
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+  });
+
+  it('drops the suggestion if the design coordinates changed while the dialog was open', async () => {
+    await reviewLem();
+    render({ launch: { ...LEM_SITE, longitudeDeg: 81 }, route: LEM_WEATHER });
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+    render({ launch: { ...LEM_SITE, latitudeDeg: 27 }, route: LEM_WEATHER });
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+  });
+
+  it('Keep preserves the value and suppresses repeat prompts for that site, including reopening', async () => {
+    const launch = { ...LEM_SITE, longitudeDeg: 80.126881 };
+    await reviewLem({ launch });
+    const before = [...urls];
+    await click(button('Keep 80.127° E'));
+    expect(urls).toEqual(before);
+    expect(applied).toEqual([]);
+    await click(button(/^This design’s site/));
+    await click(button('Fetch'));
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+    await click(button('Apply'));
+    expect(applied[0]!.patch.longitudeDeg).toBe(launch.longitudeDeg);
+    act(() => root.unmount());
+    root = createRoot(host);
+    await reviewLem({ launch });
+    expect(host.textContent).not.toContain('Check the longitude’s sign.');
+    render({ launch: LEM_SITE, route: LEM_WEATHER });
+    await click(button(/^This design’s site/));
+    await click(button('Fetch'));
+    expect(host.textContent).toContain('Check the longitude’s sign.');
+  });
+});
+
 /** Search Gerlach, pick the town, fetch Saturday, and show 2 PM. */
 async function reviewGerlach(launch?: LaunchConditions) {
   render({ launch });
@@ -136,7 +328,7 @@ describe('the weather dialog', () => {
     expect(q<HTMLInputElement>('.weather-altitude input[type="radio"]:checked')!.parentElement!.textContent)
       .toMatch(/Use the ground height, 1,202 m \(terrain model\)/);
     expect(row('windAverage')!.textContent).toContain('(forecast at 10 m / 33 ft)');
-    expect(row('longitudeDeg')!.textContent).toContain('blank (−80.6 flown)');
+    expect(row('longitudeDeg')!.textContent).toContain('blank (80.6° W flown)');
     expect(row('latitudeDeg')!.textContent).toContain('(Gerlach, Nevada, US — town centre)');
     const context = q('.weather-context')!.textContent!;
     // The app's wind DOES have a direction — always from the east, the frame
@@ -181,7 +373,7 @@ describe('the weather dialog', () => {
     await click(button('Fetch'));
     choose(q('.weather-when select'), String(Date.UTC(2025, 5, 14, 21) / 1000));
     await settle();
-    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun 2025');
+    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870° N, 119.060° W · 2:00 PM PDT, Sat 14 Jun 2025');
     expect([...host.querySelectorAll('.weather-review thead th')].at(-1)!.textContent).toBe('Reanalysis');
     expect(row('windAverage')!.textContent).toContain('(reanalysis at 10 m / 33 ft)');
     expect(q('.weather-context')!.textContent).toMatch(/Reanalysis grid point [\d.]+ km from your site\./);
@@ -371,7 +563,7 @@ describe('the weather dialog', () => {
     } as GeolocationPosition)) };
     render({ geolocation: geo });
     await click(button(WEATHER_DIALOG_COPY.locate));
-    expect(q('.weather-chosen')!.textContent).toContain('40.870, −119.060');
+    expect(q('.weather-chosen')!.textContent).toContain('40.870° N, 119.060° W');
     expect(host.textContent).toContain('Located to within 1.0 km.');
     expect(urls).toEqual([]);
   });
@@ -425,7 +617,7 @@ describe('the weather dialog', () => {
     await click(button('Fetch'));
     expect(urls.at(-1)).toMatch(/^https:\/\/archive-api\.open-meteo\.com\/v1\/archive\?/);
     expect(q<HTMLSelectElement>('.weather-when select')!.value).toBe(String(JUNE_2PM));
-    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870, −119.060 · 2:00 PM PDT, Sat 14 Jun 2025');
+    expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870° N, 119.060° W · 2:00 PM PDT, Sat 14 Jun 2025');
   });
 
   // ☁ Get weather opens on today — the SITE's today, once the last place's
@@ -437,7 +629,7 @@ describe('the weather dialog', () => {
 
   it('offers this design’s own site when it has one, and starts from the last place on Fetch again', async () => {
     render({ launch: { ...DEFAULT_CONDITIONS, latitudeDeg: 40.87, longitudeDeg: -119.06 } });
-    expect(button(/^This design’s site \(40\.870, −119\.060\)$/)).toBeTruthy();
+    expect(button(/^This design’s site \(40\.870° N, 119\.060° W\)$/)).toBeTruthy();
     act(() => root.unmount());
     root = createRoot(host);
     render({ initialPlace: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' } });

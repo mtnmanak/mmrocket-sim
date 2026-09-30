@@ -598,6 +598,18 @@ describe('the longitude field', () => {
   const lonInput = () => [...host.querySelectorAll('input')]
     .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'));
 
+  it('shows hemisphere readouts while leaving signed inputs and stored precision alone', () => {
+    renderConditions({ latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
+    expect(host.querySelector('[data-coordinate="latitudeDeg"]')?.textContent).toBe('26.380273° N');
+    expect(host.querySelector('[data-coordinate="longitudeDeg"]')?.textContent).toBe('80.126879° E');
+    expect(lastLaunch).toBeNull();
+    renderConditions({ latitudeDeg: -26.380273, longitudeDeg: -80.126879 });
+    expect(host.querySelector('[data-coordinate="latitudeDeg"]')!.textContent).toBe('26.380273° S');
+    expect(host.querySelector('[data-coordinate="longitudeDeg"]')!.textContent).toBe('80.126879° W');
+    renderConditions({ longitudeDeg: null });
+    expect(host.querySelector('[data-coordinate="longitudeDeg"]')!.textContent).toBe('80.600000° W (blank; flown default)');
+  });
+
   it('hands the kernel a longitude only when it would move something', () => {
     for (const longitudeDeg of [undefined, null, NaN, -80.6]) {
       expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, longitudeDeg }), String(longitudeDeg))
@@ -706,6 +718,16 @@ describe('applied weather in the Launch panel', () => {
   const strip = () => host.querySelector('[data-weather="strip"]');
   const provenance = (field: string) => host.querySelector(`[data-provenance="${field}"]`)?.textContent ?? null;
   const btn = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+
+  it('shows hemispheres for an older saved coordinate label without rewriting the record', () => {
+    const weather: WeatherSnapshot = {
+      ...SNAP, place: { label: '26.380, 80.127', latitudeDeg: 26.380273, longitudeDeg: 80.126879, method: 'coordinates' },
+    };
+    renderWeather(APPLIED, weather);
+    expect(strip()!.textContent).toContain('26.380° N, 80.127° E');
+    expect(weather.place.label).toBe('26.380, 80.127');
+    expect(lastLaunch).toBeNull();
+  });
 
   it('offers ☁ Get weather… in the heading, greyed out offline with the reason', () => {
     renderWeather(DEFAULT_CONDITIONS, null);

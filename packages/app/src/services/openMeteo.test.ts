@@ -389,7 +389,7 @@ describe('place search', () => {
 describe('a device position', () => {
   it('is rounded to about 1 km before it is sent or kept', () => {
     const p = placeFromDevice(40.869712, -119.061288, 30);
-    expect(p).toMatchObject({ latitudeDeg: 40.87, longitudeDeg: -119.06, method: 'device', label: '40.870, −119.060' });
+    expect(p).toMatchObject({ latitudeDeg: 40.87, longitudeDeg: -119.06, method: 'device', label: '40.870° N, 119.060° W' });
     // The accuracy stated is widened by the rounding it now carries.
     expect(p.accuracyM!).toBeGreaterThan(30 + 700);
   });

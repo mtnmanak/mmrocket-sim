@@ -1,4 +1,5 @@
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { weatherPlaceLabel } from '../services/coordinates.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { useOnline } from '../services/net.js';
 import { formatDay, formatValidTime } from '../services/openMeteo.js';
@@ -42,7 +43,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   return (
     <div className="weather-strip" role="status" data-weather="strip">
       {sourceHeading(weather.endpoint)}{' '}
-      <strong>{weather.place.label}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
+      <strong>{weatherPlaceLabel(weather.place)}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
       {' '}
       {/* Undo takes back a σ the gust chip worked out from this weather too
           (weatherSnapshot.sigmaEstimate); Dismiss keeps every value, σ

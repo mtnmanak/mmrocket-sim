@@ -1,5 +1,6 @@
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { weatherPlaceLabel } from '../services/coordinates.js';
 import { fmtSi } from '../prefs/units.js';
 import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
 import {
@@ -198,7 +199,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               {onGetWeather && <WeatherButton onClick={onGetWeather} />}
               {weather && (
                 <span>
-                  Weather for {weather.place.label} —{' '}
+                  Weather for {weatherPlaceLabel(weather.place)} —{' '}
                   <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
                   {' · '}
                   <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
