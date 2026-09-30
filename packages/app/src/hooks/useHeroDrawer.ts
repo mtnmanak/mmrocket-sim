@@ -190,6 +190,14 @@ export function useHeroDrawer(): HeroDrawer {
   useEffect(() => {
     if (!stageEl || !wide) return;
     const check = () => {
+      // The stage must reflect THIS drawer state before judging its height
+      // (open-items: 18–19 Sep, quarter-screen canvas; backlog Tier 0 row 31).
+      // Opening first mounts/measures the drawer, then commits its clearance;
+      // closing first removes it, then clears that space. Reading between
+      // those commits alternates a short open stage with a tall closed one,
+      // endlessly folding/unfolding StatsChip after a narrow -> wide resize.
+      if (open && !drawerEl) return;
+      if (clearance !== (open && drawerEl ? drawerEl.offsetHeight + 20 : 0)) return;
       const next = drawerAutoState({
         stageH: stageEl.clientHeight,
         open,
@@ -201,7 +209,7 @@ export function useHeroDrawer(): HeroDrawer {
     const ro = new ResizeObserver(check);
     ro.observe(stageEl);
     return () => ro.disconnect();
-  }, [stageEl, open, wide]);
+  }, [stageEl, open, wide, drawerEl, clearance]);
 
   return {
     open,
