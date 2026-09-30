@@ -185,3 +185,14 @@ describe('tooltipPlugin', () => {
     expect(over.querySelector('.chart-tooltip')!.getAttribute('aria-hidden')).toBe('true');
   });
 });
+
+it('adds per-series phase sample times without changing the six-digit formatter', () => {
+  const over = document.createElement('div');
+  const plugin = tooltipPlugin((si, idx, label) => `${label}; portion ${si}, t = ${idx * 3} s`);
+  const u = fakePlot(over, 1);
+  hook(plugin, 'init')(u);
+  over.dispatchEvent(new Event('pointerenter'));
+  hook(plugin, 'setCursor')(u);
+  expect(over.querySelector('.chart-tooltip-label')!.textContent).toBe('Altitude (ft); portion 1, t = 3 s');
+  expect(over.querySelector('.chart-tooltip-value')!.textContent).toBe('12.5');
+});

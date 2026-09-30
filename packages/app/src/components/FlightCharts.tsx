@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
-import { usePrefs, type Preferences } from '../prefs/PrefsContext.js';
-import { siToUi, type Quantity } from '../prefs/units.js';
+import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { seriesCatalog, PRESETS, usableSeries, type SeriesDef } from '../flightChartModel.js';
+import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import {
   panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent,
@@ -17,8 +18,8 @@ import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { XLSX_MIME } from '../services/xlsx.js';
 
 /**
- * Stacked single-series panels with synchronized crosshairs. Different-scale
- * measures are NEVER dual-axed — every series gets its own panel and y-scale.
+ * Separate panels remain the default; optional comparisons use explicit
+ * unit-compatible scales. Time plots share crosshairs and a window.
  * Colors are assigned per series identity from the validated categorical
  * palette (fixed, never re-assigned by selection); each panel is
  * single-series, so identity is carried by its visible title + live readout.
@@ -29,35 +30,6 @@ const SYNC_KEY = 'flight';
 // Validated palette slots 1-8, then repeats (single-series panels: identity
 // is text-carried, so repeats are safe). High contrast swaps in a darker /
 // brighter set — see chartTheme.ts.
-
-interface SeriesDef {
-  key: keyof FlightSeries;
-  title: string;
-  unit: string;
-  color: string;
-  /** set for unit-preference-driven series: the title unit becomes a click-to-change chip */
-  quantity?: Quantity;
-  /** display transform (SI -> UI unit) */
-  f?: (v: number) => number;
-}
-
-/** Series defs in the user's units — the engine data underneath stays SI. */
-function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
-  const u = prefs.units;
-  return [
-    { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
-    { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
-    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, quantity: 'acceleration', color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
-    { key: 'mass', title: 'Mass', unit: u.mass, quantity: 'mass', color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
-    { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
-    { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
-    { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
-    { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
-    { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
-  ];
-}
 
 const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'acceleration'];
 
@@ -145,7 +117,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
     const opts: uPlot.Options = {
       width: el.clientWidth || 640,
       height: chartH(),
-      cursor: { sync: { key: SYNC_KEY }, points: { size: 7 } },
+      cursor: { sync: { key: SYNC_KEY, scales: ['x', null] }, points: { size: 7 }, bind: { click: () => null } },
       scales: { x: { time: false } },
       legend: { live: true },
       series: [
@@ -215,7 +187,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
           {expanded ? '⤡' : '⤢'}
         </button>
       </div>
-      <div ref={ref} />
+      <div ref={ref} className="chart-legend-locked" />
     </div>
   );
 }
@@ -246,6 +218,18 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
     () => seriesCatalog(prefs, seriesPalette(daylight, resolvedTheme)),
     [prefs, daylight, resolvedTheme],
   );
+  const [comparison, setComparison] = useState('');
+  const [branchChoice, setBranchChoice] = useState({ result, index: 0, generation: 0 });
+  if (branchChoice.result !== result) {
+    setBranchChoice({ result, index: 0, generation: branchChoice.generation + 1 });
+  }
+  const boosters = boosterBranches(result);
+  const branchIndex = branchChoice.result === result ? branchChoice.index : 0;
+  const branch = boosters[branchIndex - 1];
+  const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
+  const shown = useMemo(() => branch ? { ...result, series: branch.series } : result, [result, branch]);
+  const panelKey = `${branchChoice.generation}-${branchIndex}`;
+  const preset = PRESETS.find((p) => p.id === comparison);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
   // Which panels are ⤢-expanded. Lives here (not in Panel) so toggling a
   // series chip off and on doesn't forget the choice. Deliberately NOT
@@ -282,7 +266,7 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
     });
   };
 
-  const visible = catalog.filter((d) => selected.has(d.key) && (result.series[d.key] ?? []).length > 0);
+  const visible = catalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
 
   // The raw flight-data downloads live HERE, beside the plots they belong to.
   // They used to sit in the launch report's header, where the pair read as
@@ -369,7 +353,7 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
       )}
       <div className="series-picker" role="group" aria-label="Plot series">
         {catalog.map((d) => {
-          const available = (result.series[d.key] ?? []).length > 0;
+          const available = usableSeries(shown.series, [String(d.key)]);
           if (!available) return null;
           const on = selected.has(d.key);
           return (
@@ -383,7 +367,26 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
           );
         })}
       </div>
-      {visible.length > 0 && (
+      <div className="comparison-controls">
+        <label>Comparison chart
+          <select value={comparison} onChange={(e) => setComparison(e.target.value)}>
+            <option value="">None</option>
+            {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select>
+        </label>
+        <span className="chart-comparison-note">Add a comparison above the separate charts.</span>
+        {boosters.length > 0 && <label>Flight branch
+          <select value={branchIndex} onChange={(e) => {
+            setBranchChoice({ ...branchChoice, index: Number(e.target.value) });
+            setZoomed(false); setZoomPct(100);
+          }}>
+            <option value={0}>Sustainer stack</option>
+            {boosters.map((b, i) => <option key={i + 1} value={i + 1}>Booster {i + 1}: {b.name}</option>)}
+          </select>
+        </label>}
+      </div>
+      {onFullSeries && <p className="chart-comparison-note">Downloads include every recorded series and all flight branches. The comparison choice and zoom do not change the files.</p>}
+      {(visible.length > 0 || preset?.x === 'time') && (
         <div className="chart-toolbar">
           <GestureHints />
           <button className="chart-btn" disabled={!zoomed}
@@ -391,7 +394,7 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
               resetPlots(plotsRef.current); setZoomed(false); setZoomPct(100);
             }}
             title="Show the whole flight again (same as double-clicking a chart)">
-            ↺ Reset view
+            Reset time charts
           </button>
           {/*
             How far in the wheel has gone. 100% is the whole flight. Deliberately
@@ -404,9 +407,13 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
           </span>
         </div>
       )}
+      {preset && <ComparisonChart key={`${panelKey}-${preset.id}`} series={shown.series} preset={preset}
+        branchName={branchName} catalog={catalog} plots={plotsRef.current}
+        onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
+        csvNote={onFullSeries && !staleReason ? 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (
-          <Panel key={String(d.key)} result={result} def={d} plots={plotsRef.current}
+          <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} plots={plotsRef.current}
             csvNote={onFullSeries && !staleReason
               ? 'The Flight data (.csv) download above holds every timestep.' : undefined}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}

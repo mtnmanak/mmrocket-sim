@@ -4411,3 +4411,27 @@ select.unit-chip:hover {
 .wind-profile-table { max-width: 100%; overflow-x: auto; }
 .wind-profile-table table { width: 100%; border-collapse: collapse; }
 .wind-profile-table th, .wind-profile-table td { padding: 0.35rem; text-align: left; }
+
+/* Comparison charts inherit chart tokens in light, dark and Daylight. */
+.comparison-panel { min-width: 0; margin-top: 12px; }
+.comparison-controls, .comparison-axis-keys, .comparison-axis-key {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0;
+}
+.comparison-controls { margin-top: 12px; }
+.comparison-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.comparison-controls select { min-width: 0; max-width: 100%; min-height: 36px; }
+.comparison-axis-keys { margin: 8px 0; font-size: 12px; }
+.comparison-axis-key > span { display: inline-flex; align-items: center; gap: 4px; }
+.chart-comparison-note { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 6px 0; }
+.comparison-panel .u-legend { white-space: normal; }
+.comparison-panel .u-legend .u-series { margin-right: 10px; }
+.comparison-panel .chart-btn { min-height: 36px; }
+.comparison-panel summary { cursor: pointer; padding: 10px 0; }
+.comparison-panel summary:hover { color: var(--text-primary); }
+.comparison-panel :is(button, summary, select):focus-visible,
+.comparison-controls select:focus-visible,
+.comparison-table-scroll:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.comparison-table-scroll { max-width: 100%; overflow: auto; max-height: 360px; margin-top: 8px; }
+.comparison-table-scroll table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.comparison-table-scroll caption { text-align: left; white-space: normal; padding: 6px; }
