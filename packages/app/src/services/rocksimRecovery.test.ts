@@ -229,6 +229,25 @@ describe('RockSim recovery and cluster export', () => {
     expect(r.notes.join(' ')).toContain('carry different motors');
   });
 
+  it('gives sets that name no mount the next unnamed mount, so twin parents with child mounts still merge', () => {
+    // Counted all on the first mount, the two parents' child loads differ, the
+    // pair splits and the second motor is lost; filled in order, they merge.
+    const tree = clusterTree();
+    const outer = all(tree.components).find((n) => n.id === 'mount')!;
+    outer['cluster'] = 'double'; outer['motorMount'] = false;
+    outer.children = [{ type: 'innertube', id: 'nested', name: 'Nested', motorMount: true,
+      length: 0.08, outerRadius: 0.008, thickness: 0.001, children: outer.children } as ComponentNode];
+    const doc = docOf(exportRkt({ name: 'Nested', tree, motors: { nested: motor } }));
+    const sets = [...doc.querySelectorAll('SimulationResults EngineSet > MountSerialNo')];
+    expect(sets).toHaveLength(2);
+    for (const s of sets) s.textContent = '-1';
+    const r = importRkt(xmlOf(doc));
+    const inner = all(r.tree.components).filter((n) => n.type === 'innertube');
+    expect(inner).toHaveLength(2);
+    expect(inner[0]!['cluster']).toBe('double');
+    expect(Object.keys(r.motors)).toEqual([inner[1]!.id]);
+  });
+
   it('remaps nested child motor and recovery references when equivalent parents merge', () => {
     const tree = clusterTree();
     const outer = all(tree.components).find((n) => n.id === 'mount')!;

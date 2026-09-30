@@ -1090,32 +1090,54 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     return { deployEvent: trigger?.deployEvent ?? 'ejection',
       deployAltitude: trigger?.deployAltitude ?? 200, deployDelay: trigger?.deployDelay ?? 0 };
   };
-  /**
-   * The mount an engine set flies on when its MountSerialNo names no motor
-   * mount: the first mount of its stage (Stage3Engines → stage 0,
-   * Stage2Engines → 1, Stage1Engines → 2). Real RockSim files carry stale
-   * serials, and older ones write −1. ONE rule for readEngineSet and simSets.
-   */
-  const stageFallbackMount = (engineSet: Element): ComponentNode | undefined => {
+  /** An engine set's stage in `components`: Stage3Engines → 0 (the sustainer), Stage2Engines → 1, Stage1Engines → 2. */
+  const stageOfSet = (engineSet: Element): number => {
     const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
-    const stageIdx = slotMatch ? 3 - Number(slotMatch[1]) : 0;
-    return mountsIn(components[stageIdx]?.children ?? [])[0];
+    return slotMatch ? 3 - Number(slotMatch[1]) : 0;
   };
+  /** The motor mount an engine set's MountSerialNo names, when it names one. */
+  const namedMount = (engineSet: Element): ComponentNode | undefined => {
+    const serial = text(engineSet, ':scope > MountSerialNo');
+    const node = serial ? serialToNode.get(serial) : undefined;
+    return node?.['motorMount'] === true ? node : undefined;
+  };
+  /** The first mount of an engine set's stage: where readEngineSet sends a set nothing else places. */
+  const stageFallbackMount = (engineSet: Element): ComponentNode | undefined =>
+    mountsIn(components[stageOfSet(engineSet)]?.children ?? [])[0];
+  /**
+   * Engine sets that fly on another mount than their MountSerialNo names, for
+   * readEngineSet: a set whose serial names no motor mount (simSets, below),
+   * and the stale-serial repair in `groupLoadouts`.
+   */
+  const movedSets = new Map<Element, ComponentNode>();
   /**
    * Per stored simulation, its engine sets and the tube each flies on, before
-   * any regrouping. A set that names no motor mount is counted on the mount
-   * readEngineSet will give it, so the stale-serial repair in groupLoadouts
-   * sees it. EclipseB_38mmMAC-8.rkt writes −1 on both H73Js of its twin tubes
-   * in all 13 simulations; the tubes stay apart (different overhangs), and
-   * uncounted, both sets landed on the first tube and the rocket flew on one
-   * motor — apogee 129 m against RockSim's stored 403 m (corpus, v0.144).
+   * any regrouping. RockSim flies EVERY engine set as a motor, and real files
+   * name mounts that do not exist — older ones write −1, others keep a deleted
+   * tube's serial. Such a set takes the first mount of its stage that no set of
+   * the same simulation names, in document order (the first mount when all are
+   * named). EclipseB_38mmMAC-8.rkt: two H73Js on −1 in each of 13 simulations,
+   * two tubes that stay apart (different overhangs) — RockSim flew both
+   * (403 m); counted nowhere, both landed on the first tube and the rocket flew
+   * on one (129 m). LOC Saturn V 5x54.rkt: ONE J motor per simulation on serial
+   * 255, five tubes — RockSim flew one (557 m); merged into a cluster, v0.143
+   * flew five (1,562 m). Found by the v0.144 corpus.
    */
-  const simSets = simEls.map((sim) => Array.from(sim.querySelectorAll('EngineSet')).flatMap((el) => {
-    const serial = text(el, ':scope > MountSerialNo');
-    const named = serial ? serialToNode.get(serial) : undefined;
-    const node = named?.['motorMount'] === true ? named : stageFallbackMount(el);
-    return node ? [{ el, node }] : [];
-  }));
+  const simSets = simEls.map((sim) => {
+    const sets = Array.from(sim.querySelectorAll('EngineSet'));
+    const taken = new Set(sets.map(namedMount).filter((n): n is ComponentNode => n !== undefined));
+    return sets.flatMap((el) => {
+      const named = namedMount(el);
+      if (named) return [{ el, node: named }];
+      if (!text(el, ':scope > EngineCode')) return [];
+      const mounts = mountsIn(components[stageOfSet(el)]?.children ?? []);
+      const node = mounts.find((m) => !taken.has(m)) ?? mounts[0];
+      if (!node) return [];
+      taken.add(node);
+      movedSets.set(el, node);
+      return [{ el, node }];
+    });
+  });
   /** One engine set as a comparable string: code, maker and both delays, as numbers. */
   const setKey = (el: Element): string => {
     const norm = (tag: string): string => {
@@ -1126,11 +1148,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     return [text(el, ':scope > EngineCode') ?? '', text(el, ':scope > EngineMfg') ?? '',
       norm('EjectionDelay'), norm('IgnitionDelay')].join('|');
   };
-  /**
-   * Engine sets moved off the tube their MountSerialNo names, onto an
-   * identical sibling — the repair in `groupLoadouts` — for readEngineSet.
-   */
-  const movedSets = new Map<Element, ComponentNode>();
   /**
    * How every simulation loads a group of identical tubes, and whether any two
    * of them differ. Tubes are merged into one cluster only when EVERY
