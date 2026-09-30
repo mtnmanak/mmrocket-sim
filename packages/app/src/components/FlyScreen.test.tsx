@@ -247,9 +247,10 @@ describe('FlyScreen', () => {
     it('credits Open-Meteo once weather is applied (GeoNames too for a searched place), and offers no σ or gust estimate', () => {
       mount({
         onGetWeather: () => {},
-        weather: { place: { label: '40.870, −119.060', method: 'coordinates' } } as never,
+        weather: { place: { label: '40.870, −119.060', latitudeDeg: 40.87, longitudeDeg: -119.06, method: 'coordinates' } } as never,
       });
       const links = () => Array.from(host.querySelectorAll('.fly-weather a')).map((a) => a.getAttribute('href'));
+      expect(host.querySelector('.fly-weather')!.textContent).toContain('40.870° N, 119.060° W');
       expect(links()).toEqual(['https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/']);
       // A place a search found is GeoNames data on screen: their credit joins.
       mount({

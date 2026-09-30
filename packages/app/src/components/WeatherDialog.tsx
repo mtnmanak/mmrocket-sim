@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { coordinateLabel, weatherPlaceLabel } from '../services/coordinates.js';
+import { likelyFlippedLongitude } from '../services/longitudeCheck.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, flownLongitudeDeg, type LaunchConditions } from './LaunchPanel.js';
 import { createSequencer } from '../services/latestWins.js';
@@ -36,6 +38,8 @@ import {
 
 /** Per-viewer conveniences: the country last picked, the last search, the hour last applied. */
 const PREFS_KEY = 'online-openrocket.weather.v1';
+// Keep lasts for this page session, without storing coordinates (register, Tier 0 row 44).
+const keptLongitudeSites = new Set<string>();
 interface DialogMemory { country?: string; lastQuery?: string; lastHour?: number }
 
 function readMemory(): DialogMemory {
@@ -190,6 +194,8 @@ export function WeatherDialog({
   const [note, setNote] = useState<string | null>(null);
   const [locateNote, setLocateNote] = useState<string | null>(null);
   const [place, setPlace] = useState<WeatherPlace | null>(initialPlace ? { ...initialPlace } : null);
+  const [designSite, setDesignSite] = useState(false);
+  const [keptSites, setKeptSites] = useState(() => new Set(keptLongitudeSites));
   const [date, setDate] = useState(() => (initialHour
     ? ymdInZone(initialHour.validUnix * 1000, initialHour.timezone)
     : ymdInZone(now(), initialPlace?.timezone)));
@@ -224,14 +230,16 @@ export function WeatherDialog({
     setBusy(null);
   };
 
-  const choosePlace = (p: WeatherPlace) => {
+  const choosePlace = (p: WeatherPlace, fromDesign = false,
+      nextDate = dateTouched ? date : ymdInZone(now(), p.timezone)) => {
+    setDesignSite(fromDesign);
     setPlace(p);
     setPlaces(null);
     setAnswer(null);
     setNote(null);
     setDateNote(null);
-    // "Today" is the SITE's today; follow it until the user picks a date.
-    if (!dateTouched) setDate(ymdInZone(now(), p.timezone));
+    // "Today" follows the site unless a chosen or reviewed date is preserved.
+    setDate(nextDate);
   };
 
   const runSearch = async () => {
@@ -285,14 +293,14 @@ export function WeatherDialog({
     [answer],
   );
 
-  const runFetch = async () => {
-    if (!place) return;
+  const runFetch = async (target = place) => {
+    if (!target) return;
     const { id, signal } = begin('fetch');
     setDateNote(null);
     setAnswer(null);
     try {
       const a = await fetchWeather({
-        place, siteM: padAir(launch).altitudeM, date, today: ymdInZone(now(), place.timezone),
+        place: target, siteM: padAir(launch).altitudeM, date, today: ymdInZone(now(), target.timezone),
       }, { signal, fetchImpl });
       if (!seq.current.isCurrent(id)) return;
       const hs = hoursOnLocalDate(a.variants[0]?.samples ?? [], a.timezone, a.date);
@@ -337,6 +345,12 @@ export function WeatherDialog({
   const alt = (m: number) => altitudeText(units.distance, m);
   const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units);
   const offerSite = launch.latitudeDeg !== DEFAULT_CONDITIONS.latitudeDeg && flownLongitudeDeg(launch) !== null;
+  const siteKey = place ? `${place.latitudeDeg},${place.longitudeDeg}` : '';
+  const checkLongitude = answer && place && !keptSites.has(siteKey) && likelyFlippedLongitude({
+    designSite: designSite && place.latitudeDeg === launch.latitudeDeg && place.longitudeDeg === launch.longitudeDeg,
+    longitudeDeg: place.longitudeDeg, siteM: launch.launchAltitudeM, demM: answer.demM,
+    utcOffsetHours: -new Date(now()).getTimezoneOffset() / 60,
+  });
   const source = sourceWord(answer?.endpoint ?? 'forecast');
   const applicableKeys = new Set(proposal ? applicable(proposal).map((r) => r.key) : []);
 
@@ -380,7 +394,7 @@ export function WeatherDialog({
             <button type="button" className="file-btn" disabled={busy !== null} onClick={() => choosePlace({
               label: coordinatesLabel(launch.latitudeDeg, launch.longitudeDeg!),
               latitudeDeg: launch.latitudeDeg, longitudeDeg: launch.longitudeDeg!, method: 'coordinates',
-            })}>
+            }, true)}>
               This design’s site ({coordinatesLabel(launch.latitudeDeg, launch.longitudeDeg!)})
             </button>
           )}
@@ -406,7 +420,7 @@ export function WeatherDialog({
         {place && (
           <div className="weather-when">
             <p className="weather-chosen">
-              <strong>{place.label}</strong>
+              <strong>{weatherPlaceLabel(place)}</strong>
               {/* Typed and located places are labelled BY their coordinates already. */}
               {place.method === 'search' && <> ({coordinatesLabel(place.latitudeDeg, place.longitudeDeg)})</>}
               {place.townCentre && <span className="weather-small"> {WEATHER_DIALOG_COPY.townCentre}</span>}
@@ -456,7 +470,7 @@ export function WeatherDialog({
             {/* Every label that names the source reads `source`: an ERA5 answer is
                 the weather as it was, and saying "forecast" over it is wrong. */}
             <h3>
-              {sourceHeading(answer.endpoint)} {place.label}
+              {sourceHeading(answer.endpoint)} {weatherPlaceLabel(place)}
               {' · '}{formatValidTime(proposal.sample.unix, answer.timezone, showsYear(answer.endpoint))}
             </h3>
             {answer.endpoint === 'archive' && <p className="weather-small">{WEATHER_DIALOG_COPY.archive}</p>}
@@ -486,7 +500,7 @@ export function WeatherDialog({
                       <th scope="row">{FIELD_LABEL[r.key]}</th>
                       <td>
                         {r.now === null
-                          ? <>blank (−80.6 flown)</>
+                          ? <>blank (80.6° W flown)</>
                           : fmt(r.key, r.now)}
                         {r.nowFromSite && <span className="weather-small"> (standard for {alt(proposal.altitude.siteM)})</span>}
                       </td>
@@ -505,6 +519,31 @@ export function WeatherDialog({
                 })}
               </tbody>
             </table>
+
+            {checkLongitude && (
+              <div className="weather-note" role="status">
+                <strong>Check the longitude’s sign.</strong> Open-Meteo puts{' '}
+                {coordinatesLabel(place.latitudeDeg, place.longitudeDeg)} in {answer.timezone}, with the ground at{' '}
+                {alt(answer.demM!)}; your Site altitude is {alt(launch.launchAltitudeM)}.
+                {' '}Your browser’s UTC offset is closer to the opposite longitude. This may be a sign mistake.
+                {' '}East is positive; west is negative.
+                <div className="weather-place-alt">
+                  <button type="button" className="file-btn" disabled={busy !== null} onClick={() => {
+                    const flipped: WeatherPlace = {
+                      label: coordinatesLabel(place.latitudeDeg, -place.longitudeDeg),
+                      latitudeDeg: place.latitudeDeg, longitudeDeg: -place.longitudeDeg, method: 'coordinates',
+                    };
+                    // Correct the longitude for the reviewed day, even across midnight.
+                    choosePlace(flipped, false, date);
+                    void runFetch(flipped);
+                  }}>Fetch for {coordinateLabel(-place.longitudeDeg, 'longitude')} instead</button>
+                  <button type="button" className="file-btn" disabled={busy !== null} onClick={() => {
+                    keptLongitudeSites.add(siteKey);
+                    setKeptSites(new Set(keptLongitudeSites));
+                  }}>Keep {coordinateLabel(place.longitudeDeg, 'longitude')}</button>
+                </div>
+              </div>
+            )}
 
             <AltitudeReviewBlock proposal={proposal} choice={choice} onChoice={setChoice} alt={alt} />
 

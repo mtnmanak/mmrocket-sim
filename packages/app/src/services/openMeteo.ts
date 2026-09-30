@@ -1,4 +1,6 @@
 import { NETWORK_HOSTS, getJsonCapped, NetError, type NetErrorKind } from './net.js';
+import { coordinatesLabel } from './coordinates.js';
+export { coordinatesLabel } from './coordinates.js';
 
 /**
  * OPEN-METEO — one hour's weather for one place (weather build, step 3).
@@ -599,12 +601,6 @@ export interface WeatherPlace {
   townCentre?: boolean;
   /** The place's zone when the search knew it; the forecast's own answer wins once there is one. */
   timezone?: string;
-}
-
-/** "40.870, −119.060" — a typed or located place's label. */
-export function coordinatesLabel(latitudeDeg: number, longitudeDeg: number): string {
-  const f = (x: number) => (x < 0 ? `−${Math.abs(x).toFixed(3)}` : x.toFixed(3));
-  return `${f(latitudeDeg)}, ${f(longitudeDeg)}`;
 }
 
 /** A search result as the place a forecast is fetched for. */
