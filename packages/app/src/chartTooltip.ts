@@ -157,7 +157,7 @@ function anchorTop(u: uPlot, idx: number): number {
  * Anchored point readout. Add to a plot's `plugins`; it owns one absolutely
  * positioned child of `u.over` and removes it on destroy.
  */
-export function tooltipPlugin(): uPlot.Plugin {
+export function tooltipPlugin(rowLabel?: (seriesIndex: number, idx: number, label: string) => string): uPlot.Plugin {
   let box: HTMLDivElement | null = null;
   let hovering = false;
 
@@ -173,7 +173,7 @@ export function tooltipPlugin(): uPlot.Plugin {
       return;
     }
     const rows = readoutRows(
-      u.series as readonly ReadoutSeries[],
+      u.series.map((s, i) => ({ ...s, label: rowLabel && i > 0 ? rowLabel(i, idx, typeof s.label === 'string' ? s.label : '') : s.label })) as readonly ReadoutSeries[],
       u.data as readonly (readonly (number | null | undefined)[])[],
       idx,
     );

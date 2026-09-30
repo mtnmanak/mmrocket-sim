@@ -119,3 +119,47 @@ describe('seriesStyle — many-series charts never silently cycle colors', () =>
     }
   });
 });
+
+// Severity-1 Machado matrices, applied to linear sRGB. Numerical source:
+// https://raw.githubusercontent.com/DaltonLens/DaltonLens-Python/master/daltonlens/simulate.py
+// This is a subset check, not a claim of universal CVD accessibility.
+const CVD = [
+  [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+  [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
+  [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.303900]],
+];
+function lab(hex: string, matrix: number[][]) {
+  const linear = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const rgb = matrix.map((row) => Math.max(0, Math.min(1, row.reduce((v, c, i) => v + c * linear[i]!, 0))));
+  const xyz = [[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.072175], [0.0193339, 0.119192, 0.9503041]]
+    .map((row, j) => row.reduce((v, c, i) => v + c * rgb[i]!, 0) / [0.95047, 1, 1.08883][j]!)
+    .map((v) => v > (6 / 29) ** 3 ? Math.cbrt(v) : v / (3 * (6 / 29) ** 2) + 4 / 29);
+  return [116 * xyz[1]! - 16, 500 * (xyz[0]! - xyz[1]!), 200 * (xyz[1]! - xyz[2]!)];
+}
+
+it('comparison subsets never depend on hue alone when simulated colours approach', async () => {
+  const { PRESETS, comparisonMembers, seriesCatalog } = await import('./flightChartModel.js');
+  const { METRIC_UNITS } = await import('./prefs/units.js');
+  const measured: Record<string, string> = {};
+  for (const [name, palette] of [['light', SERIES], ['dark', SERIES_DARK], ['daylight', SERIES_DAYLIGHT]] as const) {
+    const catalog = seriesCatalog({ units: METRIC_UNITS, theme: 'light', radiusMode: 'diameter' }, palette);
+    const minima = CVD.map(() => Infinity);
+    for (const preset of PRESETS.filter((p) => p.x === 'time')) {
+      const members = comparisonMembers(preset, catalog);
+      for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+        CVD.forEach((matrix, m) => {
+          const a = lab(members[i]!.color, matrix); const b = lab(members[j]!.color, matrix);
+          const delta = Math.hypot(...a.map((v, k) => v - b[k]!));
+          minima[m] = Math.min(minima[m]!, delta);
+          // Preserve identity slots; line patterns supply the independent
+          // channel when the 15 Delta-E76 screen is not met by hue alone.
+          if (delta < 15) expect(members[i]!.dash).not.toEqual(members[j]!.dash);
+        });
+      }
+    }
+    measured[name] = minima.map((v) => v.toFixed(2)).join(', ');
+  }
+  console.info('Comparison minimum Delta-E76 (normal, protan, deutan, tritan):', measured);
+});

@@ -226,3 +226,24 @@ describe('FlightCharts — a refused download is not promised', () => {
     expect(host.querySelector('canvas[role="img"]')).toBe(before);
   });
 });
+
+it('constructs all comparisons with real uPlot options (canvas calls stubbed)', async () => {
+  const flight = fakeResult();
+  flight.series.acceleration = [1, 2, 3];
+  flight.series['Vz'] = [0, 20, -4];
+  flight.series.stability = [2, 2, 2];
+  flight.series.cpLocation = [1, 1, 1];
+  flight.series.cgLocation = [0.8, 0.8, 0.8];
+  flight.series.altitude = [0, 100, 30];
+  await act(async () => { root.render(<PrefsProvider><FlightCharts result={flight} /></PrefsProvider>); });
+  const chooser = host.querySelector('.comparison-controls select') as HTMLSelectElement;
+  for (const option of [...chooser.options].slice(1)) {
+    await act(async () => {
+      chooser.value = option.value; chooser.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    const panel = host.querySelector('.comparison-panel')!;
+    expect(panel.querySelector('canvas[role="img"]')?.getAttribute('aria-label')).toContain(option.textContent);
+    expect(panel.querySelectorAll('.u-series').length).toBeGreaterThanOrEqual(3);
+  }
+});
