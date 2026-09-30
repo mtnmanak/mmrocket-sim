@@ -195,6 +195,40 @@ describe('RockSim recovery and cluster export', () => {
     expect(all(r.tree.components).filter((n) => n.type === 'innertube').map((n) => n['motorOverhang'] ?? 0)).toEqual([0, 0.008]);
   });
 
+  it('counts engine sets that name no mount (RockSim −1) before refusing a merge for different overhangs', () => {
+    // EclipseB_38mmMAC-8.rkt: both H73Js of its twin tubes name mount −1 in all
+    // 13 simulations. Uncounted, both landed on the first tube and the rocket
+    // flew one motor (apogee 129 m against RockSim's stored 403 m).
+    const tree = clusterTree(); all(tree.components).find((n) => n.id === 'mount')!['cluster'] = 'double';
+    const doc = docOf(exportRkt({ name: 'T', tree, motors: { mount: motor } }));
+    tubes(doc)[1]!.querySelector('EngineOverhang')!.textContent = '8';
+    const sets = [...doc.querySelectorAll('SimulationResults EngineSet > MountSerialNo')];
+    expect(sets).toHaveLength(2);
+    for (const s of sets) s.textContent = '-1';
+    const r = importRkt(xmlOf(doc));
+    const mounts = all(r.tree.components).filter((n) => n.type === 'innertube');
+    expect(mounts.map((n) => n['motorOverhang'] ?? 0)).toEqual([0, 0.008]);
+    expect(Object.keys(r.motors).sort()).toEqual(mounts.map((n) => n.id!).sort());
+  });
+
+  it.each(['names nothing', 'names a part that is not a mount'])('keeps a group apart when a simulation loads one motor through a serial that %s', (stale) => {
+    // LOC Saturn V 5x54.rkt: five identical tubes, one J motor per simulation on
+    // serial 255, which names no mount. RockSim flew that one motor (557 m); the
+    // group merged into a cluster flew it in every tube (1,562 m).
+    const doc = docOf(exportRkt({ name: 'T', tree: clusterTree(), motors: { mount: motor } }));
+    const sets = [...doc.querySelectorAll('SimulationResults EngineSet')];
+    expect(sets).toHaveLength(4);
+    for (const s of sets.slice(1)) s.remove();
+    sets[0]!.querySelector('MountSerialNo')!.textContent = stale === 'names nothing' ? '255'
+      : doc.querySelector('NoseCone > SerialNo')!.textContent;
+    const r = importRkt(xmlOf(doc));
+    const inner = all(r.tree.components).filter((n) => n.type === 'innertube');
+    expect(inner).toHaveLength(4);
+    expect(inner.every((n) => n['cluster'] === undefined)).toBe(true);
+    expect(Object.keys(r.motors)).toEqual([inner[0]!.id]);
+    expect(r.notes.join(' ')).toContain('carry different motors');
+  });
+
   it('remaps nested child motor and recovery references when equivalent parents merge', () => {
     const tree = clusterTree();
     const outer = all(tree.components).find((n) => n.id === 'mount')!;
@@ -295,7 +329,8 @@ describe.skipIf(!process.env.ROCKSIM_DESIGNS)('named local RockSim acceptance fi
     }
     console.log(`Warthog: 15 source simulations, ${r.configs.length} retained configurations; triggers verified.`);
   });
-  it.each(['Public Missiles/EclipseB_38mmRedlineEllis.rkt', 'Public Missiles/EclipseB_38mmRedlineEllisMAC-8.rkt'])(
+  it.each(['Public Missiles/EclipseB_38mmRedlineEllis.rkt', 'Public Missiles/EclipseB_38mmRedlineEllisMAC-8.rkt',
+    'Public Missiles/EclipseB_38mmMAC-8.rkt'])(
     '%s retains different overhangs and both repaired motor positions', (file) => {
       const r = importRkt(read(file));
       const mounts = all(r.tree.components).filter((n) => n['motorMount'] === true);

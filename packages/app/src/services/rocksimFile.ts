@@ -1090,10 +1090,30 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     return { deployEvent: trigger?.deployEvent ?? 'ejection',
       deployAltitude: trigger?.deployAltitude ?? 200, deployDelay: trigger?.deployDelay ?? 0 };
   };
-  /** Per stored simulation, its engine sets and the tube each names, before any regrouping. */
+  /**
+   * The mount an engine set flies on when its MountSerialNo names no motor
+   * mount: the first mount of its stage (Stage3Engines → stage 0,
+   * Stage2Engines → 1, Stage1Engines → 2). Real RockSim files carry stale
+   * serials, and older ones write −1. ONE rule for readEngineSet and simSets.
+   */
+  const stageFallbackMount = (engineSet: Element): ComponentNode | undefined => {
+    const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
+    const stageIdx = slotMatch ? 3 - Number(slotMatch[1]) : 0;
+    return mountsIn(components[stageIdx]?.children ?? [])[0];
+  };
+  /**
+   * Per stored simulation, its engine sets and the tube each flies on, before
+   * any regrouping. A set that names no motor mount is counted on the mount
+   * readEngineSet will give it, so the stale-serial repair in groupLoadouts
+   * sees it. EclipseB_38mmMAC-8.rkt writes −1 on both H73Js of its twin tubes
+   * in all 13 simulations; the tubes stay apart (different overhangs), and
+   * uncounted, both sets landed on the first tube and the rocket flew on one
+   * motor — apogee 129 m against RockSim's stored 403 m (corpus, v0.144).
+   */
   const simSets = simEls.map((sim) => Array.from(sim.querySelectorAll('EngineSet')).flatMap((el) => {
     const serial = text(el, ':scope > MountSerialNo');
-    const node = serial ? serialToNode.get(serial) : undefined;
+    const named = serial ? serialToNode.get(serial) : undefined;
+    const node = named?.['motorMount'] === true ? named : stageFallbackMount(el);
     return node ? [{ el, node }] : [];
   }));
   /** One engine set as a comparable string: code, maker and both delays, as numbers. */
@@ -1478,12 +1498,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // A set the regrouping moved off a tube that already carried one (see
     // groupLoadouts) goes to the twin it was given.
     let mount = movedSets.get(engineSet) ?? (mountSerial ? serialToNode.get(mountSerial) : undefined);
-    if (!mount || mount['motorMount'] !== true) {
-      // Stale serial: Stage3Engines→stage 0, Stage2Engines→1, Stage1Engines→2.
-      const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
-      const stageIdx = slotMatch ? 3 - Number(slotMatch[1]) : 0;
-      mount = mountsIn(components[stageIdx]?.children ?? [])[0];
-    }
+    if (!mount || mount['motorMount'] !== true) mount = stageFallbackMount(engineSet);
     if (!mount?.id) return null;
     // RockSim's <IgnitionDelay> is an offset from the STAGE BELOW'S BURNOUT, not
     // from liftoff. Dropping it entirely (what we did before) made every .rkt
