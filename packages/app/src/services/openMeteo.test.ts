@@ -459,7 +459,7 @@ describe('fetchWeather', () => {
     // 2:00 PM PDT on Sat 14 Jun 2025, as ERA5 has it.
     expect(v!.samples.find((s) => s.unix === Date.UTC(2025, 5, 14, 21) / 1000)).toEqual({
       unix: Date.UTC(2025, 5, 14, 21) / 1000,
-      temperatureC: 27.3, pressureHPa: 884.5, windSpeedMs: 2.02, windGustMs: 5.3, windFromDeg: 277,
+      windsAloft: [], temperatureC: 27.3, pressureHPa: 884.5, windSpeedMs: 2.02, windGustMs: 5.3, windFromDeg: 277,
     });
     expect(hoursOnLocalDate(v!.samples, a.timezone, '2025-06-14')).toHaveLength(24);
   });

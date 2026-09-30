@@ -8,7 +8,8 @@ import type { SessionState } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
 import { encodeShareFragment } from './services/shareLink.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './components/LaunchPanel.js';
-import type { WeatherSnapshot } from './services/weatherSnapshot.js';
+import { applyProposal, beforeOf, type WeatherSnapshot } from './services/weatherSnapshot.js';
+import { kernelWindProfile } from './services/windProfile.js';
 import { ymdInZone } from './services/openMeteo.js';
 import { APP_VERSION } from './version.js';
 
@@ -88,6 +89,64 @@ afterEach(async () => {
 });
 
 describe('applied weather across a reload and an open', () => {
+  it.each(['sigma', 'average', 'gust', 'gust then average', 'clear', 'clear then undo clear'] as const)(
+    'displayed surface matches the kernel after Apply, %s, weather Undo', async (action) => {
+      const initial = { ...DEFAULT_CONDITIONS, windStdDev: 0.7 };
+      const patch = { windAverage: 5, windLevels: [
+        { altitude: 10, speed: 5, direction: 0, standardDeviation: 0.7 },
+        { altitude: 80, speed: 10, direction: 0.2, standardDeviation: 1.4 },
+      ] };
+      const launch = applyProposal(initial, patch);
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        tree: { name: 'Mine', components: [] }, launch,
+        weather: { ...SNAP, applied: patch, before: beforeOf(initial, patch),
+          fetched: { ...SNAP.fetched, windSpeedMs: 5, windGustMs: 11 } },
+        appVersion: APP_VERSION, savedAt: Date.now(),
+      }));
+      const host = await mountApp();
+      const box = (label: string) => [...host.querySelectorAll('input')]
+        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!;
+      const click = async (selector: string) => {
+        await act(async () => { host.querySelector<HTMLButtonElement>(selector)!.click(); });
+      };
+      const edit = async (label: string, value: string) => {
+        await act(async () => {
+          const input = box(label);
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+        });
+      };
+      const check = () => {
+        window.dispatchEvent(new Event('pagehide'));
+        const current = stored()!.launch;
+        const surface = kernelWindProfile(current).windLevels?.[0];
+        expect(Number(box('Wind avg').value)).toBeCloseTo(surface?.speed ?? current.windAverage, 12);
+        expect(Number(box('Wind gusts').value)).toBeCloseTo(surface?.standardDeviation ?? current.windStdDev, 12);
+        return current;
+      };
+      check();
+      if (action.startsWith('gust')) await click('.gust-estimate button');
+      if (action === 'sigma') await edit('Wind gusts', '2');
+      if (action.includes('average')) await edit('Wind avg', '8');
+      if (action.startsWith('clear')) await click('.wind-profile button');
+      if (action === 'clear then undo clear') await click('.wind-profile button');
+      const edited = check();
+      if (action === 'sigma') expect(edited.windStdDev).toBe(2);
+      if (action.includes('average')) expect(edited.windAverage).toBe(8);
+      await click('[data-weather="strip"] button');
+      const back = check();
+      if (['sigma', 'average', 'gust then average'].includes(action)) {
+        expect(back.windLevels).toEqual(edited.windLevels);
+        expect(back.windLevels).toHaveLength(2);
+      } else {
+        expect(back.windLevels).toBeUndefined();
+        expect(back.windAverage).toBe(0);
+      }
+      expect(host.querySelector('[data-weather="strip"]')).toBeNull();
+      expect(host.textContent).not.toContain('Undo clear winds aloft');
+    }, 30000);
+
   it('comes back with the session, strip and field lines included, and is autosaved again', async () => {
     const host = await mountApp();
     await waitFor(() => host.querySelector('[data-weather="strip"]') !== null, 'the weather strip');
@@ -150,10 +209,11 @@ describe('applied weather across a reload and an open', () => {
   // the σ it had written from the forecast, unlabelled. Undo now puts that σ
   // back too; Dismiss keeps it, as it keeps every value, and only the notes go.
   it('Undo puts back the σ the gust chip wrote; Dismiss keeps it', async () => {
+    const windLevels = [{ altitude: 10, speed: 1.75, direction: 0, standardDeviation: 0.3 }, { altitude: 80, speed: 3.5, direction: 0.2, standardDeviation: 0.6 }];
     const WIND_SNAP: WeatherSnapshot = {
-      ...SNAP, applied: { ...SNAP.applied, windAverage: 1.75 }, before: { ...SNAP.before, windAverage: 0 },
+      ...SNAP, applied: { ...SNAP.applied, windAverage: 1.75, windLevels }, before: { ...SNAP.before, windAverage: 0, windLevels: [] },
     };
-    const start = { ...APPLIED, windAverage: 1.75, windStdDev: 0.3 };
+    const start = { ...APPLIED, windAverage: 1.75, windStdDev: 0.3, windLevels };
     const sigmaBox = (host: HTMLElement) => [...host.querySelectorAll('input')]
       .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Wind gusts σ'))!;
     const button = (host: HTMLElement, text: string) => [...host.querySelectorAll('button')]
@@ -173,6 +233,8 @@ describe('applied weather across a reload and an open', () => {
       expect(sigmaBox(host).value, end).toBe(String(expected));
       window.dispatchEvent(new Event('pagehide'));
       expect(stored()!.launch.windStdDev, end).toBe(expected);
+      if (end === 'Undo') expect(stored()!.launch.windLevels).toBeUndefined();
+      else expect(stored()!.launch.windLevels![1]!.standardDeviation).toBe(1.9);
       // Undo puts back every field the weather wrote, Wind avg included.
       if (end === 'Undo') expect(stored()!.launch).toMatchObject({ windAverage: 0, launchAltitudeM: 0, temperatureC: null });
       for (const m of mounted) {

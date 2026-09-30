@@ -1,3 +1,4 @@
+import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ComponentNode,
@@ -559,9 +560,10 @@ export function App() {
    * `launchRef` is the launch this click was made against.
    */
   const estimateSigma = (sigmaMs: number) => {
-    const before = launchRef.current.windStdDev;
-    setLaunch((prev) => ({ ...prev, windStdDev: sigmaMs }));
-    setWeather((w) => (w ? withSigmaEstimate(w, sigmaMs, before) : w));
+    const current = launchRef.current;
+    const before = current.windStdDev;
+    setLaunch((prev) => editProfileSurface(prev, { ...prev, windStdDev: sigmaMs }));
+    setWeather((w) => (w ? withSigmaEstimate(w, sigmaMs, before, current) : w));
   };
   /**
    * The in-memory flight, BOUND TO THE RUN IT BELONGS TO. It used to be a
@@ -2290,6 +2292,7 @@ export function App() {
       const xml = exportRkt({
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,
       });
+      losses.push(...windProfileSaveNotes(launch, '.rkt'));
       await download(xml, 'rkt', '', losses);
     } catch (e) {
       setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -2320,7 +2323,7 @@ export function App() {
         motors: exportMotorsMap(),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [cdx1RodAimNote(launch)].filter((n): n is string => n !== null));
+      }), 'CDX1', '', [cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1')].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }

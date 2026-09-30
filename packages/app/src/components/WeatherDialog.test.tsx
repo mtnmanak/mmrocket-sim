@@ -10,8 +10,8 @@ import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
 import { fieldText, gustNote } from './weatherText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
-import { clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
-import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
+import { ALOFT_VARS, HOURLY_VARS, clearWeatherCache, type WeatherPlace } from '../services/openMeteo.js';
+import { applyProposal, undoApply, validWeatherSnapshot, type WeatherPatch, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -241,7 +241,7 @@ describe('the weather dialog', () => {
     const FIXED: Record<string, string> = {
       count: '10', language: 'en', format: 'json', wind_speed_unit: 'ms', temperature_unit: 'celsius',
       timeformat: 'unixtime', timezone: 'auto',
-      hourly: 'temperature_2m,surface_pressure,wind_speed_10m,wind_gusts_10m,wind_direction_10m',
+      hourly: [...HOURLY_VARS, ...ALOFT_VARS].join(','),
     };
     for (const u of urls) {
       for (const [k, v] of new URL(u).searchParams) {
@@ -469,5 +469,195 @@ describe('fieldText, for a pressure', () => {
   it('prints a whole number whole, as a field’s bounds are', () => {
     expect(fieldText('pressureHPa', 300, { ...INITIAL_UNITS, pressure: 'mbar' })).toBe('300 mbar');
     expect(fieldText('pressureHPa', 1100, { ...INITIAL_UNITS, pressure: 'mbar' })).toBe('1100 mbar');
+  });
+});
+
+
+describe('winds aloft review', () => {
+  const route: Route = async (url) => {
+    const answer = await GERLACH(url);
+    if (!url.includes('/v1/forecast')) return answer;
+    const variants = answer.body as { hourly: Record<string, number[]>; hourly_units: Record<string, string> }[];
+    for (const v of variants) {
+      v.hourly['wind_speed_80m'] = v.hourly['time']!.map(() => 12);
+      v.hourly['wind_direction_80m'] = v.hourly['time']!.map(() => 10);
+      v.hourly_units['wind_speed_80m'] = 'm/s'; v.hourly_units['wind_direction_80m'] = '°';
+    }
+    return answer;
+  };
+  const review = async (launch?: LaunchConditions, weatherRoute = route, archive = false) => {
+    render({ launch, route: weatherRoute, initialPlace: GERLACH_PLACE });
+    if (archive) {
+      typeInto(q('input[type="date"]'), '2025-06-14');
+      await click(button('Fetch'));
+      return;
+    }
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    choose(q('.weather-when select'), String(SAT_2PM));
+  };
+  const existingProfile = (source: 'ork' | 'open-meteo'): LaunchConditions => ({
+    ...DEFAULT_CONDITIONS, windAverage: 3, windStdDev: 0.2,
+    windLevels: [
+      { altitude: 10, speed: 3, direction: 0, standardDeviation: 0.2 },
+      { altitude: 800, speed: 20, direction: 0.7, standardDeviation: 0.2 },
+    ],
+    windProfileSource: source === 'ork' ? { kind: 'ork' }
+      : { kind: 'open-meteo', place: 'Previous site', validUnix: SAT_2PM - 3600, surfaceFromDeg: 270 },
+  });
+  const archiveRoute: Route = (url) => url.includes('/v1/elevation')
+    ? { body: { elevation: [1190] } }
+    : { body: fixture('archive-blackrock-2025-06-14.json') };
+  const selections = [
+    ['temperatureC'], ['pressureHPa'], ['latitudeDeg', 'longitudeDeg'],
+    ['temperatureC', 'pressureHPa', 'latitudeDeg', 'longitudeDeg'], [],
+  ];
+  const preservationCases = (['ork', 'open-meteo'] as const).flatMap((source) =>
+    (['aloft', 'surface', 'archive'] as const).flatMap((weather) =>
+      selections.map((keys) => ({ source, weather, keys }))));
+
+  it.each(preservationCases)('preserves $source winds for $weather weather when only $keys are selected', async ({ source, weather, keys }) => {
+    const launch = { ...existingProfile(source), launchAltitudeM: weather === 'archive' ? 1190 : 0 };
+    await review(launch, weather === 'aloft' ? route : weather === 'surface' ? GERLACH : archiveRoute, weather === 'archive');
+    if (weather !== 'archive') await click(q('.weather-altitude input[type="radio"]'));
+    for (const input of host.querySelectorAll<HTMLInputElement>('.weather-review tr input[type="checkbox"]')) {
+      const key = input.closest('tr')!.getAttribute('data-row')!;
+      if (input.checked !== keys.includes(key)) await click(input);
+    }
+    // Keep the site altitude too, so an empty row selection is truly empty.
+    expect(button('Apply')!.disabled).toBe(keys.length === 0);
+    await click(button('Apply'));
+    if (!keys.length) {
+      expect(applied).toEqual([]);
+      expect(closed).toBe(0);
+      return;
+    }
+    const { patch, snapshot } = applied[0]!;
+    expect(Object.keys(patch).sort()).toEqual([...keys].sort());
+    for (const receipt of [snapshot.before, snapshot.applied]) {
+      expect(receipt).not.toHaveProperty('windLevels');
+      expect(receipt).not.toHaveProperty('windProfileSource');
+    }
+    const next = applyProposal(launch, patch);
+    expect(next.windLevels).toBe(launch.windLevels);
+    expect(next.windProfileSource).toBe(launch.windProfileSource);
+    expect(next.windAverage).toBe(launch.windAverage);
+    expect(next.windStdDev).toBe(launch.windStdDev);
+    expect(undoApply(next, snapshot)).toEqual(launch);
+  });
+
+  it.each([null, -1])('preserves existing winds when the selected hour refuses surface wind %s', async (speed) => {
+    const launch = existingProfile('ork');
+    await review(launch, async (url) => {
+      const answer = await route(url);
+      if (url.includes('/v1/forecast')) {
+        for (const variant of answer.body as { hourly: Record<string, (number | null)[]> }[]) {
+          variant.hourly['wind_speed_10m'] = variant.hourly['time']!.map(() => speed);
+        }
+      }
+      return answer;
+    });
+    expect(q<HTMLInputElement>('input[aria-label="Apply Wind avg"]')!.disabled).toBe(true);
+    await click(button('Apply'));
+    const { patch, snapshot } = applied[0]!;
+    expect(patch).not.toHaveProperty('windAverage');
+    expect(patch).not.toHaveProperty('windLevels');
+    expect(patch).not.toHaveProperty('windProfileSource');
+    const next = applyProposal(launch, patch);
+    expect(next.windLevels).toBe(launch.windLevels);
+    expect(next.windProfileSource).toBe(launch.windProfileSource);
+    expect(undoApply(next, snapshot)).toEqual(launch);
+  });
+
+  it.each(['surface', 'archive', 'calm'] as const)('clears an old profile when applying %s surface wind, with Undo', async (weather) => {
+    const launch = { ...existingProfile('open-meteo'), launchAltitudeM: weather === 'archive' ? 1190 : 0 };
+    const calmRoute: Route = async (url) => {
+      const answer = await GERLACH(url);
+      if (url.includes('/v1/forecast')) {
+        for (const variant of answer.body as { hourly: Record<string, number[]> }[]) {
+          variant.hourly['wind_speed_10m'] = variant.hourly['time']!.map(() => 0);
+        }
+      }
+      return answer;
+    };
+    await review(launch, weather === 'archive' ? archiveRoute : weather === 'calm' ? calmRoute : GERLACH, weather === 'archive');
+    await click(button('Apply'));
+    const { patch, snapshot } = applied[0]!;
+    expect(patch.windAverage).toBeDefined();
+    if (weather === 'calm') expect(patch.windAverage).toBe(0);
+    expect(patch.windLevels).toEqual([]);
+    const next = applyProposal(launch, patch);
+    expect(next.windLevels).toEqual([]);
+    expect(next).not.toHaveProperty('windProfileSource');
+    expect(undoApply(next, snapshot)).toEqual(launch);
+  });
+
+  it('preserves winds through an altitude-only Apply when every weather row is unchecked', async () => {
+    const launch = { ...existingProfile('ork'), launchAltitudeM: 0 };
+    await review(launch);
+    for (const input of host.querySelectorAll<HTMLInputElement>('.weather-review tr input:checked')) await click(input);
+    expect(button('Apply')!.disabled).toBe(false);
+    await click(button('Apply'));
+    const { patch, snapshot } = applied[0]!;
+    expect(patch).toEqual({ launchAltitudeM: 1202 });
+    const next = applyProposal(launch, patch);
+    expect(next.windLevels).toBe(launch.windLevels);
+    expect(next.windProfileSource).toBe(launch.windProfileSource);
+    expect(undoApply(next, snapshot)).toEqual(launch);
+  });
+
+  it.each([false, true])('retains the aloft choice %s while Wind avg is unchecked and rechecked', async (aloft) => {
+    const launch = existingProfile('ork');
+    await review(launch);
+    if (!aloft) await click(q('input[aria-label="Apply Winds aloft"]'));
+    await click(q('input[aria-label="Apply Wind avg"]'));
+    expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.disabled).toBe(true);
+    await click(button('Apply'));
+    expect(applied[0]!.patch).not.toHaveProperty('windLevels');
+    expect(applyProposal(launch, applied[0]!.patch).windLevels).toBe(launch.windLevels);
+    // The harness keeps the dialog mounted after Apply so we can recheck it.
+    await click(q('input[aria-label="Apply Wind avg"]'));
+    expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.checked).toBe(aloft);
+    await click(button('Apply'));
+    const { patch, snapshot } = applied[1]!;
+    expect(patch.windLevels).toHaveLength(aloft ? 2 : 0);
+    const next = applyProposal(launch, patch);
+    if (aloft) expect(next.windProfileSource).toMatchObject({ kind: 'open-meteo', place: GERLACH_PLACE.label });
+    else expect(next).not.toHaveProperty('windProfileSource');
+    expect(undoApply(next, snapshot)).toEqual(launch);
+  });
+  it('defaults to ticked, shows levels, strongest wind and compass bearings, and applies and undoes the profile', async () => {
+    await review();
+    expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.checked).toBe(true);
+    expect(q('.wind-profile')!.textContent).toContain('2 levels to 262 ft (80 m) above ground, strongest');
+    expect(q('.wind-profile-table')!.textContent).toContain('10.0° N');
+    expect(urls).toHaveLength(2);
+    await click(button('Apply'));
+    const { patch, snapshot } = applied[0]!;
+    expect(patch.windLevels).toHaveLength(2);
+    expect(patch.windLevels![0]!.speed).toBe(patch.windAverage);
+    expect(patch.windProfileSource).toMatchObject({ kind: 'open-meteo', validUnix: SAT_2PM });
+    expect(validWeatherSnapshot(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot);
+    expect(undoApply(applyProposal(DEFAULT_CONDITIONS, patch), snapshot)).toEqual(DEFAULT_CONDITIONS);
+  });
+  it('unticking winds aloft applies surface weather and clears a preceding profile, with Undo', async () => {
+    const launch = { ...DEFAULT_CONDITIONS, windAverage: 3, windLevels: [{ altitude: 0, speed: 3, direction: 0 }], windProfileSource: { kind: 'ork' as const } };
+    await review(launch);
+    await click(q('input[aria-label="Apply Winds aloft"]'));
+    await click(button('Apply'));
+    expect(applied[0]!.patch.windLevels).toEqual([]);
+    expect(undoApply(applyProposal(launch, applied[0]!.patch), applied[0]!.snapshot)).toEqual(launch);
+  });
+  it('requires the surface wind with the profile and says when levels are unavailable', async () => {
+    await review();
+    await click(q('input[aria-label="Apply Wind avg"]'));
+    expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.disabled).toBe(true);
+    await click(button('Apply'));
+    expect(applied[0]!.patch.windLevels).toBeUndefined();
+    expect(applied[0]!.patch.windAverage).toBeUndefined();
+    render({ initialPlace: GERLACH_PLACE });
+    clearWeatherCache();
+    await click(button('Fetch'));
+    expect(host.textContent).toContain('Winds aloft are unavailable');
   });
 });

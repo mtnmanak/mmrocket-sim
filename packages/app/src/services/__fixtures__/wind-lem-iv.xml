@@ -1,0 +1,26 @@
+<!-- Desktop-authored wind block from LEM-IV.ork, read 2026-09-30. Geometry and identifying metadata omitted. -->
+<wind model="multilevel" altituderef="agl">
+          <windlevel altitude="0.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>
+          <windlevel altitude="16.0" speed="6.45" direction="4.834562028024293" standarddeviation="0.2"/>
+          <windlevel altitude="86.0" speed="7.4" direction="4.869468613064179" standarddeviation="0.2"/>
+          <windlevel altitude="126.0" speed="7.48" direction="5.323254218582705" standarddeviation="0.2"/>
+          <windlevel altitude="139.0" speed="7.55" direction="4.904375198104066" standarddeviation="0.2"/>
+          <windlevel altitude="356.0" speed="8.03" direction="4.904375198104066" standarddeviation="0.2"/>
+          <windlevel altitude="577.0" speed="8.33" direction="4.904375198104066" standarddeviation="0.2"/>
+          <windlevel altitude="802.0" speed="8.52" direction="4.904375198104066" standarddeviation="0.2"/>
+          <windlevel altitude="1031.0" speed="8.89" direction="4.904375198104066" standarddeviation="0.2"/>
+          <windlevel altitude="1505.0" speed="9.64" direction="4.956735075663896" standarddeviation="0.2"/>
+          <windlevel altitude="2001.0" speed="10.21" direction="4.9218284906240095" standarddeviation="0.2"/>
+          <windlevel altitude="2526.0" speed="11.42" direction="4.956735075663896" standarddeviation="0.2"/>
+          <windlevel altitude="3081.0" speed="14.31" direction="4.939281783143953" standarddeviation="0.2"/>
+          <windlevel altitude="3670.0" speed="16.31" direction="4.886921905584122" standarddeviation="0.2"/>
+          <windlevel altitude="4296.0" speed="17.36" direction="4.956735075663896" standarddeviation="0.2"/>
+          <windlevel altitude="4964.0" speed="19.4" direction="5.044001538263612" standarddeviation="0.2"/>
+          <windlevel altitude="5681.0" speed="21.97" direction="4.886921905584122" standarddeviation="0.2"/>
+          <windlevel altitude="6458.56" speed="29.12" direction="4.799655442984406" standarddeviation="0.2"/>
+          <windlevel altitude="7316.05" speed="35.34" direction="4.694935687864747" standarddeviation="0.2"/>
+          <windlevel altitude="8262.94" speed="40.35" direction="4.485496177625427" standarddeviation="0.2"/>
+          <windlevel altitude="9333.87" speed="43.74" direction="4.4505895925855405" standarddeviation="0.2"/>
+          <windlevel altitude="10567.62" speed="41.81" direction="4.4505895925855405" standarddeviation="0.2"/>
+          <windlevel altitude="10999.0" speed="41.40003548451057" direction="4.424851352975346" standarddeviation="0.2"/>
+        </wind>

@@ -68,6 +68,12 @@ describe('FlyScreen', () => {
     return calls;
   }
 
+  it('shows the winds aloft summary on the phone', () => {
+    mount({ launch: { ...DEFAULT_CONDITIONS, windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] } });
+    expect(host.textContent).toContain('Winds aloft: 2 levels to 1,640 ft (500 m) above ground');
+    expect(host.textContent).toContain('Wind avg is the surface wind');
+  });
+
   it('shows the four field numbers, the stability verdict, and the motor', () => {
     mount();
     const labels = Array.from(host.querySelectorAll('.fly-stat .stat-label')).map((el) => el.textContent);

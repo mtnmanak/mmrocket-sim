@@ -92,9 +92,15 @@ export function attachedSet(motors: Record<string, MountMotor>): Record<string, 
 export function importedLaunch(
   prev: LaunchConditions, fromFile: Partial<LaunchConditions> | undefined,
 ): LaunchConditions {
-  return fromFile
+  const next = fromFile
     ? { ...prev, ...fromFile, timeStepS: fromFile.timeStepS }
     : { ...prev, timeStepS: undefined };
+  // A file without a profile must not inherit the previous rocket's winds.
+  if (!fromFile?.windLevels?.length) {
+    delete next.windLevels;
+    delete next.windProfileSource;
+  }
+  return next;
 }
 
 /** Every motor an opened design names, resolved. */

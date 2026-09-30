@@ -1,3 +1,4 @@
+import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
@@ -193,6 +194,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             <LaunchField label="Wind avg" field="windAverage" value={launch}
               onChange={onLaunchChange} stepStored={0.5} min={WIND_MS_RANGE[0]} />
           </div>
+          {!!launch.windLevels?.length && <p className="weather-small">Winds aloft: {windProfileSummary(launch.windLevels)}. Wind avg is the surface wind.</p>}
           {(onGetWeather || weather) && (
             <div className="fly-weather">
               {onGetWeather && <WeatherButton onClick={onGetWeather} />}

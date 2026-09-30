@@ -440,3 +440,15 @@ describe('SimRunDetails — the density-altitude row', () => {
     expect(daRow()).toBeUndefined();
   });
 });
+
+
+it('names winds aloft in the report and the saved-run table', () => {
+  const flown = { ...run(), windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] };
+  render(<SimRunDetails run={flown} />);
+  act(() => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click());
+  expect(host.textContent).toContain('Winds aloft2 levels to 1,640 ft');
+  render(<SimHistory runs={[flown]} onRunsChange={() => {}} />);
+  openTable();
+  expect([...host.querySelectorAll('th')].some((th) => th.textContent === 'Winds aloft')).toBe(true);
+  expect(host.querySelector('tbody')!.textContent).toContain('2 levels');
+});

@@ -6,7 +6,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { SimRun } from '../services/simReport.js';
 import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
-import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
+import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
 import {
   runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
@@ -89,13 +89,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount({ strict = false } = {}) {
+function mount({ strict = false, launch = DEFAULT_CONDITIONS }: { strict?: boolean; launch?: LaunchConditions } = {}) {
   const dialog = (
     <PrefsProvider>
       <BatchSimulate
         tree={TREE} info={{} as never} mounts={MOUNTS} initialMountId="mount"
         assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
-        launch={DEFAULT_CONDITIONS} rocketName="Sweep bird"
+        launch={launch} rocketName="Sweep bird"
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}
       />
@@ -428,4 +428,14 @@ describe('the table', () => {
       .toEqual(['700', '600', '500', '300', '200', '150']);
     expect(errors.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
   });
+});
+
+
+it('hands the full profile to the batch sweep', async () => {
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  const windLevels = [{ altitude: 10, speed: 3, direction: 0, standardDeviation: 0 }, { altitude: 80, speed: 12, direction: 0.2, standardDeviation: 0 }];
+  mount({ launch: { ...DEFAULT_CONDITIONS, windLevels } });
+  await start();
+  expect(sweep).toHaveBeenCalledOnce();
+  expect(sweep.mock.calls[0]![0].launch.windLevels).toEqual(windLevels);
 });

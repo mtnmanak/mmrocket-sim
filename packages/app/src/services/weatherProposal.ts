@@ -6,6 +6,7 @@ import {
 } from './atmosphere.js';
 import { distanceM, type HourSample, type WeatherAnswer, type WeatherPlace } from './openMeteo.js';
 import { applyProposal, beforeOf, type ApplyKey, type WeatherPatch, type WeatherSnapshot } from './weatherSnapshot.js';
+import { relativeWindDirection, scaleWindSigma, type RelativeWindLevel } from './windProfile.js';
 
 /**
  * THE REVIEW (weather build, step 3): one fetched hour, set beside the launch
@@ -61,6 +62,7 @@ export interface AltitudeReview {
 }
 
 export interface Proposal {
+  windLevels: RelativeWindLevel[];
   rows: ProposalRow[];
   altitude: AltitudeReview;
   /** The fetched hour of the variant the temperature and pressure come from. */
@@ -138,6 +140,7 @@ export function buildProposal(q: {
   ];
 
   return {
+    windLevels: answer.endpoint === 'archive' ? [] : buildWindProfile(sample, launch.windStdDev),
     rows,
     altitude: {
       siteM, demM: dem, agree: dem !== null && answer.variants.length === 1, canChoose, choice,
@@ -151,6 +154,19 @@ export function buildProposal(q: {
       : null,
     grid: { latitudeDeg: variant.gridLatitudeDeg, longitudeDeg: variant.gridLongitudeDeg },
   };
+}
+
+export function buildWindProfile(sample: HourSample, sigma: number): RelativeWindLevel[] {
+  const speed = sample.windSpeedMs;
+  const from = sample.windFromDeg;
+  if (speed === null || !Number.isFinite(speed) || speed < 0 || from === null || !Number.isFinite(from)
+    || !sample.windsAloft?.length) return [];
+  return [{ altitude: 10, speed, direction: 0, standardDeviation: sigma },
+    ...sample.windsAloft.map((l) => ({
+      altitude: l.altitude, speed: l.speed,
+      direction: relativeWindDirection((l.fromDeg - from) * Math.PI / 180),
+      standardDeviation: scaleWindSigma(sigma, l.speed, speed),
+    }))];
 }
 
 /** The rows that may be ticked — every row with a value inside its field's bounds. */

@@ -4341,3 +4341,11 @@ select.unit-chip:hover {
   color: var(--text-muted);
 }
 .recovery-band-foot:empty { display: none; }
+
+/* The profile disclosure fits the same two-column wind grid on phones. */
+.wind-profile { grid-column: 1 / -1; min-width: 0; font-size: 0.875rem; }
+.wind-profile details { margin-block: 0.4rem; }
+.wind-profile summary { cursor: pointer; }
+.wind-profile-table { max-width: 100%; overflow-x: auto; }
+.wind-profile-table table { width: 100%; border-collapse: collapse; }
+.wind-profile-table th, .wind-profile-table td { padding: 0.35rem; text-align: left; }

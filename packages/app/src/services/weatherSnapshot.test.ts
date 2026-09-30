@@ -1,3 +1,4 @@
+import { editProfileSurface, kernelWindProfile } from './windProfile.js';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import {
@@ -32,6 +33,32 @@ function snap(over: Partial<WeatherSnapshot> = {}): WeatherSnapshot {
 }
 
 describe('applyProposal', () => {
+  it('retains calm speed ratios through scalar Apply/Undo, profile replacement, gust receipts and receipt restore', () => {
+    const start: LaunchConditions = { ...HOT_PAD, windAverage: 4, windStdDev: 0.4, windLevels: [
+      { altitude: 10, speed: 4, direction: 0, standardDeviation: 0.4 },
+      { altitude: 1000, speed: 20, direction: 0.7, standardDeviation: 2 },
+    ], windProfileSource: { kind: 'ork' } };
+    const zero = applyProposal(start, { windAverage: 0 });
+    expect(undoApply(zero, { before: beforeOf(start, { windAverage: 0 }), applied: { windAverage: 0 } }).windLevels).toEqual(start.windLevels);
+    const receipt = snap({ before: beforeOf(zero, { windLevels: [] }), applied: { windLevels: [] } });
+    const restoredReceipt = validWeatherSnapshot(JSON.parse(JSON.stringify(receipt)))!;
+    const restored = undoApply(applyProposal(zero, receipt.applied), restoredReceipt);
+    expect(restored.windLevels).toEqual(zero.windLevels);
+    expect(editProfileSurface(restored, { ...restored, windAverage: 0.5 }).windLevels!.map((l) => l.speed)).toEqual([0.5, 2.5]);
+    const zeroPatch = { windAverage: 0, windLevels: zero.windLevels, windProfileSource: zero.windProfileSource };
+    const applied = applyProposal({ ...HOT_PAD, windStdDev: 0.4 }, zeroPatch);
+    const gustReceipt = withSigmaEstimate(snap({ applied: zeroPatch }), 1, 0.4, applied);
+    const gust = editProfileSurface(applied, { ...applied, windStdDev: 1 });
+    expect(gustReceipt.applied.windLevels).toEqual(gust.windLevels);
+    const round = validWeatherSnapshot(JSON.parse(JSON.stringify(gustReceipt)))!;
+    expect(round.applied.windLevels).toEqual(gust.windLevels);
+    expect(editProfileSurface(gust, { ...gust, windAverage: 0.5 }).windLevels!.map((l) => l.speed)).toEqual([0.5, 2.5]);
+    const replacement = applyProposal(zero, { windAverage: 2, windLevels: [
+      { altitude: 10, speed: 2, direction: 0 }, { altitude: 100, speed: 6, direction: 1 },
+    ] });
+    expect(editProfileSurface(replacement, { ...replacement, windAverage: 1 }).windLevels!.map((l) => l.speed)).toEqual([1, 3]);
+  });
+
   it('writes only the patch’s fields, and leaves every other one the same value', () => {
     const next = applyProposal(HOT_PAD, { windAverage: 5 });
     expect(next.windAverage).toBe(5);
@@ -165,5 +192,143 @@ describe('validWeatherSnapshot', () => {
       { ...snap(), sigmaEstimate: { applied: 2, before: 'x' } }, { ...snap(), sigmaEstimate: { applied: -1, before: 0 } },
     ];
     for (const b of bad) expect(validWeatherSnapshot(b), JSON.stringify(b)).toBeNull();
+  });
+});
+
+
+describe('profile weather receipts', () => {
+  const source = { kind: 'open-meteo' as const, place: 'Pad', validUnix: 1, surfaceFromDeg: 350 };
+  const windLevels = [{ altitude: 10, speed: 5, direction: 0, standardDeviation: 0.7 }, { altitude: 80, speed: 10, direction: 0.2, standardDeviation: 1.4 }];
+  const patch = { windAverage: 5, windLevels, windProfileSource: source };
+  const surfaceMatches = (launch: LaunchConditions) => {
+    const surface = kernelWindProfile(launch).windLevels?.[0];
+    expect(surface).toBeDefined();
+    expect(launch.windAverage).toBeCloseTo(surface!.speed, 12);
+    expect(launch.windStdDev).toBeCloseTo(surface!.standardDeviation ?? 0, 12);
+  };
+
+  it.each(['sigma', 'average'] as const)('keeps the coupled surface after Apply, manual %s edit, Undo', (field) => {
+    const receipt = snap({ applied: patch, before: beforeOf(HOT_PAD, patch) });
+    const applied = applyProposal(HOT_PAD, patch);
+    const edited = editProfileSurface(applied, { ...applied, ...(field === 'sigma' ? { windStdDev: 2 } : { windAverage: 8 }) });
+    const back = undoApply(edited, receipt);
+    expect(back.windLevels).toEqual(edited.windLevels);
+    expect(back.windAverage).toBe(edited.windAverage);
+    expect(back.windStdDev).toBe(edited.windStdDev);
+    surfaceMatches(back);
+  });
+
+  it('keeps the coupled surface after a gust chip, manual mean edit, Undo', () => {
+    const applied = applyProposal(HOT_PAD, patch);
+    const receipt = withSigmaEstimate(snap({ applied: patch, before: beforeOf(HOT_PAD, patch) }), 2, 0.7, applied);
+    const gust = editProfileSurface(applied, { ...applied, windStdDev: 2 });
+    const edited = editProfileSurface(gust, { ...gust, windAverage: 8 });
+    const back = undoApply(edited, receipt);
+    expect(back).toEqual(edited);
+    surfaceMatches(back);
+  });
+
+  it('restores a previous profile using the surviving surface edits after surface-only Apply', () => {
+    const start = applyProposal(HOT_PAD, patch);
+    const clear = { windAverage: 3, windLevels: [] };
+    const receipt = snap({ applied: clear, before: beforeOf(start, clear) });
+    const edited = { ...applyProposal(start, clear), windAverage: 7, windStdDev: 2 };
+    const back = undoApply(edited, receipt);
+    expect(back.windAverage).toBe(7);
+    expect(back.windStdDev).toBe(2);
+    expect(back.windLevels![1]!.speed).toBe(14);
+    surfaceMatches(back);
+  });
+
+  it('reconciles the restored profile after gust chip, second Apply, Undo', () => {
+    const first = applyProposal(HOT_PAD, patch);
+    const receipt = withSigmaEstimate(snap({ applied: patch, before: beforeOf(HOT_PAD, patch) }), 2, 0.7, first);
+    const gust = editProfileSurface(first, { ...first, windStdDev: 2 });
+    const secondPatch = { windAverage: 3, windLevels: [] };
+    const second = carrySigmaEstimate(receipt, snap({ applied: secondPatch, before: beforeOf(gust, secondPatch) }), gust);
+    const back = undoApply(applyProposal(gust, secondPatch), second);
+    expect(back.windAverage).toBe(5);
+    expect(back.windStdDev).toBe(0.7);
+    surfaceMatches(back);
+  });
+
+  it('Clear then weather Undo keeps the profile cleared', () => {
+    const applied = applyProposal(HOT_PAD, patch);
+    const receipt = snap({ applied: patch, before: beforeOf(HOT_PAD, patch) });
+    const cleared = { ...applied, windLevels: undefined, windProfileSource: undefined };
+    const back = undoApply(cleared, receipt);
+    expect(back.windAverage).toBe(HOT_PAD.windAverage);
+    expect(kernelWindProfile(back)).toEqual({});
+  });
+
+  it('scalar-only Apply and Undo scale an existing profile with its surface fields', () => {
+    const start = applyProposal(HOT_PAD, patch);
+    const scalarPatch = { windAverage: 7 };
+    const receipt = snap({ applied: scalarPatch, before: beforeOf(start, scalarPatch) });
+    const applied = applyProposal(start, scalarPatch);
+    surfaceMatches(applied);
+    const back = undoApply(applied, receipt);
+    surfaceMatches(back);
+    expect(back.windLevels![1]!.speed).toBeCloseTo(10, 12);
+  });
+
+  it('keeps surface and kernel consistent through all four-step Apply/edit/Undo sequences', () => {
+    type State = { launch: LaunchConditions; receipt: WeatherSnapshot | null;
+      clear?: { before: LaunchConditions; after: LaunchConditions } };
+    const actions = ['apply', 'surface apply', 'mean', 'calm', 'sigma', 'gust', 'clear', 'undo clear', 'undo'] as const;
+    const visit = (state: State, steps: readonly string[]) => {
+      const { launch, receipt } = state;
+      const surface = kernelWindProfile(launch).windLevels?.[0];
+      if (surface) {
+        expect(launch.windAverage, steps.join(' -> ')).toBeCloseTo(surface.speed, 12);
+        expect(launch.windStdDev, steps.join(' -> ')).toBeCloseTo(surface.standardDeviation ?? 0, 12);
+      }
+      if (steps.length === 4) return;
+      for (const action of actions) {
+        let next: State = state;
+        if (action === 'apply' || action === 'surface apply') {
+          const proposed = action === 'apply' ? { ...patch, windLevels: windLevels.map((l) => ({
+            ...l, standardDeviation: launch.windStdDev * l.speed / 5,
+          })) } : { windAverage: 3, windLevels: [] };
+          next = { launch: applyProposal(launch, proposed), receipt: carrySigmaEstimate(receipt,
+            snap({ applied: proposed, before: beforeOf(launch, proposed) }), launch) };
+        } else if (action === 'mean' || action === 'calm' || action === 'sigma' || action === 'gust') {
+          const edited = { ...launch, ...(action === 'mean' ? { windAverage: 8 } : action === 'calm'
+            ? { windAverage: 0 } : { windStdDev: action === 'gust' ? 2 : 1 }) };
+          next = { launch: editProfileSurface(launch, edited), receipt: action === 'gust' && receipt
+            ? withSigmaEstimate(receipt, edited.windStdDev, launch.windStdDev, launch) : receipt };
+        } else if (action === 'clear' && launch.windLevels?.length) {
+          const cleared = { ...launch, windLevels: undefined, windProfileSource: undefined };
+          next = { launch: cleared, receipt, clear: { before: launch, after: cleared } };
+        } else if (action === 'undo clear' && state.clear?.after === launch) {
+          next = { launch: state.clear.before, receipt };
+        } else if (action === 'undo' && receipt) {
+          next = { launch: undoApply(launch, receipt), receipt: null };
+        }
+        visit(next, [...steps, action]);
+      }
+    };
+    visit({ launch: HOT_PAD, receipt: null }, []);
+    visit({ launch: applyProposal(HOT_PAD, patch), receipt: null }, []);
+  });
+  it('validates and restores profile receipts from autosave', () => {
+    const receipt = snap({ applied: { windLevels, windProfileSource: source }, before: { windLevels, windProfileSource: { kind: 'ork' } } });
+    expect(validWeatherSnapshot(JSON.parse(JSON.stringify(receipt)))).toEqual(receipt);
+    expect(undoApply({ ...HOT_PAD, windLevels, windProfileSource: source }, receipt).windProfileSource).toEqual({ kind: 'ork' });
+    for (const key of ['applied', 'before'] as const) {
+      expect(validWeatherSnapshot({ ...receipt, [key]: { windLevels: [{ speed: 1 }] } })).toBeNull();
+      expect(validWeatherSnapshot({ ...receipt, [key]: { windProfileSource: { kind: 'bad' } } })).toBeNull();
+    }
+  });
+  it('Undo removes the profile even after the forecast gust chip scales it, while preserving edited profiles', () => {
+    const patch = { windAverage: 5, windLevels, windProfileSource: source };
+    const receipt = snap({ applied: patch, before: beforeOf(HOT_PAD, patch) });
+    const applied = applyProposal(HOT_PAD, patch);
+    const withSigma = editProfileSurface(applied, { ...applied, windStdDev: 1.5 });
+    const updated = withSigmaEstimate(receipt, 1.5, 0.7, applied);
+    expect(updated.applied.windLevels![1]!.standardDeviation).toBe(3);
+    expect(undoApply(withSigma, updated)).toEqual(HOT_PAD);
+    const edited = { ...applied, windLevels: [{ ...windLevels[0]!, speed: 7 }] };
+    expect(withSigmaEstimate(receipt, 1.5, 0.7, edited).applied.windLevels).toEqual(windLevels);
   });
 });

@@ -388,3 +388,37 @@ describe('Rod aim turns a tilted rod’s lean about the wind', () => {
     expect(WIND_BLOWS_TOWARD_DEG).toBe(270);
   });
 });
+
+
+describe('winds aloft through app launch conditions', () => {
+  it('flies uniform steady levels like the surface, one turbulent level exactly, and stronger aloft winds further', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const launch = { ...DEFAULT_CONDITIONS, windAverage: 3, windStdDev: 0, launchRodAngleDeg: 5 };
+    const fly = (l: typeof launch) => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      const result = rocket.simulate({ ...kernelSimOptions(l), randomSeed: 42 });
+      return { result, run: buildSimRun({ result, info: rocket.staticInfo(), motor: C6, meta: { label: 'C6-5' },
+        launch: l, rocketName: 'Wind test', execMs: 1 }) };
+    };
+    const single = fly(launch);
+    const levels = [10, 80, 500].map((altitude) => ({ altitude, speed: 3, direction: 0, standardDeviation: 0 }));
+    const uniform = fly({ ...launch, windLevels: levels });
+    for (const k of ['maxAltitude', 'landingDistanceM'] as const) {
+      expect(Math.abs(uniform.run[k]! - single.run[k]!) / Math.max(1, Math.abs(single.run[k]!))).toBeLessThan(1e-9);
+    }
+    const empty = fly({ ...launch, windLevels: [] });
+    expect(empty.result.series).toEqual(single.result.series);
+    const turbulent = fly({ ...launch, windStdDev: 0.6 });
+    const one = fly({ ...launch, windStdDev: 0.6, windLevels: [{ altitude: 10, speed: 3, direction: 0, standardDeviation: 0.6 }] });
+    expect(one.result.series).toEqual(turbulent.result.series);
+    const stronger = fly({ ...launch, windLevels: [levels[0]!, { ...levels[1]!, speed: 12 }, { ...levels[2]!, speed: 12 }] });
+    expect(stronger.run.landingDistanceM!).toBeGreaterThan(single.run.landingDistanceM!);
+    expect(uniform.run.windLevels).toEqual(levels);
+    expect(uniform.run.windLevels).not.toBe(levels);
+    expect(runsToCsv([uniform.run]).split('\n')[0]).toMatch(/Winds aloft \(levels\)\r?$/);
+    const again = fly({ ...launch, windLevels: uniform.run.windLevels!.map((l) => ({ ...l, standardDeviation: l.standardDeviation ?? 0 })) });
+    expect(again.result.series).toEqual(uniform.result.series);
+  }, 60000);
+});

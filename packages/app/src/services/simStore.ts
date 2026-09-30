@@ -20,7 +20,7 @@ export const MAX_RUNS = 500;
  * button into a silent no-op. Normalised to absent on load: absent is a state
  * every one of those readers already handles.
  */
-const ARRAY_FIELDS = ['deployments', 'branches', 'boosterMotors', 'simWarnings'] as const;
+const ARRAY_FIELDS = ['deployments', 'branches', 'boosterMotors', 'simWarnings', 'windLevels'] as const;
 
 export function loadRuns(): SimRun[] {
   try {
@@ -333,6 +333,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   // that stood in front of it, the shape eslint.config.mjs now refuses).
   [`Density altitude (${sym('distance', 'm')})`,
     (r) => cv('distance', r.densityAltitudeM)],
+  ['Winds aloft (levels)', (r) => r.windLevels?.length ?? 0],
   ];
 }
 
