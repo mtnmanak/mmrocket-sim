@@ -2,6 +2,7 @@ import type { TcMotor } from './thrustcurve.js';
 import { lookupTable } from './xmlUtil.js';
 import { IMPULSE_PREFIX, looseDesignation as loose, prefixWithoutSplit } from './designationText.js';
 import rawDb from '../data/motors.json';
+import { E31_CORROBORATED, equivalentG80, isE31Conflict, MOTOR_MATCH_POLICY, physicalEvidenceFits, type MotorMatchContext } from './motorMatchPolicy.js';
 
 /**
  * Bundled ThrustCurve motor summary database (metadata only — thrust curves
@@ -765,6 +766,10 @@ function namesByCommonAndPropellant(want: string, m: MotorDbEntry): 'name' | 'co
 /** What {@link matchDbMotor} found, and how firmly. */
 export interface DbMotorMatch {
   motor: MotorDbEntry;
+  /** A narrow historical policy, surfaced by motorMatch beside the loaded row. */
+  reason?: string;
+  /** Only substituted after its curve has actually loaded successfully. */
+  curveEquivalent?: MotorDbEntry;
   /**
    * How the designation matched (see findDbMotor): 0 exact, 1 a designation
    * with only a delay or the row's own propellant between them, or the common
@@ -778,7 +783,8 @@ export interface DbMotorMatch {
    * file's manufacturer, same fit to the delay it names — and are a different
    * motor (over 1.5 mm or 3 % of total impulse apart). The pick among them fell
    * to production status and catalogue order, which is a guess, and the open
-   * says so (motorMatch).
+   * says so (motorMatch). The reviewed J360SK collision also includes a
+   * plausible candidate from another tier, whose catalogue propellant is absent.
    */
   rivals: MotorDbEntry[];
 }
@@ -811,10 +817,33 @@ export function matchDbMotor(
   diameterMm?: number,
   motors: MotorDbEntry[] = getCatalogue(),
   manufacturer?: string,
+  context?: MotorMatchContext,
 ): DbMotorMatch | null {
   const want = designation.trim().toLowerCase();
   if (!want) return null;
-  const whole = rankMatches(want, diameterMm, motors, manufacturer, () => true);
+  const fits = (m: MotorDbEntry): boolean => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5)
+    && !(Number.isFinite(context?.mountBoreMm) && m.diameter > context!.mountBoreMm! + 1.5);
+  const evidenceId = isE31Conflict(want) && manufacturerMatches(manufacturer ?? '', 'Cesaroni')
+    ? MOTOR_MATCH_POLICY.whiteThunderE31
+    : /^k700[- _]*bb$/i.test(want) && (manufacturerMatches(manufacturer ?? '', 'Cesaroni') || manufacturerMatches(manufacturer ?? '', 'AMW'))
+      ? MOTOR_MATCH_POLICY.blackBearK700 : null;
+  const evidenced = evidenceId && motors.find(m => m.motorId === evidenceId);
+  if (evidenced && fits(evidenced) && physicalEvidenceFits(context, evidenced)) {
+    return { motor: evidenced, tier: 2, rivals: [], reason: evidenceId === MOTOR_MATCH_POLICY.whiteThunderE31
+      ? E31_CORROBORATED
+      : 'RockSim used K700BB for both Blue Baboon and Black Bear. The single-motor file’s stored motor mass and burn time fit the 2088 g Black Bear, so the app loaded it; check the motor.' };
+  }
+  const whole = rankMatches(want, diameterMm, motors, manufacturer, () => true, context);
+  if (whole && want === 'g80' && (!manufacturer?.trim() || /^(unknown|custom)$/i.test(manufacturer.trim()))) {
+    const target = motors.find(m => m.motorId === MOTOR_MATCH_POLICY.aeroTechG80);
+    if (target && fits(target) && equivalentG80(whole.motor, target)) whole.curveEquivalent = target;
+  }
+  if (whole && want === 'g69' && manufacturerMatches(manufacturer ?? '', 'Cesaroni') && whole.motor.motorId === MOTOR_MATCH_POLICY.skidmarkG69) {
+    whole.reason = 'A bare Cesaroni G69 can mean the discontinued G69 Classic (132.997 N·s in RockSim), absent from this catalogue. The app kept the catalogue’s Skidmark (121.1 N·s, 11.897 N·s less); this does not confirm the motor’s identity.';
+  }
+  if (whole && /^k700[- _]*bb$/i.test(want) && whole.motor.motorId === MOTOR_MATCH_POLICY.blueBaboonK700) {
+    whole.reason = 'RockSim used K700BB for both Blue Baboon and Black Bear. The file does not establish Black Bear; the app kept Blue Baboon. Check the motor.';
+  }
   if (whole) return whole;
   // RockSim's own form for a Cesaroni reload puts the total impulse first,
   // “217-H135-WH-12A”, and nothing above reads past it (second review of audit
@@ -828,8 +857,15 @@ export function matchDbMotor(
   if (!prefixed) return null;
   const ns = Number(prefixed[1]);
   const named = want.slice(prefixed[0].length);
-  return rankMatches(named, diameterMm, motors, manufacturer, (m) => impulsePrefixOf(m) === ns)
-    ?? rankMatches(named, diameterMm, motors, manufacturer, (m) => impulseAgrees(m, ns));
+  // A complete impulse-first identity is stronger than a contradictory maker
+  // field ONLY for a unique exact-prefix, agreeing-propellant candidate.
+  const exact = motors.filter(m => impulsePrefixOf(m) === ns && fits(m) && namesByCommonAndPropellant(named, m));
+  const complete = /[- _]\d+[a-z]?$/i.test(named);
+  if (complete && exact.length === 1) {
+    return rankMatches(named, diameterMm, motors, undefined, m => m === exact[0], context);
+  }
+  return rankMatches(named, diameterMm, motors, manufacturer, (m) => impulsePrefixOf(m) === ns, context)
+    ?? rankMatches(named, diameterMm, motors, manufacturer, (m) => impulseAgrees(m, ns), context);
 }
 
 /** matchDbMotor for one spelling of the reference, over the rows `admit` lets in. */
@@ -839,6 +875,7 @@ function rankMatches(
   motors: MotorDbEntry[],
   manufacturer: string | undefined,
   admit: (m: MotorDbEntry) => boolean,
+  context?: MotorMatchContext,
 ): DbMotorMatch | null {
   const looseWant = loose(want);
   // A catalogue designation begins the reference. One with no digit in it —
@@ -893,7 +930,12 @@ function rankMatches(
   const scored = motors
     .filter((m) => (diameterMm === undefined || Math.abs(m.diameter - diameterMm) <= 1.5) && admit(m))
     .map((m) => { const s = standing(m); return { m, tier: tierOf(m), maker: s > 0, direct: s }; })
-    .filter(({ tier, maker }) => tier >= 0 && (tier < 4 || maker));
+    .filter(({ m, tier, maker }) => tier >= 0 && (tier < 4 || maker)
+      // Capacity disambiguates the reviewed J360SK collision. A global filter
+      // would remove correctly named F31-CL from space_ferry_1.rkt (stored
+      // 24 mm tube, 29 mm motor), violating the governing no right->nothing
+      // rule. Other contradictory geometry needs its own reviewed policy.
+      && !(/^j360[- _]*sk$/i.test(want) && tier > 0 && Number.isFinite(context?.mountBoreMm) && m.diameter > context!.mountBoreMm! + 1.5));
   // A maker that catalogues the common name keeps the reference (see
   // findDbMotor) — unless all it has is a tier-4 guess, or nothing, and another
   // maker's row IS the designation, bar a delay. KBA and Kosdon each catalogue
@@ -905,15 +947,18 @@ function rankMatches(
   // (rank 2): RockSim files AeroTech as “A-M”, which reads as AMW's “AM”, and
   // AMW's Green Gorilla I285 shut “I285Redline” out of AeroTech's I285R, the
   // only Redline I285 and v0.138's match (third review of the audit). A code
-  // is not enough: “217-H135-WH-12A” filed under AeroTech stays unmatched.
+  // alone is not enough; matchDbMotor separately admits a unique, complete
+  // exact impulse-prefix identity such as “217-H135-WH-12A”.
   const ownBest = Math.min(Infinity, ...scored.filter((s) => s.maker).map((s) => s.tier));
   const keep = claims && !scored.some((s) => !s.maker
     && (s.tier <= 1 ? ownBest >= 4 : ownBest === Infinity && byPropellantName.has(s.m)));
   const candidates = keep ? scored.filter((s) => s.maker) : scored;
   if (candidates.length === 0) return null;
-  const delayNamed = want.split(SEPARATORS).slice(1).map((t) => /^(\d+)[a-z]?$/.exec(t)?.[1]).find(Boolean);
+  const delayNamed = context?.explicitDelay === 'plugged' ? 'p'
+    : context?.explicitDelay !== undefined ? String(context.explicitDelay)
+      : want.split(SEPARATORS).slice(1).map((t) => t === 'p' ? 'p' : /^(\d+)[a-z]?$/.exec(t)?.[1]).find(Boolean);
   const fitsDelay = (m: MotorDbEntry): boolean =>
-    delayNamed !== undefined && (m.delays ?? '').split(',').map((d) => d.trim()).includes(delayNamed);
+    delayNamed !== undefined && (m.delays ?? '').split(',').map((d) => d.trim().toLowerCase()).includes(delayNamed);
   const keyed = candidates.map(({ m, tier, maker, direct }) => ({ m, tier, maker, direct, delay: fitsDelay(m), named: !byCommon.has(m) }));
   keyed.sort((a, b) => a.tier - b.tier
     || Number(b.maker) - Number(a.maker)
@@ -927,6 +972,13 @@ function rankMatches(
       && (Math.abs(k.m.diameter - best.m.diameter) > 1.5
         || Math.abs(k.m.totImpulseNs - best.m.totImpulseNs) > 0.03 * Math.max(k.m.totImpulseNs, best.m.totImpulseNs)))
     .map((k) => k.m);
+  // J360SK is a historical cross-tier collision: CTI's 54 mm Skidmark has
+  // named propellant; its 38 mm J360 has none in the catalogue. Capacity is
+  // not identity: a 54 mm mount can carry the 38 mm motor in an adapter.
+  if (/^j360[- _]*sk$/i.test(want) && best.m.manufacturerAbbrev === 'Cesaroni') {
+    for (const k of keyed.slice(1)) if (k.m.manufacturerAbbrev === 'Cesaroni'
+      && k.m.commonName === 'J360' && !rivals.includes(k.m)) rivals.push(k.m);
+  }
   // A common name followed by letters nothing reads is taken only when it can
   // mean one motor: the maker's only row of that name. Two, and it is a guess
   // — even two with the same impulse: AMW's K700 is Black Bear and Blue Baboon.
@@ -1038,8 +1090,13 @@ export function findDbMotor(
   diameterMm?: number,
   motors: MotorDbEntry[] = getCatalogue(),
   manufacturer?: string,
+  context?: MotorMatchContext,
 ): MotorDbEntry | null {
-  return matchDbMotor(designation, diameterMm, motors, manufacturer)?.motor ?? null;
+  const match = matchDbMotor(designation, diameterMm, motors, manufacturer, context);
+  // Synchronous import decisions (every-delay, RASAero mass subtraction) use
+  // the same intended row. As for any catalogue lookup, loading still requires
+  // fetchMotorSpec to succeed; the equivalent's explanatory note waits for it.
+  return match?.curveEquivalent ?? match?.motor ?? null;
 }
 
 /** Manufacturers present among motors that fit the mount, with counts. */

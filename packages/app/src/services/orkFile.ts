@@ -21,6 +21,7 @@ import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 
 /**
@@ -34,6 +35,8 @@ import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, val
  */
 
 export interface OrkMotorRef {
+  /** Original import evidence; never derived from a selected catalogue row. */
+  matchContext?: MotorMatchContext;
   designation: string;
   manufacturer: string;
   diameter: number;
@@ -534,6 +537,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       return {
         designation,
+        matchContext: { source: 'ork' },
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
         diameter: num(motorEl, 'diameter', 0.018),
         length: num(motorEl, 'length', 0.07),

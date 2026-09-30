@@ -16,6 +16,8 @@ import {
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
+import type { MotorMatchContext } from './motorMatchPolicy.js';
+import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 
 /**
@@ -1472,9 +1474,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // RockSim's two negative <EjectionDelay> codes are sentinels, not delays —
     // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
     const read = rktEjectionDelay(engineSet, num);
-    const every = read === 'every' ? rktEveryDelay(code, manufacturer) : null;
+    const matchContext = rocksimMotorEvidence(doc, engineSet);
+    const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext) : null;
     const ref: OrkMotorRef = {
       designation: code,
+      matchContext,
       manufacturer,
       diameter: 0, // unknown in the file — match by designation alone
       length: 0,
@@ -1563,7 +1567,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // an explicit 0 s, or on RockSim's −2, would fold into one that is not.
     const key = entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
       r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
-      r.rktEveryDelay ? 'every' : ''].join('|')).sort().join('\n');
+      r.rktEveryDelay ? 'every' : '', /^(26[- _]*E31[- _]+WH[- _]+15A|K700[- _]*BB)$/i.test(r.designation)
+        ? JSON.stringify(r.matchContext) : ''].join('|')).sort().join('\n');
     if (seenSets.has(key)) continue;
     const name = g.name?.trim() || null;
     const cfg: OrkFlightConfig = {
@@ -1833,8 +1838,9 @@ function rktEjectionDelay(engineSet: Element, num: NumReader): number | 'plugged
  */
 export function rktEveryDelay(
   designation: string, manufacturer: string,
+  context?: MotorMatchContext,
 ): { delay: number; autoDelay?: true } | null {
-  const m = findDbMotor(designation, undefined, undefined, manufacturer);
+  const m = findDbMotor(designation, undefined, undefined, manufacturer, context);
   if (!m) return null;
   const dflt = defaultDelay(m);
   return dflt !== null ? { delay: dflt } : { delay: 0, autoDelay: true };

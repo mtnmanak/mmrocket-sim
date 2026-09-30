@@ -1,0 +1,10 @@
+{
+  "review": "Independent identity policy approved in CODEX-GO.md, 2026-09-30; corroborated against shipped catalogue rows and original RockSim files. Rules do not use the baseline choice as truth.",
+  "identities": {
+    "makerlessG80": { "id": "5f4294d20002310000000068", "evidence": "Approved Estes G80/AeroTech G80T equivalence: 136.6 Ns, 1.7 s, same average and maximum thrust; usable AeroTech curve required." },
+    "katanaBlackBear": { "id": "5f4294d2000231000000026f", "file": "rs:Apogee Components/Katana-54mm.rkt", "evidence": "Original file: enabled Stage3Mass 2010 g, Mass0 4098 g, one engine, 2.38 s burnout; Animal.rse Black Bear 2088 g, unlike 1483.1 g Blue Baboon." },
+    "vaporE31": { "id": "5f4294d200023100000003cf", "file": "rs:Apogee Components/Vapor.rkt", "evidence": "Original file: enabled Stage3Mass 186.256 g, Mass0 238.256 g, one engine, 0.87125 s burnout; catalogue 52 g and 0.85 s, RockSim E31WT, 26-E31-WT-15A." },
+    "ctiH135": { "id": "5f4294d2000231000000039a", "evidence": "Cesaroni.rse H135WH and catalogue 217H135-12A White, 216.7 Ns; complete 217-H135-WH-12A identity. AeroTech HP-H135W is White Lightning, 225.84 Ns." },
+    "pluggedI170": { "id": "5f4294d200023100000000b3", "evidence": "KBA I170S lists P; Kosdon I170DH lists 11. Explicit designation delay only; not inferred from a plugged sustainer." }
+  }
+}
