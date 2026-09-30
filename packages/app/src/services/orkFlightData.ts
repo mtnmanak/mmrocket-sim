@@ -1,6 +1,6 @@
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkExportFlightData } from './orkFile.js';
-import { runCarriesNozzleStamp, runMatchesModel, type SimRun } from './simReport.js';
+import { runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
 
 /**
@@ -60,6 +60,8 @@ export interface FlightDataForExportInput {
   model: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean };
   /** Whether ANY stage carries a nozzle exit diameter. */
   hasNozzle: boolean;
+  /** Tree-only, so it also covers runs from inactive motor configurations. */
+  requiresPhysicsRevision?: boolean;
   /**
    * simReport's `motorSetKeyOf` — the SAME function Launch stamps a run with.
    * Passed in rather than imported so a test can hand each configuration a key
@@ -97,10 +99,11 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, M
   // guard exists to prevent. UNKNOWN (a run predating the field) is a refusal
   // here, as everywhere the numbers travel.
   if (runMatchesModel(r, model) !== true) return null;
-  // And the kernel's own physics. A run of a nozzle-bearing design flown
-  // before v0.119 carries no pressure-thrust stamp, and none of the three
-  // keys above can see a kernel change.
+  // And the kernel's own physics: the v0.119 nozzle stamp and the K9/K15
+  // revision. None of the three input keys can see a kernel change. Both
+  // result export and Auto-delay reuse must pass these same guards.
   if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) return null;
+  if (!runCarriesPhysicsRevision(r, input)) return null;
   // The motor set is compared against the CONFIGURATION's own motors, not the
   // live working set: a user who has since switched configurations must still
   // be able to export the results of the others.

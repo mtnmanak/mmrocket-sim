@@ -97,6 +97,7 @@ import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
   currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
+  requiresPhysicsRevision,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -1845,6 +1846,7 @@ export function App() {
     // before v0.119 cannot be re-flown on a design that does — see
     // simReport's runCarriesNozzleStamp (2026-09-08).
     hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
+    requiresPhysicsRevision: requiresPhysicsRevision(tree),
     // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
     // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
     // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
@@ -1896,7 +1898,7 @@ export function App() {
    * `reflyRun` owns that and the rest of the handle protocol.
    */
   const showChartsFor = useCallback(async (run: SimRun): Promise<void> => {
-    if (!built || !primaryMountId) return;
+    if (!built || !primaryMountId || !canShowCharts(run)) return;
     setReflying(run.id);
     setLastRun(run);
     // Let the busy state paint before the synchronous simulation blocks.
@@ -1922,7 +1924,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, launch, effectiveSupersonic, effectiveKbf, cacheFlight]);
+  }, [built, primaryMountId, assigned, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1936,6 +1938,15 @@ export function App() {
     if (!built || !primaryMountId || !lastRun) {
       throw new Error('no flight in memory — press Launch first');
     }
+    // Downloads restore the flown aero model, but must still prove every other
+    // provenance term (including kernel revisions) before replaying a stored ID.
+    const wasSupersonic = lastRun.aeroModel === 'supersonic'
+      || lastRun.aeroModel === 'auto-supersonic';
+    const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
+    if (!runMatchesDesign(lastRun, { ...provenanceKey,
+      aeroMode: wasSupersonic ? 'supersonic' : 'classic', effectiveKbf: wasKbf, autoSupersonic: false })) {
+      throw new Error('This flight can no longer be reproduced — press Launch before downloading flight data.');
+    }
     // Holds `built.rocket` across the paint below — no undo until it is done
     // (see `fullSeriesHolds`).
     fullSeriesHolds.current += 1;
@@ -1946,9 +1957,6 @@ export function App() {
       // selected now. Since a model switch no longer discards the flight, the
       // two can differ — and a CSV that re-flew on today's model would be a
       // different flight from the plots it sits under, under the same name.
-      const wasSupersonic = lastRun.aeroModel === 'supersonic'
-        || lastRun.aeroModel === 'auto-supersonic';
-      const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
       return reflyRun(built.rocket, {
         assigned, hardware: built.hardware, primaryMountId,
         // Auto delay flew the rounded optimum, recorded on the run.
@@ -1962,7 +1970,7 @@ export function App() {
     } finally {
       fullSeriesHolds.current -= 1;
     }
-  }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf]);
+  }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
@@ -2110,6 +2118,7 @@ export function App() {
       // well have burned in the configuration whose numbers are about to be
       // written. Refusal is the safe direction here (2026-09-08).
       hasNozzle: stagesWithNozzle(tree).length > 0,
+      requiresPhysicsRevision: provenanceKey.requiresPhysicsRevision,
       motorSetKeyOf,
       hardwareDeltaKg,
       // Whose delay a run's `delayS` is: an auto-delay run is written only when

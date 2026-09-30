@@ -1,5 +1,5 @@
 import type { WindProfileConditions } from './windProfile.js';
-import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
+import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
 import { flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../model/design.js';
@@ -591,6 +591,8 @@ export interface SimRun extends WindProfileConditions {
    * meaning "older build" (2026-09-08).
    */
   nozzleStages?: string[];
+  /** Kernel revision at launch; absent on runs predating K9/K15. Never backfilled on load. */
+  physicsRevision?: string;
   comments: string;
   /**
    * How loud each comment is, index-aligned to `comments.split(COMMENT_SEP)`
@@ -629,7 +631,7 @@ export const COMMENT_SEP = ' | ';
  * fields that code always writes are always there. Saying so here is what
  * keeps the optional-on-disk fields from forcing a `!` on every fresh run.
  */
-export type FreshSimRun = SimRun & { deployments: DeploymentReport[] };
+export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRevision: string };
 
 /**
  * The launch panel's time-step-caution cost reference when this session has
@@ -687,6 +689,8 @@ export interface DesignMatchKey {
    * "no nozzle", which is the pre-v0.119 behaviour rather than a refusal.
    */
   hasNozzle?: boolean;
+  /** Whether this tree needs the K9/K15 kernel stamp to reproduce an older run. */
+  requiresPhysicsRevision?: boolean;
 }
 
 /**
@@ -774,6 +778,7 @@ export interface DesignMatchInput {
   autoSupersonic: boolean;
   /** Whether a stage with a motor carries a nozzle (App's `motorisedStagesWithNozzle`). */
   hasNozzle: boolean;
+  requiresPhysicsRevision?: boolean;
 }
 
 /**
@@ -792,6 +797,7 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
     effectiveKbf: input.effectiveKbf,
     autoSupersonic: input.autoSupersonic,
     hasNozzle: input.hasNozzle,
+    requiresPhysicsRevision: input.requiresPhysicsRevision,
   };
 }
 
@@ -895,6 +901,7 @@ export function changedSinceRun(
   // function was never given, and must keep answering "unknown" rather than
   // naming a difference in a design it cannot be attributed to.
   if (run.designKey && !runCarriesNozzleStamp(run, cur)) changed.push(PRESSURE_THRUST_CHANGED);
+  if (run.designKey && !runCarriesPhysicsRevision(run, cur)) changed.push(KERNEL_PHYSICS_CHANGED);
   if (changed.length > 0) return changed;
 
   // NOTHING DIFFERS — but silence and a clean bill of health are not the same
@@ -921,6 +928,7 @@ export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
   // design that now spends it — the three keys above cannot see a kernel
   // change (2026-09-08).
   if (!runCarriesNozzleStamp(run, cur)) return false;
+  if (!runCarriesPhysicsRevision(run, cur)) return false;
   // Unlike the UI's "flown on a different model" mark, an UNKNOWN model is a
   // refusal here: re-flying reproduces a flight, and reproducing one whose
   // model we cannot name is exactly the authoritative-looking wrong number
@@ -1022,6 +1030,31 @@ export function runCarriesNozzleStamp(
 
 /** Named in the staleness banner when {@link runCarriesNozzleStamp} refuses. */
 export const PRESSURE_THRUST_CHANGED = 'the motor thrust model';
+
+/** K9 guide-aware rod clearance and K15 transition shoulder wall/cap mass. */
+export const PHYSICS_REVISION = 'guide-clearance-transition-mass-v1';
+export const KERNEL_PHYSICS_CHANGED = 'the launch-guide and transition-shoulder physics';
+
+/**
+ * Like the nozzle stamp, invalidate only trees that can spend the revised physics.
+ * Inspect the app tree BEFORE lowering: protuberances become kernel rail buttons
+ * but are not guides. Include nested guides and both ends of every transition.
+ * Deliberately conservative about guide position, overrides and shoulder geometry:
+ * deciding whether their effect cancels would duplicate the kernel's calculations.
+ */
+export function requiresPhysicsRevision(tree: RocketTree): boolean {
+  const affected = (n: ComponentNode): boolean => n.type === 'launchlug' || n.type === 'railbutton'
+    || (n.type === 'transition'
+      && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0))
+    || (n.children ?? []).some(affected);
+  return tree.components.some(affected);
+}
+
+export function runCarriesPhysicsRevision(
+  run: Pick<SimRun, 'physicsRevision'>, cur: { requiresPhysicsRevision?: boolean },
+): boolean {
+  return cur.requiresPhysicsRevision !== true || run.physicsRevision === PHYSICS_REVISION;
+}
 
 /**
  * Whether a stored run was flown on the model the app is set to now.
@@ -2041,6 +2074,7 @@ export function buildSimRun(input: {
     // does not, so a matching run of a nozzle design always carries it.
     ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
+    physicsRevision: PHYSICS_REVISION,
     // Only when finite — a NaN would reach localStorage as null and read back
     // as "no figure" anyway; absent says that honestly from the start.
     ...(Number.isFinite(da) ? { densityAltitudeM: da } : {}),

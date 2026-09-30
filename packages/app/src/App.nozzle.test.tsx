@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, createElement, type ComponentProps } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
@@ -14,6 +14,10 @@ import { loadCatalogueMotor } from './services/motorMatch.js';
 import { exportOrk } from './services/orkFile.js';
 import type { SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
+import { PHYSICS_REVISION, type SimRun } from './services/simReport.js';
+import { reflyRun } from './services/flightRunner.js';
+import type { FlightCharts } from './components/FlightCharts.js';
+import type { SimHistory } from './components/SimResults.js';
 import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -44,6 +48,29 @@ vi.mock('./services/saveFile.js', async (importOriginal) => {
 vi.mock('./services/orkFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/orkFile.js')>();
   return { ...real, exportOrk: vi.fn(real.exportOrk) };
+});
+
+// Capture the real component callbacks to test their own refusal boundaries,
+// including a stale caller that bypasses the disabled/absent button.
+let chartProps: ComponentProps<typeof FlightCharts>;
+let historyProps: ComponentProps<typeof SimHistory>;
+vi.mock('./components/FlightCharts.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/FlightCharts.js')>();
+  return { ...real, FlightCharts: (props: ComponentProps<typeof FlightCharts>) => {
+    chartProps = props;
+    return createElement(real.FlightCharts, props);
+  } };
+});
+vi.mock('./components/SimResults.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/SimResults.js')>();
+  return { ...real, SimHistory: (props: ComponentProps<typeof SimHistory>) => {
+    historyProps = props;
+    return createElement(real.SimHistory, props);
+  } };
+});
+vi.mock('./services/flightRunner.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/flightRunner.js')>();
+  return { ...real, reflyRun: vi.fn(real.reflyRun) };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -131,7 +158,7 @@ async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | '
 
 const shownName = (host: HTMLElement) => host.querySelector('.vitals-item-name .vitals-value')?.textContent;
 const storedSession = (): SessionState => JSON.parse(localStorage.getItem(SESSION_KEY)!) as SessionState;
-const storedRuns = () => JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as { nozzleStages?: string[] }[];
+const storedRuns = () => JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as SimRun[];
 
 /** Launch pressed, and the flight it records saved. */
 async function launch(host: HTMLElement): Promise<void> {
@@ -164,6 +191,7 @@ beforeEach(() => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
   vi.mocked(exportOrk).mockClear();
+  vi.mocked(reflyRun).mockClear();
 });
 
 afterEach(async () => {
@@ -345,4 +373,115 @@ describe('a stored run from before the pressure-thrust term, on a design with a 
     localStorage.setItem(RUNS_KEY, JSON.stringify(storedRuns().map(({ nozzleStages: _n, ...r }) => r)));
     expect(await afterReload()).toEqual({ offered: false, flightData: 0 });
   }, 30000);
+});
+
+describe('K9/K15 upgrade with an unchanged design, motor and conditions', () => {
+  it.each(['launchlug', 'railbutton', 'transition'] as const)(
+    '%s: preserves the old report, refuses replay/export, and a new Launch restores them', async (type) => {
+      const tree = defaultTree();
+      const stage = tree.components[0]!;
+      const body = stage.children!.find((n) => n.type === 'bodytube')!;
+      if (type === 'transition') {
+        stage.children!.push({ type, id: 'shoulder', name: 'Shouldered transition',
+          length: 0.02, foreRadius: 0.012, aftRadius: 0.01, thickness: 0.001,
+          aftShoulderLength: 0.02, aftShoulderRadius: 0.009,
+          aftShoulderThickness: 0.001, aftShoulderCapped: true } as ComponentNode);
+      } else {
+        body.children!.push({ type, id: 'guide', name: 'Forward guide', length: 0.02,
+          outerRadius: 0.002, thickness: 0.0003,
+          position: { method: 'top', offset: 0.01 } } as ComponentNode);
+      }
+      const m = await c6();
+      m.meta.autoDelay = true;
+      // A deliberately different provisional delay makes reuse of a stale optimum observable.
+      m.spec.ejectionDelay = 9;
+      const motors = { [motorMounts(tree)[0]!.id!]: m };
+      seedSession(tree, motors, {
+        savedConfigs: [{ id: 'A', name: 'A', isDefault: true, motors }], activeConfigId: 'A',
+      });
+      let host = await mountApp();
+      await settle(50);
+      await launch(host);
+      const fresh = storedRuns()[0]!;
+      expect(fresh.physicsRevision).toBe(PHYSICS_REVISION);
+      expect(fresh.delayS).toBe(fresh.recommendedDelayS);
+      expect(fresh.delayS).not.toBe(9);
+      await unmountAll();
+
+      const save = async () => {
+        vi.mocked(exportOrk).mockClear();
+        await act(async () => { button(host, 'Save As / Export').click(); });
+        await act(async () => { button(host.querySelector('.file-menu')!, 'Save .ork').click(); });
+        await settle();
+        return vi.mocked(exportOrk).mock.calls.at(-1)![0];
+      };
+      host = await mountApp();
+      await settle(50);
+      await openTab(host, 'Results');
+      expect(host.textContent).toContain('Show the last saved flight');
+      await act(async () => { button(host, 'Show the last saved flight').click(); });
+      await waitFor(() => vi.mocked(reflyRun).mock.calls.length > 0, 'saved flight replay');
+      await settle(50);
+      expect(storedRuns()).toEqual([fresh]);
+      const series = await chartProps.onFullSeries!();
+      expect(series.summary.maxAltitude).toBeCloseTo(fresh.maxAltitude, 5);
+      // Exercise the download callback itself against missing provenance, even
+      // if a caller retained it while a historical report replaced the shown run.
+      const shown = historyProps.runs[0]!;
+      delete shown.physicsRevision;
+      const calls = vi.mocked(reflyRun).mock.calls.length;
+      // Assert only the refusal text: a failed guard returns thousands of
+      // time-series samples, which Vitest would otherwise dump in its diff.
+      const refusal = await chartProps.onFullSeries!().then(() => null,
+        (error: unknown) => error instanceof Error ? error.message : String(error));
+      expect(refusal).toContain('press Launch');
+      expect(vi.mocked(reflyRun).mock.calls).toHaveLength(calls);
+      shown.physicsRevision = PHYSICS_REVISION;
+      expect(Object.keys((await save()).flightData ?? {})).toEqual(['A']);
+      await unmountAll();
+
+      // Recreate a pre-release payload: identical input keys, different historical
+      // output. Those numbers must survive, never acquire today's charts or optimum.
+      const { physicsRevision: _revision, ...unstamped } = fresh;
+      const old = { ...unstamped, maxAltitude: 123, delayS: 8, recommendedDelayS: 8,
+        safeLiftoffSpeed: false, comments: 'Historical safety report' };
+      localStorage.setItem(RUNS_KEY, JSON.stringify([old]));
+      host = await mountApp();
+      await settle(50);
+      await openTab(host, 'Results');
+      expect(host.textContent).not.toContain('Show the last saved flight');
+      expect(host.textContent).not.toContain('Show charts');
+      vi.mocked(reflyRun).mockClear();
+      await act(async () => { historyProps.onShowCharts!(old as SimRun); });
+      await settle(50);
+      expect(vi.mocked(reflyRun).mock.calls.length).toBe(0);
+      await act(async () => {
+        [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Show')!.click();
+      });
+      const row = host.querySelector<HTMLTableRowElement>('.sim-history .motor-row')
+        ?? host.querySelector<HTMLTableRowElement>('tr.motor-row');
+      expect(row).not.toBeNull();
+      await act(async () => { row!.click(); });
+      expect(host.textContent).toContain('the launch-guide and transition-shoulder physics');
+      expect(host.textContent).toContain('Historical safety report');
+      expect(host.textContent).toContain('Launch');
+      expect(host.textContent).not.toContain('Show charts');
+      const exported = await save();
+      expect(exported.flightData).toEqual({});
+      expect(Object.values(exported.motors ?? {})[0]!.delay).toBe(9);
+      expect(storedRuns()).toEqual([old]);
+
+      await launch(host);
+      const newRun = storedRuns()[0]!;
+      expect(newRun.id).not.toBe(old.id);
+      expect(newRun.physicsRevision).toBe(PHYSICS_REVISION);
+      expect(newRun.designKey).toBe(old.designKey);
+      expect(newRun.motorSetKey).toBe(old.motorSetKey);
+      expect(newRun.conditionsKey).toBe(old.conditionsKey);
+      expect(newRun.maxAltitude).not.toBe(old.maxAltitude);
+      expect(newRun.delayS).toBe(newRun.recommendedDelayS);
+      expect(storedRuns()[1]).toEqual(old);
+      expect(Object.keys((await save()).flightData ?? {})).toEqual(['A']);
+    }, 30000,
+  );
 });
