@@ -1,4 +1,6 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import type { RocketTree } from '@online-openrocket/engine';
+import { recoverySummary } from './recoveryContext.js';
 
 /**
  * Flight-configuration presets (Stage B): the imported file's configurations
@@ -12,8 +14,9 @@ import { savedConfigLabel, type SavedConfig } from '../model/design.js';
  * configuration's current truth, and saving writes it back). Renders nothing
  * when the design carries no configurations.
  */
-export function ConfigPanel({ configs, activeConfigId, hasMotors, onApply, onClear }: {
+export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply, onClear }: {
   configs: SavedConfig[];
+  tree?: RocketTree;
   activeConfigId: string | null;
   /** Whether the working set holds any motor — decides the "None" row's active mark. */
   hasMotors: boolean;
@@ -48,17 +51,18 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, onApply, onCle
           wall. tabIndex makes the scroll region reachable by keyboard alone
           (one extra tab stop, deliberately accepted). */}
       <div className="config-list" role="group" aria-label="Flight configurations" tabIndex={0}>
-        {configs.map((c) => {
+        {configs.map((c, index) => {
           const labels = Object.values(c.motors).map((m) => m.label);
           const isActive = c.id === activeConfigId;
+          const recovery = configs.length > 1 ? recoverySummary(c, tree, isActive) : '';
           return (
             <div key={c.id} className="config-row" style={rowStyle}
               aria-current={isActive ? 'true' : undefined}>
               <button className="file-btn" style={btnStyle} onClick={() => onApply(c)}
-                aria-label={`Apply ${savedConfigLabel(c)}`}
+                aria-label={`Apply ${savedConfigLabel(c)}${recovery ? ` — configuration ${index + 1}; Recovery: ${recovery}` : ''}`}
                 title={isActive
-                  ? 'Reload this configuration — your motor edits and weighed pad mass are kept'
-                  : "Load this configuration's motors and ignition settings"}>
+                  ? 'Reload this configuration — your motor and recovery edits and weighed pad mass are kept'
+                  : "Load this configuration's motors, ignition and recovery settings"}>
                 Apply
               </button>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -71,10 +75,11 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, onApply, onCle
                 <span className="config-motors comp-stats" style={{ display: 'block', margin: 0 }}>
                   {labels.length > 0 ? labels.join(', ') : 'no motors'}
                 </span>
+                {recovery && <span className="comp-stats" style={{ display: 'block', margin: 0 }}>Recovery: {recovery}</span>}
               </span>
               {isActive && (
                 <span className="config-active-tag"
-                  title="This configuration is loaded — your motor edits update it when you save">
+                  title="This configuration is loaded — your motor and recovery edits update it when you save">
                   ▶ active
                 </span>
               )}

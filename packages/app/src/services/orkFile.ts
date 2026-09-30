@@ -445,13 +445,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // the round-trip safe: on save the bare defaults are rewritten from the
       // configuration the user opened, so a config that silently inherited the
       // old defaults would otherwise inherit the NEW ones instead.
-      const src = block ?? el;
-      const o: OrkDeployOverride = {};
-      const event = text(src, ':scope > deployevent');
-      if (event) o.deployEvent = event;
-      if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200);
-      if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0);
-      if (Object.keys(o).length > 0 && node.id) c.deployments[node.id] = o;
+      const o: OrkDeployOverride = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
+      for (const src of block ? [el, block] : [el]) {
+        const event = text(src, ':scope > deployevent');
+        if (event) o.deployEvent = event;
+        if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200);
+        if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0);
+      }
+      if (node.id) c.deployments[node.id] = o;
     }
   };
 
