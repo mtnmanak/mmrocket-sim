@@ -916,8 +916,8 @@ export function changedSinceRun(
   if (run.designKey && !runCarriesPhysicsRevision(run, cur)) {
     // Name only the revisions this run predates that reach this design; a caller
     // with the bare boolean cannot say which, and keeps the generic line.
-    changed.push(cur.physicsRevisions
-      ? physicsChangedText(physicsRevisionsMissed(run, cur)) : KERNEL_PHYSICS_CHANGED);
+    changed.push(...(cur.physicsRevisions
+      ? physicsChangeLabels(physicsRevisionsMissed(run, cur)) : [KERNEL_PHYSICS_CHANGED]));
   }
   if (changed.length > 0) return changed;
 
@@ -1064,7 +1064,7 @@ export interface PhysicsRevision {
 /** Append revisions in flight order; each entry names only the designs it changes. */
 export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   { id: 'guide-clearance-transition-mass-v1', description: 'launch-guide and transition-shoulder', affects: (n) => n.type === 'launchlug' || n.type === 'railbutton' || (n.type === 'transition' && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0)) },
-  { id: 'two-button-guidance-v2', description: 'rail-line and station guidance', affects: (n) => n.type === 'railbutton' },
+  { id: 'two-button-guidance-v2', description: 'rail-button guidance', affects: (n) => n.type === 'railbutton' },
   // v0.144: roll inertia about the true CG axis. Only a design that can roll —
   // a canted fin — flies differently; see hasRollForcing.
   { id: 'true-cg-roll-inertia-v3', description: 'roll-inertia', affectsTree: (t) => affectsRollInertia(t) && hasRollForcing(t) },
@@ -1075,12 +1075,16 @@ export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
 ];
 export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
 
-/** "the a physics", "the a and b physics", "the a, b and c physics". */
-export function physicsChangedText(revisions: readonly PhysicsRevision[]): string {
-  const d = revisions.map((r) => r.description);
-  return `the ${d.length > 1 ? `${d.slice(0, -1).join(', ')} and ${d[d.length - 1]}` : (d[0] ?? 'kernel')} physics`;
+/**
+ * One banner entry per revision — "the roll-inertia physics" — so the banner's
+ * own list joins them; a description can itself contain "and", which one joined
+ * sentence would muddle.
+ */
+export function physicsChangeLabels(revisions: readonly PhysicsRevision[]): string[] {
+  return revisions.map((r) => `the ${r.description} physics`);
 }
-export const KERNEL_PHYSICS_CHANGED = physicsChangedText(PHYSICS_REVISIONS);
+/** For a caller with only the boolean, which cannot say which revisions apply. */
+export const KERNEL_PHYSICS_CHANGED = 'the simulator’s physics';
 
 export function physicsRevisionsFor(tree: RocketTree): string[] {
   return PHYSICS_REVISIONS.filter(({ affects, affectsTree }) => {

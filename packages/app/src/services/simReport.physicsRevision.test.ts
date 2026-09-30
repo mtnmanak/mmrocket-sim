@@ -6,7 +6,7 @@ import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
   changedSinceRun, designMatchKeyOf, KERNEL_PHYSICS_CHANGED, PHYSICS_REVISION,
-  physicsChangedText, physicsRevisionsFor, physicsRevisionsMissed, requiresPhysicsRevision,
+  physicsChangeLabels, physicsRevisionsFor, physicsRevisionsMissed, requiresPhysicsRevision,
   runCarriesPhysicsRevision, runMatchesDesign, type SimRun,
 } from './simReport.js';
 import { flightDataForExport, flownAutoDelays, type FlightDataForExportInput } from './orkFlightData.js';
@@ -146,7 +146,7 @@ describe('ordered physics revision history', () => {
       motorSetKeyOf: () => key.motorSetKey, primaryMountOf: () => 'mount', hardwareDeltaKg: 0 };
     expect(runMatchesDesign(run, key)).toBe(accepted);
     // With the per-revision list, the banner names only what this run missed.
-    expect(changedSinceRun(run, key)).toEqual(accepted ? [] : ['the rail-line and station guidance physics']);
+    expect(changedSinceRun(run, key)).toEqual(accepted ? [] : ['the rail-button guidance physics']);
     expect(Object.keys(flightDataForExport(input)).length > 0).toBe(accepted);
     expect(Object.keys(flownAutoDelays(input)).length > 0).toBe(accepted);
     expect(runCarriesPhysicsRevision({ physicsRevision: PHYSICS_REVISION }, key)).toBe(true);
@@ -183,9 +183,10 @@ describe('v0.144 revisions: roll inertia, strap-on nozzle, pods-only base', () =
     const cur = { physicsRevisions: physicsRevisionsFor(tree) };
     const missed = physicsRevisionsMissed({ physicsRevision: 'guide-clearance-transition-mass-v1' }, cur);
     expect(missed.map((r) => r.id)).toEqual(['two-button-guidance-v2', 'true-cg-roll-inertia-v3']);
-    expect(physicsChangedText(missed)).toBe('the rail-line and station guidance and roll-inertia physics');
-    expect(physicsChangedText(physicsRevisionsMissed({}, { physicsRevisions: ['strap-on-nozzle-v4'] })))
-      .toBe('the strap-on nozzle physics');
+    // One banner entry each, so a description's own "and" cannot run into the next.
+    expect(physicsChangeLabels(missed)).toEqual(['the rail-button guidance physics', 'the roll-inertia physics']);
+    expect(physicsChangeLabels(physicsRevisionsMissed({}, { physicsRevisions: ['strap-on-nozzle-v4'] })))
+      .toEqual(['the strap-on nozzle physics']);
     expect(physicsRevisionsMissed({ physicsRevision: PHYSICS_REVISION }, cur)).toEqual([]);
   });
 });

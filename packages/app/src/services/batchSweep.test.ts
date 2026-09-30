@@ -229,7 +229,10 @@ it('Batch builds and flies the switched recovery tree and retains the existing p
     }
     build.mockRestore();
   }
-});
+  // Flies real kernel flights, now through the per-mount Auto solver's probes as
+  // well: CI's Node 22 is slower than a laptop, and 5 s timed out (the v0.143
+  // K9 tests' lesson, b82402c).
+}, 60_000);
 
 it('the shipped engine deploys at the switched altitude or delayed charge', () => {
   const base = rocket();

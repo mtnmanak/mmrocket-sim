@@ -59,17 +59,27 @@ describe('a motor written onto a built handle keeps its ignition', () => {
   });
 
   it('no other site in Batch writes a motor without restoring ignition', () => {
-    // Every per-candidate write below applyOthers targets the mount being
-    // SWEPT, which carries the candidate and not a design ignition. If one
-    // ever writes a NON-target mount it belongs in applyOthers instead.
+    // Since the per-mount Auto solver (v0.144) Batch flies every candidate
+    // through flightRunner.flyLaunch — the Launch button's own procedure — and
+    // writes the other mounts through writeMountMotor in applyOthers. Both put
+    // the ignition back. Batch itself therefore holds NO raw setMotorById: one
+    // added here would bypass that restore.
     const src = batch();
-    const writes = src.match(/\.setMotorById\(/g) ?? [];
-    expect(writes.length,
-      'a setMotorById was added to the batch sweep — if it writes a mount the '
-      + 'design configured, its ignition has to go back too')
-      // The candidate write and its delay re-fly: the two flight passes share
-      // ONE flight procedure since audit 2026-09-22 (flyLegs), where each used
-      // to write twice on its own. applyOthers writes through writeMountMotor.
-      .toBe(2);
+    expect(src.match(/\.setMotorById\(/g) ?? [],
+      'a raw setMotorById was added to the batch sweep — write through '
+      + 'writeMountMotor (or fly through flyLaunch) so the ignition goes back too')
+      .toEqual([]);
+    expect(src, 'Batch no longer flies through flyLaunch — where do its motors get written now?')
+      .toContain('await flyLaunch(');
+  });
+
+  it('the shared runner writes motors only through writeMountMotor', () => {
+    // flyLaunch is now Batch's writer too, so its one raw write must be the
+    // restore-carrying writeMountMotor body.
+    const src = readFileSync(join(here, './flightRunner.ts'), 'utf8');
+    const raw = src.match(/\.setMotorById\(/g) ?? [];
+    expect(raw.length, 'a second raw setMotorById in flightRunner bypasses the ignition restore').toBe(1);
+    const writer = src.slice(src.indexOf('export function writeMountMotor('));
+    expect(writer.slice(0, writer.indexOf('\n}\n'))).toContain('rocket.setMotorById(id, spec);');
   });
 });
