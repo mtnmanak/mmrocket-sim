@@ -88,7 +88,13 @@ it.each([
     const payload = Object.fromEntries(Object.entries(payloads[0]).map(([name, versions]) => [name, versions.sort()]));
     expect(payload.vite).toEqual(expected.vite);
     expect(payload.vitest).toEqual(expected.vitest);
-    expect(payload).toEqual(expected);
+    // Every lockfile package and version must be audited - that is what an inherited
+    // omit would break. Not exact equality: npm on CI's Linux runner sends two
+    // packages this lockfile-derived set does not list (557 vs 555, v0.143's
+    // second push), and an EXTRA package audited is harmless.
+    const missing = Object.entries(expected).flatMap(([name, versions]) =>
+      versions.filter((v) => !(payload[name] ?? []).includes(v)).map((v) => `${name}@${v}`));
+    expect(missing).toEqual([]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     rmSync(temp, { recursive: true, force: true });
