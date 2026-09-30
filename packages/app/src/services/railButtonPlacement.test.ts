@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from './railButtonPlacement.js';
+import { newRailButtonPair, RAIL_BUTTON_AFT_GAP, railButtonPlacement } from './railButtonPlacement.js';
 
 /**
  * The auto-place rule on its own. The panel's button — its words, and that it
@@ -72,5 +72,100 @@ describe('railButtonPlacement', () => {
     // CG a hair forward of the tube's start still counts as on it.
     expect(at(0.1 - 5e-10).fits).toBe(true);
     expect(at(0.1 - 5e-9).fits).toBe(false);
+  });
+});
+
+/**
+ * A NEW rail button from the Add menu (Eric, 2026-09-30): Auto-place pressed on
+ * it until it stops moving, else a pair on the tube alone. The Add menu's
+ * wiring, the kernel, the flight and one Ctrl+Z are in addComponent.test.ts and
+ * App.addRailButton.test.tsx.
+ */
+describe('newRailButtonPair', () => {
+  const fresh = () => button({ method: 'middle', offset: 0 });
+  /**
+   * Auto-place on the 1 m tube at 100-1100 mm of a 1.1 m rocket, the button's
+   * kernel station read from its own position (a zero-length part), and a CG
+   * that `cgOf` gives for the button as placed — so a test can move the CG
+   * with the pair the way its mass does.
+   */
+  const pressOn = (cgOf: (b: ComponentNode) => number) => (b: ComponentNode) => {
+    const pos = b.position as { method: 'middle'; offset: number };
+    return railButtonPlacement(b, {
+      rocketLength: 1.1, cg: cgOf(b), positionX: STATION.middle + pos.offset, parentLength: 1,
+    });
+  };
+
+  it('is exactly the auto-place patch on the first press when the CG does not move', () => {
+    const pair = newRailButtonPair(fresh(), 1, pressOn(() => 0.55));
+    const pressed = railButtonPlacement(fresh(), {
+      rocketLength: 1.1, cg: 0.55, positionX: STATION.middle, parentLength: 1,
+    });
+    expect(pair.rule).toBe('auto-place');
+    expect(pair.patch).toEqual(pressed.patch);
+    expect(pair.patch.instanceCount).toBe(2);
+    // One press placed it; the second found it had not moved.
+    expect(pair.presses).toBe(2);
+  });
+
+  it('presses again while the pair moves the CG, and stops where a press no longer moves it', () => {
+    // A CG that follows the pair's forward station a little (its own mass):
+    // 0.55 m with the button at the tube middle, 5 % of any move after that.
+    const cgOf = (b: ComponentNode) => {
+      const fwd = STATION.middle + (b.position as { offset: number }).offset;
+      return 0.55 + 0.05 * (fwd - STATION.middle);
+    };
+    const pair = newRailButtonPair(fresh(), 1, pressOn(cgOf));
+    expect(pair.rule).toBe('auto-place');
+    expect(pair.presses).toBeGreaterThan(2);
+    // A fixed point: one more press does not move it.
+    const again = pressOn(cgOf)({ ...fresh(), ...pair.patch } as ComponentNode);
+    expect(Math.abs(again.patch.position.offset - pair.patch.position.offset)).toBeLessThan(1e-7);
+    // The fixed point of cg = 0.55 + 0.05 (cg - 0.6): cg = (0.55 - 0.03) / 0.95.
+    expect(STATION.middle + pair.patch.position.offset).toBeCloseTo(0.52 / 0.95, 6);
+  });
+
+  it('keeps the last accepted placement when a later press refuses', () => {
+    let n = 0;
+    const pair = newRailButtonPair(fresh(), 1, (b) => (++n === 1 ? pressOn(() => 0.55)(b) : null));
+    expect(pair.rule).toBe('auto-place');
+    expect(pair.presses).toBe(1);
+    expect(STATION.middle + pair.patch.position.offset).toBeCloseTo(0.55, 12);
+  });
+
+  it('with no build (no press), puts the pair at the tube middle and an inch off the tube end', () => {
+    const pair = newRailButtonPair(fresh(), 1, null);
+    expect(pair.rule).toBe('tube-middle');
+    expect(pair.patch.instanceCount).toBe(2);
+    expect(pair.patch.position).toEqual({ method: 'middle', offset: 0 });
+    expect(pair.patch.instanceSeparation).toBeCloseTo(0.5 - RAIL_BUTTON_AFT_GAP, 12);
+  });
+
+  it('falls back to the tube when auto-place refuses the first press, or the design does not build', () => {
+    // CG forward of the tube (the pair would leave it).
+    expect(newRailButtonPair(fresh(), 1, pressOn(() => 0.05)).rule).toBe('tube-middle');
+    // CG within 20 mm of the aft button's station.
+    expect(newRailButtonPair(fresh(), 1, pressOn(() => 1.06)).rule).toBe('tube-middle');
+    // A CG the kernel could not give a number for.
+    expect(newRailButtonPair(fresh(), 1, pressOn(() => Number.NaN)).rule).toBe('tube-middle');
+    // The design with the button in it does not build.
+    expect(newRailButtonPair(fresh(), 1, () => null).rule).toBe('tube-middle');
+  });
+
+  it('on a tube too short for the middle rule, uses its quarter points — both buttons on the tube', () => {
+    // 90.8 mm is the break-even: L/2 - 25.4 mm must exceed 20 mm.
+    expect(newRailButtonPair(fresh(), 0.0909, null).rule).toBe('tube-middle');
+    const pair = newRailButtonPair(fresh(), 0.08, null);
+    expect(pair.rule).toBe('tube-quarters');
+    expect(pair.patch.instanceCount).toBe(2);
+    expect(pair.patch.instanceSeparation).toBeCloseTo(0.04, 12);
+    // Forward button at 20 mm on the tube: 20 mm forward of its 40 mm middle.
+    expect(pair.patch.position.method).toBe('middle');
+    expect(pair.patch.position.offset).toBeCloseTo(-0.02, 12);
+  });
+
+  it("writes on the button's own position method", () => {
+    const pair = newRailButtonPair(button({ method: 'top', offset: 0 }), 1, null);
+    expect(pair.patch.position).toEqual({ method: 'top', offset: 0.5 });
   });
 });

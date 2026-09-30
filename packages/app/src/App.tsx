@@ -112,7 +112,7 @@ import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, findNode,
-  findParent, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, moveNode,
+  findParent, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, moveNode,
   isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
@@ -125,7 +125,7 @@ import { legacyStageLimits, migrateMotorLengths, motorLengthLimit, motorLengthLo
 import { MotorLengthField } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
-import { interleaveRotation } from './tree/schema.js';
+import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
@@ -3666,22 +3666,31 @@ export function App() {
                 setSelectedId(copy.id!);
               }}
               onAdd={(parentId, type: ComponentType) => {
-                // New components inherit diameter/material/finish from the
-                // component they follow (previous sibling, else the parent).
-                const parent = parentId === 'stage' ? 'stage' as const : findNode(tree, parentId);
-                const siblings = parent === 'stage'
-                  ? stages(tree)[0]?.children ?? []
-                  : parent?.children ?? [];
-                const prev = siblings.length ? siblings[siblings.length - 1]! : null;
-                const node = inheritDefaults(makeNode(type), parent, prev);
-                // Adding a second fin-type set to a tube: default it BETWEEN
-                // the existing set's fins instead of on top of them
-                // (2026-08-05d — tube fins + straight fins interleave).
-                if (type.endsWith('finset') && parent !== 'stage') {
-                  const existing = (parent?.children ?? []).find((c) => c.type.endsWith('finset'));
-                  if (existing) node['rotation'] = interleaveRotation(existing);
-                }
-                setTree(addChild(tree, parentId, node));
+                // services/addComponent.ts: inherited diameter/material/finish,
+                // interleaved fin sets, and a new rail button as an auto-placed
+                // pair — ONE tree write, so one Ctrl+Z removes the new part.
+                // A rail button's pair is placed on the design it lands in,
+                // built exactly as the build memo builds it (same motors,
+                // weighing and model flags), so its CG is the one the panel's
+                // Auto-place reads. The reset is a no-op: resetting would
+                // invalidate `built.rocket`, which a flight may hold; these
+                // handles go at the memo's next build.
+                const measure = (t: RocketTree) => {
+                  const b = buildDesign({
+                    tree: t, assigned, kbf: effectiveKbf, supersonic: effectiveSupersonic,
+                    measuredDryMassKg: measured.massKg, primaryMountId, currentSetKey,
+                  }, { reset: () => {}, build: KERNEL_HANDLES.build });
+                  if ('error' in b) return null;
+                  return {
+                    rocketLength: b.info.length,
+                    cg: b.info.cg,
+                    stationOf: (id: string) => {
+                      try { return b.rocket.componentInfo(id).positionX; } catch { return undefined; }
+                    },
+                  };
+                };
+                const { tree: next, node } = addNewComponent(tree, parentId, type, measure);
+                setTree(next);
                 setSelectedId(node.id!);
               }}
               onAddStage={() => {

@@ -84,3 +84,99 @@ export function railButtonPlacement(button: ComponentNode, at: {
     },
   };
 }
+
+/** Which rule placed a NEW rail button's pair — see {@link newRailButtonPair}. */
+export type NewPairRule = 'auto-place' | 'tube-middle' | 'tube-quarters';
+
+/**
+ * How many times {@link newRailButtonPair} presses Auto-place at most, and the
+ * movement (m) under which it stops early. Each press re-reads the CG with the
+ * pair where the last press put it; the pair's own mass moves the CG by a
+ * small fraction of how far the pair moved, so the presses converge fast.
+ * Measured on the starter rocket with no motor (2026-09-30): the second press
+ * moved the pair 3.6 mm, the third 0.10 mm, the fourth 3 microns, and the
+ * fifth found it settled — five builds for one add.
+ */
+export const NEW_PAIR_MAX_PRESSES = 6;
+export const NEW_PAIR_SETTLED_M = 1e-7;
+
+/**
+ * A NEW rail button is a PAIR (Eric, 2026-09-30: "make new rail buttons
+ * default to an auto-placed pair"). Since v0.144 a rail-button line guides the
+ * rocket only while TWO of its stations are still on the rail, so the kernel's
+ * one-button default — which a part added from the Add menu used to take —
+ * flew with no guided distance at all.
+ *
+ * ONLY the Add menu calls this (services/addComponent.ts). The kernel-default
+ * mirror stays one button (schema.ts BLANK_BY_TYPE), so a desktop file that
+ * states or omits a count opens exactly as it did; a paste or a duplicate keeps
+ * the source's own count and positions.
+ *
+ * `press(b)` is "📍 Auto-place rail buttons" pressed on the design with `b` in
+ * it: {@link railButtonPlacement} fed the CG (the loaded CG when a motor is
+ * loaded), the length and `b`'s kernel station from that design's build — or
+ * null when that design does not build or the kernel has no station for `b`.
+ *
+ * The rule, first that applies:
+ *
+ *  1. 'auto-place' — the button is added as one, and Auto-place is pressed on
+ *     it: exactly the old two-step "add, then press". The pair's own few grams
+ *     then move the CG the forward button was put on (3.6 mm aft on the
+ *     starter rocket), so it is pressed again, as its title tells a user to do "after the
+ *     CG moves", until the pair stops moving (NEW_PAIR_SETTLED_M, at most
+ *     NEW_PAIR_MAX_PRESSES presses). The result: pressing Auto-place on a
+ *     new pair does not move it. A later press that auto-place refuses keeps the
+ *     last placement it accepted.
+ *  2. Otherwise — the design does not build, so there is no CG; the kernel has
+ *     no station; or auto-place's own refusal on the first press (the pair would
+ *     leave this tube, or the CG sits within an inch of the aft end) — the pair
+ *     is placed on the TUBE alone, deterministically:
+ *     'tube-middle' — forward button at the tube's middle, aft one an inch
+ *       forward of the tube's aft end, whenever that leaves them more than
+ *       auto-place's 20 mm apart (a tube longer than 90.8 mm);
+ *     'tube-quarters' — on a shorter tube, at its quarter and three-quarter
+ *       points: half the tube apart, both on it. The kernel counts two buttons
+ *       as separate stations once they are more than 0.5 mm apart
+ *       (SimulationStatus.secondStation), so this guides on any tube over 1 mm.
+ *
+ * Known limit (review, 2026-09-30): on a degenerate tube the fallback pair is not
+ * a real pair — length 0 puts both buttons at one station (it flies as
+ * 'single-button'), and below about 20 mm the two 9.7 mm buttons overlap. No
+ * buildable rocket carries its rail buttons on such a tube; the kernel flies the
+ * part either way and the launch report says when a line cannot guide.
+ */
+export function newRailButtonPair(
+  button: ComponentNode,
+  parentLength: number,
+  press: ((b: ComponentNode) => RailButtonPlacement | null) | null,
+): { rule: NewPairRule; patch: RailButtonPlacement['patch']; presses: number } {
+  let placed: RailButtonPlacement['patch'] | null = null;
+  let presses = 0;
+  while (press && presses < NEW_PAIR_MAX_PRESSES) {
+    const at = press(placed ? ({ ...button, ...placed } as ComponentNode) : button);
+    if (!at || !at.feasible) break;
+    presses++;
+    const moved = placed
+      ? Math.max(Math.abs(at.patch.position.offset - placed.position.offset),
+        Math.abs(at.patch.instanceSeparation - placed.instanceSeparation))
+      : Infinity;
+    placed = at.patch;
+    if (moved < NEW_PAIR_SETTLED_M) break;
+  }
+  if (placed) return { rule: 'auto-place', patch: placed, presses };
+  const pos = (button.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  const childLen = axialLength(button);
+  const len = Number.isFinite(parentLength) && parentLength > 0 ? parentLength : 0;
+  const middle = len - RAIL_BUTTON_AFT_GAP - len / 2 > MIN_SPACING;
+  const fwd = middle ? len / 2 : len / 4;
+  const aft = middle ? len - RAIL_BUTTON_AFT_GAP : (3 * len) / 4;
+  return {
+    rule: middle ? 'tube-middle' : 'tube-quarters',
+    presses: 0,
+    patch: {
+      instanceCount: 2,
+      instanceSeparation: aft - fwd,
+      position: { method: pos.method, offset: offsetForStart(pos.method, fwd, childLen, len) },
+    },
+  };
+}
