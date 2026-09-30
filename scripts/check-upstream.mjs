@@ -57,12 +57,16 @@
  *     those rest on are quoted in OPEN_METEO_TERMS below; if any stops
  *     appearing, the copy (WeatherDialog.tsx WEATHER_DIALOG_COPY.intro,
  *     user-guide.md) or the ruling needs a fresh look before the release.
+ *  7. Security advisories in the lockfile and deploy.yml's exact wrangler pin.
+ *     REPORT ONLY: scope and fix route are printed, never applied or counted
+ *     as MOVED. An unavailable audit or gh command is a warning, not a gate.
  *
  * EXIT CODES
  *   0  everything as expected (upstream still broken where we say it is)
  *   1  something MOVED — read the report; a correction may be retirable, or
  *      a row may have drifted to a value neither we nor the table know
  *   2  the check could not run (network/parse). Not a data verdict.
+ *      These codes cover sections 1–6 only; section 7 never changes them.
  *
  * A note on scope, so nobody widens this by accident: the point is to DETECT,
  * never to auto-apply. Nothing here edits presets.json — that is
@@ -71,8 +75,9 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkAdvisories } from './upstream-advisories.mjs';
 
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 
@@ -509,29 +514,37 @@ async function checkOpenMeteoTerms() {
   }
 }
 
-try {
-  say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
-  say('');
-  await checkCorrections();
-  await checkWatch();
-  await checkHead();
-  await checkMaterials();
-  await checkThrustCurve();
-  checkNozzles();
-  await checkOpenMeteoTerms();
-  say('');
-  if (moved === 0) {
-    say(`All ${checked} watched value(s) are where this repo expects them. Nothing to do.`);
-    process.exit(0);
+export async function main(checks = [checkCorrections, checkWatch, checkHead, checkMaterials,
+  checkThrustCurve, checkNozzles, checkOpenMeteoTerms], advisories = checkAdvisories) {
+  let status;
+  try {
+    say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
+    say('');
+    for (const check of checks) await check();
+    say('');
+    if (moved === 0) {
+      say(`All ${checked} watched value(s) in sections 1–6 are where this repo expects them.`);
+      status = 0;
+    } else {
+      say(`${moved} of ${checked} watched value(s) MOVED:`);
+      for (const n of notes) say(`  - ${n}`);
+      say('');
+      say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs.');
+      status = 1;
+    }
+  } catch (err) {
+    console.error('');
+    console.error(`check could not run: ${err.message}`);
+    console.error('(network, or an upstream URL moved — this is NOT a verdict on the data)');
+    status = 2;
   }
-  say(`${moved} of ${checked} watched value(s) MOVED:`);
-  for (const n of notes) say(`  - ${n}`);
-  say('');
-  say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs.');
-  process.exit(1);
-} catch (err) {
-  console.error('');
-  console.error(`check could not run: ${err.message}`);
-  console.error('(network, or an upstream URL moved — this is NOT a verdict on the data)');
-  process.exit(2);
+  // Run even after an earlier network failure; row 43's report must still be visible.
+  try { advisories(join(here, '..'), say); } catch (err) {
+    say(`  warn could not check security advisories (${err.message})`);
+  }
+  return status;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  process.exitCode = await main();
 }

@@ -1,0 +1,28 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "esbuild": {
+      "name": "esbuild",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [{
+        "name": "esbuild",
+        "title": "esbuild enables any website to send any requests to the development server and read the response",
+        "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99",
+        "severity": "moderate",
+        "range": "<=0.24.2"
+      }],
+      "effects": ["vite"],
+      "range": "<=0.24.2",
+      "nodes": ["node_modules/esbuild"],
+      "fixAvailable": { "name": "vite", "version": "8.3.1", "isSemVerMajor": true }
+    },
+    "vite-node": {
+      "name": "vite-node",
+      "severity": "moderate",
+      "via": ["vite"],
+      "nodes": ["node_modules/vite-node"],
+      "fixAvailable": { "name": "vitest", "version": "5.0.1", "isSemVerMajor": true }
+    }
+  }
+}
