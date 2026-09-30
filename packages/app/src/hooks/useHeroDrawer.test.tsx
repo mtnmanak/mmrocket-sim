@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DRAWER_CLOSE_BELOW_PX, DRAWER_OPEN_ABOVE_PX } from '../components/heroDrawer.js';
+import { StatsChip } from '../components/StatTiles.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
   HERO_CHIP_RESERVE, HERO_WIDE_QUERY, heroStageStyle, useHeroDrawer, type HeroDrawer,
 } from './useHeroDrawer.js';
@@ -95,6 +97,7 @@ afterEach(() => {
   host?.remove();
   root = null;
   host = null;
+  localStorage.removeItem('online-openrocket.chip.v1');
   vi.unstubAllGlobals();
 });
 
@@ -223,6 +226,55 @@ describe('useHeroDrawer — a canvas too short for the drawer', () => {
 });
 
 describe('the hero stage sizes to the drawing', () => {
+  it.each([480, 320])('settles after narrowing and widening a fit-to-content stage capped at %i px', (cap) => {
+    let renders = 0;
+    let hero: HeroDrawer;
+    function Probe() {
+      hero = useHeroDrawer();
+      // Bound a broken effect cycle so this regression fails instead of hanging.
+      if (++renders > 40) throw new Error('drawer resize never settled');
+      const natural = Number.parseFloat(
+        (hero.stageStyle as Record<string, string> | undefined)?.['--hero-natural'] ?? '480',
+      );
+      return (
+        <div ref={hero.stageRef} data-h={Math.min(cap, natural)}>
+          <StatsChip info={{
+            length: 0.37, refDiameter: 0.024, mass: 0.0513, massEmpty: 0.0273,
+            cg: 0.262, cgEmpty: 0.198, cp: 0.244, stabilityCalibers: -0.77,
+            cna: 8.995, warningTexts: [],
+          } as never} drawerOpen={hero.open} tight={hero.tight} />
+          {hero.open && <div ref={hero.drawerRef} data-h="180" />}
+        </div>
+      );
+    }
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const chipKey = 'online-openrocket.chip.v1';
+    const stored = JSON.stringify({ x: 600, y: 80, folded: false });
+    localStorage.setItem(chipKey, stored);
+    act(() => root!.render(<PrefsProvider><Probe /></PrefsProvider>));
+    act(() => hero.setNatural(180));
+    dragTo(390);
+    expect(hero!.open).toBe(false);
+    expect(() => dragTo(1400)).not.toThrow();
+    // Model the same CSS dependency as the browser: natural + clearance,
+    // capped by viewport availability. Fixed data-h fixtures hid this cycle.
+    const open = cap > DRAWER_OPEN_ABOVE_PX;
+    expect(hero!.open).toBe(open);
+    expect(hero!.clearance).toBe(open ? 200 : 0);
+    expect(host.querySelector('.stats-chip-folded')).not.toBeNull();
+    expect(localStorage.getItem(chipKey)).toBe(stored);
+    // More observer deliveries at idle must leave both the drawer and chip
+    // settled, including a genuinely short canvas that must stay closed.
+    resize();
+    const settled = renders;
+    for (let i = 0; i < 5; i++) resize();
+    expect(renders).toBe(settled);
+    expect(hero!.open).toBe(open);
+    expect(host.querySelector('.stats-chip-folded')).not.toBeNull();
+  });
+
   it('asks for rocket + chip headroom + the drawer, and publishes the drawer on its own', () => {
     const h = mount({ drawerH: 180 });
     expect(h.current.stageStyle).toBeUndefined(); // nothing reported yet: the pure CSS clamp
