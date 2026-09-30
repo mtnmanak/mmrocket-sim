@@ -107,6 +107,7 @@ describe('buildSimRun — staged branches (Release C)', () => {
           series: {
             ...base.series,
             time: bTime,
+            mass: bTime.map(() => 0.025),
             altitude: [180, APOGEE, APOGEE - vDesc * 3, 0],
             velocity: [80, 20, vDesc, vDesc],
           },
@@ -143,7 +144,77 @@ describe('buildSimRun — staged branches (Release C)', () => {
     const b = run.branches![0]!;
     expect(b.tumbles).toBe(true);
     expect(b.deployments.length).toBe(0);
+    expect(b.recoveryMass).toBeNull();
     expect(run.comments).not.toMatch(/must recover actively/);
+  });
+
+  it('reads each booster recovery weight from its own branch, independently of the sustainer', () => {
+    const input = stagedInput(true, false);
+    const booster = input.result.branches![1]!;
+    input.result.branches!.push({
+      ...booster, name: 'Lower booster',
+      series: { ...booster.series, mass: booster.series.time.map(() => 0.060) },
+    });
+    const run = buildSimRun(input);
+    expect(run.branches![0]!.recoveryMass).toBeCloseTo(0.025, 9);
+    expect(run.branches![1]!.recoveryMass).toBeCloseTo(0.060, 9);
+    expect(run.burnoutMass).toBeCloseTo(0.040, 9);
+  });
+
+  it.each(['BURNOUT', 'STAGE_SEPARATION', 'RECOVERY_DEVICE_DEPLOYMENT'])(
+    'waits for the booster\'s own latest %s when reading recovery weight', (lastEvent) => {
+      const input = stagedInput(true, false);
+      const booster = input.result.branches![1]!;
+      booster.events = [
+        { type: 'BURNOUT', time: 2 },
+        { type: 'STAGE_SEPARATION', time: 2 },
+        { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 2.5 },
+        { type: lastEvent, time: 6 },
+      ];
+      if (lastEvent === 'RECOVERY_DEVICE_DEPLOYMENT') booster.events.splice(2, 1);
+      booster.series.mass = [0.100, 0.075, 0.025, 0.025];
+      expect(buildSimRun(input).branches![0]!.recoveryMass).toBeCloseTo(0.025, 9);
+    },
+  );
+
+  it('interpolates the booster mass at its first deployment, not a later deployment', () => {
+    const input = stagedInput(true, false);
+    const booster = input.result.branches![1]!;
+    booster.series.mass = [0.030, 0.020, 0.020, 0.020];
+    booster.events.push({ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 6 });
+    expect(buildSimRun(input).branches![0]!.recoveryMass).toBeCloseTo(0.025, 9);
+  });
+
+  it.each([
+    ['empty', []], ['wrong length', [0.025]],
+    ['null sample', [null, null, null, null]],
+    ['NaN sample', [NaN, NaN, NaN, NaN]],
+    ['infinite sample', [Infinity, Infinity, Infinity, Infinity]],
+    ['zero sample', [0, 0, 0, 0]], ['negative sample', [-1, -1, -1, -1]],
+  ])('leaves booster recovery weight blank for an unreadable mass series: %s', (_name, values) => {
+    const input = stagedInput(true, false);
+    input.result.branches![1]!.series.mass = values as number[];
+    expect(buildSimRun(input).branches![0]!.recoveryMass).toBeNull();
+  });
+
+  it.each([1, 100, NaN])('does not guess booster recovery weight outside its recorded flight: %s', (time) => {
+    const input = stagedInput(true, false);
+    input.result.branches![1]!.events = [{ type: 'RECOVERY_DEVICE_DEPLOYMENT', time }];
+    expect(buildSimRun(input).branches![0]!.recoveryMass).toBeNull();
+  });
+
+  it('leaves booster recovery weight blank without time samples', () => {
+    const input = stagedInput(true, false);
+    input.result.branches![1]!.series.time = [];
+    expect(buildSimRun(input).branches![0]!.recoveryMass).toBeNull();
+  });
+
+  it('rejects a non-finite mass at an exact sample', () => {
+    const input = stagedInput(true, false);
+    const booster = input.result.branches![1]!;
+    booster.events = [{ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 2 }];
+    booster.series.mass[0] = Infinity;
+    expect(buildSimRun(input).branches![0]!.recoveryMass).toBeNull();
   });
 
   it('flags a chuteless booster above the high-power line loudly', () => {

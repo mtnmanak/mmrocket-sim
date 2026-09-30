@@ -292,6 +292,9 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               <span className={landBad ? 'stability-bad' : undefined}>
                 {b.landingRate === null ? '—' : fmtSi('velocity', vel, b.landingRate)} <UnitChip quantity="velocity" />
               </span>
+              {b.recoveryMass != null && (
+                <>{' '}· recovery weight {fmtSi('mass', mass, b.recoveryMass)} <UnitChip quantity="mass" /></>
+              )}
               {b.deployments.length === 0 && (
                 <span className="simdet-comments"> · no recovery device{b.tumbles ? ' (tumbles)' : ''}</span>
               )}

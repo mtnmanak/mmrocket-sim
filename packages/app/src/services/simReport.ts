@@ -355,6 +355,8 @@ export interface BranchReport {
   deployments: DeploymentReport[];
   landingRate: number | null;
   safeLandingRate: boolean | null;
+  /** Own branch's settled recovery mass (kg); absent on older saved runs. */
+  recoveryMass?: number | null;
 }
 
 export interface SimRun {
@@ -1164,6 +1166,27 @@ function eventTime(result: FlightResult, type: string): number | null {
   return ev ? ev.time : null;
 }
 
+/** Shared sampling instant for each branch (open-items: Booster recovery weight in the launch report). */
+function recoveryMassTime(events: FlightEvent[]): number | null {
+  const lastOf = (type: string): number | null => {
+    const hits = events.filter((e) => e.type === type);
+    return hits.length > 0 ? hits[hits.length - 1]!.time : null;
+  };
+  const firstDeploy = events.find((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')?.time ?? null;
+  const settled = [lastOf('BURNOUT'), lastOf('STAGE_SEPARATION'), firstDeploy]
+    .filter((t): t is number => t !== null && Number.isFinite(t));
+  return settled.length > 0 ? Math.max(...settled) : null;
+}
+
+function boosterRecoveryMass(events: FlightEvent[], series: FlightSeries): number | null {
+  if (!events.some((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')) return null;
+  const t = recoveryMassTime(events);
+  // Do not extrapolate a truncated booster flight into a weight under canopy.
+  if (t === null || !(t >= series.time[0]! && t <= series.time[series.time.length - 1]!)) return null;
+  const mass = at(series.time, series.mass, t);
+  return mass !== null && Number.isFinite(mass) && mass > 0 ? mass : null;
+}
+
 /**
  * Recommended delay = the optimum rounded to the nearest WHOLE second.
  * Real-world rule (the owner's): whatever the manufacturer prescribes, flyers
@@ -1627,13 +1650,8 @@ export function buildSimRun(input: {
   // own landing mass — is 81.3 g, 1.9x what comes down (audit 2026-09-22).
   // On a single-stage, single-motor flight the mass is constant from burnout
   // to landing, so every one of those instants reads the same number.
-  const lastOf = (type: string): number | null => {
-    const hits = result.events.filter((e) => e.type === type);
-    return hits.length > 0 ? hits[hits.length - 1]!.time : null;
-  };
-  const settled = [lastOf('BURNOUT'), lastOf('STAGE_SEPARATION'), tDeploy]
-    .filter((t): t is number => t !== null && Number.isFinite(t));
-  const burnoutMass = settled.length > 0 ? at(series.time, series.mass, Math.max(...settled)) : null;
+  const tRecoveryMass = recoveryMassTime(result.events);
+  const burnoutMass = tRecoveryMass !== null ? at(series.time, series.mass, tRecoveryMass) : null;
   const rodExitAoa = sampleAt(series.aoa, iRodClear);
   const launchCG = sampleAt(series.cgLocation, iRodClear) ?? info.cg ?? null;
   const launchCP = sampleAt(series.cpLocation, iRodClear) ?? info.cp ?? null;
@@ -1693,6 +1711,7 @@ export function buildSimRun(input: {
       apogee: alt.length ? Math.max(...alt) : null,
       tumbles: b.events.some((e) => e.type === 'TUMBLE'),
       deployments: bDeployments,
+      recoveryMass: boosterRecoveryMass(b.events, b.series),
       // Vertical, like the sustainer's — a booster drifts in the same wind, and
       // judging its arrival on ground speed charged the wind against it too.
       landingRate: bLanding,

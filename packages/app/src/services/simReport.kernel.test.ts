@@ -41,6 +41,33 @@ const tree = (withChute: boolean): RocketTree => ({
 });
 
 describe('kernel warnings + drift, end-to-end', () => {
+  it.each(['burnout', 'ejection'])('reads a separated booster\'s recovery weight from its own landing mass (%s)', async (separationEvent) => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const boosterBody = tree(true).components[1]!;
+    boosterBody.children!.find((c) => c.type === 'innertube')!.id = 'booster-mount';
+    const rocket = OrkRocket.buildTree({
+      name: 'Two stage recovery',
+      components: [
+        { type: 'stage', name: 'Sustainer', children: tree(true).components },
+        { type: 'stage', name: 'Booster', separationEvent, children: [boosterBody] } as ComponentNode,
+      ],
+    });
+    rocket.setMotorById('mount', C6);
+    rocket.setMotorById('booster-mount', C6);
+    const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05, randomSeed: 42 });
+    const run = buildSimRun({
+      result, info: rocket.staticInfo(), motor: C6,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Two stage recovery', execMs: 1,
+    });
+    const branch = result.branches![1]!;
+    expect(branch.events.some((e) => e.type === 'GROUND_HIT')).toBe(true);
+    expect(branch.events.some((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')).toBe(true);
+    expect(run.branches![0]!.recoveryMass).toBeGreaterThan(0);
+    expect(run.branches![0]!.recoveryMass).toBeCloseTo(branch.series.mass.at(-1)!, 9);
+    expect(run.branches![0]!.recoveryMass).not.toBeCloseTo(run.burnoutMass!, 6);
+  }, 30000);
+
   it('a recovery-device-less rocket surfaces NO_RECOVERY_DEVICE into the SimRun', async () => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     resetEngine();

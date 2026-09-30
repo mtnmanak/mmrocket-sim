@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { fmtSi } from '../prefs/units.js';
 import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse,
 } from '../services/simReport.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
@@ -257,6 +258,49 @@ describe('SimRunDetails — a run stored before v0.099 (audit 2026-09-22)', () =
     };
     render(<SimRunDetails run={r} />);
     expect(cdCells()).toEqual(['—']);
+  });
+});
+
+describe('SimRunDetails — booster recovery weight', () => {
+  it.each(['g', 'kg', 'oz', 'lb'])('shows each booster in the same %s format as the sustainer', (mass) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { mass } }));
+    const r = run();
+    r.branches = [0.025, 0.060].map((recoveryMass, i) => ({
+      name: `Booster ${i + 1}`, apogee: 120, tumbles: false,
+      deployments: [preV099Deployment], landingRate: 5, safeLandingRate: true, recoveryMass,
+    }));
+    render(<SimRunDetails run={r} />);
+    const rows = Array.from(host.querySelectorAll('p')).filter((p) => p.textContent?.includes('separate flight:'));
+    for (const [i, b] of r.branches.entries()) {
+      expect(rows[i]?.textContent).toContain(`recovery weight ${fmtSi('mass', mass, b.recoveryMass!)} `);
+      expect(rows[i]?.querySelector<HTMLSelectElement>('select[aria-label="Mass unit"]')?.value).toBe(mass);
+    }
+    act(() => Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Show all details')?.click());
+    const sustainer = Array.from(host.querySelectorAll('tr')).find((tr) => tr.textContent?.includes('Recovery weight (after burnout)'));
+    expect(sustainer?.textContent).toContain(fmtSi('mass', mass, r.burnoutMass!));
+  });
+
+  it.each([null, undefined])('omits unavailable or legacy booster recovery weight (%s)', (recoveryMass) => {
+    const r = run();
+    r.branches = [{
+      name: 'Booster', apogee: 120, tumbles: true,
+      deployments: [], landingRate: 30, safeLandingRate: false, recoveryMass,
+    }];
+    render(<SimRunDetails run={r} />);
+    const row = Array.from(host.querySelectorAll('p')).find((p) => p.textContent?.includes('separate flight:'));
+    expect(row?.textContent).toContain('no recovery device (tumbles)');
+    expect(row?.textContent).not.toContain('recovery weight');
+    expect(row?.textContent).not.toMatch(/NaN|undefined/);
+  });
+
+  it('keeps a booster recovery weight when the run is saved and loaded', () => {
+    const r = run();
+    r.branches = [{
+      name: 'Booster', apogee: 120, tumbles: false,
+      deployments: [preV099Deployment], landingRate: 5, safeLandingRate: true, recoveryMass: 0.025,
+    }];
+    addRuns([r]);
+    expect(loadRuns()[0]?.branches?.[0]?.recoveryMass).toBeCloseTo(0.025, 9);
   });
 });
 
