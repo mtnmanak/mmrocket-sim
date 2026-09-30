@@ -844,7 +844,7 @@ export function LaunchPanel({
         <div>
           {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0], undefined, false,
             rodLengthHelp(hasLaunchGuide, value.launchGuideAllowance))}
-          {hasLaunchGuide && <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          {hasLaunchGuide && <label className="launch-guide-toggle">
             <input type="checkbox" checked={value.launchGuideAllowance !== false}
               onChange={(e) => onChange({ ...value, launchGuideAllowance: e.target.checked })} />
             Allow for lug and rail-button positions

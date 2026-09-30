@@ -1906,6 +1906,8 @@ describe('Amendment 1 departure state', () => {
     expect([run.timeToRodDeparture, run.rodExitVelocity, run.rodExitAoa, run.thrustToWeightAtRod].every(Number.isFinite)).toBe(true);
     expect(launchGuideExplanation('single-button')).toContain('side by side at one position');
     expect(launchGuideExplanation('single-button')).toContain('Model a rail guide or slide as a launch lug');
+    // A new Rail button part is ONE button, so the note says how to make it guide.
+    expect(launchGuideExplanation('single-button')).toContain('Number of rail buttons to 2');
     expect(launchGuideExplanation('single-button')).not.toContain('speed 0');
   });
   it('persists the kernel note when unusable rail buttons are ignored for a lug', () => {

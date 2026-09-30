@@ -3454,6 +3454,21 @@ select.unit-chip:hover {
   min-width: 160px;
 }
 
+/* The launch-guide allowance under Rod length: an inline checkbox row in the
+   panel's secondary text, not .field's stacked column (which put the box on a
+   line of its own). It may wrap: Rod length is a half-width cell on a phone. */
+.launch-guide-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.launch-guide-toggle input { margin: 1px 0 0; flex: none; }
+
 .motor-inline-label {
   display: flex;
   align-items: center;

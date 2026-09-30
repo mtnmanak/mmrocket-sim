@@ -2200,7 +2200,7 @@ export function launchGuideExplanation(reason: FlightResult['launchGuideReason']
     case 'buttons': return 'Guidance ends when the second-to-last rail-button station on the best line clears the top; one station alone cannot hold the angle.';
     case 'mixed-lug': return 'This design has both lugs and a usable rail-button line. The app used the shorter guidance: the last lug clearing the top.';
     case 'mixed-buttons': return 'This design has both lugs and a usable rail-button line. The app used the shorter guidance: the second-to-last rail-button station clearing the top.';
-    case 'single-button': return "One rail button, or buttons side by side at one position, cannot hold the angle. There are no two stations on one rail line, so the rail gives it no guided distance: it leaves the rail as it lifts off. Model a rail guide or slide as a launch lug.";
+    case 'single-button': return "One rail button, or buttons side by side at one position, cannot hold the angle. There are no two stations on one rail line, so the rail gives it no guided distance: it leaves the rail as it lifts off. Set the rail button's Number of rail buttons to 2, or press 📍 Auto-place rail buttons. Model a rail guide or slide as a launch lug.";
     case 'off': return 'The full length is flown as entered: the allowance for lugs and buttons is switched off.';
     default: return '';
   }
