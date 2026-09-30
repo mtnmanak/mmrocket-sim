@@ -64,13 +64,13 @@ interface Harness {
  * App's shape, and nothing else: a snapshot in state, the hook over it.
  * `preRank` is what App's restore records when it moved a pad mass.
  */
-function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null): Harness {
+function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>): Harness {
   const h = {} as Harness;
   function Probe() {
     const [s, setS] = useState(initial);
     const landing = useRef<MountMotor | null>(null);
     const pre = useRef<PreRankRestore | null>(preRank);
-    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre);
+    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength);
     h.set = setS;
     h.landing = landing;
     return null;
@@ -217,5 +217,19 @@ describe('useDesignDirty — a save and a flight', () => {
     expect(h.current.markFlown).toBe(markFlown);
     expect(h.current.savedMark).toBe(savedMark);
     expect(h.current.flownSinceSave).toBe(flownSinceSave);
+  });
+});
+
+
+describe('motor-length migration saved mark', () => {
+  it.each([false, true])('preserves dirty=%s while moving a stage limit onto its mount', (dirty) => {
+    const before = { ...snap(tree('Saved')), maxMotorLengthByStage: { st: 0.4 } };
+    const after = snap(tree('Saved'));
+    after.tree.components[0]!.children![0]!.maxMotorLength = 0.4;
+    const h = mount(after, { savedMark: dirty ? 'older-unsaved-mark' : designFingerprint(before) }, null,
+      { tree: before.tree, maxMotorLengthByStage: before.maxMotorLengthByStage });
+    expect(h.current.dirty).toBe(dirty);
+    act(() => h.set({ ...after, tree: tree('Edited') }));
+    expect(h.current.dirty).toBe(true);
   });
 });

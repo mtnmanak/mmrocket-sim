@@ -27,7 +27,8 @@ export interface DesignSnapshot {
   tree: RocketTree;
   mountMotors: Record<string, MountMotor>;
   launch: LaunchConditions;
-  maxMotorLengthByStage: Record<string, number | null>;
+  /** Legacy fingerprint input only; new snapshots store limits in the tree. */
+  maxMotorLengthByStage?: Record<string, number | null>;
   savedConfigs: SavedConfig[];
   activeConfigId: string | null;
   measured: { massKg: number | null; cgM: number | null };
@@ -78,7 +79,7 @@ export function designFingerprint(s: DesignSnapshot): string {
     s.tree,
     s.mountMotors,
     s.launch,
-    s.maxMotorLengthByStage,
+    s.maxMotorLengthByStage ?? {},
     s.savedConfigs,
     s.activeConfigId,
     s.measured,

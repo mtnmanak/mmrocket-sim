@@ -85,7 +85,7 @@ const LENGTH_KEYS: Record<string, readonly string[]> = {
     'aftShoulderRadius', 'aftShoulderLength', 'aftShoulderThickness'],
   // motorOverhang is how far the MOTOR protrudes past the tube — retention
   // practice (~6 mm), referenced to the motor, not the airframe. Not scaled.
-  bodytube: ['length', 'outerRadius', 'thickness'],
+  bodytube: ['length', 'outerRadius', 'thickness', 'maxMotorLength'],
   trapezoidfinset: ['rootChord', 'tipChord', 'sweep', 'height', 'thickness',
     'airfoilLeDiamond', 'airfoilTeDiamond', 'finLeRadius',
     'tabHeight', 'tabLength', 'tabOffset', 'filletRadius'],
@@ -729,9 +729,7 @@ export function scaleRocket(
     'Not scaled, on purpose: angles, fin and instance counts, material densities, drag'
     + ' coefficients, surface finish, motor choice, deployment and separation settings, and'
     + ' the launch conditions.',
-    'Check the per-stage Max motor length on Motors & Launch if you have set one: it lives'
-    + ' outside the design tree, so this did not touch it, and it is still filtering motors'
-    + ' against the rocket you had before.',
+    'Mount Max motor length values scale with the airframe. Check them on Motors & Launch before choosing motors.',
   ];
   if (fixedSeen.size) {
     // Sorted so the sentence reads the same whatever order the tree holds

@@ -125,7 +125,7 @@ describe('planImport — one plan, applied and marked', () => {
     // The launch in the snapshot is THE merge rule's, from the launch handed in.
     expect(plan.snapshot.launch).toEqual(importedLaunch(LAUNCH, imported.launch));
     expect(plan.snapshot.measured).toEqual({ massKg: 1.2, cgM: 0.3 });
-    expect(plan.snapshot.maxMotorLengthByStage).toEqual({});
+    expect(plan.snapshot.maxMotorLengthByStage).toBeUndefined();
     expect(plan.note.severity).toBe('info');
     expect(plan.note.text.split('\n')[0]).toBe('Loaded “x”.');
   });

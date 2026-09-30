@@ -197,6 +197,24 @@ describe('the batch dialog', () => {
     ));
   }
 
+  it('switches candidate and exclusion counts with the selected mount limit', () => {
+    const pool = filterMotors({ manufacturers: new Set(), classes: new Set(), boreMm: 24, includeOOP: false, text: '' }, MOTOR_DB);
+    const boundary = pool[0]!.length / 1000;
+    const fitting = pool.filter((m) => m.length / 1000 <= boundary).length;
+    mount({}, { mounts: [
+      { ...MOUNTS[0]!, maxMotorLengthM: 0 },
+      { ...MOUNTS[0]!, id: 'pod', label: 'Pod', maxMotorLengthM: boundary },
+    ] });
+    const counts = () => host.querySelector('.motor-load-row')!.textContent!;
+    expect(counts()).toContain('0 candidate motors');
+    expect(counts()).toContain(pool.length + ' excluded');
+    const select = [...host.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === 'pod'))!;
+    act(() => { select.value = 'pod'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(counts()).toContain(fitting + ' candidate motors');
+    if (pool.length > fitting) expect(counts()).toContain((pool.length - fitting) + ' excluded');
+    expect(fitting).toBeGreaterThan(0); // equality fits
+  });
+
   it('says nothing about the time step at the default', () => {
     mount();
     expect(host.querySelector('.field-caution')).toBeNull();

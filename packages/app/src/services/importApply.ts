@@ -540,7 +540,6 @@ export function planImport(
       launch: importedLaunch(ctx.launch, imported.launch),
       // Imported stages have fresh ids, so the previous design's per-stage
       // motor-length limits do not apply to any of them.
-      maxMotorLengthByStage: {},
       savedConfigs: nextConfigs,
       activeConfigId: chosenId,
       measured,
@@ -569,7 +568,6 @@ export interface ImportSinks {
   setUnmatchedRefs: (r: Record<string, OrkMotorRef>) => void;
   setSavedConfigs: (c: SavedConfig[]) => void;
   setActiveConfigId: (id: string | null) => void;
-  setMaxMotorLen: (m: Record<string, number | null>) => void;
   setLaunch: (l: LaunchConditions) => void;
   setMeasured: (m: MeasuredFigures) => void;
   setMachAlt: (t: [number, number][] | undefined) => void;
@@ -596,7 +594,6 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   sinks.setSavedConfigs(snapshot.savedConfigs);
   sinks.setActiveConfigId(snapshot.activeConfigId);
   sinks.setMachAlt(plan.machAlt);
-  sinks.setMaxMotorLen(snapshot.maxMotorLengthByStage);
   // A VALUE, merged once from the launch as it stood after the open's last
   // await — the same object the mark is taken over, so a wind typed while the
   // file was opening is kept AND the design reads clean (audit 2026-09-22).
@@ -865,7 +862,6 @@ export function planNewDesign(
     tree: emptyTree(),
     mountMotors: {},
     launch: keep.launch,
-    maxMotorLengthByStage: {},
     savedConfigs: [],
     activeConfigId: null,
     measured: keep.measured,

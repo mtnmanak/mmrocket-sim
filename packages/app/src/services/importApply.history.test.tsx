@@ -86,7 +86,7 @@ const ctrlZ = () => act(() => {
 const sinksWith = (history: TreeHistory): ImportSinks & Record<string, ReturnType<typeof vi.fn> | unknown> => ({
   history,
   setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(), setSavedConfigs: vi.fn(), setActiveConfigId: vi.fn(),
-  setMaxMotorLen: vi.fn(), setLaunch: vi.fn(), setMeasured: vi.fn(), setMachAlt: vi.fn(), setNote: vi.fn(),
+  setLaunch: vi.fn(), setMeasured: vi.fn(), setMachAlt: vi.fn(), setNote: vi.fn(),
   setShroudPrompt: vi.fn(), markSaved: vi.fn(),
 });
 
@@ -135,7 +135,6 @@ describe('an Open', () => {
       tree: h.current.tree,
       mountMotors: (sinks.setMountMotors as ReturnType<typeof vi.fn>).mock.calls[0]![0],
       launch: written,
-      maxMotorLengthByStage: (sinks.setMaxMotorLen as ReturnType<typeof vi.fn>).mock.calls[0]![0],
       savedConfigs: (sinks.setSavedConfigs as ReturnType<typeof vi.fn>).mock.calls[0]![0],
       activeConfigId: (sinks.setActiveConfigId as ReturnType<typeof vi.fn>).mock.calls[0]![0],
       measured: (sinks.setMeasured as ReturnType<typeof vi.fn>).mock.calls[0]![0],

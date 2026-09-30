@@ -87,7 +87,7 @@ interface Harness {
   selected: { label: string; ejectionDelay: number }[];
 }
 
-function openBrowser(props: { mountDiameterMm: number; filters?: Record<string, unknown> }): Harness {
+function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown> }): Harness {
   if (props.filters) localStorage.setItem(FILTERS_KEY, JSON.stringify(props.filters));
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -95,7 +95,7 @@ function openBrowser(props: { mountDiameterMm: number; filters?: Record<string, 
   const selected: Harness['selected'] = [];
   act(() => root.render(
     <PrefsProvider>
-      <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={null}
+      <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={props.maxMotorLengthM ?? null}
         onSelect={(label, spec) => selected.push({ label, ejectionDelay: spec.ejectionDelay })}
         onClose={() => {}} />
     </PrefsProvider>,
@@ -550,5 +550,26 @@ describe('MotorBrowser — the OOP badge marks out-of-production motors only', (
     expect(apogee).toBeDefined();
     expect(badge(jambol)).toBeNull();
     expect(badge(apogee)?.textContent).toBe('OOP');
+  });
+});
+
+
+describe('per-mount length flag and opt-in hiding', () => {
+  it('keeps a flagged motor loadable, hides it on request, and updates when the mount limit changes', () => {
+    const h = openBrowser({ mountDiameterMm: 24, maxMotorLengthM: 0 });
+    try {
+      const row = bodyRows(h)[0]!;
+      expect(row.textContent).toContain('⚠');
+      click(row);
+      expect(loadButton(h)?.disabled).toBe(false);
+      const fits = Array.from(h.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
+        .find((el) => el.parentElement?.textContent?.includes('only motors that fit'))!;
+      click(fits);
+      expect(bodyRows(h).filter((r) => r.cells.length > 1)).toHaveLength(0);
+      act(() => h.root.render(<PrefsProvider><MotorBrowser mountDiameterMm={24} maxMotorLengthM={0.6}
+        onSelect={() => {}} onClose={() => {}} /></PrefsProvider>));
+      expect(bodyRows(h).filter((r) => r.cells.length > 1).length).toBeGreaterThan(0);
+      expect(bodyRows(h).some((r) => r.textContent?.includes('⚠'))).toBe(false);
+    } finally { closeBrowser(h); }
   });
 });

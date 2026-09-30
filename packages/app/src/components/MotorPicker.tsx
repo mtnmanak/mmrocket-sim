@@ -45,7 +45,7 @@ const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `$
 
 export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, loadedMotors, showQuickPicks }: {
   mountDiameterMm: number;
-  /** Rocket-level max motor length (SI m); null = no limit. */
+  /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;

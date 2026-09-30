@@ -30,7 +30,7 @@ import type { MotorMeta } from '../services/simReport.js';
  * Full-database motor browser: manufacturer + diameter-class toggles (motors
  * larger than the mount never show; smaller classes ride in adapters), OOP
  * toggle, free-text search, and a sortable table. Motors longer than the
- * rocket's max motor length (set in the main Motor panel — it's a property
+ * mount's max motor length (set on its motor card — it's a property
  * of the rocket, not a browser filter) are flagged ⚠ but stay selectable —
  * the length limit is a heads-up (hidden internal components), not a hard rule.
  */
@@ -137,7 +137,7 @@ function FilterChip({ on, onToggle, children }: {
 
 export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
   mountDiameterMm: number;
-  /** Rocket-level max motor length (SI m); null = no limit. */
+  /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   onClose: () => void;
@@ -627,8 +627,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             />
             <label className="motor-inline-label"
               title={maxMotorLengthM !== null
-                ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the room this stage states it has. Over-length motors stay flagged ⚠ when this is off.`
-                : 'This rocket states no maximum motor length, so there is nothing to filter against. Set one on the Motors & Launch tab — the ⌾ Estimate button there measures it from the mount.'}>
+                ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the limit for this mount. When off, longer motors stay flagged and selectable.`
+                : 'This mount has no maximum motor length set. Set one on its motor card in Motors & Launch.'}>
               <input
                 type="checkbox"
                 checked={filters.fitsOnly && maxMotorLengthM !== null}

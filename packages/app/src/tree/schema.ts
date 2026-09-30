@@ -808,6 +808,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // Aft protrusion of the motor past the tube end (~6 mm is standard
     // min-diameter practice) — shifts the motor mass aft in the sim.
     { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
+    { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5, optional: true },
     FINISH,
     DENSITY,
   ],
@@ -876,7 +877,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
     // A physical property of the airframe (how much room the mount really
     // has), so it lives ON the mount and persists through sessions and .ork
-    // files. The Motors & Launch tab offers a per-stage override on top.
+    // files. Motors & Launch edits this same per-mount value.
     { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5, optional: true },
     ...RADIAL_PLACEMENT,
     DENSITY,

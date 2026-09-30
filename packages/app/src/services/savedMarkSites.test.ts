@@ -68,7 +68,6 @@ function recordingSinks(): { sinks: ImportSinks; held: () => DesignSnapshot; mar
     setUnmatchedRefs: () => {},
     setSavedConfigs: (v) => { got.savedConfigs = v; },
     setActiveConfigId: (v) => { got.activeConfigId = v; },
-    setMaxMotorLen: (v) => { got.maxMotorLengthByStage = v; },
     setLaunch: (v) => { got.launch = v; },
     setMeasured: (v) => { got.measured = v; },
     setMachAlt: () => {},
