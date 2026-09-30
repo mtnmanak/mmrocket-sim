@@ -417,3 +417,31 @@ describe('the density-altitude column', () => {
     expect(rows[1]!.at(-1)).toBe('');
   });
 });
+
+
+describe('K16 Safe deployment export', () => {
+  it.each([[65, 'yes'], [70, 'yes'], [75, 'caution'], [85, 'caution'], [90, 'caution'], [95, 'NO']] as const)(
+    'exports %s ft/s as %s in the existing column, including saved booleans and boosters', (fps, expected) => {
+      for (const booster of [false, true]) {
+        const d = { device: 'Chute', time: 7, velocityAtDeployment: fps * 3048 / 10000,
+          descentRate: 4, descentOk: true, openingOk: false } as NonNullable<SimRun['deployments']>[number];
+        const r = mkRun('tier', { safeDeployment: false, velocityAtDeployment: 4,
+          deployments: booster ? [] : [d], branches: booster ? [{ name: 'Booster', deployments: [d],
+            apogee: 100, tumbles: false, landingRate: 4, safeLandingRate: true }] : [] });
+        addRun(r);
+        const saved = loadRuns()[0]!;
+        const { headers, rows } = runsToTable([saved]);
+        const at = headers.indexOf('Safe deployment');
+        expect(headers[at - 1]).toBe('Thrust:weight OK');
+        expect(headers[at + 1]).toBe('Static margin OK');
+        expect(rows[0]![at]).toBe(expected);
+        const csv = runsToCsv([saved]).trim().split(/\r?\n/);
+        expect(csv[1]!.split(',')[at]).toBe(expected);
+        if (!booster && expected === 'caution') expect(rows[0]!.join(' ')).toContain('(caution)');
+      }
+    });
+  it('leaves unknown deployment speed blank', () => {
+    const { headers, rows } = runsToTable([mkRun('unknown', { velocityAtDeployment: null, deployments: [] })]);
+    expect(rows[0]![headers.indexOf('Safe deployment')]).toBe('');
+  });
+});

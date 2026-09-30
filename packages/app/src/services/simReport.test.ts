@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
-  formatStability,
+  formatStability, openingVerdict, deploymentVerdict,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
@@ -893,9 +893,9 @@ describe('dual deployment attribution', () => {
     const run = build(26, 8); // 85 ft/s under drogue, 26 ft/s landing
     const [drogue, main] = run.deployments;
     expect(drogue!.descentOk).toBe(false);
-    expect(main!.openingOk).toBe(false); // opens at 26 m/s > 70 ft/s
+    expect(main!.openingOk).toBe('caution'); // opens between 70 and 90 ft/s
     expect(main!.descentOk).toBe(false); // lands too fast
-    expect(run.safeDeployment).toBe(false);
+    expect(run.safeDeployment).toBe('caution');
     expect(run.safeLandingRate).toBe(false);
     expect(run.comments).toMatch(/Descent under Drogue/);
     expect(run.comments).toMatch(/Main opens at/);
@@ -1485,10 +1485,10 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
   });
 
   it('a genuinely hard opening still fails, and the sentence reconciles both figures', () => {
-    const run = inWind(26, 5);
+    const run = inWind(30, 5);
     expect(run.deployments[1]!.openingOk).toBe(false);
     expect(run.safeDeployment).toBe(false);
-    expect(run.comments).toMatch(/Main opens at 26\.0 m\/s/);
+    expect(run.comments).toMatch(/Main opens at 30\.0 m\/s/);
     expect(run.comments).toMatch(/over the ground/);
   });
 
@@ -1788,5 +1788,68 @@ describe('a run stores the density altitude it flew in', () => {
     expect(run.conditionsKey).toBe(conditionsKeyOf(DEFAULT_CONDITIONS));
     expect(run.conditionsKey).not.toMatch(/density/i);
     expect(run.densityAltitudeM).toBe(0);
+  });
+});
+
+
+describe('K16 opening tiers', () => {
+  const cases = [
+    [65 * 0.3048, true], [70 * 0.3048, true], [SAFETY.maxDeploymentVelocity, true],
+    [SAFETY.maxDeploymentVelocity + 1e-6, 'caution'],
+    [75 * 0.3048, 'caution'], [85 * 0.3048, 'caution'],
+    [SAFETY.warnDeploymentVelocity, 'caution'], [SAFETY.warnDeploymentVelocity + 1e-6, false],
+    [95 * 0.3048, false],
+  ] as const;
+  function flight(speed: number, booster: boolean, fallback = false) {
+    const main = fakeResult();
+    const fast = fakeResult();
+    fast.series.velocity[5] = speed;
+    fast.summary.deploymentVelocity = speed;
+    if (fallback) fast.events = fast.events.filter((e) => e.type !== 'RECOVERY_DEVICE_DEPLOYMENT');
+    const result = booster ? { ...main, branches: [
+      { name: 'Sustainer', events: main.events, series: main.series },
+      { name: 'Booster', events: fast.events, series: fast.series },
+    ] } : fast;
+    return buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'K16', execMs: 1 });
+  }
+  for (const booster of [false, true]) {
+    it.each(cases)('grades %s m/s as %s on ' + (booster ? 'booster' : 'sustainer'), (speed, state) => {
+      const r = flight(speed, booster);
+      const d = booster ? r.branches![0]!.deployments[0]! : r.deployments[0]!;
+      expect(d.openingOk).toBe(state);
+      expect(r.safeDeployment).toBe(state);
+      const comments = commentsOf(r).filter((c) => c.text.includes('opens at'));
+      if (state === true) expect(comments).toEqual([]);
+      else {
+        expect(comments).toHaveLength(1);
+        expect(comments[0]!.level).toBe(state === false ? 'warning' : 'caution');
+        expect(comments[0]!.text).toContain(state === false ? 'hard opening' : 'fast opening');
+        if (state === 'caution') expect(comments[0]!.text).not.toContain('hard opening');
+      }
+    });
+  }
+  it.each(cases)('grades the summary-only fallback at %s m/s as %s', (speed, state) => {
+    const r = flight(speed, false, true);
+    expect(r.deployments).toEqual([]);
+    expect(r.safeDeployment).toBe(state);
+    if (state !== true) {
+      const comment = commentsOf(r).find((c) => c.text.startsWith('Deployment at'))!;
+      expect(comment.level).toBe(state === false ? 'warning' : 'caution');
+      expect(comment.text).toContain(state === false ? 'hard opening' : 'fast opening');
+    } else expect(r.comments).not.toMatch(/opening/);
+  });
+  it('takes speed magnitude, and leaves missing/non-finite readings unknown', () => {
+    for (const [speed, state] of cases) expect(openingVerdict(-speed)).toBe(state);
+    for (const speed of [null, undefined, NaN, Infinity]) expect(openingVerdict(speed)).toBeNull();
+  });
+  it('keeps the worst tier, with unknown distinct from a pass', () => {
+    const r = flight(75 * 0.3048, true);
+    r.deployments[0]!.velocityAtDeployment = 95 * 0.3048;
+    expect(deploymentVerdict(r)).toBe(false);
+    r.deployments[0]!.velocityAtDeployment = null;
+    expect(deploymentVerdict(r)).toBe('caution');
+    r.branches![0]!.deployments[0]!.velocityAtDeployment = 10;
+    expect(deploymentVerdict(r)).toBeNull();
+    expect(deploymentVerdict({ deployments: [], velocityAtDeployment: null })).toBeNull();
   });
 });

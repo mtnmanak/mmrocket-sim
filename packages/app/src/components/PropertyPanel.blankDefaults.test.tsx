@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { FIELDS, type EditorComponentType } from '../tree/schema.js';
+import { FIELDS, MAX_DIMENSION_M, type EditorComponentType } from '../tree/schema.js';
 import { makeNode } from '../tree/treeModel.js';
 
 /**
@@ -164,4 +164,55 @@ describe('PropertyPanel — a blank that flies one known value', () => {
     }
     expect(dead).toEqual([]);
   });
+});
+
+
+describe('K15 shoulder wall hint', () => {
+  const fields = [
+    ['nosecone', 'shoulderThickness', 'shoulderLength', 'Shoulder thickness'],
+    ['transition', 'foreShoulderThickness', 'foreShoulderLength', 'Fore shoulder thickness'],
+    ['transition', 'aftShoulderThickness', 'aftShoulderLength', 'Aft shoulder thickness'],
+  ] as const;
+  for (const [type, key, lengthKey, label] of fields) {
+    const field = () => inputStarting(label).closest('.field')!;
+    const button = () => field().querySelector<HTMLButtonElement>('.hint button');
+    it.each([undefined, 0])('offers the part wall for ' + label + ' = %s in one patch', (value) => {
+      const node = { ...makeNode(type), thickness: 0.002, [lengthKey]: 0.02, [key]: value };
+      show(node);
+      expect(field().textContent).toContain('Blank flies as 0');
+      expect(document.getElementById(inputStarting(label).getAttribute('aria-describedby')!)?.textContent)
+        .toContain('this shoulder weighs nothing');
+      expect(button()!.textContent).toMatch(/Use 2(?:\.0+)? mm/);
+      expect(patches).toEqual([]);
+      act(() => button()!.click());
+      expect(patches).toEqual([{ [key]: 0.002 }]);
+      show({ ...node, ...patches[0] });
+      expect(button()).toBeNull();
+    });
+    it('hides ' + label + ' hint for an existing wall, no shoulder, or a solid part', () => {
+      const node = { ...makeNode(type), [lengthKey]: 0.02, [key]: undefined };
+      for (const patch of [{ [key]: 0.001 }, { [lengthKey]: 0 }, { [lengthKey]: undefined }, { filled: true }]) {
+        show({ ...node, ...patch });
+        expect(field().textContent).not.toContain('Blank flies as 0');
+      }
+    });
+    it('offers no zero wall button for ' + label, () => {
+      show({ ...makeNode(type), [lengthKey]: 0.02, [key]: 0, thickness: 0 });
+      expect(field().textContent).toContain('Blank flies as 0');
+      expect(button()).toBeNull();
+    });
+    it('uses the normal field limit for ' + label, () => {
+      show({ ...makeNode(type), [lengthKey]: 0.02, [key]: 0, thickness: MAX_DIMENSION_M * 2 });
+      act(() => button()!.click());
+      expect(patches).toEqual([{ [key]: MAX_DIMENSION_M }]);
+    });
+    it('uses the displayed units but commits SI for ' + label, () => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+      show({ ...makeNode(type), [lengthKey]: 0.02, [key]: 0, thickness: 0.00254 });
+      expect(button()!.textContent).toMatch(/Use 0\.1(?:0+)? in/);
+      act(() => button()!.click());
+      expect(patches).toHaveLength(1);
+      expect(patches[0]![key]).toBeCloseTo(0.00254, 9);
+    });
+  }
 });

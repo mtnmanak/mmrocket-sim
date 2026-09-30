@@ -484,3 +484,56 @@ describe('SimRunDetails — the density-altitude row', () => {
     expect(daRow()).toBeUndefined();
   });
 });
+
+
+describe('K16 rendered opening tiers', () => {
+  it.each([[65, ''], [75, 'stability-warn'], [95, 'stability-bad']] as const)(
+    'styles the summary-only opening speed at %s ft/s', (fps, cls) => {
+      const r = { ...run(), deployments: [], velocityAtDeployment: fps * 3048 / 10000 };
+      render(<SimRunDetails run={r} />);
+      act(() => Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Show all details')?.click());
+      const row = Array.from(host.querySelectorAll('tr')).find((tr) => tr.firstElementChild?.textContent === 'Velocity at deployment')!;
+      expect(row.lastElementChild!.className).toBe(cls);
+    });
+  for (const booster of [false, true]) {
+    it.each([
+      [65, 'ok', 'stability-good', 'yes'], [70, 'ok', 'stability-good', 'yes'],
+      [75, 'fast opening', 'stability-warn', 'CAUTION'], [85, 'fast opening', 'stability-warn', 'CAUTION'],
+      [90, 'fast opening', 'stability-warn', 'CAUTION'], [95, 'hard opening', 'stability-bad', 'NO'],
+    ])('shows %s ft/s on ' + (booster ? 'booster' : 'sustainer'), (fps, label, cls, safe) => {
+      const d = { ...preV099Deployment, velocityAtDeployment: Number(fps) * 3048 / 10000, openingOk: false };
+      const r = run();
+      // Deliberately old boolean flags: rendering must re-grade the recorded speed.
+      r.safeDeployment = false;
+      if (booster) r.branches = [{ name: 'Booster', apogee: 120, tumbles: false,
+        deployments: [d], landingRate: 5, safeLandingRate: true }];
+      else r.deployments = [d];
+      render(<SimRunDetails run={r} />);
+      act(() => Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Show all details')?.click());
+      const rows = Array.from(host.querySelectorAll('.motor-table tbody tr'));
+      const cells = rows.at(-1)!.querySelectorAll('td');
+      expect(cells[7]!.textContent).toContain(String(label));
+      expect(cells[7]!.className).toBe(cls);
+      if (cls === 'stability-warn') {
+        expect(cells[3]!.className).toBe('stability-warn');
+        expect(cells[7]!.textContent).not.toContain('hard opening');
+      }
+      const safeRow = Array.from(host.querySelectorAll('tr')).find((row) => row.firstElementChild?.textContent === 'Safe deployment')!;
+      expect(safeRow.textContent).toContain(String(safe));
+      expect(safeRow.lastElementChild!.className).toBe(cls);
+      render(<SimHistory runs={[r]} onRunsChange={() => {}} designName="K16" />);
+      openTable();
+      const summary = host.querySelector('tr.motor-row');
+      expect(summary?.querySelector('td.stability-warn, td.stability-bad, td.stability-good')?.className).toBe(cls);
+    });
+  }
+  it('keeps a landing failure red alongside an amber opening', () => {
+    const r = run();
+    r.deployments = [{ ...preV099Deployment, velocityAtDeployment: 75 * 0.3048, descentOk: false }];
+    render(<SimRunDetails run={r} />);
+    const cell = host.querySelector('.motor-table tbody tr')!.querySelectorAll('td')[7]!;
+    expect(cell.textContent).toContain('fast opening');
+    expect(cell.textContent).toContain('landing too fast');
+    expect(cell.className).toBe('stability-bad');
+  });
+});

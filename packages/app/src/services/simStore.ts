@@ -1,5 +1,5 @@
 import { csvCell } from './csvUtil.js';
-import type { SimRun } from './simReport.js';
+import { deploymentVerdict, openingVerdict, type SimRun } from './simReport.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
@@ -288,7 +288,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   [`Altitude at deployment (${sym('distance', 'm')})`, (r) => cv('distance', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
-    .map((d) => `${d.device}@${d.time.toFixed(1)}s opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${d.openingOk === false || d.descentOk === false ? ' (!)' : ''}`)
+    .map((d) => `${d.device}@${d.time.toFixed(1)}s opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
     .join('; ')],
   [`Drogue descent rate (${sym('velocity', 'm/s')})`, (r) => {
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);
@@ -304,7 +304,7 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   ['Recommended delay (s)', (r) => round(r.recommendedDelayS)],
   ['Lift-off speed OK', (r) => flag(r.safeLiftoffSpeed)],
   ['Thrust:weight OK', (r) => flag(r.safeThrustToWeight)],
-  ['Safe deployment', (r) => flag(r.safeDeployment)],
+  ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
   ['Static margin OK', (r) => flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
   ['Motors (cluster)', (r) => r.motorCount ?? 1],

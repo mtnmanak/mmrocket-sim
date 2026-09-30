@@ -684,6 +684,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
     // (sweep, cant angle) — dimensions and counts reject a typed minus sign.
     const allowNegative = f.smin !== undefined && f.smin < 0;
 
+    // K15 (open-items.md): blank still flies zero; this is a one-shot edit,
+    // through the typed field's limits and undo path. Solid parts have no wall.
+    const shoulderLengthKey = f.key === 'shoulderThickness'
+      ? 'shoulderLength'
+      : f.key === 'foreShoulderThickness' || f.key === 'aftShoulderThickness'
+        ? f.key.replace('Thickness', 'Length') : undefined;
+    const emptyShoulder = shoulderLengthKey !== undefined && (raw === undefined || raw === 0)
+      && num(node, shoulderLengthKey, 0) > 0 && node['filled'] !== true;
+    const wall = numOpt(node, 'thickness') ?? blankValue(node.type, 'thickness') ?? 0;
+    const wallLabel = `${fmtSi('length', lengthSym, wall, 3)} ${lengthSym}`;
+
     const fieldLabel = (
       <label htmlFor={inputId}>
         {label}
@@ -714,6 +725,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <NumField
           id={inputId}
           ariaLabel={fieldName}
+          describedBy={emptyShoulder ? idFor(`${f.key}-hint`) : undefined}
           value={value}
           step={step}
           allowNegative={allowNegative}
@@ -733,6 +745,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             else commit(v);
           }}
         />
+        {emptyShoulder && (
+          <p className="hint" id={idFor(`${f.key}-hint`)}>
+            Blank flies as 0 — this shoulder weighs nothing.
+            {wall > 0 && <> A shoulder’s wall is usually the part’s wall thickness ({wallLabel}).{' '}
+              <button type="button" className="finish-all-btn"
+                onClick={() => commit(toDisplay(wall))}>Use {wallLabel}</button>
+            </>}
+          </p>
+        )}
         {f.smin !== undefined && f.smax !== undefined && value !== undefined && (
           <ValueSlider
             ariaLabel={fieldName}
