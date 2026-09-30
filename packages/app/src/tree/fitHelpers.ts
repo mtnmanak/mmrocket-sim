@@ -1,6 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength } from './position.js';
 import { num, numOrNull } from './nodeNum.js';
+import { applyFieldLimit, fieldLimit } from './schema.js';
 
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
@@ -51,7 +52,10 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
   const mountR = (parent.children ?? [])
     .map((c) => (c.type === 'innertube' ? numOrNull(c, 'outerRadius') : null))
     .find((r) => r !== null) ?? null;
-  const depth = mountR !== null ? outerR - mountR : num(parent, 'thickness', WALL_FALLBACK);
+  // One-shot sizes obey the typed field's limits too (open-items, 22–23
+  // September: "Fit shoulder can still write what it repairs").
+  const depth = applyFieldLimit(fieldLimit(fin.type, 'tabHeight')!,
+    mountR !== null ? outerR - mountR : num(parent, 'thickness', WALL_FALLBACK));
   if (depth <= 0) return null;
   const hasLength = num(fin, 'tabLength', 0) > 0;
   return {
@@ -59,14 +63,16 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
     toMount: mountR !== null,
     patch: {
       tabHeight: depth,
-      ...(hasLength ? {} : { tabLength: axialLength(fin) * NEW_TAB_FRACTION }),
+      ...(hasLength ? {} : {
+        tabLength: applyFieldLimit(fieldLimit(fin.type, 'tabLength')!, axialLength(fin) * NEW_TAB_FRACTION),
+      }),
       ...(typeof fin['tabOffsetMethod'] === 'string' ? {} : { tabOffsetMethod: 'middle', tabOffset: 0 }),
     },
   };
 }
 
 export interface ShoulderFit {
-  /** The inner radius (m) of the tube behind the nose — the shoulder it sets. */
+  /** The fitted shoulder radius (m), bounded by the field's hard limits. */
   innerR: number;
   /** The one write. */
   patch: Partial<ComponentNode>;
@@ -88,6 +94,6 @@ export function shoulderFit(
   if (!tube) return null;
   const outerR = numOrNull(tube, 'outerRadius');
   if (outerR === null) return null;
-  const innerR = outerR - num(tube, 'thickness', 0);
+  const innerR = applyFieldLimit(fieldLimit(nose.type, 'shoulderRadius')!, outerR - num(tube, 'thickness', 0));
   return { innerR, patch: { shoulderRadius: innerR } };
 }

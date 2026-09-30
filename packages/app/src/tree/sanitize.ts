@@ -32,8 +32,11 @@ import {
  * repair says so in one note, naming the part and the field: the three
  * importers run this pass on what they read and hand its notes to the import
  * banner with their own, so the second run inside `normalizeTree` finds nothing
- * left to do. A restored session has no banner of its own and is repaired
- * quietly — it can only hold an out-of-limit value an older build let through.
+ * left to do. Session restore collects this pass's notes through `normalizeTree`
+ * and shows them in the same load notice. A saved value can come from any
+ * write path that missed the limits, including a current build's fit button
+ * (open-items, 22–23 September: "A restored session is repaired without a
+ * note — and Fit shoulder can still write what it repairs").
  *
  * NOT here, by design: freeform point lists (their own pass in the importers),
  * nesting depth (orkFile), the launch/atmosphere envelope (not tree values —
@@ -194,8 +197,7 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
  * (inside diameter 49.99 mm over an outside 28.65; corrected since, in
  * apply-preset-corrections.mjs) stored a -10.668 mm wall,
  * and a CSV canopy of 1,000,000 lines a 540 kg parachute — values a restored
- * session then repaired SILENTLY, which this file's header says only an older
- * build could have let through.
+ * session then repaired silently, even though the current build wrote them.
  *
  * Numeric keys only: a preset writes no position and none of ENUM_LIMITS'
  * fields. The note names the part as it will be after the patch, so a pick
