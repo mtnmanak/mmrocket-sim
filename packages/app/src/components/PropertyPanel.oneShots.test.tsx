@@ -70,6 +70,20 @@ const find = (tree: RocketTree, id: string): ComponentNode => {
   return walk(tree.components)!;
 };
 
+describe('K15 transition shoulder thickness controls', () => {
+  it.each(['fore', 'aft'])('renders and edits the %s wall in mm with a zero default', (side) => {
+    const tree = stageOf([{ type: 'transition', id: 'tr', length: 0.08, foreRadius: 0.025, aftRadius: 0.015 }]);
+    render(tree, find(tree, 'tr'));
+    const text = `${side === 'fore' ? 'Fore' : 'Aft'} shoulder thickness`;
+    const label = [...host.querySelectorAll('label')].find((el) => el.textContent?.startsWith(text))!;
+    expect(label).toBeDefined();
+    const input = document.getElementById(label.htmlFor) as HTMLInputElement;
+    expect(input.placeholder).toContain('0');
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })); });
+    expect(patches.at(-1)![`${side}ShoulderThickness`]).toBeCloseTo(0.0001, 12);
+  });
+});
+
 describe('📍 Auto-place rail buttons', () => {
   /** A 100 mm nose, then a 1 m tube carrying the button: the tube spans 100-1100 mm. */
   const rocket = (button: Record<string, unknown>) => stageOf([

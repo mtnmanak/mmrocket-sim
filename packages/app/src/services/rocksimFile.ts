@@ -585,11 +585,18 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         if (fsl > 0) {
           n['foreShoulderLength'] = fsl / LEN;
           n['foreShoulderRadius'] = num(el, 'FrontShoulderDia', 0) / RAD;
+          // K15: desktop TransitionHandler uses wall thickness, or a solid plug.
+          n['foreShoulderThickness'] = n['filled'] === true
+            ? (n['foreShoulderRadius'] as number)
+            : (n['thickness'] as number);
         }
         const rsl = num(el, 'RearShoulderLen', 0);
         if (rsl > 0) {
           n['aftShoulderLength'] = rsl / LEN;
           n['aftShoulderRadius'] = num(el, 'RearShoulderDia', 0) / RAD;
+          n['aftShoulderThickness'] = n['filled'] === true
+            ? (n['aftShoulderRadius'] as number)
+            : (n['thickness'] as number);
         }
         convertAttached(el, n);
         return n;
@@ -2326,6 +2333,17 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       }
       case 'transition': {
         emit('<Transition>');
+        // K15: RockSim has one wall thickness and no shoulder-cap fields.
+        if (['fore', 'aft'].some((side) => {
+          const key = `${side}Shoulder`;
+          const wall = node['filled'] === true
+            ? nnum(node, `${key}Radius`, 0) : nnum(node, 'thickness', 0.002);
+          return nnum(node, `${key}Length`, 0) > 0
+            && (nnum(node, `${key}Thickness`, 0) !== wall || node[`${key}Capped`] === true);
+        })) {
+          notes?.push(`Transition "${node.name ?? 'Transition'}": .rkt uses the body wall thickness for both shoulders`
+            + ' (solid shoulders on a filled part) and cannot keep their end caps. Use .ork to preserve them.');
+        }
         common(node, parent, 'Transition');
         emit(`<Len>${nnum(node, 'length', 0.04) * LEN}</Len>`);
         emit(`<FrontDia>${nnum(node, 'foreRadius', 0.012) * RAD}</FrontDia>`);
@@ -2794,4 +2812,3 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   emit('</RockSimDocument>');
   return lines.join('\n');
 }
-

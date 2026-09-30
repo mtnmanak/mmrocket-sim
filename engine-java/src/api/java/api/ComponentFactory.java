@@ -129,6 +129,13 @@ final class ComponentFactory {
                 if (!Double.isNaN(fShL)) {
                     t.setForeShoulderLength(fShL);
                 }
+                // K15: shoulder walls and caps need thickness to carry mass.
+                // Set it after radius, whose setter clamps the existing wall;
+                // absent keys must leave the kernel's zero default untouched.
+                double fShT = dbl(node, "foreShoulderThickness", Double.NaN);
+                if (!Double.isNaN(fShT)) {
+                    t.setForeShoulderThickness(fShT);
+                }
                 double aShR = dbl(node, "aftShoulderRadius", Double.NaN);
                 if (!Double.isNaN(aShR)) {
                     t.setAftShoulderRadius(aShR);
@@ -136,6 +143,10 @@ final class ComponentFactory {
                 double aShL = dbl(node, "aftShoulderLength", Double.NaN);
                 if (!Double.isNaN(aShL)) {
                     t.setAftShoulderLength(aShL);
+                }
+                double aShT = dbl(node, "aftShoulderThickness", Double.NaN);
+                if (!Double.isNaN(aShT)) {
+                    t.setAftShoulderThickness(aShT);
                 }
                 // A CAPPED shoulder is closed off by a disc of the component's
                 // own material, so it is mass, not just geometry. The nose-cone

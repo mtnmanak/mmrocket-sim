@@ -387,7 +387,8 @@ const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
   shoulderRadius: LEN, shoulderLength: LEN, shoulderThickness: LEN,
-  foreShoulderRadius: LEN, foreShoulderLength: LEN, aftShoulderRadius: LEN, aftShoulderLength: LEN,
+  foreShoulderRadius: LEN, foreShoulderLength: LEN, foreShoulderThickness: LEN,
+  aftShoulderRadius: LEN, aftShoulderLength: LEN, aftShoulderThickness: LEN,
   diameter: LEN, spillHoleDiameter: LEN, lineLength: LEN, stripLength: LEN, stripWidth: LEN,
   cordLength: LEN, width: LEN,
   outerDiameter: LEN, innerDiameter: LEN, totalHeight: LEN, baseHeight: LEN, flangeHeight: LEN,
@@ -775,8 +776,10 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     radMM('foreShoulderRadius', 'Fore shoulder radius', 0.5, 80),
     lenMM('foreShoulderLength', 'Fore shoulder length', 1, 150),
+    lenMM('foreShoulderThickness', 'Fore shoulder thickness', 0.1, 10),
     radMM('aftShoulderRadius', 'Aft shoulder radius', 0.5, 80),
     lenMM('aftShoulderLength', 'Aft shoulder length', 1, 150),
+    lenMM('aftShoulderThickness', 'Aft shoulder thickness', 0.1, 10),
     // A capped shoulder is a closed disc of the component's own material, so it
     // is mass. The nose cone has offered this since the beginning (line 404); a
     // transition read and saved both flags but had nowhere to set them, and the
@@ -1164,7 +1167,8 @@ const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
   instanceSeparation: 0,
   // Unset shoulders are the kernel Transition's zero-initialised fields.
   shoulderRadius: 0, shoulderLength: 0, shoulderThickness: 0,
-  foreShoulderRadius: 0, foreShoulderLength: 0, aftShoulderRadius: 0, aftShoulderLength: 0,
+  foreShoulderRadius: 0, foreShoulderLength: 0, foreShoulderThickness: 0,
+  aftShoulderRadius: 0, aftShoulderLength: 0, aftShoulderThickness: 0,
   spillHoleDiameter: 0, // no vent (treeModel's Cd scaling reads absent as 0)
   lineCount: 6, lineLength: 0.3, // :431-432
   // Unset, DeploymentConfiguration's own 200 m and 0 s (the .ork writer's too).
