@@ -7,7 +7,8 @@ import {
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
-import { delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
 
 /**
  * Resolving ONE motor reference out of a design file to something the kernel
@@ -218,7 +219,6 @@ export async function matchImportedMotor(
   ref: OrkMotorRef,
   deps: MotorMatchDeps = {},
 ): Promise<MotorMatchResult> {
-  const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
 
   // Never cast: an event none of the five reached the build verbatim, which put
@@ -234,10 +234,24 @@ export async function matchImportedMotor(
 
   // RockSim refs carry no motor diameter (0) — match by designation only.
   const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
-  const dbMatch = findDb(ref.designation, diameterMm, undefined, ref.manufacturer);
+  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext);
+  let dbMatch = deps.findDb
+    ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
+      : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
+    : how?.motor ?? null;
   if (dbMatch) {
     try {
-      const spec = await fetchSpec(dbMatch, ref.delay);
+      let matchedDelay = ref.delay;
+      let spec;
+      if (how?.curveEquivalent) {
+        const target = how.curveEquivalent;
+        matchedDelay = ref.rktEveryDelay ? defaultDelay(target) ?? 0 : ref.delay;
+        // The exception is activated by an actually usable curve, not a count
+        // in metadata. Failure leaves the original missing-curve report intact.
+        spec = await fetchSpec(target, matchedDelay);
+        dbMatch = target;
+        how = { motor: target, tier: how.tier, rivals: [], reason: G80_EQUIVALENT };
+      } else spec = await fetchSpec(dbMatch, matchedDelay);
       // The file's maker is written back beside the row's designation only when
       // it IS the row's maker (review of audit 2026-09-23): "Cesaroni Technology
       // Inc." beside AMW's "2245K1075-P" names no motor, and desktop OpenRocket
@@ -250,12 +264,11 @@ export async function matchImportedMotor(
       // on a motor that lists no numeric delay) starts on "Auto (optimal)",
       // exactly as the motor browser starts a fresh pick of it: flown first at
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
-      const motor = mountMotorFromDb(dbMatch, spec, ref.delay, ignition,
+      const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
       const delayTag = ref.autoDelay ? ' (auto delay)'
-        : `-${Number.isFinite(ref.delay) ? String(ref.delay) : 'P'}`;
-      const openNote = unconfirmedMatchNote(ref, dbMatch,
-        matchDbMotor(ref.designation, diameterMm, undefined, ref.manufacturer));
+        : `-${Number.isFinite(matchedDelay) ? String(matchedDelay) : 'P'}`;
+      const openNote = unconfirmedMatchNote(ref, dbMatch, how);
       return {
         motor: openNote ? { ...motor, openNote } : motor,
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
@@ -278,7 +291,8 @@ export async function matchImportedMotor(
       missing: 'curve',
     };
   }
-  return { note: `Motor “${ref.designation}” matched no motor in the motor database — pick one via Browse motor database.`, missing: 'database' };
+  return { note: `Motor “${ref.designation}” ${isE31Conflict(ref.designation)
+    ? E31_CONFLICT : 'matched no motor in the motor database — pick one via Browse motor database.'}`, missing: 'database' };
 }
 
 /** A manufacturer a file actually names — not empty, and not our reader's or writer's sentinel. */
@@ -348,7 +362,7 @@ export function unconfirmedMatchNote(
   const unread = firm?.tier === 4;
   const oopGuess = namedMaker(ref) === null && !isAvailable(db) && (firm?.tier ?? 0) > 0;
   const rivals = firm?.rivals ?? [];
-  if (!other && !unread && !oopGuess && rivals.length === 0) return undefined;
+  if (!other && !unread && !oopGuess && rivals.length === 0 && !firm?.reason) return undefined;
   const named = [db, ...rivals];
   const row = describeRow(db, named);
   const opened = other
@@ -361,6 +375,8 @@ export function unconfirmedMatchNote(
   const shown = rivals.slice(0, 3).map((r) => describeRow(r, named));
   const more = rivals.length > shown.length ? `; and ${rivals.length - shown.length} more` : '';
   const also = rivals.length === 0 ? ''
-    : ` ${rivals.length === 1 ? 'Another motor matches' : `${rivals.length} other motors match`} it as well: ${shown.join('; ')}${more}.`;
-  return `${opened}${also} Check it is the motor you fly, or pick another via Browse motor database.`;
+    : /^j360[- _]*sk$/i.test(ref.designation.trim())
+      ? ` Another catalogue motor is a plausible alternative for this incomplete identity: ${shown.join('; ')}${more}.`
+      : ` ${rivals.length === 1 ? 'Another motor matches' : `${rivals.length} other motors match`} it as well: ${shown.join('; ')}${more}.`;
+  return `${opened}${also}${firm?.reason ? ` ${firm.reason}` : ''} Check it is the motor you fly, or pick another via Browse motor database.`;
 }

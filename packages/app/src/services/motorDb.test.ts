@@ -479,7 +479,7 @@ describe('findDbMotor — the second review of the audit', () => {
     expect(find('300-H135-WH-12A', 'CTI')).toBeNull();
     // Unchanged: White is not White Thunder, and AeroTech's H135W is not White.
     expect(find('26-E31-WH-15A', 'CTI')).toBeNull();
-    expect(find('217-H135-WH-12A', 'AT')).toBeNull();
+    expect(find('217-H135-WH-12A', 'AT')?.designation).toBe('217H135-12A');
   });
 
   /**
@@ -625,8 +625,8 @@ describe('findDbMotor — the third review of the audit', () => {
     }
     // The maker's own propellant keeps its row.
     expect(find('I285-GG', 'A-M')?.designation).toBe('GG-38-390');
-    // A code is not enough (second review), and nobody's G69 is Classic.
-    expect(find('217-H135-WH-12A', 'AT')).toBeNull();
+    // A complete exact impulse-prefix identity can override the maker; nobody's G69 is Classic.
+    expect(find('217-H135-WH-12A', 'AT')?.designation).toBe('217H135-12A');
     expect(find('G69-Classic', 'Cesaroni')).toBeNull();
   });
 });

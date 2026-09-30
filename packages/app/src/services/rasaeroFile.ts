@@ -986,6 +986,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       mount['motorMount'] = true;
       const ref: OrkMotorRef = {
         designation: eng.designation,
+        matchContext: { source: 'rasaero', ...(eng.delay !== undefined
+          ? { explicitDelay: Number.isFinite(eng.delay) ? eng.delay : 'plugged' as const } : {}) },
         manufacturer: eng.manufacturer, // RASAero abbreviation (AT/CTI/…) — a HINT, used by both motor lookups
         diameter: 0, // unknown in the file — match by designation alone
         length: 0,
@@ -1186,7 +1188,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     // groups in the shipped catalogue — the mass and moment subtracted here
     // could come from a different motor than the one that flies. Worst real
     // case measured: Contrail K456 at 2.220 kg against the other K456.
-    const db = findDbMotor(ref.designation, undefined, undefined, ref.manufacturer);
+    const db = findDbMotor(ref.designation, undefined, undefined, ref.manufacturer, ref.matchContext);
     // NO catalog entry at all is not the same as an entry we cannot trust, and
     // the two must not skip together. With no entry App.matchImportedMotor
     // mounts NOTHING and says so, so the rocket really does fly with no motor
@@ -2326,4 +2328,3 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('</RASAeroDocument>');
   return lines.join('\n');
 }
-
