@@ -839,6 +839,32 @@ describe('engineTree — protuberance lowering', () => {
   });
   const aRef = Math.PI * 0.1 * 0.1;
 
+  it('marks every K9 protuberance carrier as a non-guide and leaves real guides unmarked', () => {
+    const source = protTree({});
+    const body = findNode(source, 'b1')!;
+    const bump = findNode(source, 'x1')!;
+    const bumps = ['streamlined', 'streamlinedbase', 'plate', 'explicit'].map((kind, i) => ({
+      ...bump, id: `bump-${kind}`, count: i + 1,
+      ...(kind === 'explicit' ? { cdFrontal: 0.7 } : { dragClass: kind }),
+    }));
+    body.children = [
+      ...bumps,
+      { type: 'railbutton', id: 'real-button', instanceCount: 2, overrideMass: 0, overrideCD: 0 },
+      { type: 'launchlug', id: 'real-lug', length: 0.02, overrideMass: 0, overrideCD: 0 },
+    ];
+
+    const out = engineTree(source);
+    for (const node of bumps) {
+      const carrier = findNode(out, node.id!)!;
+      expect(carrier.type).toBe('railbutton');
+      expect(carrier).toHaveProperty('launchGuide', false);
+      expect(findNode(source, node.id!)!).not.toHaveProperty('launchGuide');
+    }
+    for (const id of ['real-button', 'real-lug']) {
+      expect(findNode(out, id)!).not.toHaveProperty('launchGuide');
+    }
+  }, 60000);
+
   /**
    * The body-CD reference this design measures — the WHOLE model for the two
    * streamlined classes (RASAero's Streamlined Protuberance Method, TRF 197641

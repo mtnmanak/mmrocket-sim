@@ -101,6 +101,56 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   directly instantiable via reflection either).
 - **Note:** must be revisited if upstream adds new `*Calc` classes.
 
+## Simulation correctness fixes
+
+### simulation/SimulationStatus.java + simulation/BasicEventSimulationEngine.java (K9, 2026-09-30)
+- **Why:** upstream 24.12 computes an effective launch rod length from launch lugs
+  in SimulationStatus, but never uses it at the clearance check: BasicEventSimulationEngine
+  compares travel with the full rod length. A lug above the rocket's aft end therefore
+  gets excess guided travel and an overstated rod-exit speed. Rail buttons are ignored,
+  and the lug search checks only instance [0], the forward instance of a line of guides.
+  Register: `docs/open-items.md`, K9 - Rod clearance ignores the effective lug-aware length.
+- **Change:** the clearance check uses `getEffectiveLaunchRodLength()`.
+  SimulationStatus searches every absolute instance of every active launch lug and rail
+  button for the aft-most guide point: lug origin + length, or button centre + outer
+  radius. Effective travel is the rod length less the gap from that point to the
+  rocket's aft bound, clamped at zero, following the existing length calculation.
+- **Protuberance marker:** `engineTree` emits `launchGuide: false` on every
+  synthetic RailButton carrier. `api.ComponentFactory` translates that key into
+  the component comment `SimulationStatus.NOT_A_LAUNCH_GUIDE`
+  (`mmrsim:not-a-launch-guide`); SimulationStatus skips marked buttons in its
+  guide search. A comment is otherwise non-functional: it changes no mass, drag
+  or geometry and needs no new component field. The marker is core-typed and
+  defined in the core SimulationStatus class, so the API bridge references core;
+  core never imports an API type across the api/core boundary. An absent flag
+  leaves a real button eligible for guidance, including zero-mass/Cd overrides.
+- **Why a patch, not a shim:** these are kernel geometry and flight-event decisions,
+  not missing Java class-library methods. Correcting a displayed velocity alone would
+  leave the rocket mechanically constrained for too long in the simulated flight.
+- **Unchanged:** with no lug or button, the full rod length is used (tower semantics).
+  Protuberance carriers do not count as guides and preserve that tower behaviour.
+  A guide whose aft edge reaches the rocket's aft end also uses the full length.
+  Guide mass and drag still apply; the tests override both to isolate clearance.
+- **Behavioural guard:** `packages/engine/src/orkEngine.rodClearance.test.ts` flies the
+  reference C6 curve on a tilted 1 m rod: no guide, aft lug, raised lug, and a forward-first
+  pair of buttons against a lug at the aft button's aft edge. Distances allow one
+  integration step of travel; comparisons do not store kernel float goldens.
+  The same suite requires a lone `launchGuide: false` button to match the tower's
+  exit exactly, while the same unmarked button shortens guided travel.
+  `packages/app/src/tree/treeModel.test.ts` pins the flag on every protuberance
+  class and its absence on real rail buttons and launch lugs.
+  `packages/app/src/services/simReport.kernel.test.ts` pins that the report reads the
+  departure at the kernel-reported effective length, at or before the kernel's
+  end-of-step LAUNCHROD event.
+- **One function, reported to the app:** upstream's inline constructor block is lifted
+  into `public static double effectiveLaunchRodLength(FlightConfiguration, double)` on
+  SimulationStatus; the constructor calls it, and `api.OrkEngine.simulate` calls it on
+  the configuration it is about to fly and prepends `effectiveLaunchRodLength` to the
+  result JSON. The app's launch report interpolates the rod-exit speed at that length
+  (v0.097's crossing interpolation); without it the report could interpolate only at the
+  full rod length, past the true departure whenever a guide sits above the aft end.
+- **Impact:** measured: see the corpus comparison.
+
 ## Determinism fixes (documented behavior change — within upstream's own envelope)
 
 ### rocketcomponent/InstanceMap.java

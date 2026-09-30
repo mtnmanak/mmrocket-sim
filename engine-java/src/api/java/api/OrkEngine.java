@@ -945,10 +945,20 @@ public final class OrkEngine {
         conditions.setRandomSeed(randomSeed);
 
         try {
+            // K9 (2026-09-30): the guide-aware rod length the clearance check flies,
+            // from the SAME function the kernel's SimulationStatus uses, read on the
+            // configuration the engine is about to fly. The app interpolates the
+            // rod-exit speed at this length; without it the report could only
+            // interpolate at the full rod length, which is past the true departure
+            // whenever a lug or rail button sits above the aft end.
+            double effectiveRod = info.openrocket.core.simulation.SimulationStatus.effectiveLaunchRodLength(
+                    conditions.getRocket().getFlightConfiguration(conditions.getFlightConfigurationID()),
+                    conditions.getLaunchRodLength());
             BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
             engine.simulate(conditions);
             FlightData data = engine.getFlightData();
-            return flightDataToJson(data, fullSeries);
+            String json = flightDataToJson(data, fullSeries);
+            return "{\"effectiveLaunchRodLength\":" + effectiveRod + "," + json.substring(1);
         } catch (SimulationException e) {
             return "{\"error\":\"" + escape(String.valueOf(e.getMessage())) + "\"}";
         }

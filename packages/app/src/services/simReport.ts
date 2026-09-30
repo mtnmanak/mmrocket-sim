@@ -1454,7 +1454,7 @@ const KERNEL_MIN_TIME_STEP_S = 0.001;
  * The state at the instant the rocket actually leaves the launch guide.
  *
  * The kernel raises LAUNCHROD at the END of whichever step first carried the rocket
- * past the rod length (BasicEventSimulationEngine.java:246-250), and FlightData
+ * past the effective guide length (BasicEventSimulationEngine.java), and FlightData
  * interpolates velocity at that time — which is itself a stored sample, so the
  * interpolation returns the end-of-step value verbatim (FlightData.java:235-239,
  * SimulationStatus.java:621-632). The rocket is still under 15–25 g there, so the
@@ -1577,8 +1577,16 @@ export function buildSimRun(input: {
   const tDeploy = eventTime(result, 'RECOVERY_DEVICE_DEPLOYMENT');
   const tGround = eventTime(result, 'GROUND_HIT');
 
-  const rodExit = tRod === null ? null : rodExitFromSeries(
-    series, launch.launchRodLengthM, launch.timeStepS ?? DEFAULT_TIME_STEP_S);
+  // K9 (docs/open-items.md): the rocket leaves the guide at the kernel's guide-aware
+  // EFFECTIVE rod length (its aft-most lug or rail button clearing the top), which the
+  // bridge reports; interpolate the crossing there. An older kernel artifact reports
+  // none, so fall back to the full rod length - and, whichever length is used, keep
+  // the kernel's own departure when the crossing lands after LAUNCHROD, because
+  // interpolating past it samples free flight.
+  const guideLength = result.effectiveLaunchRodLength ?? launch.launchRodLengthM;
+  const crossing = tRod === null ? null : rodExitFromSeries(
+    series, guideLength, launch.timeStepS ?? DEFAULT_TIME_STEP_S);
+  const rodExit = crossing !== null && crossing.time <= tRod! ? crossing : null;
   // ONE instant for all three rod numbers. Without this the report prints a velocity
   // from the crossing and a thrust-to-weight and a departure time from up to 4.6 %
   // later — which is how the panel came to contradict its own arithmetic.

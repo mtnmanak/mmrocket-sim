@@ -72,6 +72,15 @@ public class SimulationStatus implements Cloneable, Monitorable {
 	
 	private double effectiveLaunchRodLength;
 
+	/**
+	 * MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): the comment the bridge puts on a
+	 * RailButton that is NOT a launch guide - the carrier the app lowers every
+	 * Protuberance to, so its drag and mass reach the kernel. The effective rod
+	 * length skips a button carrying it; otherwise a protuberance would count as a
+	 * guide, and a design with no lug or button would lose its tower semantics.
+	 */
+	public static final String NOT_A_LAUNCH_GUIDE = "mmrsim:not-a-launch-guide";
+
 	// Set of all motors
 	private final List<MotorClusterState> motorStateList = new ArrayList<>();
 
@@ -140,9 +149,30 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		 * Calculate the effective launch rod length taking into account launch lugs.
 		 * If no lugs are found, assume a tower launcher of full length.
 		 */
-		double length = this.simulationConditions.getLaunchRodLength();
+		this.effectiveLaunchRodLength = effectiveLaunchRodLength(
+				this.configuration, this.simulationConditions.getLaunchRodLength());
+
+		this.simulationStartWallTime = System.nanoTime();
+
+		this.motorIgnited = false;
+		this.liftoff = false;
+		this.launchRodCleared = false;
+		this.apogeeReached = false;
+
+		this.populateMotors();
+		this.warnings = new WarningSet();
+	}
+
+	/**
+	 * MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): upstream's inline effective-rod-length
+	 * block, lifted into ONE static function so the api bridge can report the same number
+	 * the clearance check flies (the app interpolates the rod-exit speed at it). Behaviour
+	 * is the constructor's, plus the K9 changes documented inside.
+	 */
+	public static double effectiveLaunchRodLength(FlightConfiguration configuration, double rodLength) {
+		double length = rodLength;
 		double lugPosition = Double.NaN;
-		for (RocketComponent c : this.configuration.getActiveComponents()) {
+		for (RocketComponent c : configuration.getActiveComponents()) {
 			// MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): the guide leaves the
 			// rod or rail when its AFT-MOST guiding point does, so (1) rail buttons
 			// count as well as lugs, and (2) every instance is searched, not only
@@ -152,7 +182,7 @@ public class SimulationStatus implements Cloneable, Monitorable {
 			double aftLocal;
 			if (c instanceof LaunchLug) {
 				aftLocal = c.getLength();
-			} else if (c instanceof RailButton) {
+			} else if (c instanceof RailButton && !NOT_A_LAUNCH_GUIDE.equals(c.getComment())) {
 				aftLocal = ((RailButton) c).getOuterDiameter() / 2.0;
 			} else {
 				continue;
@@ -165,7 +195,7 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		}
 		if (!Double.isNaN(lugPosition)) {
 			double maxX = 0;
-			for (Coordinate c : this.configuration.getBounds()) {
+			for (Coordinate c : configuration.getBounds()) {
 				if (c.x > maxX)
 					maxX = c.x;
 			}
@@ -173,17 +203,7 @@ public class SimulationStatus implements Cloneable, Monitorable {
 				length = Math.max(0, length - (maxX - lugPosition));
 			}
 		}
-		this.effectiveLaunchRodLength = length;
-
-		this.simulationStartWallTime = System.nanoTime();
-
-		this.motorIgnited = false;
-		this.liftoff = false;
-		this.launchRodCleared = false;
-		this.apogeeReached = false;
-
-		this.populateMotors();
-		this.warnings = new WarningSet();
+		return length;
 	}
 
 	/**

@@ -1344,10 +1344,11 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    as they were.
  *    and RailButtonCalc.calculateNonaxialForces is empty, so a protuberance
  *    contributes no normal force — which is what RASAero does too.
- *    A LAUNCH LUG was rejected as the carrier despite measuring identically:
- *    SimulationStatus (24.12, ll. 138–162) shortens the effective launch rod
- *    length to the aft-most LaunchLug, so a synthetic lug would quietly change
- *    guide-exit velocity. Nothing in the kernel's simulation reads RailButton.
+ *    K9 (docs/open-items.md): SimulationStatus now counts RailButton as a guide,
+ *    and BasicEventSimulationEngine uses that effective length at clearance.
+ *    Each synthetic carrier emits launchGuide: false; ComponentFactory maps it
+ *    to SimulationStatus.NOT_A_LAUNCH_GUIDE in the component comment, so the
+ *    guide search skips it without changing its drag, mass or geometry.
  */
 /**
  * The coefficient a parachute flies when no Cd is typed.
@@ -1400,6 +1401,10 @@ export function engineTree(tree: RocketTree): RocketTree {
         type: 'railbutton',
         id: n.id,
         name: n.name ?? 'Protuberance',
+        // K9 (2026-09-30): the kernel now searches rail buttons for the aft-most
+        // launch guide. This carrier is not one - without the flag a design whose
+        // only "button" is a protuberance would lose its full-rod (tower) run.
+        launchGuide: false,
         outerDiameter: od,
         position: centre,
         // THE CLOCK ANGLE HAS TO RIDE THE CARRIER (v0.103). A protuberance

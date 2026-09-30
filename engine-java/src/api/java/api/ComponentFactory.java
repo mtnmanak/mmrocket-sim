@@ -401,6 +401,13 @@ final class ComponentFactory {
                 // bit-identical to the pre-v0.103 kernel, which is the
                 // constructor's own values.
                 RailButton rb = new RailButton();
+                // K9 (2026-09-30): a carrier synthesised for a Protuberance is not
+                // a launch guide. The comment is the marker SimulationStatus's
+                // effective-rod-length search skips; it is non-functional
+                // otherwise (a comment changes no mass, drag or geometry).
+                if (!bool(node, "launchGuide", true)) {
+                    rb.setComment(info.openrocket.core.simulation.SimulationStatus.NOT_A_LAUNCH_GUIDE);
+                }
                 double od = dbl(node, "outerDiameter", Double.NaN);
                 if (!Double.isNaN(od)) {
                     rb.setOuterDiameter(od);

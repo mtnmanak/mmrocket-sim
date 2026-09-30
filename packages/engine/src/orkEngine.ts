@@ -454,6 +454,13 @@ export interface EngineWarning {
 }
 
 export interface FlightResult {
+  /**
+   * The guide-aware launch rod length the kernel's clearance check flew (m): the
+   * rod length less the distance from the rocket's aft end up to its aft-most
+   * launch lug or rail button, or the whole rod when there is neither (K9,
+   * 2026-09-30). Absent from an older kernel artifact.
+   */
+  effectiveLaunchRodLength?: number;
   /** Whole-flight summary (branch 0 = the sustainer stack). */
   summary: FlightSummary;
   events: FlightEvent[];

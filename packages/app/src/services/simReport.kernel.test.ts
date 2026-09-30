@@ -144,6 +144,39 @@ describe('kernel warnings + drift, end-to-end', () => {
  * improvement on it, not a parity repair.
  */
 describe('launch-rod exit is read at the crossing, not at the end of the step', () => {
+  it.each(['launchlug', 'railbutton'] as const)('K9 reads the departure at the kernel-reported effective length when a %s clears before full-rod travel', async (type) => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const design = tree(true);
+    design.components[1]!.children!.push({
+      type, length: 0.02, outerRadius: 0.003, thickness: 0.0005,
+      outerDiameter: 0.01, instanceCount: 1, position: { method: 'top', offset: 0.02 },
+    });
+    const rocket = OrkRocket.buildTree(design);
+    rocket.setMotorById('mount', C6);
+    const launch = { ...DEFAULT_CONDITIONS, launchRodLengthM: 1, launchRodAngleDeg: 5,
+      timeStepS: 0.05, windAverage: 0, windStdDev: 0 };
+    const result = rocket.simulate(kernelSimOptions(launch));
+    const run = buildSimRun({ result, info: rocket.staticInfo(), motor: C6, meta: { label: 'C6-5' },
+      launch, rocketName: 'K9', execMs: 1 });
+    const eventT = result.events.find((e) => e.type === 'LAUNCHROD')!.time;
+    // The bridge reports the guide-aware length the clearance check flew: shorter
+    // than the rod, because the guide sits above the aft end.
+    const effective = result.effectiveLaunchRodLength!;
+    expect(effective).toBeGreaterThan(0);
+    expect(effective).toBeLessThan(launch.launchRodLengthM);
+    // Full-rod travel is reached only after the kernel's departure, in free flight.
+    const fullRodExit = rodExitFromSeries(result.series, launch.launchRodLengthM, launch.timeStepS)!;
+    expect(fullRodExit.time).toBeGreaterThan(eventT);
+    // The report reads the crossing of the EFFECTIVE length: at or before the
+    // kernel's end-of-step event, and no faster than the end-of-step speed.
+    const crossing = rodExitFromSeries(result.series, effective, launch.timeStepS)!;
+    expect(run.timeToRodDeparture).toBe(crossing.time);
+    expect(run.timeToRodDeparture!).toBeLessThanOrEqual(eventT);
+    expect(run.rodExitVelocity).toBe(crossing.velocity);
+    expect(run.rodExitVelocity!).toBeLessThanOrEqual(result.summary.launchRodVelocity);
+  }, 30000);
+
   it('interpolates across the straddling step, in distance from the pad', () => {
     // Pad distance is hypot(Pl, altitude). Crossing 1.0 m exactly half way between
     // the 0.8 m and 1.2 m samples must give the mid velocity and the mid time.
