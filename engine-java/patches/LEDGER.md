@@ -1492,6 +1492,87 @@ aerodynamic model.
   known subsonic drag bias now propagates into the protuberance instead of being masked
   at one point — one fix to the body will fix both.
 
+
+### masscalc/RigidBody.java + MassCalculation.java + RingComponent.java - true-CG-axis ROLL inertia (2026-09-30)
+
+- **Ruling:** CODEX-GO.md approves centroidal roll composition only. Pitch/yaw keep
+  their previous scalar approximation, explicitly, including its old radial reference
+  and motor traversal. No aerodynamic model gate: this applies to all three models.
+- **Defect:** E1's single-ring and motor-cluster centroids did not describe their
+  actual radial mass placement. Transporting those bodies therefore centred roll on
+  an incorrect whole-rocket centroid and missed nested offset cross terms. Already
+  correct off-axis ballast must not receive another whole-rocket subtraction.
+- **Composition:** for component/instance masses mi at radial centroids (yi, zi),
+  c = sum(mi*ci)/M and Ixx(c) = sum(Ixx_i + mi*|ci-c|^2). Each Ixx_i is centroidal.
+  `RingComponent` supplies the actual radial centroid for one instance as well as
+  several, and its annulus inertia plus spread about that centroid. The radial mean
+  comes from geometry even at zero material mass; a later component override can
+  supply positive mass. `getLegacyTransverseCG` retains the former reference exactly. Axial line-pattern
+  behaviour is unchanged. Motors use the mean of their instance offsets and their
+  centroidal spread. The motor traversal now carries parent instance rotations for
+  roll geometry, so both nested offsets and their cross terms are included.
+- **Separate references:** the new `RigidBody` patch carries `cm` for roll and
+  `transverseCM` for the legacy pitch/yaw approximation. Ordinary constructors set
+  both to the supplied coordinate. `add` averages and rebases the two independently;
+  `translateInertia` carries both and `rebase` preserves the body's mass (the old
+  method adopted the target coordinate's weight). `MassCalculation` carries both
+  references through merge, reset, overrides and aggregation, plus a separate legacy
+  motor transform that retains the previous omission of instance rotation. This
+  omission is intentionally preserved ONLY for the transverse model.
+- **Overrides:** a covering mass override scales centroidal roll and mass by the
+  same factor and retains the scaled geometry's radial centroid, including a massive
+  parent's own geometry. Child bodies are consumed once; the finite geometric-mass
+  guard remains. The previous axial CG override and unflagged assembly point-mass
+  semantics remain. Motors still compose separately with the scaled dry structure.
+- **Routing:** structure, launch, burnout and current-time motor wrappers remain the
+  shared entry points. RK4 and flight-data Ir get the same corrected composition via
+  `RigidBody.add`; no getter or stepper performs another subtraction. Active-stage
+  selection still belongs to FlightConfiguration; the new harness checks recomputation
+  after changing the active stage, including its cached structure mass.
+- **Analytical evidence (SI, synthetic fixtures, not tester flights):** the historical
+  `inertia.offaxis.single` was reproduced on the OLD shipped artifact with Node
+  v24.19.0: M = 0.8637187376489845 kg, tube mass = 0.009581857593448866 kg,
+  motor mass = 0.35 kg, offset = 0.03 m. True radial CG = 0.01248954695271123 m;
+  correction M*c^2 = 0.00013473043481269508 kg*m^2. Old roll
+  0.0018421849153740075 predicts corrected 0.0017074544805613123 kg*m^2;
+  the old figure is 7.890718982353397% high. This is an analytical prediction,
+  NOT a measurement of a rebuilt artifact in this sandbox.
+- **Guards:** `rollInertia.test.ts` replaces the single-tube body-axis expectation;
+  `rollInertiaCG.test.ts` adds complete cylinder arithmetic, dry/loaded/spent motors,
+  unequal opposing loads, translated clusters, one/two levels of clocked pods,
+  explicit legacy transverse arithmetic, covering and unflagged overrides, zero
+  mass, already-correct ballast, and delayed-ignition Ir(t) with rounded/airfoil
+  freeform fins. The golden roster appends `inertia.truecg.*` assertions for wrappers,
+  composition, rebasing, translation, overrides, nested rotations, active stages and
+  single fins. `flight.truecg.zerotorque.*` provides a controlled free-flight pair
+  with an aerodynamic listener suppressing normal forces and all moments, including
+  the stepper's pitch/yaw noise. Existing golden ordering/tolerances are unchanged.
+- **Verification status:** carving succeeded. Gradle could not create its wrapper
+  lock under C:/.gradle; per GO, no retry or alternate build was attempted. The
+  committed vendor artifact is unchanged and has no `transverseCM` symbol. Against
+  that OLD artifact, the two roll suites give 15 expected regression failures and
+  10 passing controls (25 tests); this is not a post-fix pass. Java assertions,
+  differential comparison, new-artifact tests and kernel mutations MUST run after
+  rebuilding. Exact mutations and commands are in CODEX-REPORT.md. App eligibility
+  tests pass (16); nine predicate mutations fail as intended and were restored.
+- **Historical residuals:** this implementation targets E1 residuals (a), nested
+  roll cross terms/rotation, and (d), the single-mount false centroid. The old E1
+  measurements below remain historical evidence. Closure awaits the rebuilt gate;
+  no runtime verification is claimed here.
+- **Limits/decision for Eric:** the transverse scalar is still an approximation.
+  Choosing an azimuthal average (Iyy+Izz)/2 versus a full tensor/dynamics treatment
+  is a separate, explicit decision. RadiusRingComponent axial-line transverse
+  spread remains outside this change. Off-centre thrust moments and general
+  off-centre force application/tensor coupling are still absent. Roll motion can
+  change with applied roll torque or existing roll; zero initial roll and zero
+  roll torque preserve the trajectory while the reported inertia can change.
+  Uncanted fins alone do not establish those conditions.
+- **Saved runs and guide:** `revisionInertia.ts` exports the conservative
+  `affectsRollInertia(tree)` predicate for Claude's revision-history integration.
+  It intentionally includes symmetric and already-correct off-axis layouts and
+  ignores neither overrides nor motorless/uncanted designs. The editable guide
+  source is updated; its generated module must be regenerated by Claude.
+
 ### masscalc/MassCalculation.java + rocketcomponent/RingComponent.java — an OFF-AXIS mount carries its parallel-axis ROLL inertia (code review E1, 2026-09-22)
 
 - **Why:** an inner tube placed off the centreline on its own (`radialPosition` ≠ 0 — the

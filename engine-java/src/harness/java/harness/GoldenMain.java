@@ -53,6 +53,8 @@ public final class GoldenMain {
         freeformRefusalScenarios();
         podNozzleBaseDragScenarios();
         windLevelScenarios();
+        trueCgRollScenarios();
+        zeroTorqueRollControl();
     }
 
     /**
@@ -2194,4 +2196,208 @@ public final class GoldenMain {
     }
 
     private GoldenMain() {}
+    // True-CG roll checks: appended, never inserted into the existing golden roster.
+    private static void trueCgRollScenarios() {
+        double bodyMass = Math.PI * (0.049 * 0.049 - 0.0478 * 0.0478) * 0.9 * 950;
+        double tubeMass = Math.PI * (0.0155 * 0.0155 - 0.015 * 0.015) * 0.2 * 1000;
+        double bodyOwn = bodyMass * (0.049 * 0.049 + 0.0478 * 0.0478) / 2;
+        double tubeOwn = tubeMass * (0.0155 * 0.0155 + 0.015 * 0.015) / 2;
+        double dryMass = bodyMass + tubeMass;
+        double dryY = tubeMass * 0.03 / dryMass;
+        double dryRoll = bodyOwn + tubeOwn + tubeMass * 0.03 * 0.03 * (1 - tubeMass / dryMass);
+        int handle = api.OrkEngine.buildRocket("{\"components\":[" + cgCylinder("m", 0.03, "") + "]}");
+        api.OrkEngine.setMotorById(handle, "m", "CG29", 0.029, 0.2,
+                new double[] { 0, 0.05, 1.9, 2 }, new double[] { 0, 160, 160, 0 },
+                new double[] { 0.35, 0.345, 0.155, 0.15 }, 0.1, 8);
+        Rocket rocket = (Rocket) getRocketFromInfo(handle);
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+        RigidBody dry = MassCalculator.calculateStructure(config);
+        cgNear("dry mass", dryMass, dry.getMass());
+        cgNear("dry centroid", dryY, dry.cm.y);
+        cgNear("dry roll", dryRoll, dry.getIxx());
+        cgNear("legacy reference", 0, dry.transverseCM.y);
+        for (double time : new double[] { 0, 1, 2 }) {
+            double motorMass = time == 0 ? 0.35 : time == 2 ? 0.15
+                    : 0.345 + (0.155 - 0.345) * (time - 0.05) / (1.9 - 0.05);
+            RigidBody motors = MassCalculator.calculate(
+                    info.openrocket.core.masscalc.MassCalculation.Type.MOTOR, config, time);
+            RigidBody together = MassCalculator.calculate(
+                    info.openrocket.core.masscalc.MassCalculation.Type.LAUNCH, config, time);
+            RigidBody added = dry.add(motors);
+            double expected = dryRoll + motorMass * 0.0145 * 0.0145 / 2
+                    + dryMass * motorMass / (dryMass + motorMass) * Math.pow(0.03 - dryY, 2);
+            cgNear("current motor mass", motorMass, motors.getMass());
+            cgNear("motor centroid", 0.03, motors.cm.y);
+            cgNear("motor own roll", motorMass * 0.0145 * 0.0145 / 2, motors.Ixx);
+            cgNear("combined roll", expected, together.Ixx);
+            cgNear("structure plus motors", together.Ixx, added.Ixx);
+            cgNear("transverse composition", together.Iyy, added.Iyy);
+            cgNear("aliases", added.Ixx, added.getRotationalInertia());
+            line("inertia.truecg.time." + time, together.getMass(), together.cm.y,
+                    together.Ixx, together.Iyy, added.Ixx);
+        }
+        cgNear("burnout wrapper", MassCalculator.calculate(
+                info.openrocket.core.masscalc.MassCalculation.Type.LAUNCH, config, 2).Ixx,
+                MassCalculator.calculateBurnout(config).Ixx);
+
+        // Pin the independent transverse reference and mass through add/rebase/translation.
+        RigidBody a = new RigidBody(new Coordinate(1, 2, 3, 2), new Coordinate(1, 0, 0, 2), 4, 5, 6);
+        RigidBody b = new RigidBody(new Coordinate(3, -1, 1, 3), new Coordinate(3, 0, 0, 3), 7, 8, 9);
+        RigidBody sum = a.add(b);
+        cgNear("body composition roll", 4 + 7 + 2.0 * 3 / 5 * (9 + 4), sum.Ixx);
+        cgNear("body composition pitch", 5 + 8 + 2.0 * 3 / 5 * 4, sum.Iyy);
+        cgNear("body composition yaw", 6 + 9 + 2.0 * 3 / 5 * 4, sum.Izz);
+        RigidBody moved = a.translateInertia(new Coordinate(0, 1, 2));
+        cgNear("translated mass", 2, moved.getMass());
+        cgNear("translated roll", 4 + 2 * 5, moved.Ixx);
+        cgNear("translated pitch", 5 + 2 * 4, moved.Iyy);
+        cgNear("translated reference", 1, moved.transverseCM.y);
+        cgNear("empty composition", a.Ixx, a.add(RigidBody.EMPTY).Ixx);
+        cgNear("rebase preserves body mass", 2, a.rebase(new Coordinate(0, 0, 0, 99)).getMass());
+        line("inertia.truecg.rigidbody", sum.Ixx, sum.Iyy, sum.Izz, moved.Ixx, moved.getMass());
+
+        // Overrides cover the whole geometric shape, including a massive parent.
+        for (boolean massiveParent : new boolean[] { false, true }) {
+            String over = ",\"overrideMass\":" + (2 * dryMass) + ",\"overrideSubcomponentsMass\":true";
+            String cylinder = cgCylinder("m", 0.03, massiveParent ? over : "");
+            String json = massiveParent ? cylinder : "{\"type\":\"stage\"" + over + ",\"children\":[" + cylinder + "]}";
+            int id = api.OrkEngine.buildRocket("{\"components\":[" + json + "]}");
+            RigidBody scaled = MassCalculator.calculateStructure(((Rocket) getRocketFromInfo(id)).getSelectedConfiguration());
+            cgNear("scaled roll", 2 * dryRoll, scaled.Ixx);
+            cgNear("scaled centroid", dryY, scaled.cm.y);
+            cgNear("scaled transverse", 2 * dry.Iyy, scaled.Iyy);
+            line("inertia.truecg.override." + massiveParent, scaled.getMass(), scaled.cm.y, scaled.Ixx, scaled.Iyy);
+        }
+
+        // Two clocked pods: overall CG is zero but nested cross terms remain essential.
+        for (double angle : new double[] { 0, 0.61, Math.PI / 2 }) {
+            String pod = "{\"type\":\"podset\",\"instanceCount\":2,\"radiusMethod\":\"free\",\"radiusOffset\":0.08,"
+                    + "\"angleOffset\":" + angle + ",\"children\":[{\"type\":\"bodytube\",\"length\":0.3,"
+                    + "\"outerRadius\":0.04,\"thickness\":0,\"children\":["
+                    + mountJson("m", ",\"radialPosition\":0.02,\"radialDirection\":0.4") + "]}]}";
+            int id = api.OrkEngine.buildRocket("{\"components\":[{\"type\":\"bodytube\",\"length\":0.9,"
+                    + "\"outerRadius\":0.049,\"thickness\":0.0012,\"density\":950,\"children\":[" + pod + "]}]}");
+            api.OrkEngine.setMotorById(id, "m", "CG29", 0.029, 0.2,
+                    new double[] { 0, 1, 2 }, new double[] { 0, 160, 0 },
+                    new double[] { 0.35, 0.25, 0.15 }, 0.1, 8);
+            RigidBody nested = MassCalculator.calculateLaunch(((Rocket) getRocketFromInfo(id)).getSelectedConfiguration());
+            double distance2 = 0.08 * 0.08 + 0.02 * 0.02 + 2 * 0.08 * 0.02 * Math.cos(0.4);
+            double expected = bodyOwn + 2 * (tubeOwn + 0.35 * 0.0145 * 0.0145 / 2
+                    + (tubeMass + 0.35) * distance2);
+            cgNear("nested roll", expected, nested.Ixx);
+            cgNear("nested centroid y", 0, nested.cm.y);
+            cgNear("nested centroid z", 0, nested.cm.z);
+            line("inertia.truecg.nested." + angle, nested.Ixx, nested.cm.y, nested.cm.z);
+        }
+
+        // An active-stage change must invalidate cached mass and recompute its centroid.
+        int staged = api.OrkEngine.buildRocket("{\"components\":[{\"type\":\"stage\",\"children\":["
+                + cgCylinder("upper", 0.03, "") + "]},{\"type\":\"stage\",\"children\":["
+                + cgCylinder("lower", -0.03, "") + "]}]}");
+        FlightConfiguration stages = ((Rocket) getRocketFromInfo(staged)).getSelectedConfiguration();
+        RigidBody all = MassCalculator.calculateStructure(stages);
+        cgNear("balanced stages", 2 * (bodyOwn + tubeOwn + tubeMass * 0.03 * 0.03), all.Ixx);
+        stages.setOnlyStage(0);
+        RigidBody surviving = MassCalculator.calculateStructure(stages);
+        cgNear("surviving stage", dryRoll, surviving.Ixx);
+        cgNear("surviving centroid", dryY, surviving.cm.y);
+        line("inertia.truecg.staging", all.Ixx, surviving.Ixx, surviving.cm.y);
+
+        // Single-fin geometry already supplies a radial centroid; do not subtract it twice.
+        int finHandle = api.OrkEngine.buildRocket("{\"components\":[{\"type\":\"bodytube\",\"length\":0.9,"
+                + "\"outerRadius\":0.049,\"thickness\":0.0012,\"density\":950,\"children\":["
+                + "{\"type\":\"freeformfinset\",\"finCount\":1,\"thickness\":0.003,\"crossSection\":\"rounded\","
+                + "\"points\":[[0,0],[0.07,0.09],[0.14,0.09],[0.14,0]]}]}]}");
+        Rocket finRocket = (Rocket) getRocketFromInfo(finHandle);
+        info.openrocket.core.rocketcomponent.RocketComponent fin = finRocket.getChild(0).getChild(0).getChild(0);
+        Coordinate finCM = fin.getComponentCG();
+        double finRoll = bodyOwn + fin.getRotationalUnitInertia() * finCM.weight
+                + bodyMass * finCM.weight / (bodyMass + finCM.weight) * (finCM.y * finCM.y + finCM.z * finCM.z);
+        RigidBody finBody = MassCalculator.calculateStructure(finRocket.getSelectedConfiguration());
+        cgNear("single fin", finRoll, finBody.Ixx);
+        line("inertia.truecg.singlefin", finBody.Ixx, finBody.cm.y, finBody.cm.z);
+    }
+
+    private static String cgCylinder(String id, double offset, String extra) {
+        return "{\"type\":\"bodytube\",\"length\":0.9,\"outerRadius\":0.049,\"thickness\":0.0012,"
+                + "\"density\":950" + extra + ",\"children\":[" + mountJson(id, ",\"radialPosition\":" + Math.abs(offset) + ",\"radialDirection\":" + (offset < 0 ? Math.PI : 0)) + "]}";
+    }
+
+    // Geometry is in m, kg, kg*m^2. Relative tolerance is rounding allowance,
+    // with an absolute floor for zero centroids; never a stored kernel float.
+    private static void cgNear(String label, double expected, double actual) {
+        if (!Double.isFinite(actual) || Math.abs(actual - expected) > Math.max(1e-14, Math.abs(expected) * 1e-10)) {
+            throw new IllegalStateException(label + ": " + actual + " != " + expected);
+        }
+    }
+
+    // A true free-flight control: explicitly remove pitch/yaw noise and all
+    // normal forces/moments so zero initial rotation stays zero. Ordinary
+    // uncanted flights are not assumed to satisfy this experimental condition.
+    private static void zeroTorqueRollControl() {
+        double[] reference = null;
+        for (double offset : new double[] { 0, 0.03 }) {
+            String cylinder = cgCylinder("m", offset, "").replace("\"children\":[",
+                    "\"children\":[{\"type\":\"freeformfinset\",\"finCount\":4,\"thickness\":0.003,"
+                    + "\"crossSection\":\"rounded\",\"points\":[[0,0],[0.07,0.09],[0.14,0.09],[0.14,0]]},");
+            int handle = api.OrkEngine.buildRocket("{\"components\":[{\"type\":\"nosecone\",\"length\":0.25,"
+                    + "\"aftRadius\":0.049,\"thickness\":0.002}," + cylinder + "]}");
+            api.OrkEngine.setMotorById(handle, "m", "CG29", 0.029, 0.2,
+                    new double[] { 0, 0.05, 1.9, 2 }, new double[] { 0, 160, 160, 0 },
+                    new double[] { 0.35, 0.345, 0.155, 0.15 }, 0.1, 8);
+            Rocket rocket = (Rocket) getRocketFromInfo(handle);
+            info.openrocket.core.simulation.SimulationConditions conditions =
+                    new info.openrocket.core.simulation.SimulationConditions();
+            conditions.setSimulation(new info.openrocket.core.document.Simulation(rocket, rocket.getSelectedConfiguration().getId()));
+            conditions.setLaunchRodLength(1.5);
+            conditions.setLaunchRodAngle(0);
+            conditions.setLaunchRodDirection(Math.PI / 2);
+            conditions.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+            conditions.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.FLAT);
+            conditions.setAtmosphericModel(new ExtendedISAModel());
+            conditions.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+            info.openrocket.core.models.wind.PinkNoiseWindModel wind = new info.openrocket.core.models.wind.PinkNoiseWindModel();
+            wind.setAverage(0);
+            wind.setStandardDeviation(0);
+            conditions.setWindModel(wind);
+            conditions.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+            conditions.setMassCalculator(new MassCalculator());
+            conditions.setTimeStep(0.05);
+            conditions.setMaxSimulationTime(2.8);
+            conditions.setRandomSeed(42);
+            conditions.getSimulationListenerList().add(new info.openrocket.core.simulation.listeners.AbstractSimulationListener() {
+                @Override
+                public info.openrocket.core.aerodynamics.AerodynamicForces postAerodynamicCalculation(
+                        info.openrocket.core.simulation.SimulationStatus status,
+                        info.openrocket.core.aerodynamics.AerodynamicForces forces) {
+                    forces.setCN(0);
+                    forces.setCside(0);
+                    forces.setCm(0);
+                    forces.setCyaw(0);
+                    forces.setCroll(0);
+                    forces.setCrollForce(0);
+                    forces.setCrollDamp(0);
+                    return forces;
+                }
+            });
+            try {
+                info.openrocket.core.simulation.BasicEventSimulationEngine engine =
+                        new info.openrocket.core.simulation.BasicEventSimulationEngine();
+                engine.simulate(conditions);
+                info.openrocket.core.simulation.FlightData data = engine.getFlightData();
+                info.openrocket.core.simulation.FlightDataBranch branch = data.getBranch(0);
+                for (double rate : branch.get(info.openrocket.core.simulation.FlightDataType.TYPE_ROLL_RATE)) {
+                    if (Double.isFinite(rate)) cgNear("zero torque roll", 0, rate);
+                }
+                if (data.getMaxAltitude() <= 10) throw new IllegalStateException("control never left the rail");
+                double[] values = { data.getMaxAltitude(), data.getMaxVelocity(), data.getFlightTime() };
+                if (reference == null) reference = values;
+                else for (int i = 0; i < values.length; i++) cgNear("zero torque trajectory", reference[i], values[i]);
+                line("flight.truecg.zerotorque." + offset, values);
+            } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+                throw new IllegalStateException("zero torque control failed", e);
+            }
+        }
+    }
+
 }

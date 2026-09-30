@@ -84,7 +84,7 @@ function measure(mounts: ComponentNode[]) {
 
 /** |a - b| within `rel` of |b|. */
 const near = (a: number, b: number, rel = 1e-12) =>
-  expect(Math.abs(a - b), `${a} vs ${b}`).toBeLessThanOrEqual(Math.abs(b) * rel);
+  expect(Math.abs(a - b), `${a} vs ${b}`).toBeLessThanOrEqual(Math.max(1e-15, Math.abs(b) * rel));
 
 describe('off-axis mounts carry their parallel-axis roll inertia (review E1)', () => {
   it('charges a split cluster 2 (m_tube + m_motor) d^2, and changes nothing else', () => {
@@ -120,12 +120,12 @@ describe('off-axis mounts carry their parallel-axis roll inertia (review E1)', (
     expect(split.mass).toBe(double.mass);
   });
 
-  it('charges a single off-axis mount its own (m_tube + m_motor) d^2', () => {
+  it('centres a single off-axis mount about the true rocket CG', () => {
     const one = measure([mount('m1', { radialPosition: D, radialDirection: 0 })]);
     const onAxis = measure([mount('m1', { radialPosition: 0 })]);
     near(one.s.rotationalInertia - onAxis.s.rotationalInertia,
-      (one.tubeMass + one.motorMass) * D * D);
-    near(one.s.rotationalInertiaEmpty - onAxis.s.rotationalInertiaEmpty, one.tubeMass * D * D);
+      (one.tubeMass + one.motorMass) * D * D * (1 - (one.tubeMass + one.motorMass) / one.s.mass));
+    near(one.s.rotationalInertiaEmpty - onAxis.s.rotationalInertiaEmpty, one.tubeMass * D * D * (1 - one.tubeMass / one.s.massEmpty));
     expect(one.s.cg).toBe(onAxis.s.cg);
     expect(one.s.longitudinalInertia).toBe(onAxis.s.longitudinalInertia);
   });
