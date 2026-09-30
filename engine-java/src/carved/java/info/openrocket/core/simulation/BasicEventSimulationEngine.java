@@ -243,9 +243,16 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				}
 				
 				// Check for launch guide clearance
+				// MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): compare against the
+				// EFFECTIVE, guide-aware length SimulationStatus already computes, not
+				// the full rod length. Upstream computes it and never uses it here, so a
+				// lug or rail button well above the aft end got guided travel it does
+				// not have and the rod-exit speed read high. No lug or button: the
+				// effective length IS the full length (a tower), so those flights do
+				// not move.
 				if (currentStatus.isLiftoff() &&
 						!currentStatus.isLaunchRodCleared() &&
-						relativePosition.length() > currentStatus.getSimulationConditions().getLaunchRodLength()) {
+						relativePosition.length() > currentStatus.getEffectiveLaunchRodLength()) {
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.LAUNCHROD, currentStatus.getSimulationTime(), null));
 				}
 				
