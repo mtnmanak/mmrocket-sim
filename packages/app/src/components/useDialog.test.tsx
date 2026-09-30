@@ -123,6 +123,37 @@ describe('useDialog', () => {
     expect(document.activeElement, 'Shift+Tab from the first lands on the field, not ▾').toBe(field);
   });
 
+  it.each([
+    ['before', false, false, 'before'],
+    ['before', true, true, 'last'],
+    ['between', false, false, 'between'],
+    ['between', true, false, 'between'],
+    ['after', false, true, 'first'],
+    ['after', true, false, 'after'],
+  ] as const)('handles Tab from a programmatic %s target (shift=%s)', (target, shiftKey, prevented, expected) => {
+    function Targets() {
+      const ref = useDialog<HTMLDivElement>(() => {});
+      return (
+        <div ref={ref} role="dialog" aria-label="Targets" tabIndex={-1}>
+          <p tabIndex={-1}>before</p>
+          <button>first</button>
+          <p tabIndex={-1}>between</p>
+          <button>last</button>
+          <p tabIndex={-1}>after</p>
+        </div>
+      );
+    }
+    act(() => root.render(<Targets />));
+    const destination = [...container.querySelectorAll('p')].find((p) => p.textContent === target)!;
+    act(() => destination.focus());
+    expect(document.activeElement).toBe(destination);
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+    act(() => { destination.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(prevented);
+    // happy-dom does not perform native Tab navigation: unhandled keys retain focus.
+    expect(document.activeElement?.textContent).toBe(expected);
+  });
+
   it('only the innermost dialog answers Escape', () => {
     function Nested() {
       const [outer, setOuter] = useState(true);

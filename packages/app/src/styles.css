@@ -3023,6 +3023,64 @@ html {
   flex: 0 0 auto;
 }
 
+.guide-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.guide-search input {
+  flex: 1 1 180px;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.guide-search-count { min-width: 7em; }
+#guide-search-help { flex-basis: 100%; color: var(--text-secondary); }
+.guide-search input::-webkit-search-cancel-button { display: none; }
+
+.guide-letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.guide-letters a, .guide-letters span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.guide-letters [aria-disabled] { color: var(--text-muted); }
+.guide-letters a:hover { background: var(--surface-1); }
+.guide-content mark {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+  color: var(--text-primary);
+}
+.guide-content .guide-match-current {
+  background: var(--accent);
+  color: var(--surface-3);
+  outline: 2px solid var(--text-primary);
+}
+.guide-search :focus-visible, .guide-letters a:focus-visible, .guide-content [id^="glossary-"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .guide-empty {
   color: var(--text-muted);
   font-size: 13px;
@@ -3071,6 +3129,8 @@ html {
 }
 
 .guide-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
   overflow-y: auto;
   padding-right: 8px;
   font-size: 13.5px;
@@ -3157,8 +3217,10 @@ html {
 @media (max-width: 720px) {
   .guide-body {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .guide-toc {
+    max-height: 100px;
     flex-direction: row;
     flex-wrap: wrap;
     border-right: none;

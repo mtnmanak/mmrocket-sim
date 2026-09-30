@@ -27,6 +27,29 @@ import { DATA, GuideError, OUT, SRC, compileGuide } from '../../../scripts/build
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
+describe('glossary anchors', () => {
+  const markdown = '<a id="glossary"></a>\n## Glossary\n\n### A–F\n\n**Alpha (A)** — One.\n\n**Fin** — Two.\n\n**Flutter** — Three.\n\n## Table\nNotes.\n\n**Bold prose** without an entry separator.\n';
+  it('generates stable entry anchors and first-entry letter links, with disabled absent letters', () => {
+    const { ts } = compileGuide({ markdown });
+    const html = JSON.parse(ts.match(/"html": (".*")/)[1]);
+    expect(html).toContain('<p id="glossary-alpha-a" tabindex="-1"><strong>Alpha (A)</strong>');
+    expect(html).toContain('<a href="#glossary-fin" aria-label="Glossary: F">F</a>');
+    expect(html).not.toContain('href="#glossary-flutter"');
+    expect(html).toContain('<span aria-disabled="true">B</span>');
+    expect(html).not.toContain('glossary-table');
+    expect(html).not.toContain('glossary-bold-prose');
+    expect(compileGuide({ markdown: markdown.replace('**Fin**', '**Beta** — New.\n\n**Fin**') }).ts).toContain('glossary-fin');
+    const other = compileGuide({ markdown: markdown.replace('id="glossary"', 'id="other"') }).ts;
+    expect(other).not.toContain('guide-letters');
+    expect(other).not.toContain('glossary-fin');
+  });
+  it('refuses empty and colliding glossary ids', () => {
+    expect(() => compileGuide({ markdown: markdown.replace('Flutter', 'Fin!') })).toThrow(/duplicate glossary anchor/);
+    expect(() => compileGuide({ markdown: markdown.replace('Flutter', '?!') })).toThrow(/empty or duplicate glossary anchor/);
+    expect(() => compileGuide({ markdown: '<a id="glossary"></a>\n## Glossary\n' })).toThrow(/has no content/);
+  });
+});
+
 describe('the committed userGuide.ts is current', () => {
   it('matches a fresh compile of user-guide.md and the shipped motor data, byte for byte', () => {
     const { ts } = compileGuide();
