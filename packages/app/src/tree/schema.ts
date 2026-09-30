@@ -352,7 +352,14 @@ const LEN: FieldLimit = { kind: 'length', hmin: 0, hmax: MAX_DIMENSION_M };
 const SIGNED_LEN: FieldLimit = { kind: 'length', hmin: -MAX_DIMENSION_M, hmax: MAX_DIMENSION_M };
 const POSITIVE_LEN: FieldLimit = { kind: 'length', hmin: MIN_POSITIVE_DIMENSION_M, hmax: MAX_DIMENSION_M };
 const MASS: FieldLimit = { kind: 'mass', hmin: 0 };
-const BULK: FieldLimit = { kind: 'density', hmin: 0 };
+/**
+ * Register: "Typed one key at a time, an overflowing density leaves the absurd
+ * value its prefix made". 30,000 kg/m³ leaves room above the densest real
+ * material (~22,600); shipped bulk presets top out at 8,906.27 kg/m³ and the
+ * fixture files at 2,075.99. This is a volume-density ceiling, not kg/m² or kg/m.
+ */
+export const MAX_BULK_DENSITY = 30_000;
+const BULK: FieldLimit = { kind: 'density', hmin: 0, hmax: MAX_BULK_DENSITY };
 const FINS: FieldLimit = {
   kind: 'count', hmin: 1, hmax: KERNEL_MAX_FINS,
   why: 'the most fins a set can have in OpenRocket, and so the most the simulation flies',
@@ -401,8 +408,8 @@ const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
   overrideCGX: { ...SIGNED_LEN, label: 'CG override' },
   mass: MASS, overrideMass: { ...MASS, label: 'mass override' },
   density: BULK,
-  surfaceDensity: { ...BULK, label: 'canopy material density' },
-  lineDensity: { ...BULK, label: 'line material density' },
+  surfaceDensity: { kind: 'density', hmin: 0, label: 'canopy material density' },
+  lineDensity: { kind: 'density', hmin: 0, label: 'line material density' },
   filletDensity: { ...BULK, label: 'fillet material density' },
   // A lug or ring set read from a .ork keeps its <instancecount> even where
   // nothing draws or flies it; the bridge's ceiling bounds it all the same.

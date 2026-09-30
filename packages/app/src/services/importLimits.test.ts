@@ -306,6 +306,40 @@ describe('.ork — enum strings', () => {
 
 // ---------------------------------------------------------------- share link
 
+describe('bulk density at the file boundary', () => {
+  const hugeTube = '<innertube><name>Dense mount</name><length>0.07</length>'
+    + '<outerradius>0.0095</outerradius><thickness>0.0005</thickness>'
+    + '<material type="bulk" density="1e33">Custom</material></innertube>';
+
+  const check = (result: ReturnType<typeof importOrk>) => {
+    expect(ofType(result.tree, 'innertube')['density']).toBe(30_000);
+    expect(result.notes.filter((n) => /density .*over the limit/.test(n))).toEqual([
+      '“Dense mount”: material density 1e+33 kg/m³ is over the limit of 30000 kg/m³ — set to 30000 kg/m³.',
+    ]);
+  };
+
+  it('clamps a .ork with a named repair note and saves the repaired density', () => {
+    const result = importOrk(ork(hugeTube));
+    check(result);
+    const saved = exportOrk({ name: result.name, tree: normalizeTree(result.tree) });
+    expect(saved).toContain('density="30000"');
+    expect(importOrk(saved).notes.filter((n) => /density .*over the limit/.test(n))).toEqual([]);
+  });
+
+  it('clamps a share link with the same import note', async () => {
+    const fragment = await encodeShareFragment(ork(hugeTube));
+    check(importOrk(await decodeShareFragment(fragment)));
+  });
+
+  it('clamps a RockSim bulk density with an import note', () => {
+    const result = importRkt(rkt('<BodyTube><Name>Dense tube</Name><Len>70</Len><OD>19</OD><ID>18</ID>'
+      + '<DensityType>0</DensityType><Density>1e33</Density></BodyTube>'));
+    const dense = flatten(result.tree.components).find((n) => n.name === 'Dense tube')!;
+    expect(dense['density']).toBe(30_000);
+    expect(result.notes.some((n) => n.includes('Dense tube') && /density .*over the limit.*set to 30000/.test(n))).toBe(true);
+  });
+});
+
 describe('a share link is a .ork, and gets the same repairs', () => {
   it('a link carrying a fin count of 1e8 opens as 8 fins with a note', async () => {
     // A 519-character link did this at a7756c5 and was applied with no prompt

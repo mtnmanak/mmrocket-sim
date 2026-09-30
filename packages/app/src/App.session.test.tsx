@@ -130,6 +130,22 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('a restored bulk density above the hard ceiling', () => {
+  it('is clamped on app restore and the repaired value is autosaved', async () => {
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await unmountAll();
+    const session = storedSession()!;
+    const tube = session.tree.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    tube['density'] = 1e33;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    await mountApp();
+    await unmountAll();
+    const restored = storedSession()!.tree.components[0]!.children!.find((n) => n.id === tube.id)!;
+    expect(restored['density']).toBe(30_000);
+  }, 30000);
+});
+
 describe('a first visit is clean once the starter motor lands (audit 2026-09-22)', () => {
   it('✕ New on the untouched starter rocket does not ask "Start a new design?"', async () => {
     const host = await mountApp();
