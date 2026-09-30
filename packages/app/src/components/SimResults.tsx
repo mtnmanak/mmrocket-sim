@@ -1,3 +1,4 @@
+import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtAltitude, fmtSi } from '../prefs/units.js';
@@ -426,6 +427,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               })()} />
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
+              <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : "Surface wind only"} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
               {/* The air this run flew, as the Launch panel's readout showed it at
                   launch (SimRun.densityAltitudeM). Stored runs are untrusted
@@ -591,6 +593,7 @@ export function SimHistory({
                 <th>Opt. delay</th>
                 <th>Rod exit (<UnitChip quantity="velocity" />)</th>
                 <th>Safe</th>
+                <th>Winds aloft</th>
                 <th>When</th>
                 <th></th>
               </tr>
@@ -633,6 +636,7 @@ export function SimHistory({
                     <td className={unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       {unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
+                    <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : "No"}</td>
                     {/* Date AND time once it is not today's run: the time alone
                         made a three-day-old row identical to a fresh one. */}
                     <td style={{ whiteSpace: 'nowrap' }}>{formatRunWhen(r.when)}</td>

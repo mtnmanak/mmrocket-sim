@@ -605,3 +605,26 @@ describe('the sweep builds every handle over a stripped tree', () => {
     expect(src).toContain("const key = usable ? (equivM as number).toFixed(6) : 'none';");
   });
 });
+
+
+it('flies every batch candidate with the same aloft profile as Launch', async () => {
+  const design = rocket();
+  const specs = { m1: curve('E20'), m2: curve('E22', 1.1) };
+  const candidates = [entry('m1', 'Acme', 'E20', '5'), entry('m2', 'Acme', 'E22', '5')];
+  const launch = { ...DEFAULT_CONDITIONS, windAverage: 3, windLevels: [
+    { altitude: 10, speed: 3, direction: 0, standardDeviation: 0 },
+    { altitude: 80, speed: 12, direction: 0.2, standardDeviation: 0 },
+  ] };
+  const { rows } = await sweep(input(design, { candidates, launch, autoDelay: false, model: 'eb' }), {
+    fetchSpec: fetchFrom(specs), nozzleFor: nozzles({}),
+  });
+  expect(rows).toHaveLength(2);
+  for (let i = 0; i < rows.length; i++) {
+    const r = OrkRocket.buildTree(engineTree(design));
+    r.setRogersModifiedBarrowman(false);
+    r.setMotorById('mount', Object.values(specs)[i]!);
+    const direct = r.simulate(kernelSimOptions(launch));
+    expect(rows[i]!.run!.windLevels).toEqual(launch.windLevels);
+    expect(rows[i]!.run!.maxAltitude).toBe(direct.summary.maxAltitude);
+  }
+}, 60000);

@@ -1058,8 +1058,9 @@ describe('runsToCsv', () => {
     // The one column after it is the density altitude (weather build,
     // 2026-09-22), appended behind it by the same rule, so every column up to
     // and including this one keeps its position.
-    expect(hc[hc.length - 2]).toBe('Flight config');
-    expect(hc[hc.length - 1]).toMatch(/^Density altitude/);
+    expect(hc[hc.length - 3]).toBe('Flight config');
+    expect(hc[hc.length - 2]).toMatch(/^Density altitude/);
+    expect(hc[hc.length - 1]).toBe('Winds aloft (levels)');
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

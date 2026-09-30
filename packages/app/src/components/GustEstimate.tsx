@@ -1,3 +1,4 @@
+import { editProfileSurface } from '../services/windProfile.js';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { GUST_CONVECTIVE_INTENSITY, GUST_PEAK_FACTOR, sigmaFromGust } from '../services/gustSigma.js';
@@ -76,7 +77,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
       {meanMatches && !applied && (
         <button type="button" className="file-btn" aria-describedby={lineId}
           title={`Works out σ from the ${source}’s gust and average wind. Nothing changes until you click.`}
-          onClick={() => (onEstimate ? onEstimate(est.sigmaMs) : onChange({ ...value, windStdDev: est.sigmaMs }))}>
+          onClick={() => (onEstimate ? onEstimate(est.sigmaMs) : onChange(editProfileSurface(value, { ...value, windStdDev: est.sigmaMs })))}>
           Estimate from {source} gust
         </button>
       )}

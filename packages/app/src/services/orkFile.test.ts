@@ -738,13 +738,13 @@ describe('.ork launch conditions (simulations block)', () => {
     expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(0);
   });
 
-  it('notes that a MultiLevel wind profile was replaced by the average-wind settings', () => {
+  it('notes when a selected MultiLevel profile has no usable levels', () => {
     const ml = DESKTOP_SIM
       .replace('<windmodeltype>Average</windmodeltype>', '<windmodeltype>MultiLevel</windmodeltype>');
     const result = importOrk(ml);
     const notes = result.notes.filter((n) => n.includes('multilevel wind'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('average-wind settings were imported instead');
+    expect(notes[0]).toContain('no usable levels; its surface wind settings are used');
     // The average settings still import — the note explains them, not a failure.
     expect(result.launch!.windAverage).toBeCloseTo(4, 12);
   });

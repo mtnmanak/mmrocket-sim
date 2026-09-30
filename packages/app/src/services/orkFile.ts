@@ -21,6 +21,7 @@ import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -1357,44 +1358,52 @@ function averageWindFromRad(condEl: Element): number {
   return dir;
 }
 
-/**
- * The direction (rad) of a MultiLevel wind profile's wind AT THE PAD, or NaN
- * when the file has no usable level or no wind there — what desktop's rocket
- * meets leaving the rail, and so what a manual rod direction leans against
- * (review of 2026-09-23: measured against the average block instead, LEM-IV's
- * multilevel simulation opened aimed into a wind desktop never flew, where
- * desktop leans that rail 173° from the profile's).
- *
- * Read as `MultiLevelPinkNoiseWindModel` reads it: the LAST such block (each
- * one clears the levels), the pad at 0 m of an AGL profile or at the launch
- * altitude of an MSL one, the level itself at or beyond the ends, and between
- * two levels their mean-wind VECTORS interpolated — speed × (sin, cos) of the
- * direction, a negative speed pointing the other way as `addWindLevel` makes
- * it — and turned back into a direction. The gusts' noise is left out: the
- * rail leans against the mean wind.
- */
-function profileWindAtPadRad(condEl: Element): number {
-  const blocks = Array.from(condEl.querySelectorAll(':scope > wind'))
-    .filter((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel');
-  const block = blocks[blocks.length - 1];
-  if (!block) return NaN;
-  const levels = Array.from(block.querySelectorAll(':scope > windlevel'))
-    .map((l) => {
-      const s = parseDecimal(l.getAttribute('speed'));
-      const d = parseDecimal(l.getAttribute('direction'));
-      return { alt: parseDecimal(l.getAttribute('altitude')), x: s * Math.sin(d), y: s * Math.cos(d) };
-    })
-    .filter((l) => Number.isFinite(l.alt) && Number.isFinite(l.x) && Number.isFinite(l.y))
-    .sort((a, b) => a.alt - b.alt);
-  if (levels.length === 0) return NaN;
-  const agl = (block.getAttribute('altituderef') ?? '').toLowerCase() === 'agl';
-  const h = agl ? 0 : num(condEl, 'launchaltitude', 0);
-  const lo = levels.filter((l) => l.alt <= h).pop() ?? levels[0]!;
-  const hi = levels.find((l) => l.alt >= h) ?? levels[levels.length - 1]!;
-  const f = hi.alt > lo.alt ? (h - lo.alt) / (hi.alt - lo.alt) : 0;
-  const x = lo.x + (hi.x - lo.x) * f;
-  const y = lo.y + (hi.y - lo.y) * f;
-  return Math.hypot(x, y) < 1e-9 ? NaN : Math.atan2(x, y);
+/** Fly the selected desktop profile; retain below-pad levels for interpolation.
+ * Register: Winds aloft in the app (Eric's weather item 5). */
+function readWindProfile(cond: Element, launch: Partial<LaunchConditions>, notes: string[]): number {
+  const block = Array.from(cond.querySelectorAll(':scope > wind'))
+    .filter((w) => w.getAttribute('model')?.toLowerCase() === 'multilevel').pop();
+  const rows = Array.from(block?.querySelectorAll(':scope > windlevel') ?? []);
+  const offset = block?.getAttribute('altituderef')?.toLowerCase() === 'agl' ? 0 : launch.launchAltitudeM ?? 0;
+  const levels = rows.map((row) => {
+    const speed = parseDecimal(row.getAttribute('speed'));
+    return { altitude: parseDecimal(row.getAttribute('altitude')) - offset,
+      speed: Math.abs(speed), direction: parseDecimal(row.getAttribute('direction')) + (speed < 0 ? Math.PI : 0),
+      standardDeviation: row.hasAttribute('standarddeviation') ? parseDecimal(row.getAttribute('standarddeviation')) : 0,
+      relative: parseDecimal(row.getAttribute('mmrrelativedirection')),
+      ratio: parseDecimal(row.getAttribute('mmrcalmspeedratio')) };
+  }).filter((l) => validWindLevels([l])).sort((a, b) => a.altitude - b.altitude)
+    .filter((l, i, a) => i === 0 || l.altitude !== a[i - 1]!.altitude);
+  if (levels.length !== rows.length) notes.push('Invalid or duplicate wind levels were omitted from the file’s winds aloft.');
+  if (!levels.length) {
+    notes.push('The file’s multilevel wind profile has no usable levels; its surface wind settings are used.');
+    return NaN;
+  }
+  const { windAverage, windStdDev, direction: from } = profileSurface(levels);
+  // These app-only ratios restore a profile after a zero surface edit. A
+  // desktop speed edit takes priority; invalid metadata must not drop winds.
+  const retained = isCalmWind(windAverage) && levels.every((l) => Number.isFinite(l.ratio) && l.ratio >= 0
+    && Math.abs(l.speed - l.ratio * windAverage) <= 1e-9 * Math.max(l.speed, l.ratio * windAverage));
+  const referenceFrom = retained ? Math.PI / 2 : from;
+  launch.windLevels = levels.map((l) => {
+    const direction = relativeWindDirection(l.direction - referenceFrom);
+    // Our extra attribute avoids losing low bits when undoing the π/2
+    // rotation. Desktop ignores it; edited absolute directions take priority.
+    const exact = Number.isFinite(l.relative) && Math.abs(relativeWindDirection(l.relative - direction)) < 1e-12;
+    return { altitude: l.altitude, speed: l.speed, direction: exact ? l.relative : direction,
+      standardDeviation: l.standardDeviation, ...(retained ? { calmSpeedRatio: l.ratio } : {}) };
+  });
+  launch.windAverage = windAverage;
+  launch.windStdDev = windStdDev;
+  launch.windProfileSource = { kind: 'ork' };
+  try {
+    const source: unknown = JSON.parse(block?.getAttribute('mmrsource') ?? 'null');
+    if (validWindProfileSource(source)) launch.windProfileSource = source;
+  } catch { /* Desktop files have no app provenance. */ }
+  // The rod and every level must use the same rotation, even at a calm pad.
+  // NaN is reserved for an unusable profile; the inactive average block cannot
+  // supply a bearing for a profile rotated in a different frame.
+  return referenceFrom;
 }
 
 function readLaunchConditions(
@@ -1436,9 +1445,6 @@ function readLaunchConditions(
   }
 
   const windEls = Array.from(condEl.querySelectorAll(':scope > wind'));
-  // Honesty: a MultiLevel wind profile (24.x altitude-layered winds) is not
-  // modeled here — the average-wind settings below are what actually gets
-  // imported, and the flyer must hear that their simulated winds changed.
   const windModelType = text(condEl, ':scope > windmodeltype');
   // <windmodeltype> names the model the simulation ACTUALLY used. OpenRocket
   // 24.12 writes a <wind model="multilevel"> block whenever any level exists,
@@ -1449,10 +1455,6 @@ function readLaunchConditions(
   const multilevel = windModelType
     ? windModelType.toLowerCase() === 'multilevel'
     : windEls.some((w) => (w.getAttribute('model') ?? '').toLowerCase() === 'multilevel');
-  if (multilevel) {
-    notes.push(
-      'The file’s simulation used a multilevel wind profile (winds varying with altitude), which this app doesn’t model — its average-wind settings were imported instead.');
-  }
   const windEl = windEls.find((w) => w.getAttribute('model') === 'average');
   let avg = windEl ? num(windEl, 'speed', NaN) : NaN;
   if (Number.isNaN(avg)) avg = num(condEl, 'windaverage', NaN);
@@ -1485,6 +1487,13 @@ function readLaunchConditions(
       { what: 'wind gust standard deviation', field: 'Wind gusts σ', show: ms }, notes);
   }
 
+  const alt = num(condEl, 'launchaltitude', NaN);
+  if (!Number.isNaN(alt)) {
+    launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
+      { what: 'site altitude', field: 'Site altitude', show: m }, notes);
+  }
+  const profileFrom = multilevel ? readWindProfile(condEl, launch, notes) : NaN;
+
   // ROD AIM (weather build, step 2): the rod's lean relative to the wind.
   // Desktop stores the rod's COMPASS direction and uses it only when
   // <launchintowind> is false; true — and ABSENT, which 24.12 reads as its
@@ -1495,9 +1504,9 @@ function readLaunchConditions(
   // RADIANS. The app's wind always blows from the east, so what travels is the
   // rod's angle TO the wind, not either bearing.
   //
-  // The wind it is measured from is the one DESKTOP FLIES at the pad (review
-  // of 2026-09-23): a MultiLevel file's profile at the pad
-  // (`profileWindAtPadRad`), else the average wind as desktop's loader leaves
+  // The reference is the one used to rotate the selected profile, including
+  // its stable frame at a calm pad (`readWindProfile`), else the average wind
+  // when there is no usable profile, as desktop's loader leaves
   // it (`averageWindFromRad`: file order, the last direction stated, turned
   // round by a negative speed with none after it — weather spec A4's "from
   // the direction the file states" for every file desktop writes).
@@ -1513,18 +1522,13 @@ function readLaunchConditions(
   let aim = 0;
   if (!intoWind) {
     const rodDeg = num(condEl, 'launchroddirection', 90);
-    let windRad = multilevel ? profileWindAtPadRad(condEl) : NaN;
+    let windRad = profileFrom;
     if (Number.isNaN(windRad)) windRad = averageWindFromRad(condEl);
     const a = canonicalRodAimDeg(rodDeg - (windRad * 180) / Math.PI);
     if (Number.isFinite(a)) aim = a;
   }
   launch.launchRodAimDeg = aim;
 
-  const alt = num(condEl, 'launchaltitude', NaN);
-  if (!Number.isNaN(alt)) {
-    launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
-      { what: 'site altitude', field: 'Site altitude', show: m }, notes);
-  }
   const lat = num(condEl, 'launchlatitude', NaN);
   if (!Number.isNaN(lat)) {
     launch.latitudeDeg = importLaunchValue(lat, LATITUDE_DEG_RANGE,
@@ -2858,7 +2862,14 @@ export function exportOrk({
       emit(5, `<direction>${Math.PI / 2}</direction>`);
       emit(5, `<standarddeviation>${launch.windStdDev}</standarddeviation>`);
       emit(4, '</wind>');
-      emit(4, '<windmodeltype>Average</windmodeltype>');
+      if (launch.windLevels?.length) {
+        emit(4, `<wind model="multilevel" altituderef="agl" mmrsource="${escapeXmlAttr(JSON.stringify(launch.windProfileSource ?? { kind: 'ork' }))}">`);
+        for (const l of launch.windLevels) {
+          emit(5, `<windlevel altitude="${l.altitude}" speed="${l.speed}" direction="${Math.PI / 2 + l.direction}" standarddeviation="${l.standardDeviation ?? 0}" mmrrelativedirection="${l.direction}"${l.calmSpeedRatio !== undefined ? ` mmrcalmspeedratio="${l.calmSpeedRatio}"` : ''}/>`);
+        }
+        emit(4, '</wind>');
+      }
+      emit(4, `<windmodeltype>${launch.windLevels?.length ? 'MultiLevel' : 'Average'}</windmodeltype>`);
       emit(4, `<launchaltitude>${launch.launchAltitudeM}</launchaltitude>`);
       emit(4, `<launchlatitude>${launch.latitudeDeg}</launchlatitude>`);
       // The Longitude field (weather build, step 3); a blank one writes what it

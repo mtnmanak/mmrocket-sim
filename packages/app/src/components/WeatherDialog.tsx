@@ -17,6 +17,8 @@ import { WEATHER_CREDIT, type WeatherPatch, type WeatherSnapshot } from '../serv
 import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
+import { WindProfileTable } from './WindProfile.js';
+import { windProfileSummary } from '../services/windProfile.js';
 import {
   altitudeText, capitalise, farText, FIELD_LABEL, fieldText, gustNote, showsYear, sourceHeading, sourceWord,
 } from './weatherText.js';
@@ -137,7 +139,7 @@ export const WEATHER_DIALOG_COPY = {
    * "the app's wind has no direction", which the guide contradicted a few
    * paragraphs away (review of 2026-09-23).
    */
-  windNotApplied: 'not applied: the app’s wind always blows from the east, and Rod aim is measured from it — '
+  windNotApplied: 'not applied: the app’s surface wind always blows from the east, and Rod aim is measured from it — '
     + 'set Rod aim for how your rail leans against this wind.',
   noHours: 'Open-Meteo sent no hours for that date here.',
 } as const;
@@ -207,6 +209,7 @@ export function WeatherDialog({
   const [hourUnix, setHourUnix] = useState<number | null>(null);
   const [choice, setChoice] = useState<AltitudeChoice>('site');
   const [ticked, setTicked] = useState<Set<ProposalRow['key']>>(new Set());
+  const [aloftTicked, setAloftTicked] = useState(true);
   const [busy, setBusy] = useState<'search' | 'fetch' | 'locate' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -314,6 +317,7 @@ export function WeatherDialog({
         ?? hs.find((h) => h.hour === 12)
         ?? hs[0];
       setAnswer(a);
+      setAloftTicked(true);
       setHourUnix(pick?.unix ?? null);
       setChoice(defaultAltitudeChoice(launch, a));
       setTicked(new Set(['temperatureC', 'pressureHPa', 'windAverage', 'latitudeDeg', 'longitudeDeg']));
@@ -329,7 +333,17 @@ export function WeatherDialog({
   const proposal = useMemo(() => (answer && place && hourUnix !== null
     ? buildProposal({ launch, answer, place, unix: hourUnix, choice })
     : null), [launch, answer, place, hourUnix, choice]);
-  const patch = proposal ? patchOf(proposal, ticked) : {};
+  const patch: WeatherPatch = proposal ? patchOf(proposal, ticked) : {};
+  // An unchecked or refused wind row must leave the profile and its source alone.
+  // Only applying surface wind can replace it with aloft or clear it to surface-only.
+  const applyingWind = patch.windAverage !== undefined;
+  if (proposal && place && aloftTicked && applyingWind && proposal.windLevels.length) {
+    patch.windLevels = proposal.windLevels;
+    patch.windProfileSource = { kind: 'open-meteo', place: place.label, validUnix: proposal.sample.unix,
+      surfaceFromDeg: proposal.sample.windFromDeg! };
+  } else if (applyingWind && launch.windLevels?.length) {
+    patch.windLevels = [];
+  }
   const canApply = proposal !== null && Object.keys(patch).length > 0;
   // The step-4 preview: what the panel's σ chip will offer from this hour.
   const gust = sigmaFromGust(proposal?.sample.windSpeedMs, proposal?.sample.windGustMs);
@@ -544,6 +558,20 @@ export function WeatherDialog({
                 </div>
               </div>
             )}
+            <div className="wind-profile">
+              {proposal.windLevels.length ? <>
+                <label><input type="checkbox" aria-label="Apply Winds aloft"
+                  checked={aloftTicked && applyingWind} disabled={!applyingWind}
+                  onChange={(e) => setAloftTicked(e.target.checked)} /> Winds aloft</label>
+                <p>{windProfileSummary(proposal.windLevels)}, strongest{' '}
+                  {fieldText('windAverage', Math.max(...proposal.windLevels.map((l) => l.speed)), units)} at{' '}
+                  {alt(proposal.windLevels.reduce((a, b) => b.speed > a.speed ? b : a).altitude)}.</p>
+                <details><summary>View wind levels</summary>
+                  <WindProfileTable levels={proposal.windLevels} surfaceFromDeg={proposal.sample.windFromDeg!} />
+                </details>
+                <p className="weather-small">Apply Wind avg with winds aloft so the surface wind and Rod aim agree. Untick to use surface weather only.</p>
+              </> : <p>Winds aloft are unavailable for this place and hour. Apply uses surface weather only.</p>}
+            </div>
 
             <AltitudeReviewBlock proposal={proposal} choice={choice} onChoice={setChoice} alt={alt} />
 

@@ -15,8 +15,10 @@ import { WeatherButton } from './WeatherButton.js';
 import { provenanceText, WeatherStrip } from './WeatherStrip.js';
 import { sourceWord } from './weatherText.js';
 import { coordinateLabel } from '../services/coordinates.js';
+import { editProfileSurface, kernelWindProfile, type WindProfileConditions } from '../services/windProfile.js';
+import { WindProfile } from './WindProfile.js';
 
-export interface LaunchConditions {
+export interface LaunchConditions extends WindProfileConditions {
   launchRodLengthM: number;
   launchRodAngleDeg: number;
   /**
@@ -27,7 +29,7 @@ export interface LaunchConditions {
    * normalises it. It acts only while Rod angle is not 0.
    *
    * Built by turning the ROD, never the wind (`kernelSimOptions`): the
-   * kernel's wind always blows from the east, so the landing bearing's
+   * kernel's surface wind always blows from the east, so the landing bearing's
    * "downwind" (simReport's WIND_BLOWS_TOWARD_DEG) stays true whatever the aim.
    *
    * OPTIONAL, and absent means 0: a session or share link from before the
@@ -147,6 +149,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
     windAverage: l.windAverage,
     windStdDeviation: l.windStdDev,
+    ...kernelWindProfile(l),
     launchAltitude: air.altitudeM,
     temperature: air.standard ? undefined : air.temperatureK,
     pressure: air.standard ? undefined : air.pressurePa,
@@ -500,7 +503,7 @@ export function LaunchField({
             if (nullable) onChange({ ...value, [field]: null });
             return;
           }
-          onChange({ ...value, [field]: fromUi(ui) });
+          onChange(editProfileSurface(value, { ...value, [field]: fromUi(ui) }));
         }}
       />
       {(field === 'latitudeDeg' || field === 'longitudeDeg') && (
@@ -829,6 +832,7 @@ export function LaunchPanel({
         {numField('Rod aim', 'launchRodAimDeg', 15, ...ROD_AIM_DEG_RANGE, false, ROD_AIM_HELP, undefined, 0)}
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
+        <WindProfile value={value} onChange={onChange} />
         {/* The gust-to-σ chip (weather build, step 4): directly under the wind
             pair, full width, and only here — never inside LaunchField, which the
             Fly screen shares. */}

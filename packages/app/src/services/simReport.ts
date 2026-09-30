@@ -1,3 +1,4 @@
+import type { WindProfileConditions } from './windProfile.js';
 import type { EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
 import { flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
@@ -381,7 +382,7 @@ export interface BranchReport {
   recoveryMass?: number | null;
 }
 
-export interface SimRun {
+export interface SimRun extends WindProfileConditions {
   id: string;
   /** epoch ms */
   when: number;
@@ -1072,6 +1073,15 @@ export function shortHash(s: string): string {
  */
 export function conditionsKeyOf(launch: LaunchConditions): string {
   const l = { ...launch } as unknown as Record<string, unknown>;
+  delete l['windProfileSource'];
+  if (launch.windLevels?.length) {
+    l['windLevels'] = JSON.stringify(launch.windLevels.map((v) =>
+      [v.altitude, v.speed, v.direction, v.standardDeviation ?? 0]));
+    // The kernel ignores single-level scalars when flying a profile. Imported
+    // surface-vector roundoff must not invalidate a run with identical levels.
+    delete l['windAverage'];
+    delete l['windStdDev'];
+  } else delete l['windLevels'];
   // THE PAD'S AIR AS FLOWN (seam review of audit 2026-09-22). Since the audit
   // `kernelSimOptions` flies the pad through `padAir`: a temperature or
   // pressure outside the panel's envelope flies blank and the altitude is
@@ -2011,6 +2021,8 @@ export function buildSimRun(input: {
     landingBearingDeg: drift.bearingDeg,
     maxRollRateRadS,
     windAvg: launch.windAverage,
+    ...(launch.windLevels?.length ? { windLevels: launch.windLevels.map((l) => ({ ...l })),
+      windProfileSource: launch.windProfileSource } : {}),
     ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}),
     execMs,
     aeroModel,

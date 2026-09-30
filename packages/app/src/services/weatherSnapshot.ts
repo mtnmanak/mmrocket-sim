@@ -1,6 +1,7 @@
 import type { LaunchConditions } from '../components/LaunchPanel.js';
 import { padAir } from './atmosphere.js';
 import type { Endpoint, PlaceMethod } from './openMeteo.js';
+import { editProfileSurface, reconcileProfileSurface, validWindLevels, validWindProfileSource, type WindProfileConditions } from './windProfile.js';
 
 /**
  * WHERE THE LAUNCH CONDITIONS' WEATHER CAME FROM (weather build, step 3).
@@ -16,7 +17,8 @@ import type { Endpoint, PlaceMethod } from './openMeteo.js';
  * It is SESSION state, not design state: it is not in `designFingerprint`,
  * `conditionsKeyOf`, the .ork or a share link — where a number came from is
  * not physics, and a file handed to someone else carries the numbers, not the
- * story. It is cleared when an opened design brings launch conditions of its
+ * story. The profile's own source marker travels with its levels; this richer
+ * Apply/Undo receipt does not. It is cleared when an opened design brings launch conditions of its
  * own (App.applyImported).
  *
  * Everything here is pure; App owns the state.
@@ -28,8 +30,8 @@ export const APPLY_KEYS = [
 ] as const;
 export type ApplyKey = (typeof APPLY_KEYS)[number];
 
-/** One Apply's write: only the ticked fields, each a number. */
-export type WeatherPatch = Partial<Record<ApplyKey, number>>;
+/** One Apply's write: ticked scalar fields and the optional profile. Empty levels clear it. */
+export type WeatherPatch = Partial<Record<ApplyKey, number>> & WindProfileConditions;
 
 /** The credit Open-Meteo's CC BY 4.0 licence asks for, shown wherever its numbers are. */
 export const WEATHER_CREDIT = {
@@ -79,7 +81,7 @@ export interface WeatherSnapshot {
    * longitude on a design from before the field) is absent here too, so Undo
    * restores the absence, not a null.
    */
-  before: Partial<Record<ApplyKey, number | null>>;
+  before: Partial<Record<ApplyKey, number | null>> & WindProfileConditions;
   /**
    * Wind gusts σ as the GUST CHIP wrote it from this record, and what σ held
    * just before that click — absent until the chip is clicked. Apply never
@@ -100,9 +102,9 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /**
- * The launch conditions with an Apply's fields written — only the APPLY_KEYS,
+ * The launch conditions with an Apply's scalar fields written — only the APPLY_KEYS,
  * only finite numbers, so a stray `windStdDev` or an `undefined` in the patch
- * cannot reach state. Every other field keeps its value (the same object
+ * cannot reach state. A profile is checked separately. Every other field keeps its value (the same object
  * reference where nothing changes). Apply goes through this inside App's
  * functional `setLaunch` updater, so a field edited while the dialog was open
  * is not overwritten from a stale copy.
@@ -113,12 +115,21 @@ export function applyProposal(launch: LaunchConditions, patch: WeatherPatch): La
     const v = (patch as Record<string, unknown>)[k];
     if (typeof v === 'number' && Number.isFinite(v)) write[k] = v;
   }
-  return Object.keys(write).length === 0 ? launch : { ...launch, ...write };
+  const next = Object.keys(write).length === 0 ? launch : { ...launch, ...write };
+  if (!validWindLevels(patch.windLevels)) return editProfileSurface(launch, next);
+  const withProfile = { ...next, windLevels: patch.windLevels.map((l) => ({ ...l })) };
+  delete withProfile.windProfileSource;
+  if (patch.windLevels.length && validWindProfileSource(patch.windProfileSource)) withProfile.windProfileSource = { ...patch.windProfileSource };
+  return reconcileProfileSurface(withProfile);
 }
 
 /** The fields a patch will write, as they stand now — the snapshot's `before`. */
 export function beforeOf(launch: LaunchConditions, patch: WeatherPatch): WeatherSnapshot['before'] {
   const out: WeatherSnapshot['before'] = {};
+  if (patch.windLevels !== undefined) {
+    out.windLevels = launch.windLevels?.map((l) => ({ ...l })) ?? [];
+    if (launch.windProfileSource) out.windProfileSource = { ...launch.windProfileSource };
+  }
   for (const k of APPLY_KEYS) {
     if (!(k in patch) || !Object.hasOwn(launch, k)) continue;
     const v = launch[k];
@@ -131,12 +142,20 @@ export function beforeOf(launch: LaunchConditions, patch: WeatherPatch): Weather
  * Undo an Apply: each applied field goes back to what it held before — but
  * ONLY where it still holds the applied value. A field edited by hand since is
  * the user's newer decision and is left alone. Wind gusts σ goes back the same
- * way when the gust chip set it from this record (`sigmaEstimate`).
+ * way when the gust chip set it from this record (`sigmaEstimate`). An edited
+ * profile keeps both surface fields; a restored profile follows surviving edits.
  */
 export function undoApply(launch: LaunchConditions,
     snap: Pick<WeatherSnapshot, 'applied' | 'before' | 'sigmaEstimate'>): LaunchConditions {
   let next: LaunchConditions | null = null;
+  const restoreProfile = snap.applied.windLevels !== undefined
+    && JSON.stringify(launch.windLevels ?? []) === JSON.stringify(snap.applied.windLevels);
+  // A manually edited profile and its surface controls are one decision.
+  // Restoring either scalar alone would display weather the kernel never flies.
+  const keepProfileSurface = !!launch.windLevels?.length && !restoreProfile
+    && snap.applied.windLevels !== undefined;
   for (const k of APPLY_KEYS) {
+    if (k === 'windAverage' && keepProfileSurface) continue;
     if (!(k in snap.applied) || !sameValue(launch[k], snap.applied[k])) continue;
     next ??= { ...launch };
     const rec = next as unknown as Record<string, unknown>;
@@ -144,15 +163,27 @@ export function undoApply(launch: LaunchConditions,
     else delete rec[k];
   }
   const sigma = snap.sigmaEstimate;
-  if (sigma && sameValue(launch.windStdDev, sigma.applied)) {
+  if (restoreProfile) {
+    next = { ...(next ?? launch) };
+    delete next.windLevels;
+    delete next.windProfileSource;
+    if (snap.before.windLevels?.length) next.windLevels = snap.before.windLevels.map((l) => ({ ...l }));
+    if (snap.before.windProfileSource) next.windProfileSource = { ...snap.before.windProfileSource };
+  }
+  if (!keepProfileSurface && sigma && sameValue(launch.windStdDev, sigma.applied)) {
     next = { ...(next ?? launch), windStdDev: sigma.before };
   }
-  return next ?? launch;
+  if (!next) return launch;
+  return restoreProfile ? reconcileProfileSurface(next) : editProfileSurface(launch, next);
 }
 
 /** The record after the gust chip writes `sigmaMs` over a σ of `beforeMs`: its receipt, for Undo. */
-export function withSigmaEstimate(snap: WeatherSnapshot, sigmaMs: number, beforeMs: number): WeatherSnapshot {
-  return { ...snap, sigmaEstimate: { applied: sigmaMs, before: beforeMs } };
+export function withSigmaEstimate(snap: WeatherSnapshot, sigmaMs: number, beforeMs: number, launch?: LaunchConditions): WeatherSnapshot {
+  const applied = launch && snap.applied.windLevels
+    && JSON.stringify(launch.windLevels) === JSON.stringify(snap.applied.windLevels)
+    ? { ...snap.applied, windLevels: editProfileSurface(launch, { ...launch, windStdDev: sigmaMs }).windLevels }
+    : snap.applied;
+  return { ...snap, applied, sigmaEstimate: { applied: sigmaMs, before: beforeMs } };
 }
 
 /**
@@ -232,14 +263,26 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   if (!isObj(x['applied']) || !isObj(x['before'])) return null;
   const applied: WeatherPatch = {};
   for (const [k, v] of Object.entries(x['applied'])) {
+    if (k === 'windLevels' || k === 'windProfileSource') continue;
     if (!(APPLY_KEYS as readonly string[]).includes(k) || !finite(v)) return null;
     applied[k as ApplyKey] = v;
   }
   const before: WeatherSnapshot['before'] = {};
   for (const [k, v] of Object.entries(x['before'])) {
+    if (k === 'windLevels' || k === 'windProfileSource') continue;
     const n = finiteOrNull(v);
     if (!(APPLY_KEYS as readonly string[]).includes(k) || n === undefined) return null;
     before[k as ApplyKey] = n;
+  }
+  for (const [input, output] of [[x['applied'], applied], [x['before'], before]] as const) {
+    if ('windLevels' in input) {
+      if (!validWindLevels(input['windLevels'])) return null;
+      output.windLevels = input['windLevels'].map((l) => ({ ...l }));
+    }
+    if ('windProfileSource' in input) {
+      if (!validWindProfileSource(input['windProfileSource'])) return null;
+      output.windProfileSource = { ...input['windProfileSource'] };
+    }
   }
   // Optional; when present, two non-negative finite speeds, or the record goes
   // — a malformed receipt must not let Undo write a σ nobody had.

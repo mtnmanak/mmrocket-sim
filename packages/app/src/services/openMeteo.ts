@@ -50,10 +50,18 @@ for (const u of [FORECAST_API, ARCHIVE_API, ELEVATION_API, GEOCODE_API]) {
 /** Each request's own deadline. Open-Meteo answers in well under a second. */
 export const REQUEST_TIMEOUT_MS = 12_000;
 
-/** The five hourly variables, and the only five. */
+/** Surface variables, also available on the archive path. */
 export const HOURLY_VARS = [
   'temperature_2m', 'surface_pressure', 'wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m',
 ] as const;
+
+// Open-Meteo's documented pressure levels: https://open-meteo.com/en/docs#pressure_level_variables
+export const PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 70, 50, 30] as const;
+export const FIXED_WIND_HEIGHTS = [80, 120, 180] as const;
+export const ALOFT_VARS = [
+  ...FIXED_WIND_HEIGHTS.flatMap((h) => [`wind_speed_${h}m`, `wind_direction_${h}m`]),
+  ...PRESSURE_LEVELS.flatMap((p) => [`wind_speed_${p}hPa`, `wind_direction_${p}hPa`, `geopotential_height_${p}hPa`]),
+];
 
 /** The unit each hourly series must arrive in — asserted, never assumed. */
 export const HOURLY_UNITS: Readonly<Record<'time' | (typeof HOURLY_VARS)[number], string>> = {
@@ -175,8 +183,8 @@ const dp3 = (x: number) => x.toFixed(3);
 const elev = (m: number) => String(Math.round(m * 10) / 10);
 
 /**
- * The forecast (or archive) request: one place, one or two elevations, five
- * hourly variables, a three-day window. Two elevations ask for the SAME point
+ * The forecast (or archive) request: one place, one or two elevations, surface
+ * weather plus available winds aloft, a three-day window. Two elevations ask for the SAME point
  * twice, which Open-Meteo answers as an array in request order.
  */
 export function forecastUrl(q: {
@@ -188,7 +196,7 @@ export function forecastUrl(q: {
   return `${q.endpoint === 'archive' ? ARCHIVE_API : FORECAST_API}`
     + `?latitude=${rep(dp3(q.latitudeDeg))}&longitude=${rep(dp3(q.longitudeDeg))}`
     + `&elevation=${q.elevationsM.map(elev).join(',')}`
-    + `&hourly=${HOURLY_VARS.join(',')}`
+    + `&hourly=${[...HOURLY_VARS, ...(q.endpoint === 'archive' ? [] : ALOFT_VARS)].join(',')}`
     + '&wind_speed_unit=ms&temperature_unit=celsius&timeformat=unixtime&timezone=auto'
     + `&start_date=${q.startDate}&end_date=${q.endDate}`;
 }
@@ -252,11 +260,12 @@ export interface HourSample {
   /** The strongest gust in the HOUR BEFORE `unix` (Open-Meteo's hourly gust). */
   windGustMs: number | null;
   /**
-   * Where the wind blows FROM, compass degrees. Display only: the app's wind
-   * always blows from the east, and Rod aim — the rail's angle to it — is the
-   * user's to set; a bearing cannot say how a rail leans.
+   * Where the surface wind blows FROM, compass degrees. This anchors the
+   * profile's relative bearings; Rod aim remains the user's angle to it.
    */
   windFromDeg: number | null;
+  /** Valid levels above the surface, AGL; bearings still absolute FROM degrees. */
+  windsAloft?: { altitude: number; speed: number; fromDeg: number }[];
 }
 
 /** One elevation's answer. */
@@ -333,6 +342,7 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
     const samples = (time as number[]).map((unix, j): HourSample => {
       const s = {
         unix, temperatureC: tC[j]!, pressureHPa: pH[j]!, windSpeedMs: ws[j]!, windGustMs: wg[j]!, windFromDeg: wd[j]!,
+        windsAloft: readWindsAloft(h, units, j, e),
       };
       if (s.temperatureC !== null || s.pressureHPa !== null || s.windSpeedMs !== null) anyValue = true;
       return s;
@@ -347,6 +357,31 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
   });
   if (!anyValue) throw new WeatherError('no-data', 'Open-Meteo has no data for that date here.');
   return variants;
+}
+
+/** Missing aloft values do not discard usable surface weather. Units are
+ * checked independently because the archive cannot supply these variables. */
+export function readWindsAloft(h: Record<string, unknown>, units: Record<string, unknown>, hour: number, elevation: number): NonNullable<HourSample['windsAloft']> {
+  const value = (key: string, unit: string): number | null => {
+    const a = h[key];
+    return units[key] === unit && Array.isArray(a) ? finiteOrNull(a[hour]) : null;
+  };
+  const levels: NonNullable<HourSample['windsAloft']> = [];
+  const add = (altitude: number, suffix: string) => {
+    const speed = value(`wind_speed_${suffix}`, 'm/s');
+    const fromDeg = value(`wind_direction_${suffix}`, '°');
+    if (Number.isFinite(altitude) && speed !== null && speed >= 0 && fromDeg !== null) {
+      levels.push({ altitude, speed, fromDeg });
+    }
+  };
+  for (const height of FIXED_WIND_HEIGHTS) add(height, `${height}m`);
+  const highestFixed = Math.max(10, ...levels.map((l) => l.altitude));
+  for (const pressure of PRESSURE_LEVELS) {
+    const height = value(`geopotential_height_${pressure}hPa`, 'm');
+    if (height !== null && height - elevation > highestFixed) add(height - elevation, `${pressure}hPa`);
+  }
+  return levels.sort((a, b) => a.altitude - b.altitude)
+    .filter((l, i, a) => i === 0 || l.altitude !== a[i - 1]!.altitude);
 }
 
 /** The terrain model's ground height from an elevation answer, rounded to 1 m, or null. */
