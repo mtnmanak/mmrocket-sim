@@ -211,6 +211,20 @@ public abstract class RingComponent extends StructuralComponent implements BoxBo
 
 	@Override
 	public Coordinate getComponentCG() {
+		// Geometry defines the radial centroid even when material mass is zero
+		// and a component mass override supplies its eventual weight.
+		final Coordinate legacy = getLegacyTransverseCG();
+		final Coordinate[] offsets = getInstanceOffsets();
+		double y = 0.0, z = 0.0;
+		for (Coordinate offset : offsets) {
+			y += offset.y;
+			z += offset.z;
+		}
+		return new Coordinate(legacy.x, y / offsets.length, z / offsets.length, legacy.weight);
+	}
+
+	// Preserve the former radial and axial reference for the pitch/yaw model.
+	public Coordinate getLegacyTransverseCG() {
 		Coordinate cg = Coordinate.ZERO;
 		final int instanceCount = getInstanceCount();
 		final double instanceMass = ringMass(getOuterRadius(), getInnerRadius(), getLength(),
@@ -253,55 +267,22 @@ public abstract class RingComponent extends StructuralComponent implements BoxBo
 	}
 
 	/**
-	 * MMRocket Sim patch (audit 2026-09-22, code review E1). The parallel-axis
-	 * term, PER UNIT MASS, of this component's instances about the lateral
-	 * point {@link #getComponentCG()} places its mass at.
-	 * <p>
-	 * Upstream's rotational unit inertia is the ring's own (ro^2 + ri^2) / 2 and
-	 * nothing else, so an inner tube OFF the axis contributed no transport term
-	 * to roll inertia at all: a single tube at radialPosition r (whose CG
-	 * getComponentCG() puts on the parent axis) missed m * r^2, and a cluster
-	 * (whose CG it puts at the MEAN of the instance offsets) missed the spread of
-	 * its tubes about that mean. The motor inside the tube had the same hole for
-	 * the single case; that half is in MassCalculation.calculateMountData.
-	 * <p>
-	 * The reference point is DELIBERATELY the one getComponentCG() already
-	 * reports, so the fix adds roll inertia and nothing else: no CG moves, and
-	 * no pitch/yaw term appears through rebase(). One instance: (0, 0), as the
-	 * CG is. Several: the plain mean of the offsets - getComponentCG() builds the
-	 * same point by a Coordinate.average chain with equal weights, and the
-	 * spread is stationary at the mean, so a rounding difference between the two
-	 * moves the result by its SQUARE (ulp^2), not by an ulp. rebase() then
-	 * carries that point's own distance from the rocket's CG exactly once.
-	 * <p>
-	 * Exactly 0.0 whenever every instance sits on the reference point: a
-	 * centreline tube (offset (0, +/-0.0, +/-0.0)), a RadiusRingComponent line
-	 * pattern (its offsets run along x only), and the single ZERO offset every
-	 * other ring inherits from RocketComponent.
-	 * <p>
-	 * Known residual, shared with the motor half and with upstream's own cluster
-	 * motors: the term is about the ring's PARENT axis, so a tube that is off the
-	 * axis INSIDE an off-axis pod set is charged m * (D^2 + d^2) for pod offset D
-	 * and tube offset d, missing the 2 * m * D.d cross term. Recorded in the
-	 * LEDGER rather than modelled.
-	 *
-	 * @return the spread term in m^2 (inertia per unit mass); exactly 0.0 when
-	 *         every instance is on the reference point
+	 * Centroidal roll spread in m^2. Assembly transport carries the true
+	 * centroid, including nested offsets, exactly once. Axial line-pattern
+	 * transverse spread remains outside this roll-only correction.
 	 */
 	private double instanceSpreadUnitInertia() {
 		final Coordinate[] offsets = getInstanceOffsets();
 		final int count = offsets.length;
 		double refY = 0.0;
 		double refZ = 0.0;
-		// Same branch getComponentCG() takes: one instance => the axis.
-		if (1 < getInstanceCount()) {
-			for (Coordinate c : offsets) {
-				refY += c.y;
-				refZ += c.z;
-			}
-			refY /= count;
-			refZ /= count;
+		// Every instance contributes to the centroid, including a single tube.
+		for (Coordinate c : offsets) {
+			refY += c.y;
+			refZ += c.z;
 		}
+		refY /= count;
+		refZ /= count;
 		double sum = 0.0;
 		for (Coordinate c : offsets) {
 			final double dy = c.y - refY;

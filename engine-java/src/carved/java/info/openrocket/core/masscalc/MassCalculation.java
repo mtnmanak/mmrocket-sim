@@ -10,6 +10,7 @@ import info.openrocket.core.rocketcomponent.ComponentAssembly;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.RingComponent;
 import info.openrocket.core.simulation.MotorClusterState;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
@@ -61,7 +62,7 @@ public class MassCalculation {
 	
 	public void merge( final MassCalculation other ) {
 		// Adjust Center-of-mass
-		this.addMass( other.getCM() );
+		this.addMass(other.getCM(), other.transverseCM);
 		this.bodies.addAll( other.bodies );
 	}
 
@@ -69,22 +70,36 @@ public class MassCalculation {
 		this.bodies.add( data );
 	}
 	
-	public void addMass( final Coordinate pointMass ) {
-		if( MIN_MASS > this.centerOfMass.weight ){
-		    this.centerOfMass = pointMass;
-		}else {
-			this.centerOfMass = this.centerOfMass.average( pointMass);
+	public void addMass(final Coordinate pointMass) {
+		addMass(pointMass, pointMass);
+	}
+
+	private void addMass(final Coordinate pointMass, final Coordinate transversePoint) {
+		if (MIN_MASS > this.centerOfMass.weight) {
+			this.centerOfMass = pointMass;
+			this.transverseCM = transversePoint;
+		} else {
+			this.centerOfMass = this.centerOfMass.average(pointMass);
+			this.transverseCM = this.transverseCM.average(transversePoint);
 		}
 	}
 
 	public void addMass(double mass) {
-		this.centerOfMass = this.centerOfMass.setWeight(getMass() + mass);
+		setMass(getMass() + mass);
 	}
-	
-	public MassCalculation copy(final RocketComponent _root, final Transformation _transform){
-		return new MassCalculation( this.type, this.config, this.simulationTime, this.activeMotorList, _root, _transform, this.analysisMap);
+
+	public MassCalculation copy(final RocketComponent root, final Transformation transform) {
+		return copy(root, transform, transform);
 	}
-		
+
+	private MassCalculation copy(final RocketComponent root, final Transformation transform,
+			final Transformation transverseTransform) {
+		MassCalculation copy = new MassCalculation(type, config, simulationTime, activeMotorList,
+				root, transform, analysisMap);
+		copy.transverseTransform = transverseTransform;
+		return copy;
+	}
+
 	public Coordinate getCM() {
 		return this.centerOfMass;
 	}
@@ -95,6 +110,7 @@ public class MassCalculation {
 
 	public void setMass(double mass) {
 		this.centerOfMass = this.centerOfMass.setWeight(mass);
+		this.transverseCM = this.transverseCM.setWeight(mass);
 	}
 	
 	public double getLongitudinalInertia() {
@@ -133,6 +149,7 @@ public class MassCalculation {
 		activeMotorList = _activeMotorList;
 		root = _root;
 		transform = _transform;
+		transverseTransform = _transform;
 		analysisMap = _map;
 
 		reset();
@@ -140,10 +157,12 @@ public class MassCalculation {
 	
 	public void setCM( final Coordinate newCM ) {
 		this.centerOfMass = newCM;
+		this.transverseCM = transverseCM.setX(newCM.x).setWeight(newCM.weight);
 	}	
 
 	public void reset(){
 		centerOfMass = Coordinate.ZERO;
+		transverseCM = Coordinate.ZERO;
 		inertia = RigidBody.EMPTY;
 		bodies.clear();
 	}
@@ -176,10 +195,12 @@ public class MassCalculation {
 	final Collection<MotorClusterState> activeMotorList;
 	final RocketComponent root;
 	final Transformation transform;
+	Transformation transverseTransform;
 	final Type type;
 	
 	// center-of-mass only.
 	Coordinate centerOfMass = Coordinate.ZERO;
+	Coordinate transverseCM = Coordinate.ZERO;
 	
 	// center-of-mass AND moment-of-inertia data.
 	RigidBody inertia = RigidBody.EMPTY;
@@ -248,43 +269,26 @@ public class MassCalculation {
 //		System.err.println(String.format("%-40s|Motor: %s....  Mass @%f = %.6f", prefix, motorConfig.toDescription(), motorTime, eachMass ));
 
 
-		// coordinates in rocket frame; Ir, It about CoM.
-		final Coordinate clusterLocalCM = new Coordinate( mountXPosition + motorXPosition + eachCMx, 0, 0, eachMass*instanceCount);
-		
-		double clusterBaseIr = motorConfig.getUnitRotationalInertia()*instanceCount*eachMass;
-		
-		double clusterIt = motorConfig.getUnitLongitudinalInertia()*instanceCount*eachMass;
-		
-		// ===== MMRocket Sim patch (audit 2026-09-22, code review E1): EVERY
-		// instance gets its parallel-axis term, not only a multi-motor cluster.
-		//
-		// Upstream wrapped this loop in `if( 1 < instanceCount )`, reasoning "if
-		// more than 1 motor => motors are not at the centerline". The converse
-		// does not hold: ONE mount can sit off the axis. InnerTube's
-		// getInstanceOffsets() carries its radial shift (radialPosition /
-		// radialDirection) for every cluster count, but the guard skipped the
-		// single-instance case, so an individually positioned mount - the desktop
-		// "split cluster", one tube per motor - added NO transport term to roll
-		// inertia. Measured on a +/-30 mm split pair of 0.35 kg motors: roll
-		// inertia bit-identical to the same two mounts on the axis, where the
-		// same geometry built as a 'double' cluster got its 2 * 0.35 * 0.03^2.
-		//
-		// clusterLocalCM above sits on the mount's PARENT axis (y = z = 0) for
-		// every instance count, so the term about that axis is the one that
-		// belongs to this body, and rebase() cannot add it a second time. The
-		// N > 1 path runs exactly the expression it always ran. A centreline
-		// mount has the single offset (0, 0, 0): the added term is
-		// eachMass * 0^2 = +0.0, so clusterIr is bit-identical by construction.
-		// Ungated in all three aero models, like the v0.088 fix below: masscalc
-		// carries no model flags. See patches/LEDGER.md, "Correctness fixes".
-		double clusterIr = clusterBaseIr;
-		for( Coordinate coord : offsets ){
-			double distance = Math.hypot( coord.y, coord.z);
-			clusterIr += eachMass*Math.pow( distance, 2);
+		// Roll is centroidal; the old parent-axis point remains the transverse reference.
+		double meanY = 0.0, meanZ = 0.0;
+		for (Coordinate offset : offsets) {
+			meanY += offset.y;
+			meanZ += offset.z;
 		}
-		
-		final Coordinate clusterCM = transform.transform( clusterLocalCM  );
-		addMass( clusterCM );
+		meanY /= instanceCount;
+		meanZ /= instanceCount;
+		final double mass = eachMass * instanceCount;
+		final double x = mountXPosition + motorXPosition + eachCMx;
+		final Coordinate clusterCM = transform.transform(new Coordinate(x, meanY, meanZ, mass));
+		final Coordinate clusterTransverseCM = transverseTransform.transform(new Coordinate(x, 0, 0, mass));
+		double clusterIr = motorConfig.getUnitRotationalInertia() * instanceCount * eachMass;
+		final double clusterIt = motorConfig.getUnitLongitudinalInertia() * instanceCount * eachMass;
+		for (Coordinate offset : offsets) {
+			double dy = offset.y - meanY;
+			double dz = offset.z - meanZ;
+			clusterIr += eachMass * (dy * dy + dz * dz);
+		}
+		addMass(clusterCM, clusterTransverseCM);
 
 		if(null != this.analysisMap) {
 			CMAnalysisEntry entry = analysisMap.get(motor.getDesignation().hashCode());
@@ -296,7 +300,7 @@ public class MassCalculation {
 			entry.updateAverageCM(clusterCM);
 		}
 
-		RigidBody clusterMOI = new RigidBody( clusterCM, clusterIr, clusterIt, clusterIt );
+		RigidBody clusterMOI = new RigidBody(clusterCM, clusterTransverseCM, clusterIr, clusterIt, clusterIt);
 		addInertia( clusterMOI );
 		
 		return this;
@@ -370,6 +374,11 @@ public class MassCalculation {
 		
 		if (this.config.isComponentActive(component) ){
 			Coordinate compCM = component.getComponentCG();
+			// Rings expose their old reference separately, including massless
+			// geometry whose mass may subsequently be supplied by an override.
+			Coordinate compTransverseCM = component instanceof RingComponent
+					? ((RingComponent) component).getLegacyTransverseCG() : compCM;
+			compTransverseCM = parentTransform.transform(compTransverseCM.add(component.getPosition()));
 			
 			// mass data for *this component only* in the rocket-frame
 			compCM = parentTransform.transform( compCM.add(component.getPosition()) );
@@ -383,6 +392,7 @@ public class MassCalculation {
 			// rewrites the weight; it is needed to fold a massive parent into
 			// the geometry being scaled.
 			final Coordinate geomOwnCM = compCM;
+			final Coordinate geomOwnTransverseCM = compTransverseCM;
 			boolean subtreeOverride = false;
 			double subIxx = 0.0;
 			double subIyy = 0.0;
@@ -390,8 +400,10 @@ public class MassCalculation {
 			if (component.isMassOverridden()) {
 				if (!component.isMassive()) {
 					compCM = children.getCM();
+					compTransverseCM = children.transverseCM;
 				}
 				compCM = compCM.setWeight(component.getOverrideMass());
+				compTransverseCM = compTransverseCM.setWeight(component.getOverrideMass());
 
 				if (component.isSubcomponentsOverriddenMass()) {
 					// ===== MMRocket Sim patch (v0.088): scale the subtree's
@@ -438,7 +450,7 @@ public class MassCalculation {
 						// term here is zero and this is a no-op.)
 						final double ownIx = component.getRotationalUnitInertia() * geomOwnCM.weight;
 						final double ownIt = component.getLongitudinalUnitInertia() * geomOwnCM.weight;
-						geomWhole = subtree.add(new RigidBody(geomOwnCM, ownIx, ownIt, ownIt));
+						geomWhole = subtree.add(new RigidBody(geomOwnCM, geomOwnTransverseCM, ownIx, ownIt, ownIt));
 						geomMass += geomOwnCM.weight;
 					}
 					// MIN_MASS guard is NOT optional: a subtree whose children
@@ -451,6 +463,9 @@ public class MassCalculation {
 					subtreeOverride = true;
 					subIxx = geomWhole.Ixx * k;
 					subIyy = geomWhole.Iyy * k;
+					// Keep the scaled shape's radial centroid. Preserve the established
+					// axial attachment/override convention and transverse reference.
+					compCM = new Coordinate(compCM.x, geomWhole.cm.y, geomWhole.cm.z, compCM.weight);
 
 					// The children's bodies have now been folded into
 					// (subIxx, subIyy). Leaving them in the list would ADD the
@@ -462,12 +477,13 @@ public class MassCalculation {
 
 			if (component.isCGOverridden()) {
 				compCM = compCM.setX( compZero.x + component.getOverrideCGX() );
+				compTransverseCM = compTransverseCM.setX(compCM.x);
 
 				if (component.isSubcomponentsOverriddenCG()) {
 					children.setCM(children.getCM().setX(compCM.x));
 				}
 			}
-			this.addMass(compCM);
+			this.addMass(compCM, compTransverseCM);
 			
 			if(null != analysisMap){
 				final CMAnalysisEntry entry = analysisMap.get(component.hashCode());
@@ -491,11 +507,11 @@ public class MassCalculation {
 			// shape, put it where the user says the CG is".
 			final RigidBody componentInertia;
 			if (subtreeOverride) {
-				componentInertia = new RigidBody( compCM, subIxx, subIyy, subIyy );
+				componentInertia = new RigidBody(compCM, compTransverseCM, subIxx, subIyy, subIyy);
 			} else {
 				final double compIx = component.getRotationalUnitInertia() * compCM.weight;
 				final double compIt = component.getLongitudinalUnitInertia() * compCM.weight;
-				componentInertia = new RigidBody( compCM, compIx, compIt, compIt );
+				componentInertia = new RigidBody(compCM, compTransverseCM, compIx, compIt, compIt);
 			}
 			this.addInertia( componentInertia );
 			// // vvv DEBUG
@@ -528,7 +544,7 @@ public class MassCalculation {
 //		}
 
 		if (component.isMotorMount()) {
-			MassCalculation motor = this.copy(component, parentTransform);
+			MassCalculation motor = this.copy(component, parentTransform, transverseTransform);
 			
 			motor.calculateMountData();
 
@@ -542,14 +558,18 @@ public class MassCalculation {
 		}
 		
 		// iterate over the aggregated instances for the whole tree.
-		MassCalculation children = this.copy(component, parentTransform );
+		MassCalculation children = this.copy(component, parentTransform, transverseTransform);
 		for( int instanceNumber = 0; instanceNumber < instanceCount; ++instanceNumber) {
 			Coordinate currentLocation = instanceLocations[instanceNumber];
-			Transformation currentTransform = parentTransform.applyTransformation( Transformation.getTranslationTransform( currentLocation ));
+			Transformation offset = Transformation.getTranslationTransform(currentLocation);
+			Transformation currentTransform = parentTransform.applyTransformation(offset)
+					.applyTransformation(Transformation.getAxialRotation(component.getInstanceAngles()[instanceNumber]));
+			// Upstream motor traversal omitted rotation. Keep that path only for pitch/yaw.
+			Transformation currentTransverseTransform = transverseTransform.applyTransformation(offset);
 			
 			for (RocketComponent child : component.getChildren()) {
 				// child data, relative to rocket reference frame
-				MassCalculation eachChild = copy( child, currentTransform);
+				MassCalculation eachChild = copy(child, currentTransform, currentTransverseTransform);
 				
 				eachChild.prefix = prefix + "....";
 				eachChild.calculateMotors(); 
@@ -584,12 +604,12 @@ public class MassCalculation {
 	/* package-scope */ RigidBody calculateMomentOfInertia() {
 		double Ir=0, It=0;
 		for( final RigidBody eachLocal : this.bodies ){
-			final RigidBody eachGlobal = eachLocal.rebase( this.centerOfMass );
+			final RigidBody eachGlobal = eachLocal.rebase(this.centerOfMass, this.transverseCM);
 			Ir += eachGlobal.Ixx;
 			It += eachGlobal.Iyy;
 		}
 		
-		return new RigidBody( centerOfMass, Ir, It, It );
+		return new RigidBody(centerOfMass, transverseCM, Ir, It, It);
 	}
 
 }

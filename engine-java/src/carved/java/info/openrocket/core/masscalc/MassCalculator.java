@@ -18,7 +18,8 @@ public class MassCalculator implements Monitorable {
 
 	/*
 	 * Cached data. All CG data is in absolute coordinates. All moments of inertia
-	 * are relative to their respective CG.
+	 * use the true radial CG for roll. Pitch/yaw retain the legacy transverse
+	 * reference carried separately by RigidBody (one scalar for both directions).
 	 */
 	// private HashMap< Integer, MassData> stageMassCache = new HashMap<Integer,
 	// MassData >();
