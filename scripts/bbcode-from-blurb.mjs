@@ -255,7 +255,9 @@ export const isHeadingLine = (l) => {
  *
  * Where it cuts: only at a BLANK LINE that is not inside a [LIST]. That keeps every list,
  * and therefore every tag pair, whole inside one part - the alternative is a part that opens
- * a [LIST] it never closes, which pastes as visible junk. If a single unsplittable run is
+ * a [LIST] it never closes, which pastes as visible junk. It may also cut between a closing
+ * [/LIST] and a heading on the very next line, the place where a blank line WOULD be had the
+ * converter not dropped it (2026-09-29). If a single unsplittable run is
  * itself over the limit the caller is told rather than handed a bad cut.
  *
  * And it will not cut immediately after a HEADING, which strands the heading at the foot of
@@ -294,6 +296,14 @@ export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
         cuts.push({ at: i, orphansHeading: lastSolid >= 0 && isHeadingLine(lines[lastSolid]) });
       }
     } else {
+      // A section that ends in a list has no blank line before the next heading -
+      // dropBlanksAroundLists removed it - so without this every such section was glued to
+      // the next one. On the v0.138-v0.142 blurb that left three unbreakable runs of 5.2k,
+      // 8.1k and 8.6k characters and forced a fourth post. Cutting just before the heading
+      // is safe: the list is closed (depth 0) and the heading goes WITH its body.
+      if (depth === 0 && i > 0 && lines[i - 1].trim() === '[/LIST]' && isHeadingLine(l)) {
+        cuts.push({ at: i, orphansHeading: false });
+      }
       lastSolid = i;
     }
   }
@@ -331,7 +341,9 @@ export function splitBBCode(bb, limit = TRF_POST_LIMIT) {
         + 'paragraphs, or shorten the longest list.');
     }
     parts.push(lines.slice(start, at).join('\n').trimEnd());
-    start = at + 1;
+    // Not `at + 1`: a cut before a heading (above) has the heading itself at `at`. A blank-line
+    // cut loses nothing, because the loop's head steps over blank lines anyway.
+    start = at;
   }
 
   if (parts.length === 1) return parts;

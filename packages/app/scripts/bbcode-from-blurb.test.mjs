@@ -275,6 +275,23 @@ describe('splitBBCode', () => {
     }
   });
 
+  it('can cut between a [/LIST] and the heading on the next line, keeping the heading with its body', () => {
+    // toBBCode drops the blank line after a [/LIST], so a section ending in a list has NO
+    // blank before the next heading. Without this cut the two sections were one unbreakable
+    // run, and the v0.138-v0.142 blurb needed a fourth post for it.
+    const section = (h) => [`[B]${h}[/B]`, '[LIST]', `[*]${para(300)}`, '[/LIST]'];
+    const bb = [...section('One'), ...section('Two'), ...section('Three')].join('\n');
+    expect(bb.includes('\n\n'), 'the fixture must have no blank line to cut at').toBe(false);
+    const parts = splitBBCode(bb, 500);
+    expect(parts.length).toBe(3);
+    ['One', 'Two', 'Three'].forEach((h, i) => {
+      const body = parts[i].replace(CONTINUED + '\n\n', '').replace('\n\n' + CONTINUES, '');
+      expect(body.startsWith(`[B]${h}[/B]\n[LIST]`), body.slice(0, 40)).toBe(true);
+      expect(body.endsWith('[/LIST]')).toBe(true);
+      expect(checkTags(parts[i])).toEqual([]);
+    });
+  });
+
   it('refuses rather than cutting badly when one run is longer than a post', () => {
     expect(() => splitBBCode(para(300), 100)).toThrow(/unbreakable run/);
   });
