@@ -12,6 +12,9 @@ import type { SessionState } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
 import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
+import { APP_VERSION } from './version.js';
+import { sanitizeTree } from './tree/sanitize.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +131,75 @@ beforeEach(() => {
 afterEach(async () => {
   await unmountAll();
   vi.unstubAllGlobals();
+});
+
+describe('restored limits-table repairs (open-items, 22–23 September)', () => {
+  function seed(appVersion = APP_VERSION): string[] {
+    const tree = { name: 'Repair notes', components: [{
+      id: 's', type: 'stage', name: 'Sustainer', separationEvent: 'unknown-event', children: [
+        { id: 'n', type: 'nosecone', name: 'Nose', length: 0.1, aftRadius: 0.027, shoulderRadius: -0.013 },
+        { id: 'b', type: 'bodytube', length: 0.5, outerRadius: 0.027, thickness: 0.001, children: [
+          { id: 'f', type: 'trapezoidfinset', name: 'Fins', finCount: 12,
+            rootChord: 0.1, tipChord: 0.05, height: 0.04, thickness: 0.002 },
+          { id: 'h', type: 'fairing', name: 'Camera shroud', length: 0.05, width: 0.02, height: 0 },
+        ] },
+      ],
+    }] } as SessionState['tree'];
+    const notes: string[] = [];
+    sanitizeTree(tree, notes);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, launch: DEFAULT_CONDITIONS, mountMotors: {}, appVersion, savedAt: Date.now(),
+    }));
+    return notes;
+  }
+
+  async function repairNotice(host: HTMLElement): Promise<HTMLElement | null> {
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    return [...host.querySelectorAll<HTMLElement>('.notice-list li')]
+      .find((li) => li.textContent?.includes('“Nose”: shoulder')) ?? null;
+  }
+
+  it.each([APP_VERSION, '0.001'])('names every repair from build %s and autosaves the repaired tree', async (version) => {
+    const notes = seed(version);
+    expect(notes).toHaveLength(4);
+    const host = await mountApp();
+    const notice = await repairNotice(host);
+    expect(notice).not.toBeNull();
+    for (const note of notes) expect(notice!.textContent).toContain(note);
+    expect(notice!.textContent).toContain('“Nose”: shoulder radius -13 mm cannot be negative — set to 0 mm.');
+    expect(notice!.textContent).toContain('“Camera shroud”: height 0 mm is below the minimum of 0.1 mm');
+    await settle(600);
+    expect(await repairNotice(host)).not.toBeNull(); // autosave must not erase the note
+    await unmountAll();
+    const saved = storedSession()!;
+    expect(saved.tree.components[0]!.children![0]!['shoulderRadius']).toBe(0);
+    const again: string[] = [];
+    expect(sanitizeTree(saved.tree, again)).toBe(saved.tree);
+    expect(again).toEqual([]);
+    const reloaded = await mountApp();
+    expect(await repairNotice(reloaded)).toBeNull();
+  }, 30000);
+
+  it('can dismiss the restore repair note without it returning on an edit', async () => {
+    seed();
+    const host = await mountApp();
+    const notice = (await repairNotice(host))!;
+    const dismiss = notice.querySelector<HTMLButtonElement>('button');
+    expect(dismiss).not.toBeNull();
+    await act(async () => { dismiss!.click(); });
+    await type(input(host, 'Measured mass'), '31');
+    expect(await repairNotice(host)).toBeNull();
+  }, 30000);
+
+  it('clears the restore repair note when New replaces the design', async () => {
+    seed();
+    const host = await mountApp();
+    expect(await repairNotice(host)).not.toBeNull();
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { button(host, 'Discard & start new').click(); });
+    expect(await repairNotice(host)).toBeNull();
+  }, 30000);
 });
 
 describe('a first visit is clean once the starter motor lands (audit 2026-09-22)', () => {

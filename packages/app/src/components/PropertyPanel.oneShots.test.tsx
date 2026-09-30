@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
+import { sanitizeTree } from '../tree/sanitize.js';
 
 /**
  * The panel's one-shot geometry buttons, pinned from the OUTSIDE — what each
@@ -203,6 +205,26 @@ describe('Fit tab to motor tube', () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { length: 'in' } }));
     expect(fit(tube([MMT, FIN]))!.title).toBe('Set tab depth to reach the motor tube (0.874016 in)');
   });
+
+  it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'])(
+    'bounds every new %s tab dimension before writing it', (type) => {
+      const tree = tube([{ ...FIN, type, rootChord: MAX_DIMENSION_M * 3,
+        points: [[0, 0], [0, 0.1], [MAX_DIMENSION_M * 3, 0]],
+      }], { thickness: MAX_DIMENSION_M * 2 });
+      const got = fit(tree)!;
+      expect(got.patch).toMatchObject({ tabHeight: MAX_DIMENSION_M, tabLength: MAX_DIMENSION_M });
+      expect(got.title).toContain(`${MAX_DIMENSION_M * 1000} mm`);
+      const written = stageOf([{ ...FIN, ...got.patch }]);
+      const notes: string[] = [];
+      expect(sanitizeTree(written, notes)).toBe(written);
+      expect(notes).toEqual([]);
+    },
+  );
+
+  it('does not write a negative root-derived tab length', () => {
+    const got = fit(tube([{ ...FIN, rootChord: -0.1 }]))!;
+    expect(got.patch!['tabLength']).toBe(0);
+  });
 });
 
 describe('Fit shoulder to tube ⌀', () => {
@@ -243,6 +265,20 @@ describe('Fit shoulder to tube ⌀', () => {
   it('is not offered with no body tube behind the nose, or one with no radius', () => {
     expect(fit(stageOf([NOSE]))).toBeNull();
     expect(fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5 }]))).toBeNull();
+  });
+
+  it.each([
+    { outerRadius: 0.027, thickness: 0.04, radius: 0 },
+    { outerRadius: 0.027, thickness: 0.027, radius: 0 },
+    { outerRadius: MAX_DIMENSION_M * 2, thickness: 0, radius: MAX_DIMENSION_M },
+  ])('bounds the fitted shoulder at $radius m and reports what it writes', ({ outerRadius, thickness, radius }) => {
+    const got = fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5, outerRadius, thickness }]))!;
+    expect(got.patch).toEqual({ shoulderRadius: radius });
+    expect(got.title).toContain(`(${radius * 2000} mm)`);
+    const written = stageOf([{ ...NOSE, ...got.patch }]);
+    const notes: string[] = [];
+    expect(sanitizeTree(written, notes)).toBe(written);
+    expect(notes).toEqual([]);
   });
 });
 

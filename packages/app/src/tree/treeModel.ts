@@ -89,13 +89,12 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
  * It is also THE load boundary's sanitize pass (audit 2026-09-22): every file,
  * share link and restored session comes through here, so `sanitizeTree` runs
  * here and nothing downstream sees a count, dimension or enum string outside
- * the limits table in schema.ts. It is silent here — the importers run it
- * first, with their own notes, so a repair a file needed is reported in the
- * import banner and this second pass finds nothing left to do.
+ * the limits table in schema.ts. The importers run it first with their own
+ * notes; session restore collects its repairs here for the same load notice.
  */
-export function normalizeTree(tree: RocketTree): RocketTree {
+export function normalizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   reseedIds(tree);
-  tree = sanitizeTree(resolveAbsolutePositions(tree));
+  tree = sanitizeTree(resolveAbsolutePositions(tree), notes);
   if (tree.components.length === 0) {
     return { ...tree, components: [makeStage('Sustainer')] };
   }

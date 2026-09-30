@@ -303,8 +303,13 @@ export function App() {
   // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
   // so a second call yields ids that don't exist in the tree state — the
   // default-motor assignment and legacy migrations would key onto ghosts.
-  const [initialTree] = useState<RocketTree>(
-    () => normalizeTree(session?.tree ?? defaultTree()));
+  const [{ initialTree, restoreNotes }] = useState(() => {
+    // Name autosave repairs just like file imports (open-items, 22–23 September:
+    // "A restored session is repaired without a note").
+    const restoreNotes: string[] = [];
+    const initialTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
+    return { initialTree, restoreNotes };
+  });
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -674,7 +679,8 @@ export function App() {
    * default) so every existing call site is unchanged.
    */
   const [fileNoteState, setFileNoteState] =
-    useState<{ text: string; severity: NoticeSeverity } | null>(null);
+    useState<{ text: string; severity: NoticeSeverity } | null>(() =>
+      restoreNotes.length ? { text: restoreNotes.join('\n'), severity: 'info' } : null);
   const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info') => {
     setFileNoteState(text === null ? null : { text, severity });
   }, []);
