@@ -64,7 +64,9 @@ function expectDistance(exit: ReturnType<typeof fly>, distance: number) {
   expect(exit.distance - distance).toBeLessThanOrEqual(exit.tolerance);
 }
 
-describe('K9 launch guide clearance', () => {
+// Each case flies the kernel several times; on CI's slower runner the first one also
+// pays the engine's warm-up and ran 5.47 s against vitest's 5 s default (v0.143's first push).
+describe('K9 launch guide clearance', { timeout: 60_000 }, () => {
   it('keeps the full rod length and identical exit when no guide has been added', () => {
     const before = fly();
     const noGuide = fly([]);
