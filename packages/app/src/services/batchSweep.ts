@@ -1,5 +1,5 @@
 import {
-  OrkRocket, type ComponentNode, type FlightResult, type IgnitionEvent, type MotorSpec, type RocketTree,
+  OrkRocket, type ComponentNode, type IgnitionEvent, type MotorSpec, type RocketTree,
   type StaticInfo,
 } from '@online-openrocket/engine';
 import {
@@ -11,10 +11,11 @@ import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
-import { buildSimRun, recommendDelay, type MotorMeta, type SimRun } from './simReport.js';
+import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
-import { writeMountMotor } from './flightRunner.js';
-import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
+import type { MountMotor } from '../model/design.js';
+import { flyLaunch, writeMountMotor } from './flightRunner.js';
+import { machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
 
 /**
@@ -26,7 +27,7 @@ import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPan
  * audit: the single pass skipped a re-fly the combination pass always paid for,
  * both hand-rolled the aero stamps `flightPipeline` already owns, and every
  * batch fix had to be applied twice. Here there is ONE flight (`flyLegs`), ONE
- * delay rule (`batchDelayRule`) and ONE nozzle rule (`batchStageExit`), and a
+ * per-mount solver (`flyLaunch`) and ONE nozzle rule (`batchStageExit`), and a
  * single motor is simply a combination of one leg.
  *
  * The dialog keeps what is the dialog's: the filters, the criteria and their
@@ -296,7 +297,7 @@ export function batchRowKey(configTag: string, motorIds: readonly string[]): str
  *    so each plugged-only motor (604 of the catalogue's 1,156 as delayOptions
  *    reads them, 374 of those in production — measured 2026-09-22) flew with
  *    a charge at burnout that the motor does not have (audit 2026-09-22);
- *    batchDelayRule decides what a flight with no charge then flies.
+ *    flyLaunch resolves the explicit per-leg Auto policies.
  *
  * A motor that lists NO delay at all (delayOptions returns [] since the
  * row-363 fix; it used to read as [0]) starts at 0 in both modes. That is
@@ -339,47 +340,6 @@ export function deploysOnEjectionCharge(tree: RocketTree): boolean {
 }
 
 /**
- * THE DELAY RULE, for one flight of one candidate — a single motor or every leg
- * of a combination — after its first flight at `provisionalDelay`.
- *
- * With "optimal delay per motor" ticked every row flies the kernel's optimum,
- * rounded to the whole second a flyer can drill, and re-flies only when some leg
- * is not already sitting at it. The two passes used to disagree on that last
- * clause: the single pass skipped the redundant flight and the combination pass
- * flew it every time. Skipping is right — the kernel is seeded (42 unless the
- * caller says otherwise), so flying the same delays again returns the same
- * flight — and it is now the rule for both.
- *
- * Unticked, each leg keeps its own prescribed delay, and the row records the
- * EARLIEST charge, which is the one that deploys the recovery. The one
- * exception is a flight with no charge at all (every leg plugged-only) on a
- * design whose recovery waits for that charge: flown plugged it would never
- * deploy, and flown at the old `?? 0` it deployed at burnout — the audit
- * measured the F13-RCT at 476.1 m against 706.6 m, 32.6 % low, graded "too
- * low" and ranked last. It flies its optimum instead, and `optimumForPlugged`
- * says so on the row. On a design that deploys at apogee or altitude a plugged
- * motor is flown plugged, which is exactly how it would fly.
- */
-export function batchDelayRule(input: {
-  /** The delay each leg flew the first flight at; Infinity is plugged. */
-  flownDelays: readonly number[];
-  /** The kernel's optimum from that flight: a coast probe's if it deployed before apogee, else its own apogee's. */
-  optimum: number | null;
-  autoDelay: boolean;
-  deploysOnCharge: boolean;
-}): { delay: number; refly: boolean; optimumForPlugged: boolean } {
-  const { flownDelays, optimum, autoDelay, deploysOnCharge } = input;
-  const earliest = Math.min(...flownDelays);
-  const noCharge = flownDelays.every((d) => !Number.isFinite(d));
-  if (!autoDelay && !(noCharge && deploysOnCharge)) {
-    return { delay: earliest, refly: false, optimumForPlugged: false };
-  }
-  const rec = recommendDelay(optimum);
-  if (rec === null) return { delay: earliest, refly: false, optimumForPlugged: false };
-  return { delay: rec, refly: flownDelays.some((d) => d !== rec), optimumForPlugged: !autoDelay };
-}
-
-/**
  * The same exception, said ON THE RUN. The dialog marks such a row "· opt.",
  * but the run is what reaches the history, the CSV and the XLSX, and there its
  * Delay column printed a delay the motor is not sold with and nothing said why
@@ -390,9 +350,13 @@ export function batchDelayRule(input: {
  */
 export function notePluggedAtOptimum(run: SimRun, legs: number): void {
   const them = legs > 1 ? 'them' : 'it';
+  const flown = run.delayResolution?.mounts.filter((m) => m.exception === 'plugged-on-charge');
+  const delays = legs > 1 && flown?.length
+    ? `per-mount optimum delays (${flown.map((m) => `${m.mountName}: ${m.flownDelay} s`).join(', ')})`
+    : `the optimum delay of ${run.delayS} s`;
   const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
     + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
-    + `batch flew ${them} at the optimum delay of ${run.delayS} s rather than with no deployment at `
+    + `batch flew ${them} at ${delays} rather than with no deployment at `
     + `all. To fly ${them} as sold, set the recovery to deploy at apogee or altitude.`;
   run.comments = run.comments === '' ? note : `${run.comments} | ${note}`;
   if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];
@@ -434,6 +398,7 @@ export interface BatchSweepInput {
   assignedMotorIds: Record<string, string | undefined>;
   /** Their ignition settings — a MotorSpec carries none. */
   assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
+  assignedAutoDelays?: Record<string, boolean>;
   weighed?: BatchWeighed;
   model: BatchModel;
   autoDelay: boolean;
@@ -608,75 +573,44 @@ export async function runBatchSweep(
    * delay rule. `legs` is the target mount's motor for a single-motor row, or
    * one entry per group mount for a combination.
    */
-  const flyLegs = (
+  const flyLegs = async (
     rocket: OrkRocket,
     legs: readonly { mountId: string; spec: MotorSpec; noListedDelay?: boolean }[],
     probeTree: RocketTree,
     replacedMountId?: string,
   ) => {
-    // execMs must mean ONE flight at this step: the launch panel's
-    // time-step caution prices a reload from the newest stored run
-    // (storedSimCost), and a span covering the probe plus a re-fly
-    // quoted 2-3x the real wait — the same over-billing the single-flight
-    // path fixed by timing each full flight alone.
-    let execMs = 0;
-    const flyTimed = (): FlightResult => {
-      const t0 = performance.now();
-      const r = rocket.simulate(simOpts);
-      execMs = performance.now() - t0;
-      return r;
-    };
-    // Auto: each candidate picks its model from a SHORT probe run and then
-    // flies once — per MOTOR, exactly like the single-flight Auto loop.
-    // This used to fly the whole classic flight and, on a supersonic
-    // candidate, throw it away and fly the whole thing again, per candidate.
-    if (model === 'auto') rocket.setSupersonicAero(false);
-    for (const l of legs) rocket.setMotorById(l.mountId, l.spec);
-    let usedSupersonic = model === 'supersonic';
-    if (model === 'auto') {
-      const probe = rocket.simulate({
-        ...simOpts,
-        maxTime: batchProbeCutoff(probeTree, assignedMotors,
-          Object.fromEntries(legs.map((l) => [l.mountId, l.spec])), replacedMountId),
-      });
-      if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-        rocket.setSupersonicAero(true);
-        usedSupersonic = true;
+    const optimumForPlugged = !autoDelay && deploysOnCharge
+      && legs.every((l) => l.spec.ejectionDelay === Infinity && !l.noListedDelay);
+    const assigned: [string, MountMotor][] = Object.entries(assignedMotors)
+      .filter(([id]) => id !== replacedMountId && !legs.some((l) => l.mountId === id))
+      .map(([id, spec]) => [id, {
+        spec, label: spec.designation,
+        meta: { label: spec.designation, motorId: assignedMotorIds[id], autoDelay: input.assignedAutoDelays?.[id] === true },
+        ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
+      }]);
+    for (const l of legs) assigned.push([l.mountId, {
+      spec: l.spec, label: l.spec.designation,
+      meta: { label: l.spec.designation, autoDelay: autoDelay || !!l.noListedDelay || optimumForPlugged },
+      ignition: { event: 'automatic', delay: 0 },
+    }]);
+    const flight = await flyLaunch(rocket, {
+      assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
+      mountNames: Object.fromEntries(mounts.map((m) => [m.id, m.label])),
+      simOptions: simOpts, aeroMode, supersonic: model === 'supersonic',
+      isOnLaunchStage: (id) => isOnLaunchStage(probeTree, id),
+      onSupersonicUpgrade: () => {}, signal, yieldToUi,
+    });
+    if (optimumForPlugged) {
+      for (const m of flight.delayResolution.mounts) {
+        if (legs.some((l) => l.mountId === m.mountId)) m.exception = 'plugged-on-charge';
       }
     }
-    let res = flyTimed();
-    // Backstop on the probe's verdict: the cutoff over-estimates on purpose,
-    // but the full flight now holds the real peak Mach — if Auto flew classic
-    // and the flight still crossed the threshold, re-fly supersonic. Near-free
-    // on average: it only triggers where the probe under-read.
-    if (model === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-      rocket.setSupersonicAero(true);
-      usedSupersonic = true;
-      res = flyTimed();
-    }
-    // A candidate whose every motor lists no delay flies its optimum even
-    // unticked — the browser's "Auto (optimal)" default for such a motor.
-    const legsAuto = autoDelay || (legs.length > 0 && legs.every((l) => l.noListedDelay));
-    const plan = batchDelayRule({
-      flownDelays: legs.map((l) => l.spec.ejectionDelay),
-      optimum: res.summary.optimumDelay,
-      autoDelay: legsAuto,
-      deploysOnCharge,
-    });
-    if (plan.refly) {
-      for (const l of legs) rocket.setMotorById(l.mountId, { ...l.spec, ejectionDelay: plan.delay });
-      res = flyTimed();
-    }
     return {
-      res,
-      execMs,
-      flownDelay: plan.delay,
-      optimumForPlugged: plan.optimumForPlugged,
-      autoDelay: legsAuto,
-      // Both stamps are permanent on the stored run, and flightPipeline owns
-      // them — these were hand-rolled copies of it, twice over.
-      aeroModel: aeroModelFor(aeroMode, usedSupersonic),
-      rogersKbf: rogersKbfFor(kbf, usedSupersonic),
+      res: flight.result, execMs: flight.execMs, flownDelay: flight.flownDelayS,
+      delayResolution: flight.delayResolution, primaryMountId: legs[0]!.mountId,
+      optimumForPlugged, autoDelay: autoDelay || !!legs[0]?.noListedDelay,
+      aeroModel: aeroModelFor(aeroMode, flight.usedSupersonic),
+      rogersKbf: rogersKbfFor(kbf, flight.usedSupersonic),
     };
   };
 
@@ -708,10 +642,11 @@ export async function runBatchSweep(
       // for a motor with no published exit — about two thirds of a 54 mm
       // sweep — which gets the nozzle-free handle and today's numbers.
       const exitM = await exitForCandidate(entry, target.motorCount);
-      const f = flyLegs(sweepHandle(exitM),
+      const f = await flyLegs(sweepHandle(exitM),
         [{ mountId: target.id, spec: flown, noListedDelay: listsNoDelay(entry) }], tree);
       const run = buildSimRun({
         result: f.res,
+        delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
         info,
         motor: { ...flown, ejectionDelay: f.flownDelay },
         meta: {
@@ -817,12 +752,13 @@ export async function runBatchSweep(
         // The split tree is what this candidate flies — its group mounts do
         // not exist in `tree`, and the replaced cluster mount's motor is not
         // aboard (see batchProbeCutoff).
-        const f = flyLegs(comboHandle(exitM),
+        const f = await flyLegs(comboHandle(exitM),
           split.mountIds.map((id, k) => ({ mountId: id, spec: specs[k]!, noListedDelay: listsNoDelay(entries[k]!) })),
           split.tree, target.id);
         const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
         const run = buildSimRun({
           result: f.res,
+        delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
           info,
           motor: { ...specs[0]!, ejectionDelay: f.flownDelay },
           meta: {

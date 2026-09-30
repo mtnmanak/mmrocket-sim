@@ -260,26 +260,11 @@ export function padMassOntoRankedPrimary<T extends { padMassKg?: number; padMass
   };
 }
 
-/**
- * Which auto-delay box a mount card shows (audit 2026-09-22, row 356, from
- * review): 'optimal' — the working "auto (optimal)" box — on the primary's
- * card, where flightRunner writes the rounded optimum; 'top-motor-only' on any
- * other card whose motor carries the auto flag anyway, so it can be unticked;
- * null otherwise. The primary offers the box on the sustainer stage, as it
- * always has, and on a lower stage only once it is ticked (a booster is primary
- * only while nothing above it is loaded, and it does fly the optimum then).
- *
- * The motor browser offers "Auto (optimal)" on every mount and starts a motor
- * that lists no delay on it, but only the primary's flag is ever honoured; any
- * other mount flies its provisional delay — the number in its field. Hiding the
- * box on those cards left such a mount labelled "(auto delay)" with nothing to
- * untick; this keeps a box there that says what the flag does.
- */
+/** Every loaded mount offers the same per-carrier Auto policy. */
 export function autoDelayBox(
-  tree: RocketTree, mountId: string, primaryMountId: string | null, ticked: boolean,
-): 'optimal' | 'top-motor-only' | null {
-  if (mountId === primaryMountId) return stageIndexOf(tree, mountId) === 0 || ticked ? 'optimal' : null;
-  return ticked ? 'top-motor-only' : null;
+  tree: RocketTree, mountId: string, _primaryMountId: string | null, _ticked: boolean,
+): 'optimal' | null {
+  return findNode(tree, mountId) ? 'optimal' : null;
 }
 
 export function findParent(tree: RocketTree, id: string): ComponentNode | 'stage' | null {

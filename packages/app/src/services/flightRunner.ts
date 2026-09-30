@@ -5,7 +5,7 @@ import type { MountMotor } from '../model/design.js';
 import { flownSpec, type HardwareMassResult } from './hardwareMass.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
-import { recommendDelay } from './simReport.js';
+import { canReplayDelays, delayMountsOf, readDelay, solveAutoDelays, type DelayResolution } from './autoDelaySolver.js';
 
 /**
  * THE KERNEL-HANDLE PROTOCOL: every flight the app flies on a design's SHARED
@@ -35,6 +35,8 @@ export interface AssignedMotors {
   assigned: readonly (readonly [string, MountMotor])[];
   /** `buildResult.hardware` — what the weighed pad mass carries, and on which mount. */
   hardware: HardwareMassResult | undefined;
+  /** Build refusals: absent motors cannot appear in the flown delay vector. */
+  refusedMountIds?: readonly string[];
 }
 
 /** Both aerodynamics switches a handle carries. */
@@ -121,8 +123,9 @@ export function writeMountMotor(
  * wrote onto the handle — so a flight carries the design page's mass, not the
  * catalogue's. See services/hardwareMass.ts.
  */
-export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware }: AssignedMotors): void {
+export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware, refusedMountIds }: AssignedMotors): void {
   for (const [id, mm] of assigned) {
+    if (refusedMountIds?.includes(id)) continue;
     try {
       writeMountMotor(rocket, id, flownSpec(id, mm.spec, hardware), mm.ignition);
     } catch {
@@ -133,8 +136,8 @@ export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware }
   }
 }
 
-/** The primary's FLOWN spec (hardware included) at a given ejection delay. */
-function writePrimaryDelay(
+/** One mount's FLOWN spec (hardware included) at a given ejection delay. */
+function writeMountDelay(
   rocket: FlightHandle, motors: AssignedMotors, primaryMountId: string, delayS: number,
 ): void {
   const mm = motors.assigned.find(([id]) => id === primaryMountId)?.[1];
@@ -147,7 +150,10 @@ function writePrimaryDelay(
 }
 
 export interface LaunchInput extends AssignedMotors {
-  /** The mount whose motor drives the report and the auto delay (App's `primaryMountId`). */
+  mountNames?: Record<string, string>;
+  signal?: AbortSignal;
+  yieldToUi?: () => Promise<void>;
+  /** The mount whose motor drives the scalar report columns (App's `primaryMountId`). */
   primaryMountId: string;
   /** `kernelSimOptions(launch)`. */
   simOptions: SimulationOptions;
@@ -156,16 +162,14 @@ export interface LaunchInput extends AssignedMotors {
   supersonic: boolean;
   /** For the Mach probe's cutoff: does this mount sit on the launch stage? */
   isOnLaunchStage: (mountId: string) => boolean;
-  /**
-   * Called the moment Auto aero decides this flight is supersonic — App flips
-   * its session flag, which rebuilds the handle with the model on afterwards.
-   */
+  /** Called after releasing the handle: the app's callback rebuilds the kernel. */
   onSupersonicUpgrade: () => void;
   /** The clock the per-flight cost is read from; `performance.now` when absent. */
   now?: () => number;
 }
 
 export interface LaunchFlight {
+  delayResolution: DelayResolution;
   /** The ONE flight the report is built from. */
   result: FlightResult;
   /** The ejection delay the primary FLEW — the rounded optimum under auto delay. */
@@ -179,14 +183,22 @@ export interface LaunchFlight {
 /**
  * Launch: fly the design as it stands, and say what flew.
  */
-export function flyLaunch(rocket: FlightHandle, input: LaunchInput): LaunchFlight {
-  const primary = input.assigned.find(([id]) => id === input.primaryMountId)?.[1];
+export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promise<LaunchFlight> {
+  const absent = input.assigned.filter(([id, mm]) => input.refusedMountIds?.includes(id)
+    || knownIgnitionEvent(mm.ignition.event) === null);
+  const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay);
+  if (unresolved.length) {
+    throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => input.mountNames?.[id] ?? id).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
+  }
+  const installedInput = { ...input, assigned: input.assigned.filter(([id]) => !absent.some(([missing]) => missing === id)) };
+  const primary = installedInput.assigned.find(([id]) => id === input.primaryMountId)?.[1];
   if (!primary) throw new Error('no motor on the primary mount — assign one first');
   const now = input.now ?? (() => performance.now());
+  let upgraded = false;
   // Never fly inherited handle state — see applyAssignedMotors.
   applyAssignedMotors(rocket, input);
   try {
-    return flyFromCleanHandle(rocket, input, primary, now);
+    return await flyFromCleanHandle(rocket, { ...installedInput, onSupersonicUpgrade: () => { upgraded = true; } }, now);
   } finally {
     // And never LEAVE any. The auto-delay write below puts the rounded optimum
     // on the primary, and this used to be called "safe to leave unrestored"
@@ -197,42 +209,25 @@ export function flyLaunch(rocket: FlightHandle, input: LaunchInput): LaunchFligh
     // AeroTech F39, classic aero without Kbf). Every path
     // now starts from the design, and this puts the design back as well.
     //
-    // The aero flag an Auto upgrade set is deliberately left: the upgrade
-    // callback has already moved the app's own state to the supersonic model,
-    // so the handle and the design agree, and the rebuild that follows keeps it.
+    // Leave the upgraded aero flag and notify the app only after restoring
+    // the motors: the callback may rebuild the design's kernel handle.
     applyAssignedMotors(rocket, input);
+    if (upgraded) input.onSupersonicUpgrade();
   }
 }
 
-function flyFromCleanHandle(
-  rocket: FlightHandle, input: LaunchInput, primary: MountMotor, now: () => number,
-): LaunchFlight {
+async function flyFromCleanHandle(
+  rocket: FlightHandle, input: LaunchInput, now: () => number,
+): Promise<LaunchFlight> {
   const { primaryMountId, simOptions, aeroMode } = input;
-  // The cost the time-step caution quotes is ONE flight at the current step,
-  // so each full flight is timed alone and the LAST measurement wins — that is
-  // the flight whose result is shown. t0 used to sit before the Mach probe, so
-  // auto aero plus auto delay billed a probe and up to two extra flights as
-  // "per flight" and the caution quoted 2-3x the real wait.
   let execMs = 0;
-  const flyTimed = (): FlightResult => {
-    const t0 = now();
-    const r = rocket.simulate(simOptions);
-    execMs = now() - t0;
-    return r;
-  };
-  // Auto aero mode: decide which model to fly BEFORE flying. Past Mach 0.9
-  // (transonic onset, where classic aero starts degrading) the whole flight
-  // uses the supersonic model, and the design's displayed statics follow (the
-  // upgrade callback rebuilds the engine handle with the flag on afterwards).
-  //
-  // This used to fly the entire classic flight and then, on a supersonic
-  // design, throw all of it away and fly the entire thing again — paying for
-  // two flights to read one number. A run truncated just past burnout reaches
-  // the same >0.9 verdict: peak Mach happens at or just after burnout, never
-  // during the coast. Measured on the whole test corpus, the truncated probe
-  // returns the EXACT maxMach on 6 of 7 designs and lands the same side of 0.9
-  // on all 7, at a fraction of the cost.
   let usedSupersonic = input.supersonic;
+  rocket.setSupersonicAero(usedSupersonic);
+  const upgrade = () => {
+    rocket.setSupersonicAero(true);
+    usedSupersonic = true;
+    input.onSupersonicUpgrade();
+  };
   if (aeroMode === 'auto' && !usedSupersonic) {
     const probe = rocket.simulate({
       ...simOptions,
@@ -240,46 +235,41 @@ function flyFromCleanHandle(
         ...mm, onLaunchStage: input.isOnLaunchStage(id),
       }))),
     });
-    if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-      rocket.setSupersonicAero(true);
-      usedSupersonic = true;
-      input.onSupersonicUpgrade();
+    if (probe.summary.maxMachNumber > MACH_AUTO_THRESHOLD) upgrade();
+  }
+  const budget = { probes: 0 };
+  let solverMs = 0;
+  for (;;) {
+    const delayResolution = await solveAutoDelays({
+      mounts: delayMountsOf(input.assigned, input.mountNames), budget,
+      signal: input.signal, yieldToUi: input.yieldToUi,
+      probe: (delays) => {
+        for (const [id, delay] of delays) writeMountDelay(rocket, input, id, delay);
+        return rocket.simulate({ ...simOptions, delayProbe: true });
+      },
+    });
+    solverMs += delayResolution.elapsedMs;
+    for (const m of delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
+    input.signal?.throwIfAborted();
+    const t0 = now();
+    const result = rocket.simulate({ ...simOptions, delayProbe: false });
+    execMs = now() - t0;
+    // The final normal flight decides aero, not the ballistic probe's descent.
+    // Recompute every target after an upgrade, within the SAME eight-probe budget.
+    if (aeroMode === 'auto' && !usedSupersonic && result.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
+      upgrade();
+      continue;
     }
+    delayResolution.elapsedMs = solverMs;
+    return {
+      result, flownDelayS: readDelay(delayResolution.mounts.find((m) => m.mountId === primaryMountId)!.flownDelay),
+      usedSupersonic, execMs, delayResolution,
+    };
   }
-  // The ONE real flight. The probe's result is never used for anything else: a
-  // truncated run has no apogee, so its optimumDelay is absent and its warning
-  // set is incomplete.
-  let res = flyTimed();
-  // The probe under-reads by construction — it stops ~3 s after burnout, and
-  // its exact-maxMach score on the corpus was 6 of 7 — so its verdict is
-  // re-checked against the flight it green-lit. Without this, a borderline
-  // design (probe 0.897, flight 0.904), or one whose BALLISTIC DESCENT alone
-  // goes supersonic (the probe never sees the descent; v0.070's full-flight
-  // decision did), stays on classic aero with nothing to say so. Costs nothing
-  // except on the designs the probe misread, and cannot loop: usedSupersonic is
-  // true after one upgrade, so the recheck fires at most once.
-  if (aeroMode === 'auto' && !usedSupersonic && res.summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
-    rocket.setSupersonicAero(true);
-    usedSupersonic = true;
-    input.onSupersonicUpgrade();
-    res = flyTimed();
-  }
-  let flownDelayS = primary.spec.ejectionDelay;
-  // Auto delay (sustainer/primary mount): the first run yields the kernel's
-  // optimum (ballistic probe) — round to the nearest whole second
-  // (drill-to-fit) and fly the real run with that.
-  if (primary.meta.autoDelay) {
-    const rec = recommendDelay(res.summary.optimumDelay);
-    if (rec !== null) {
-      flownDelayS = rec;
-      writePrimaryDelay(rocket, input, primaryMountId, rec);
-      res = flyTimed();
-    }
-  }
-  return { result: res, flownDelayS, usedSupersonic, execMs };
 }
 
 export interface ReflyInput extends AssignedMotors {
+  delayResolution?: DelayResolution;
   primaryMountId: string;
   /** The ejection delay the stored run FLEW (`SimRun.delayS`). */
   delayS: number;
@@ -315,7 +305,15 @@ export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult 
   }
   applyAssignedMotors(rocket, input);
   try {
-    writePrimaryDelay(rocket, input, primaryMountId, delayS);
+    if (!canReplayDelays(input.delayResolution, input.assigned, primaryMountId, delayS)) {
+      throw new Error('Saved mount delays are incomplete or no longer match. Launch again.');
+    }
+    if (input.delayResolution !== undefined) {
+      for (const m of input.delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
+    } else {
+      // Old Launch optimized only the primary. All other delays remained in the design.
+      writeMountDelay(rocket, input, primaryMountId, delayS);
+    }
     rocket.setSupersonicAero(fly.supersonic);
     rocket.setRogersModifiedBarrowman(fly.kbf);
     return rocket.simulate(simOptions);

@@ -943,6 +943,9 @@ public final class OrkEngine {
         conditions.setTimeStep(timeStep > 0 ? timeStep : 0.05);
         conditions.setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200));
         conditions.setRandomSeed(randomSeed);
+        DelayProbeListener delayProbe = Boolean.TRUE.equals(o.get("delayProbe"))
+                ? new DelayProbeListener() : null;
+        if (delayProbe != null) conditions.getSimulationListenerList().add(delayProbe);
 
         try {
             // K9 (2026-09-30): the guide-aware rod length the clearance check flies,
@@ -957,7 +960,7 @@ public final class OrkEngine {
             BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
             engine.simulate(conditions);
             FlightData data = engine.getFlightData();
-            String json = flightDataToJson(data, fullSeries);
+            String json = flightDataToJson(data, fullSeries, ctx, delayProbe);
             return "{\"effectiveLaunchRodLength\":" + effectiveRod + "," + json.substring(1);
         } catch (SimulationException e) {
             return "{\"error\":\"" + escape(String.valueOf(e.getMessage())) + "\"}";
@@ -1108,7 +1111,8 @@ public final class OrkEngine {
         }
     }
 
-    private static String flightDataToJson(FlightData data, boolean fullSeries) {
+    private static String flightDataToJson(FlightData data, boolean fullSeries,
+            RocketCtx ctx, DelayProbeListener delayProbe) {
         StringBuilder sb = new StringBuilder("{\"summary\":{");
         num(sb, "maxAltitude", data.getMaxAltitude()).append(',');
         num(sb, "maxVelocity", data.getMaxVelocity()).append(',');
@@ -1125,7 +1129,7 @@ public final class OrkEngine {
         sb.append(",\"warningTexts\":");
         appendWarningTexts(sb, data.getWarningSet());
         sb.append(",\"events\":");
-        appendEvents(sb, data.getBranch(0));
+        appendEvents(sb, data.getBranch(0), ctx);
         sb.append(",\"series\":");
         appendBranchSeries(sb, data.getBranch(0), fullSeries);
         // Staged flights: EVERY branch (sustainer = branch 0, then each
@@ -1138,12 +1142,56 @@ public final class OrkEngine {
                 FlightDataBranch b = data.getBranch(i);
                 sb.append("{\"name\":\"").append(escape(String.valueOf(b.getName())))
                         .append("\",\"events\":");
-                appendEvents(sb, b);
+                appendEvents(sb, b, ctx);
                 sb.append(",\"series\":");
                 appendBranchSeries(sb, b, fullSeries);
                 sb.append('}');
             }
             sb.append(']');
+        }
+        if (delayProbe != null) {
+            sb.append(",\"delayProbe\":{\"version\":1,\"branches\":[");
+            for (int i = 0; i < data.getBranchCount(); i++) {
+                if (i > 0) sb.append(',');
+                FlightDataBranch b = data.getBranch(i);
+                sb.append("{\"id\":\"branch-").append(i).append("\",\"name\":\"")
+                        .append(escape(b.getName())).append("\",\"mountIds\":[");
+                FlightConfiguration config = delayProbe.configurations.get(b);
+                boolean first = true;
+                if (config != null) {
+                    for (RocketComponent c : config.getActiveComponents()) {
+                        if (!(c instanceof MotorMount)) continue;
+                        String id = componentId(ctx, c);
+                        if (id == null) continue;
+                        if (!first) sb.append(',');
+                        first = false;
+                        sb.append('"').append(escape(id)).append('"');
+                    }
+                }
+                sb.append(']');
+                // The same separation event object is recorded in both branches.
+                // Compare identity, not names or stage numbers (parallel stages).
+                if (i > 0) {
+                    FlightEvent split = b.getFirstEvent(FlightEvent.Type.STAGE_SEPARATION);
+                    for (int j = 0; j < i; j++) {
+                        boolean found = false;
+                        for (FlightEvent ev : data.getBranch(j).getEvents()) {
+                            if (ev == split) { found = true; break; }
+                        }
+                        if (found) {
+                            sb.append(",\"parentId\":\"branch-").append(j).append('"');
+                            num(sb.append(','), "separationTime", split.getTime());
+                            break;
+                        }
+                    }
+                }
+                sb.append(",\"events\":");
+                appendEvents(sb, b, ctx);
+                sb.append(",\"series\":");
+                appendBranchSeries(sb, b, false);
+                sb.append('}');
+            }
+            sb.append("]}");
         }
         return sb.append('}').toString();
     }
@@ -1215,7 +1263,15 @@ public final class OrkEngine {
         return "Other";
     }
 
-    private static void appendEvents(StringBuilder sb, FlightDataBranch branch) {
+    private static String componentId(RocketCtx ctx, RocketComponent component) {
+        if (component == null) return null;
+        for (Map.Entry<String, RocketComponent> entry : ctx.ids.entrySet()) {
+            if (entry.getValue().getID().equals(component.getID())) return entry.getKey();
+        }
+        return null;
+    }
+
+    private static void appendEvents(StringBuilder sb, FlightDataBranch branch, RocketCtx ctx) {
         sb.append('[');
         boolean first = true;
         for (FlightEvent ev : branch.getEvents()) {
@@ -1223,6 +1279,13 @@ public final class OrkEngine {
             first = false;
             sb.append("{\"type\":\"").append(ev.getType().name()).append("\",\"time\":")
                     .append(ev.getTime());
+            String sourceId = componentId(ctx, ev.getSource());
+            if (sourceId != null) sb.append(",\"sourceId\":\"").append(escape(sourceId)).append('"');
+            if (ev.getData() instanceof info.openrocket.core.simulation.MotorClusterState) {
+                String mountId = componentId(ctx, (RocketComponent)
+                        ((info.openrocket.core.simulation.MotorClusterState) ev.getData()).getMount());
+                if (mountId != null) sb.append(",\"motorMountId\":\"").append(escape(mountId)).append('"');
+            }
             // Source component name — tells dual-deployment rockets apart
             // (WHICH recovery device deployed: drogue vs main).
             RocketComponent src = ev.getSource();

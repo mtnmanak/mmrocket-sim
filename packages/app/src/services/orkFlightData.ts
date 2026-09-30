@@ -1,3 +1,4 @@
+import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
@@ -125,85 +126,39 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, M
   return cfgMotors;
 }
 
-/**
- * WHAT AN AUTO-DELAY PRIMARY FLEW, per configuration (`''` for a design with
- * none) — the delay a Save writes for it (seam review of audit 2026-09-22).
- *
- * Auto (optimal) is this app's own setting; neither a .ork nor a .rkt can hold
- * it, and a Save wrote the motor's PROVISIONAL first-flight delay: the
- * longest listed, or 0 s for a motor that lists no numeric delay: on the
- * Cheetah probe a KBA G135R, loaded on Auto from RockSim's −1, flew 11 s and
- * deployed at 0.87 m/s, and reopened from either file at 0 s, deploying at
- * burnout at 250.9 m/s. Auto flies the rounded optimum (flightRunner.flyLaunch),
- * so the delay its newest flight of the design as it stands flew AT that
- * optimum is what it flies, and so what the file says; a primary with no such
- * flight gets no entry, and the Save says so instead. A flag of this app's own
- * in the .ork was the other way, and was not taken: desktop OpenRocket warns on
- * an element it does not know and would still fly the provisional delay.
- *
- * AT THAT OPTIMUM, NOT ANY DELAY (review of the seam fixes). A run's motor-set
- * key carries the spec delay and not the Auto flag (motorSetKeyOf), and
- * ticking Auto changes nothing else, so a C6 flown at a fixed 3 s and then put
- * on Auto matched as its flight, and was saved at 3 s "the delay its last
- * flight here flew", where Auto flies it at 5 s. `recommendedDelayS` is the
- * run's rounded optimum — the kernel's coast to apogee from burnout, computed
- * past an early deployment (BasicEventSimulationEngine's computeCoastTime), so
- * the delay flown does not move it — and a run that flew it flew what Auto
- * flies, whether Auto was ticked or the same delay typed. A true Auto flight
- * whose re-flown optimum rounds the other way (its optimum within the
- * integrator's noise of a half second) is passed over: the Save then says it
- * has no flight, the safe direction.
- */
-export function flownAutoDelays(input: FlightDataForExportInput): Record<string, number> {
-  const out = lookupTable<number>({});
+/** One complete qualifying run supplies every Auto delay in a configuration. */
+export function flownAutoDelays(input: FlightDataForExportInput): Record<string, Record<string, number>> {
+  const out = lookupTable<Record<string, number>>({});
   for (const r of input.runs) {
     const key = r.flightConfigId ?? '';
-    // Newest-first: the first run that still describes the design is the one.
     if (key in out) continue;
-    const cfgMotors = describedMotors(r, input);
-    if (!cfgMotors) continue;
-    const primaryId = input.primaryMountOf(cfgMotors.map(([id]) => id));
-    const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
-    if (primary?.meta.autoDelay === true && Number.isFinite(r.delayS) && r.delayS === r.recommendedDelayS) {
-      out[key] = r.delayS;
-    }
+    const motors = describedMotors(r, input);
+    if (!motors || !resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
+    const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
+    if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
   }
   return out;
 }
 
-export function flightDataForExport(
-  input: FlightDataForExportInput,
-): Record<string, OrkExportFlightData> {
-  const { runs, primaryMountOf } = input;
-  // What each auto-delay primary's <delay> will say (App writes the same).
+export function flightDataForExport(input: FlightDataForExportInput): Record<string, OrkExportFlightData> {
   const autoDelays = flownAutoDelays(input);
-  // No prototype: keyed by configuration id, file-sourced text. A default id
-  // of `constructor` found Object there, was skipped as already written, and
-  // saved as notsimulated (audit 2026-09-22).
   const out = lookupTable<OrkExportFlightData>({});
-  for (const r of runs) {
-    // Newest-first, so the first qualifying run per config wins.
+  for (const r of input.runs) {
     if (!r.flightConfigId || out[r.flightConfigId]) continue;
-    const cfgMotors = describedMotors(r, input);
-    if (!cfgMotors) continue;
-    // And the delay the run FLEW. The key carries each motor's SPEC delay —
-    // never an auto-delay optimum, which is only known after flying
-    // (simReport's motorSetKeyOf). So an auto-delay run matched its
-    // configuration and its flight was written under a delay it never flew:
-    // measured on the starter rocket on the default model (classic + Kbf;
-    // audit 2026-09-22), an Estes C6 set to 3 s that auto flew at 5 s went into
-    // the file deploying at 3.81 m/s, where the 3 s motor the file named
-    // deploys at 16.81 m/s. The run's `delayS` is the PRIMARY's — the only
-    // mount auto delay writes — so it is read against the delay the file's
-    // <delay> names for this configuration's own primary: its spec delay, or,
-    // on Auto, the one its newest flight flew (flownAutoDelays), which is now
-    // what the file says.
-    const primaryId = primaryMountOf(cfgMotors.map(([id]) => id));
-    const primary = cfgMotors.find(([id]) => id === primaryId)?.[1];
-    if (!primary) continue;
-    const named = primary.meta.autoDelay === true
-      ? autoDelays[r.flightConfigId] ?? primary.spec.ejectionDelay : primary.spec.ejectionDelay;
-    if (r.delayS !== named) continue;
+    const motors = describedMotors(r, input);
+    if (!motors) continue;
+    if (r.delayResolution !== undefined) {
+      if (!resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
+      if (!motors.every(([id, mm]) => {
+        const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
+        return readDelay(r.delayResolution!.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
+      })) continue;
+    } else {
+      // Legacy scalar evidence cannot establish that today's per-mount Auto settled.
+      if (motors.some(([, mm]) => mm.meta.autoDelay)) continue;
+      const primary = motors.find(([id]) => id === input.primaryMountOf(motors.map(([mount]) => mount)))?.[1];
+      if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
+    }
     out[r.flightConfigId] = summaryOf(r);
   }
   return out;

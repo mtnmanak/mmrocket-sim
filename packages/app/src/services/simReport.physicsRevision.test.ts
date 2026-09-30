@@ -1,3 +1,4 @@
+import { testResolution } from './autoDelay.testSupport.js';
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -34,6 +35,7 @@ describe('K9/K15 upgrade provenance', () => {
       requiresPhysicsRevision: requiresPhysicsRevision(tree),
     });
     const stored = {
+      delayResolution: testResolution([['mount', motor]], [5]),
       id: 'pre-release', when: 1, flightConfigId: 'A', rocket: 'Historical rocket',
       designKey: key.designKey, motorSetKey: key.motorSetKey, conditionsKey: key.conditionsKey,
       aeroModel: 'classic', rogersKbf: false, delayS: 5, recommendedDelayS: 5,
@@ -60,12 +62,12 @@ describe('K9/K15 upgrade provenance', () => {
     expect(runMatchesDesign(fresh, key)).toBe(true);
     expect(changedSinceRun(fresh, key)).toEqual([]);
     expect(Object.keys(flightDataForExport({ ...input, runs: [fresh] }))).toEqual(['A']);
-    expect(flownAutoDelays({ ...input, runs: [fresh] })).toEqual({ A: 5 });
+    expect(flownAutoDelays({ ...input, runs: [fresh] })).toEqual({ A: { mount: 5 } });
     const inactive = { ...input, runs: [fresh], activeConfigId: 'B', assigned: [] };
-    expect(flownAutoDelays(inactive)).toEqual({ A: 5 });
+    expect(flownAutoDelays(inactive)).toEqual({ A: { mount: 5 } });
     expect(Object.keys(flightDataForExport(inactive))).toEqual(['A']);
     expect(flownAutoDelays({ ...input, activeConfigId: null, savedConfigs: [],
-      runs: [{ ...fresh, flightConfigId: undefined }] })).toEqual({ '': 5 });
+      runs: [{ ...fresh, flightConfigId: undefined }] })).toEqual({ '': { mount: 5 } });
     // Kernel changes apply to every aero model, including auto-resolved flights.
     for (const [aeroModel, rogersKbf] of [
       ['classic', false], ['classic', true], ['supersonic', false], ['auto-supersonic', false],
@@ -79,7 +81,7 @@ describe('K9/K15 upgrade provenance', () => {
       expect(runMatchesDesign({ ...onModel, physicsRevision: PHYSICS_REVISION }, model)).toBe(true);
     }
     // A stale newest row cannot mask a qualifying flight further down history.
-    expect(flownAutoDelays({ ...input, runs: [stored, fresh] })).toEqual({ A: 5 });
+    expect(flownAutoDelays({ ...input, runs: [stored, fresh] })).toEqual({ A: { mount: 5 } });
     expect(Object.keys(flightDataForExport({ ...input, runs: [stored, fresh] }))).toEqual(['A']);
     for (const stamp of ['old-revision', '', null, 1, true]) {
       const bad = { ...stored, physicsRevision: stamp } as SimRun;

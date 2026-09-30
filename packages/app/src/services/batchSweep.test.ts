@@ -1,4 +1,6 @@
+import { flyLaunch } from './flightRunner.js';
 import { readFileSync } from 'node:fs';
+import { probeFlight } from './autoDelay.testSupport.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +15,7 @@ import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../model/design.js';
 import {
-  batchDelayRule, batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
+  batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
   runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
@@ -136,6 +138,74 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+describe('per-mount policy plumbing', () => {
+  function fakeTelemetry() {
+    const baseline = OrkRocket.buildTree(engineTree(rocket()));
+    baseline.setMotorById('mount', curve('E20'));
+    const normal = baseline.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    const installed = new Map<OrkRocket, Map<string, MotorSpec>>();
+    const vectors: Record<string, number>[] = [];
+    const realWrite = OrkRocket.prototype.setMotorById;
+    vi.spyOn(OrkRocket.prototype, 'setMotorById').mockImplementation(function (this: OrkRocket, id, spec) {
+      const state = installed.get(this) ?? new Map<string, MotorSpec>();
+      state.set(id, spec); installed.set(this, state);
+      return realWrite.call(this, id, spec);
+    });
+    let refused = false;
+    vi.spyOn(OrkRocket.prototype, 'simulate').mockImplementation(function (this: OrkRocket, o) {
+      const state = installed.get(this)!;
+      if (o?.delayProbe) {
+        vectors.push(Object.fromEntries([...state].map(([id, spec]) => [id, spec.ejectionDelay])));
+        const p = probeFlight([...state.keys()]);
+        if (refused) delete p.delayProbe;
+        return p;
+      }
+      return normal;
+    });
+    return { vectors, refuse: (value: boolean) => { refused = value; } };
+  }
+
+  it('carries background Auto, resets each row and leaves plugged neighbours alone', async () => {
+    const { vectors } = fakeTelemetry();
+    const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+    const inp = input(rocket({ sideMount: true }), { candidates: cands, autoDelay: false,
+      assignedMotors: { side: { ...curve('background'), ejectionDelay: 0 } }, assignedAutoDelays: { side: true },
+      mounts: [MOUNT, { ...MOUNT, id: 'side', label: 'Side' }],
+    });
+    const { rows } = await sweep(inp, { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+    expect(rows.every((r) => r.run)).toBe(true);
+    expect(vectors.map((v) => v['side'])).toEqual([0, 10, 0, 10]);
+    expect(rows[1]!.run!.delayResolution!.mounts.find((m) => m.mountId === 'side')!.flownDelay).toBe(10);
+    expect(vectors.every((v) => v['mount'] === 5)).toBe(true);
+    const plugged = await sweep({ ...inp, candidates: [cands[0]!], assignedAutoDelays: {},
+      assignedMotors: { side: { ...curve('background'), ejectionDelay: Infinity } } },
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+    expect(plugged.rows[0]!.run!.delayResolution!.mounts.find((m) => m.mountId === 'side')!.flownDelay).toBe('plugged');
+  });
+
+  it('solves a no-listed-delay leg in a mixed combination while its fixed leg stays fixed', async () => {
+    fakeTelemetry();
+    const t = clusterRocket('4-ring'); const split = splitClusterTree(t, 'mount')!;
+    const cands = [entry('a', 'Acme', 'E20', ''), entry('b', 'Acme', 'E22', '5')];
+    const { rows } = await sweep(input(t, { candidates: cands, splits: [split], autoDelay: false }),
+      { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+    const records = rows.find((r) => r.combo)!.run!.delayResolution!.mounts;
+    expect(records.map((m) => m.mode).sort()).toEqual(['auto', 'manual']);
+    expect(records.find((m) => m.mode === 'manual')!.flownDelay).toBe(5);
+    expect(records.find((m) => m.mode === 'auto')!.status).toBe('resolved');
+  });
+
+  it('records a named failed row and continues to the next candidate', async () => {
+    const telemetry = fakeTelemetry(); telemetry.refuse(true);
+    const cands = [entry('a', 'Acme', 'E20', ''), entry('b', 'Acme', 'E22', '')];
+    const rows = await runBatchSweep(input(rocket(), { candidates: cands }), {
+      signal: new AbortController().signal, onRows: () => telemetry.refuse(false),
+    }, { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}), yieldToUi: noYield });
+    expect(rows.rows[0]!.error).toMatch(/Motor mount.*telemetry/);
+    expect(rows.rows[0]!.run).toBeUndefined(); expect(rows.rows[1]!.run).toBeDefined();
+  });
+});
+
 describe('provisionalDelay — what a candidate flies before any optimum is known', () => {
   it('is the longest prescribed delay in either mode', () => {
     for (const auto of [false, true]) {
@@ -203,36 +273,6 @@ describe('deploysOnEjectionCharge', () => {
     expect(deploysOnEjectionCharge(t)).toBe(true);
     bt.children = bt.children!.filter((c) => c.type !== 'parachute' && c.type !== 'streamer');
     expect(deploysOnEjectionCharge(t)).toBe(false);
-  });
-});
-
-describe('batchDelayRule — ONE rule for both passes', () => {
-  const rule = (flownDelays: number[], optimum: number | null, autoDelay = true, deploysOnCharge = true) =>
-    batchDelayRule({ flownDelays, optimum, autoDelay, deploysOnCharge });
-
-  it('with auto delay, flies the rounded optimum and re-flies only when some leg is not already at it', () => {
-    expect(rule([7], 6.8)).toEqual({ delay: 7, refly: false, optimumForPlugged: false });
-    expect(rule([7], 5.2)).toEqual({ delay: 5, refly: true, optimumForPlugged: false });
-    // A combination whose legs already sit at the optimum: the combination
-    // pass used to re-fly this every time, for an identical flight.
-    expect(rule([6, 6], 6.1)).toEqual({ delay: 6, refly: false, optimumForPlugged: false });
-    expect(rule([6, 8], 6.1)).toEqual({ delay: 6, refly: true, optimumForPlugged: false });
-  });
-
-  it('keeps the flight it has when the kernel gives no optimum', () => {
-    expect(rule([7], null)).toEqual({ delay: 7, refly: false, optimumForPlugged: false });
-  });
-
-  it('without auto delay, keeps each leg at its own delay and records the earliest charge', () => {
-    expect(rule([7], 3, false)).toEqual({ delay: 7, refly: false, optimumForPlugged: false });
-    expect(rule([10, Infinity], 3, false)).toEqual({ delay: 10, refly: false, optimumForPlugged: false });
-  });
-
-  it('flies a charge-less flight at its optimum, and says so, only when the recovery waits for the charge', () => {
-    expect(rule([Infinity], 6.2, false, true)).toEqual({ delay: 6, refly: true, optimumForPlugged: true });
-    expect(rule([Infinity, Infinity], 6.2, false, true)).toEqual({ delay: 6, refly: true, optimumForPlugged: true });
-    // Electronics deploy it: plugged is exactly how it flies.
-    expect(rule([Infinity], 6.2, false, false)).toEqual({ delay: Infinity, refly: false, optimumForPlugged: false });
   });
 });
 
@@ -322,9 +362,13 @@ describe('the sweep, flown on the real kernel', () => {
     r.setRogersModifiedBarrowman(true);
     const spec = await fetchMotorSpec(i160, 0);
     r.setMotorById('mount', spec);
-    const rec = recommendDelay(r.simulate(opts).summary.optimumDelay)!;
-    r.setMotorById('mount', { ...spec, ejectionDelay: rec });
-    const designPage = r.simulate(opts).summary.maxAltitude;
+    const launch = await flyLaunch(r, {
+      assigned: [['mount', { spec, label: spec.designation, meta: { label: spec.designation, autoDelay: true }, ignition: { event: 'automatic', delay: 0 } }]],
+      hardware: undefined, primaryMountId: 'mount', simOptions: opts,
+      aeroMode: 'classic', supersonic: false, isOnLaunchStage: () => true, onSupersonicUpgrade: () => {},
+    });
+    const rec = launch.flownDelayS;
+    const designPage = launch.result.summary.maxAltitude;
 
     const target = { ...MOUNT, diameterMm: 38 };
     const { rows } = await sweep(input(tree, { mounts: [target], target, candidates: [i160] }), {
@@ -376,7 +420,7 @@ describe('the sweep, flown on the real kernel', () => {
     }, { fetchSpec: fixedDelay, nozzleFor: nozzles({}), yieldToUi: noYield });
     expect(atComboStart).toBeGreaterThan(0);
     // 'kbf' flies no Mach probe, so this is the combination's flights exactly.
-    expect(flights.mock.calls.length - atComboStart).toBe(1);
+    expect(flights.mock.calls.length - atComboStart).toBe(2); // one confirming target probe, one normal flight
     // …and it is the same flight the re-fly used to produce.
     expect(again.rows.find((r) => r.combo)!.run!.maxAltitude).toBe(combo.run!.maxAltitude);
   }, 60000);

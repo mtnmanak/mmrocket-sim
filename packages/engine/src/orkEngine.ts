@@ -94,6 +94,8 @@ export interface WindLevel {
 }
 
 export interface SimulationOptions {
+  /** Recovery-free target probe; keeps ignition, charges and separation active. */
+  delayProbe?: boolean;
   launchRodLength?: number;
   /** Radians from vertical. */
   launchRodAngle?: number;
@@ -353,6 +355,10 @@ export interface FlightSummary {
 }
 
 export interface FlightEvent {
+  /** Stable application component ID, preserved through simulation clones. */
+  sourceId?: string;
+  /** Motor mount responsible for ignition, burnout or ejection. */
+  motorMountId?: string;
   type: string;
   time: number;
   /**
@@ -454,6 +460,17 @@ export interface EngineWarning {
 }
 
 export interface FlightResult {
+  /** Opt-in telemetry. Absent on artifacts predating the per-mount probe. */
+  delayProbe?: {
+    version: 1;
+    branches: (FlightBranch & {
+      id: string;
+      parentId?: string;
+      separationTime?: number;
+      /** Mounts still carried by this branch after all its separations. */
+      mountIds: string[];
+    })[];
+  };
   /**
    * The guide-aware launch rod length the kernel's clearance check flew (m): the
    * rod length less the distance from the rocket's aft end up to its aft-most
@@ -872,6 +889,7 @@ export class OrkRocket {
       maxTime: options.maxTime,
       randomSeed: options.randomSeed,
       series: options.series,
+      delayProbe: options.delayProbe,
     }));
     const parsed = JSON.parse(raw) as FlightResult & { error?: string };
     if (parsed.error) {

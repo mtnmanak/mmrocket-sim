@@ -7,7 +7,10 @@ import { PrefsProvider } from './prefs/PrefsContext.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ComponentNode } from '@online-openrocket/engine';
+import { OrkRocket, type ComponentNode } from '@online-openrocket/engine';
+import { probeFlight } from './services/autoDelay.testSupport.js';
+import type { DelayResolution } from './services/autoDelaySolver.js';
+import { findNode, findParent } from './tree/treeModel.js';
 import type { SessionState } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
@@ -386,6 +389,7 @@ describe('a Results panel that throws stays in its panel (audit 2026-09-22)', ()
  */
 describe('an Auto-delay motor saved as .ork', () => {
   it('is written at the delay its last flight flew, or said to be provisional', async () => {
+    let probeSpy: { mockRestore: () => void } | undefined;
     const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     try {
@@ -397,23 +401,33 @@ describe('an Auto-delay motor saved as .ork', () => {
       // (the audit's own measurement), so the two delays can be told apart.
       const s = storedSession()!;
       const [mountId, starter] = Object.entries(s.mountMotors!)[0]!;
+      const parent = findParent(s.tree, mountId);
+      if (!parent || parent === 'stage') throw new Error('fixture motor needs a parent tube');
+      parent.children!.push({ ...structuredClone(findNode(s.tree, mountId)!), id: 'auto-side', name: 'Second Auto mount' });
+      // This is the app's persistence/export seam, not a kernel telemetry test.
+      // Supply independent per-mount target evidence; the final normal flight
+      // still uses the real artifact. autoDelayProbe.test.ts tests the bridge.
+      const realSimulate = OrkRocket.prototype.simulate;
+      probeSpy = vi.spyOn(OrkRocket.prototype, 'simulate').mockImplementation(function (this: OrkRocket, options) {
+        return options?.delayProbe ? probeFlight([mountId, 'auto-side']) : realSimulate.call(this, options);
+      });
       const fixed = { ...starter, spec: { ...starter.spec, ejectionDelay: 3 } };
       const rec = { ...fixed, meta: { ...starter.meta, autoDelay: true } };
       const runs = () => JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1') ?? '[]') as
-        { delayS: number; recommendedDelayS: number | null }[];
+        { delayS: number; recommendedDelayS: number | null; delayResolution: DelayResolution }[];
       const launch = async (host: HTMLElement) => {
         await act(async () => {
           [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
         });
       };
       // First a flight at the fixed 3 s, before Auto is ticked.
-      s.mountMotors = { [mountId]: fixed };
+      s.mountMotors = { [mountId]: fixed, 'auto-side': fixed };
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
       await launch(await mountApp());
       await waitFor(() => runs().length === 1, 'the fixed-delay flight to be saved');
-      expect([runs()[0]!.delayS, runs()[0]!.recommendedDelayS]).toEqual([3, 5]);
+      expect(runs()[0]!.delayS).toBe(3);
       await unmountAll();
-      s.mountMotors = { [mountId]: rec };
+      s.mountMotors = { [mountId]: rec, 'auto-side': rec };
       localStorage.setItem(SESSION_KEY, JSON.stringify(s));
       const host = await mountApp();
       await settle(600);
@@ -435,12 +449,17 @@ describe('an Auto-delay motor saved as .ork', () => {
       await launch(host);
       await waitFor(() => runs().length === 2, 'the flight to be saved');
       const [run] = runs();
-      expect([run!.delayS, run!.recommendedDelayS]).toEqual([5, 5]);
+      expect([run!.delayS, run!.recommendedDelayS]).toEqual([10, 10]);
+      expect(run!.delayResolution.mounts.map((m) => m.flownDelay)).toEqual([10, 7]);
       const after = await saveOrk();
       expect(after.delay).toBe(run!.delayS);
       expect(after.autoDelayFrom).toBe('flown');
+      const savedMotors = vi.mocked(exportOrk).mock.calls.at(-1)![0].motors!;
+      expect(savedMotors['auto-side']!.delay).toBe(7);
+      expect(savedMotors['auto-side']!.autoDelayFrom).toBe('flown');
       expect(document.body.textContent).toContain(`it is saved at ${run!.delayS} s, the rounded optimum it flies on Auto`);
     } finally {
+      probeSpy?.mockRestore();
       made.mockRestore();
       revoked.mockRestore();
     }

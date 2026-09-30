@@ -1419,7 +1419,8 @@ describe('RockSim ejection-delay sentinels', () => {
     expect(Object.values(r.motors).map((m) => m.autoDelay)).toEqual([true, true, true]);
     const said = r.notes.filter((n) => /EjectionDelay −1/.test(n));
     expect(said).toEqual([expect.stringMatching(/^Motor G135R \(3 mounts\): /)]);
-    expect(said[0]).toMatch(/any of these 3 that is not it flies the provisional 0 s, so its charge fires at burnout/);
+    expect(said[0]).toMatch(/Auto targets each mount's recovery-free branch apogee, rounded to a whole second/);
+    expect(said[0]).toContain('an unresolved Auto delay refuses the flight');
   });
 
   it('a plugged cluster saved as .ork reopens with one note, not one per mount', () => {

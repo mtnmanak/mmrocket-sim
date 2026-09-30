@@ -1747,20 +1747,16 @@ export interface OrkExportMotor {
    */
   autoDelay?: true;
   /**
-   * Where the PRIMARY's `delay` came from when it is on Auto: the rounded
-   * optimum it flies there, from the newest flight of the design as it stands
-   * that flew it (orkFlightData's flownAutoDelays), or — no such flight — its
-   * provisional first flight.
-   * Unset on every other mount, which flies the delay in its field
-   * (flightRunner re-flies the primary only), so saving that loses nothing.
+   * The mount's fixed exported delay comes from a complete settled flight vector,
+   * or its provisional field when no qualifying flight exists.
    */
   autoDelayFrom?: 'flown' | 'provisional';
 }
 
 /**
- * The Save note for an Auto-delay primary written as a fixed delay — said,
+ * The Save note for an Auto-delay mount written as a fixed delay — said,
  * because the file reopens flying that delay, not Auto's. null when there is
- * nothing to say (not the primary, or not on Auto).
+ * nothing to say (not on Auto).
  */
 export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): string | null {
   if (!m.autoDelay || !m.autoDelayFrom) return null;

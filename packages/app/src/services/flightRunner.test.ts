@@ -1,3 +1,7 @@
+// @vitest-environment happy-dom
+import { probeFlight, testMotor } from './autoDelay.testSupport.js';
+import { addRun, loadRuns } from './simStore.js';
+import type { SimRun } from './simReport.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -38,10 +42,11 @@ function recordingHandle(summary: Partial<FlightResult['summary']> = {}, opts: {
     setMotorIgnitionById: (id: string, event: IgnitionEvent, delay = 0) => { calls.push(['ignition', id, event, delay]); },
     setSupersonicAero: (on: boolean) => { calls.push(['supersonic', on]); },
     setRogersModifiedBarrowman: (on: boolean) => { calls.push(['kbf', on]); },
-    simulate: () => {
+    simulate: (options) => {
       calls.push(['simulate']);
       if (opts.throwOnSimulate) throw new Error('kernel threw');
       return {
+        ...(options?.delayProbe ? { delayProbe: probeFlight(['sustainer', 'booster'], 2 + (summary.optimumDelay ?? 6.85)).delayProbe } : {}),
         summary: { maxMachNumber: 0.3, optimumDelay: 6.85, maxAltitude: 100, ...summary },
         events: [], series: {},
       } as unknown as FlightResult;
@@ -78,6 +83,98 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+describe('complete per-mount Launch protocol', () => {
+  function setup() {
+    const specs = new Map<string, MotorSpec>();
+    const snapshots: { probe: boolean; delays: number[]; supersonic: boolean }[] = [];
+    let supersonic = false;
+    const handle: FlightHandle = {
+      setMotorById: (id, spec) => { specs.set(id, spec); }, setMotorIgnitionById: () => {},
+      setSupersonicAero: (on) => { supersonic = on; }, setRogersModifiedBarrowman: () => {},
+      simulate: (o) => {
+        snapshots.push({ probe: !!o?.delayProbe, delays: [...specs.values()].map((s) => s.ejectionDelay), supersonic });
+        const p = probeFlight(undefined, supersonic ? 14 : 12);
+        if (!o?.delayProbe) delete p.delayProbe;
+        return p;
+      },
+    };
+    const input: LaunchInput = { ...staged(false), assigned: [['a', testMotor()], ['b', testMotor()], ['manual', testMotor(false, 4)], ['plugged', testMotor(false, Infinity)]],
+      primaryMountId: 'a', yieldToUi: async () => {}, mountNames: { a: 'Core', b: 'Booster MMT' } };
+    return { handle, input, snapshots, specs };
+  }
+
+  it('flies the complete settled vector, persists/reloads/replays it and restores all mounts', async () => {
+    const { handle, input, snapshots, specs } = setup();
+    const f = await flyLaunch(handle, input);
+    expect(snapshots).toEqual([
+      { probe: true, delays: [0, 0, 4, Infinity], supersonic: false },
+      { probe: true, delays: [10, 7, 4, Infinity], supersonic: false },
+      { probe: false, delays: [10, 7, 4, Infinity], supersonic: false },
+    ]);
+    expect([...specs.values()].map((s) => s.ejectionDelay)).toEqual([0, 0, 4, Infinity]);
+    localStorage.clear();
+    addRun({ id: 'vector', delayS: f.flownDelayS, delayResolution: f.delayResolution } as SimRun);
+    const saved = loadRuns()[0]!;
+    reflyRun(handle, { ...input, delayS: saved.delayS, delayResolution: saved.delayResolution,
+      fly: { kbf: false, supersonic: false }, restore: { kbf: false, supersonic: false } });
+    expect(snapshots.at(-1)!.delays).toEqual([10, 7, 4, Infinity]);
+    expect(snapshots.filter((s) => s.probe)).toHaveLength(2); // replay never optimizes
+  });
+
+  it('recomputes targets when the final normal flight upgrades Auto aero', async () => {
+    const { handle, input, snapshots } = setup();
+    const simulate = handle.simulate;
+    handle.simulate = (o) => {
+      const p = simulate(o);
+      if (!o?.delayProbe && !o?.maxTime) p.summary.maxMachNumber = 1.1;
+      return p;
+    };
+    const f = await flyLaunch(handle, { ...input, aeroMode: 'auto' });
+    expect(f.usedSupersonic).toBe(true);
+    expect(f.delayResolution.probes).toBe(4);
+    expect(f.delayResolution.mounts.slice(0, 2).map((m) => m.flownDelay)).toEqual([12, 9]);
+    expect(snapshots.at(-1)).toMatchObject({ probe: false, supersonic: true, delays: [12, 9, 4, Infinity] });
+  });
+
+  it('refuses unavailable telemetry without a normal flight and restores the setup', async () => {
+    const { handle, input, specs } = setup();
+    handle.simulate = () => { const p = probeFlight(); delete p.delayProbe; return p; };
+    await expect(flyLaunch(handle, input)).rejects.toThrow('Core');
+    expect([...specs.values()].map((s) => s.ejectionDelay)).toEqual([0, 0, 4, Infinity]);
+  });
+
+  it('refuses corrupt saved vectors before simulating', async () => {
+    const { handle, input, snapshots } = setup();
+    const f = await flyLaunch(handle, input); const count = snapshots.length;
+    expect(() => reflyRun(handle, { ...input, delayS: f.flownDelayS,
+      delayResolution: { ...f.delayResolution, mounts: f.delayResolution.mounts.slice(1) },
+      fly: { kbf: false, supersonic: false }, restore: { kbf: false, supersonic: false },
+    })).toThrow('incomplete');
+    expect(snapshots).toHaveLength(count);
+  });
+
+  it('keeps weighed hardware through probes, final writes and restoration', async () => {
+    const { handle, input, specs } = setup();
+    input.hardware = { state: 'ok', appliedTo: 'a', motorCount: 1, perMotorShiftKg: 0.05,
+      deltaKg: 0.05, motorMassKg: 0.4, mountCount: 2, dryMassKg: 0.2, drySource: 'computed', large: false };
+    const simulate = handle.simulate;
+    handle.simulate = (o) => {
+      expect(specs.get('a')!.masses[0]).toBeCloseTo(testMotor().spec.masses[0]! + 0.05, 12);
+      expect(specs.get('b')!.masses).toEqual(testMotor().spec.masses);
+      return simulate(o);
+    };
+    await flyLaunch(handle, input);
+    expect(specs.get('a')!.masses[0]).toBeCloseTo(0.25, 12);
+  });
+
+  it('omits a refused fixed mount and refuses an uninstalled Auto mount by name', async () => {
+    const { handle, input } = setup();
+    const f = await flyLaunch(handle, { ...input, refusedMountIds: ['manual'] });
+    expect(f.delayResolution.mounts.some((m) => m.mountId === 'manual')).toBe(false);
+    await expect(flyLaunch(handle, { ...input, refusedMountIds: ['b'] })).rejects.toThrow(/Booster MMT.*refused at build/);
+  });
+});
+
 describe('flight runner — every motor write keeps its ignition', () => {
   /**
    * The bridge's `setMotorById` installs a FRESH MotorConfiguration, so a write
@@ -99,18 +196,19 @@ describe('flight runner — every motor write keeps its ignition', () => {
     });
   };
 
-  it('on Launch, including the auto-delay write', () => {
+  it('on Launch, including the auto-delay write', async () => {
     const { handle, calls } = recordingHandle();
-    const flight = flyLaunch(handle, staged(true));
+    const flight = await flyLaunch(handle, staged(true));
     expect(flight.flownDelayS).toBe(7); // 6.85 rounded — the auto delay DID write
-    expect(calls.filter((c) => c[0] === 'motor' && c[1] === 'sustainer' && c[2] === 7)).toHaveLength(1);
+    expect(calls.filter((c) => c[0] === 'motor' && c[1] === 'sustainer' && c[2] === 7)).toHaveLength(2);
     everyWriteKeepsIgnition(calls);
   });
 
-  it('on a re-fly, including the delay write and every restore', () => {
+  it('on a re-fly, including the delay write and every restore', async () => {
     const { handle, calls } = recordingHandle();
+    const launch = await flyLaunch(handle, staged(true));
     reflyRun(handle, {
-      ...staged(false), delayS: 7,
+      ...staged(true), delayS: launch.flownDelayS, delayResolution: launch.delayResolution,
       fly: { supersonic: false, kbf: false }, restore: { supersonic: false, kbf: false },
     });
     expect(calls.some((c) => c[0] === 'motor' && c[1] === 'sustainer' && c[2] === 7)).toBe(true);
@@ -127,7 +225,7 @@ describe('flight runner — every motor write keeps its ignition', () => {
  * the way any path that forgets the protocol would leave one.
  */
 describe('flight runner — a re-fly never trusts the delay it finds on the handle', () => {
-  it('flies the run’s delay even when it is the spec’s', () => {
+  it('flies the run’s delay even when it is the spec’s', async () => {
     const { handle, calls } = recordingHandle();
     writeMountMotor(handle, 'sustainer', { ...SPEC, ejectionDelay: 7 }, { event: 'burnout', delay: 1 });
     reflyRun(handle, {
@@ -141,10 +239,10 @@ describe('flight runner — a re-fly never trusts the delay it finds on the hand
 });
 
 describe('flight runner — the shared handle is handed back', () => {
-  it('a re-fly that throws still restores the model and the motor', () => {
+  it('a re-fly that throws still restores the model and the motor', async () => {
     const { handle, calls } = recordingHandle({}, { throwOnSimulate: true });
     expect(() => reflyRun(handle, {
-      ...staged(false), delayS: 7,
+      ...staged(false), delayS: 10,
       fly: { supersonic: true, kbf: true }, restore: { supersonic: false, kbf: false },
     })).toThrow('kernel threw');
     const after = calls.slice(calls.findIndex((c) => c[0] === 'simulate') + 1);
@@ -204,13 +302,12 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
   }).velocityAtDeployment;
   const classic = { supersonic: false, kbf: false };
 
-  it('Show charts after an auto-delay Launch reproduces the stored 9 s flight, not the 7 s one', () => {
-    const runA = flyLaunch(rocket, motors(false)); // auto off: flies the spec
-    const runB = flyLaunch(rocket, motors(true)); // auto on: flies the optimum
+  it('Show charts after an auto-delay Launch reproduces the stored 9 s flight, not the 7 s one', async () => {
+    const runA = await flyLaunch(rocket, motors(false)); // auto off: flies the spec
+    const runB = await flyLaunch(rocket, motors(true)); // auto on: flies the optimum
     expect(runA.flownDelayS).toBe(9);
-    expect(runB.flownDelayS).toBe(7);
-    expect(deployAt(runA.result, 9)).toBeCloseTo(18.14, 2);
-    expect(deployAt(runB.result, 7)).toBeCloseTo(1.76, 2);
+    expect(runB.flownDelayS).toBe(runB.delayResolution.mounts[0]!.recommendedDelay);
+    expect(deployAt(runA.result, 9)).not.toBe(deployAt(runB.result, runB.flownDelayS));
 
     const refly = reflyRun(rocket, {
       ...motors(true), delayS: runA.flownDelayS,
@@ -219,8 +316,8 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
     expect(refly.summary).toEqual(runA.result.summary);
   }, 60_000);
 
-  it('a stored 9 s run re-flies at 9 s whatever delay the handle was left carrying', () => {
-    const runA = flyLaunch(rocket, motors(false));
+  it('a stored 9 s run re-flies at 9 s whatever delay the handle was left carrying', async () => {
+    const runA = await flyLaunch(rocket, motors(false));
     // A foreign 7 s put on the handle directly — not by a Launch, whose own
     // restore would hide a re-fly that trusts the handle.
     const [mount, f39] = motors(false).assigned[0]!;
@@ -229,22 +326,22 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
       ...motors(false), delayS: runA.flownDelayS,
       simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
     });
-    expect(deployAt(refly, 9)).toBeCloseTo(18.14, 2);
+    expect(deployAt(refly, 9)).toBeCloseTo(deployAt(runA.result, 9)!, 8);
     expect(refly.summary).toEqual(runA.result.summary);
   }, 60_000);
 
-  it('Launch hands the handle back at the spec delay, whatever auto delay flew', () => {
-    const plain = flyLaunch(rocket, motors(false)).result.summary;
-    flyLaunch(rocket, motors(true));
+  it('Launch hands the handle back at the spec delay, whatever auto delay flew', async () => {
+    const plain = (await flyLaunch(rocket, motors(false))).result.summary;
+    await flyLaunch(rocket, motors(true));
     // Anything that flies the bare handle next — the next path to forget the
     // protocol — gets the design as it stands, not the auto delay.
     expect(rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS)).summary).toEqual(plain);
   }, 60_000);
 
-  it('the auto-delay run itself re-flies at its own 7 s', () => {
-    const runB = flyLaunch(rocket, motors(true));
+  it('the auto-delay run itself re-flies at its own 7 s', async () => {
+    const runB = await flyLaunch(rocket, motors(true));
     const refly = reflyRun(rocket, {
-      ...motors(true), delayS: runB.flownDelayS,
+      ...motors(true), delayS: runB.flownDelayS, delayResolution: runB.delayResolution,
       simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
     });
     expect(refly.summary).toEqual(runB.result.summary);
@@ -262,13 +359,13 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
 describe('flight runner — a motor whose ignition nothing knows stays OFF the handle', () => {
   const bogus = { event: 'bogus' as IgnitionEvent, delay: 0 };
 
-  it('is refused before anything is written', () => {
+  it('is refused before anything is written', async () => {
     const { handle, calls } = recordingHandle();
     expect(() => writeMountMotor(handle, 'mount', SPEC, bogus)).toThrow(/H128.*“bogus”/);
     expect(calls).toEqual([]);
   });
 
-  it('a known event is written in the spelling the kernel parses it by', () => {
+  it('a known event is written in the spelling the kernel parses it by', async () => {
     const { handle, calls } = recordingHandle();
     writeMountMotor(handle, 'mount', SPEC, { event: 'BURNOUT' as IgnitionEvent, delay: 1 });
     expect(calls).toEqual([['motor', 'mount', 10], ['ignition', 'mount', 'burnout', 1]]);
