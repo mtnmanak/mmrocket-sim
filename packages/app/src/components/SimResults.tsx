@@ -6,7 +6,7 @@ import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
@@ -331,6 +331,13 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 <Row label="Max roll rate"
                   value={`${(run.maxRollRateRadS / (2 * Math.PI)).toFixed(2)} r/s (${Math.round((run.maxRollRateRadS * 180) / Math.PI)}°/s)`} />
               )}
+              {run.guidedLengthM != null && run.enteredRodLengthM != null && <tr>
+                <td className="simdet-label">Guided length</td>
+                <td>{fmtSi('length', len, run.guidedLengthM)} <UnitChip quantity="length" />
+                  {' of '}{fmtSi('length', len, run.enteredRodLengthM)} <UnitChip quantity="length" />
+                  {run.launchGuideReason && <> — {launchGuideExplanation(run.launchGuideReason, run.launchGuideIgnoredButtons)}</>}
+                </td>
+              </tr>}
               <Row label="Time to launch guide exit" value={s(run.timeToRodDeparture, 3)} unit="s" />
               <Row label="Time to burnout" value={s(run.timeToBurnout)} unit="s" />
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />

@@ -18,7 +18,7 @@ import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
-import { DEFAULT_CONDITIONS, kernelSimOptions, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions, hasLaunchGuides, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
@@ -97,7 +97,7 @@ import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
   currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
-  requiresPhysicsRevision,
+  requiresPhysicsRevision, physicsRevisionsFor,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -1847,6 +1847,7 @@ export function App() {
     // simReport's runCarriesNozzleStamp (2026-09-08).
     hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
     requiresPhysicsRevision: requiresPhysicsRevision(tree),
+    physicsRevisions: physicsRevisionsFor(tree),
     // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
     // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
     // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
@@ -2119,6 +2120,7 @@ export function App() {
       // written. Refusal is the safe direction here (2026-09-08).
       hasNozzle: stagesWithNozzle(tree).length > 0,
       requiresPhysicsRevision: provenanceKey.requiresPhysicsRevision,
+      physicsRevisions: provenanceKey.physicsRevisions,
       motorSetKeyOf,
       hardwareDeltaKg,
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
@@ -4289,7 +4291,7 @@ export function App() {
             })()}
           </div>
 
-          <LaunchPanel value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+          <LaunchPanel hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             canLaunch={!!built && !!primaryMountId}
             lastRun={simCostRef}
             weather={weather} onGetWeather={() => setShowWeather('get')}

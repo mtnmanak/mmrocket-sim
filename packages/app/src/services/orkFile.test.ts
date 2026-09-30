@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
@@ -817,7 +817,8 @@ describe('.ork launch conditions (simulations block)', () => {
     // third.
     const saved = { ...DEFAULT_CONDITIONS, windAverage: 3, longitudeDeg: null };
     const reopened = { ...saved, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: saved })).launch! };
-    const statedByFile = { timeStepS: reopened.timeStepS, launchRodAimDeg: reopened.launchRodAimDeg };
+    const statedByFile = { timeStepS: reopened.timeStepS, launchRodAimDeg: reopened.launchRodAimDeg,
+      launchGuideAllowance: reopened.launchGuideAllowance };
     expect(designFingerprint({ ...SNAPSHOT_BASE, launch: reopened }))
       .toBe(designFingerprint({ ...SNAPSHOT_BASE, launch: { ...saved, ...statedByFile } }));
   });
@@ -3179,5 +3180,20 @@ describe('.ork <atmosphere> carries the pad air the flight flies', () => {
     const xml = exportOrk({ name: 'Hi', tree: SIMPLE_TREE, launch: site(30, null) })
       .replace(/<basepressure>[^<]*<\/basepressure>/, '<basepressure>75000</basepressure>');
     expect(importOrk(xml).launch!.pressureHPa).toBeCloseTo(750, 9);
+  });
+});
+
+describe('guide allowance OpenRocket extension', () => {
+  const SIMPLE_TREE: RocketTree = { components: [{ type: 'bodytube', length: 0.5, outerRadius: 0.02 }] };
+  const launch = { launchRodLengthM: 1, launchRodAngleDeg: 0, windAverage: 0, windStdDev: 0,
+    launchAltitudeM: 0, temperatureC: null, pressureHPa: null, latitudeDeg: 45 };
+  it.each([undefined, true, false])('round-trips allowance %s', (launchGuideAllowance) => {
+    const xml = exportOrk({ name: 'Guides', tree: SIMPLE_TREE, launch: { ...launch, launchGuideAllowance } });
+    expect(xml).toContain('<launchguideallowance>' + (launchGuideAllowance !== false) + '</launchguideallowance>');
+    expect(importOrk(xml).launch!.launchGuideAllowance).toBe(launchGuideAllowance !== false);
+  });
+  it('opens a file missing the extension with allowance on', () => {
+    const xml = exportOrk({ name: 'Old guides', tree: SIMPLE_TREE, launch: { ...launch, launchGuideAllowance: false } });
+    expect(importOrk(xml.replace(/<launchguideallowance>.*?<\/launchguideallowance>/g, '')).launch!.launchGuideAllowance).toBe(true);
   });
 });

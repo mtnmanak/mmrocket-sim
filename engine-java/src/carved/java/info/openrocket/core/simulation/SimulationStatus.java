@@ -146,8 +146,8 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.rotationVelocity = Coordinate.NUL;
 
 		/*
-		 * Calculate the effective launch rod length taking into account launch lugs.
-		 * If no lugs are found, assume a tower launcher of full length.
+		 * MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): choose the effective
+		 * rod/rail travel. No real guides means a full-length tower launcher.
 		 */
 		this.effectiveLaunchRodLength = effectiveLaunchRodLength(
 				this.configuration, this.simulationConditions.getLaunchRodLength());
@@ -163,47 +163,107 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.warnings = new WarningSet();
 	}
 
-	/**
-	 * MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): upstream's inline effective-rod-length
-	 * block, lifted into ONE static function so the api bridge can report the same number
-	 * the clearance check flies (the app interpolates the rod-exit speed at it). Behaviour
-	 * is the constructor's, plus the K9 changes documented inside.
-	 */
+	/** MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): shared launcher decision. */
+	public static final class LaunchGuide {
+		public final double length;
+		public final String reason;
+		public final boolean ignoredButtons;
+		LaunchGuide(double length, String reason) { this(length, reason, false); }
+		LaunchGuide(double length, String reason, boolean ignoredButtons) {
+			this.length = Math.max(0, length);
+			this.reason = reason;
+			this.ignoredButtons = ignoredButtons;
+		}
+	}
+
 	public static double effectiveLaunchRodLength(FlightConfiguration configuration, double rodLength) {
-		double length = rodLength;
-		double lugPosition = Double.NaN;
+		return launchGuide(configuration, rodLength, true).length;
+	}
+
+	public static LaunchGuide launchGuide(FlightConfiguration configuration, double rodLength, boolean allowance) {
+		if (!allowance) return new LaunchGuide(rodLength, "off");
+		double lugPosition = Double.NEGATIVE_INFINITY;
+		List<Coordinate> buttons = new ArrayList<>();
 		for (RocketComponent c : configuration.getActiveComponents()) {
-			// MMRocket Sim patch (K9, 2026-09-30; LEDGER.md): the guide leaves the
-			// rod or rail when its AFT-MOST guiding point does, so (1) rail buttons
-			// count as well as lugs, and (2) every instance is searched, not only
-			// instance [0] - a lug or button pair's first instance is its FORWARD one.
-			// A rail button's own origin is its centre (getComponentBounds spans
-			// -r..+r in x), so its aft edge is +outerRadius; a lug's is +length.
-			double aftLocal;
-			if (c instanceof LaunchLug) {
-				aftLocal = c.getLength();
-			} else if (c instanceof RailButton && !NOT_A_LAUNCH_GUIDE.equals(c.getComment())) {
-				aftLocal = ((RailButton) c).getOuterDiameter() / 2.0;
-			} else {
-				continue;
-			}
+			boolean lug = c instanceof LaunchLug;
+			if (!lug && (!(c instanceof RailButton) || NOT_A_LAUNCH_GUIDE.equals(c.getComment()))) continue;
+			// MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): keep K9 aft edges.
+			double aftLocal = lug ? c.getLength() : ((RailButton) c).getOuterDiameter() / 2.0;
 			for (Coordinate p : c.toAbsolute(new Coordinate(aftLocal))) {
-				if (Double.isNaN(lugPosition) || p.x > lugPosition) {
-					lugPosition = p.x;
-				}
+				if (lug) lugPosition = Math.max(lugPosition, p.x);
+				else buttons.add(p);
 			}
 		}
-		if (!Double.isNaN(lugPosition)) {
-			double maxX = 0;
-			for (Coordinate c : configuration.getBounds()) {
-				if (c.x > maxX)
-					maxX = c.x;
-			}
-			if (maxX >= lugPosition) {
-				length = Math.max(0, length - (maxX - lugPosition));
-			}
+		if (lugPosition == Double.NEGATIVE_INFINITY && buttons.isEmpty()) return new LaunchGuide(rodLength, "none");
+		double buttonPosition = buttonGuidePosition(buttons);
+		boolean hasLug = lugPosition != Double.NEGATIVE_INFINITY;
+		boolean hasRail = buttonPosition != Double.NEGATIVE_INFINITY;
+		if (!hasLug && !hasRail) return new LaunchGuide(0, "single-button");
+		double maxX = 0;
+		for (Coordinate c : configuration.getBounds()) maxX = Math.max(maxX, c.x);
+		double lugLength = Math.max(0, rodLength - Math.max(0, maxX - lugPosition));
+		double buttonLength = Math.max(0, rodLength - Math.max(0, maxX - buttonPosition));
+		// MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): a rod and rail are
+		// alternative launchers. If both are viable, use the shorter travel.
+		if (hasLug && hasRail) return lugLength <= buttonLength
+				? new LaunchGuide(lugLength, "mixed-lug") : new LaunchGuide(buttonLength, "mixed-buttons");
+		if (hasLug) return new LaunchGuide(lugLength, "lug", !buttons.isEmpty());
+		return new LaunchGuide(buttonLength, "buttons");
+	}
+
+	private static double buttonAngle(Coordinate p) {
+		double angle = Math.atan2(p.z, p.y);
+		return angle < 0 ? angle + 2 * Math.PI : angle;
+	}
+
+	/** MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): group absolute azimuths.
+	 * On-axis points form their own line and never supplement an off-axis line.
+	 * Split at the largest circular gap, then group from each line's first angle.
+	 * A line spans at most one degree; tolerance chains cannot merge distant lines.
+	 */
+	private static double buttonGuidePosition(List<Coordinate> buttons) {
+		List<Coordinate> radial = new ArrayList<>();
+		List<Double> axis = new ArrayList<>();
+		for (Coordinate p : buttons) {
+			if (p.y == 0 && p.z == 0) axis.add(p.x);
+			else radial.add(p);
 		}
-		return length;
+		double best = secondStation(axis);
+		if (radial.isEmpty()) return best;
+		radial.sort((a, b) -> Double.compare(buttonAngle(a), buttonAngle(b)));
+		int start = 0;
+		double largestGap = -1;
+		for (int i = 0; i < radial.size(); i++) {
+			double next = i + 1 == radial.size() ? buttonAngle(radial.get(0)) + 2 * Math.PI
+					: buttonAngle(radial.get(i + 1));
+			double gap = next - buttonAngle(radial.get(i));
+			if (gap > largestGap) { largestGap = gap; start = (i + 1) % radial.size(); }
+		}
+		List<Double> line = new ArrayList<>();
+		double firstAngle = 0;
+		for (int i = 0; i < radial.size(); i++) {
+			int index = (start + i) % radial.size();
+			Coordinate p = radial.get(index);
+			double angle = buttonAngle(p) + (index < start ? 2 * Math.PI : 0);
+			if (!line.isEmpty() && angle - firstAngle > Math.PI / 180.0 + 1e-12) {
+				best = Math.max(best, secondStation(line));
+				line.clear();
+			}
+			if (line.isEmpty()) firstAngle = angle;
+			line.add(p.x);
+		}
+		return Math.max(best, secondStation(line));
+	}
+
+	/** MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): the aft-most edge anchors
+	 * each station; edges within 0.5 mm of it are one station, without chaining.
+	 */
+	private static double secondStation(List<Double> edges) {
+		edges.sort(java.util.Collections.reverseOrder());
+		if (edges.isEmpty()) return Double.NEGATIVE_INFINITY;
+		double aft = edges.get(0);
+		for (double x : edges) if (aft - x > 0.0005 + 1e-12) return x;
+		return Double.NEGATIVE_INFINITY;
 	}
 
 	/**

@@ -5,7 +5,7 @@ import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
   changedSinceRun, designMatchKeyOf, KERNEL_PHYSICS_CHANGED, PHYSICS_REVISION,
-  requiresPhysicsRevision, runMatchesDesign, type SimRun,
+  physicsRevisionsFor, requiresPhysicsRevision, runCarriesPhysicsRevision, runMatchesDesign, type SimRun,
 } from './simReport.js';
 import { flightDataForExport, flownAutoDelays, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRun, loadRuns, runsToCsv, runsToTable } from './simStore.js';
@@ -121,5 +121,30 @@ describe('K9/K15 upgrade provenance', () => {
       designKey: 'd', motorSetKey: 'm', conditionsKey: 'c', requiresPhysicsRevision: true,
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     })).toBeNull();
+  });
+});
+
+describe('ordered physics revision history', () => {
+  it.each([
+    [{ type: 'transition', aftShoulderThickness: 0.002 }, true],
+    [{ type: 'launchlug' }, true],
+    [{ type: 'railbutton' }, false],
+    [{ type: 'protuberance' }, true],
+  ] as [ComponentNode, boolean][])('v0.143 on %s only needs later applicable revisions', (node, accepted) => {
+    const tree = treeWith(node);
+    const key = designMatchKeyOf({ physicsKey: 'same', assigned: [['mount', motor]], hardwareDeltaKg: 0,
+      launch: DEFAULT_CONDITIONS, aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
+      hasNozzle: false, physicsRevisions: physicsRevisionsFor(tree) });
+    const run = { ...key, id: 'old', physicsRevision: 'guide-clearance-transition-mass-v1',
+      aeroModel: 'classic', rogersKbf: false, delayS: 5, recommendedDelayS: 5, flightConfigId: 'A', when: 1, maxAltitude: 100, comments: '' } as unknown as SimRun;
+    const input: FlightDataForExportInput = { ...key, runs: [run], savedConfigs: [{ id: 'A', name: 'A', isDefault: true, motors: { mount: motor } }], activeConfigId: 'A',
+      assigned: [['mount', motor]], mountIds: ['mount'], model: key, hasNozzle: false,
+      motorSetKeyOf: () => key.motorSetKey, primaryMountOf: () => 'mount', hardwareDeltaKg: 0 };
+    expect(runMatchesDesign(run, key)).toBe(accepted);
+    expect(changedSinceRun(run, key)).toEqual(accepted ? [] : [KERNEL_PHYSICS_CHANGED]);
+    expect(Object.keys(flightDataForExport(input)).length > 0).toBe(accepted);
+    expect(Object.keys(flownAutoDelays(input)).length > 0).toBe(accepted);
+    expect(runCarriesPhysicsRevision({ physicsRevision: PHYSICS_REVISION }, key)).toBe(true);
+    expect(runCarriesPhysicsRevision({}, key)).toBe(String(node.type) === 'protuberance');
   });
 });

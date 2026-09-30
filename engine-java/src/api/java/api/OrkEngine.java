@@ -882,7 +882,7 @@ public final class OrkEngine {
 
     /**
      * Full-featured simulation entry point. Options JSON (all optional):
-     * { rodLength, rodAngle, rodDirection, windAverage, windStdDeviation,
+     * { rodLength, rodAngle, rodDirection, guideAllowance (default true), windAverage, windStdDeviation,
      *   windLevels: [{altitude, speed, direction, standardDeviation}...],
      *   windAltitudeReference: "MSL" (default) | "AGL",
      *   launchAltitude, launchLatitude, launchLongitude,
@@ -945,20 +945,25 @@ public final class OrkEngine {
         conditions.setRandomSeed(randomSeed);
 
         try {
-            // K9 (2026-09-30): the guide-aware rod length the clearance check flies,
-            // from the SAME function the kernel's SimulationStatus uses, read on the
-            // configuration the engine is about to fly. The app interpolates the
-            // rod-exit speed at this length; without it the report could only
-            // interpolate at the full rod length, which is past the true departure
-            // whenever a lug or rail button sits above the aft end.
-            double effectiveRod = info.openrocket.core.simulation.SimulationStatus.effectiveLaunchRodLength(
-                    conditions.getRocket().getFlightConfiguration(conditions.getFlightConfigurationID()),
-                    conditions.getLaunchRodLength());
+            // MMRocket Sim patch (K9-A1, 2026-09-30; LEDGER.md): one launcher decision
+            // supplies both the flown constraint and the report.
+            final info.openrocket.core.simulation.SimulationStatus.LaunchGuide guide =
+                    info.openrocket.core.simulation.SimulationStatus.launchGuide(
+                        conditions.getRocket().getFlightConfiguration(conditions.getFlightConfigurationID()),
+                        conditions.getLaunchRodLength(), JsonLite.bool(o, "guideAllowance", true));
+            conditions.getSimulationListenerList().add(new info.openrocket.core.simulation.listeners.AbstractSimulationListener() {
+                @Override
+                public boolean isSystemListener() { return true; }
+                @Override
+                public void startSimulation(info.openrocket.core.simulation.SimulationStatus status) {
+                    status.setEffectiveLaunchRodLength(guide.length);
+                }
+            });
             BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
             engine.simulate(conditions);
             FlightData data = engine.getFlightData();
             String json = flightDataToJson(data, fullSeries);
-            return "{\"effectiveLaunchRodLength\":" + effectiveRod + "," + json.substring(1);
+            return "{\"effectiveLaunchRodLength\":" + guide.length + ",\"launchGuideReason\":\"" + guide.reason + "\",\"launchGuideIgnoredButtons\":" + guide.ignoredButtons + "," + json.substring(1);
         } catch (SimulationException e) {
             return "{\"error\":\"" + escape(String.valueOf(e.getMessage())) + "\"}";
         }

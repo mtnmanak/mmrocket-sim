@@ -95,6 +95,8 @@ export interface WindLevel {
 
 export interface SimulationOptions {
   launchRodLength?: number;
+  /** Absent = allow for launch-guide positions. */
+  guideAllowance?: boolean;
   /** Radians from vertical. */
   launchRodAngle?: number;
   /**
@@ -456,11 +458,13 @@ export interface EngineWarning {
 export interface FlightResult {
   /**
    * The guide-aware launch rod length the kernel's clearance check flew (m): the
-   * rod length less the distance from the rocket's aft end up to its aft-most
-   * launch lug or rail button, or the whole rod when there is neither (K9,
-   * 2026-09-30). Absent from an older kernel artifact.
+   * lug travel or the best rail line's second axial station. Mixed viable
+   * launchers use the shorter travel. An unusable rail gives zero; no guides or allowance
+   * off gives the full entered length. Absent from an older kernel artifact.
    */
   effectiveLaunchRodLength?: number;
+  launchGuideIgnoredButtons?: boolean;
+  launchGuideReason?: 'none' | 'lug' | 'buttons' | 'single-button' | 'mixed-lug' | 'mixed-buttons' | 'off';
   /** Whole-flight summary (branch 0 = the sustainer stack). */
   summary: FlightSummary;
   events: FlightEvent[];
@@ -851,6 +855,7 @@ export class OrkRocket {
     assertWindLevels(options);
     const raw = ork.simulateJson(this.handle, JSON.stringify({
       rodLength: options.launchRodLength ?? 1.0,
+      guideAllowance: options.guideAllowance !== false,
       rodAngle: options.launchRodAngle ?? 0,
       // No `??` default: undefined drops out of the JSON, and the kernel's own
       // π/2 applies — see SimulationOptions.launchRodDirection.

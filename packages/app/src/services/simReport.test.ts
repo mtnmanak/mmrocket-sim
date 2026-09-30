@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
-  buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
+  launchGuideExplanation, buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
   formatStability, openingVerdict, deploymentVerdict,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
@@ -1852,5 +1852,67 @@ describe('K16 opening tiers', () => {
     r.branches![0]!.deployments[0]!.velocityAtDeployment = 10;
     expect(deploymentVerdict(r)).toBeNull();
     expect(deploymentVerdict({ deployments: [], velocityAtDeployment: null })).toBeNull();
+  });
+});
+
+describe('launch guide report', () => {
+  it.each(['none', 'lug', 'buttons', 'single-button', 'mixed-lug', 'mixed-buttons', 'off'] as const)('stores the flown length and %s reason', (reason) => {
+    const result = fakeResult();
+    result.effectiveLaunchRodLength = reason === 'single-button' ? 0 : 0.5;
+    result.launchGuideReason = reason;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, launch: DEFAULT_CONDITIONS, rocketName: 'Guide test', execMs: 1 });
+    expect(run.guidedLengthM).toBe(result.effectiveLaunchRodLength);
+    expect(run.enteredRodLengthM).toBe(DEFAULT_CONDITIONS.launchRodLengthM);
+    expect(run.launchGuideReason).toBe(reason);
+    const expected = { none: 'as for a tower', lug: 'last launch lug', buttons: 'second-to-last rail-button station',
+      'mixed-lug': 'shorter guidance: the last lug', 'mixed-buttons': 'shorter guidance: the second-to-last',
+      'single-button': 'as it lifts off', off: 'switched off' };
+    expect(launchGuideExplanation(run.launchGuideReason)).toContain(expected[reason]);
+    if (reason === 'single-button') {
+      expect(run.rodExitVelocity).toBe(result.series.velocity[1]);
+      expect(run.timeToRodDeparture).toBe(result.events.find(e => e.type === 'LAUNCHROD')!.time);
+    }
+  });
+  it('interpolates at the reported guided length', () => {
+    const result = fakeResult();
+    result.effectiveLaunchRodLength = 0.5;
+    result.series.time[1] = 0.05;
+    result.events.find(e => e.type === 'LAUNCHROD')!.time = 0.05;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, launch: DEFAULT_CONDITIONS, rocketName: 'Guide test', execMs: 1 });
+    // Travel 0 -> 2 m: 0.5 m is a quarter of this synthetic step.
+    expect(run.rodExitVelocity).toBeCloseTo(18.4 / 4, 10);
+    expect(run.timeToRodDeparture).toBeCloseTo(0.05 / 4, 10);
+  });
+  it('distinguishes allowance off, while absent and on preserve old conditions keys', () => {
+    const before = conditionsKeyOf(DEFAULT_CONDITIONS);
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, launchGuideAllowance: true })).toBe(before);
+    expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, launchGuideAllowance: false })).not.toBe(before);
+  });
+});
+
+describe('Amendment 1 departure state', () => {
+  it('reads zero guided distance at LAUNCHROD, including speed, time, AoA and thrust:weight', () => {
+    const result = fakeResult();
+    result.effectiveLaunchRodLength = 0;
+    result.launchGuideReason = 'single-button';
+    result.series.aoa[1] = 0.12;
+    result.summary.launchRodVelocity = 999; // event state is authoritative for zero length
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, launch: DEFAULT_CONDITIONS,
+      rocketName: 'Single station', execMs: 1 });
+    expect(run.timeToRodDeparture).toBe(0.15);
+    expect(run.rodExitVelocity).toBe(result.series.velocity[1]);
+    expect(run.rodExitAoa).toBe(result.series.aoa[1]);
+    expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]! * 9.80665), 10);
+    expect([run.timeToRodDeparture, run.rodExitVelocity, run.rodExitAoa, run.thrustToWeightAtRod].every(Number.isFinite)).toBe(true);
+    expect(launchGuideExplanation('single-button')).toContain('side by side at one position');
+    expect(launchGuideExplanation('single-button')).toContain('Model a rail guide or slide as a launch lug');
+    expect(launchGuideExplanation('single-button')).not.toContain('speed 0');
+  });
+  it('persists the kernel note when unusable rail buttons are ignored for a lug', () => {
+    const result = { ...fakeResult(), launchGuideReason: 'lug' as const, launchGuideIgnoredButtons: true };
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Rod', execMs: 1 });
+    expect(run.launchGuideIgnoredButtons).toBe(true);
+    expect(launchGuideExplanation(run.launchGuideReason, run.launchGuideIgnoredButtons)).toContain('were not counted');
+    expect(launchGuideExplanation('lug')).not.toContain('were not counted');
   });
 });

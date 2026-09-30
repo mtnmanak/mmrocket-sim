@@ -95,6 +95,8 @@ export function importedLaunch(
   const next = fromFile
     ? { ...prev, ...fromFile, timeStepS: fromFile.timeStepS }
     : { ...prev, timeStepS: undefined };
+  // Older files must open with guide allowance on, even after an off design.
+  if (fromFile?.launchGuideAllowance == null) delete next.launchGuideAllowance;
   // A file without a profile must not inherit the previous rocket's winds.
   if (!fromFile?.windLevels?.length) {
     delete next.windLevels;

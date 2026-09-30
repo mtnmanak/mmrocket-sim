@@ -1422,7 +1422,9 @@ function readLaunchConditions(
   const simEl = forChosen ?? simEls[0];
   const condEl = simEl?.querySelector(':scope > conditions');
   if (!condEl) return undefined;
-  const launch: Partial<LaunchConditions> = {};
+  const launch: Partial<LaunchConditions> = {
+    launchGuideAllowance: text(condEl, ':scope > launchguideallowance') !== 'false',
+  };
 
   // Every launch value is believed only inside the bounds the panel enforces on
   // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
@@ -2838,6 +2840,7 @@ export function exportOrk({
       emit(3, '<conditions>');
       emit(4, `<configid>${escapeXml(c.id)}</configid>`);
       emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
+      emit(4, `<launchguideallowance>${launch.launchGuideAllowance !== false}</launchguideallowance>`);
       // ROD AIM (weather build, step 2) as desktop spells a rod's direction.
       // At aim 0 — absent, NaN or a whole turn too — "launch into the wind"
       // and the rod direction desktop saves beside it: exactly the two lines

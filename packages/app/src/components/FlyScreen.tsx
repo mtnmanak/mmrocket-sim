@@ -10,7 +10,7 @@ import {
 import { WEATHER_CREDIT, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
 import {
-  LaunchField, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
+  hasLaunchGuides, rodLengthHelp, LaunchField, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { WeatherButton } from './WeatherButton.js';
@@ -191,10 +191,14 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               onChange={onLaunchChange} stepStored={15} min={ROD_AIM_DEG_RANGE[0]} max={ROD_AIM_DEG_RANGE[1]}
               absentStored={0} help={ROD_AIM_HELP} />
             <LaunchField label="Rod length" field="launchRodLengthM" value={launch}
-              onChange={onLaunchChange} stepStored={0.1} min={ROD_LENGTH_M_RANGE[0]} />
+              onChange={onLaunchChange} stepStored={0.1} min={ROD_LENGTH_M_RANGE[0]}
+              help={rodLengthHelp(hasLaunchGuides(tree), launch.launchGuideAllowance)} />
             <LaunchField label="Wind avg" field="windAverage" value={launch}
               onChange={onLaunchChange} stepStored={0.5} min={WIND_MS_RANGE[0]} />
           </div>
+          <p className="weather-small">{hasLaunchGuides(tree)
+            ? `Lug and rail-button allowance ${launch.launchGuideAllowance === false ? 'off: the full entered length is used' : 'on: enter the real rod or rail length'}. Change it under Launch conditions.`
+            : rodLengthHelp(false)}</p>
           {!!launch.windLevels?.length && <p className="weather-small">Winds aloft: {windProfileSummary(launch.windLevels)}. Wind avg is the surface wind.</p>}
           {(onGetWeather || weather) && (
             <div className="fly-weather">

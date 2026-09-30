@@ -498,3 +498,13 @@ describe('the weather provenance record in the session', () => {
     expect(JSON.stringify(w.tree)).toBe(JSON.stringify(s.tree));
   });
 });
+
+it.each([undefined, true, false])('round-trips launch-guide allowance %s in autosave', (allowance) => {
+  const saved = state();
+  if (allowance !== undefined) saved.launch.launchGuideAllowance = allowance;
+  saveSessionDebounced(saved);
+  vi.runAllTimers();
+  const launch = loadSession()!.launch;
+  expect(launch.launchGuideAllowance).toBe(allowance);
+  expect(kernelSimOptions(launch).guideAllowance !== false).toBe(allowance !== false);
+});

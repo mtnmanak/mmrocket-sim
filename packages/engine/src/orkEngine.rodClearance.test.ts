@@ -23,7 +23,7 @@ const lug = (aftGap: number): ComponentNode => ({
   position: { method: 'top', offset: BODY_LENGTH - aftGap - LUG_LENGTH },
 });
 
-function fly(guides: ComponentNode[] = []) {
+function fly(guides: ComponentNode[] = [], guideAllowance?: boolean) {
   const rocket = OrkRocket.buildTree({ name: 'K9', components: [
     { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' },
     { type: 'bodytube', length: BODY_LENGTH, outerRadius: 0.012, thickness: 0.0003, density: 950,
@@ -38,7 +38,7 @@ function fly(guides: ComponentNode[] = []) {
   ] });
   rocket.setMotorById('mount', C6);
   const result = rocket.simulate({ launchRodLength: ROD_LENGTH, launchRodAngle: 5 * Math.PI / 180,
-    windAverage: 0, windStdDeviation: 0, randomSeed: 42, timeStep: TIME_STEP, maxTime: 1 });
+    guideAllowance, windAverage: 0, windStdDeviation: 0, randomSeed: 42, timeStep: TIME_STEP, maxTime: 1 });
   const events = result.events.filter((e) => e.type === 'LAUNCHROD');
   expect(events).toHaveLength(1);
   const time = events[0]!.time;
@@ -54,11 +54,20 @@ function fly(guides: ComponentNode[] = []) {
   expect(dt).toBeLessThanOrEqual(TIME_STEP);
   // Clearance is recorded at a step's end. During this accelerating ascent,
   // end speed * the actual straddling dt bounds that single step's travel.
-  return { time, velocity, distance: distanceAt(i), previousDistance: distanceAt(i - 1),
+  return { effective: result.effectiveLaunchRodLength, reason: result.launchGuideReason,
+    ignoredButtons: result.launchGuideIgnoredButtons, liftoff: result.events.find(e => e.type === 'LIFTOFF')!.time, time, velocity, distance: distanceAt(i), previousDistance: distanceAt(i - 1),
     tolerance: velocity * dt };
 }
 
 function expectDistance(exit: ReturnType<typeof fly>, distance: number) {
+  expect(exit.effective).toBeCloseTo(distance, 10);
+  if (distance === 0) {
+    expect(exit.time).toBeGreaterThanOrEqual(exit.liftoff);
+    expect(exit.time - exit.liftoff).toBeLessThanOrEqual(2 * TIME_STEP);
+    expect(exit.velocity).toBeGreaterThan(0);
+    expect([exit.time, exit.velocity, exit.distance].every(Number.isFinite)).toBe(true);
+    return;
+  }
   expect(exit.previousDistance).toBeLessThanOrEqual(distance);
   expect(exit.distance).toBeGreaterThan(distance);
   expect(exit.distance - distance).toBeLessThanOrEqual(exit.tolerance);
@@ -101,7 +110,8 @@ describe('K9 launch guide clearance', { timeout: 60_000 }, () => {
     const guide = fly([button]);
     expect(guide.time).toBeLessThan(carrier.time);
     expect(guide.velocity).toBeLessThan(carrier.velocity);
-    expectDistance(guide, ROD_LENGTH - aftGap);
+    expectDistance(guide, 0);
+    expect(guide.reason).toBe('single-button');
   });
 
   it('moving the same lug up 0.3 m clears earlier and slower after 0.7 m', () => {
@@ -112,23 +122,83 @@ describe('K9 launch guide clearance', { timeout: 60_000 }, () => {
     expectDistance(forward, ROD_LENGTH - 0.3);
   });
 
-  it('uses the aft edge of the second rail-button instance, just as for a lug', () => {
+  it('uses the forward button of two instances and matches separate components', () => {
     const forwardCentre = 0.02;
     const aftGap = 0.2;
     const buttons = fly([{
       type: 'railbutton', outerDiameter: 2 * BUTTON_RADIUS,
-      instanceCount: 2, instanceSeparation: BODY_LENGTH - aftGap - BUTTON_RADIUS - forwardCentre,
+      angleOffset: 0, instanceCount: 2, instanceSeparation: BODY_LENGTH - aftGap - BUTTON_RADIUS - forwardCentre,
       position: { method: 'top', offset: forwardCentre }, overrideMass: 0, overrideCD: 0,
     }]);
-    const equivalentLug = fly([lug(aftGap)]);
-    expectDistance(buttons, ROD_LENGTH - aftGap);
+    const forwardGap = BODY_LENGTH - forwardCentre - BUTTON_RADIUS;
+    const equivalentLug = fly([lug(forwardGap)]);
+    expectDistance(buttons, ROD_LENGTH - forwardGap);
     expect(buttons.tolerance).toBeLessThan(BUTTON_RADIUS);
-    expectDistance(equivalentLug, ROD_LENGTH - aftGap);
+    expectDistance(equivalentLug, ROD_LENGTH - forwardGap);
     expect(Math.abs(buttons.distance - equivalentLug.distance))
       .toBeLessThanOrEqual(Math.max(buttons.tolerance, equivalentLug.tolerance));
-    // Searching only instance [0] would shorten travel by the button separation,
-    // far outside one step; ignoring buttons would instead use the full metre.
-    const firstOnlyDistance = ROD_LENGTH - (BODY_LENGTH - forwardCentre - BUTTON_RADIUS);
-    expect(buttons.previousDistance).toBeGreaterThan(firstOnlyDistance + buttons.tolerance);
+    const separate = fly([button(forwardGap), button(aftGap)]);
+    expectDistance(separate, ROD_LENGTH - forwardGap);
+    expect(buttons.time).toBeCloseTo(separate.time, 10);
+    expect(buttons.velocity).toBeCloseTo(separate.velocity, 9);
   });
 });
+
+function button(gap: number, angleDeg = 0): ComponentNode {
+  return { type: 'railbutton', outerDiameter: 2 * BUTTON_RADIUS, instanceCount: 1, angleOffset: angleDeg * Math.PI / 180,
+    position: { method: 'top', offset: BODY_LENGTH - gap - BUTTON_RADIUS }, overrideMass: 0, overrideCD: 0 };
+}
+
+describe('two-button guidance geometry and bridge/kernel agreement', { timeout: 60_000 }, () => {
+  it.each([
+    { name: 'two buttons: forward one', guides: [button(0.1), button(0.3)], gap: 0.3, reason: 'buttons' },
+    { name: 'three buttons: middle one', guides: [button(0.1), button(0.3), button(0.4)], gap: 0.3, reason: 'buttons' },
+    { name: 'lug aft of lone button', guides: [lug(0.1), button(0.3)], gap: 0.1, reason: 'lug' },
+    { name: 'lug forward of lone button', guides: [lug(0.3), button(0.1)], gap: 0.3, reason: 'lug' },
+    { name: 'lug aft of second button', guides: [lug(0.2), button(0.1), button(0.3)], gap: 0.3, reason: 'mixed-buttons' },
+    { name: 'lug forward of second button', guides: [lug(0.4), button(0.1), button(0.3)], gap: 0.4, reason: 'mixed-lug' },
+    { name: 'equal mixed travel chooses lug', guides: [lug(0.3), button(0.1), button(0.3)], gap: 0.3, reason: 'mixed-lug' },
+    { name: 'coincident buttons are one station', guides: [button(0.2), button(0.2)], gap: 1, reason: 'single-button' },
+    { name: 'within 0.5 mm is one station', guides: [button(0.2), button(0.2004)], gap: 1, reason: 'single-button' },
+    { name: 'exactly 0.5 mm is one station', guides: [button(0.2), button(0.2005)], gap: 1, reason: 'single-button' },
+    { name: 'over 0.5 mm is two stations', guides: [button(0.2), button(0.2006)], gap: 0.2006, reason: 'buttons' },
+    { name: 'station uses its aft-most edge', guides: [button(0.1), button(0.3), button(0.3004)], gap: 0.3, reason: 'buttons' },
+    { name: 'opposite buttons cannot guide', guides: [button(0.1, 0), button(0.3, 180)], gap: 1, reason: 'single-button' },
+    { name: 'one degree tolerance joins a line', guides: [button(0.1, 0), button(0.3, 0.9)], gap: 0.3, reason: 'buttons' },
+    { name: 'exactly one degree joins a line', guides: [button(0.1, 0), button(0.3, 1)], gap: 0.3, reason: 'buttons' },
+    { name: 'outside one degree separates lines', guides: [button(0.1, 0), button(0.3, 1.1)], gap: 1, reason: 'single-button' },
+    { name: 'azimuth wrap at 180 degrees', guides: [button(0.1, 179.6), button(0.3, -179.6)], gap: 0.3, reason: 'buttons' },
+    { name: 'azimuth wrap at zero degrees', guides: [button(0.1, -0.4), button(0.3, 0.4)], gap: 0.3, reason: 'buttons' },
+    { name: 'best of two viable lines', guides: [button(0.1), button(0.2), button(0.3, 180), button(0.4, 180)], gap: 0.2, reason: 'buttons' },
+    { name: 'core line ignores pod buttons at 120 and 240 degrees', guides: [button(0.3), button(0.4), podButtons(120, [button(0.05, 120)]), podButtons(240, [button(0.1, 240)])], gap: 0.4, reason: 'buttons' },
+    { name: 'axis button cannot supplement core line', guides: [button(0.1), axisButtons([button(0.3)])], gap: 1, reason: 'single-button' },
+    { name: 'axis buttons form their own guiding line', guides: [button(0.1), axisButtons([button(0.3), button(0.4)])], gap: 0.4, reason: 'buttons' },
+    { name: 'lug with unaligned buttons uses rod', guides: [lug(0.3), button(0.1, 0), button(0.2, 180)], gap: 0.3, reason: 'lug' },
+    { name: 'carrier cannot be second button', guides: [button(0.2), { ...button(0.1), launchGuide: false }], gap: 1, reason: 'single-button' },
+    { name: 'tower', guides: [], gap: 0, reason: 'none' },
+    { name: 'only carriers', guides: [{ ...button(0.2), launchGuide: false }], gap: 0, reason: 'none' },
+    { name: 'clamp short button guidance', guides: [button(1.2), button(0.1)], gap: 1, reason: 'buttons' },
+  ])('$name', ({ guides, gap, reason }) => {
+    const exit = fly(guides);
+    expectDistance(exit, ROD_LENGTH - gap);
+    expect(exit.reason).toBe(reason);
+    expect(exit.ignoredButtons).toBe(reason === 'lug' && guides.some(g => g.type === 'railbutton'));
+  });
+  it.each([[lug(0.3)], [button(0.3)], [button(0.1), button(0.3)]])('allowance off flies full length %#', (...guides) => {
+    const exit = fly(guides, false);
+    expectDistance(exit, ROD_LENGTH);
+    expect(exit.reason).toBe('off');
+  });
+});
+
+// Deliberately weightless pods keep bounds aligned with the core body.
+function podButtons(angleDeg: number, guides: ComponentNode[], radiusOffset = 0.03): ComponentNode {
+  return { type: 'podset', instanceCount: 1, radiusMethod: 'free', radiusOffset,
+    angleOffset: angleDeg * Math.PI / 180, position: { method: 'top', offset: 0 },
+    children: [{ type: 'bodytube', length: BODY_LENGTH, outerRadius: 0.004,
+      thickness: 0.0001, overrideMass: 0, overrideCD: 0, children: guides }] };
+}
+function axisButtons(guides: ComponentNode[]): ComponentNode {
+  // Exact cancellation: centre y=-0.004 plus button parent radius y=+0.004.
+  return podButtons(0, guides, -0.004);
+}

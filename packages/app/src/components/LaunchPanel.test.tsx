@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
   canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions,
-  LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
+  hasLaunchGuides, rodLengthHelp, LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
@@ -1017,5 +1017,42 @@ describe('the rod-aim field', () => {
     })).toEqual(order);
     const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
     expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
+  });
+});
+
+describe('guide allowance controls', () => {
+  it('explains the actual length, tower fallback, and off behavior distinctly', () => {
+    expect(rodLengthHelp(true)).toContain("Enter the rod's or rail's real length");
+    expect(rodLengthHelp(true)).toContain('second-to-last station on their line');
+    expect(rodLengthHelp(true)).toContain('shorter distance');
+    expect(rodLengthHelp(false)).toContain('no launch lug or rail button');
+    expect(rodLengthHelp(true, false)).toContain('entered length is flown as the guided length');
+  });
+  it.each(['launchlug', 'railbutton', 'protuberance'] as const)('recognises nested %s guides', (type) => {
+    expect(hasLaunchGuides({ components: [{ type: 'stage', children: [{ type } as import('@online-openrocket/engine').ComponentNode] }] })).toBe(type !== 'protuberance');
+  });
+  it('shows accessible guide help and a default-on toggle only with guides', () => {
+    let value: LaunchConditions = { ...DEFAULT_CONDITIONS };
+    const mount = (hasLaunchGuide: boolean) => act(() => root.render(<PrefsProvider>
+      <LaunchPanel value={value} hasLaunchGuide={hasLaunchGuide} onChange={v => { value = v; }}
+        onLaunch={() => {}} simulating={false} canLaunch />
+    </PrefsProvider>));
+    mount(true);
+    const label = [...host.querySelectorAll('label')].find(l => l.textContent?.includes('Allow for lug'))!;
+    const toggle = label.querySelector('input')!;
+    expect(toggle.checked).toBe(true);
+    expect(host.textContent).toContain(rodLengthHelp(true));
+    const rodInput = host.querySelector('input[aria-label^="Rod length"]')!;
+    const description = document.getElementById(rodInput.getAttribute('aria-describedby')!);
+    expect(description?.textContent).toBe(rodLengthHelp(true));
+    act(() => toggle.click());
+    expect(value.launchGuideAllowance).toBe(false);
+    mount(true);
+    expect(host.textContent).toContain(rodLengthHelp(true, false));
+    expect(kernelSimOptions(value).guideAllowance).toBe(false);
+    mount(false);
+    expect(host.textContent).not.toContain('Allow for lug and rail-button positions');
+    expect(host.textContent).toContain(rodLengthHelp(false));
+    expect(host.textContent).not.toContain('Do not shorten');
   });
 });

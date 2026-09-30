@@ -1,4 +1,4 @@
-import { DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type SimulationOptions } from '@online-openrocket/engine';
+import { DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type SimulationOptions, type RocketTree, type ComponentNode } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtAltitude, fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
@@ -20,6 +20,8 @@ import { WindProfile } from './WindProfile.js';
 
 export interface LaunchConditions extends WindProfileConditions {
   launchRodLengthM: number;
+  /** Absent = on; preserve absent keys when restoring older sessions. */
+  launchGuideAllowance?: boolean;
   launchRodAngleDeg: number;
   /**
    * Which way a tilted rod leans RELATIVE TO THE WIND, in degrees (weather
@@ -146,6 +148,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   const aim = flownRodAimDeg(l);
   return {
     launchRodLength: l.launchRodLengthM,
+    ...(l.launchGuideAllowance === false ? { guideAllowance: false } : {}),
     launchRodAngle: (l.launchRodAngleDeg * Math.PI) / 180,
     windAverage: l.windAverage,
     windStdDeviation: l.windStdDev,
@@ -738,9 +741,10 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 
 export function LaunchPanel({
   value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
-  onWeatherDismiss, onWeatherSigma,
+  onWeatherDismiss, onWeatherSigma, hasLaunchGuide = false,
 }: {
   value: LaunchConditions;
+  hasLaunchGuide?: boolean;
   onChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
   simulating: boolean;
@@ -837,7 +841,15 @@ export function LaunchPanel({
             pair, full width, and only here — never inside LaunchField, which the
             Fly screen shares. */}
         <GustEstimate value={value} onChange={onChange} onEstimate={onWeatherSigma} forecastWind={forecastWind} />
-        {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0])}
+        <div>
+          {numField('Rod length', 'launchRodLengthM', 0.1, ROD_LENGTH_M_RANGE[0], undefined, false,
+            rodLengthHelp(hasLaunchGuide, value.launchGuideAllowance))}
+          {hasLaunchGuide && <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <input type="checkbox" checked={value.launchGuideAllowance !== false}
+              onChange={(e) => onChange({ ...value, launchGuideAllowance: e.target.checked })} />
+            Allow for lug and rail-button positions
+          </label>}
+        </div>
         {numField('Site altitude', 'launchAltitudeM', 50, ...SITE_ALTITUDE_M_RANGE)}
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
             and kernelSimOptions's chokepoint read the same arrays, so the panel
@@ -886,4 +898,17 @@ export function LaunchPanel({
       </button>
     </div>
   );
+}
+
+/** App tree only: synthetic protuberance carriers are not launch guides. */
+export function hasLaunchGuides(tree: RocketTree): boolean {
+  const guide = (n: ComponentNode): boolean => n.type === 'launchlug' || n.type === 'railbutton'
+    || (n.children ?? []).some(guide);
+  return tree.components.some(guide);
+}
+
+export function rodLengthHelp(hasGuide: boolean, allowance?: boolean): string {
+  if (!hasGuide) return 'This design has no launch lug or rail button, so the whole length guides it (a tower, say) and no allowance is made.';
+  if (allowance === false) return 'The allowance for lugs and rail buttons is switched off. The entered length is flown as the guided length.';
+  return "Enter the rod's or rail's real length — do not shorten it yourself. The app allows for where your guides sit: a lug guides until it clears the top; rail buttons guide until the second-to-last station on their line clears it. With both a lug and usable rail buttons, the app uses whichever guides the shorter distance.";
 }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
+import { DEFAULT_CONDITIONS, rodLengthHelp } from './LaunchPanel.js';
 import { FlyScreen } from './FlyScreen.js';
 import type { SimRun } from '../services/simReport.js';
 
@@ -42,6 +42,14 @@ describe('FlyScreen', () => {
     act(() => root.unmount());
     host.remove();
     localStorage.clear();
+  });
+
+  it.each([true, false])('shares Rod length help with allowance %s', (allowance) => {
+    mount({ tree: { components: [{ type: 'railbutton' }] }, launch: { ...DEFAULT_CONDITIONS, launchGuideAllowance: allowance } });
+    expect(host.textContent).toContain(rodLengthHelp(true, allowance));
+    expect(host.textContent).toContain(allowance ? 'allowance on' : 'allowance off');
+    mount();
+    expect(host.textContent).toContain(rodLengthHelp(false));
   });
 
   function mount(over: Partial<Parameters<typeof FlyScreen>[0]> = {}) {

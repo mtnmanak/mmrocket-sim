@@ -546,3 +546,7 @@ describe('the open sequence', () => {
     expect(starterMotorMayLand(replaced, 'mmt', {})).toBe(false);
   });
 });
+
+it.each([undefined, {}])('opening a file without guide allowance resets a previous off setting', (fileLaunch) => {
+  expect(importedLaunch({ ...DEFAULT_CONDITIONS, launchGuideAllowance: false }, fileLaunch).launchGuideAllowance).not.toBe(false);
+});

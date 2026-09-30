@@ -548,3 +548,30 @@ it('names winds aloft in the report and the saved-run table', () => {
   expect([...host.querySelectorAll('th')].some((th) => th.textContent === 'Winds aloft')).toBe(true);
   expect(host.querySelector('tbody')!.textContent).toContain('2 levels');
 });
+
+it.each(['none', 'lug', 'buttons', 'single-button', 'mixed-lug', 'mixed-buttons', 'off'] as const)('renders flown guided length and %s reason with unit controls', (reason) => {
+  const r = { ...run(), guidedLengthM: 0.5, enteredRodLengthM: 1.5, launchGuideReason: reason };
+  act(() => root.render(<PrefsProvider><SimRunDetails run={r} /></PrefsProvider>));
+  const expand = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Show all details'))!;
+  act(() => expand.click());
+  const row = [...host.querySelectorAll('tr')].find(tr => tr.textContent?.includes('Guided length'))!;
+  expect(row).toBeDefined();
+  expect(row.textContent).toContain(' of ');
+  expect(row.querySelectorAll('select.unit-chip').length).toBe(2);
+  const unit = row.querySelector<HTMLSelectElement>('select.unit-chip')!.value;
+  expect(row.children[1]!.textContent?.trim().startsWith(fmtSi('length', unit, r.guidedLengthM) + ' ')).toBe(true);
+  expect(row.textContent).toContain(' of ' + fmtSi('length', unit, r.enteredRodLengthM));
+  const phrase = { none: 'as for a tower', lug: 'last launch lug', buttons: 'second-to-last rail-button station',
+    'mixed-lug': 'shorter guidance: the last lug', 'mixed-buttons': 'shorter guidance: the second-to-last',
+      'single-button': 'as it lifts off', off: 'switched off' };
+  expect(row.textContent).toContain(phrase[reason]);
+});
+
+it('Amendment 1 renders the ignored-button note saved with a lug report', () => {
+  const r = { ...run(), guidedLengthM: 0.5, enteredRodLengthM: 1.5,
+    launchGuideReason: 'lug' as const, launchGuideIgnoredButtons: true };
+  act(() => root.render(<PrefsProvider><SimRunDetails run={r} /></PrefsProvider>));
+  const expand = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Show all details'))!;
+  act(() => expand.click());
+  expect(host.textContent).toContain('Rail buttons without two stations on one line were not counted.');
+});

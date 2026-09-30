@@ -177,7 +177,7 @@ describe('launch-rod exit is read at the crossing, not at the end of the step', 
     const design = tree(true);
     design.components[1]!.children!.push({
       type, length: 0.02, outerRadius: 0.003, thickness: 0.0005,
-      outerDiameter: 0.01, instanceCount: 1, position: { method: 'top', offset: 0.02 },
+      outerDiameter: 0.01, instanceCount: 2, instanceSeparation: 0.05, position: { method: 'top', offset: 0.02 },
     });
     const rocket = OrkRocket.buildTree(design);
     rocket.setMotorById('mount', C6);
@@ -482,3 +482,30 @@ describe('winds aloft through app launch conditions', () => {
     expect(again.result.series).toEqual(uniform.result.series);
   }, 60000);
 });
+
+it('Amendment 1: a single-button report reads the liftoff LAUNCHROD state without NaN', async () => {
+  const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+  resetEngine();
+  const design = tree(true);
+  design.components[1]!.children!.push({ type: 'railbutton', outerDiameter: 0.01,
+    instanceCount: 1, position: { method: 'top', offset: 0.02 } });
+  const rocket = OrkRocket.buildTree(design);
+  rocket.setMotorById('mount', C6);
+  const launch = { ...DEFAULT_CONDITIONS, timeStepS: 0.001 };
+  const result = rocket.simulate(kernelSimOptions(launch));
+  const run = buildSimRun({ result, info: rocket.staticInfo(), motor: C6, launch,
+    rocketName: 'Single button', execMs: 1 });
+  expect(result.effectiveLaunchRodLength).toBeCloseTo(0, 12);
+  const t = result.events.find(e => e.type === 'LAUNCHROD')!.time;
+  const liftoff = result.events.find(e => e.type === 'LIFTOFF')!.time;
+  expect(t).toBeGreaterThanOrEqual(liftoff);
+  expect(t - liftoff).toBeLessThanOrEqual(2 * launch.timeStepS);
+  const i = result.series.time.indexOf(t);
+  expect(i).toBeGreaterThan(0);
+  expect(run.timeToRodDeparture).toBe(t);
+  expect(run.rodExitVelocity).toBe(result.series.velocity[i]);
+  expect(run.rodExitAoa).toBe(result.series.aoa[i] ?? null);
+  expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[i]! / (result.series.mass[i]! * 9.80665), 10);
+  expect([run.timeToRodDeparture, run.rodExitVelocity, run.rodExitAoa, run.thrustToWeightAtRod]
+    .every(v => v === null || Number.isFinite(v))).toBe(true);
+}, 60_000);

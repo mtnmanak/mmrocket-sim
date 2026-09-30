@@ -62,6 +62,7 @@ export interface FlightDataForExportInput {
   hasNozzle: boolean;
   /** Tree-only, so it also covers runs from inactive motor configurations. */
   requiresPhysicsRevision?: boolean;
+  physicsRevisions?: readonly string[];
   /**
    * simReport's `motorSetKeyOf` — the SAME function Launch stamps a run with.
    * Passed in rather than imported so a test can hand each configuration a key

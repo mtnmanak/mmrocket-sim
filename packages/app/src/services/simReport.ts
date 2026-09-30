@@ -414,6 +414,10 @@ export interface SimRun extends WindProfileConditions {
   timeToBurnout: number | null;
   timeToRodDeparture: number | null;
   rodExitVelocity: number | null;
+  guidedLengthM?: number;
+  enteredRodLengthM?: number;
+  launchGuideReason?: FlightResult['launchGuideReason'];
+  launchGuideIgnoredButtons?: boolean;
   thrustToWeightAtRod: number | null;
   launchMass: number | null;
   /**
@@ -691,6 +695,7 @@ export interface DesignMatchKey {
   hasNozzle?: boolean;
   /** Whether this tree needs the K9/K15 kernel stamp to reproduce an older run. */
   requiresPhysicsRevision?: boolean;
+  physicsRevisions?: readonly string[];
 }
 
 /**
@@ -779,6 +784,7 @@ export interface DesignMatchInput {
   /** Whether a stage with a motor carries a nozzle (App's `motorisedStagesWithNozzle`). */
   hasNozzle: boolean;
   requiresPhysicsRevision?: boolean;
+  physicsRevisions?: readonly string[];
 }
 
 /**
@@ -798,6 +804,7 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
     autoSupersonic: input.autoSupersonic,
     hasNozzle: input.hasNozzle,
     requiresPhysicsRevision: input.requiresPhysicsRevision,
+    physicsRevisions: input.physicsRevisions,
   };
 }
 
@@ -1031,29 +1038,34 @@ export function runCarriesNozzleStamp(
 /** Named in the staleness banner when {@link runCarriesNozzleStamp} refuses. */
 export const PRESSURE_THRUST_CHANGED = 'the motor thrust model';
 
-/** K9 guide-aware rod clearance and K15 transition shoulder wall/cap mass. */
-export const PHYSICS_REVISION = 'guide-clearance-transition-mass-v1';
-export const KERNEL_PHYSICS_CHANGED = 'the launch-guide and transition-shoulder physics';
+/** Append revisions in flight order; each entry names only the designs it changes. */
+export const PHYSICS_REVISIONS: readonly { id: string; description: string; affects: (n: ComponentNode) => boolean }[] = [
+  { id: 'guide-clearance-transition-mass-v1', description: 'launch-guide and transition-shoulder', affects: (n) => n.type === 'launchlug' || n.type === 'railbutton' || (n.type === 'transition' && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0)) },
+  { id: 'two-button-guidance-v2', description: 'rail-line and station guidance', affects: (n) => n.type === 'railbutton' },
+];
+export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
+export const KERNEL_PHYSICS_CHANGED = `the ${PHYSICS_REVISIONS.map(r => r.description).join(' and ')} physics`;
 
-/**
- * Like the nozzle stamp, invalidate only trees that can spend the revised physics.
- * Inspect the app tree BEFORE lowering: protuberances become kernel rail buttons
- * but are not guides. Include nested guides and both ends of every transition.
- * Deliberately conservative about guide position, overrides and shoulder geometry:
- * deciding whether their effect cancels would duplicate the kernel's calculations.
- */
+export function physicsRevisionsFor(tree: RocketTree): string[] {
+  return PHYSICS_REVISIONS.filter(({ affects }) => {
+    const visit = (n: ComponentNode): boolean => affects(n) || (n.children ?? []).some(visit);
+    return tree.components.some(visit);
+  }).map(({ id }) => id);
+}
+
 export function requiresPhysicsRevision(tree: RocketTree): boolean {
-  const affected = (n: ComponentNode): boolean => n.type === 'launchlug' || n.type === 'railbutton'
-    || (n.type === 'transition'
-      && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0))
-    || (n.children ?? []).some(affected);
-  return tree.components.some(affected);
+  return physicsRevisionsFor(tree).length > 0;
 }
 
 export function runCarriesPhysicsRevision(
-  run: Pick<SimRun, 'physicsRevision'>, cur: { requiresPhysicsRevision?: boolean },
+  run: Pick<SimRun, 'physicsRevision'>,
+  cur: { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
 ): boolean {
-  return cur.requiresPhysicsRevision !== true || run.physicsRevision === PHYSICS_REVISION;
+  // Older callers with only the boolean conservatively require the latest stamp.
+  const affected = cur.physicsRevisions
+    ?? (cur.requiresPhysicsRevision === true ? [PHYSICS_REVISION] : []);
+  const flownIndex = PHYSICS_REVISIONS.findIndex(({ id }) => id === run.physicsRevision);
+  return !PHYSICS_REVISIONS.some(({ id }, i) => i > flownIndex && affected.includes(id));
 }
 
 /**
@@ -1147,6 +1159,8 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   // is the flight data's λ column alone, which then follows the Longitude the
   // design holds now: where the design says the pad is.
   delete l['longitudeDeg'];
+  // Explicit on and absent are the same flight, including pre-toggle saved runs.
+  if (l['launchGuideAllowance'] !== false) delete l['launchGuideAllowance'];
   // A ROD AIM THAT FLIES AS AIM 0 IS NO AIM (weather build, step 2; decision
   // D9). Absent, 0, a whole turn, NaN, and ANY aim on a vertical rod hand the
   // kernel no rodDirection at all (`flownRodAimDeg`, the predicate
@@ -1666,22 +1680,23 @@ export function buildSimRun(input: {
   const tGround = eventTime(result, 'GROUND_HIT');
 
   // K9 (docs/open-items.md): the rocket leaves the guide at the kernel's guide-aware
-  // EFFECTIVE rod length (its aft-most lug or rail button clearing the top), which the
+  // EFFECTIVE length (the chosen lug or rail line/station clearing), which the
   // bridge reports; interpolate the crossing there. An older kernel artifact reports
   // none, so fall back to the full rod length - and, whichever length is used, keep
   // the kernel's own departure when the crossing lands after LAUNCHROD, because
   // interpolating past it samples free flight.
   const guideLength = result.effectiveLaunchRodLength ?? launch.launchRodLengthM;
-  const crossing = tRod === null ? null : rodExitFromSeries(
+  const crossing = guideLength <= 0 || tRod === null ? null : rodExitFromSeries(
     series, guideLength, launch.timeStepS ?? DEFAULT_TIME_STEP_S);
   const rodExit = crossing !== null && crossing.time <= tRod! ? crossing : null;
   // ONE instant for all three rod numbers. Without this the report prints a velocity
   // from the crossing and a thrust-to-weight and a departure time from up to 4.6 %
   // later — which is how the panel came to contradict its own arithmetic.
   const tRodExit = rodExit?.time ?? tRod;
-  const rodExitVelocity = rodExit?.velocity
-    ?? summary.launchRodVelocity
-    ?? (tRod !== null ? at(series.time, series.velocity, tRod) : null);
+  const rodExitVelocity = guideLength === 0
+    ? (tRod !== null ? at(series.time, series.velocity, tRod) : null)
+    : rodExit?.velocity ?? summary.launchRodVelocity
+      ?? (tRod !== null ? at(series.time, series.velocity, tRod) : null);
   const thrustAtRod = tRodExit !== null ? at(series.time, series.thrust, tRodExit) : null;
   const massAtRod = tRodExit !== null ? at(series.time, series.mass, tRodExit) : null;
   const thrustToWeightAtRod = thrustAtRod !== null && massAtRod !== null && massAtRod > 0
@@ -1717,7 +1732,9 @@ export function buildSimRun(input: {
   // to landing, so every one of those instants reads the same number.
   const tRecoveryMass = recoveryMassTime(result.events);
   const burnoutMass = tRecoveryMass !== null ? at(series.time, series.mass, tRecoveryMass) : null;
-  const rodExitAoa = sampleAt(series.aoa, iRodClear);
+  const rodExitAoa = guideLength === 0
+    ? (tRod !== null ? at(series.time, series.aoa, tRod) : null)
+    : sampleAt(series.aoa, iRodClear);
   const launchCG = sampleAt(series.cgLocation, iRodClear) ?? info.cg ?? null;
   const launchCP = sampleAt(series.cpLocation, iRodClear) ?? info.cp ?? null;
   const launchStaticMarginCal = sampleAt(series.stability, iRodClear)
@@ -2014,6 +2031,10 @@ export function buildSimRun(input: {
     timeToBurnout: tBurnout,
     timeToRodDeparture: tRodExit,
     rodExitVelocity,
+    guidedLengthM: guideLength,
+    enteredRodLengthM: launch.launchRodLengthM,
+    launchGuideReason: result.launchGuideReason,
+    launchGuideIgnoredButtons: result.launchGuideIgnoredButtons,
     thrustToWeightAtRod,
     launchMass,
     burnoutMass,
@@ -2115,4 +2136,19 @@ export function commentsOf(
   if (!r.comments) return [];
   const levels = commentLevelsAlign(r) ? r.commentLevels : undefined;
   return r.comments.split(COMMENT_SEP).map((text, i) => ({ text, level: levels?.[i] ?? 'info' }));
+}
+
+/** Explanation is keyed to the kernel's flown decision, never re-derived from the edited tree. */
+export function launchGuideExplanation(reason: FlightResult['launchGuideReason'], ignoredButtons = false): string {
+  switch (reason) {
+    case 'none': return 'No launch lug or rail button: the whole length guides it, as for a tower.';
+    case 'lug': return 'Guidance ends when the last launch lug clears the top.'
+      + (ignoredButtons ? ' Rail buttons without two stations on one line were not counted.' : '');
+    case 'buttons': return 'Guidance ends when the second-to-last rail-button station on the best line clears the top; one station alone cannot hold the angle.';
+    case 'mixed-lug': return 'This design has both lugs and a usable rail-button line. The app used the shorter guidance: the last lug clearing the top.';
+    case 'mixed-buttons': return 'This design has both lugs and a usable rail-button line. The app used the shorter guidance: the second-to-last rail-button station clearing the top.';
+    case 'single-button': return "One rail button, or buttons side by side at one position, cannot hold the angle. There are no two stations on one rail line, so the rail gives it no guided distance: it leaves the rail as it lifts off. Model a rail guide or slide as a launch lug.";
+    case 'off': return 'The full length is flown as entered: the allowance for lugs and buttons is switched off.';
+    default: return '';
+  }
 }

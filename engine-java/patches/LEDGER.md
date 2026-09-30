@@ -151,6 +151,40 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
   full rod length, past the true departure whenever a guide sits above the aft end.
 - **Impact:** measured: see the corpus comparison.
 
+### simulation/SimulationStatus.java - rail lines and stations (K9-A1, 2026-09-30)
+- **Ruling:** Eric's two-button rule, amended after Gemini's independent physics
+  review accepted by the orchestrator (CODEX-AMEND-1.md). Rail buttons group by
+  absolute atan2(z,y) azimuth with a 1 degree tolerance, wrapping at +/-180.
+  On-axis (y=z=0) instances form their own line and never supplement other lines.
+  The largest angular gap sets a deterministic circular seam; each line spans
+  at most 1 degree from its first sorted angle, without transitive tolerance chains.
+- **Stations:** within a line, edges within 0.5 mm of its aft-most station edge
+  are one station, not independent guides. Sort aft-first; the second distinct
+  station's most-aft edge controls. Choose the most-aft such point over usable
+  lines. Absolute coordinates include all parent/pod/strap-on instances. Keep K9's
+  lug +length and button +outerRadius edges and ignore marked carrier buttons.
+- **Alternative launchers:** lugs alone use the aft-most lug. Buttons alone use
+  the best usable line, or zero distance if none has two stations. With both a
+  lug and usable rail, use the SHORTER clamped guided travel. With lugs and only
+  unusable button lines, the lug controls and ignoredButtons explains that choice.
+- **Shared result:** launchGuide(configuration, length, allowance) returns length,
+  reason (none, lug, buttons, single-button, mixed-lug, mixed-buttons, off), and
+  ignoredButtons. Ties between viable launchers choose mixed-lug. The constructor
+  and API use this one calculation; an AbstractSimulationListener.startSimulation
+  applies it before flight, and stage status copies retain the flown length.
+  guideAllowance defaults true; off uses full entered length. The bridge reports
+  effectiveLaunchRodLength, launchGuideReason, and launchGuideIgnoredButtons.
+- **Zero distance:** the first-pass t=0 LAUNCHROD insertion was REMOVED after the
+  review. The existing clearance check runs at/after LIFTOFF (the 2 cm threshold).
+  The report reads speed, time, AoA and thrust:weight at that kernel event, with
+  no synthetic zero speed. Ground handling has not been changed.
+- **Rail slides:** a long angle-holding guide/slide is modelled as a launch lug;
+  no button-size heuristic. The UI and guide explain this distinction.
+- **Verification:** expanded rodClearance guards cover line/station tolerances,
+  wraps, pods, axis-line isolation, mixed launchers and liftoff ordering. App tests
+  pin the event-state metrics and every reason/note. Delegate cannot build TeaVM;
+  Claude must rebuild, verify shipped symbols, run engine mutations and difftest.
+
 ## Determinism fixes (documented behavior change — within upstream's own envelope)
 
 ### rocketcomponent/InstanceMap.java
