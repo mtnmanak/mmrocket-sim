@@ -99,6 +99,8 @@ export function allowedChildren(parentType: EditorComponentType | 'stage'): Comp
 export type FieldUnit = 'mm' | 'm' | 's' | 'deg' | 'g' | 'count' | 'kg/m3' | 'none';
 
 export interface FieldDef {
+  /** Visible help associated with the input. */
+  help?: string;
   key: string;
   label: string;
   unit: FieldUnit;
@@ -744,14 +746,9 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     // value typed on the strength of the old label is spent on a safety
     // number. Both halves are off under Classic EB.
     //
-    // Kept SHORT deliberately: the panel's longest label before this was 43
-    // characters ('Cd on frontal area (blank or 0 = from class)'), and there is
-    // no tooltip field on FieldDef, so a label is the only copy the box gets.
-    // The full explanation lives in the guide and in the RASAero import note.
-    // Optional: blank is "off", the same state the Motors & Launch field's
-    // clear commits (NozzleField), and what its fill-from-the-database rule
-    // looks for.
-    { ...lenMM('nozzleExitDiameter', 'Nozzle exit diameter (drives thrust and drag; 0 = off)', 1, 200), optional: true },
+    // Keep the label short; visible associated help explains automatic vs OFF.
+    // Blank requests automatic fill; explicit zero is persistent OFF.
+    { ...lenMM('nozzleExitDiameter', 'Nozzle exit diameter', 1, 200), optional: true, help: 'Blank means automatic. Enter 0 to switch off pressure thrust and power-on base drag; 0 stays off when motors change.' },
   ],
   nosecone: [
     lenMM('length', 'Length'),
@@ -1033,6 +1030,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
   // reference (meaningful only here) and the separation trigger.
   parallelstage: [
     ...ASSEMBLY_FIELDS,
+    { ...lenMM('nozzleExitDiameter', 'Nozzle exit diameter', 1, 200), optional: true, help: 'For ONE strap-on. If it carries several motors, enter the diameter of one nozzle with their combined exit area. The app accounts for the number of strap-ons. Blank means automatic; enter 0 to switch off pressure thrust and power-on base drag, even when motors change.' },
     { key: 'angleMethod', label: 'Angle reference', unit: 'none', options: ANGLE_METHODS },
     { key: 'separationEvent', label: 'Separate at', unit: 'none', options: SEPARATION_EVENTS },
     { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },

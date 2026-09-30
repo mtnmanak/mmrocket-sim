@@ -49,9 +49,10 @@ import { UnitChip } from './UnitChip.js';
  * re-read.
  */
 export function NozzleField({
-  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit,
+  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, parallel = false,
 }: {
   stageName: string;
+  parallel?: boolean;
   /** The stage's current value (m), or null when the field is empty. */
   exitDiameterM: number | null;
   /**
@@ -60,7 +61,7 @@ export function NozzleField({
    * the count is load-bearing and not decoration: four 29 mm motors are twice
    * the equivalent diameter of one.
    */
-  motors: readonly { motorId: string; count: number }[];
+  motors: readonly { motorId: string; count: number; label?: string }[];
   /** What to call the motor in the provenance line. */
   motorLabel: string | null;
   /**
@@ -74,19 +75,21 @@ export function NozzleField({
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
   const inputId = useId();
-  const [entries, setEntries] = useState<(NozzleEntry | null)[] | null>(null);
+  const [lookup, setLookup] = useState<{ key: string; entries: (NozzleEntry | null)[] } | null>(null);
 
   const key = motors.map((m) => `${m.motorId}x${m.count}`).join(',');
   useEffect(() => {
     let live = true;
     void (async () => {
       const found = await Promise.all(motors.map((m) => nozzleForMotorId(m.motorId)));
-      if (live) setEntries(found);
+      if (live) setLookup({ key, entries: found });
     })();
     return () => { live = false; };
     // `motors` is a fresh array each render; `key` is its stable content.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key IS motors
   }, [key]);
+
+  const entries = lookup?.key === key ? lookup.entries : null;
 
   // The stage's equivalent nozzle: null when it has no motors, or when any
   // motor in it has no published figure (a partial sum is short by whatever it
@@ -94,12 +97,10 @@ export function NozzleField({
   const published = entries === null ? null : equivalentExitDiameterM(
     motors.map((m, i) => ({ count: m.count, exitDiameterM: entries[i]?.exitDiameterM ?? null })),
   );
-  // The entry to CREDIT. With one motor it is that motor's; with a cluster of
-  // identical motors it is still one published nozzle, so naming it is honest.
-  // A mixed stage names the first — the numbers come from all of them and the
-  // sentence says "for <this motor>", so it is only ever a pointer at a source.
+  // Single-source attribution; mixed loadouts list every contributing source.
   const entry = entries?.find((e): e is NozzleEntry => e !== null) ?? null;
   const clustered = motors.length > 1 || motors.some((m) => m.count > 1);
+  const mixed = new Set(motors.map((m) => m.motorId)).size > 1;
 
   // Rule 1: fill an empty field from the published figure. In an effect and not
   // in render, because it writes to the design.
@@ -113,9 +114,9 @@ export function NozzleField({
   const ui = (m: number) => `${fmtSi('motorDimensions', sym, m)} ${sym}`;
   // 0.05 mm: finer than any drawing states, coarse enough that a unit
   // round-trip through the display never reads as a disagreement.
-  const differs = published !== null && exitDiameterM !== null
+  const differs = published !== null && exitDiameterM !== null && exitDiameterM > 0
     && Math.abs(published - exitDiameterM) > 0.00005;
-  const matches = published !== null && exitDiameterM !== null && !differs;
+  const matches = published !== null && exitDiameterM !== null && exitDiameterM > 0 && !differs;
   const maker = entry?.manufacturer ?? 'The manufacturer';
   // An EX motor's exit comes out of the .rse the USER imported, not out of a
   // manufacturer's drawing, and the panel must not dress one as the other:
@@ -135,6 +136,7 @@ export function NozzleField({
         </label>
         <NumField
           id={inputId}
+          describedBy={`${inputId}-help`}
           ariaLabel={`Nozzle exit diameter for ${stageName} (${sym})`}
           value={exitDiameterM === null ? undefined : siToUi('motorDimensions', sym, exitDiameterM)}
           // Half a millimetre's worth in the display unit. A fixed 0.5 was half
@@ -142,28 +144,47 @@ export function NozzleField({
           step={niceStep(siToUi('motorDimensions', sym, 0.0005))}
           min={0}
           nullable
-          placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'none (0 = off)'}
+          placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'automatic (0 = off)'}
           onCommit={(v) => onCommit(v === null ? null : uiToSi('motorDimensions', sym, v))}
         />
       </div>
+      <p className="comp-stats" id={`${inputId}-help`} style={{ margin: '3px 0 0' }}>
+        {parallel && 'For ONE strap-on. If it carries several motors, enter the diameter of one nozzle with their combined exit area. The app accounts for the number of strap-ons. '}
+        Blank means automatic. Enter 0 to switch off; 0 stays off when motors change.
+        {' '}This value controls pressure thrust and power-on base drag under Rogers Kbf, Auto and Supersonic.
+      </p>
+      {exitDiameterM === 0 && <p className="comp-stats" data-nozzle="off">Nozzle effects are off.</p>}
+      {mixed && published !== null && entries && (
+        <ul className="comp-stats" data-nozzle="sources">
+          {entries.map((source, i) => source && <li key={i}>
+            {motors[i]?.label ?? `Motor ${i + 1}`}: {motors[i]?.count} × {ui(source.exitDiameterM)} — {source.fromImportedFile ? 'imported motor file' : source.manufacturer}
+            {source.nozzlePartNo ? `, nozzle ${source.nozzlePartNo}` : ''}
+            {source.drawings.length > 0 ? `. Source: ${source.drawings[0]}` : ''}.
+            {source.confidence !== 'high' && ' Read at lower confidence.'}
+            {source.note && ` ${source.note}`}
+            {source.customExitNote && ` ${source.customExitNote}`}
+          </li>)}
+        </ul>
+      )}
       {matches && entry && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="published">
-          {ui(published)} — {fromFile
+          {ui(published)} — {clustered ? `equivalent exit from ${mixed ? 'the motor sources' : fromFile ? 'the imported motor file' : `${maker} data`}` : fromFile
             ? `from the motor file you imported${motorLabel ? ` for ${motorLabel}` : ''}`
             : `${maker}\u2019s published figure${motorLabel ? ` for ${motorLabel}` : ''}`}
-          {entry.nozzlePartNo ? `, nozzle ${entry.nozzlePartNo}` : ''}.
-          {clustered && ` Exit areas summed over the ${motors.reduce((n, m) => n + m.count, 0)} motors in this stage.`}
-          {entry.confidence !== 'high' && ' Read at lower confidence.'}
-          {entry.drawings.length > 0 && ` Source: ${entry.drawings[0]}.`}
+          {!mixed && entry.nozzlePartNo ? `, nozzle ${entry.nozzlePartNo}` : ''}.
+          {clustered && !mixed && ` One motor's exit: ${ui(entry.exitDiameterM)}.`}
+          {clustered && ` Exit areas summed over the ${motors.reduce((n, m) => n + m.count, 0)} motors ${parallel ? 'in one strap-on' : 'in this stage'}.`}
+          {!mixed && entry.confidence !== 'high' && ' Read at lower confidence.'}
+          {!mixed && entry.drawings.length > 0 && ` Source: ${entry.drawings[0]}.`}
         </p>
       )}
       {differs && entry && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="disagrees">
-          <strong>This design says {ui(exitDiameterM)}; {fromFile
+          <strong>This design says {ui(exitDiameterM)}; {clustered ? `the equivalent from the motor sources is ${ui(published)}` : fromFile
             ? `the motor file you imported says ${ui(published)}`
             : `${maker} publish ${ui(published)}`}</strong>
-          {motorLabel ? ` for ${motorLabel}` : ''}
-          {entry.nozzlePartNo ? ` (nozzle ${entry.nozzlePartNo})` : ''}.
+          {!mixed && motorLabel ? ` for ${motorLabel}` : ''}
+          {!mixed && entry.nozzlePartNo ? ` (nozzle ${entry.nozzlePartNo})` : ''}.
           {' '}The exit area drives both base drag and the thrust a motor gains as the air thins, so
           the difference moves apogee. Yours is kept — a value that came in with your own file is not
           overwritten. Change the motor and it will follow the new one.
@@ -173,7 +194,7 @@ export function NozzleField({
               sentence said the file (audit 2026-09-22). */}
           <button className="file-btn" style={{ marginLeft: 4 }}
             onClick={() => onCommit(published)}>
-            Use {fromFile ? 'the file' : maker}&rsquo;s {ui(published)}
+            Use {clustered ? 'equivalent' : `${fromFile ? 'the file' : maker}’s`} {ui(published)}
           </button>
         </p>
       )}
@@ -186,7 +207,7 @@ export function NozzleField({
             : `No published exit diameter for ${motorLabel ?? 'this motor'}. Type one if you have measured it — blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.`}
         </p>
       )}
-      {entry?.note && published !== null && (
+      {!mixed && entry?.note && published !== null && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="alternatives">
           {entry.note}
         </p>
@@ -199,7 +220,7 @@ export function NozzleField({
           even know what the exit diameter is or why it should be changed."
           Shown whenever the stage HAS a published figure, filled or not, since
           the point is that the figure may not describe the part in the case. */}
-      {entry?.customExitNote && published !== null && (
+      {!mixed && entry?.customExitNote && published !== null && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="custom-exit">
           {entry.customExitNote}
         </p>

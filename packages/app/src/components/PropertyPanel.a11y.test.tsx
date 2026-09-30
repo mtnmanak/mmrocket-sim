@@ -59,6 +59,17 @@ afterEach(() => {
 const sliders = () => [...host.querySelectorAll('input[type="range"]')] as HTMLInputElement[];
 
 describe('every control has a name', () => {
+  it('associates the parallel nozzle help with its editable field', () => {
+    const n = { type: 'parallelstage', id: 'strap', nozzleExitDiameter: 0 };
+    mount(treeWith(n), n);
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Nozzle exit diameter (mm)"]')!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe('0');
+    const help = document.getElementById(input.getAttribute('aria-describedby')!);
+    expect(help?.textContent).toContain('ONE strap-on');
+    expect(help?.textContent).toContain('enter 0');
+    expect(host.querySelector(`label[for="${input.id}"]`)?.textContent).toContain('Nozzle exit diameter');
+  });
   const TUBE = { id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.027, thickness: 0.001 };
 
   it('names each ValueSlider after its own field, in the display unit', () => {

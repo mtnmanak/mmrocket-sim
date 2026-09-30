@@ -158,7 +158,7 @@ export interface OrkFlightConfig {
   separations: Record<string, OrkSeparationOverride>;
   /**
    * THIS configuration's nozzle exit diameter per stage (metres), keyed by the
-   * stage's editor node id; 0 = no nozzle, i.e. power-off base drag. Only the
+   * stage's editor node id; 0 = explicit OFF, null = automatic. Only the
    * RASAero importer fills it — a `.CDX1` carries the nozzle INSIDE each
    * `<Simulation>` (RASAero flies with that one, not the Design tab's:
    * docs/research/rasaero-nozzle-diameters-2026-09-07.md), so a file with six
@@ -166,7 +166,7 @@ export interface OrkFlightConfig {
    * `nozzleExitDiameter` with the configuration, the way the motor already
    * does. An `.ork` has one nozzle per stage and leaves this absent.
    */
-  nozzles?: Record<string, number>;
+  nozzles?: Record<string, number | null>;
   /**
    * THIS configuration's weighed pad mass (kg): the rocket ready to fly with
    * this configuration's motor set in, from a rocket-level
@@ -1022,6 +1022,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           }
         }
         if (asmType === 'parallelstage') {
+          const nozzle = num(el, 'nozzleexitdiameter', NaN);
+          if (Number.isFinite(nozzle) && nozzle >= 0) n['nozzleExitDiameter'] = nozzle;
           // Same separation read as a booster <stage> — the chosen config's
           // block wins over the bare defaults.
           const sepEl = configScoped(el, 'separationconfiguration') ?? el;
@@ -1079,7 +1081,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     readOverrides(stageEl, stage);
     // RASAero power-on base-drag input (metres) — every stage, incl. sustainer.
     const nozzle = num(stageEl, 'nozzleexitdiameter', NaN);
-    if (!Number.isNaN(nozzle) && nozzle > 0) stage['nozzleExitDiameter'] = nozzle;
+    if (Number.isFinite(nozzle) && nozzle >= 0) stage['nozzleExitDiameter'] = nozzle;
     // Our own mark: this stage's mass/CG overrides still contain the weight of
     // the named motor (services/statedLaunchWeight.ts). Only meaningful beside
     // an override it can correct, so it is dropped when the stage carries
@@ -2677,6 +2679,10 @@ export function exportOrk({
         emit(depth + 1, `<angleoffset method="${aMethod}">${(n(node, 'angleOffset', 0) * 180) / Math.PI}</angleoffset>`);
         position(depth + 1, node, 'bottom');
         if (t === 'parallelstage') {
+          const nozzle = node['nozzleExitDiameter'];
+          if (typeof nozzle === 'number' && Number.isFinite(nozzle) && nozzle >= 0) {
+            emit(depth + 1, `<nozzleexitdiameter>${nozzle}</nozzleexitdiameter>`);
+          }
           // Same separation block a booster <stage> writes (bare default + config).
           separationBlocks(depth + 1, node);
         }
@@ -2765,9 +2771,9 @@ export function exportOrk({
     // applied to the simulation and then thrown away on Save.
     overrides(4, st);
     // RASAero power-on base-drag input (metres, no conversion). Non-standard
-    // element (OpenRocket desktop ignores it); only emitted when set > 0 so a
+    // element (OpenRocket desktop ignores it); only emitted when finite and nonnegative so a
     // plain design round-trips exactly. Applies to every stage incl. sustainer.
-    if (typeof st['nozzleExitDiameter'] === 'number' && (st['nozzleExitDiameter'] as number) > 0) {
+    if (typeof st['nozzleExitDiameter'] === 'number' && Number.isFinite(st['nozzleExitDiameter']) && (st['nozzleExitDiameter'] as number) >= 0) {
       emit(4, `<nozzleexitdiameter>${st['nozzleExitDiameter']}</nozzleexitdiameter>`);
     }
     // The mass override above is a LAUNCH weight that still holds an

@@ -434,29 +434,55 @@ export function updateNode(
  * Writes a flight configuration's per-stage nozzle exit diameters (metres,
  * keyed by stage node id) onto the stage nodes — `OrkFlightConfig.nozzles`.
  *
- * A 0 (or anything not a positive number) REMOVES the property rather than
- * writing 0: the schema, the .ork reader and the kernel all treat "no
- * nozzle" as ABSENT (`orkFile.ts` reads it only when `> 0`; the kernel's
- * `applySeparationConfig` reads NaN as untouched), and `updateNode` cannot
- * delete a key. Removing it matters for the same reason the separation apply
- * writes even the default: a configuration whose motor has no stated nozzle
- * must REPLACE the previous configuration's, not inherit it. Stage ids the
- * tree no longer has are skipped; an untouched tree comes back by identity.
+ * Explicit zero is OFF and survives saves and motor changes. Null or invalid
+ * values remove the property for automatic fill. Recurses through parallel stages
+ * and preserves identity when nothing changes.
  */
-export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, number>): RocketTree {
-  let changed = false;
-  const components = tree.components.map((n) => {
-    if (n.type !== 'stage' || !n.id || !(n.id in nozzles)) return n;
-    const v = nozzles[n.id];
-    const want = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
-    if (n['nozzleExitDiameter'] === want) return n;
-    changed = true;
-    const next: ComponentNode = { ...n };
-    delete next['nozzleExitDiameter'];
-    if (want !== undefined) next['nozzleExitDiameter'] = want;
-    return next;
-  });
-  return changed ? { ...tree, components } : tree;
+export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, number | null>): RocketTree {
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => {
+    let changed = false;
+    const result = nodes.map((n) => {
+      const children = n.children ? walk(n.children) : undefined;
+      let next = children !== n.children ? { ...n, children } : n;
+      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && n.id in nozzles) {
+        const v = nozzles[n.id];
+        const want = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+        if (n['nozzleExitDiameter'] !== want) {
+          next = { ...next };
+          delete next['nozzleExitDiameter'];
+          if (want !== undefined) next['nozzleExitDiameter'] = want;
+        }
+      }
+      changed ||= next !== n;
+      return next;
+    });
+    return changed ? result : nodes;
+  };
+  const components = walk(tree.components);
+  return components === tree.components ? tree : { ...tree, components };
+}
+
+/** All nozzle-owning assemblies; independent of serial-stage UI indices. */
+export function nozzleStages(tree: RocketTree): ComponentNode[] {
+  const out: ComponentNode[] = [];
+  const walk = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n.type === 'stage' || n.type === 'parallelstage') out.push(n);
+      walk(n.children ?? []);
+    }
+  };
+  walk(tree.components);
+  return out;
+}
+
+/** Cluster times assemblies BELOW the owning stage, never the strap-on ring. */
+export function nozzleMotorCount(tree: RocketTree, mountId: string): number {
+  let count = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
+  for (const a of ancestorsOf(tree, mountId)) {
+    if (a.type === 'stage' || a.type === 'parallelstage') break;
+    if (a.type === 'podset') count *= flownInstanceCount(a);
+  }
+  return count;
 }
 
 /**
@@ -484,11 +510,8 @@ export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, numb
  * "~0.5 %" here was the v0.117 Wildman Mach 2 base-drag figure generalised,
  * and it is an order of magnitude low on exactly the designs it matters for.
  *
- * Deletes the key rather than writing 0, for the reason `applyStageNozzles`
- * does: the schema, the .ork reader and the kernel all spell "no nozzle" as
- * ABSENT. Recursive on purpose — the schema puts the field on `stage` only and
- * normalizeTree keeps stages at the top level, but a helper whose whole job is
- * "no nozzle anywhere" must not depend on that. An untouched tree comes back
+ * Deletes every value, including explicit OFF, so a batch candidate can supply
+ * its own exit. Recursive to include serial and parallel stages. An untouched tree comes back
  * by identity, so React memos downstream do not see a new object.
  */
 export function clearStageNozzles(tree: RocketTree): RocketTree {
@@ -519,7 +542,7 @@ export function clearStageNozzles(tree: RocketTree): RocketTree {
  */
 export function stagesWithNozzle(tree: RocketTree): { id: string; name: string; exitDiameterM: number }[] {
   const out: { id: string; name: string; exitDiameterM: number }[] = [];
-  stages(tree).forEach((s, i) => {
+  nozzleStages(tree).forEach((s, i) => {
     const d = s['nozzleExitDiameter'];
     if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return;
     out.push({ id: s.id ?? `stage-${i}`, name: s.name ?? `Stage ${i + 1}`, exitDiameterM: d });
@@ -565,10 +588,9 @@ export function stageIdByNode(tree: RocketTree): Map<string, string> {
  * not have — and only while the core's own motor burned — while the boosters
  * were credited nothing at all (2026-09-21, from the 19 Sep review).
  *
- * A node inside a parallel stage is mapped to that parallel stage's id, which
- * is not in `stages(tree)`, so a caller joining on serial stages simply does
- * not see it. That is the intended outcome: a visible blank beats a quietly
- * wrong number.
+ * A node inside a parallel stage is mapped to that parallel stage's id.
+ * Nozzle consumers enumerate `nozzleStages`; serial-stage UI grouping keeps
+ * using `stages(tree)` independently.
  */
 export function kernelStageIdByNode(tree: RocketTree): Map<string, string> {
   const out = new Map<string, string>();

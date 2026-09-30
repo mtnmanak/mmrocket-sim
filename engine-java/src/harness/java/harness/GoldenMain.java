@@ -53,6 +53,58 @@ public final class GoldenMain {
         freeformRefusalScenarios();
         podNozzleBaseDragScenarios();
         windLevelScenarios();
+        podsOnlyNozzleScenarios();
+    }
+
+    /** Pods-only area allocation, appended without shifting existing golden rows. */
+    private static void podsOnlyNozzleScenarios() {
+        {
+            int r = api.OrkEngine.buildRocket("{\"name\":\"PodsOnly\",\"components\":[{\"type\":\"stage\",\"nozzleExitDiameter\":0.02,\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.03,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.03,\"thickness\":0.001,\"children\":[{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.01,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.01,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm0\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0,\"shape\":\"conical\",\"thickness\":0.001}]}]}");
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":0.3,\"machStep\":1}"));
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+            line("podsonly.point",
+                    (Double) ((java.util.List<?>) off.get("base")).get(0),
+                    (Double) ((java.util.List<?>) on.get("base")).get(0));
+        }
+        {
+            int r = api.OrkEngine.buildRocket("{\"name\":\"PodsOnly\",\"components\":[{\"type\":\"stage\",\"nozzleExitDiameter\":0.02,\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.03,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.03,\"thickness\":0.001,\"children\":[{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.01,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.01,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm0\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0.003,\"shape\":\"conical\",\"thickness\":0.001}]}]}");
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":0.3,\"machStep\":1}"));
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+            line("podsonly.small",
+                    (Double) ((java.util.List<?>) off.get("base")).get(0),
+                    (Double) ((java.util.List<?>) on.get("base")).get(0));
+        }
+        {
+            int r = api.OrkEngine.buildRocket("{\"name\":\"PodsOnly\",\"components\":[{\"type\":\"stage\",\"nozzleExitDiameter\":0.1,\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.03,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.03,\"thickness\":0.001,\"children\":[{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.01,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.01,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm0\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0,\"shape\":\"conical\",\"thickness\":0.001}]}]}");
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":0.3,\"machStep\":1}"));
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+            line("podsonly.capped",
+                    (Double) ((java.util.List<?>) off.get("base")).get(0),
+                    (Double) ((java.util.List<?>) on.get("base")).get(0));
+        }
+        {
+            int r = api.OrkEngine.buildRocket("{\"name\":\"PodsOnly\",\"components\":[{\"type\":\"stage\",\"nozzleExitDiameter\":0.02,\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.03,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.03,\"thickness\":0.001,\"children\":[{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.01,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.01,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm0\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0,\"shape\":\"conical\",\"thickness\":0.001}]}]}");
+            api.OrkEngine.setRogersModifiedBarrowman(r, true);
+            api.OrkEngine.setMotorById(r, "pm0", "CONST8", 0.012, 0.06,
+                    new double[] {0, 0.001, 1.999, 2}, new double[] {0, 8, 8, 0},
+                    new double[] {0.1, 0.0999, 0.0501, 0.05}, 0.03, 5);
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(
+                    api.OrkEngine.getDragSweep(r, "{\"machMin\":0.3,\"machMax\":0.3,\"machStep\":1}"));
+            java.util.Map<String, Object> off = asMap(parsed.get("powerOff"));
+            java.util.Map<String, Object> on = asMap(parsed.get("powerOn"));
+            line("podsonly.loaded",
+                    (Double) ((java.util.List<?>) off.get("base")).get(0),
+                    (Double) ((java.util.List<?>) on.get("base")).get(0));
+        }
     }
 
     /**

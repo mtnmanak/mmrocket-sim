@@ -5,6 +5,8 @@ import static info.openrocket.core.util.MathUtil.pow2;
 import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.rocketcomponent.AxialStage;
+import info.openrocket.core.rocketcomponent.MotorMount;
+import info.openrocket.core.motor.MotorConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1049,6 +1051,8 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		total = 0;
 		
 		final InstanceMap imap = configuration.getActiveInstances();
+		// Lazy per-call allocation: null retains the legacy core/mixed destination.
+		Map<AxialStage, Map<SymmetricComponent, Double>> podCredits = null;
 		for (Map.Entry<RocketComponent, ArrayList<InstanceContext>> entry : imap.entrySet()) {
 			final RocketComponent c = entry.getKey();
 
@@ -1110,7 +1114,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				// moves (all 175 gates are power-OFF and no fixture sets a nozzle),
 				// and no Kbf/Supersonic user's numbers move either.
 				//
-				// ONE BASE PER STAGE INSTANCE (kernel pass 2, audit 2026-09-22): the
+				// LEGACY CORE/MIXED PATH (kernel pass 2, audit 2026-09-22): the
 				// area comes off the stage's AFT-MOST base only - see isStageAftBase.
 				// Until then it came off every base whose getStage() was the thrusting
 				// stage, so a pod's tube (a pod's stage is the enclosing one) and a
@@ -1121,13 +1125,23 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 				// base by the stage's instance count, so an N-strap-on ParallelStage
 				// recovers N areas - the per-instance accounting
 				// RK4SimulationStepper.calculatePressureThrust charges its term with.
-				AxialStage stage = s.getStage();
+				// Pods-only loadouts instead share one budget over their motor-carrying
+				// pod bases (2026-09-30), via podsOnlyNozzleCredits below.
+				AxialStage stage = nozzleStage(s);
 				double nozzleDia = (rogersKbf || supersonicAero) && stage != null
 						? stage.getNozzleExitDiameter() : 0.0;
-				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())
-						&& isStageAftBase(s, stage)) {
-					double nozzleArea = Math.PI * pow2(nozzleDia / 2.0);
-					area = Math.max(0.0, area - nozzleArea);
+				if (nozzleDia > 0.0 && stage != null && conditions.isStageThrusting(stage.getStageNumber())) {
+					if (podCredits == null) podCredits = new HashMap<>();
+					if (!podCredits.containsKey(stage)) {
+						podCredits.put(stage, podsOnlyNozzleCredits(configuration, stage, imap));
+					}
+					Map<SymmetricComponent, Double> credits = podCredits.get(stage);
+					if (credits != null) {
+						area = Math.max(0.0, area - credits.getOrDefault(s, 0.0));
+					} else if (isStageAftBase(s, stage)) {
+						double nozzleArea = Math.PI * pow2(nozzleDia / 2.0);
+						area = Math.max(0.0, area - nozzleArea);
+					}
 				}
 
 				double cd = base * area / conditions.getRefArea();
@@ -1147,6 +1161,77 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		lastBodyBaseCD = total;
 
 		return total;
+	}
+
+	/**
+	 * PATCH (2026-09-30): one exit budget per stage instance on pods-only loadouts.
+	 * Loaded mounts decide ownership. With none loaded in this stage, the static
+	 * power-on preview uses declared mounts; with no layout it retains the core
+	 * fallback. A core motor (or hypothetical core mount) retains legacy mixed
+	 * behavior. Nearest pod lines only: decorative pods and nested stages cannot
+	 * spend the budget. Allocation is geometric, BEFORE CD override suppression,
+	 * so an overridden base's share is lost rather than moved onto another body.
+	 * For S = sum(n_j B_j), credit on each base is B_j min(1, Ae/S). The existing
+	 * instance multiply gives min(Ae,S) per stage instance, not per pod.
+	 */
+	private static Map<SymmetricComponent, Double> podsOnlyNozzleCredits(
+			FlightConfiguration configuration, AxialStage stage, InstanceMap imap) {
+		List<RocketComponent> mounts = new ArrayList<>();
+		List<RocketComponent> declaredMounts = new ArrayList<>();
+		for (RocketComponent c : imap.keySet()) {
+			if (c instanceof MotorMount && ((MotorMount) c).isMotorMount() && nozzleStage(c) == stage) {
+				declaredMounts.add(c);
+				// setMotorConfig does not refresh FlightConfiguration's active-motor
+				// cache. Read this configuration's actual mount data, also in previews.
+				MotorConfiguration motor = ((MotorMount) c).getMotorConfig(configuration.getFlightConfigurationID());
+				if (!motor.isEmpty()) mounts.add(c);
+			}
+		}
+		if (mounts.isEmpty()) mounts = declaredMounts;
+		if (mounts.isEmpty()) return null;
+		Map<SymmetricComponent, Double> bases = new LinkedHashMap<>();
+		for (RocketComponent mount : mounts) {
+			RocketComponent line = mount.getParent();
+			while (line != null && line != stage && !(line instanceof PodSet) && !(line instanceof AxialStage)) {
+				line = line.getParent();
+			}
+			if (!(line instanceof PodSet)) return null;
+			for (int i = line.getChildCount() - 1; i >= 0; i--) {
+				RocketComponent child = line.getChild(i);
+				if (child instanceof SymmetricComponent) {
+					SymmetricComponent base = (SymmetricComponent) child;
+					if (imap.containsKey(base)) bases.put(base, exposedNozzleBaseArea(base, configuration));
+					break;
+				}
+			}
+		}
+		double stageInstances = stage.getComponentLocations().length;
+		double capacity = 0.0;
+		for (Map.Entry<SymmetricComponent, Double> base : bases.entrySet()) {
+			capacity += base.getValue() * imap.get(base.getKey()).size() / stageInstances;
+		}
+		double exitArea = Math.PI * pow2(stage.getNozzleExitDiameter() / 2.0);
+		double fraction = capacity > 0.0 ? Math.min(1.0, exitArea / capacity) : 0.0;
+		for (Map.Entry<SymmetricComponent, Double> base : bases.entrySet()) {
+			base.setValue(base.getValue() * fraction);
+		}
+		return bases;
+	}
+
+	/** Null-safe ownership for the active map's Rocket root and unowned mounts. */
+	private static AxialStage nozzleStage(RocketComponent component) {
+		for (RocketComponent current = component; current != null; current = current.getParent()) {
+			if (current instanceof AxialStage) return (AxialStage) current;
+		}
+		return null;
+	}
+
+	/** Same active-next and zero-length rules as calculateBaseCD's exposed base. */
+	private static double exposedNozzleBaseArea(SymmetricComponent s, FlightConfiguration configuration) {
+		double aft = s.getLength() == 0 ? Math.max(s.getForeRadius(), s.getAftRadius()) : s.getAftRadius();
+		SymmetricComponent next = s.getNextSymmetricComponent();
+		double fore = next != null && configuration.isComponentActive(next) ? next.getForeRadius() : 0.0;
+		return aft > fore ? Math.PI * (pow2(aft) - pow2(fore)) : 0.0;
 	}
 
 	/**

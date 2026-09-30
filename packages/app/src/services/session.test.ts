@@ -62,6 +62,29 @@ afterEach(() => {
 });
 
 describe('session autosave under quota', () => {
+  it('migrates legacy configuration zero commands to automatic, but preserves new OFF and tree zero', () => {
+    const legacy = { ...state(), savedConfigs: [{ id: 'c', name: 'C', isDefault: true, motors: {}, nozzles: { s: 0, b: 0.02 } }] };
+    legacy.tree.components = [{ type: 'stage', id: 's', nozzleExitDiameter: 0 }];
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify(legacy));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs![0]!.nozzles).toEqual({ s: null, b: 0.02 });
+    expect(loaded.tree.components[0]!['nozzleExitDiameter']).toBe(0);
+    // App does not supply the migration marker; the writer must add it.
+    saveSessionDebounced(legacy);
+    vi.runAllTimers();
+    expect(loadSession()!.savedConfigs![0]!.nozzles).toEqual({ s: 0, b: 0.02 });
+  });
+  it('preserves separate serial and nested strap-on exits including explicit OFF', () => {
+    const current = state();
+    current.tree.components = [{ type: 'stage', nozzleExitDiameter: 0, children: [
+      { type: 'parallelstage', nozzleExitDiameter: 0.02, children: [
+        { type: 'parallelstage', nozzleExitDiameter: 0 },
+      ] },
+    ] }];
+    saveSessionDebounced(current);
+    vi.runAllTimers();
+    expect(loadSession()?.tree).toEqual(current.tree);
+  });
   it('saves after the debounce and reports healthy', () => {
     saveNow();
     expect(loadSession()?.tree.name).toBe('Test');

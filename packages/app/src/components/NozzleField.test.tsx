@@ -16,6 +16,41 @@ const D13_EXIT_M = 0.004775;
 // I115W-M — one of the nine motors AeroTech publish two nozzles for.
 const I115 = '5f4294d200023100000001e7';
 
+describe('strap-on field and explicit OFF', () => {
+  it('explains one strap-on, combines its cluster, and associates the help with the input', async () => {
+    await render({ parallel: true, motors: [{ motorId: D13, count: 4 }], exitDiameterM: 2 * D13_EXIT_M });
+    expect(host.textContent).toContain('For ONE strap-on');
+    expect(host.textContent).toContain('Exit areas summed over the 4 motors in one strap-on.');
+    expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('equivalent exit');
+    const field = host.querySelector('input')!;
+    expect(document.getElementById(field.getAttribute('aria-describedby')!)?.textContent).toContain('Enter 0');
+  });
+
+  it('does not fill or warn about explicit OFF, and blank resumes automatic fill', async () => {
+    await render({ exitDiameterM: 0, parallel: true });
+    expect(committed).toEqual([]);
+    expect(host.querySelector('[data-nozzle="off"]')).not.toBeNull();
+    expect(host.querySelector('[data-nozzle="disagrees"]')).toBeNull();
+    await render({ exitDiameterM: null, parallel: true });
+    expect(committed).toEqual([D13_EXIT_M]);
+  });
+
+  it('credits each source separately when the equivalent combines different motors', async () => {
+    const other = (await nozzleForMotorId(I115))!;
+    const diameter = Math.sqrt(D13_EXIT_M ** 2 + other.exitDiameterM ** 2);
+    await render({ motors: [{ motorId: D13, count: 1 }, { motorId: I115, count: 1 }], exitDiameterM: diameter });
+    expect(host.querySelectorAll('[data-nozzle="sources"] li')).toHaveLength(2);
+    expect(host.querySelector('[data-nozzle="published"]')?.textContent).toContain('equivalent exit from the motor sources');
+  });
+
+  it('never fills a new blank loadout with the preceding motor’s cached exit', async () => {
+    await render({ exitDiameterM: D13_EXIT_M });
+    committed = [];
+    await render({ exitDiameterM: null, motorIds: ['unknown-new-motor'] });
+    expect(committed).toEqual([]);
+  });
+});
+
 let host: HTMLDivElement;
 let root: Root;
 let committed: (number | null)[];
@@ -72,6 +107,7 @@ const flush = async () => {
 
 const render = async (over: {
   exitDiameterM?: number | null;
+  parallel?: boolean;
   motors?: { motorId: string; count: number }[];
   motorIds?: string[];
   motorLabel?: string | null;
@@ -88,6 +124,7 @@ const render = async (over: {
       <PrefsProvider>
         <NozzleField
           stageName="Sustainer"
+          parallel={over.parallel}
           exitDiameterM={over.exitDiameterM ?? null}
           motors={motors}
           motorLabel={over.motorLabel ?? 'D13-10'}

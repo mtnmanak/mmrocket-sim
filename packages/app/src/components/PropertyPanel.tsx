@@ -725,7 +725,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
         <NumField
           id={inputId}
           ariaLabel={fieldName}
-          describedBy={emptyShoulder ? idFor(`${f.key}-hint`) : undefined}
+          describedBy={emptyShoulder || f.help ? idFor(`${f.key}-hint`) : undefined}
           value={value}
           step={step}
           allowNegative={allowNegative}
@@ -745,6 +745,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, onPatch, onPatchAl
             else commit(v);
           }}
         />
+        {f.help && <p className="hint" id={idFor(`${f.key}-hint`)}>{f.help}</p>}
         {emptyShoulder && (
           <p className="hint" id={idFor(`${f.key}-hint`)}>
             Blank flies as 0 — this shoulder weighs nothing.

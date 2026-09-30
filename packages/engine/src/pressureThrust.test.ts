@@ -460,6 +460,50 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
     // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
   }, 60000);
 
+  it('charges a clustered strap-on’s equivalent exit once per instance, not once per motor', () => {
+    const n = 3;
+    const d = 0.008; // four 4 mm exits in ONE strap-on
+    const tree = strapOns(n, d);
+    const strap = tree.components[0]!.children![1]!.children!.find((c) => c.type === 'parallelstage')!;
+    const body = strap.children![1]!;
+    body.id = 'booster-body';
+    body['outerRadius'] = 0.0155;
+    body['motorMount'] = false;
+    body.children = [{ type: 'innertube', id: 'bmount', motorMount: true,
+      cluster: '4-ring', length: 0.2, outerRadius: 0.0055, thickness: 0.0005 }];
+    strap.children![0]!['aftRadius'] = 0.0155;
+    const quarterMotor = { ...CONST_MOTOR, diameter: 0.01,
+      thrusts: CONST_MOTOR.thrusts.map((v) => v / 4), masses: CONST_MOTOR.masses.map((v) => v / 4) };
+    const f = fly(tree, 'kbf', { launchAltitude: 1400, temperature: 303.15, pressure: 86000 }, quarterMotor, 'bmount');
+    const rows = plateauRows(f);
+    expect(rows.length).toBeGreaterThan(30);
+    for (const i of rows) {
+      // Newton tolerance covers cross-runtime summation, far below curve precision.
+      expect(f.thrust[i]).toBeCloseTo(n * PLATEAU_N + n * pressureTerm(d, f.pressure[i]!), 9);
+    }
+  }, 60000);
+
+  it('keeps the full pods-only pressure term even when exit area exceeds all pod bases', () => {
+    const n = 2;
+    const d = 0.06;
+    const tree = strapOns(n, 0);
+    const stage = tree.components[0]!;
+    stage['nozzleExitDiameter'] = d;
+    const assembly = stage.children![1]!.children!.find((c) => c.type === 'parallelstage')!;
+    assembly.type = 'podset';
+    delete assembly['nozzleExitDiameter'];
+    stage.children!.push({ type: 'transition', foreRadius: 0.029, aftRadius: 0,
+      length: 0.1, thickness: 0.001, shape: 'conical' });
+    // (d/2)^2 > n * (0.0155)^2: the drag cap must not become a thrust cap.
+    expect((d / 2) ** 2).toBeGreaterThan(n * 0.0155 ** 2);
+    for (const model of ['kbf', 'supersonic'] as const) {
+      const f = fly(tree, model, { launchAltitude: 1400, temperature: 303.15, pressure: 86000 }, CONST_MOTOR, 'bmount');
+      const rows = plateauRows(f);
+      expect(rows.length).toBeGreaterThan(30);
+      for (const i of rows) expect(f.thrust[i]).toBeCloseTo(n * PLATEAU_N + pressureTerm(d, f.pressure[i]!), 9);
+    }
+  }, 60000);
+
   /**
    * A POD SET is still refused: it is not a stage, the bridge never hands the
    * field to one, and its pods' motors burn as part of the ENCLOSING stage — so

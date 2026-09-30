@@ -87,8 +87,9 @@ describe('stageMotors', () => {
       } as ComponentNode],
     };
     const out = stageMotors(tree, [['core', mm('aero-core')], ['strap', mm('aero-strap')]]);
-    // One serial stage, carrying ONLY its own motor.
-    expect(out.map((s) => s.stageId)).toEqual(['sus']);
+    // Separate serial and parallel owners; the ring's multiplicity stays out.
+    expect(out.map((s) => s.stageId)).toEqual(['sus', 'pod']);
+    expect(out[1]!.motors.map((m) => [m.motorId, m.count])).toEqual([['aero-strap', 1]]);
     expect(out[0]!.motors.map((m) => m.motorId)).toEqual(['aero-core']);
   });
 

@@ -1770,6 +1770,148 @@ aerodynamic model.
   before side of every measurement above is the kernel users have.
 - **Upstreamable:** n/a — upstream has no nozzle-exit model.
 
+### aerodynamics/BarrowmanCalculator.java — pods-only nozzle budget on motor-carrying pod bases (2026-09-30; build verification pending)
+
+- **Ruling/scope:** CODEX-GO.md approves the pods-only aggregate model. One stage-instance
+  equivalent exit budget is distributed over the terminal exposed bases of the pod lines
+  carrying that stage's motors. This closes the small/pointed-core residual recorded in
+  the 2026-09-22 entry above; it does not introduce per-mount plume physics.
+- **Implementation:** `podsOnlyNozzleCredits` runs lazily after the existing non-Classic,
+  positive-nozzle and stage-thrusting gates. Loaded mounts from the selected flight
+  configuration decide ownership; an empty core mount is ignored when pod motors are
+  loaded. If this stage has no installed motors, the static power-on preview uses its
+  declared active mounts. With no mount layout, or a core/mixed loadout, the existing
+  `isStageAftBase` path remains. A mount's nearest PodSet identifies its body line;
+  ownership never crosses an AxialStage/ParallelStage. Decorative and unloaded pod
+  lines, intermediate steps and the motorless core cannot spend a pods-only budget.
+- **Geometry/accounting:** `B_j = pi (r_aft^2 - r_next^2)` when positive, using the same
+  active-next and zero-length-disk rules as the base loop. Let `n_j` be the base's active
+  instance count divided by the owning stage's structural instance count, and
+  `S = sum(n_j B_j)`. Each base gets `B_j min(1, Ae/S)` for positive S, zero otherwise.
+  The original final instance multiplication yields `min(Ae,S)` per stage instance.
+  Allocation includes overridden bases geometrically, before the original CD-override
+  suppression; an overridden base's unused share cannot spill onto another body.
+  Force-map reporting and `lastBodyBaseCD` remain in the existing loop.
+- **Unchanged:** pressure-thrust arithmetic, boattail/wave formulas, Classic and coast
+  gates, zero-nozzle paths, and ordinary core/mixed allocation. The stepper's javadoc
+  alone now explains the pods-only destination and that the base-area cap does not cap
+  pressure thrust. New Java lines/comments are ASCII; carved copies were generated
+  only with `node engine-java/scripts/carve.mjs`, not hand-edited.
+- **Who can move after rebuilding:** pods-only stages under Rogers Kbf, Auto or
+  Supersonic with a positive nozzle while thrusting. Small-core designs can recover
+  missing drag credit, but the boundary is not confined to pointed cores: moving the
+  destination/cap from the core to eligible pod bases can also reduce available credit.
+  No flight/apogee direction or percentage is claimed. No corpus was run.
+- **Tests/oracles:** `packages/engine/src/nozzleBaseDrag.test.ts` adds nine tests for
+  pointed/small cores, unequal bases, aggregate cap, decorative pods/steps, overridden
+  shares, per-instance normalization on repeated strap-ons, loaded versus declared
+  mount selection, mixed/core fallback, nested stages, zero-length disks, Classic/OFF,
+  and no-layout fallback. Expectations derive from geometry and `0.12 + 0.13 M^2`,
+  with 1e-12 decimal-place CD comparisons (Vitest absolute threshold 5e-13).
+  Freeform fins use rounded and airfoil cross-sections. `pressureThrust.test.ts` adds
+  clustered strap-on and pods-only-over-cap flights, deriving thrust from the plateau
+  curve and each row's measured pressure, tolerance 5e-10 N. GoldenMain appends four
+  `podsonly.*` rows (pointed, finite core, capped unequal pods, installed pod motor)
+  after all prior scenario calls; these new rows have NOT been compiled/run.
+- **Actual verification, Node v24.19.0:** carve exit 0; patch/carved byte equality
+  confirmed. The authorized `JAVA_HOME=C:/Users/peltz/.online-openrocket/jdk-17.0.20+8
+  npm run engine:js` attempt exited 1 before compilation: Gradle could not create
+  `C:\.gradle\wrapper\dists\gradle-8.12.1-bin\...\gradle-8.12.1-bin.zip.lck`.
+  No retry/workaround was attempted, per GO. The vendor artifact is unchanged.
+  Against that OLD artifact, the final two-file engine run exits 1: 18 passed,
+  eight new pods-only drag tests failed at the expected old allocation; all 12
+  pressure-thrust tests pass. This is regression sensitivity, NOT validation of
+  the new Java implementation. No successful rebuilt-artifact test, before/after
+  golden measurement, JVM/TeaVM differential, or Java mutation run is claimed.
+- **Remaining gate/mutations:** Claude must rebuild/copy, clear the app Vite cache,
+  verify `podsOnlyNozzleCredits` in the shipped artifact, run both engine test files
+  and `node engine-java/scripts/difftest.mjs`, and compare before/after JVM goldens.
+  Rebuild for each mutation: restore core-only allocation; give every pod a full exit;
+  remove the aggregate cap/nonnegative clamp; include decorative or intermediate bases;
+  remove per-stage-instance normalization; include overridden bases' shares in other
+  bodies; use declared mounts despite loaded motors; treat an empty core mount as
+  loaded; cross stage ownership; remove the no-layout fallback; remove model/thrusting/
+  positive-exit gates; change disk/active-next geometry; cap or double-count pressure
+  thrust. Restore and rebuild the fixed artifact afterward. See CODEX-REPORT.md for
+  the exact command list, mutation-to-test mapping and remaining coverage limits.
+- **Limits:** a scalar stage exit cannot recover separate exit areas for unequal pod
+  motors. Stage-level thrusting still spends the whole budget when the first owned
+  motor lights; staggered ignition/per-mount plume allocation remain outside this fix.
+  A separate inactive-following-component scenario still needs a harness with stage
+  activation control; the helper deliberately mirrors the existing active-next rule.
+
+### aerodynamics/BarrowmanCalculator.java - Fix 1: stage-less active components (2026-09-30)
+
+- **Supersedes the artifact status above:** the orchestrator rebuilt the initial
+  pods-only implementation before this follow-up. That artifact throws in 13 of
+  14 nozzle-base-drag tests; all 12 pressure-thrust tests pass. This is a real
+  regression in the new allocation, not an old-artifact numerical mismatch.
+- **Cause:** the declared-mount fallback called `c.getStage()` before checking
+  `c instanceof MotorMount`. The active instance map includes Rocket: its stage
+  number is -1, which FlightConfiguration considers active, but its ancestry has
+  no AxialStage and `getStage()` throws. The same throwing API was used for
+  installed mounts and the base's nozzle owner.
+- **Fix:** the private `nozzleStage` parent walk returns the nearest AxialStage
+  (including ParallelStage), or null for a root/unowned component. All three
+  nozzle ownership lookups use it; the fallback filters declared motor mounts
+  first. No exception is swallowed, no stage is guessed, and no allocation,
+  pressure-thrust, core/mixed fallback or exposed-base arithmetic was changed.
+  Patches were applied through carve; no carved source was hand-edited.
+- **Actual Fix 1 checks:** carve exit 0. With the approved worktree-local
+  GRADLE_USER_HOME and portable JDK 17, Java compilation completed, but
+  `npm run engine:js` exited 1 with `java.nio.file.AccessDeniedException` at
+  `C:\git\oor-wt\nozzle\engine-java\build\reports\problems\problems-report.html`.
+  No retry/workaround was attempted. The vendor artifact still contains the
+  throwing lookup and lacks `BarrowmanCalculator_nozzleStage`. The two-file
+  engine run exits 1: 13 failed / 13 passed, all failures the reported exception.
+  This confirms the pre-fix regression only; the fixed runtime is unverified.
+  `gradlew.bat -p engine-java --stop` with the same environment exited 0 and
+  reported `1 Daemon stopped`.
+- **Remaining gate:** rebuild and verify both helper symbols, clear the app Vite
+  cache, rerun the two engine files and difftest without changing tolerances.
+  Rebuild a mutation restoring the unsafe fallback condition and require the
+  core/pod/step/flush/parallel tests to fail. Also exercise the ownership helper
+  on a Rocket, detached mount, null, attached mount and nested ParallelStage;
+  mutate its null result/nearest-stage stop. Run the preceding entry's allocation
+  and pressure mutations on rebuilt artifacts. No Java mutation or differential
+  pass was possible in this sandbox; CODEX-REPORT.md's Fix 1 section details it.
+
+### aerodynamics/BarrowmanCalculator.java - Fix 2: installed motors in static sweeps (2026-09-30)
+
+- **Cause:** buildRocket selects the same fcid that applyMotor stores on mounts,
+  and getDragSweep uses that selected FlightConfiguration. The IDs were correct.
+  BodyTube/InnerTube.setMotorConfig stores the new MotorConfiguration without a
+  component-change event; FlightConfiguration.getActiveMotors returns its cached
+  list. A static sweep directly after setMotorById could therefore see no cached
+  motors and incorrectly use every declared mount, including empty core/pod mounts.
+- **Fix:** inside the existing lazy nozzle allocation, walk the active instance
+  map, filter declared MotorMounts by nearest owning stage, and read each mount's
+  getMotorConfig(configuration.getFlightConfigurationID()). Nonempty records form
+  the installed list; only an empty installed list uses the declared layout.
+  This works without mutating configuration state or refreshing global caches in
+  an aerodynamic calculation. Area/override/instance arithmetic, API setters,
+  pressure thrust, model gates and all existing test expectations are unchanged.
+- **Verification:** with the approved local Gradle home and portable JDK 17,
+  carve and the kernel build/copy succeeded. The shipped helper contains the
+  direct per-fcid lookup. All 26 tests in nozzleBaseDrag.test.ts and
+  pressureThrust.test.ts pass, including both previously failing installed-motor
+  cases and all four legacy regressions. Existing tolerances were not changed.
+  Differential summary: `differential ok: 404 lines (269 bit-identical, 135 within
+  tolerance - JS Math ULP noise; flight.* lines 1e-9 rel/1e-12 abs, others 1e-13 rel)`.
+  This supersedes the preceding build-blocked status, not its historical results.
+- **Mutation evidence:** rebuilt artifacts restoring the cached lookup, using
+  the default instead of selected fcid, or accepting empty records each reproduce
+  both installed-motor failures. In total, 18 mutations were rejected by the
+  unchanged base-drag tests, including the unsafe-root lookup, stage ownership,
+  preview/legacy fallbacks, area sharing/cap, instance divisor, override shares,
+  intermediate bases, disk geometry, Classic/thrusting gates and core-only path.
+  All 36 mutation/restoration builds exited 0; every mutation was restored and
+  rebuilt. The final two-file engine run exits 0, all 26 tests pass. The daemon
+  was stopped (exit 0, one daemon). Patch/carved and generated/vendor byte equality
+  passed. Exact mutation counts, commands and remaining limits are recorded in
+  CODEX-REPORT.md, Fix 2. These checks do not replace an accepted-baseline JVM
+  golden comparison, corpus validation or the orchestrator's integration gate.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

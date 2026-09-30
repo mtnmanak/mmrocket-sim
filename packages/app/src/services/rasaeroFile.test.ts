@@ -1991,10 +1991,10 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     for (const st of r.tree.components) {
       expect('nozzleExitDiameter' in st).toBe(false);
     }
-    // The configurations still carry an explicit 0 per stage, so applying one
+    // The configurations carry an automatic null per stage, so applying one
     // REMOVES a nozzle the previous configuration left behind.
     for (const cfg of r.configs) {
-      expect(Object.values(cfg.nozzles!)).toEqual([0, 0]);
+      expect(Object.values(cfg.nozzles!)).toEqual([null, null]);
     }
     expect(r.notes.join(' ')).not.toMatch(/Nozzle exit diameter/);
   });
@@ -2026,7 +2026,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(r.chosenConfigId).toBe('rasaero-sim-2');
     expect(stageNozzle(r, 0)).toBeCloseTo(0.9 / IN, 9);
     expect(stageNozzle(r, 1)).toBeCloseTo(1.25 / IN, 9);
-    expect(cfgById(r, 'rasaero-sim-1').nozzles![boo!]).toBe(0);
+    expect(cfgById(r, 'rasaero-sim-1').nozzles![boo!]).toBeNull();
     expect(cfgById(r, 'rasaero-sim-3').nozzles![boo!]).toBeCloseTo(0.9 / IN, 9);
     expect(cfgById(r, 'rasaero-sim-4').nozzles![boo!]).toBeCloseTo(1.25 / IN, 9);
     expect(r.notes.join(' ')).toMatch(/Other simulations in this file carry their own/);

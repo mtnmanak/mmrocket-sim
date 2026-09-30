@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { kernelStageIdByNode, mountMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
+import { kernelStageIdByNode, nozzleMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
 
 /**
  * Is the typed nozzle exit diameter physically possible for the motors in the
@@ -85,15 +85,14 @@ export function nozzleOversize(
     // cluster entered as its 36 mm equivalent got a permanent, non-dismissible
     // warning against a 29 mm bound (2026-09-08, review).
     //
-    // And the count is `mountMotorCount`, the cluster times every enclosing
-    // POD SET (audit 2026-09-22, row 351). This comment used to say "same call
+    // The count is `nozzleMotorCount`, the cluster times pod sets strictly
+    // below its owning stage. This comment used to say "same call
     // as every other consumer" while it read the cluster alone and the pad-mass
     // arithmetic did not — so three pods with a 20 mm exit each, entered
     // honestly as their 34.6 mm equivalent, drew a "wider than its motors"
-    // warning against one pod's casing. No parallel stage encloses a mount
-    // joined to a serial stage here (kernel ownership, above), so this is the
-    // stage's own motor count.
-    const n = mountMotorCount(tree, mountId);
+    // warning against one pod's casing. The owning parallel stage's ring is
+    // excluded: its field and casing bound describe ONE strap-on.
+    const n = nozzleMotorCount(tree, mountId);
     const cur = sumSq.get(stageId) ?? { area: 0, count: 0 };
     sumSq.set(stageId, { area: cur.area + n * d * d, count: cur.count + n });
   }

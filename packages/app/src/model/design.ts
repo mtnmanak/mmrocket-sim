@@ -110,11 +110,11 @@ export interface SavedConfig {
   deployments?: Record<string, OrkDeployOverride>;
   /**
    * This configuration's nozzle exit diameter per stage (metres, keyed by
-   * stage node id; 0 = none). A RASAero `<Simulation>` carries the nozzle of
+   * stage node id; 0 = explicit OFF, null = automatic). A RASAero `<Simulation>` carries the nozzle of
    * the motor it flies, so it switches with the configuration exactly as the
    * motor does — see `OrkFlightConfig.nozzles`. Absent for .ork files.
    */
-  nozzles?: Record<string, number>;
+  nozzles?: Record<string, number | null>;
 }
 
 /**
