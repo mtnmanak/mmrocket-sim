@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuideDialog } from './GuideDialog.js';
 import { GUIDE_SECTIONS } from '../data/userGuide.js';
+import { readFileSync } from 'node:fs';
 
 /**
  * The in-app user guide, for a keyboard (audit 2026-09-22).
@@ -32,6 +33,208 @@ beforeEach(() => {
 afterEach(() => {
   act(() => { root.unmount(); });
   host.remove();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+const searchInput = () => host.querySelector<HTMLInputElement>('#guide-search')!;
+const status = () => host.querySelector('[role="status"]')!.textContent;
+const button = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+const typeSearch = (value: string) => act(() => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput(), value);
+  searchInput().dispatchEvent(new Event('input', { bubbles: true }));
+});
+const enterSearch = (shiftKey = false, isComposing = false) => act(() => {
+  searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey, isComposing, bubbles: true }));
+});
+const settleSearch = () => act(() => { vi.advanceTimersByTime(200); });
+
+describe('GuideDialog search and glossary navigation', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+
+  it('debounces case-insensitive whole-guide search without replacing the displayed text while typing', () => {
+    open();
+    const original = article().querySelector('h2');
+    typeSearch('aPOGEE');
+    expect(article().querySelector('h2')).toBe(original);
+    expect(status()).toBe('Searching…');
+    act(() => { vi.advanceTimersByTime(199); });
+    expect(article().querySelector('mark')).toBeNull();
+    settleSearch();
+    const total = Number(status()!.split(' of ')[1]);
+    expect(total).toBeGreaterThan(10);
+    expect(status()).toBe(`1 of ${total}`);
+    expect(article().querySelector('.guide-match-current')!.textContent!.toLowerCase()).toBe('apogee');
+    expect(host.querySelector('label')!.htmlFor).toBe(searchInput().id);
+    expect(host.querySelector('[role="status"]')!.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('steps, wraps in both directions, opens the matching section and scrolls without stealing input focus', () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    open();
+    typeSearch('apogee');
+    act(() => { searchInput().focus(); });
+    enterSearch();
+    const total = Number(status()!.split(' of ')[1]);
+    expect(status()).toBe(`1 of ${total}`);
+    enterSearch();
+    expect(status()).toBe(`2 of ${total}`);
+    settleSearch();
+    expect(status()).toBe(`2 of ${total}`);
+    act(() => { button('Previous match').click(); });
+    expect(status()).toBe(`1 of ${total}`);
+    enterSearch(true);
+    expect(status()).toBe(`${total} of ${total}`);
+    expect(article().getAttribute('aria-label')).toBe('Glossary');
+    expect(tocButtons().find((b) => b.getAttribute('aria-current'))!.textContent).toBe('Glossary');
+    expect(article().querySelector('.guide-match-current')).not.toBeNull();
+    act(() => { button('Next match').click(); });
+    expect(status()).toBe(`1 of ${total}`);
+    expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+    expect(document.activeElement).toBe(searchInput());
+  });
+
+  it('uses the latest query, clears immediately, cancels pending work and handles zero matches', () => {
+    open();
+    typeSearch('apogee');
+    act(() => { vi.advanceTimersByTime(100); });
+    typeSearch('no-such-guide-term-xyz');
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(article().querySelector('mark')).toBeNull();
+    settleSearch();
+    expect(status()).toBe('No matches');
+    expect(button('Next match').disabled).toBe(true);
+    expect(button('Previous match').disabled).toBe(true);
+    enterSearch();
+    expect(status()).toBe('No matches');
+    typeSearch('apogee');
+    settleSearch();
+    expect(article().querySelector('mark')).not.toBeNull();
+    typeSearch('rocket');
+    expect(button('Next match').disabled).toBe(true);
+    expect(button('Previous match').disabled).toBe(true);
+    act(() => { button('Clear guide search').click(); });
+    expect(searchInput().value).toBe('');
+    expect(article().querySelector('mark')).toBeNull();
+    expect(status()).toBe('');
+    expect(document.activeElement).toBe(searchInput());
+    settleSearch();
+    expect(status()).toBe('');
+    typeSearch('   ');
+    expect(status()).toBe('');
+  });
+
+  it('moves the current highlight within a section without rebuilding its text', () => {
+    open();
+    typeSearch('the');
+    enterSearch();
+    const first = article().querySelector('.guide-match-current')!;
+    const section = article().getAttribute('aria-label');
+    enterSearch();
+    expect(article().getAttribute('aria-label')).toBe(section);
+    expect(first.isConnected).toBe(true);
+    expect(first.classList.contains('guide-match-current')).toBe(false);
+    expect(article().querySelector('.guide-match-current')).not.toBeNull();
+  });
+
+  it('waits for IME composition to end and ignores composing Enter', () => {
+    open();
+    typeSearch('rocket');
+    act(() => { searchInput().dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })); });
+    settleSearch();
+    expect(article().querySelector('mark')).toBeNull();
+    typeSearch('apogee');
+    enterSearch();
+    settleSearch();
+    expect(article().querySelector('mark')).toBeNull();
+    act(() => { searchInput().dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })); });
+    settleSearch();
+    expect(article().querySelector('mark')!.textContent!.toLowerCase()).toBe('apogee');
+    const count = status();
+    enterSearch(false, true);
+    expect(status()).toBe(count);
+  });
+
+  it('finds section titles and keeps highlighting after contents navigation', () => {
+    open();
+    typeSearch('Glossary');
+    enterSearch(true);
+    expect(article().getAttribute('aria-label')).toBe('Glossary');
+    act(() => { tocButtons().find((b) => b.textContent === 'Glossary')!.click(); });
+    expect(article().querySelector('h2 mark')!.textContent).toBe('Glossary');
+  });
+
+  it('provides A–Z links to the first entry, disabled missing letters, stable unique ids and keyboard focus', () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    open();
+    act(() => { tocButtons().find((b) => b.textContent === 'Glossary')!.click(); });
+    const nav = article().querySelector('nav[aria-label="Glossary letters"]')!;
+    expect([...nav.children].map((el) => el.textContent).join('')).toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    const entries = [...article().querySelectorAll<HTMLElement>('p[id^="glossary-"]')];
+    const markdown = readFileSync('user-guide.md', 'utf8');
+    const terms = [...markdown.split('<a id="glossary"></a>')[1]!.matchAll(/^\*\*([^*]+)\*\* — /gm)].map((m) => m[1]);
+    expect(terms.length).toBeGreaterThan(250);
+    expect(entries.map((entry) => entry.querySelector('strong')!.textContent)).toEqual(terms);
+    expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
+    for (const item of [...nav.children]) {
+      const first = entries.find((entry) => entry.textContent!.toUpperCase().startsWith(item.textContent!));
+      if (first) expect(item.getAttribute('href')).toBe(`#${first.id}`);
+      else {
+        expect(item.tagName).toBe('SPAN');
+        expect(item.getAttribute('aria-disabled')).toBe('true');
+        expect(item.hasAttribute('href')).toBe(false);
+      }
+    }
+    const f = nav.querySelector<HTMLAnchorElement>('[aria-label="Glossary: F"]')!;
+    const destination = article().querySelector(f.getAttribute('href')!)!;
+    const hash = location.hash;
+    act(() => { f.click(); });
+    expect(document.activeElement).toBe(destination);
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    expect(location.hash).toBe(hash);
+    typeSearch('apogee');
+    enterSearch();
+    act(() => { tocButtons().find((b) => b.textContent === 'Glossary')!.click(); });
+    expect(article().querySelector(f.getAttribute('href')!)).not.toBeNull();
+  });
+
+  it('wraps Tab to Close after jumping to the Z glossary entry', () => {
+    open();
+    act(() => { tocButtons().find((b) => b.textContent === 'Glossary')!.click(); });
+    const z = article().querySelector<HTMLAnchorElement>('[aria-label="Glossary: Z"]')!;
+    act(() => { z.click(); });
+    const destination = article().querySelector(z.getAttribute('href')!)!;
+    expect(destination.querySelector('strong')!.textContent).toBe('Zippering');
+    expect(destination.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(destination);
+
+    expect(tab(), 'Tab must be prevented before native navigation leaves the modal').toBe(true);
+    expect(document.activeElement).toBe(button('Close user guide'));
+  });
+
+  it('cancels a queued search on close', () => {
+    open();
+    typeSearch('rocket');
+    act(() => { root.render(null); });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ignores ordinary keys and non-fragment clicks, and tolerates an absent anchor target', () => {
+    open();
+    typeSearch('apogee');
+    act(() => { searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); });
+    expect(article().querySelector('mark')).toBeNull();
+    const paragraph = article().querySelector('p')!;
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { paragraph.dispatchEvent(click); });
+    expect(click.defaultPrevented).toBe(false);
+    const missing = document.createElement('a');
+    missing.href = '#glossary-missing';
+    article().append(missing);
+    const absent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { missing.dispatchEvent(absent); });
+    expect(absent.defaultPrevented).toBe(false);
+  });
 });
 
 const open = () => act(() => { root.render(<GuideDialog onClose={() => {}} />); });

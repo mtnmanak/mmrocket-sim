@@ -107,8 +107,10 @@ function inline(text, ln) {
 }
 
 /** One section's markdown lines -> HTML blocks, joined by newlines. */
-function renderBlocks(lines, base) {
+function renderBlocks(lines, base, glossary = false) {
   const out = [];
+  const entries = new Set();
+  const letters = new Map();
   let i = 0;
   const isBlockStart = (t) => /^(#{1,6} |```|\||- |\d+\. |> |---$)/.test(t) || /^</.test(t);
 
@@ -193,7 +195,25 @@ function renderBlocks(lines, base) {
     while (i < lines.length && lines[i].trim() !== '' && !isBlockStart(lines[i])) {
       para += ' ' + lines[i++].trim();
     }
-    out.push(`<p>${inline(para, ln)}</p>`);
+    let attributes = '';
+    const entry = glossary && para.match(/^\*\*([^*]+)\*\* — /);
+    if (entry) {
+      const title = entry[1];
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      if (!slug || entries.has(slug)) fail(`empty or duplicate glossary anchor: "${title}"`, ln);
+      entries.add(slug);
+      const id = `glossary-${slug}`;
+      attributes = ` id="${id}" tabindex="-1"`;
+      const letter = title[0].toUpperCase();
+      if (!letters.has(letter)) letters.set(letter, id);
+    }
+    out.push(`<p${attributes}>${inline(para, ln)}</p>`);
+  }
+  if (glossary && out.length) {
+    const links = Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (letter) => letters.has(letter)
+      ? `<a href="#${letters.get(letter)}" aria-label="Glossary: ${letter}">${letter}</a>`
+      : `<span aria-disabled="true">${letter}</span>`);
+    out.unshift(`<nav class="guide-letters" aria-label="Glossary letters">${links.join(' ')}</nav>`);
   }
   return out.join('\n');
 }
@@ -412,7 +432,7 @@ export function compileGuide({ markdown = readFileSync(SRC, 'utf8'), dataDir = D
     const title = m[1].trim();
     if (/[*`[\]<>]/.test(title)) fail(`markup in section title "${title}"`, t);
     const end = k + 1 < anchors.length ? anchors[k + 1].line : lines.length;
-    const html = renderBlocks(lines.slice(t + 1, end), t + 1);
+    const html = renderBlocks(lines.slice(t + 1, end), t + 1, id === 'glossary');
     if (!html) fail(`section "${id}" has no content`, line);
     return { id, title, html };
   });

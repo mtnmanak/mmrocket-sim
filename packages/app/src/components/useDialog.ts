@@ -117,16 +117,13 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       const first = items[0]!;
       const last = items[items.length - 1]!;
       const active = document.activeElement;
-      // Wrap at the ends, and pull focus back in if it escaped the dialog.
-      if (!el.contains(active)) {
+      const direction = e.shiftKey ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING;
+      // Glossary jumps focus tabindex=-1 entries (guide review 2026-09-30).
+      // Wrap when no tab stop remains in this direction, even from those targets.
+      if (!active || !el.contains(active)
+        || !items.some((item) => active.compareDocumentPosition(item) & direction)) {
         e.preventDefault();
         (e.shiftKey ? last : first).focus();
-      } else if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
       }
     };
 

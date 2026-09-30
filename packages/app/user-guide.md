@@ -1387,7 +1387,7 @@ The weather that **☁ Get weather** fetches is data from [Open-Meteo.com](https
 
 ## Glossary
 
-This glossary explains the words the app shows you — on the design editor's fields, in the motor browser, on the **Launch conditions** panel, and in the results, plots and downloads — and the terms this guide's physics sections use. Each entry gives a plain definition first, then where you meet the term in the app (*In the app:*), then, where it matters, what to watch for. A name in bold after "See" is another entry in this glossary. The guide cannot jump from one entry to another for you, so open this section and use your browser's find (Ctrl+F, or ⌘F on a Mac) to go straight to a term. File types, and the symbols used in plots and exports, have their own tables at the end.
+This glossary explains the words the app shows you — on the design editor's fields, in the motor browser, on the **Launch conditions** panel, and in the results, plots and downloads — and the terms this guide's physics sections use. Each entry gives a plain definition first, then where you meet the term in the app (*In the app:*), then, where it matters, what to watch for. A name in bold after "See" is another entry in this glossary. Use **Search guide** at the top of the guide to find a term in any section, including this glossary. Matches are highlighted; the count shows your place among them. Press Enter for the next match or Shift+Enter for the previous one, or use the **Next** and **Previous** buttons. **Clear** removes the search. The letters at the top of this section jump to the first entry for that letter; a letter with no entries is disabled. File types, and the symbols used in plots and exports, have their own tables at the end.
 
 ### A
 
