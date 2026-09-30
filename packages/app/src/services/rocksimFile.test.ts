@@ -2120,8 +2120,14 @@ describe('RockSim nose cone base extension', () => {
     resetEngine();
     const r = importRkt(fixture('rocksimTestRocket1.rkt'));
     const info = OrkRocket.buildTree(engineTree(r.tree)).staticInfo();
-    // 264.3 g. Without the zero override the extension would be billed twice: 290.4 g.
-    expect(info.massEmpty).toBeCloseTo(0.2643, 3);
+    // 285.4 g since K15 (2026-09-30); 264.3 g before. The file's solid transition
+    // (WallThickness 0) now carries its two solid shoulder plugs, as desktop's
+    // TransitionHandler and RockSim itself do: 35.56 mm plugs of radius 27.56 and
+    // 26.67 mm at 128.148 kg/m3 are ~10.9 + ~10.2 g, and the solid frustum ~18.3 g,
+    // which sums to the file's own <CalcMass>39.355</CalcMass> for that part. The
+    // pre-K15 figure was 21 g light. Without the zero override on the cone's base
+    // extension that extension would be billed twice (+26.1 g).
+    expect(info.massEmpty).toBeCloseTo(0.2854, 3);
   }, 60000);
 
   it('bills a SOLID cone extension as solid, not as a zero-mass shell', async () => {
