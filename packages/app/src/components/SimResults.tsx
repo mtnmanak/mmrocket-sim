@@ -5,9 +5,9 @@ import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  aeroModelLabel, commentsOf, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
-  type DeploymentReport, type SimRun,
+  type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
 import { formatWarning } from '../services/simWarnings.js';
@@ -19,7 +19,7 @@ import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
  * workflow) + the stored-run history with CSV export for motor comparison.
  */
 
-function Row({ label, value, quantity, unit, bad, warn }: {
+function Row({ label, value, quantity, unit, bad, warn, good }: {
   label: string;
   value: string;
   quantity?: Parameters<typeof UnitChip>[0]['quantity'];
@@ -27,11 +27,12 @@ function Row({ label, value, quantity, unit, bad, warn }: {
   bad?: boolean;
   /** Caution styling (yellow) — used when `bad` is false. */
   warn?: boolean;
+  good?: boolean;
 }) {
   return (
     <tr>
       <td className="simdet-label">{label}</td>
-      <td className={bad ? 'stability-bad' : warn ? 'stability-warn' : undefined}>
+      <td className={bad ? 'stability-bad' : warn ? 'stability-warn' : good ? 'stability-good' : undefined}>
         {value}
         {quantity ? <> <UnitChip quantity={quantity} /></> : unit ? ` ${unit}` : ''}
       </td>
@@ -82,7 +83,8 @@ function flownCd(d: DeploymentReport): string {
   return `${flown} (${nominal} less a ${(d.spillHoleDiameter! * 1000).toFixed(0)} mm vent)`;
 }
 
-function verdict(v: boolean | null): { text: string; bad: boolean } {
+function verdict(v: DeploymentVerdict): { text: string; bad: boolean; warn?: boolean } {
+  if (v === 'caution') return { text: '△ CAUTION', bad: false, warn: true };
   return v === null ? { text: '—', bad: false } : v
     ? { text: '✓ yes', bad: false }
     : { text: '⚠ NO', bad: true };
@@ -145,7 +147,9 @@ function DeploymentTable({ deployments, dist, vel }: {
       <tbody>
         {deployments.map((d, i) => {
           const problems: string[] = [];
-          if (d.openingOk === false) problems.push('hard opening');
+          const opening = openingVerdict(d.velocityAtDeployment);
+          if (opening === false) problems.push('hard opening');
+          if (opening === 'caution') problems.push('fast opening — watch for a zippered tube');
           if (d.descentOk === false) {
             problems.push(d.isLanding ? 'landing too fast' : 'drogue descent too fast');
           }
@@ -154,7 +158,7 @@ function DeploymentTable({ deployments, dist, vel }: {
               <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
               <td>{d.time.toFixed(1)} s</td>
               <td>{d.altitude === null ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
-              <td className={d.openingOk === false ? 'stability-bad' : undefined}>
+              <td className={opening === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : undefined}>
                 {d.velocityAtDeployment === null ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
               </td>
               <td>{flownCd(d)}</td>
@@ -162,7 +166,7 @@ function DeploymentTable({ deployments, dist, vel }: {
                 {d.descentRate === null ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
               </td>
               <td>{d.groundSpeed === null ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
-              <td className={problems.length ? 'stability-bad' : 'stability-good'}>
+              <td className={opening === false || d.descentOk === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : 'stability-good'}>
                 {problems.length ? `\u26a0 ${problems.join(', ')}` : '\u2713 ok'}
               </td>
             </tr>
@@ -191,6 +195,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   const len = prefs.units.length;
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
+  const safeDeployment = deploymentVerdict(run);
 
   return (
     <div className="panel" style={{ marginTop: 10 }}>
@@ -371,7 +376,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                     quantity="distance" />
                   <Row label="Velocity at deployment"
                     value={run.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
-                    quantity="velocity" bad={run.safeDeployment === false} />
+                    quantity="velocity" bad={openingVerdict(run.velocityAtDeployment) === false} warn={openingVerdict(run.velocityAtDeployment) === 'caution'} />
                 </>
               )}
               <Row label="Landing descent rate"
@@ -404,7 +409,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
             <tbody>
               <Row label="Lift-off speed OK" {...(() => { const v = verdict(run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Thrust : weight OK" {...(() => { const v = verdict(run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
-              <Row label="Safe deployment" {...(() => { const v = verdict(run.safeDeployment); return { value: v.text, bad: v.bad }; })()} />
+              <Row label="Safe deployment" good={safeDeployment === true} {...(() => { const v = verdict(safeDeployment); return { value: v.text, bad: v.bad, warn: v.warn }; })()} />
               <Row label="Landing rate OK (≤ 20 ft/s)" {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Static margin" {...(() => {
                 // Tiered: under-stable is the red failure; over-stable is a
@@ -591,12 +596,13 @@ export function SimHistory({
               {runs.map((r) => {
                 // Over-stability is a caution (△), not a failure — only real
                 // failures paint the row's Safe cell red.
-                const unsafe = r.safeLiftoffSpeed === false || r.safeDeployment === false
+                const unsafe = r.safeLiftoffSpeed === false || deploymentVerdict(r) === false
                   || stabilityState(r.launchStaticMarginCal) === 'under'
                   || r.safeThrustToWeight === false
                   || r.safeLandingRate === false
                   || (r.deployments ?? []).some((d) => d.descentOk === false);
-                const caution = !unsafe && stabilityState(r.launchStaticMarginCal) === 'over';
+                const caution = !unsafe && (deploymentVerdict(r) === 'caution'
+                  || stabilityState(r.launchStaticMarginCal) === 'over');
                 // A tab stop and Enter/Space, not a bare onClick. `onSelect` is
                 // the ONLY path that loads a stored run into the launch report,
                 // so with a mouse-only row a keyboard user could reach the ✕

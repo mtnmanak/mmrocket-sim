@@ -250,6 +250,28 @@ export function formatRunStability(
 const FPS = 3.28084;
 const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
 
+/** K16 (open-items.md): every opening-speed readout uses the comment's tiers. */
+export type DeploymentVerdict = boolean | 'caution' | null;
+
+export function openingVerdict(velocity: number | null | undefined): DeploymentVerdict {
+  if (velocity == null || !Number.isFinite(velocity)) return null;
+  const speed = Math.abs(velocity);
+  return speed <= SAFETY.maxDeploymentVelocity ? true
+    : speed <= SAFETY.warnDeploymentVelocity ? 'caution' : false;
+}
+
+/** Re-grade recorded speeds so saved runs also follow K16, including boosters. */
+export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' | 'velocityAtDeployment'>): DeploymentVerdict {
+  const states = (run.deployments?.length
+    ? run.deployments.map((d) => openingVerdict(d.velocityAtDeployment))
+    : [openingVerdict(run.velocityAtDeployment)])
+    .concat((run.branches ?? []).flatMap((b) => (b.deployments ?? [])
+      .map((d) => openingVerdict(d.velocityAtDeployment))));
+  if (states.includes(false)) return false;
+  if (states.includes('caution')) return 'caution';
+  return states.includes(null) ? null : true;
+}
+
 /** One recovery-device deployment (dual deploy: drogue + main = two rows). */
 export interface DeploymentReport {
   /** Device name from the design tree (e.g. "Drogue", "Main Parachute"). */
@@ -290,8 +312,8 @@ export interface DeploymentReport {
    */
   groundSpeed: number | null;
   isLanding: boolean;
-  /** Opening shock verdict (false = too fast — THIS device's problem). */
-  openingOk: boolean | null;
+  /** Opening speed verdict (caution = fast, false = hard opening). */
+  openingOk: DeploymentVerdict;
   /** Descent-rate verdict: preferred drogue rate ≤70 ft/s, landing ≤20 ft/s. */
   descentOk: boolean | null;
   /**
@@ -458,7 +480,7 @@ export interface SimRun {
   // Safety verdicts
   safeLiftoffSpeed: boolean | null;
   safeThrustToWeight: boolean | null;
-  safeDeployment: boolean | null;
+  safeDeployment: DeploymentVerdict;
   staticMarginOk: boolean | null;
   weathercockRisk: 'low' | 'moderate' | 'high' | null;
 
@@ -1315,7 +1337,7 @@ function extractDeployments(
       cdAutomatic: f?.cdAutomatic ?? false,
       diameter: f?.diameter ?? null,
       spillHoleDiameter: f?.spillHoleDiameter ?? null,
-      openingOk: vDeploy === null ? null : Math.abs(vDeploy) <= SAFETY.maxDeploymentVelocity,
+      openingOk: openingVerdict(vDeploy),
       // abs like openingOk — descent velocities are magnitudes today, but a
       // signed series would make an unsigned ≤ check pass vacuously.
       descentOk: descentRate === null ? null
@@ -1722,12 +1744,7 @@ export function buildSimRun(input: {
     ? rodExitVelocity >= SAFETY.minRodExitVelocity : null;
   const safeThrustToWeight = thrustToWeightAtRod !== null
     ? thrustToWeightAtRod >= SAFETY.minThrustToWeight : null;
-  // Overall "safe deployment" = no device had a hard opening. Per-device
-  // detail (WHICH one, drogue or main) lives in `deployments` + comments.
-  const safeDeployment = deployments.length > 0
-    ? deployments.every((d) => d.openingOk !== false)
-    : velocityAtDeployment !== null
-      ? Math.abs(velocityAtDeployment) <= SAFETY.maxDeploymentVelocity : null;
+  const safeDeployment = deploymentVerdict({ deployments, branches, velocityAtDeployment });
   const staticMarginOk = launchStaticMarginCal !== null
     ? launchStaticMarginCal >= SAFETY.minStaticMargin
       && launchStaticMarginCal <= SAFETY.maxStaticMargin
@@ -1807,7 +1824,7 @@ export function buildSimRun(input: {
     say(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`, 'warning');
   }
   for (const d of deployments) {
-    if (d.openingOk === false) {
+    if (d.openingOk === false || d.openingOk === 'caution') {
       // Names the ground speed too when the two differ, for the reason the
       // landing sentence below does: both figures are on screen in the
       // deployment table, and a sentence quoting only one reads as a
@@ -1819,11 +1836,11 @@ export function buildSimRun(input: {
       // Three tiers since 2026-09-07: preferred to 70 ft/s, caution to 90,
       // warning above. The sentence says which it is rather than leaving the
       // reader to compare two numbers.
-      const hard = air > SAFETY.warnDeploymentVelocity;
+      const hard = d.openingOk === false;
       say(`${d.device} opens at ${air.toFixed(1)} m/s (${fps(air)}) — `
         + (hard
           ? `hard opening, past the ${fps(SAFETY.warnDeploymentVelocity)} limit.`
-          : `above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
+          : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
         + over, hard ? 'warning' : 'caution');
     }
     if (d.descentOk === false && !d.isLanding) {
@@ -1853,10 +1870,12 @@ export function buildSimRun(input: {
       say(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`, 'warning');
     }
   }
-  if (deployments.length === 0 && safeDeployment === false) {
-    // The no-deployment-table fallback; same tiers.
-    say(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — expect hard opening.`,
-      Math.abs(velocityAtDeployment!) > SAFETY.warnDeploymentVelocity ? 'warning' : 'caution');
+  const fallbackOpening = openingVerdict(velocityAtDeployment);
+  if (deployments.length === 0 && (fallbackOpening === false || fallbackOpening === 'caution')) {
+    const hard = fallbackOpening === false;
+    say(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — `
+      + (hard ? 'hard opening.' : 'fast opening; watch for a zippered tube.'),
+    hard ? 'warning' : 'caution');
   }
   if (deployments.length === 0 && safeLandingRate === false) {
     say(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) of descent — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
@@ -1894,12 +1913,12 @@ export function buildSimRun(input: {
       say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
     }
     for (const d of b.deployments) {
-      if (d.openingOk === false) {
+      if (d.openingOk === false || d.openingOk === 'caution') {
         // Same three tiers as the sustainer's own devices, above.
         const v = Math.abs(d.velocityAtDeployment!);
-        const hard = v > SAFETY.warnDeploymentVelocity;
+        const hard = d.openingOk === false;
         say(`${b.name}: ${d.device} opens at ${v.toFixed(1)} m/s (${fps(v)}) — `
-          + (hard ? 'hard opening.' : `above the preferred ${fps(SAFETY.maxDeploymentVelocity)}.`),
+          + (hard ? 'hard opening.' : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`),
         hard ? 'warning' : 'caution');
       }
     }
