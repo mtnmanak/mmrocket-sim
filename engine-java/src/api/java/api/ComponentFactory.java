@@ -819,7 +819,7 @@ final class ComponentFactory {
                 }
                 double ir = dbl(node, "innerRadius", Double.NaN);
                 if (!Double.isNaN(ir)) {
-                    ring.setInnerRadius(ir);
+                    setStatedInnerRadius(ring, ir);
                 }
                 break;
             }
@@ -1144,5 +1144,27 @@ final class ComponentFactory {
         if (!Double.isNaN(radius)) {
             m.setRadius(radius);
         }
+    }
+
+    /**
+     * A STATED bore is the ring's own, never the automatic one. The ring is
+     * born automatic (CenteringRing's constructor), and
+     * RadiusRingComponent.setInnerRadius returns early when the value equals
+     * the field, before it clears innerRadiusAutomatic. While the tree is
+     * built a part sits at its RAW offset (setAxialOffset with no parent; the
+     * rocket's events correct it once enabled), so setOuterRadius's
+     * getInnerRadius() call can fill the field with the bore of an inner tube
+     * the ring overlaps only there - and a stated bore equal to that tube's
+     * outer radius, the usual centering ring, then kept the flag on. At the
+     * ring's real station, beside no tube, it flew a solid disc: US Rockets
+     * 2.25 V2's plywood baffle, 5.569 g for RockSim's 4.402 g (KB5,
+     * 2026-10-01). Clearing the flag first makes the stated value stand.
+     *
+     * Called from applyPostAttachDimensions in place of the bare setter, and
+     * kept down here so the line numbers the app cites into this file stay true.
+     */
+    private static void setStatedInnerRadius(CenteringRing ring, double r) {
+        ring.setInnerRadiusAutomatic(false);
+        ring.setInnerRadius(r);
     }
 }

@@ -43492,7 +43492,7 @@ a_ComponentFactory_applyPostAttachDimensions = ($child, $node) => {
                 $ir = a_JsonLite_dbl($node, $rt_s(1678), NaN);
                 if (isNaN($ir) ? 1 : 0)
                     break b;
-                $ring.$setInnerRadius($ir);
+                a_ComponentFactory_setStatedInnerRadius($ring, $ir);
                 break b;
             default:
                 break b;
@@ -43857,6 +43857,10 @@ a_ComponentFactory_applyPackedSize = ($m, $node) => {
     $radius = a_JsonLite_dbl($node, $rt_s(1701), NaN);
     if (!(isNaN($radius) ? 1 : 0))
         $m.$setRadius($radius);
+},
+a_ComponentFactory_setStatedInnerRadius = ($ring, $r) => {
+    $ring.$setInnerRadiusAutomatic(0);
+    $ring.$setInnerRadius($r);
 };
 function iocr_Transition() {
     let a = this; iocr_SymmetricComponent.call(a);
