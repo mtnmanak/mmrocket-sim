@@ -5,7 +5,7 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
-import { finOutlineProblem } from './finOutline.js';
+import { finOutlineIntersection, finOutlineProblem } from './finOutline.js';
 import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
 import { kernelNum } from './kernelDefaults.js';
 import { num, numOpt } from './nodeNum.js';
@@ -190,18 +190,24 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // (2026-09-08 audit).
     if (child.type === 'freeformfinset' && finOutlineProblem(ffPoints) !== null) return;
 
-    const shape = new THREE.Shape();
+    // The planform as closed loops in the fin's own frame (x aft of the
+    // leading root corner, y off the root).
+    let loops: [number, number][][];
     if (mounted) {
       // ffPoints, not a re-read with a default: the >= 3 guard at the top of
       // this function is what makes raw[0] safe, and reading the key twice is
-      // how the two fell out of step in the first place. `mounted.outline` is
-      // those points with the root corners on the body and, on a transition,
-      // the root walked along it — the same points on a body tube.
-      const outline = mounted.outline;
-      shape.moveTo(outline[0]![0], outline[0]![1]);
-      for (let i = 1; i < outline.length; i++) {
-        shape.lineTo(outline[i]![0], outline[i]![1]);
-      }
+      // how the two fell out of step in the first place. `mounted.lobes` is
+      // those points with the root corners on the body, any point inside the
+      // body raised to it and, on a transition, the root walked along it — on
+      // a body tube the same points, unless one of them touches the tube.
+      //
+      // And the refusal above again, on what is extruded rather than on what
+      // was typed: a loop can still cross its root where an edge cuts through
+      // a curved body between two points that clear it, or past the mount's
+      // end, where the kernel raises nothing. Each loop is closed here, so its
+      // last edge is tested too.
+      if (mounted.lobes.some((l) => finOutlineIntersection([...l, l[0]!]) !== null)) return;
+      loops = mounted.lobes;
     } else if (child.type === 'ellipticalfinset') {
       // A TRUE half-ellipse: x as cos and y as sin over the SAME parameter.
       // Until 2026-09-21 this walked x linearly while y ran as sin(pi*t),
@@ -216,24 +222,21 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       // Display and export only: fin aerodynamics come from the kernel out of
       // rootChord/height, never from these points.
       const steps = 64;
-      shape.moveTo(0, 0);
+      const ellipse: [number, number][] = [[0, 0]];
       for (let i = 1; i < steps; i++) {
         const t = (Math.PI * i) / steps;
-        shape.lineTo((root / 2) * (1 - Math.cos(t)), height * Math.sin(t));
+        ellipse.push([(root / 2) * (1 - Math.cos(t)), height * Math.sin(t)]);
       }
       // Explicit, and the loop stops one short of it: at t = pi the parametric
       // point is (root, 1.2e-16*height), which would leave a degenerate sliver
-      // for earcut to make a zero-area triangle out of before closePath().
-      shape.lineTo(root, 0);
+      // for earcut to make a zero-area triangle out of before the loop closes.
+      ellipse.push([root, 0]);
+      loops = [ellipse];
     } else {
       const tip = kernelNum(child, 'tipChord');
       const sweep = kernelNum(child, 'sweep');
-      shape.moveTo(0, 0);
-      shape.lineTo(sweep, height);
-      shape.lineTo(sweep + tip, height);
-      shape.lineTo(root, 0);
+      loops = [[[0, 0], [sweep, height], [sweep + tip, height], [root, 0]]];
     }
-    shape.closePath();
 
     // A planform with NO AREA is not a fin: a trapezoid or elliptical set at
     // height 0, which the height field allows, or a freeform outline lying
@@ -245,7 +248,14 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // AREA, not extrudePolygon's face count: ear-clipping drops a corner lying
     // EXACTLY on a straight edge — a flat run along the root, say — so a sound
     // fin with one fails a count (extrudePolygon refuses that fin outright).
-    if (!enclosesArea(shape.extractPoints(12).shape.map((v): [number, number] => [v.x, v.y]))) return;
+    const shapes = loops.filter((l) => enclosesArea(l)).map((l) => {
+      const shape = new THREE.Shape();
+      shape.moveTo(l[0]![0], l[0]![1]);
+      for (let i = 1; i < l.length; i++) shape.lineTo(l[i]![0], l[i]![1]);
+      shape.closePath();
+      return shape;
+    });
+    if (!shapes.length) return;
 
     // A zero-or-negative depth extrudes to COINCIDENT caps: measured on a
     // 3-fin trapezoid at thickness 0, 228 triangles of which 24 had exactly
@@ -254,7 +264,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // (2026-09-08 audit). Skip the set rather than draw a fin with no
     // thickness — the same answer the >= 3 point guard above gives.
     if (!(thickness > 0)) return;
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+    const geo = new THREE.ExtrudeGeometry(shapes, { depth: thickness, bevelEnabled: false });
     geo.translate(0, 0, -thickness / 2);
 
     for (let i = 0; i < count; i++) {

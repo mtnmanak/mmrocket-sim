@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { layoutSchematic, schematicFrame, type SchematicFrameOptions } from './schematicLayout.js';
-import { outerProfile } from './shapeProfile.js';
+import { outerProfile, profileRadius } from './shapeProfile.js';
 import { updateNode } from './treeModel.js';
 
 /**
@@ -189,6 +189,37 @@ describe('a freeform fin on a transition sits on the transition', () => {
     } as unknown as RocketTree;
     const fins = lay(flare).l.shapes.filter((s) => s.key.startsWith('ff:fin'));
     expect(fins.map((s) => s.key).sort()).toEqual(['ff:fin0', 'ff:fin1', 'ff:fin2']);
+  });
+
+  it('on a flare, a point the planform keeps inside the body is drawn on its surface', () => {
+    // 12.5 -> 25 mm. The third point keeps 4 mm off the root 60 mm in, where
+    // the flare has climbed 9.4 mm: the kernel raises it to the surface
+    // (FreeformFinSet.clampInteriorPoint). Drawn where it was stored, the near
+    // fin dipped into the body there.
+    const FORE = 0.0125, AFT = 0.025;
+    const flare = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: FORE },
+          { id: 't1', type: 'transition', shape: 'conical', length: TL, foreRadius: FORE, aftRadius: AFT,
+            children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+              points: [[0, 0], [0.02, 0.03], [0.06, 0.004], [0.075, 0]],
+              position: { method: 'top', offset: 0 } }] },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: AFT },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const { f, l } = lay(flare);
+    const fin = l.shapes.find((s) => s.key === 'ff:fin0')!;
+    const pts = String(fin.attrs['points']).split(' ').map((p) => p.split(',').map(Number) as [number, number]);
+    const flareR = profileRadius('conical', undefined, TL, FORE, AFT);
+    const below = pts.map(([x, y]) => flareR((x - f.x0) / f.scale - 0.1) - (f.cy - y) / f.scale);
+    // The low point sat 5.4 mm inside the flare.
+    expect(Math.max(...below)).toBeLessThan(1e-9);
+    expect(pts.some(([x, y]) => Math.abs((x - f.x0) / f.scale - 0.16) < 1e-9
+      && Math.abs((f.cy - y) / f.scale - flareR(0.06)) < 1e-9)).toBe(true);
   });
 });
 

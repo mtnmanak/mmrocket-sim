@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { buildPieces } from './pieces.js';
-import { outerProfile } from './shapeProfile.js';
+import { buildPieces, type Piece } from './pieces.js';
+import { outerProfile, profileRadius } from './shapeProfile.js';
 
 /**
  * `buildPieces` is the app's ONE 3D geometry — the 3D tab, File > Save STL,
@@ -289,6 +289,160 @@ describe('a freeform fin on a transition sits on the transition', () => {
     const root = rootOf(tree);
     expect(root.get(0.34)!).toBeCloseTo(BODY_R, 6);
     expect(root.get(0.4)!).toBeCloseTo(BODY_R, 6);
+  });
+});
+
+/**
+ * ...and stays CLOSED on a RISING mount (audit 2026-09-30, on review). On a
+ * flare or a nose cone the body climbs under the fin's aft half, so a point a
+ * planform keeps low there lies inside it: the trailing points of the
+ * elliptical fin the RockSim importer converts onto a transition, say. The
+ * kernel raises such a point to the surface (FreeformFinSet.clampInteriorPoint).
+ * Drawn where it was stored, the outline crossed its own root once the root
+ * followed the body, and three's ear clipper deleted vertices: holes in the 3D
+ * fin and in every display-shell STL, OBJ and glTF.
+ */
+describe('a freeform fin on a rising mount is extruded closed, on the body', () => {
+  const FORE = 0.0125, AFT = 0.025, TL = 0.08, NOSE = 0.1;
+  /** A 12.5 -> 25 mm flare, the fin anchored at its fore end. */
+  const flare = (shape: string, points: number[][]): RocketTree => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: NOSE, aftRadius: FORE },
+        { id: 't1', type: 'transition', shape, length: TL, foreRadius: FORE, aftRadius: AFT,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            points, position: { method: 'top', offset: 0 } }] },
+        { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: AFT },
+      ],
+    }],
+  } as unknown as RocketTree);
+  const surface = (shape: string, x: number): number => profileRadius(shape, undefined, TL, FORE, AFT)(x);
+  /**
+   * rocksimFile.ts's conversion of an elliptical set onto a transition: the
+   * quarter-ellipse each way in 16 steps, root 75 mm, semi-span 30 mm.
+   */
+  const ELLIPSE = (() => {
+    const [c, h, steps] = [0.075, 0.03, 16];
+    const pts: number[][] = [[0, 0]];
+    for (let i = 1; i <= steps; i++) {
+      const t = (i / steps) * (Math.PI / 2);
+      pts.push([c / 2 - (c / 2) * Math.cos(t), h * Math.sin(t)]);
+    }
+    for (let i = steps - 1; i >= 1; i--) {
+      const t = (i / steps) * (Math.PI / 2);
+      pts.push([c / 2 + (c / 2) * Math.cos(t), h * Math.sin(t)]);
+    }
+    pts.push([c, 0]);
+    return pts;
+  })();
+  /** Its third point keeps 4 mm off the root where the flare is 9.4 mm up. */
+  const LOW = [[0, 0], [0.02, 0.03], [0.06, 0.004], [0.075, 0]];
+
+  const finOf = (tree: RocketTree) => buildPieces(tree).pieces.find((p) => p.key.startsWith('fin'));
+  /** The fin's vertices; one fin at rotation 0 lies in the x-y plane, y radial. */
+  const verticesOf = (g: Piece['geometry']): [number, number, number][] => {
+    const pos = g.getAttribute('position');
+    const idx = g.getIndex();
+    const n = idx ? idx.count : pos.count;
+    const out: [number, number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const j = idx ? idx.getX(i) : i;
+      out.push([pos.getX(j), pos.getY(j), pos.getZ(j)]);
+    }
+    return out;
+  };
+  /**
+   * Edges used an ODD number of times, vertices welded by position: 0 for a
+   * closed surface. An edge a hole or a dropped vertex leaves is used once;
+   * two closed loops touching at a point share an edge four times.
+   */
+  const oddEdges = (g: Piece['geometry']): number => {
+    const v = verticesOf(g).map((p) => p.map((c) => Math.round(c * 1e7)).join(','));
+    const uses = new Map<string, number>();
+    for (let i = 0; i < v.length; i += 3) {
+      for (const [p, q] of [[v[i]!, v[i + 1]!], [v[i + 1]!, v[i + 2]!], [v[i + 2]!, v[i]!]]) {
+        const e = p! < q! ? `${p}|${q}` : `${q}|${p}`;
+        uses.set(e, (uses.get(e) ?? 0) + 1);
+      }
+    }
+    return [...uses.values()].filter((u) => u % 2 === 1).length;
+  };
+  /** How far the fin's lowest vertex at each station lies below the body (m); 0 when none does. */
+  const deepest = (g: Piece['geometry'], shape: string): number => Math.max(0, ...verticesOf(g)
+    .filter(([x]) => x >= NOSE && x <= NOSE + TL)
+    .map(([x, y]) => surface(shape, x - NOSE) - y));
+
+  it('the elliptical fin the RockSim importer converts onto a conical flare is closed', () => {
+    const fin = finOf(flare('conical', ELLIPSE));
+    expect(fin).toBeDefined();
+    // 126 triangles with 6 open edges while the trailing points sat inside
+    // the flare; 128, closed, rooted at one radius before the root followed it.
+    expect(oddEdges(fin!.geometry)).toBe(0);
+    expect(deepest(fin!.geometry, 'conical')).toBeLessThan(1e-6);
+  });
+
+  it('a point kept inside the flare is drawn on its surface, where the kernel flies it', () => {
+    const fin = finOf(flare('conical', LOW))!;
+    expect(oddEdges(fin.geometry)).toBe(0);
+    // The low point's station, 60 mm into the flare: 21.875 mm, not 16.5.
+    const atLow = verticesOf(fin.geometry).filter(([x]) => Math.abs(x - (NOSE + 0.06)) < 1e-6);
+    expect(atLow.length).toBeGreaterThan(0);
+    expect(Math.min(...atLow.map(([, y]) => y))).toBeCloseTo(surface('conical', 0.06), 6);
+  });
+
+  it('on a curved flare too, where the root is walked along the profile', () => {
+    for (const points of [ELLIPSE, LOW]) {
+      const fin = finOf(flare('ogive', points));
+      expect(fin).toBeDefined();
+      expect(oddEdges(fin!.geometry)).toBe(0);
+      expect(deepest(fin!.geometry, 'ogive')).toBeLessThan(1e-6);
+    }
+  });
+
+  it('a point dipping below a body tube is raised to it: two lobes, each closed', () => {
+    // The kernel clamps on any mount: this W flies as two fins meeting at the
+    // tube. Drawn as stored, the dip crossed the root line.
+    const tree = withChildren([{
+      id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.03], [0.04, -0.01], [0.06, 0.03], [0.08, 0]],
+      position: { method: 'bottom', offset: 0 },
+    } as unknown as ComponentNode]);
+    const fin = finOf(tree)!;
+    expect(oddEdges(fin.geometry)).toBe(0);
+    expect(Math.min(...verticesOf(fin.geometry).map(([, y]) => y))).toBeCloseTo(BODY_R, 6);
+  });
+
+  it('a flat run along the root past the tube\'s aft end still draws, closed', () => {
+    // 10 mm overhang: the run from 75 to 80 mm lies on the root beyond the
+    // tube, where the kernel raises nothing. It is a lobe end like any point on
+    // the body, so the run is dropped rather than refused as a crossing.
+    const fins = buildPieces(withChildren([{
+      id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+      points: [[0, 0], [0.02, 0.02], [0.07, 0.02], [0.075, 0], [0.08, 0]],
+      position: { method: 'bottom', offset: 0.01 },
+    } as unknown as ComponentNode])).pieces.filter((p) => p.key.startsWith('fin'));
+    expect(fins).toHaveLength(3);
+    for (const f of fins) expect(oddEdges(f.geometry)).toBe(0);
+  });
+
+  it('an outline that still crosses its root is refused, not extruded', () => {
+    // Past the mount's aft end the kernel raises nothing, and the root holds
+    // the end radius there: a point below it crosses the root whatever is
+    // done. 80 mm boat tail, 60 mm root starting 40 mm in (20 mm overhang),
+    // the third point 2 mm under the 19 mm the root holds there.
+    const tree = {
+      name: 'Rocket',
+      components: [{ id: 's1', type: 'stage', children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: NOSE, aftRadius: 0.027 },
+        { id: 't1', type: 'transition', shape: 'conical', length: TL, foreRadius: 0.027, aftRadius: 0.019,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            points: [[0, 0], [0.02, 0.03], [0.05, -0.006], [0.06, -0.004]],
+            position: { method: 'top', offset: 0.04 } }] },
+      ] }],
+    } as unknown as RocketTree;
+    expect(finOf(tree)).toBeUndefined();
   });
 });
 

@@ -14,17 +14,28 @@ import { profileRadius } from './shapeProfile.js';
  *    `getMountPoints` walks in 2.5 mm steps on a transition that is not conical
  *    and takes as one straight segment on a body tube or a cone.
  *
+ *  - An interior point that lies inside the body, within the mount's length, is
+ *    raised to its surface (`FreeformFinSet.clampInteriorPoint`, which every
+ *    `update()` runs).
+ *
  * Both views used to root every fin at one radius along the whole chord — the
  * LARGER end radius on a transition — so a fin on a 54 -> 38 mm boat tail was
  * drawn and exported floating off the surface, the gap growing aft (audit
  * 2026-09-30). Freeform is the one fin type a transition accepts, and what both
  * importers convert a boat-tail fin to. On a body tube nothing moves: the
- * radius is the same everywhere and an outline whose corners are on y = 0
- * comes back point for point.
+ * radius is the same everywhere and an outline whose corners are on y = 0, and
+ * whose other points are above it, comes back point for point.
  *
- * NOT mirrored: the kernel also raises an interior point that lies inside the
- * body up to its surface (`FreeformFinSet.clampInteriorPoint`). The drawings
- * keep interior points where the design stores them, as they always have.
+ * THE CLAMP IS NOT OPTIONAL ONCE THE ROOT FOLLOWS THE BODY. On a RISING mount
+ * (a flare, a nose cone) the body climbs under the fin's aft half, and a point
+ * the planform keeps low there — the trailing points of an elliptical or
+ * trapezoid fin the RockSim importer converts onto a flare — lies inside it.
+ * Left there, the outline crossed its own root, and three's ear clipper
+ * deleted vertices: open fin meshes in the 3D view and the display-shell STL,
+ * OBJ and glTF (measured on a 12.5 -> 25 mm flare: 126 triangles with 6 open
+ * edges). Raised onto the body, such a point touches the root, so `lobes`
+ * splits the planform there and drops what runs along the body: a triangulator
+ * gets closed loops that each enclose area.
  */
 
 /** The outer surface a fin set is mounted on, in the mount's own frame (m from its fore end). */
@@ -64,18 +75,39 @@ export function profileMount(
 const ROOT_STEP = 0.0025;
 const MAX_ROOT_DIVISIONS = 20;
 
+/** Two stations closer than this (m) are one. */
+const SAME_X = 1e-12;
+
+/**
+ * An interior point within this (m) of the body's surface is ON it: 1 nm,
+ * finOutline's COINCIDENT_M. Snapped onto the surface, it splits the planform
+ * cleanly instead of leaving a sliver a triangulator can misjudge.
+ */
+const ON_BODY = 1e-9;
+
 export interface MountedFin {
   /** The mount's radius at the leading edge — where the outline's y = 0 sits. */
   r0: number;
   /**
    * The closed planform in the fin's own frame (x aft of the leading root
    * corner, y outward from `r0`): the outline with its first and last points
-   * on the body, then the body's surface back to the leading corner. On a
-   * flat mount, an outline whose corners are on y = 0 is returned unchanged.
+   * on the body and any interior point inside the body raised to its surface,
+   * then the body's surface back to the leading corner — the kernel's
+   * `getFinPointsWithRoot()`. On a flat mount, an outline whose corners are on
+   * y = 0 and whose other points are above it is returned unchanged.
    */
   outline: [number, number][];
   /** The body's surface under the fin, leading corner to trailing, in the same frame. */
   root: [number, number][];
+  /**
+   * `outline` as closed loops that each enclose area, for a renderer that has
+   * to triangulate it: split at every interior point that lies on the body,
+   * with the runs between two such points dropped (they lie along the body and
+   * enclose nothing), each loop closed along the body's surface under it. One
+   * loop, `outline` itself, unless an interior point touches the body; none
+   * when the whole planform lies along it.
+   */
+  lobes: [number, number][][];
 }
 
 /**
@@ -87,10 +119,17 @@ export function finOnMount(
   points: readonly (readonly [number, number])[], xFront: number, mount: MountSurface,
 ): MountedFin {
   const r0 = mount.radiusAt(xFront);
+  /** The body's surface at x in the fin's frame. */
+  const bodyY = (x: number): number => mount.radiusAt(xFront + x) - r0;
+  const onSurface = (x: number): [number, number] => [x, bodyY(x)];
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const a = first[0];
   const b = last[0];
+  // The mount's own ends, in the fin's frame: the surface has a corner at
+  // each (it holds the end radius beyond it), and clampInteriorPoint acts
+  // only between them.
+  const ends = [-xFront, mount.length - xFront];
   // The root's stations in the FIN's frame, so a corner keeps its own x
   // exactly ((xFront + a) - xFront is not always a).
   const xs = [a];
@@ -99,20 +138,57 @@ export function finOnMount(
       ? Math.min(MAX_ROOT_DIVISIONS, Math.max(1, Math.ceil((b - a) / ROOT_STEP)))
       : 1;
     for (let i = 1; i < divisions; i++) xs.push(a + ((b - a) * i) / divisions);
-    // getMountPoints adds the mount's own ends when the root runs past them:
-    // the surface has a corner there (it holds the end radius beyond it).
-    for (const end of [-xFront, mount.length - xFront]) {
-      if (a < end && end < b && !xs.some((x) => Math.abs(x - end) < 1e-12)) xs.push(end);
+    // getMountPoints adds the mount's own ends when the root runs past them.
+    for (const end of ends) {
+      if (a < end && end < b && !xs.some((x) => Math.abs(x - end) < SAME_X)) xs.push(end);
     }
     xs.sort((p, q) => p - q);
   }
   xs.push(b);
-  const root = xs.map((x): [number, number] => [x, mount.radiusAt(xFront + x) - r0]);
-  const outline: [number, number][] = [
-    root[0]!,
-    ...points.slice(1, -1).map(([x, y]): [number, number] => [x, y]),
-    root[root.length - 1]!,
-    ...root.slice(1, -1).reverse(),
-  ];
-  return { r0, outline, root };
+  const root = xs.map(onSurface);
+
+  // The fin as the kernel flies it: corners on the body, and an interior point
+  // inside the body — within the mount's length, as clampInteriorPoint tests
+  // it — raised to the surface. `touches` marks the points on the body: those,
+  // and a point lying ON the root anywhere, including past the mount's end,
+  // where the root holds the end radius and the kernel raises nothing. A flat
+  // run along the root of a fin overhanging the tube's aft end is such a point.
+  const chain: [number, number][] = [root[0]!];
+  const touches = [true];
+  for (const [x, y] of points.slice(1, -1)) {
+    const yb = bodyY(x);
+    const on = Math.abs(y - yb) <= ON_BODY || (ends[0]! <= x && x <= ends[1]! && y < yb);
+    chain.push(on ? onSurface(x) : [x, y]);
+    touches.push(on);
+  }
+  chain.push(root[root.length - 1]!);
+  touches.push(true);
+  const outline: [number, number][] = [...chain, ...root.slice(1, -1).reverse()];
+
+  // The body's surface from `from` back to `to`, both ends excluded: the
+  // root's stations between them, and a mount end the stretch spans beyond
+  // the root's own (the root already carries those inside it). Across the
+  // whole root this is `root` reversed, so a planform that touches the body
+  // only at its corners is one lobe, `outline` point for point.
+  const corners = mount.flat ? [] : ends;
+  const surfaceBack = (from: number, to: number): [number, number][] => {
+    const lo = Math.min(from, to) + SAME_X;
+    const hi = Math.max(from, to) - SAME_X;
+    const at = xs.filter((x) => x > lo && x < hi);
+    for (const end of corners) {
+      if (lo < end && end < hi && !at.some((x) => Math.abs(x - end) < SAME_X)) at.push(end);
+    }
+    return at.sort((p, q) => (from > to ? q - p : p - q)).map(onSurface);
+  };
+  const lobes: [number, number][][] = [];
+  let start = 0;
+  for (let j = 1; j < chain.length; j++) {
+    if (!touches[j]) continue;
+    // Two touching points in a row are a run along the body: nothing to close.
+    if (j - start >= 2) {
+      lobes.push([...chain.slice(start, j + 1), ...surfaceBack(chain[j]![0], chain[start]![0])]);
+    }
+    start = j;
+  }
+  return { r0, outline, root, lobes };
 }
