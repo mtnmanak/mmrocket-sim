@@ -20,10 +20,14 @@
 #   - labels: [] — Dependabot would otherwise create and apply its own labels in
 #     this repo.
 #
-# WHAT A PR HERE DOES NOT GET: CI. deploy.yml runs on a push to main (and by
-# hand), not on pull requests, so a Dependabot PR is unchecked until it is
-# merged — and merging IS the deploy, whose build job then runs the full gate
-# and refuses to publish on any failure.
+# WHAT A PR HERE GETS: deploy.yml's build job, the full gate (version pairing,
+# npm ci, typecheck, lint at zero warnings, the tests, the build) run on the PR
+# merged into main, as a check on the PR; it deploys nothing (audit
+# 2026-09-30, which found Dependabot PRs going unchecked until merged).
+# What the check does NOT do: `npm audit`, or read the lockfile diff — the
+# policy below still does both by hand — and no rule makes a merge wait for
+# it. Merging IS the deploy, whose build job runs the gate again and refuses
+# to publish on any failure.
 #
 # THE POLICY (the owner's ruling, 2026-09-24): these PRs are ROUTINE. Check the
 # branch out, run the full gate under Node 22 as CI does — `npm ci && npm run

@@ -90,14 +90,23 @@ export function motorBurnoutMass(spec: Pick<MotorSpec, 'masses'>): number | null
 
 /**
  * Motor mass as loaded (kg) — the first mass sample: what a motor that never
- * lights still weighs when it comes down. Null under the same rule as
- * `motorBurnoutMass`, for the same reason.
+ * lights still weighs when it comes down, and what the pad-mass arithmetic
+ * subtracts per motor (hardwareMass.ts `catalogueMotorMass`). ONE reader for
+ * both: hardwareMass.ts had its own copy, unclamped beside this one's clamp,
+ * so the two figures could read one motor two ways (audit 2026-09-30).
+ *
+ * Null under the same rule as `motorBurnoutMass`, for the same reason — and
+ * also when the first sample is not a weight at all. A negative one is a
+ * malformed curve the engine refuses at setMotorById (assertFiniteCurve), so
+ * no mount App hands either caller carries one; read as zero it would lighten
+ * what comes down, and read as itself it would hand the motor's weight to the
+ * pad-mass hardware. Zero itself is kept: it is what the kernel would fly.
  */
 export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null {
   const m = spec.masses;
   if (!Array.isArray(m) || m.length === 0) return null;
   const first = m[0]!;
-  return Number.isFinite(first) ? Math.max(0, first) : null;
+  return Number.isFinite(first) && first >= 0 ? first : null;
 }
 
 /**

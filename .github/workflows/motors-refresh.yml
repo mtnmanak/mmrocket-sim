@@ -17,9 +17,9 @@
 # None of the three is a schedule, and motors.json sat 63 days unrefreshed before
 # 2026-09-05 with nothing in the repo saying so. This is the clock. It COMPLEMENTS
 # the other three and never competes with them: it changes no threshold of theirs,
-# and it runs `npm test` — the deploy gate itself, verbatim (see the validate
-# step) — so a half refresh can never become a PR that the gate would then
-# reject on main after somebody merged it.
+# and it runs the deploy gate itself — typecheck, lint, the tests and the build,
+# verbatim (see the gate steps) — so a half refresh can never become a PR that
+# the gate would then reject on main after somebody merged it.
 #
 # ------------------------------------------------------------------------------
 # REPOSITORY SETTING REQUIRED — without it the LAST step fails, after a good fetch.
@@ -142,7 +142,8 @@ jobs:
           cp "$DATA/motors.json" "$DATA/motorCurves.json" "$RUNNER_TEMP/before/"
 
       # Both refresh scripts import only node: builtins, so this install exists
-      # ONLY for vitest in the validate step. It is cached by setup-node.
+      # ONLY for the deploy gate's steps below (tsc, eslint, vitest, vite). It
+      # is cached by setup-node.
       - run: npm ci
 
       # Catalogue THEN curves THEN guide — and `motors:refresh` IS that order in
@@ -181,10 +182,24 @@ jobs:
         run: npm run motors:refresh
 
       # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
-      # this PR runs exactly this command on main (deploy.yml's `npm test` step)
-      # and a red main blocks the deploy of everything else too.
-      #
-      # It was `npx vitest run scripts/motor-db-age.test.mjs` and that was not
+      # this PR runs exactly these commands on main (deploy.yml's build job) and
+      # a red main blocks the deploy of everything else too. deploy.yml's
+      # pull_request run does not start for this PR: GitHub starts no workflow
+      # for a push or a PR made with a run's GITHUB_TOKEN, which is how the
+      # publish job below makes both. So the gate runs here, in deploy.yml's
+      # order, and packages/app/scripts/deploy-workflow.test.mjs holds the two
+      # lists together. It was `npm test` alone (audit 2026-09-30), but a
+      # refresh is something tsc checks: services/motorDb.ts imports
+      # motors.json as a typed module, and the userGuide.ts recompiled above is
+      # TypeScript.
+      - name: Deploy gate on the refreshed data — typecheck
+        run: npm run typecheck
+
+      - name: Deploy gate on the refreshed data — lint, zero warnings
+        run: npm run lint -- --max-warnings 0
+
+      # The tests were the first widening: they were
+      # `npx vitest run scripts/motor-db-age.test.mjs` and that was not
       # enough. motor-db-age.test.mjs is not the only test that reads the SHIPPED
       # motor data, and it is the LOOSEST of the ones that do:
       #   - packages/app/src/services/motorCurves.test.ts:79 needs curve coverage
@@ -203,10 +218,15 @@ jobs:
       # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
       # committed artifact, so still no Java) and runs the whole suite — about
       # 4,000 tests in September 2026 — in a few minutes of the 30-minute
-      # budget. Cheap against a merged PR that turns main red, which is the shape
-      # deploy.yml's own typecheck comment exists to avoid.
-      - name: The deploy gate must pass on the refreshed data
+      # budget; the other three steps are the ones deploy.yml's build job runs
+      # beside it inside 15 minutes. Cheap against a merged PR that turns main
+      # red, which is the shape deploy.yml's own typecheck comment exists to
+      # avoid.
+      - name: Deploy gate on the refreshed data — tests
         run: npm test
+
+      - name: Deploy gate on the refreshed data — build
+        run: npm run build
 
       # Printed for the log, and NOTHING is decided by it. Both JSON files are
       # single-line minified JSON, so this always reports 1 insertion / 1 deletion

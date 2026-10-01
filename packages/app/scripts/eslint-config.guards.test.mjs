@@ -24,7 +24,11 @@
  *     action no test drives is invisible to every behavioural test (row 477).
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
- * still resolve for shipped source, its tests and the engine.
+ * still resolve for shipped source, its tests and the engine, and that a lint
+ * run from the repo root reaches the files CI's does: what .gitignore keeps
+ * out of the repo is kept out of the lint (audit 2026-09-30). And it recounts
+ * the two figures the config's header gives for the type-aware rules: how many
+ * are on, and how many typescript-eslint's recommendedTypeCheckedOnly would add.
  *
  * Each rule is read from the config ESLint actually resolves for a real file,
  * then run on a probe with the typescript-eslint parser alone, so no type
@@ -35,10 +39,13 @@
 import { describe, expect, it } from 'vitest';
 import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const eslint = new ESLint({ cwd: ROOT });
+/** A resolved rule's severity: 2 error, 1 warn, 0 off; 'off' when no block names it. */
+const severity = (entry) => (Array.isArray(entry) ? entry[0] : entry);
 
 /** The listed rules exactly as the repo config resolves them for `rel`. */
 async function rulesFor(rel, names) {
@@ -173,6 +180,25 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('turns the six zero-hit type-aware rules on for shipped source, require-await off in tests (audit Step A)', async () => {
+    // Each measured at 0 hits in packages/app/src and packages/engine/src on
+    // 2026-09-30, so each refuses the next instance at no cost. require-await
+    // had 289 hits in tests, which is why the tests block turns it off.
+    const STEP_A = ['@typescript-eslint/no-array-delete', '@typescript-eslint/no-for-in-array',
+      '@typescript-eslint/prefer-promise-reject-errors', '@typescript-eslint/no-meaningless-void-operator',
+      '@typescript-eslint/no-duplicate-type-constituents', '@typescript-eslint/require-await'];
+    // A test helper that is not itself a *.test.* file is shipped-source rules.
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/autoDelay.testSupport.ts',
+      'packages/engine/src/index.ts']) {
+      const rules = await rulesFor(rel, STEP_A);
+      expect(STEP_A.map((r) => severity(rules[r])), rel).toEqual([2, 2, 2, 2, 2, 2]);
+    }
+    for (const rel of ['packages/app/src/App.session.test.tsx', 'packages/engine/src/orkEngine.test.ts']) {
+      const rules = await rulesFor(rel, STEP_A);
+      expect(STEP_A.map((r) => severity(rules[r])), rel).toEqual([2, 2, 2, 2, 2, 0]);
+    }
+  });
+
   it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
     // an operand of && / || beside a bound or Number.isFinite has a partner
@@ -236,5 +262,88 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4',
       'no-restricted-syntax@5', 'no-restricted-syntax@6',
     ]);
+  });
+});
+
+describe('eslint.config.mjs — a lint from the repo root reaches what CI’s does', () => {
+  it('keeps every folder .gitignore keeps out of the repo out of the lint, and nothing tracked', async () => {
+    // Flat config does not read .gitignore. On 2026-09-30 docs/, .claude/ and
+    // .playwright-mcp/ held 51 local-only scripts, and the pre-push
+    // `npm run lint -- --max-warnings 0` exited 1 with 239 errors in them while
+    // CI, a fresh clone without them, passed — so the local gate always failed.
+    // Every directory entry is probed, so a folder added to .gitignore later is
+    // covered the day it is added. An entry with no slash but its last matches
+    // at any depth, as git reads it: `vitest --coverage` run in packages/app
+    // writes packages/app/coverage/, which a root-anchored 'coverage/**' lints.
+    const dirs = readFileSync(new URL('../../../.gitignore', import.meta.url), 'utf8')
+      .split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l.endsWith('/') && !l.startsWith('#') && !l.startsWith('!'));
+    expect(dirs).toEqual(expect.arrayContaining(['docs/', '.claude/', '.playwright-mcp/', '.gemini-inputs/']));
+    for (const dir of dirs) {
+      const bases = dir.slice(0, -1).includes('/') ? [''] : ['', 'packages/app/'];
+      for (const probe of bases.flatMap((b) => [`${b}${dir}probe.mjs`, `${b}${dir}nested/probe.ts`])) {
+        expect(await eslint.isPathIgnored(probe), probe).toBe(true);
+      }
+    }
+    // The tracked source the gate exists for is still linted.
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/shareLink.test.ts',
+      'packages/engine/src/index.ts', 'packages/app/scripts/manufacturers.mjs', 'scripts/build-user-guide.mjs',
+      'eslint.config.mjs', 'packages/app/vite.config.ts']) {
+      expect(await eslint.isPathIgnored(rel), rel).toBe(false);
+    }
+  });
+
+  it('builds the engine before it lints, so the type-aware rules see its types', () => {
+    // packages/app reads the engine's types from packages/engine/dist, a build
+    // output. Linted cold, every engine import is an error type and the
+    // type-aware rules check less, so a local lint could pass where CI's, run
+    // after typecheck has built dist, fails (audit 2026-09-30). eslint comes
+    // last, so the `--max-warnings 0` in `npm run lint -- --max-warnings 0`
+    // reaches it and not the build.
+    const { scripts } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+    expect(scripts.lint).toBe('npm run build -w @online-openrocket/engine && eslint .');
+  });
+});
+
+describe('eslint.config.mjs — its header counts what is on', () => {
+  it('states how many type-aware rules are on and how many recommendedTypeCheckedOnly would add', async () => {
+    // The header sizes the move to typescript-eslint's type-aware presets, and
+    // its "would add" figure was wrong twice: "22 more" with six type-aware
+    // rules on, where 18 was right, then "17 more" with twelve, where 13 is
+    // (ten of the twelve are in the preset's 23; switch-exhaustiveness-check
+    // and no-meaningless-void-operator are not). Both figures are counted here
+    // from the installed typescript-eslint and the rules ESLint resolves for
+    // shipped source, so a rule turned on in the type-aware block, or a
+    // typescript-eslint bump that changes the preset, fails until the header
+    // says so. A figure may be written in digits or as a word.
+    const WORDS = ('zero one two three four five six seven eight nine ten eleven twelve thirteen '
+      + 'fourteen fifteen sixteen seventeen eighteen nineteen twenty').split(' ');
+    const text = readFileSync(new URL('../../../eslint.config.mjs', import.meta.url), 'utf8');
+    const header = text.slice(0, text.indexOf('\nimport ')).replace(/^\s*\/\/ ?/gm, '').replace(/\s+/g, ' ');
+    const stated = (re) => {
+      const m = header.match(re);
+      if (!m) return `no "${re.source}" in the header`;
+      return /^\d+$/.test(m[1]) ? Number(m[1]) : WORDS.indexOf(m[1].toLowerCase());
+    };
+    const { rules } = await eslint.calculateConfigForFile('packages/app/src/App.tsx');
+    const isOn = (entry) => ![undefined, 0, 'off'].includes(severity(entry));
+    const PREFIX = '@typescript-eslint/';
+    const needsTypes = (name) => name.startsWith(PREFIX)
+      && tseslint.plugin.rules[name.slice(PREFIX.length)]?.meta.docs?.requiresTypeChecking === true;
+    // The preset's own block. Its array also carries typescript-eslint's
+    // eslint-recommended block (no-var, prefer-const, prefer-rest-params,
+    // prefer-spread), which tseslint.configs.recommended already brings in
+    // here, prefer-const switched off on purpose: counted too, it reads 14.
+    const preset = tseslint.configs.recommendedTypeCheckedOnly
+      .find((c) => c.name === 'typescript-eslint/recommended-type-checked-only')?.rules ?? {};
+    const presetOn = Object.keys(preset).filter((name) => isOn(preset[name]));
+    expect(presetOn.length, 'rules typescript-eslint/recommended-type-checked-only turns on').toBeGreaterThan(0);
+    expect({
+      on: stated(/(\w+) type-aware RULES are on/),
+      adds: stated(/recommendedTypeCheckedOnly would add (\w+) more/),
+    }).toEqual({
+      on: Object.keys(rules).filter((name) => isOn(rules[name]) && needsTypes(name)).length,
+      adds: presetOn.filter((name) => !isOn(rules[name])).length,
+    });
   });
 });

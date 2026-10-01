@@ -51,8 +51,10 @@ full GPLv3 text is in this repository's [`LICENSE`](LICENSE) file.
 
 ## Building
 
-Requires Node 22.12+, Vitest 5's floor (the deploy runs Node 22). The physics
-kernel ships as a committed build artifact
+Requires Node 22.13 or later on the 22 line, or Node 24: `engines` in
+`package.json` is the range the toolchain supports (ESLint 10 needs 22.13, and
+Vitest 5 skips Node 23 and 25). The deploy runs Node 22, which `.nvmrc` names
+too. The physics kernel ships as a committed build artifact
 (`packages/engine/vendor/orkengine.mjs`), so a normal build needs **no JDK**.
 
 ```bash

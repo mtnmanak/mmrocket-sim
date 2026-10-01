@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
   catalogueMotorMass, changedMounts, flownSpec, hardwareMass, HARDWARE_MASS_TOLERANCE_KG,
-  LARGE_HARDWARE_FRACTION, LEGACY_PAD_MASS_KEY, motorIdentity, motorLoadedMass, motorSetIdentity,
+  LARGE_HARDWARE_FRACTION, LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity,
   parseSetIdentity, rekeyUnmatched, shiftMotorMass, type SetEntry,
 } from './hardwareMass.js';
 
@@ -361,10 +361,15 @@ describe('hardwareMass — the none states', () => {
     })).toEqual({ state: 'none', why: 'no-motor' });
   });
 
-  it('no mass curve: a motor with an empty or non-finite mass column', () => {
+  it('no mass curve: a motor with an empty, non-finite or negative mass column', () => {
     expect(hardwareMass({ ...base, padMassKg: 10.574, motors: [['mmt', { spec: spec([]) }]] }))
       .toEqual({ state: 'none', why: 'no-mass-curve' });
     expect(hardwareMass({ ...base, padMassKg: 10.574, motors: [['mmt', { spec: spec([Number.NaN, 0.5]) }]] }))
+      .toEqual({ state: 'none', why: 'no-mass-curve' });
+    // A curve that starts below zero is no weight either: the engine refuses it
+    // at setMotorById, so App never hands one over, and read as a figure it
+    // made 10,574 - 9,308 + 50 g = 1,316 g of "hardware" here.
+    expect(hardwareMass({ ...base, padMassKg: 10.574, motors: [['mmt', { spec: spec([-0.05, -0.06]) }]] }))
       .toEqual({ state: 'none', why: 'no-mass-curve' });
   });
 
@@ -375,7 +380,7 @@ describe('hardwareMass — the none states', () => {
   });
 });
 
-describe('shiftMotorMass and motorLoadedMass', () => {
+describe('shiftMotorMass', () => {
   it('shifts every mass sample and nothing else — the other arrays are the same references', () => {
     const catalogue = J540R();
     const shifted = shiftMotorMass(catalogue, 0.182);
@@ -395,12 +400,6 @@ describe('shiftMotorMass and motorLoadedMass', () => {
   it('is the identity on a zero shift', () => {
     const catalogue = J540R();
     expect(shiftMotorMass(catalogue, 0)).toBe(catalogue);
-  });
-
-  it('motorLoadedMass is the first sample, or null', () => {
-    expect(motorLoadedMass(J540R())).toBe(1.084);
-    expect(motorLoadedMass({ masses: [] })).toBeNull();
-    expect(motorLoadedMass({ masses: [Number.NaN] })).toBeNull();
   });
 });
 
