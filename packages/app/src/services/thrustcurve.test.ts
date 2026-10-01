@@ -338,6 +338,52 @@ describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
       expect(impulseNote({ designation: 'X', totImpulseNs: 0 }, hot.samples)).toBeNull();
     });
   });
+
+  /**
+   * Audit 2026-09-30 and the 1 October curve research (§8 item 2): the gate
+   * integrated the RAW file, but a file whose first sample comes after t = 0
+   * FLIES with a ramp up from (0, 0) in front — impulse the raw integral leaves
+   * out. The gate exists to compare the curve the app flies with the
+   * certification, so it measures that one.
+   */
+  describe('the impulse gate measures the curve flown', () => {
+    const MOTOR = { motorId: 'm', designation: 'M100', totImpulseNs: 100, burnTimeS: 2 } as TcMotor;
+    /** Starts at (0, 0), so raw and flown are one curve: a triangle of `area` N·s over 2 s. */
+    const fromZero = (area: number) => ({ format: 'RASP', source: 'user',
+      samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: area }, { time: 2, thrust: 0 }] });
+    /** A cert file whose first sample is (0.2 s, f N): 1.4 f raw, 1.5 f flown with its ramp. */
+    const lateStart = (f: number) => ({ format: 'RASP', source: 'cert',
+      samples: [{ time: 0.2, thrust: f }, { time: 1.2, thrust: f }, { time: 2, thrust: 0 }] });
+    const flownImpulse = (file: { samples: TcSample[] }): number => {
+      const spec = samplesToMotorSpec(MOTOR, file.samples, 5, { totalWeightG: 100, propWeightG: 50 });
+      return fileImpulseNs({ samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })) });
+    };
+
+    it('the premise: a late first sample flies more impulse than its raw samples hold', () => {
+      expect(fileImpulseNs(lateStart(70))).toBeCloseTo(98, 9);
+      expect(flownImpulse(lateStart(70))).toBeCloseTo(105, 9);
+    });
+
+    it('no longer passes a cert file whose flown curve is 5 % hot', () => {
+      // Raw it read 98 N·s (−2 %), passed, and the cert flag then beat a file
+      // that delivers the certified 100 exactly. It flies 105 (+5 %).
+      const exact = fromZero(100);
+      const hot = lateStart(70);
+      expect(pickSampleFile([hot, exact], MOTOR)).toBe(exact);
+      expect(pickSampleFile([exact, hot], MOTOR)).toBe(exact);
+    });
+
+    it('passes a cert file whose raw samples read low but whose flown curve agrees', () => {
+      // Raw 95.2 N·s (−4.8 %) failed, so a +2 % user file won; it flies 102
+      // (+2 %), inside the gate, and the cert flag decides as it should.
+      const low = lateStart(68);
+      expect(fileImpulseNs(low)).toBeCloseTo(95.2, 9);
+      expect(flownImpulse(low)).toBeCloseTo(102, 9);
+      const user = fromZero(102);
+      expect(pickSampleFile([user, low], MOTOR)).toBe(low);
+      expect(pickSampleFile([low, user], MOTOR)).toBe(low);
+    });
+  });
 });
 
 describe('samplesToMotorSpec — end to end on the damaged curve', () => {
@@ -489,6 +535,19 @@ J1026 38 625.5 P 0.616 1.172 Loki
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatch(/^The thrust curve flown for J570W integrates to 1034 N·s, \+6\.2 % against the 973\.1 N·s/);
     expect(notes[0]).toMatch(/read high/);
+  });
+
+  it('AeroTech I65W: flies the file that delivers its certified 630.5 N·s, not a cert file flying +4.7 %', async () => {
+    // Its cert RASP file starts at (0.18 s, 125.41 N): raw it reads 648.63
+    // N·s (+2.88 %) and passed the 3 % gate, where it won on provenance;
+    // flown it is 659.92 (+4.67 %). The user RockSim file flies 630.51.
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const i65w = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'AeroTech' && x.designation === 'I65W')!;
+    const spec = await fetchMotorSpec(i65w, 10);
+    expect(fileImpulseNs({ samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })) }))
+      .toBeCloseTo(630.51, 1);
+    expect(spec.masses[0]).toBeCloseTo(0.7761, 6); // that file's loaded mass, 776.1 g
   });
 
   it('Estes 1/2A6 — no catalogue weight, good bundled file — now loads from the shipped data', async () => {

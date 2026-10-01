@@ -426,8 +426,9 @@ export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>
 }
 
 /**
- * Trapezoidal integral of a thrust curve (N·s). Exported so the motor browser
- * and the tests measure a file the same way the picker does.
+ * Trapezoidal integral of a thrust curve (N·s), as given. The picker's impulse
+ * gate and the impulse note apply it to the curve a file FLIES (flownCurve),
+ * never to the raw file; the tests use it to measure either.
  */
 export function fileImpulseNs(file: TcSimFile): number {
   const s = file.samples ?? [];
@@ -436,6 +437,20 @@ export function fileImpulseNs(file: TcSimFile): number {
     a += (s[i]!.time - s[i - 1]!.time) * (s[i]!.thrust + s[i - 1]!.thrust) / 2;
   }
   return a;
+}
+
+/**
+ * The curve a file FLIES: repaired (repairSamples), and starting at t = 0
+ * with a zero-thrust point when the file starts later, which the kernel
+ * requires. samplesToMotorSpec builds every catalogue MotorSpec from it, and
+ * the picker's impulse gate measures it, so the curve compared with the
+ * certification is the one the app flies (audit 2026-09-30).
+ */
+function flownCurve(samples: readonly TcSample[]): { samples: TcSample[]; repairs: string[] } {
+  const repaired = repairSamples(samples);
+  const pts = repaired.samples;
+  if (pts.length > 0 && pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
+  return { samples: pts, repairs: repaired.repairs };
 }
 
 export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): TcSimFile | null {
@@ -448,7 +463,9 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
     // being flown as NaN. It also makes `sound()` below mean something: on
     // undefined times `p.time > s[i-1].time` is simply false, which scored a
     // damaged file identically to a merely out-of-order one.
-    .filter(({ file }) => (file.samples?.length ?? 0) >= 2 && isSampleList(file.samples));
+    .filter(({ file }) => (file.samples?.length ?? 0) >= 2 && isSampleList(file.samples))
+    // Each file's impulse AS FLOWN, measured once rather than per comparison.
+    .map((u) => ({ ...u, flownNs: fileImpulseNs({ samples: flownCurve(u.file.samples!).samples }) }));
   if (usable.length === 0) return null;
 
   const sound = ({ file }: { file: TcSimFile }): number => {
@@ -484,10 +501,17 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
   // BELOW burn-time agreement (a wrong loading is a different motor) and ABOVE
   // provenance (a cert file that misstates the total is still the wrong number
   // to fly). Neutral when the catalogue has no total to compare against.
-  const impulseAgrees = ({ file }: { file: TcSimFile }): number => {
+  //
+  // Measured on the curve the file FLIES (flownCurve), not its raw samples,
+  // since the 2026-09-30 audit: a file whose first sample comes after t = 0
+  // flies a ramp up from (0, 0) that the raw integral leaves out, and the gate
+  // exists to compare what flies with the certification. The figures above are
+  // raw, as the 2026-09-07 census took them; flown, the J460T's cert file is
+  // 858 N·s (+6.5 %). The move changed 16 picks in the 2026-09-30 bundle.
+  const impulseAgrees = ({ flownNs }: { flownNs: number }): number => {
     const ref = motor?.totImpulseNs;
     if (!(typeof ref === 'number' && ref > 0)) return 1;
-    return Math.abs(fileImpulseNs(file) / ref - 1) <= IMPULSE_AGREEMENT ? 1 : 0;
+    return Math.abs(flownNs / ref - 1) <= IMPULSE_AGREEMENT ? 1 : 0;
   };
   // thrustcurve.org's own provenance flag: "cert" is the certification body's
   // data, everything else was uploaded by a user or a manufacturer.
@@ -694,15 +718,13 @@ export function samplesToMotorSpec(
   /** The data file's own masses; they win over the catalog (see headerMasses). */
   fromFile?: TcHeaderMasses | null,
 ): RepairedMotorSpec {
-  // Normalize: repaired (strictly increasing times), starting at t=0.
+  // Normalize: repaired (strictly increasing times), starting at t=0 — the
+  // curve the file flies, which the picker's impulse gate measures too.
   if (samples.length === 0) {
     throw new Error(`No thrust samples for ${motor.designation}`);
   }
-  const repaired = repairSamples(samples);
+  const repaired = flownCurve(samples);
   const pts = repaired.samples;
-  if (pts[0]!.time > 0) {
-    pts.unshift({ time: 0, thrust: 0 });
-  }
 
   // thrustcurve.org's catalog is not uniformly populated: 145 of the 1,156
   // bundled entries publish no loaded weight and 13 no propellant weight
@@ -773,10 +795,11 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  *
- * Bumping made them UNREACHABLE; it never freed them. Five generations have
- * shipped — `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
- * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in v0.111-v0.115,
- * `tc:samples:v5:` from v0.116 (below) — and the
+ * Bumping made them UNREACHABLE; it never freed them. Six generations have
+ * shipped or are shipping — `tc:samples:` through v0.060, `tc:samples:v2:` in
+ * v0.061-v0.064, `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in
+ * v0.111-v0.115, `tc:samples:v5:` from v0.116 to 2026-10-01, `tc:samples:v6:`
+ * after it (below) — and the
  * beta invite went out 2026-08-22, so day-one testers hold dead generations
  * that can never be read and, until sweepDeadGenerations() below, could never
  * be freed either. Whoever bumps this next: change only the version segment,
@@ -802,9 +825,15 @@ export function samplesToMotorSpec(
  * (see IMPULSE_AGREEMENT), which moves 14 motors to a different file. Same
  * rule as above, applied the same day it was written down: bumped in the same
  * commit, v4 becomes a dead generation, sweepDeadGenerations() frees it.
+ *
+ * v6 (2026-10-01, audit 2026-09-30): that term measures the curve a file
+ * FLIES (flownCurve), not its raw samples, which moves 16 motors of the
+ * 2026-09-30 bundle to a different file: 5 to a different flown curve (the
+ * AeroTech I65W by -4.46 % of impulse), 5 to the same curve with different
+ * masses, 6 to the same curve and masses. Same rule, so v5 is dead too.
  */
 const CACHE_ROOT = 'tc:samples:';
-const CACHE_PREFIX = `${CACHE_ROOT}v5:`;
+const CACHE_PREFIX = `${CACHE_ROOT}v6:`;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.
