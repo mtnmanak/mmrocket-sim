@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { resetNozzleDbCache } from '../services/nozzleDb.js';
 
 /**
  * THE NOZZLE DATA COULD NOT BE DOWNLOADED (audit 2026-09-30). `nozzles.json` is
@@ -50,6 +51,9 @@ let committed: (number | null)[];
 beforeAll(async () => { await import('../data/nozzles.json'); });
 
 beforeEach(() => {
+  // Every case starts with nothing loaded: a map an earlier case loaded would
+  // answer this case's look-up without reading `data.fail` at all.
+  resetNozzleDbCache();
   data.fail = true;
   committed = [];
   host = document.createElement('div');
@@ -115,6 +119,24 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     expect(committed).toEqual([]);
   });
 
+  // SECOND ON PURPOSE. This is the one case that LOADS the data, and nozzleDb
+  // keeps a loaded map for as long as its module lives, which is the whole
+  // file. Every case after this one needs the look-up to fail, so they fail in
+  // the default order if the map is ever carried from one case to the next —
+  // the order dependence a shuffled run found (2026-10-01), when this case ran
+  // last and hid it.
+  it('fills the field once a later look-up can load the data — a failure is not kept', async () => {
+    render({ exitDiameterM: null });
+    await waitFor(() => note() !== null, 'the could-not-load note');
+    data.fail = false;
+    // A new loadout looks again (four of the same motor: twice one exit).
+    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
+    await waitFor(() => committed.length > 0, 'the fill');
+    expect(committed[0]).toBeCloseTo(2 * D13_EXIT_M, 9);
+    expect(note()).toBeNull();
+    expect(text()).not.toMatch(/could not be loaded/);
+  });
+
   it('does not claim the blank switches anything off when the field holds a value', async () => {
     render({ exitDiameterM: 0.0102 });
     await waitFor(() => note() !== null, 'the could-not-load note');
@@ -141,17 +163,5 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     await waitFor(() => note() !== null, 'the could-not-load note');
     expect(host.querySelector('[data-nozzle="cleared"]')?.textContent).toMatch(/was for J350W/);
     expect(text()).not.toMatch(/No published exit diameter/);
-  });
-
-  it('fills the field once a later look-up can load the data — a failure is not kept', async () => {
-    render({ exitDiameterM: null });
-    await waitFor(() => note() !== null, 'the could-not-load note');
-    data.fail = false;
-    // A new loadout looks again (four of the same motor: twice one exit).
-    render({ exitDiameterM: null, motors: [{ motorId: D13, count: 4 }] });
-    await waitFor(() => committed.length > 0, 'the fill');
-    expect(committed[0]).toBeCloseTo(2 * D13_EXIT_M, 9);
-    expect(note()).toBeNull();
-    expect(text()).not.toMatch(/could not be loaded/);
   });
 });
