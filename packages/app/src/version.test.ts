@@ -86,3 +86,51 @@ describe('APP_VERSION / CHANGELOG / version.json pairing', () => {
     }
   });
 });
+
+/**
+ * A PERCENTAGE BESIDE A CHANGE OF DIAMETER MUST SAY WHICH IT IS, AND BE RIGHT.
+ *
+ * Area goes as the square of diameter, and this project's notes have mixed the
+ * two up more than once: v0.130 corrected "five and a half times the AREA" (it
+ * was four), and v0.133's own correction of v0.132 then called two DIAMETER
+ * increases "more area" - 01500-10 from .180 to .242 in is 34 % wider and 81 %
+ * more area, and 01500-15 from .180 to .281 in is 56 % wider and 144 % more
+ * area. So a note that writes "from <d1> to <d2> in" and puts a percentage after
+ * it is held to its own two numbers here: "wider" is the diameter ratio, "more
+ * area" the square of it, and a bare "percent more" names neither, which is how
+ * the second of those two shipped.
+ */
+describe('changelog percentages beside a change of diameter', () => {
+  const CHANGE = /from (\d*\.\d+) to (\d*\.\d+) in(?:ch(?:es)?)?,\s*(?:which is\s+)?(\d+) percent (wider|more area|more)(?: and (\d+) percent more area)?/g;
+  const pct = (ratio: number) => Math.round(100 * (ratio - 1));
+
+  function wrongClaims(text: string): string[] {
+    const bad: string[] = [];
+    for (const m of text.matchAll(CHANGE)) {
+      const [said, d1, d2, first, noun, second] = m;
+      const ratio = Number(d2) / Number(d1);
+      if (noun === 'more') bad.push(`"${said}": percent more of what, the diameter or the area?`);
+      if (noun === 'wider' && Number(first) !== pct(ratio)) bad.push(`"${said}": the diameter grows ${pct(ratio)} %`);
+      const area = noun === 'more area' ? first : second;
+      if (area !== undefined && Number(area) !== pct(ratio ** 2)) bad.push(`"${said}": the area grows ${pct(ratio ** 2)} %`);
+    }
+    return bad;
+  }
+
+  it('states each one as the diameter or the area, and gets it right', () => {
+    const bad = CHANGELOG.flatMap((e) => e.items.flatMap((item) => wrongClaims(item).map((b) => `${e.version}: ${b}`)));
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('is not vacuous: it reads the v0.133 throat correction, both parts of it', () => {
+    const entry = CHANGELOG.find((e) => e.version === '0.133');
+    expect(entry).toBeDefined();
+    expect(entry!.items.flatMap((item) => [...item.matchAll(CHANGE)])).toHaveLength(2);
+  });
+
+  it('refuses the shapes that shipped: a diameter figure called area, and a percentage of nothing', () => {
+    expect(wrongClaims('from .180 to .242 in, which is 34 percent more area')).toHaveLength(1);
+    expect(wrongClaims('from .180 to .281 in, 56 percent more - and')).toHaveLength(1);
+    expect(wrongClaims('from .180 to .242 in, which is 34 percent wider and 81 percent more area')).toEqual([]);
+  });
+});
