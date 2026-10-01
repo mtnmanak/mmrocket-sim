@@ -7,7 +7,7 @@ import {
 } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
+  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
 import { runStoppedEarly, type SimRun } from '../services/simReport.js';
@@ -274,6 +274,47 @@ export const BATCH_MAX_FLIGHTS = 20_000;
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
 
 /**
+ * The motors a sweep of this mount flies, highest impulse first; how many the
+ * mount's max motor length left out (EXCLUDED, not just flagged: in a batch
+ * there's no point flying motors that don't fit); and the maker chips that
+ * applied. One function for the list on screen and for the refusal's question
+ * of what unticking "include OOP" would leave (batchRefusal), so the two cannot
+ * filter differently.
+ *
+ * The maker chips that APPLY are the stored selection intersected with the
+ * makers this mount offers as chips — the rule the diameter classes always
+ * followed, and the motor browser's. The criteria persist across sessions and
+ * mounts, so Loki chosen on a 54 mm mount (it makes nothing under 38 mm), or an
+ * out-of-production-only maker once "include OOP" was unticked, went on
+ * filtering with no chip on screen: "0 candidate motors", Simulate disabled,
+ * nothing to say why (audit 2026-09-30). The stored list is left as it is, so
+ * the choice comes back on a mount that offers it.
+ */
+export function batchCandidates(
+  criteria: Pick<Criteria, 'manufacturers' | 'classes' | 'includeOOP'>,
+  mount: { diameterMm: number; maxMotorLengthM: number | null },
+  motors: MotorDbEntry[],
+): { candidates: MotorDbEntry[]; tooLongCount: number; appliedMakers: string[] } {
+  const offered = new Set(manufacturersForMount(mount.diameterMm, criteria.includeOOP, motors).map((m) => m.abbrev));
+  const appliedMakers = criteria.manufacturers.filter((m) => offered.has(m));
+  const fittingClasses = classesFittingMount(mount.diameterMm, motors);
+  const filtered = filterMotors({
+    manufacturers: new Set(appliedMakers),
+    classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
+    boreMm: mount.diameterMm,
+    includeOOP: criteria.includeOOP,
+    text: '',
+  }, motors);
+  const room = mount.maxMotorLengthM;
+  const fitting = room === null ? filtered : filtered.filter((m) => m.length / 1000 <= room);
+  return {
+    candidates: sortMotors(fitting, 'totImpulseNs', -1),
+    tooLongCount: filtered.length - fitting.length,
+    appliedMakers,
+  };
+}
+
+/**
  * How many flights a sweep of `n` candidates flies with these combination
  * splits ticked (each split's group count): every candidate alone, plus each
  * split's mixed combinations — the total runBatchSweep counts its progress to.
@@ -330,28 +371,41 @@ export function batchEstimate(
 }
 
 /**
- * Why a sweep past BATCH_MAX_FLIGHTS will not start, and every way to bring it
- * under: the ticked combination modes, by the words on their boxes; the number
- * of candidates that fits with them still ticked; and the out-of-production
- * motors when they are in. Null when the sweep fits.
+ * Why a sweep past BATCH_MAX_FLIGHTS will not start, and the ways to bring it
+ * under — only the ways that do, each checked by counting the flights it would
+ * leave (review of the cap, 2026-10-01). It used to offer unticking "include
+ * OOP" whenever out-of-production motors were in, and either combination box
+ * when both were ticked: a 29 mm 4-ring with "mixed 2+2" is 314 candidates and
+ * 49,455 flights with them in, and still 232 and 27,028 without, and unticking
+ * "mixed 3+3" alone leaves the 4+2 / 2+2+2 split, the one that explodes. Named:
+ * each box whose unticking is enough by itself (else every box together), the
+ * candidate count that fits with the boxes still ticked, and unticking include
+ * OOP when that alone gets there. Null when the sweep fits.
  */
-export function batchRefusal({ flights, groups, modes, includeOOP, optimalDelay, timeStepS }: {
-  flights: number;
-  /** Each ticked split's group count, as batchFlightCount takes them. */
-  groups: readonly number[];
-  /** The ticked combination modes, by the words on their boxes. */
-  modes: readonly string[];
-  includeOOP: boolean;
+export function batchRefusal({ candidates, withoutOOP, modes, optimalDelay, timeStepS }: {
+  /** How many candidates the filters leave. */
+  candidates: number;
+  /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
+  withoutOOP: number | null;
+  /** The ticked combination modes: the words on each box, and its split's group count. */
+  modes: readonly { name: string; groups: number }[];
   optimalDelay: boolean;
   timeStepS?: number | null;
 }): string | null {
+  const groupsOf = (ms: readonly { groups: number }[]) => ms.map((m) => m.groups);
+  const fits = (n: number, ms: readonly { groups: number }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
+  const flights = batchFlightCount(candidates, groupsOf(modes));
   if (flights <= BATCH_MAX_FLIGHTS) return null;
   const atCap = batchDurationText(batchSweepSeconds({ flights: BATCH_MAX_FLIGHTS, optimalDelay, timeStepS }));
-  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groups))} or fewer with the maker and `
-    + `diameter chips${includeOOP ? ', or by unticking include OOP' : ''}`;
-  const how = modes.length > 0
-    ? `Untick ${modes.join(' or ')}, or ${narrow}`
-    : narrow[0]!.toUpperCase() + narrow.slice(1);
+  const alone = modes.filter((m) => fits(candidates, modes.filter((o) => o !== m)));
+  const untick = alone.length > 0 ? `Untick ${alone.map((m) => m.name).join(' or ')}`
+    : modes.length > 1 && fits(candidates, [])
+      ? `Untick ${modes.length === 2 ? 'both ' : ''}${modes.map((m) => m.name).join(' and ')}`
+      : null;
+  const oop = withoutOOP !== null && fits(withoutOOP, modes) ? ', or by unticking include OOP' : '';
+  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groupsOf(modes)))} or fewer with the `
+    + `maker and diameter chips${oop}`;
+  const how = untick ? `${untick}, or ${narrow}` : narrow[0]!.toUpperCase() + narrow.slice(1);
   return `${group(flights)} flights is more than one batch will fly: the most is ${group(BATCH_MAX_FLIGHTS)}, `
     + `${atCap} at the measured pace. ${how}.`;
 }
@@ -549,39 +603,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     () => manufacturersForMount(mountDiameterMm, criteria.includeOOP, allMotors),
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
-  /**
-   * The maker chips that APPLY: the stored selection intersected with the
-   * makers this mount offers as chips — the rule the diameter classes below
-   * always followed, and the motor browser's. The criteria persist across
-   * sessions and mounts, so Loki chosen on a 54 mm mount (it makes nothing under
-   * 38 mm), or an out-of-production-only maker once "include OOP" was unticked,
-   * went on filtering with no chip on screen: "0 candidate motors", Simulate
-   * disabled, nothing to say why (audit 2026-09-30). The stored list is left as
-   * it is, so the choice comes back on a mount that offers it.
-   */
-  const appliedMakers = useMemo(() => {
-    const offered = new Set(manufacturers.map((m) => m.abbrev));
-    return criteria.manufacturers.filter((m) => offered.has(m));
-  }, [criteria.manufacturers, manufacturers]);
-
-  // Motors longer than the selected mount's max motor length are EXCLUDED here (not
-  // just flagged): in a batch there's no point flying motors that don't fit.
-  const { candidates, tooLongCount } = useMemo(() => {
-    const filtered = filterMotors({
-      manufacturers: new Set(appliedMakers),
-      classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
-      boreMm: mountDiameterMm,
-      includeOOP: criteria.includeOOP,
-      text: '',
-    }, allMotors);
-    const fitting = maxMotorLengthM === null
-      ? filtered
-      : filtered.filter((m) => m.length / 1000 <= maxMotorLengthM);
-    return {
-      candidates: sortMotors(fitting, 'totImpulseNs', -1),
-      tooLongCount: filtered.length - fitting.length,
-    };
-  }, [criteria, appliedMakers, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
+  // The candidates, through the maker chips that apply here (batchCandidates).
+  const { candidates, tooLongCount, appliedMakers } = useMemo(
+    () => batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors),
+    [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
+  // What unticking "include OOP" would leave — the same filters, run again —
+  // so the refusal offers it only when it is enough.
+  const withoutOOP = useMemo(() => (criteria.includeOOP
+    ? batchCandidates({ ...criteria, includeOOP: false }, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors)
+      .candidates.length
+    : null), [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
 
   /**
    * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
@@ -753,7 +784,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const pace = { flights: totalFlights, optimalDelay: criteria.autoDelay, timeStepS: launch.timeStepS };
   const estimate = batchEstimate(pace);
   const refusal = batchRefusal({
-    ...pace, groups: ticked.map((t) => t.groups), modes: ticked.map((t) => t.name), includeOOP: criteria.includeOOP,
+    candidates: candidates.length, withoutOOP, modes: ticked,
+    optimalDelay: criteria.autoDelay, timeStepS: launch.timeStepS,
   });
 
   // Disarm the second-ask whenever the sweep's size changes: unticking a

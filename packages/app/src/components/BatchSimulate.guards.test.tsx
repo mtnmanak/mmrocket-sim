@@ -141,21 +141,46 @@ describe('the cap', () => {
     expect(batchMaxCandidates([2])).toBe(199);
   });
 
+  const HALVES_2 = { name: 'mixed 2+2', groups: 2 };
+  const HALVES_3 = { name: 'mixed 3+3', groups: 2 };
+  const PAIRS = { name: 'mixed 4+2 / 2+2+2', groups: 3 };
+
   it('refuses nothing at the cap, and past it says why and how to narrow the sweep', () => {
     const pace = { optimalDelay: true };
-    expect(batchRefusal({ flights: BATCH_MAX_FLIGHTS, groups: [2], modes: ['mixed 3+3'], includeOOP: false, ...pace }))
-      .toBeNull();
-    const said = batchRefusal({
-      flights: 1_949_476, groups: [3], modes: ['mixed 4+2 / 2+2+2'], includeOOP: false, ...pace,
-    })!;
+    const atCap = batchMaxCandidates([2]);
+    expect(batchRefusal({ candidates: atCap, withoutOOP: null, modes: [HALVES_3], ...pace })).toBeNull();
+    expect(batchRefusal({ candidates: atCap + 1, withoutOOP: null, modes: [HALVES_3], ...pace })).not.toBeNull();
+    const said = batchRefusal({ candidates: 226, withoutOOP: null, modes: [PAIRS], ...pace })!;
     expect(said).toBe('1,949,476 flights is more than one batch will fly: the most is 20,000, about 11 h at the '
       + 'measured pace. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 48 or fewer with the maker '
       + 'and diameter chips.');
-    // Both modes ticked, and out-of-production motors included: every way down is named.
-    expect(batchRefusal({
-      flights: 300_000, groups: [2, 3], modes: ['mixed 3+3', 'mixed 4+2 / 2+2+2'], includeOOP: true, ...pace,
-    })).toContain('Untick mixed 3+3 or mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer with the '
-      + 'maker and diameter chips, or by unticking include OOP.');
+  });
+
+  /**
+   * EVERY WAY IT NAMES WORKS ON ITS OWN (review of the cap, 2026-10-01). It
+   * offered unticking "include OOP" whenever out-of-production motors were in,
+   * and either combination box when both were ticked — each checked against
+   * nothing — so it told a user to do things that left the sweep refused.
+   */
+  it('names only the ways that bring the sweep under the cap on their own', () => {
+    const pace = { optimalDelay: true };
+    // A 29 mm 4-ring with "mixed 2+2" and include OOP: 314 candidates, 49,455
+    // flights. Unticking include OOP leaves 232 and 27,028 — still refused.
+    expect(batchRefusal({ candidates: 314, withoutOOP: 232, modes: [HALVES_2], ...pace }))
+      .toBe('49,455 flights is more than one batch will fly: the most is 20,000, about 11 h at the measured pace. '
+        + 'Untick mixed 2+2, or bring the candidates down to 199 or fewer with the maker and diameter chips.');
+    // A 54 mm 4-ring with the Cesaroni chip: 202 with OOP motors in, 196
+    // without — 19,306 flights, so that one IS enough, and is named.
+    expect(batchRefusal({ candidates: 202, withoutOOP: 196, modes: [HALVES_2], ...pace }))
+      .toContain('. Untick mixed 2+2, or bring the candidates down to 199 or fewer with the maker and diameter '
+        + 'chips, or by unticking include OOP.');
+    // Both boxes on a 6-ring, 113 candidates: unticking 3+3 alone still leaves
+    // the split that explodes (246,905 flights), so only the other is named…
+    expect(batchRefusal({ candidates: 113, withoutOOP: null, modes: [HALVES_3, PAIRS], ...pace }))
+      .toContain('. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer');
+    // …and past 199 neither is enough alone (232: 27,028 flights with 3+3 left on).
+    expect(batchRefusal({ candidates: 232, withoutOOP: null, modes: [HALVES_3, PAIRS], ...pace }))
+      .toContain('. Untick both mixed 3+3 and mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer');
   });
 });
 
@@ -205,12 +230,12 @@ describe('the batch dialog', () => {
     localStorage.clear();
   });
 
-  const mount = () => act(() => root.render(
+  const mount = (tree: RocketTree = TREE, mounts: BatchMountOption[] = MOUNTS) => act(() => root.render(
     <PrefsProvider>
       <BatchSimulate
-        tree={TREE}
+        tree={tree}
         info={{} as never}
-        mounts={MOUNTS}
+        mounts={mounts}
         initialMountId="mount"
         assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={DEFAULT_CONDITIONS}
@@ -364,6 +389,75 @@ describe('the batch dialog', () => {
     act(() => { pairsBox().click(); });
     expect(primary().disabled).toBe(false);
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  /** The refusal's sentence, or '' when the sweep is not refused. */
+  const refusedText = () => host.querySelector('.batch-refused')?.textContent ?? '';
+
+  it('with both boxes ticked, names only the one whose unticking brings the sweep under the cap', () => {
+    mount();
+    act(() => { halvesBox().click(); });
+    act(() => { pairsBox().click(); });
+    expect(refusedText()).toContain('Untick mixed 4+2 / 2+2+2, or bring the candidates down to '
+      + `${batchMaxCandidates([2, 3])} or fewer`);
+    // Unticking 3+3 alone leaves the split that explodes: still refused.
+    expect(refusedText()).not.toContain('Untick mixed 3+3');
+    act(() => { halvesBox().click(); });
+    expect(primary().disabled).toBe(true);
+  });
+
+  /** A 4-ring: its one combination box is "mixed 2+2". */
+  const fourRing = (diameterMm: number): [RocketTree, BatchMountOption[]] => [{
+    name: 'Four bird',
+    components: [{
+      type: 'stage', id: 'st0', name: 'Sustainer',
+      children: [{
+        type: 'bodytube', id: 'bt', length: 0.6,
+        children: [{ type: 'innertube', id: 'mount', cluster: '4-ring', length: 0.07 }],
+      }],
+    }],
+  }, [{ id: 'mount', label: `${diameterMm} mm 4-ring`, diameterMm, motorCount: 4, maxMotorLengthM: null }]];
+  const CRITERIA_KEY = 'online-openrocket.batch-criteria.v1';
+
+  it('offers unticking include OOP only when that alone brings the sweep under the cap', () => {
+    // The 29 mm 4-ring of the review: 314 candidates with OOP motors in, 232 without.
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true }));
+    mount(...fourRing(29));
+    act(() => { box('mixed 2+2').click(); });
+    expect(refusedText()).toContain('flights is more than one batch will fly');
+    expect(refusedText()).not.toContain('include OOP');
+    // And rightly: unticked, the sweep is still refused.
+    act(() => { box('include OOP').click(); });
+    expect(primary().disabled).toBe(true);
+  });
+
+  it('counts what unticking include OOP leaves through the same filters, makers that stop applying included', () => {
+    // Kosdon, Ellis and KBA are all out of production at 38 mm. Unticked, the
+    // stored makers no longer apply and the sweep widens to every motor in
+    // production: unticking does not shrink this sweep, it grows it.
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true, manufacturers: ['Kosdon', 'Ellis', 'KBA'] }));
+    mount(TREE, [{ ...MOUNTS[0]!, label: '38 mm cluster', diameterMm: 38 }]);
+    /** The meta line's "<n> candidate motors". */
+    const metaCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
+    act(() => { pairsBox().click(); });
+    const before = metaCount();
+    expect(refusedText()).toContain('flights is more than one batch will fly');
+    expect(refusedText()).not.toContain('include OOP');
+    act(() => { box('include OOP').click(); });
+    expect(metaCount()).toBeGreaterThan(before);
+    expect(primary().disabled).toBe(true);
+  });
+
+  it('and offers it when it is enough', () => {
+    // 54 mm with the Cesaroni chip: 202 with OOP motors in, 196 without.
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true, manufacturers: ['Cesaroni'] }));
+    mount(...fourRing(54));
+    act(() => { box('mixed 2+2').click(); });
+    expect(primary().disabled, 'the shipped catalogue still puts this sweep over the cap').toBe(true);
+    expect(refusedText()).toContain('or by unticking include OOP.');
+    act(() => { box('include OOP').click(); });
+    expect(primary().disabled).toBe(false);
+    expect(refusedText()).toBe('');
   });
 });
 
