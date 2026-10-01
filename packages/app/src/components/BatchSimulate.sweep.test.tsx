@@ -350,6 +350,46 @@ describe('the finished line', () => {
   });
 });
 
+describe('the finished line reaches a screen reader (audit 2026-09-30)', () => {
+  /**
+   * It was a role="status" paragraph MOUNTED with its text already in it — the
+   * pattern this dialog's own progress region says is announced unreliably —
+   * and it is the announcement a screen-reader user waits a multi-minute sweep
+   * for; the progress region speaks only each tenth. The region is now always
+   * mounted, and the line is rendered into it.
+   */
+  it('lands in a status region that was there, empty, before the sweep started', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    mount();
+    const region = host.querySelector('.batch-status');
+    expect(region?.getAttribute('role')).toBe('status');
+    expect(region!.textContent).toBe('');
+    await start();
+    // The same node, not a fresh one inserted with the text in place.
+    expect(host.querySelector('.batch-status')).toBe(region);
+    expect(region!.textContent).toMatch(/^Finished — simulated 1 motor;/);
+    // One live region, not one nested inside another.
+    expect(region!.querySelectorAll('[role="status"]')).toHaveLength(0);
+  });
+
+  it('empties when the next sweep starts, so that sweep’s ending is new text again', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    mount();
+    await start();
+    const region = host.querySelector('.batch-status')!;
+    expect(region.textContent).not.toBe('');
+    let finish!: () => void;
+    sweep.mockImplementation(() => new Promise((resolve) => {
+      finish = () => resolve({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    }));
+    await start();
+    expect(region.textContent).toBe('');
+    await act(async () => { finish(); });
+    expect(host.querySelector('.batch-status')).toBe(region);
+    expect(region.textContent).toMatch(/^Finished/);
+  });
+});
+
 describe('under StrictMode', () => {
   /**
    * The unmount flag was set in the effect's cleanup and never cleared, and

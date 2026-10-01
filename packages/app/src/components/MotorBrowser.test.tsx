@@ -308,10 +308,31 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
     h = openBrowser({ mountDiameterMm: 29 });
     click(checkButton(h));
-    for (let i = 0; i < 50 && !h.host.querySelector('.file-note[role="status"]'); i++) await settle(10);
-    const note = h.host.querySelector('.file-note[role="status"]')!;
+    for (let i = 0; i < 50 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
+    const note = h.host.querySelector('.motor-check-status .file-note')!;
     expect(note.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
     expect(note.textContent).toMatch(/returned no motors at all for Klima/);
+  });
+
+  /**
+   * The result was a role="status" box MOUNTED with its text already in it,
+   * which this file's own live-region note says is announced unreliably — so a
+   * screen-reader user pressed Check and heard nothing back (audit 2026-09-30).
+   * The region is now always mounted, and the result is rendered into it.
+   */
+  it('reports into a status region that was there, empty, before the check', async () => {
+    await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
+    h = openBrowser({ mountDiameterMm: 29 });
+    const region = h.host.querySelector('.motor-check-status');
+    expect(region?.getAttribute('role')).toBe('status');
+    expect(region!.textContent).toBe('');
+    click(checkButton(h));
+    for (let i = 0; i < 50 && !region!.textContent; i++) await settle(10);
+    // The same node, not a fresh one inserted with the text in place.
+    expect(h.host.querySelector('.motor-check-status')).toBe(region);
+    expect(region!.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
+    // One live region, not one nested inside another.
+    expect(region!.querySelectorAll('[role="status"]')).toHaveLength(0);
   });
 
   it('reports a failed check as an alert and installs nothing', async () => {
@@ -357,8 +378,8 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     };
     const check = async (h: Harness) => {
       click(checkButton(h));
-      for (let i = 0; i < 100 && !h.host.querySelector('.file-note[role="status"]'); i++) await settle(10);
-      expect(h.host.querySelector('.file-note[role="status"]')!.textContent).toMatch(/1 new, 1 changed/);
+      for (let i = 0; i < 100 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
+      expect(h.host.querySelector('.motor-check-status .file-note')!.textContent).toMatch(/1 new, 1 changed/);
     };
     const discard = (h: Harness) => click(Array.from(h.host.querySelectorAll('button'))
       .find((b) => b.textContent?.includes('Discard fetched changes'))!);
@@ -508,9 +529,12 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
 
   it('has its status and alert regions in place before any message', () => {
     // A live region inserted with its text already in it is announced unreliably.
+    // The first is the catalogue check's result (audit 2026-09-30), the other two
+    // a load's or an import's.
     h = openBrowser({ mountDiameterMm: 54 });
     const regions = h.host.querySelectorAll('.motor-browser > [role="status"], .motor-browser > [role="alert"]');
-    expect(Array.from(regions).map((r) => [r.getAttribute('role'), r.textContent])).toEqual([['status', ''], ['alert', '']]);
+    expect(Array.from(regions).map((r) => [r.getAttribute('role'), r.textContent]))
+      .toEqual([['status', ''], ['status', ''], ['alert', '']]);
   });
 
   it('a Load that fails offline lands in the alert region', async () => {
@@ -528,7 +552,9 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
   it('an import result lands in the status region', async () => {
     h = openBrowser({ mountDiameterMm: 54 });
     await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
-    expect(h.host.querySelector('.motor-browser > [role="status"]')!.textContent).toMatch(/Imported 1 EX motor/);
+    // Not the catalogue check's region, which sits first.
+    expect(h.host.querySelector('.motor-browser > [role="status"]:not(.motor-check-status)')!.textContent)
+      .toMatch(/Imported 1 EX motor/);
   });
 });
 

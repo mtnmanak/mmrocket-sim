@@ -572,25 +572,32 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
         {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
-        {checkNote && (
-          <div className="file-note" role="status" style={{ marginTop: 6 }}>
-            {checkWasRecent && (
-              <p style={{ margin: '0 0 4px' }}>
-                Checked less than six hours ago — this is that result.{' '}
-                <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
-              </p>
-            )}
-            {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
-            {overlay && (
-              <p style={{ margin: '4px 0 0' }}>
-                <button className="file-btn" onClick={() => { discardCatalogueOverlay(); setCheckNote(null); }}
-                  title="Forget the fetched changes and go back to the catalogue this app shipped with">
-                  Discard fetched changes
-                </button>
-              </p>
-            )}
-          </div>
-        )}
+        {/* ALWAYS MOUNTED, the result rendered into it (audit 2026-09-30): it
+            was a role="status" box inserted with its text already in place,
+            which is announced unreliably (the live regions at the foot of this
+            dialog say why), so pressing Check could answer a screen-reader
+            user with silence. */}
+        <div className="motor-check-status" role="status">
+          {checkNote && (
+            <div className="file-note" style={{ marginTop: 6 }}>
+              {checkWasRecent && (
+                <p style={{ margin: '0 0 4px' }}>
+                  Checked less than six hours ago — this is that result.{' '}
+                  <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
+                </p>
+              )}
+              {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
+              {overlay && (
+                <p style={{ margin: '4px 0 0' }}>
+                  <button className="file-btn" onClick={() => { discardCatalogueOverlay(); setCheckNote(null); }}
+                    title="Forget the fetched changes and go back to the catalogue this app shipped with">
+                    Discard fetched changes
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="motor-filter-block">
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">

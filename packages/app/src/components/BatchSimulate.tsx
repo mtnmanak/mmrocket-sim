@@ -1026,23 +1026,30 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
         {/* The run is over and the results are ready to download. Says it in
             words, with the counts, because the progress bar vanishing is not an
-            announcement. `role="status"` so a screen reader hears it too. */}
-        {finished && !running && (
-          <p className="comp-stats batch-finished" role="status" style={{ margin: '6px 0 0' }}>
-            {batchSummary({
-              total: finished.total,
-              candidates: finished.candidates,
-              planned: finished.planned,
-              stopped: finished.stopped,
-              accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
-              errors: sorted.filter((r) => r.error).length,
-              downloadable: sorted.some((r) => r.run),
-            })}
-            {(finished.evicted > 0 || finished.unsaved > 0)
-              && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
-            {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
-          </p>
-        )}
+            announcement. `role="status"` so a screen reader hears it too — on
+            a region ALWAYS MOUNTED, the line rendered into it (audit
+            2026-09-30). It was a paragraph inserted with its text already in
+            place, the pattern the progress region above says is announced
+            unreliably, and this is the line a screen-reader user waits out a
+            multi-minute sweep for. */}
+        <div className="batch-status" role="status">
+          {finished && !running && (
+            <p className="comp-stats batch-finished" style={{ margin: '6px 0 0' }}>
+              {batchSummary({
+                total: finished.total,
+                candidates: finished.candidates,
+                planned: finished.planned,
+                stopped: finished.stopped,
+                accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
+                errors: sorted.filter((r) => r.error).length,
+                downloadable: sorted.some((r) => r.run),
+              })}
+              {(finished.evicted > 0 || finished.unsaved > 0)
+                && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
+              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
+            </p>
+          )}
+        </div>
         {failure && !running && (
           <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
             {`The batch stopped before it finished: ${failure}`}
