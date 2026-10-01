@@ -45,19 +45,22 @@ afterEach(() => {
 });
 
 /** Computed airframe: 1.000 kg balancing 500 mm from the nose tip, 1 m long. */
-const show = (measured: MeasuredFigures) => act(() => root.render(
-  <PrefsProvider>
-    <MeasuredMassBox
-      bareMassKg={1}
-      bareCgM={0.5}
-      rocketLengthM={1}
-      hasAllowance={false}
-      measured={measured}
-      onChange={(n) => changes.push(n)}
-      onApply={(s) => applied.push(s)}
-    />
-  </PrefsProvider>,
-));
+const show = (measured: MeasuredFigures, block?: { blockedBy: { name?: string }; onPinStage?: () => void }) =>
+  act(() => root.render(
+    <PrefsProvider>
+      <MeasuredMassBox
+        bareMassKg={1}
+        bareCgM={0.5}
+        rocketLengthM={1}
+        hasAllowance={false}
+        measured={measured}
+        onChange={(n) => changes.push(n)}
+        onApply={(s) => applied.push(s)}
+        blockedBy={block?.blockedBy}
+        onPinStage={block?.onPinStage}
+      />
+    </PrefsProvider>,
+  ));
 
 const field = (label: string) =>
   [...host.querySelectorAll('input')].find((i) => i.getAttribute('aria-label')?.startsWith(label))!;
@@ -187,6 +190,68 @@ describe('MeasuredMassBox — the verdict quotes the same numbers back', () => {
   it('shows no verdict at all until BOTH numbers are in', () => {
     show({ massKg: 1.1, cgM: null });
     expect(host.querySelector('.measured-verdict')).toBeNull();
+  });
+});
+
+/**
+ * Audit 2026-09-30 (MeasuredMassBox.tsx:146): each verdict branch carried its
+ * own role="status", mounted only once both boxes were filled — so the FIRST
+ * verdict, and the first one after a box was cleared to retype it, inserted a
+ * fresh live region with its text already in it, which a screen reader
+ * announces unreliably. The 2026-09-08 fix put the region there so the verdict
+ * is heard while typing; the first "Add 100 g at …" could go unheard. One
+ * region is now always mounted, and the buttons sit outside it.
+ *
+ * (The audit also suspected every change of verdict KIND. Measured: no — React
+ * unwraps a branch's unkeyed fragment and kept the same <p> across kinds, so
+ * those updated the region in place. The second test still walks them, so the
+ * one region cannot regress there either.)
+ */
+describe('MeasuredMassBox — the verdict is announced from one always-mounted region', () => {
+  const regions = () => [...host.querySelectorAll('[role="status"]')];
+  const region = () => {
+    expect(regions(), 'exactly one live region in the box').toHaveLength(1);
+    return regions()[0]!;
+  };
+  const button = (re: RegExp) => [...host.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!;
+
+  it('is there, empty, before both numbers are in, and the first verdict lands in it', () => {
+    show({ massKg: null, cgM: null });
+    const live = region();
+    expect(live.textContent).toBe('');
+    show({ massKg: 1.1, cgM: null });
+    expect(region()).toBe(live);
+    expect(live.textContent).toBe('');
+    show({ massKg: 1.1, cgM: 0.5 });
+    expect(region()).toBe(live);
+    expect(live.textContent).toBe('Add 100 g at 500 mm from the nose tip.');
+  });
+
+  it('stays the same element as the verdict changes, a box is cleared, and the next verdict comes', () => {
+    show({ massKg: 1.1, cgM: 0.5 }); // ok: a sentence and a button
+    const live = region();
+    show({ massKg: 1, cgM: 0.5 }); // matches: a sentence alone
+    expect(region()).toBe(live);
+    expect(live.textContent).toContain('Your build matches the model');
+    show({ massKg: 0.9, cgM: 0.5 }); // lighter than the model
+    expect(region()).toBe(live);
+    expect(live.textContent).toContain('LIGHTER than the model');
+    show({ massKg: 1.1, cgM: 0.5 }, { blockedBy: { name: 'Sustainer' }, onPinStage: () => {} });
+    expect(region()).toBe(live);
+    expect(live.textContent).toContain('would weigh nothing');
+    show({ massKg: null, cgM: 0.5 }); // a box cleared to retype it…
+    expect(region()).toBe(live);
+    expect(live.textContent).toBe('');
+    show({ massKg: 1.05, cgM: 0.5 }); // …and the verdict on the new figure
+    expect(region()).toBe(live);
+    expect(live.textContent).toBe('Add 50.0 g at 500 mm from the nose tip.');
+  });
+
+  it('keeps the Apply and Pin buttons out of the region, so an announcement is the verdict alone', () => {
+    show({ massKg: 1.1, cgM: 0.5 });
+    expect(region().contains(button(/Build allowance/))).toBe(false);
+    show({ massKg: 1.1, cgM: 0.5 }, { blockedBy: { name: 'Sustainer' }, onPinStage: () => {} });
+    expect(region().contains(button(/Pin “Sustainer”/))).toBe(false);
   });
 });
 
