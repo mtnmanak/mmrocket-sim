@@ -140,6 +140,10 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(odOf(rod({ filled: true, thickness: 0.001 }))).toBe(0);
     expect(odOf(rod({ filled: true }))).toBe(0); // the .ork reader's form: no wall stated
     expect(odOf(rod({ thickness: 0.001 }))).toBeCloseTo(23, 9); // hollow: the bore
+    // Only a SOLID tube is a 0. A hollow one the context cannot size (no
+    // outerRadius stated, which flies the kernel's 12 mm) keeps the wall's
+    // reading: 12 mm less its 1 mm wall.
+    expect(odOf(rod({ thickness: 0.001, outerRadius: undefined }))).toBeCloseTo(22, 9);
   });
 
   it('.rkt never folds a base extension made solid into a hollow cone', () => {
@@ -149,8 +153,8 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     // file reopened it hollow.
     const cone = { type: 'nosecone', id: 'n', name: 'Nose', length: 0.06, aftRadius: R, thickness: 0.002, shape: 'ogive' };
     const ext = rod({ id: 'x', name: 'Nose base extension', length: 0.05, thickness: 0.002, rktBaseExtension: true });
-    const save = (tube: ComponentNode) => exportRkt({ name: 'R', tree: { name: 'R', components: [
-      { type: 'stage', id: 's', name: 'S', children: [cone, tube] },
+    const save = (tube: ComponentNode, nose: Record<string, unknown> = cone) => exportRkt({ name: 'R', tree: { name: 'R', components: [
+      { type: 'stage', id: 's', name: 'S', children: [nose, tube] },
     ] } as unknown as RocketTree });
     const extLen = (xml: string) => Number(/<BaseExtensionLen>([^<]*)<\/BaseExtensionLen>/.exec(xml)![1]);
     const tubeOf = (xml: string) => (xml.match(/<BodyTube>[\s\S]*?<\/BodyTube>/g) ?? [])
@@ -162,6 +166,13 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     const solid = save({ ...ext, filled: true } as ComponentNode);
     expect(extLen(solid)).toBe(0);
     expect(tubeOf(solid)).toMatch(/<ID>0<\/ID>/);
+    // Behind a SOLID cone a solid extension is the cone's own construction, so
+    // it still folds: the reader's form for a solid cone (a wall as thick as
+    // the radius), ticked Solid as well.
+    const solidCone = { ...cone, filled: true };
+    const behindSolid = save({ ...ext, thickness: R, filled: true } as ComponentNode, solidCone);
+    expect(extLen(behindSolid)).toBeCloseTo(50, 9);
+    expect(tubeOf(behindSolid)).toBeUndefined();
   });
 
   it('.ork: a bare automatic packed radius inside it takes the device’s own size, and says so', () => {
