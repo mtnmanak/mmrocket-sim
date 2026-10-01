@@ -1,4 +1,5 @@
 import { KERNEL_WIND_FROM_RAD, type WindLevel } from '@online-openrocket/engine';
+import type { PlaceMethod } from './openMeteo.js';
 
 /** AGL metres, m/s, and FROM radians clockwise relative to the surface wind. */
 export type RelativeWindLevel = WindLevel & {
@@ -6,8 +7,20 @@ export type RelativeWindLevel = WindLevel & {
   calmSpeedRatio?: number;
 };
 export type WindProfileSource =
-  | { kind: 'open-meteo'; place: string; validUnix: number; surfaceFromDeg: number }
+  | {
+    kind: 'open-meteo'; place: string; validUnix: number; surfaceFromDeg: number;
+    /**
+     * How `place` was chosen. A searched place's name is GeoNames data, owed
+     * their credit wherever it is shown — and the profile is shown long after
+     * the weather snapshot that knew this is gone (audit 2026-09-30). Absent
+     * on a profile saved by v0.144, which did not record it.
+     */
+    method?: PlaceMethod;
+  }
   | { kind: 'ork' };
+
+/** Every PlaceMethod, as a value the validator can check against — exhaustive by type. */
+const PLACE_METHODS: Record<PlaceMethod, true> = { search: true, coordinates: true, device: true };
 
 export interface WindProfileConditions {
   windLevels?: readonly RelativeWindLevel[];
@@ -116,7 +129,8 @@ export function validWindProfileSource(x: unknown): x is WindProfileSource {
   if (typeof x !== 'object' || x === null) return false;
   const s = x as WindProfileSource;
   return s.kind === 'ork' || (s.kind === 'open-meteo' && typeof s.place === 'string'
-    && Number.isFinite(s.validUnix) && Number.isFinite(s.surfaceFromDeg));
+    && Number.isFinite(s.validUnix) && Number.isFinite(s.surfaceFromDeg)
+    && (s.method === undefined || (typeof s.method === 'string' && Object.hasOwn(PLACE_METHODS, s.method))));
 }
 
 /** Used for stored weather receipts as well as imported app metadata. */

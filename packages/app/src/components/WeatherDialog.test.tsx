@@ -175,8 +175,11 @@ describe('the design-site longitude check', () => {
     expect(applied[0]!.snapshot.place).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: -80.126879 });
     expect(applied[0]!.patch.windLevels).toHaveLength(2);
     expect(applied[0]!.patch.windLevels![1]).toMatchObject({ altitude: 80, speed: 24 });
+    // The profile records how its place was chosen (audit 2026-09-30): it
+    // outlives the snapshot, and only a searched place owes GeoNames a credit.
     expect(applied[0]!.patch.windProfileSource).toMatchObject({
       kind: 'open-meteo', place: applied[0]!.snapshot.place.label, validUnix: applied[0]!.snapshot.validUnix,
+      method: 'coordinates',
     });
     expect(closed).toBe(1);
   });
@@ -966,7 +969,7 @@ describe('winds aloft review', () => {
     const { patch, snapshot } = applied[1]!;
     expect(patch.windLevels).toHaveLength(aloft ? 2 : 0);
     const next = applyProposal(launch, patch);
-    if (aloft) expect(next.windProfileSource).toMatchObject({ kind: 'open-meteo', place: GERLACH_PLACE.label });
+    if (aloft) expect(next.windProfileSource).toMatchObject({ kind: 'open-meteo', place: GERLACH_PLACE.label, method: 'search' });
     else expect(next).not.toHaveProperty('windProfileSource');
     expect(undoApply(next, snapshot)).toEqual(launch);
   });

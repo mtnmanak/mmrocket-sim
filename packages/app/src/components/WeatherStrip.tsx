@@ -4,9 +4,10 @@ import type { LaunchConditions } from './LaunchPanel.js';
 import { useOnline } from '../services/net.js';
 import { formatDay, formatValidTime } from '../services/openMeteo.js';
 import {
-  fieldProvenance, staleness, WEATHER_CREDIT, type ApplyKey, type WeatherSnapshot,
+  fieldProvenance, staleness, type ApplyKey, type WeatherSnapshot,
 } from '../services/weatherSnapshot.js';
 import { WEATHER_OFFLINE_TITLE } from './WeatherButton.js';
+import { WeatherCredit } from './WeatherCredit.js';
 import { altitudeText, fieldText, showsYear, sourceHeading, sourceWord } from './weatherText.js';
 
 /**
@@ -55,15 +56,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
       <button type="button" className="file-btn file-btn-ghost" onClick={onDismiss}
         title="Keep every value, an estimated Wind gusts σ included, and stop showing where they came from">Dismiss</button>
       {' — '}
-      <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
-      {' · '}
-      <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
-      {weather.place.method === 'search' && (
-        <>
-          {' · Place search: '}
-          <a href={WEATHER_CREDIT.places.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.places.text}</a>
-        </>
-      )}
+      <WeatherCredit geoNames={weather.place.method === 'search'} />
       {stale && (
         <p className="weather-stale" data-weather="stale">
           These came from the {sourceWord(weather.endpoint)} for {alt(stale.forAltitudeM)}; Site altitude is
