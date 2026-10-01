@@ -126,6 +126,24 @@ describe('exporters with no flipped nose cone', () => {
     expect(transition).toMatch(/<ConstructionType>0<\/ConstructionType>/); // still solid
   });
 
+  it('RockSim: keeps a base-extension tube behind a tail cone as a tube, not folded into the cone', () => {
+    // A .rkt nose cone's <BaseExtensionLen> opens as a body tube marked
+    // rktBaseExtension, and the exporter folds that tube back into its cone.
+    // Flip the cone to a tail cone and it goes out as a <Transition>, which has
+    // no <BaseExtensionLen>: folded, the tube would vanish from the file.
+    const t = tree();
+    t.components[0]!.children!.push({
+      type: 'bodytube', id: 'x', name: 'Tail base extension', length: 0.05, outerRadius: 0.03,
+      thickness: 0.03, // the solid form the importer gives a filled cone's extension
+      rktBaseExtension: true,
+    } as ComponentNode);
+    const xml = exportRkt({ name: 'Tail', tree: t });
+    const tube = (xml.match(/<BodyTube>[\s\S]*?<\/BodyTube>/g) ?? [])
+      .find((b) => b.includes('<Name>Tail base extension</Name>'));
+    expect(tube).toBeDefined();
+    expect(tube).toMatch(/<Len>50(\.0+)?<\/Len>/);
+  });
+
   it('RASAero: refuses, naming the part, as desktop does', () => {
     expect(() => exportCdx1({ name: 'Tail', tree: tree() })).toThrow(/Tail.*tail cone|tail cone.*Tail/i);
   });
