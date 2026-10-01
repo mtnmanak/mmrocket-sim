@@ -7,10 +7,10 @@ import type { SolidContext } from './solidMesh.js';
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
  * of ONE component: rings, bulkheads, couplers and engine blocks size to the
- * bore they sit in, a centering ring's own bore comes from the motor-mount
- * tube it centres, and a tube-fin set sizes to its body. Both exporters read
- * this SAME context, or the printed and the machined version of one part
- * would come out different sizes.
+ * bore they sit in, a centering ring's own bore comes from the inner tubes it
+ * overlaps (`overlappingTubeRadius`), and a tube-fin set sizes to its body.
+ * Both exporters read this SAME context, or the printed and the machined
+ * version of one part would come out different sizes.
  *
  * THE BORE IS RESOLVED THE WAY THE KERNEL RESOLVES AN AUTOMATIC RADIUS
  * (audit 2026-09-22). This used to live in PropertyPanel.tsx and set the bore
@@ -44,10 +44,42 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
   if (bore !== undefined) ctx.parentInnerRadius = bore;
   const pOuter = numOpt(parent, 'outerRadius');
   if (pOuter !== undefined) ctx.bodyRadius = pOuter;
-  const mount = (parent.children ?? []).find((c) => c.type === 'innertube');
-  const mountOuter = mount ? numOpt(mount, 'outerRadius') : undefined;
+  const mountOuter = overlappingTubeRadius(parent, node);
   if (mountOuter !== undefined) ctx.mountOuterRadius = mountOuter;
   return ctx;
+}
+
+/**
+ * The bore an AUTOMATIC centering ring takes, as `CenteringRing.getInnerRadius`
+ * finds it: the largest outer radius among the inner tubes beside the part
+ * that overlap it axially — touching at an end counts, since the kernel skips
+ * a tube only when the part ends before it starts or starts after it ends —
+ * and none when no tube does (the kernel then flies a solid disc, and the
+ * exports say the bore is assumed). Stations are in the parent's frame, as
+ * `boreAt` reads them; the kernel compares the same two positions.
+ *
+ * This took the FIRST inner tube in the parent wherever it sat (audit
+ * 2026-09-30), so a forward ring around an 18 mm payload tube printed and cut
+ * with the bore of the 29 mm motor mount listed before it — and `.ork` writes
+ * `auto` for every automatic ring, so that was the common case.
+ */
+function overlappingTubeRadius(parent: ComponentNode, node: ComponentNode): number | undefined {
+  const pLen = axialLength(parent);
+  const span = (n: ComponentNode): [number, number] => {
+    const len = axialLength(n);
+    const start = startFromPosition((n.position ?? { method: 'top', offset: 0 }) as ComponentPosition, len, pLen);
+    return [start, start + len];
+  };
+  const [fore, aft] = span(node);
+  let widest: number | undefined;
+  for (const tube of parent.children ?? []) {
+    if (tube.type !== 'innertube' || tube === node) continue;
+    const [tubeFore, tubeAft] = span(tube);
+    if (aft < tubeFore || fore > tubeAft) continue;
+    const r = numOpt(tube, 'outerRadius');
+    if (r !== undefined) widest = Math.max(widest ?? r, r);
+  }
+  return widest;
 }
 
 /** The node's ancestors, nearest first (stage last), or null if it is not in the tree. */

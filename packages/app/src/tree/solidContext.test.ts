@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { componentDxf } from '../services/dxfExport.js';
 import { solidContextFor } from './solidContext.js';
 import { componentLoop, componentSolid, solidVolume } from './solidMesh.js';
 
@@ -152,6 +153,90 @@ describe('solidContextFor — the bore a part sits in', () => {
     // A node outside the tree, or with no id, gets an empty context.
     expect(solidContextFor(t, { type: 'bulkhead' } as ComponentNode)).toEqual({});
     expect(solidContextFor(t, { id: 'nope', type: 'bulkhead' } as ComponentNode)).toEqual({});
+  });
+});
+
+/**
+ * AN AUTOMATIC CENTERING RING'S BORE (audit 2026-09-30). The kernel's
+ * `CenteringRing.getInnerRadius` takes the largest outer radius among the
+ * inner tubes beside the ring that overlap it axially — touching at an end
+ * counts — and 0 when none does. The export context took the FIRST inner tube
+ * in the parent wherever it sat, so a forward ring around an 18 mm payload
+ * tube printed and DXF-cut with the 29 mm motor mount's bore, listed first.
+ * `.ork` writes `auto` for every automatic ring, so that is the common case.
+ */
+describe('an automatic centering ring is bored to the inner tubes it overlaps', () => {
+  /**
+   * A 3" airframe 0.8 m long: a 29 mm mount at the aft end (listed first,
+   * 0.50–0.80 m) and an 18 mm payload tube forward (0.10–0.25 m).
+   */
+  const twoTubes = (...rings: Record<string, unknown>[]) => tree({
+    id: 'b1', type: 'bodytube', outerRadius: 0.0381, thickness: 0.001, length: 0.8,
+    children: [
+      { id: 'mmt', type: 'innertube', outerRadius: 0.0153, thickness: 0.0005, length: 0.3,
+        position: { method: 'bottom', offset: 0 } },
+      { id: 'pay', type: 'innertube', outerRadius: 0.0095, thickness: 0.0005, length: 0.15,
+        position: { method: 'top', offset: 0.1 } },
+      ...rings,
+    ],
+  });
+  /** A 3 mm automatic ring whose fore face is `at` metres down the airframe. */
+  const ring = (id: string, at: number) =>
+    ({ id, type: 'centeringring', length: 0.003, position: { method: 'top', offset: at } });
+
+  it('a forward ring around the payload tube takes the payload tube, not the first tube listed', () => {
+    const t = twoTubes(ring('fwd', 0.12));
+    const node = find(t, 'fwd');
+    const ctx = solidContextFor(t, node);
+    expect(ctx.mountOuterRadius, 'the forward ring took the 29 mm mount listed first').toBe(0.0095);
+    // …and the printed part has that bore: its inner face sits at 9.5 mm…
+    const loop = componentLoop(node, ctx)!;
+    expect(loop.label).toBe('Centering ring');
+    expect(Math.min(...loop.loop.map(([, r]) => r))).toBeCloseTo(0.0095, 12);
+    // …and so does the cut file (OD: the 74.2 mm airframe bore).
+    expect(componentDxf(node, ctx, 'T')!.text).toContain('OD 74.2 mm | bore 19.0 mm');
+  });
+
+  it('a ring around the motor mount still takes the motor mount', () => {
+    const t = twoTubes({ id: 'aft', type: 'centeringring', length: 0.003, position: { method: 'bottom', offset: 0 } });
+    expect(solidContextFor(t, find(t, 'aft')).mountOuterRadius).toBe(0.0153);
+  });
+
+  it('a ring that no inner tube passes through has no bore to take', () => {
+    // 0.35 m is between the two tubes. The kernel flies it as a solid disc
+    // (inner radius 0); the export says its bore is assumed, as it does with
+    // no inner tube in the airframe at all.
+    const t = twoTubes(ring('gap', 0.35));
+    const node = find(t, 'gap');
+    const ctx = solidContextFor(t, node);
+    expect(ctx.mountOuterRadius, 'a ring nowhere near a tube was bored to one').toBeUndefined();
+    expect(componentLoop(node, ctx)!.label).toBe('Centering ring (assumed bore)');
+    // The cut file says why without sending the builder to look for a mount
+    // that is there, 0.15 m aft of this ring.
+    const text = componentDxf(node, ctx, 'T')!.text;
+    expect(text).toContain('no motor mount passes through this ring');
+    expect(text).not.toContain('no motor mount found');
+  });
+
+  it('touching a tube at either end counts, as the kernel’s overlap test does', () => {
+    // The payload tube spans 0.10–0.25 m. A ring ending exactly at its fore
+    // end, and one starting exactly at its aft end, both count
+    // (`pos2 < 0 || pos1 > length` is the kernel's skip); one a tenth of a
+    // millimetre clear of either end does not.
+    const t = twoTubes(ring('foreTouch', 0.097), ring('aftTouch', 0.25), ring('foreClear', 0.0969), ring('aftClear', 0.2501));
+    expect(solidContextFor(t, find(t, 'foreTouch')).mountOuterRadius).toBe(0.0095);
+    expect(solidContextFor(t, find(t, 'aftTouch')).mountOuterRadius).toBe(0.0095);
+    expect(solidContextFor(t, find(t, 'foreClear')).mountOuterRadius).toBeUndefined();
+    expect(solidContextFor(t, find(t, 'aftClear')).mountOuterRadius).toBeUndefined();
+  });
+
+  it('a ring two tubes pass through takes the larger, as the kernel does', () => {
+    const t = twoTubes(
+      { id: 'pay2', type: 'innertube', outerRadius: 0.012, thickness: 0.0005, length: 0.15,
+        position: { method: 'top', offset: 0.1 }, radialPosition: 0.02 },
+      ring('both', 0.12),
+    );
+    expect(solidContextFor(t, find(t, 'both')).mountOuterRadius).toBe(0.012);
   });
 });
 

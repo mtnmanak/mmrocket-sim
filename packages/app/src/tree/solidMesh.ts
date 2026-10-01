@@ -31,8 +31,10 @@ export interface SolidContext {
    */
   parentInnerRadius?: number;
   /**
-   * outer radius of the motor-mount inner tube (m) — the bore of a centering
-   * ring that states none of its own (centeringRingBore)
+   * the largest outer radius (m) among the inner tubes beside the part that
+   * overlap it axially, resolved by tree/solidContext.ts as the kernel's
+   * CenteringRing.getInnerRadius does — the bore of a centering ring that
+   * states none of its own (centeringRingBore); unset when no tube overlaps
    */
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
@@ -520,8 +522,9 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
  *
  * The same order as ringOuterRadius, and the kernel's: the ring's OWN stated
  * inner radius first — every .ork and .rkt ring that states an ID carries one,
- * and CenteringRing.getInnerRadius flies it, consulting the sibling motor mount
- * only when the radius is automatic — then the mount's OD. The exports read the
+ * and CenteringRing.getInnerRadius flies it, consulting the sibling inner tubes
+ * only when the radius is automatic — then the OD of the widest inner tube that
+ * overlaps the ring (`ctx.mountOuterRadius`). The exports read the
  * mount alone until the 2026-09-22 audit's review, so an imported ring of OD 40
  * / ID 29 mm in a tube with no inner tube printed and cut with a made-up 20 mm
  * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
