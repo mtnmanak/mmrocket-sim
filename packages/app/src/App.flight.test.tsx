@@ -402,12 +402,12 @@ const RKT_NAME = 'FooBar Test';
  * changed since — so a Launch press never vanishes.
  *
  * `cost`: whether the time-step caution prices a flight in seconds afterwards.
- * Asserted only where the design on screen has another name: on the same
- * rocket, the caution's fallback to a stored run of that name answers too.
+ * Where the design and its motors are still the ones that flew (a wind typed),
+ * the stored run answers for it in place of the dropped write (storedSimCost).
  */
 describe('what a Launch computed lands only on the design it flew', () => {
   type Change = (host: HTMLElement) => Promise<void>;
-  const paths: [string, Change, boolean | null][] = [
+  const paths: [string, Change, boolean][] = [
     ['nothing: the control', async () => {}, true],
     ['Open… a file', async (host) => {
       await pick(host, new File([fixture(RKT)], RKT));
@@ -426,11 +426,11 @@ describe('what a Launch computed lands only on the design it flew', () => {
     }, false],
     ['⏏ Unload', async (host) => {
       await act(async () => { button(host, '⏏ Unload').click(); });
-    }, null],
+    }, false],
     ['a wind typed on Motors & Launch', async (host) => {
       await openTab(host, 'Motors & Launch');
       await type(input(host, 'Wind avg'), '8');
-    }, null],
+    }, true],
   ];
 
   it.each(paths)('%s, while the flight is held', async (_what, change, cost) => {
@@ -455,12 +455,10 @@ describe('what a Launch computed lands only on the design it flew', () => {
     expect(document.body.textContent?.includes('Flight complete — apogee'), 'the spoken result').toBe(landed);
     await openTab(host, 'Results');
     expect(hasHeading(host, 'Launch report'), 'the run on screen').toBe(landed);
-    if (cost !== null) {
-      await openTab(host, 'Motors & Launch');
-      const caution = host.querySelector('.field-caution')?.textContent ?? '';
-      expect(caution, 'the time-step caution is up').toContain('0.025 s is finer than');
-      expect(caution.includes('per flight instead of'), 'the measured cost').toBe(cost);
-    }
+    await openTab(host, 'Motors & Launch');
+    const caution = host.querySelector('.field-caution')?.textContent ?? '';
+    expect(caution, 'the time-step caution is up').toContain('0.025 s is finer than');
+    expect(caution.includes('per flight instead of'), 'the measured cost').toBe(cost);
     window.dispatchEvent(new Event('pagehide'));
     expect(storedSession()?.flownSinceSave ?? false, 'flown since save').toBe(landed);
   }, 30000);
@@ -488,5 +486,54 @@ describe('what a Launch computed lands only on the design it flew', () => {
     await waitFor(() => !hasButton(host, 'Simulating…'), 'the flight to end');
     await settle(50);
     expect(document.body.textContent?.includes('the solver gave up (test)'), 'the error').toBe(!replaced);
+  }, 30000);
+});
+
+/**
+ * THE TIME-STEP CAUTION PRICES A DESIGN FROM ITS OWN FLIGHTS (audit 2026-09-30).
+ * With no flight this session it falls back to a stored run — which it found
+ * by rocket NAME, and ✕ New names every design "New Rocket": fly a big one at
+ * twelve seconds a flight, ✕ New, build a small one, and the caution quoted the
+ * old flight's cost, the "roughly 64 s per flight" the reset effect beside
+ * lastSimCost exists to prevent. Matched now on the design and its motors.
+ */
+describe('the time-step caution’s measured cost', () => {
+  /** The caution on Motors & Launch: up (asserted), and whether it quotes seconds. */
+  async function quotesSeconds(host: HTMLElement): Promise<boolean> {
+    await openTab(host, 'Motors & Launch');
+    const caution = host.querySelector('.field-caution')?.textContent ?? '';
+    expect(caution, 'the time-step caution is up').toContain('0.025 s is finer than');
+    return caution.includes('per flight instead of');
+  }
+
+  /** The starter, named `name`, flown once at a fine step. */
+  async function flownAtFineStep(name: string): Promise<HTMLElement> {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, name);
+    await openTab(host, 'Motors & Launch');
+    await type(input(host, 'Time step'), '0.025');
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    await settle(50);
+    expect(await quotesSeconds(host), 'this session’s own flight').toBe(true);
+    return host;
+  }
+
+  it('is not another design’s that happens to share its name', async () => {
+    const host = await flownAtFineStep('New Rocket');
+    await openTab(host, 'Design');
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { button(document.body, 'Discard & start new').click(); });
+    await waitFor(() => shownName(host) === 'New Rocket', 'the new design');
+    expect(await quotesSeconds(host)).toBe(false);
+  }, 30000);
+
+  it('is the stored flight of the same design and motors after a reload', async () => {
+    await flownAtFineStep('Fine step');
+    await unmountAll();
+    const host = await mountApp();
+    await settle(50);
+    expect(await quotesSeconds(host)).toBe(true);
   }, 30000);
 });

@@ -1341,15 +1341,6 @@ export function App() {
     setLastSimCost(null);
   }, [physicsKey, mountMotors]);
 
-  // What the time-step caution scales from: this session's own measurement
-  // when there has been a flight, else the newest STORED run of this same
-  // design — stored runs carry execMs and the step it was measured at
-  // (SimRun.timeStepS) precisely so the seconds estimate survives a reload
-  // instead of degrading to the bare multiplier.
-  const simCostRef = useMemo(
-    () => lastSimCost ?? storedSimCost(runs, tree.name ?? 'Rocket'),
-    [lastSimCost, runs, tree.name]);
-
   /**
    * Power-off total Cd at a fixed subsonic Mach, for the Design tab's stats.
    *
@@ -1897,6 +1888,16 @@ export function App() {
     () => (built && primaryMountId ? provenanceKey : null),
     [built, primaryMountId, provenanceKey],
   );
+
+  // What the time-step caution scales from: this session's own measurement
+  // when there has been a flight, else the newest STORED run of this design
+  // under these motors (storedSimCost, matched on `provenanceKey` — so it sits
+  // after it) — stored runs carry execMs and the step it was measured at
+  // (SimRun.timeStepS) precisely so the seconds estimate survives a reload
+  // instead of degrading to the bare multiplier.
+  const simCostRef = useMemo(
+    () => lastSimCost ?? storedSimCost(runs, provenanceKey, tree.name ?? 'Rocket'),
+    [lastSimCost, runs, provenanceKey, tree.name]);
 
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.

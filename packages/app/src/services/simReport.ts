@@ -644,19 +644,31 @@ export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRev
 
 /**
  * The launch panel's time-step-caution cost reference when this session has
- * not flown yet: the newest stored run of THIS design. Stored runs carry
- * `execMs` and the step it was measured at (`timeStepS` above) precisely so
- * the seconds estimate survives a reload — without a reader the caution
- * degraded to the bare multiplier the moment the tab closed. Matched by
- * rocket name (a stored run has no design identity beyond it), and ONLY that
- * name: another rocket's twelve-second flight must never price this one's.
+ * not flown yet: the newest stored run of THIS design under THESE motors.
+ * Stored runs carry `execMs` and the step it was measured at (`timeStepS`
+ * above) precisely so the seconds estimate survives a reload — without a
+ * reader the caution degraded to the bare multiplier the moment the tab
+ * closed. Another rocket's twelve-second flight must never price this one's.
+ *
+ * Matched on the provenance keys every run has carried since v0.074: the
+ * design (`designKey`) AND its motors (`motorSetKey`) — the identity the
+ * in-session cost dies with, because the thing being costed is this design
+ * under this motor's burn. It used to match the rocket NAME, on the grounds
+ * that a stored run had no design identity beyond it, which stopped being
+ * true when the keys were stamped; and ✕ New names every design "New Rocket",
+ * so a big one's flight priced the small one built after it (audit
+ * 2026-09-30). The name is still the match for a run stored before the keys
+ * existed, which carries none of the three; a batch row — the conditions
+ * key alone, nothing that names its design or motor — never matches.
  * An absent timeStepS stays absent — it means the run flew the engine
  * default, and the caution scales from that.
  */
 export function storedSimCost(
-  runs: readonly SimRun[], rocketName: string,
+  runs: readonly SimRun[], design: Pick<DesignMatchKey, 'designKey' | 'motorSetKey'>, rocketName: string,
 ): { ms: number; timeStepS?: number } | null {
-  const r = runs.find((run) => run.rocket === rocketName
+  const r = runs.find((run) => (run.designKey !== undefined
+    ? run.designKey === design.designKey && run.motorSetKey === design.motorSetKey
+    : run.conditionsKey === undefined && run.rocket === rocketName)
     && Number.isFinite(run.execMs) && run.execMs > 0);
   if (!r) return null;
   return { ms: r.execMs, ...(r.timeStepS != null ? { timeStepS: r.timeStepS } : {}) };

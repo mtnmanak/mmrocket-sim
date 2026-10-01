@@ -1262,38 +1262,67 @@ describe('SIM_ABORT surfacing', () => {
  * measured flight time from pricing another's.
  */
 describe('storedSimCost', () => {
-  const stored = (rocket: string, execMs: number, timeStepS?: number) => buildSimRun({
+  /** The design on screen and its motors, as App's provenance key names them. */
+  const design = { designKey: 'design-A', motorSetKey: 'motors-1' };
+  const stored = (
+    rocket: string, execMs: number, timeStepS?: number,
+    keys: { designKey?: string; motorSetKey?: string } = design,
+  ) => buildSimRun({
     result: fakeResult(), info, motor, meta: { label: 'C6-5' },
     launch: { ...DEFAULT_CONDITIONS, ...(timeStepS !== undefined ? { timeStepS } : {}) },
-    rocketName: rocket, execMs,
+    rocketName: rocket, execMs, ...keys,
   });
 
-  it('reads the newest run of THIS design, with the step it was measured at', () => {
+  it('reads the newest run of THIS design and motors, with the step it was measured at', () => {
     // Newest first, the order simStore keeps. timeStepS must ride along:
     // without it the caution scales a 0.01 s measurement as if it were made
     // at the default and quotes ~4-5x the real cost.
     const runs = [stored('Alpha', 2100, 0.01), stored('Alpha', 8000, 0.01)];
-    expect(storedSimCost(runs, 'Alpha')).toEqual({ ms: 2100, timeStepS: 0.01 });
+    expect(storedSimCost(runs, design, 'Alpha')).toEqual({ ms: 2100, timeStepS: 0.01 });
   });
 
-  it("never prices one rocket's flight with another's", () => {
+  it("never prices one design's flight with another's — not even one of the same name", () => {
     // The reported shape: fly Mach2.trf.ork (~12 s), open a small sport
     // model, and the caution quoted "roughly 64 s per flight" for a rocket
     // that flies in two.
-    expect(storedSimCost([stored('Mach2', 12000, 0.01)], 'Sport Model')).toBeNull();
-    expect(storedSimCost([], 'Sport Model')).toBeNull();
+    const mach2 = { designKey: 'mach2', motorSetKey: 'mach2-motors' };
+    expect(storedSimCost([stored('Mach2', 12000, 0.01, mach2)], design, 'Sport Model')).toBeNull();
+    expect(storedSimCost([], design, 'Sport Model')).toBeNull();
+    // And the same with one name for both (audit 2026-09-30): ✕ New names every
+    // design "New Rocket", so the name told the big one from the small one not
+    // at all.
+    expect(storedSimCost([stored('New Rocket', 12000, 0.01, mach2)], design, 'New Rocket')).toBeNull();
+  });
+
+  it('nor the same airframe under another motor: the cost is this design under this motor’s burn', () => {
+    // The rule the in-session cost already follows — it is cleared with the motors.
+    const other = { ...design, motorSetKey: 'motors-2' };
+    expect(storedSimCost([stored('Alpha', 12000, 0.01, other)], design, 'Alpha')).toBeNull();
+  });
+
+  it('matches a run stored before the provenance keys existed by its rocket name, as before', () => {
+    const legacy: Partial<SimRun> = stored('Alpha', 900, undefined, {});
+    delete legacy.conditionsKey;
+    expect(storedSimCost([legacy as SimRun], design, 'Alpha')).toEqual({ ms: 900 });
+    expect(storedSimCost([legacy as SimRun], design, 'Beta')).toBeNull();
+  });
+
+  it('but never a batch row: it carries the conditions, and nothing that names its design or motor', () => {
+    const batch = stored('Alpha', 900, undefined, {});
+    expect(batch.conditionsKey).toBeDefined();
+    expect(storedSimCost([batch], design, 'Alpha')).toBeNull();
   });
 
   it('leaves timeStepS absent for a run flown at the engine default', () => {
-    const cost = storedSimCost([stored('Alpha', 900)], 'Alpha')!;
+    const cost = storedSimCost([stored('Alpha', 900)], design, 'Alpha')!;
     expect(cost.ms).toBe(900);
     expect('timeStepS' in cost).toBe(false);
   });
 
   it('skips an unusable measurement and keeps looking', () => {
     const zero = stored('Alpha', 0);
-    expect(storedSimCost([zero], 'Alpha')).toBeNull();
-    expect(storedSimCost([zero, stored('Alpha', 1500)], 'Alpha')).toEqual({ ms: 1500 });
+    expect(storedSimCost([zero], design, 'Alpha')).toBeNull();
+    expect(storedSimCost([zero, stored('Alpha', 1500)], design, 'Alpha')).toEqual({ ms: 1500 });
   });
 });
 
