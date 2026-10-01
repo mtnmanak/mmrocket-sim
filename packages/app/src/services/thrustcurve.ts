@@ -41,6 +41,12 @@ export interface TcSample {
 
 /** One simulator file as thrustcurve.org's download.json returns it. */
 export interface TcSimFile {
+  /**
+   * thrustcurve.org's id for this data file, the same in every answer and
+   * every refresh (the bundle stores it for every file). pickSampleFile's last
+   * word between otherwise-equal files, in place of their position in a list.
+   */
+  simfileId?: string;
   format?: string;
   source?: string;
   samples?: TcSample[];
@@ -58,6 +64,22 @@ export interface TcSimFile {
 export interface TcHeaderMasses {
   totalWeightG: number;
   propWeightG: number;
+}
+
+/**
+ * fetchMotorSpec's failure when thrustcurve.org ANSWERS, and its answer lists
+ * no file with a curve to fly — the one failure that means no curve exists.
+ * Every other one (no connection, a timeout, an HTTP error, a bundle chunk
+ * that would not load, an answer that cannot be read) means only that the
+ * curve could not be had this time, and a caller must not say there is none:
+ * the import note did, for every failure, until the 2026-09-30 audit, and a
+ * user offline went looking for a file they did not need (motorMatch.ts).
+ */
+export class NoPublishedCurveError extends Error {
+  constructor(designation: string) {
+    super(`No sample data available for ${designation}`);
+    this.name = 'NoPublishedCurveError';
+  }
 }
 
 /**
@@ -326,9 +348,10 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
  * the equivalent when it builds its bundled database: SerializeThrustcurveMotors
  * catches the builder's exception per file and moves on to the next one.
  *
- * Order of preference: a curve whose times already increase, then the richer
- * curve, then RASP — the original tie-break, which still decides between files
- * of equal quality.
+ * Order of preference: the sort at the end of pickSampleFile, one commented
+ * term per key, best first. The user guide (Motors → The database and
+ * browser) names every term in the same order, and thrustcurve.test.ts holds
+ * it to that: a term added to the sort is a clause added to the guide.
  */
 /**
  * A file whose burn time is this far from the catalogue's certified figure is
@@ -359,7 +382,9 @@ const IMPULSE_AGREEMENT = 0.03;
  * about the only file there is — 122 of the 140 off-by-≥3 % motors have no
  * closer sibling — and a note on every 3–5 % digitisation would be noise
  * against a certified figure that is itself a rounded average. 69 motors
- * trip it today (2026-09-07 census), the RATT K600TR-P at −73 % the worst.
+ * tripped it in the 2026-09-07 census; measured on the curve flown (see
+ * impulseNote), 66 of the 2026-09-30 bundle's do, the RATT K600TR-P at
+ * −71.7 % the worst.
  */
 const IMPULSE_FLAG = 0.05;
 
@@ -387,6 +412,13 @@ export function isImpulseNote(entry: string): boolean {
  * within IMPULSE_FLAG or the catalogue publishes no total to compare with.
  * Exported for the tests; the wording names both numbers because a reader
  * has to be able to decide which one to believe.
+ *
+ * `samples` is the curve FLOWN — the MotorSpec's, repaired and starting at
+ * t = 0 — never a raw file. fetchMotorSpec passed the raw file until the
+ * 2026-09-30 audit, and a file whose first sample comes after t = 0 flies a
+ * ramp up from (0, 0) the raw integral leaves out: the AeroTech E16W said
+ * "−5.6 % … expect apogee to read low" while flying exactly its certified
+ * 37.67 N·s, and the J570W, flying +6.2 %, said nothing.
  */
 export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>, samples: readonly TcSample[]): string | null {
   const ref = motor.totImpulseNs;
@@ -401,8 +433,9 @@ export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>
 }
 
 /**
- * Trapezoidal integral of a thrust curve (N·s). Exported so the motor browser
- * and the tests measure a file the same way the picker does.
+ * Trapezoidal integral of a thrust curve (N·s), as given. The picker's impulse
+ * gate and the impulse note apply it to the curve a file FLIES (flownCurve),
+ * never to the raw file; the tests use it to measure either.
  */
 export function fileImpulseNs(file: TcSimFile): number {
   const s = file.samples ?? [];
@@ -411,6 +444,20 @@ export function fileImpulseNs(file: TcSimFile): number {
     a += (s[i]!.time - s[i - 1]!.time) * (s[i]!.thrust + s[i - 1]!.thrust) / 2;
   }
   return a;
+}
+
+/**
+ * The curve a file FLIES: repaired (repairSamples), and starting at t = 0
+ * with a zero-thrust point when the file starts later, which the kernel
+ * requires. samplesToMotorSpec builds every catalogue MotorSpec from it, and
+ * the picker's impulse gate measures it, so the curve compared with the
+ * certification is the one the app flies (audit 2026-09-30).
+ */
+function flownCurve(samples: readonly TcSample[]): { samples: TcSample[]; repairs: string[] } {
+  const repaired = repairSamples(samples);
+  const pts = repaired.samples;
+  if (pts.length > 0 && pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
+  return { samples: pts, repairs: repaired.repairs };
 }
 
 export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): TcSimFile | null {
@@ -423,7 +470,9 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
     // being flown as NaN. It also makes `sound()` below mean something: on
     // undefined times `p.time > s[i-1].time` is simply false, which scored a
     // damaged file identically to a merely out-of-order one.
-    .filter(({ file }) => (file.samples?.length ?? 0) >= 2 && isSampleList(file.samples));
+    .filter(({ file }) => (file.samples?.length ?? 0) >= 2 && isSampleList(file.samples))
+    // Each file's impulse AS FLOWN, measured once rather than per comparison.
+    .map((u) => ({ ...u, flownNs: fileImpulseNs({ samples: flownCurve(u.file.samples!).samples }) }));
   if (usable.length === 0) return null;
 
   const sound = ({ file }: { file: TcSimFile }): number => {
@@ -459,25 +508,73 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
   // BELOW burn-time agreement (a wrong loading is a different motor) and ABOVE
   // provenance (a cert file that misstates the total is still the wrong number
   // to fly). Neutral when the catalogue has no total to compare against.
-  const impulseAgrees = ({ file }: { file: TcSimFile }): number => {
+  //
+  // Measured on the curve the file FLIES (flownCurve), not its raw samples,
+  // since the 2026-09-30 audit: a file whose first sample comes after t = 0
+  // flies a ramp up from (0, 0) that the raw integral leaves out, and the gate
+  // exists to compare what flies with the certification. The figures above are
+  // raw, as the 2026-09-07 census took them; flown, the J460T's cert file is
+  // 858 N·s (+6.5 %). The move changed 16 picks in the 2026-09-30 bundle.
+  const impulseAgrees = ({ flownNs }: { flownNs: number }): number => {
     const ref = motor?.totImpulseNs;
     if (!(typeof ref === 'number' && ref > 0)) return 1;
-    return Math.abs(fileImpulseNs(file) / ref - 1) <= IMPULSE_AGREEMENT ? 1 : 0;
+    return Math.abs(flownNs / ref - 1) <= IMPULSE_AGREEMENT ? 1 : 0;
   };
   // thrustcurve.org's own provenance flag: "cert" is the certification body's
   // data, everything else was uploaded by a user or a manufacturer.
   const cert = ({ file }: { file: TcSimFile }): number => (file.source === 'cert' ? 1 : 0);
+  // Between files equal on all of that, the masses each would FLY — its own
+  // header pair, else the catalogue's (samplesToMotorSpec) — against the
+  // catalogue row: the closer wins. Quantised to a part in 10^9, so float
+  // noise in a stated mass (87.00000000000001 g against 87) decides nothing.
+  // Neutral when the catalogue states no usable pair.
+  const catalogue = motor && isHeaderMasses({ totalWeightG: motor.totalWeightG, propWeightG: motor.propWeightG })
+    ? { totalWeightG: motor.totalWeightG, propWeightG: motor.propWeightG } : null;
+  const massGap = (file: TcSimFile): number => {
+    if (!catalogue) return 0;
+    const m = headerMasses(file) ?? catalogue;
+    return Math.round((Math.abs(m.totalWeightG / catalogue.totalWeightG - 1)
+      + Math.abs(m.propWeightG / catalogue.propWeightG - 1)) * 1e9);
+  };
+  // And last, the FILE — never its place in the list. Position was the last
+  // word until 2026-10-01: v0.143's refresh changed the Hypertek
+  // 2800CCRGLFX-L625FX's loaded mass from 5,706.2 g to 5,116.2 g (-10.3 %)
+  // only because thrustcurve.org listed the same two files the other way
+  // round. Its data-file id is the same in every answer and every refresh; a
+  // file without one is known by a hash of what it holds, after every id.
+  const identity = (file: TcSimFile): string =>
+    typeof file.simfileId === 'string' && file.simfileId !== '' ? file.simfileId : `~${contentHash(file)}`;
+  const keyed = usable.map((u) => ({ ...u, massGap: massGap(u.file), identity: identity(u.file) }));
 
-  usable.sort((a, b) =>
+  keyed.sort((a, b) =>
     sound(b) - sound(a)
     || agrees(b) - agrees(a)
     || impulseAgrees(b) - impulseAgrees(a)
     || cert(b) - cert(a)
     || b.file.samples!.length - a.file.samples!.length
     || (b.file.format === 'RASP' ? 1 : 0) - (a.file.format === 'RASP' ? 1 : 0)
+    || a.massGap - b.massGap
+    || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0)
+    // Only two files holding exactly the same thing get this far, and either
+    // flies the same; it keeps the order total.
     || a.index - b.index);
 
-  return usable[0]!.file;
+  return keyed[0]!.file;
+}
+
+/**
+ * A short, stable hash of what a file holds — its samples, format, source and
+ * the masses it would fly — for pickSampleFile's last word on a file with no
+ * thrustcurve.org id. FNV-1a, 32 bits: two files only need telling apart.
+ */
+function contentHash(file: TcSimFile): string {
+  const text = JSON.stringify([file.format ?? '', file.source ?? '', file.samples ?? [], headerMasses(file)]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 // ------------------------------------------------------------ bundled curves
@@ -530,16 +627,43 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
 /**
  * The bundled files for one motor as TcSimFile, or [] when it has none —
  * exported for the picker's tests and for callers that want to know whether a
- * motor CAN fly offline before offering it.
+ * motor CAN fly offline before offering it. A bundle that did not load also
+ * reads as [] here, which is the honest answer to that question right now;
+ * fetchMotorSpec, which has to say WHY a curve could not be had, reads
+ * bundledFiles instead and tells the two apart (audit 2026-09-30).
  */
 export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
-  let curves: Record<string, BundledSimFile[]>;
   try {
-    curves = await loadBundledCurves();
+    return await bundledFiles(motorId);
   } catch {
     return [];
   }
+}
+
+/**
+ * Does the bundle carry a curve for this motor? true or false once it has
+ * loaded; null when it could not be loaded at all, which says nothing about
+ * the motor. The bundle holds every file thrustcurve.org published for the
+ * catalogue it was built from — scripts/motor-db-age.test.mjs holds it and
+ * motors.json to one date — so `false` for a motor of THAT catalogue means it
+ * had none when this version was built: an answer motorMatch can give with no
+ * network, and one a chunk that failed must never give (audit 2026-09-30).
+ */
+export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
+  try {
+    return (await bundledFiles(motorId)).length > 0;
+  } catch {
+    return null;
+  }
+}
+
+/** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
+async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
+  const curves = await loadBundledCurves();
   return (curves[motorId] ?? []).map((f) => ({
+    // Carried so the picker can tell two files apart by what they are, not by
+    // where the bundle happens to list them (pickSampleFile).
+    ...(f.simfileId ? { simfileId: f.simfileId } : {}),
     format: f.format,
     source: f.source,
     samples: f.samples.map(([time, thrust]) => ({ time, thrust })),
@@ -645,15 +769,13 @@ export function samplesToMotorSpec(
   /** The data file's own masses; they win over the catalog (see headerMasses). */
   fromFile?: TcHeaderMasses | null,
 ): RepairedMotorSpec {
-  // Normalize: repaired (strictly increasing times), starting at t=0.
+  // Normalize: repaired (strictly increasing times), starting at t=0 — the
+  // curve the file flies, which the picker's impulse gate measures too.
   if (samples.length === 0) {
     throw new Error(`No thrust samples for ${motor.designation}`);
   }
-  const repaired = repairSamples(samples);
+  const repaired = flownCurve(samples);
   const pts = repaired.samples;
-  if (pts[0]!.time > 0) {
-    pts.unshift({ time: 0, thrust: 0 });
-  }
 
   // thrustcurve.org's catalog is not uniformly populated: 145 of the 1,156
   // bundled entries publish no loaded weight and 13 no propellant weight
@@ -724,10 +846,11 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  *
- * Bumping made them UNREACHABLE; it never freed them. Five generations have
- * shipped — `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
+ * Bumping made them UNREACHABLE; it never freed them. The generations —
+ * `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
  * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in v0.111-v0.115,
- * `tc:samples:v5:` from v0.116 (below) — and the
+ * `tc:samples:v5:` from v0.116 to 2026-10-01, then `tc:samples:v6:` and
+ * `tc:samples:v7:`, both 2026-10-01 (below; v6 may never have shipped) — and the
  * beta invite went out 2026-08-22, so day-one testers hold dead generations
  * that can never be read and, until sweepDeadGenerations() below, could never
  * be freed either. Whoever bumps this next: change only the version segment,
@@ -753,9 +876,21 @@ export function samplesToMotorSpec(
  * (see IMPULSE_AGREEMENT), which moves 14 motors to a different file. Same
  * rule as above, applied the same day it was written down: bumped in the same
  * commit, v4 becomes a dead generation, sweepDeadGenerations() frees it.
+ *
+ * v6 (2026-10-01, audit 2026-09-30): that term measures the curve a file
+ * FLIES (flownCurve), not its raw samples, which moves 16 motors of the
+ * 2026-09-30 bundle to a different file: 5 to a different flown curve (the
+ * AeroTech I65W by -4.46 % of impulse), 5 to the same curve with different
+ * masses, 6 to the same curve and masses. Same rule, so v5 is dead too.
+ *
+ * v7 (2026-10-01): the last word between otherwise-equal files is the file
+ * itself — masses closer to the catalogue's, then thrustcurve.org's id —
+ * never its position in the list, which moves 7 motors of the 2026-09-30
+ * bundle (the Hypertek 2800CCRGLFX-L625FX back to 5,706.2 g loaded). Same
+ * rule, so v6 is dead too.
  */
 const CACHE_ROOT = 'tc:samples:';
-const CACHE_PREFIX = `${CACHE_ROOT}v5:`;
+const CACHE_PREFIX = `${CACHE_ROOT}v7:`;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.
@@ -953,9 +1088,19 @@ export async function fetchMotorSpec(
   // The shipped bundle comes BEFORE the network: it holds every file
   // thrustcurve.org publishes for this motor, chosen by the same pickSampleFile
   // a live response goes through, so a motor flies the same curve offline as
-  // on. It is not written to localStorage — it is already local.
+  // on. It is not written to localStorage — it is already local. A bundle
+  // chunk that would not load (a tab left open across an update) is not "no
+  // files": the download stands in for it, and if that fails too the error
+  // says both, because the cure for each is different.
+  let bundleFailed = false;
   if (!samples) {
-    const file = pickSampleFile(await bundledSimFiles(motor.motorId), motor);
+    let files: TcSimFile[] = [];
+    try {
+      files = await bundledFiles(motor.motorId);
+    } catch {
+      bundleFailed = true;
+    }
+    const file = pickSampleFile(files, motor);
     if (file?.samples) {
       samples = file.samples;
       fromFile = headerMasses(file);
@@ -982,15 +1127,24 @@ export async function fetchMotorSpec(
       // CAPPED, never whole (see readJsonCapped).
       body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
     } catch (err) {
-      if (limit.timedOut()) {
-        throw new Error(
-          `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ` +
-            `${motor.designation}. Check the connection and try again, or import ` +
-            "the motor's .rse/.eng file.",
-          { cause: err },
-        );
-      }
-      throw err;
+      const timedOut = limit.timedOut();
+      // An HTTP error, an unreadable answer and the caller's own cancel (Stop,
+      // in BatchSimulate) go back as they came. What is left is a connection
+      // that never opened — fetch's TypeError, worded differently by every
+      // browser ("Failed to fetch", "Load failed") — or our deadline, and both
+      // are said in words a note can repeat (motorMatch.ts).
+      if (!timedOut && (signal?.aborted || !(err instanceof TypeError))) throw err;
+      const miss = timedOut
+        ? `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ${motor.designation}`
+        : `thrustcurve.org could not be reached for ${motor.designation}`;
+      throw new Error(
+        bundleFailed
+          ? `The thrust curves bundled with the app did not load, and ${miss}. Reload the app with a `
+            + "connection, or import the motor's .rse/.eng file."
+          : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
+            + "the motor's .rse/.eng file.",
+        { cause: err },
+      );
     } finally {
       limit.done();
     }
@@ -1000,19 +1154,26 @@ export async function fetchMotorSpec(
     // failure class as the sample guard below — trust nothing in this body,
     // its ELEMENTS included: `{"results":[null]}` threw "Cannot read
     // properties of null" from pickSampleFile (audit 2026-09-22).
-    const results = Array.isArray(body?.results)
-      ? body.results.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
+    const listed = body?.results;
+    const results = Array.isArray(listed)
+      ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
       : [];
     const file = pickSampleFile(results, motor);
     if (!file?.samples) {
       // pickSampleFile rejects a file whose samples are not finite time/thrust
       // pairs, so "files came back, none of them usable" is its own case and
       // deserves its own message — silently flying it produced NaN masses.
-      throw new Error(results.some((f) => (f.samples?.length ?? 0) >= 2)
-        ? `thrustcurve.org returned a thrust curve for ${motor.designation} whose `
+      if (results.some((f) => (f.samples?.length ?? 0) >= 2)) {
+        throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} whose `
           + 'time or thrust values are not numbers, so it cannot be simulated. '
-          + 'Pick another motor, or import its .rse/.eng file.'
-        : `No sample data available for ${motor.designation}`);
+          + 'Pick another motor, or import its .rse/.eng file.');
+      }
+      // thrustcurve.org answered, and lists nothing to fly: the one failure
+      // that means no curve exists. An answer with no `results` list at all is
+      // a broken answer, not that one.
+      throw Array.isArray(listed)
+        ? new NoPublishedCurveError(motor.designation)
+        : new Error(`No sample data available for ${motor.designation}`);
     }
     samples = file.samples;
     fromFile = headerMasses(file);
@@ -1037,9 +1198,11 @@ export async function fetchMotorSpec(
   // Say when the curve flown disagrees with the motor's certification, in the
   // list the app already shows curve repairs from (services/notices.ts, which
   // tells this sentence apart from a repair and shows it as written). Found
-  // on the owner's own WM 4" Extreme / J460T flight: the cert file integrates
-  // +5.3 % and the sim read 24 % over the altimeter while the same day's
-  // other flight closed to 1 % (docs/research/metra-flights-2026-09-06.md).
-  const note = impulseNote(motor, samples);
+  // on the owner's own WM 4" Extreme / J460T flight: the cert file flies
+  // +6.5 % (its raw samples read +5.3 %) and the sim read 24 % over the
+  // altimeter while the same day's other flight closed to 1 %
+  // (docs/research/metra-flights-2026-09-06.md). Measured on the spec, the
+  // curve that flies, not on `samples` (audit 2026-09-30; see impulseNote).
+  const note = impulseNote(motor, spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })));
   return note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
 }

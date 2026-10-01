@@ -1,13 +1,13 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
+  displayDesignation, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor, MOTOR_DB,
   type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
-import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { bundleHasCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
 
 /**
@@ -239,6 +239,8 @@ export async function matchImportedMotor(
     ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
       : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
     : how?.motor ?? null;
+  /** Why the curve could not be had, when it could not. */
+  let failure: unknown = null;
   if (dbMatch) {
     try {
       let matchedDelay = ref.delay;
@@ -274,8 +276,9 @@ export async function matchImportedMotor(
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
         ...(openNote ? { openNote } : {}),
       };
-    } catch {
-      // No curve to be had — reported below, never substituted.
+    } catch (err) {
+      // No curve to be had this time — reported below, never substituted.
+      failure = err;
     }
   }
 
@@ -283,16 +286,41 @@ export async function matchImportedMotor(
   // three hand-written approximate curves stood in here (see the header), and
   // a motor that quietly flies the wrong curve is worse than one that says it
   // could not be loaded. With every published curve now shipped in the bundle
-  // (thrustcurve.ts bundledSimFiles) this branch is reached only for the ~80
-  // catalogued motors thrustcurve.org has no simulator file for at all.
+  // (thrustcurve.ts bundledSimFiles) "none exists" is reached only for the ~80
+  // catalogued motors thrustcurve.org has no simulator file for at all — and
+  // it is SAID only when that is known: thrustcurve.org answered so
+  // (NoPublishedCurveError), or the motor is one of the shipped catalogue's and
+  // the shipped bundle, loaded, has nothing for it. Any other failure — offline
+  // with a motor the catalogue check added since, a bundle chunk that would not
+  // load, a timeout — is not that, and the note repeats the reason instead
+  // (audit 2026-09-30): it said "publishes none" for every one, and a user
+  // went looking for a file they did not need.
   if (dbMatch) {
+    if (failure instanceof NoPublishedCurveError || await shippedWithoutCurve(dbMatch)) {
+      return {
+        note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.`,
+        missing: 'curve',
+      };
+    }
     return {
-      note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.`,
-      missing: 'curve',
+      note: `Motor “${ref.designation}” is in the motor database, but its thrust curve could not be loaded: ${
+        failure instanceof Error ? failure.message : String(failure)}`,
     };
   }
   return { note: `Motor “${ref.designation}” ${isE31Conflict(ref.designation)
     ? E31_CONFLICT : 'matched no motor in the motor database — pick one via Browse motor database.'}`, missing: 'database' };
+}
+
+/**
+ * A motor of the SHIPPED catalogue that the shipped bundle — every curve
+ * thrustcurve.org published for that catalogue — loaded and has nothing for:
+ * it had no curve when this version was built, which holds with no network.
+ * Not a motor the catalogue check added since (it is missing from the bundle
+ * because it is newer, not because it has none), and not when the bundle
+ * itself did not load (bundleHasCurve's null).
+ */
+async function shippedWithoutCurve(db: MotorDbEntry): Promise<boolean> {
+  return MOTOR_DB.some((m) => m.motorId === db.motorId) && (await bundleHasCurve(db.motorId)) === false;
 }
 
 /** A manufacturer a file actually names — not empty, and not our reader's or writer's sentinel. */

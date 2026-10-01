@@ -1,4 +1,4 @@
-import { Inflate, strFromU8 } from 'fflate';
+import { Gunzip, Inflate, strFromU8 } from 'fflate';
 
 /**
  * The ONE zip reader for the design-file importers (.ork, and a .rkt someone
@@ -54,8 +54,9 @@ import { Inflate, strFromU8 } from 'fflate';
  * thread and the one this repo's bare-`auto` radius handling was written for.
  * 64 MiB clears that four times over while still bounding one allocation to
  * something a browser tab survives. Raise it only against a measured real
- * file, never to make a crafted one open.
- * @internal Exported for services/orkFileHardening.test.ts and services/rocksimFileHardening.test.ts; no other module imports it.
+ * file, never to make a crafted one open. A GZIP-compressed file is held to
+ * the same ceiling (gunzipCapped below).
+ * @internal Exported for services/orkFileHardening.test.ts, services/rocksimFileHardening.test.ts and services/zipMember.test.ts; no other module imports it.
  */
 export const MAX_ZIP_MEMBER_BYTES = 64 * 1024 * 1024;
 
@@ -254,4 +255,91 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
     throw damaged(`is damaged (${err instanceof Error ? err.message : String(err)})`);
   }
   return out.subarray(0, total);
+}
+
+/** The CRC-32 table (the IEEE polynomial gzip uses), built on first use. */
+let crcTable: Int32Array | null = null;
+
+/** CRC-32 of `d`, as a gzip trailer states it. fflate computes one but exports none. */
+function crc32(d: Uint8Array): number {
+  if (!crcTable) {
+    crcTable = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crcTable[n] = c;
+    }
+  }
+  let c = -1;
+  for (let i = 0; i < d.length; i++) c = crcTable[(c ^ d[i]!) & 255]! ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+/**
+ * Inflate a GZIP-compressed design file (magic 1f 8b): the form older
+ * OpenRocket releases saved a compressed .ork in, which desktop 24.12 still
+ * opens (GeneralRocketLoader.loadStep1 wraps it in a GZIPInputStream). It had
+ * no read path here until the 2026-09-30 audit, so its bytes reached the XML
+ * parser and a valid file was reported as "Not a valid .ork file".
+ *
+ * Under the SAME ceiling as a zip member, enforced the same way: as a STREAM,
+ * INFLATE_CHUNK compressed bytes at a time, refused the moment the output
+ * passes MAX_ZIP_MEMBER_BYTES. Nothing can be refused up front: a gzip's only
+ * size field is its trailer's, modulo 2^32 and describing the LAST member
+ * alone, so the stream is the one place a bomb can be stopped.
+ *
+ * Every member is read, as GZIPInputStream reads them, and every member's
+ * trailer is then checked as it checks them — CRC-32 and length — because
+ * fflate checks neither, and its streaming Gunzip can hand back a file CUT
+ * SHORT as a shorter file with no error at all (measured 2026-10-01: 179 of
+ * 2,418 truncations of a 17 KB document; its final push finds the input
+ * already consumed and returns). A damaged file is refused, never passed on
+ * in part. Stricter than desktop in one way, on purpose: bytes after the last
+ * member, which GZIPInputStream skips when they do not begin another, are
+ * refused here with the rest, because the last trailer is found by position.
+ */
+export function gunzipCapped(bytes: Uint8Array, kind: string): Uint8Array {
+  const damaged = (why: string) => new Error(`Not a readable compressed ${kind} file — it is damaged (${why}).`);
+  const tooBig = new Error(`This compressed ${kind} file expands past the `
+    + `${MAX_ZIP_MEMBER_BYTES / (1024 * 1024)} MB this app will open — that is not a rocket design.`);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const gunzip = new Gunzip((chunk) => {
+    if (total + chunk.length > MAX_ZIP_MEMBER_BYTES) throw tooBig;
+    chunks.push(chunk);
+    total += chunk.length;
+  });
+  // Where each member starts, in the file and in the output. fflate reports
+  // each one after the first as it reaches its header, by which time every
+  // byte the previous member inflated to has been delivered.
+  const members = [{ at: 0, out: 0 }];
+  gunzip.onmember = (at) => { members.push({ at, out: total }); };
+  try {
+    for (let p = 0; p < bytes.length; p += INFLATE_CHUNK) {
+      const q = Math.min(p + INFLATE_CHUNK, bytes.length);
+      gunzip.push(bytes.subarray(p, q), q === bytes.length);
+    }
+  } catch (err) {
+    if (err === tooBig) throw err;
+    throw damaged(err instanceof Error ? err.message : String(err));
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  // Each member's 8-byte trailer ends where the next member begins, the last
+  // one where the file ends: CRC-32, then the length modulo 2^32 (the cap
+  // keeps every length far below that).
+  for (let i = 0; i < members.length; i++) {
+    const from = members[i]!;
+    const end = members[i + 1]?.at ?? bytes.length;
+    const inflated = out.subarray(from.out, members[i + 1]?.out ?? total);
+    if (end - 8 < from.at + 10 || b4(bytes, end - 4) !== inflated.length || b4(bytes, end - 8) !== crc32(inflated)) {
+      throw damaged(`${members.length > 1 ? `part ${i + 1} of ${members.length} ` : ''}`
+        + 'does not match its own checksum — the file is cut short or corrupted');
+    }
+  }
+  return out;
 }

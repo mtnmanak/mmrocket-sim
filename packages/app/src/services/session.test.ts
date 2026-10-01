@@ -393,7 +393,7 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
 
   /**
    * A store that refuses writes while the disposable cache is present — the
-   * shape of the real failure. thrustcurve.ts writes one `tc:samples:v4:<id>`
+   * shape of the real failure. thrustcurve.ts wrote one `tc:samples:v4:<id>`
    * entry per downloaded curve with no count cap, no size cap and no
    * clear-cache path anywhere in the UI, so a flight day spent browsing motors
    * filled the origin and every debounced autosave after that was refused.

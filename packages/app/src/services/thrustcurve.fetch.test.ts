@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TcMotor, TcSample, TcSimFile } from './thrustcurve.js';
 
@@ -42,7 +45,7 @@ const GOOD_SAMPLES: TcSample[] = [
   { time: 2.5, thrust: 0 },
 ];
 
-const CACHE_KEY = `tc:samples:v5:${QUEST_C6.motorId}`;
+const CACHE_KEY = `tc:samples:v7:${QUEST_C6.motorId}`;
 
 /**
  * A fresh copy of the module for every test. thrustcurve.ts remembers, per
@@ -231,6 +234,125 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
   });
 });
 
+/**
+ * Audit 2026-09-30: the impulse note measured the RAW file, not the curve the
+ * motor flies. A file whose first sample is after t = 0 flies with a (0, 0)
+ * point in front (the kernel needs one), and that ramp is impulse the note
+ * left out.
+ */
+describe('the impulse note measures the curve flown', () => {
+  // Raw, these integrate to 36 N·s. Flown, the ramp from (0, 0) to the first
+  // sample adds ½ × 0.3 s × 30 N = 4.5 N·s: 40.5.
+  const LATE_START: TcSample[] = [{ time: 0.3, thrust: 30 }, { time: 1, thrust: 30 }, { time: 2, thrust: 0 }];
+  const notesFor = async (totImpulseNs: number): Promise<string[]> => {
+    const tc = await freshModule();
+    stubDownload([{ format: 'RASP', samples: LATE_START }]);
+    const spec = await tc.fetchMotorSpec({ ...QUEST_C6, totImpulseNs, burnTimeS: 2 }, 5);
+    return spec.curveRepairs?.filter(tc.isImpulseNote) ?? [];
+  };
+
+  it('says nothing for a motor whose flown curve is its certified impulse', async () => {
+    // Raw, this read "−11.1 % … expect apogee to read low".
+    expect(await notesFor(40.5)).toEqual([]);
+  });
+
+  it('quotes the flown figure, and warns where only the flown curve is off', async () => {
+    // Raw, 36 against 37.8 is −4.8 %: inside 5 %, no note. Flown, 40.5 is +7.1 %.
+    expect(await notesFor(37.8)).toEqual([expect.stringMatching(
+      /^The thrust curve flown for C6 integrates to 41 N·s, \+7\.1 % against the 37\.8 N·s it is certified for — expect apogee to read high/)]);
+  });
+});
+
+/**
+ * Audit 2026-09-30: every failure on the way to a curve — no network, a
+ * timeout, a bundle chunk that would not load — reached the importer as one
+ * thrown Error, and its note said thrustcurve.org "publishes none". Offline, a
+ * motor the catalogue check added (not in the bundle) read as having no curve
+ * at all, and the user went looking for a file they did not need.
+ */
+describe('"no curve exists" is said only when thrustcurve.org says so', () => {
+  const failure = async (p: Promise<unknown>): Promise<Error> => {
+    const err = await p.then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    return err as Error;
+  };
+
+  it('an answer that lists no file is NoPublishedCurveError — the one failure that means none exists', async () => {
+    const tc = await freshModule();
+    stubDownload([]);
+    const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
+    expect(err).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(err.message).toMatch(/No sample data available for C6/);
+    stubDownload([{ format: 'RASP', samples: [{ time: 0.1, thrust: 5 }] }]); // one sample cannot fly
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+  });
+
+  it('a connection that never opens is not that, and says to check the connection', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
+    expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(err.message).toMatch(/^thrustcurve\.org could not be reached for C6 — are you offline\?/);
+    expect(err.cause).toBeInstanceOf(TypeError);
+  });
+
+  it('the guide says what each of them says for a motor with no bundled curve', async () => {
+    // The offline section of user-guide.md tells a user what picking one of
+    // the motors shipped without a curve does. Offline it said the pick "fails
+    // as any request does with no network": the browser's bare "Failed to
+    // fetch", which this error no longer is. A phrase each, shared by the
+    // message and the guide.
+    const tc = await freshModule();
+    stubDownload([]);
+    const online = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const offline = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    const paragraph = guide.split('\n').find((l) => l.includes('with no bundled curve are the one gap')) ?? '';
+    expect(paragraph).not.toBe('');
+    for (const [message, words] of [[online, 'no sample data'], [offline, 'thrustcurve.org could not be reached']] as const) {
+      expect(message.toLowerCase(), message).toContain(words);
+      expect(paragraph, words).toContain(words);
+    }
+  });
+
+  it('an HTTP error or an answer with no results list is not that either', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 }) as unknown as Response));
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: 'nope' })));
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
+  });
+
+  it('a bundle that fails to load is not "no curve" — the error says the bundle failed', async () => {
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => {
+      throw new Error('Failed to fetch dynamically imported module');
+    });
+    try {
+      const tc = await import('./thrustcurve.js');
+      // The real Quest C6, which the bundle carries — when it loads.
+      const bundled: TcMotor = { ...QUEST_C6, motorId: '5f4294d20002310000000016' };
+      // Its other caller (the motor browser) still reads a failed bundle as "no files".
+      expect(await tc.bundledSimFiles(bundled.motorId)).toEqual([]);
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+      const err = await failure(tc.fetchMotorSpec(bundled, 5));
+      expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
+      expect(err.message).toMatch(/^The thrust curves bundled with the app did not load, and thrustcurve\.org could not be reached for C6/);
+      // With a connection the download stands in for the bundle, as before.
+      stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+      expect((await tc.fetchMotorSpec(bundled, 5)).times.length).toBeGreaterThan(1);
+      // And thrustcurve.org's own "none" is still that, bundle or no bundle.
+      localStorage.clear();
+      stubDownload([]);
+      expect(await failure(tc.fetchMotorSpec(bundled, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    } finally {
+      vi.doUnmock('../data/motorCurves.json');
+      vi.resetModules();
+    }
+  });
+});
+
 describe('the download has a deadline, and honours a caller cancelling it', () => {
   it('gives up on a stalled socket after 15 s with a message a rocketeer can act on',
     async () => {
@@ -301,20 +423,25 @@ describe('the download has a deadline, and honours a caller cancelling it', () =
 });
 
 describe('the curve cache is bounded and sweeps its retired generations', () => {
-  it('frees the v1, v2, v3 and v4 keys a prefix bump left unreachable, and nothing else',
+  it('frees the v1 to v6 keys a prefix bump left unreachable, and nothing else',
     async () => {
       const tc = await freshModule();
-      // The five generations that shipped: `tc:samples:` (through v0.060),
+      // The generations: `tc:samples:` (through v0.060),
       // `tc:samples:v2:` (v0.061-v0.064), `tc:samples:v3:` (v0.065-v0.110),
       // `tc:samples:v4:` (v0.111-v0.115, the first pickSampleFile bump — a v3
       // entry holds the file the PRE-v0.107 chooser picked, which is the whole
-      // reason v3 is dead rather than merely old), and `tc:samples:v5:` (from
-      // v0.116, the impulse-agreement term — same rule, so v4 is dead too).
+      // reason v3 is dead rather than merely old), `tc:samples:v5:` (v0.116 to
+      // 2026-10-01, the impulse-agreement term — same rule, so v4 is dead too),
+      // `tc:samples:v6:` (that term measured on the curve flown, audit
+      // 2026-09-30 — so v5 is dead too) and `tc:samples:v7:` (the last word
+      // is the file, never its place in the list — so v6 is dead too).
       localStorage.setItem('tc:samples:deadv1', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v2:deadv2', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v3:deadv3', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v4:deadv4', JSON.stringify({ samples: GOOD_SAMPLES }));
-      localStorage.setItem('tc:samples:v5:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v5:deadv5', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v6:deadv6', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v7:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
       // Neighbours in the same ~5 MB pool. The prefix match must not touch them.
       localStorage.setItem('online-openrocket.session', '{"tree":{}}');
       localStorage.setItem('tc:othersfeature:1', 'x');
@@ -326,15 +453,33 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       expect(localStorage.getItem('tc:samples:v2:deadv2')).toBeNull();
       expect(localStorage.getItem('tc:samples:v3:deadv3')).toBeNull();
       expect(localStorage.getItem('tc:samples:v4:deadv4')).toBeNull();
-      expect(localStorage.getItem('tc:samples:v5:keepme')).not.toBeNull();
+      expect(localStorage.getItem('tc:samples:v5:deadv5')).toBeNull();
+      expect(localStorage.getItem('tc:samples:v6:deadv6')).toBeNull();
+      expect(localStorage.getItem('tc:samples:v7:keepme')).not.toBeNull();
       expect(localStorage.getItem('online-openrocket.session')).toBe('{"tree":{}}');
       expect(localStorage.getItem('tc:othersfeature:1')).toBe('x');
     });
 
+  it('never flies an entry an older picker chose: a v5 or v6 entry is not read', async () => {
+    // Either would outrank the network for as long as it lived (the cache is
+    // keyed by motor, not by the rule that chose it).
+    for (const generation of ['v5', 'v6']) {
+      const tc = await freshModule();
+      const STALE: TcSample[] = [{ time: 0, thrust: 0 }, { time: 1, thrust: 30 }, { time: 2, thrust: 0 }];
+      localStorage.setItem(`tc:samples:${generation}:${QUEST_C6.motorId}`,
+        JSON.stringify({ samples: STALE, masses: null }));
+      const spy = stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+      const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+      expect(spy, generation).toHaveBeenCalledOnce();
+      expect(spec.thrusts, generation).toEqual(GOOD_SAMPLES.map((s) => s.thrust));
+      localStorage.clear();
+    }
+  });
+
   const liveCount = (): number => {
     let n = 0;
     for (let i = 0; i < localStorage.length; i++) {
-      if (localStorage.key(i)?.startsWith('tc:samples:v5:')) n++;
+      if (localStorage.key(i)?.startsWith('tc:samples:v7:')) n++;
     }
     return n;
   };
@@ -343,7 +488,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
     const tc = await freshModule();
     // One over the 300 cap. Stamps ascend with the index, so entry 0 is oldest.
     for (let i = 0; i < 301; i++) {
-      localStorage.setItem(`tc:samples:v5:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -351,17 +496,17 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
 
     // Pruned back to the 240 low-water mark, plus the entry just written.
     expect(liveCount()).toBe(241);
-    expect(localStorage.getItem('tc:samples:v5:seed0')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v5:seed60')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v5:seed61')).not.toBeNull();
-    expect(localStorage.getItem('tc:samples:v5:seed300')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed0')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed60')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed61')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed300')).not.toBeNull();
     expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
   });
 
   it('leaves the cache alone while it is under the cap', async () => {
     const tc = await freshModule();
     for (let i = 0; i < 50; i++) {
-      localStorage.setItem(`tc:samples:v5:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -402,7 +547,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       clear: (): void => map.clear(),
     });
     for (let i = 0; i < 200; i++) {
-      localStorage.setItem(`tc:samples:v5:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
 

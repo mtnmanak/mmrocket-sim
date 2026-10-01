@@ -434,7 +434,9 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     click(rowFor(h, 'Estes', 'G80')!);
     click(loadButton(h)!);
     for (let i = 0; i < 50 && !(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent); i++) await settle(10);
-    expect(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent).toMatch(/Failed to fetch/);
+    // Said in the app's words, not the browser's bare "Failed to fetch" (audit 2026-09-30).
+    expect(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent)
+      .toMatch(/^thrustcurve\.org could not be reached for G80 — are you offline\?/);
     expect(h.selected).toEqual([]);
   });
 

@@ -507,6 +507,87 @@ describe('.ork audit regressions (2026-08-04)', () => {
     expect(firstMountMotor(importOrk(xml))?.delay).toBe(Infinity);
   });
 
+  /**
+   * Audit 2026-09-30: a <motor> with no <delay>, or one that is not a number,
+   * imported at 0 s, so the ejection charge fired at burnout — near peak
+   * velocity — on a flight desktop OpenRocket flies with no charge at all. Its
+   * MotorHandler starts the delay at NaN and getDelay() returns PLUGGED_DELAY
+   * with "Motor delay not specified, assuming no ejection charge."
+   */
+  describe('a missing or unreadable <delay> reads as plugged, as desktop reads it', () => {
+    const withDelay = (delayEl: string) => {
+      expect(PLUGGED).toContain('<delay>none</delay>'); // the element each case replaces
+      const bytes = new TextEncoder().encode(PLUGGED.replace('<delay>none</delay>', delayEl));
+      return importOrk(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
+    };
+
+    it('no <delay> at all: plugged, and the note says why', () => {
+      const result = withDelay('');
+      expect(firstMountMotor(result)?.delay).toBe(Infinity);
+      expect(result.notes.filter((n) => n.startsWith('Motor K550: the file gives no ejection delay'))).toHaveLength(1);
+      expect(result.notes.some((n) => n.startsWith('Motor K550: plugged (no ejection charge)'))).toBe(true);
+    });
+
+    it('a blank delay is no delay', () => {
+      const result = withDelay('<delay> </delay>');
+      expect(firstMountMotor(result)?.delay).toBe(Infinity);
+      expect(result.notes.some((n) => n.startsWith('Motor K550: the file gives no ejection delay'))).toBe(true);
+    });
+
+    it('a delay that is not a decimal number is plugged too, and the note quotes it', () => {
+      for (const raw of ['5 s', 'P', '0x5']) {
+        const result = withDelay(`<delay>${raw}</delay>`);
+        expect(firstMountMotor(result)?.delay, raw).toBe(Infinity);
+        expect(result.notes.filter((n) => n.startsWith(`Motor K550: the file's ejection delay “${raw}” is not a number`)),
+          raw).toHaveLength(1);
+      }
+    });
+
+    it('keeps an explicit 0 s: a booster charge at burnout is a real delay', () => {
+      const result = withDelay('<delay>0.0</delay>');
+      expect(firstMountMotor(result)?.delay).toBe(0);
+      expect(result.notes.some((n) => /plugged|ejection delay/.test(n))).toBe(false);
+    });
+
+    it('reads every configuration the same way, and says it once', () => {
+      // cfg-a (opened) states 5 s; cfg-b's motor states nothing. The same
+      // resolveRef feeds every configuration's preset, so cfg-b used to fly a
+      // charge at burnout the moment the user switched to it, with no note.
+      const two = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
+        <name>Two</name>
+        <motorconfiguration configid="cfg-a" default="true"><stage number="0" active="true"/></motorconfiguration>
+        <motorconfiguration configid="cfg-b"><stage number="0" active="true"/></motorconfiguration>
+        <motorconfiguration configid="cfg-c"><stage number="0" active="true"/></motorconfiguration>
+        <subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>Body</name><length>0.3</length><thickness>0.0005</thickness><radius>0.012</radius>
+          <motormount>
+            <ignitionevent>automatic</ignitionevent><ignitiondelay>0.0</ignitiondelay><overhang>0.0</overhang>
+            <motor configid="cfg-a"><type>single</type><manufacturer>Estes</manufacturer>
+              <designation>C6</designation><diameter>0.018</diameter><length>0.07</length><delay>5.0</delay></motor>
+            <motor configid="cfg-b"><type>single</type><manufacturer>Estes</manufacturer>
+              <designation>D12</designation><diameter>0.024</diameter><length>0.07</length></motor>
+            <motor configid="cfg-c"><type>single</type><manufacturer>Estes</manufacturer>
+              <designation>D12</designation><diameter>0.024</diameter><length>0.07</length></motor>
+          </motormount>
+        </bodytube>
+        </subcomponents></stage></subcomponents></rocket></openrocket>`;
+      const result = importOrk(two);
+      const mountId = flatten(result.tree.components).find((n) => n['motorMount'] === true)!.id!;
+      expect(result.chosenConfigId).toBe('cfg-a');
+      expect(firstMountMotor(result)?.delay).toBe(5);
+      expect(result.configs.find((c) => c.id === 'cfg-a')!.motors[mountId]!.delay).toBe(5);
+      expect(result.configs.find((c) => c.id === 'cfg-b')!.motors[mountId]!.delay).toBe(Infinity);
+      expect(result.configs.find((c) => c.id === 'cfg-c')!.motors[mountId]!.delay).toBe(Infinity);
+      expect(result.notes.filter((n) => n.startsWith('Motor D12: the file gives no ejection delay'))).toHaveLength(1);
+    });
+
+    it('writes the plugged motor back as "none", the way desktop saves it', () => {
+      const original = withDelay('');
+      const xml = exportOrk({ name: original.name, tree: original.tree, motors: original.motors });
+      expect(xml).toContain('<delay>none</delay>');
+    });
+  });
+
   it('round-trips tube-fin thickness instead of resetting it to the 0.5 mm fallback', () => {
     const tree = {
       name: 'Tubefins',
