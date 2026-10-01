@@ -35,7 +35,11 @@ different lines, and a naive line-adjacency parse resolved a nozzle part in only
 
 With both, all 324 drawings yield a header and a nozzle row.
 
-Usage: python extract-nozzle-pdfs.py "<RCS Schematics folder>"
+Usage: python extract-nozzle-pdfs.py "<RCS Schematics folder>" ["<instruction sheet>" ...]
+
+Each further argument is an instruction sheet to read, as a path under the set's
+`Instructions` folder; build-nozzle-db.mjs passes the ones it transcribes a
+nozzle line from (INSTRUCTION_SHEET_NOZZLES), and no other is read.
 """
 import email
 import glob
@@ -187,6 +191,14 @@ REVISION = re.compile(
 # Which revisions are ABOUT the nozzle — the word in the revision's own text.
 REV_NOZZLE = re.compile(r'NOZZLE', re.I)
 
+# The motor a sheet's own TITLE BLOCK names: "H219T-14A DMS™ MOTOR ASSEMBLY",
+# "K1100T-L MOTOR ASSEMBLY". Added 2026-10-01, because a FILE NAME is not the
+# sheet: DMS Motor Designs/38mm/H218T-14A.pdf is titled H219T-14A. Read on all
+# 375 sheets that day, it finds exactly one on each. Reported, never trusted on
+# its own: 29mm/I205W-14A.pdf is titled I205NT-14A while its grains and length
+# are the I205W's, so the builder uses this only to check an entry that quotes it.
+TITLE_BLOCK = re.compile(r'([A-Z0-9][A-Z0-9.\-/]*)\s+(?:DMS\S*\s+)?MOTOR\s+ASSEMBLY')
+
 
 def revisions(text):
     """Every REVISIONS row as {letter, text, date, isoDate, mentionsNozzle}.
@@ -211,9 +223,9 @@ def revisions(text):
     return out
 
 
-def main(root):
+def main(root, instruction_files=()):
     out = {'root': os.path.abspath(root), 'assemblies': [], 'specPages': [],
-           'nozzleDrawings': [], 'certNozzles': []}
+           'nozzleDrawings': [], 'certNozzles': [], 'instructionSheets': []}
 
     # TWO DOCUMENT FAMILIES, read the same way (2026-09-13).
     #
@@ -285,9 +297,31 @@ def main(root):
                 'foundLomHeader': found_header,
                 'designationOnSheet': squash(designation) in squash(text),
                 'designationStemOnSheet': squash(stem) in squash(text),
+                'titleBlockDesignations': TITLE_BLOCK.findall(text),
                 'revisions': revisions(text),
                 'lomRows': rows,
             })
+
+    # INSTRUCTION SHEETS, only the ones the builder names (2026-10-01). A reload
+    # kit's instruction sheet sometimes carries the motor's own parts list, and
+    # for L1365M-PS that list is the only document naming its nozzle. Reading
+    # all 213 takes about 40 s, and several carry a GENERIC drawing ("MAY BE A
+    # GENERIC REPRESENTATION"), so none is read unless asked for. Two tables sit
+    # side by side on those pages, so a row here can hold one line of each: the
+    # rows are reported as read, and the builder checks its transcription
+    # against them rather than parsing them.
+    ins_root = os.path.join(root, 'Instructions')
+    for rel in instruction_files:
+        path = os.path.join(ins_root, rel)
+        if not os.path.isfile(path):
+            out['instructionSheets'].append({'file': rel, 'found': False, 'pages': []})
+            continue
+        pages = []
+        for number, page in enumerate(fitz.open(path), start=1):
+            rows = lom_rows(page)
+            if rows is not None:
+                pages.append({'page': number, 'rows': rows})
+        out['instructionSheets'].append({'file': rel, 'found': True, 'pages': pages})
 
     noz_root = os.path.join(root, 'Nozzles')
     for path in sorted(glob.glob(os.path.join(noz_root, '*.mhtml'))):
@@ -342,5 +376,5 @@ def main(root):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        sys.exit('usage: extract-nozzle-pdfs.py "<RCS Schematics folder>"')
-    main(sys.argv[1])
+        sys.exit('usage: extract-nozzle-pdfs.py "<RCS Schematics folder>" ["<instruction sheet>" ...]')
+    main(sys.argv[1], sys.argv[2:])

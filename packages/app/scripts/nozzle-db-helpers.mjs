@@ -285,11 +285,13 @@ export function mergeMeasured(measured, catalogueMotors, publishedRows) {
  * extractor gives an assembly's `file` relative to ITS family's folder and
  * every other group's relative to the set root (see extract-nozzle-pdfs.py),
  * so a date computed from these paths has to join each one to the right
- * folder.
+ * folder. `instructions` since 2026-10-01: a reload kit's instruction sheet
+ * whose parts list build-nozzle-db.mjs transcribes (INSTRUCTION_SHEET_NOZZLES).
  */
 export const ASSEMBLY_FOLDER = {
   reloadable: 'Motor Assembly Drawings',
   dms: 'DMS Motor Designs',
+  instructions: 'Instructions',
 };
 
 /**

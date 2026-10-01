@@ -2,20 +2,22 @@
  "generated": "2026-09-13",
  "source": "AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables",
  "sourceNote": "docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.",
- "catalogueGenerated": "2026-09-19",
+ "catalogueGenerated": "2026-09-30",
  "rule": "A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech's own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 \"M\" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.",
  "counts": {
   "assemblyDrawings": 375,
   "nozzlePartResolved": 374,
+  "instructionSheetRows": 1,
+  "drawingsJoinedByEvidence": 2,
   "distinctNozzleParts": 115,
   "partsWithExitDiameter": 92,
   "partsResolvedPerMotor": 20,
-  "motorsWithExit": 288,
-  "motorsMatchedToCatalogue": 287,
-  "motorsLoadableWithExit": 279,
-  "aerotechMatched": 231,
+  "motorsWithExit": 289,
+  "motorsMatchedToCatalogue": 290,
+  "motorsLoadableWithExit": 282,
+  "aerotechMatched": 234,
   "lokiMatched": 56,
-  "aerotechMatchedInProduction": 229,
+  "aerotechMatchedInProduction": 232,
   "lokiMatchedInProduction": 55,
   "motorsWithTwoNozzleOptions": 9,
   "catalogueMotors": 1156,
@@ -25,7 +27,7 @@
   "dmsDrawings": 51,
   "dmsRows": 49,
   "dmsRowsWithExit": 42,
-  "dmsInProductionWithExit": 34,
+  "dmsInProductionWithExit": 36,
   "lokiSheetsRead": 21,
   "lokiMotorsOnASheet": 43,
   "lokiRows": 56,
@@ -37,7 +39,7 @@
  "gaps": {
   "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR (\"we can leave them as unknown and, if we get the data, we can update the database\") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed \"Historical Information Only — Not In Production\", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads \"Single Use\") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in `uncovered`.",
   "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 34 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 43 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 36 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 40 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
  },
  "coverage": {
   "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`.",
@@ -103,11 +105,10 @@
      },
      "38": {
       "inProduction": 59,
-      "withNozzleRow": 54,
-      "withExitDiameter": 53,
+      "withNozzleRow": 55,
+      "withExitDiameter": 54,
       "missing": [
        "H130W",
-       "H219T",
        "H550ST",
        "I180W",
        "I350R"
@@ -115,19 +116,17 @@
      },
      "54": {
       "inProduction": 53,
-      "withNozzleRow": 51,
-      "withExitDiameter": 49,
+      "withNozzleRow": 52,
+      "withExitDiameter": 50,
       "missing": [
-       "J1265T",
        "J550ST-14"
       ]
      },
      "75": {
       "inProduction": 34,
-      "withNozzleRow": 31,
-      "withExitDiameter": 31,
+      "withNozzleRow": 32,
+      "withExitDiameter": 32,
       "missing": [
-       "L1365M",
        "L2775ST-PS",
        "N3120X-PS"
       ]
@@ -231,11 +230,6 @@
    "J390H-TURBO",
    "K485H-3JET"
   ],
-  "AeroTech 75 mm RMS-75/5120": [
-   "L1120W",
-   "L1365M",
-   "M2030G-P"
-  ],
   "AeroTech 18 mm single-use (no reload case)": [
    "D10W",
    "D21T"
@@ -252,9 +246,9 @@
    "H550ST",
    "I180W"
   ],
-  "AeroTech 38 mm single-use (no reload case)": [
-   "H219T",
-   "I350R"
+  "AeroTech 75 mm RMS-75/5120": [
+   "L1120W",
+   "M2030G-P"
   ],
   "Loki 54 mm 54/4000": [
    "L2050LW",
@@ -296,6 +290,9 @@
   "AeroTech 38 mm RMS-38/720": [
    "J350W-OLD"
   ],
+  "AeroTech 38 mm single-use (no reload case)": [
+   "I350R"
+  ],
   "AeroTech 38 mm SU 38x194": [
    "H45W"
   ],
@@ -304,9 +301,6 @@
   ],
   "AeroTech 54 mm RMS-54/852": [
    "J550ST-14"
-  ],
-  "AeroTech 54 mm single-use (no reload case)": [
-   "J1265T"
   ],
   "AeroTech 54 mm SU 54x235": [
    "I65W"
@@ -2534,7 +2528,7 @@
     "dashNumberRuleStatedOnDrawing": true
    },
    "exitOnDrawing": true,
-   "usedByDrawings": 10,
+   "usedByDrawings": 11,
    "exitDiameterM": 0.047625,
    "throatDiameterM": 0.017399
   },
@@ -5141,10 +5135,14 @@
    }
   },
   {
+   "motorId": "5f4294d2000231000000044e",
    "manufacturer": "AeroTech",
    "designation": "H218T-14A",
+   "catalogDesignation": "H219T",
+   "commonName": "H219",
    "caseFamily": "38mm DMS (single-use)",
    "docFamily": "dms",
+   "casingDiameterMm": 38,
    "nozzlePartNo": "01500-5",
    "exitDiameterM": 0.011125,
    "exitDiameterIn": 0.438,
@@ -5156,6 +5154,12 @@
     "lomDescription": "NOZZLE (F60/G80) DRILLED .228\"",
     "designationOnSheet": "no",
     "exitFrom": "Nozzles/29_38mm Nozzle, 0.180_ Throat.mhtml",
+    "matchedVia": "H219T",
+    "caseAgrees": false,
+    "joinEvidence": [
+     "DMS Motor Designs/38mm/H218T-14A.pdf, title block: \"H219T-14A DMS™ MOTOR ASSEMBLY\", NUMBER \"082114\"; the file name is the only place \"H218T\" appears.",
+     "Data Sheets/DMS Disposable Motor System Data Sheet.pdf, page 1, 38mm DMS table, read by word coordinates: Motor \"H219T\", Part No. \"082114\", Length \"6.12\" in, Prop Wt. \"109\" g. The same drawing number as the title block, and the catalogue's H219T carries the same 109 g of propellant."
+    ],
     "assemblyDrawings": [
      "38mm/H218T-14A.pdf"
     ]
@@ -6622,10 +6626,14 @@
    }
   },
   {
+   "motorId": "63bb65281d26f30004b4b07b",
    "manufacturer": "AeroTech",
    "designation": "J1265ST-14A",
+   "catalogDesignation": "J1265T",
+   "commonName": "J1265",
    "caseFamily": "54mm DMS (single-use)",
    "docFamily": "dms",
+   "casingDiameterMm": 54,
    "nozzlePartNo": "01670-7",
    "exitDiameterM": 0.03175,
    "exitDiameterIn": 1.25,
@@ -6637,6 +6645,13 @@
     "lomDescription": "54MM LARGE NOZZLE .625\" THROAT",
     "designationOnSheet": "exact",
     "exitFrom": "Nozzles/54mm Nozzle, 0.455_ Throat.mhtml",
+    "matchedVia": "J1265T",
+    "caseAgrees": false,
+    "joinEvidence": [
+     "DMS Motor Designs/54mm/J1265ST-14A.pdf, title block: \"J1265ST-14A DMS™ MOTOR ASSEMBLY\", NUMBER \"101214\", first release 12/7/22.",
+     "Cert Docs/TRA/54mm High Power Single-Use/J1265ST-14A DMS.pdf, Tripoli's letter of December 6, 2022 (image only, read rendered): \"Manufacturer's Designation J1265ST-14A [single use, DMS]\", \"Propellant Super Thunder\", \"Overall Length 15.641″ 397.27 mm\", \"Loaded Mass 2.414 lb 1095.1 g\", \"Propellant Mass 1.1177 lb* 507 g*\", \"Burn time 0.85 ± 0.007 sec\", \"Max Impulse 392.36 ± 57.25 lbf 1745.3 ± 254.7 N\", \"Average Impulse 283.51 ± 1.542 lbf 1261.1 ± 6.9 N\".",
+     "The catalogue's J1265T (2026-09-30): Super Thunder, 397 mm, 1,095 g loaded, 507 g propellant, 0.85 s, 1745.3 N peak, 1261.1 N average: the letter's motor, figure for figure."
+    ],
     "assemblyDrawings": [
      "54mm/J1265ST-14A.pdf"
     ]
@@ -8791,6 +8806,34 @@
     "caseAgrees": true,
     "assemblyDrawings": [
      "RMS-98-5120 High Power/L1300R-P Assembly.pdf"
+    ]
+   }
+  },
+  {
+   "motorId": "5f4294d200023100000003fc",
+   "manufacturer": "AeroTech",
+   "designation": "L1365M-PS",
+   "catalogDesignation": "L1365M",
+   "commonName": "L1365",
+   "caseFamily": "RMS-75/5120",
+   "docFamily": "instructions",
+   "casingDiameterMm": 75,
+   "nozzlePartNo": "01770",
+   "exitDiameterM": 0.047625,
+   "exitDiameterIn": 1.875,
+   "throatDiameterM": 0.017399,
+   "throatDiameterIn": 0.685,
+   "exitSource": "spec-page",
+   "exitConfidence": "high",
+   "provenance": {
+    "lomDescription": "HP 75MM NOZZLE (.685\" DT UNDRILLED)",
+    "lomLocation": "page 2, item 3",
+    "designationOnSheet": "exact",
+    "exitFrom": "Nozzles/75mm Nozzle, 0.685_ Throat.mhtml",
+    "matchedVia": "L1365M-PS",
+    "caseAgrees": true,
+    "assemblyDrawings": [
+     "75mm High-Power Reloadable Motor Instructions/75-5120M (L1365M-PS) Instructions.pdf"
     ]
    }
   },

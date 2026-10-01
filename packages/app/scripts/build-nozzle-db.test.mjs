@@ -132,7 +132,7 @@ const SEPT_13 = Date.UTC(2026, 8, 13, 12);
 /** The full composition on the synthetic set, without the shipped tables that name real motors. */
 const build = async (over = {}) => (await builder()).buildNozzleDb({
   raw: RAW(), motorsDb: CATALOGUE(), mtimeMs: () => SEPT_13,
-  lokiSheets: [], observations: [], measured: [],
+  lokiSheets: [], observations: [], measured: [], sheetJoins: [], instructionRows: [],
   ...over,
 });
 
@@ -438,6 +438,165 @@ describe("the join from a drawing's name to the catalogue", () => {
     expect(findMotor(at, 'D13-10W', 29, '29mm')).toBeNull();
   });
 
+  /**
+   * A SHEET FILED UNDER A NAME THE CATALOGUE DOES NOT USE (board Tier 1 row 13,
+   * 2026-10-01). AeroTech's H219T sheet is filed as H218T-14A.pdf and their J1265T
+   * is J1265ST-14A, so both rows were built and reached no motor. They are joined
+   * by an entry that quotes its evidence, never by guessing from the file name.
+   */
+  const misnamed = (file, title) => assembly(`38mm/${file}`, [{ part: '01999', desc: 'NOZZLE (DMS) DRILLED .228"' }],
+    { docFamily: 'dms', designationOnSheet: false, designationStemOnSheet: false, titleBlockDesignations: [title] });
+  const misnamedRaw = () => ({
+    specPages: [specPage('01999', 'Nozzle for DMS motors. Dimensions: 0.900" O.D. 0.150" diameter throat 0.400" diameter exit Weight = 9 grams')],
+    nozzleDrawings: [],
+    assemblies: [misnamed('H998T-14A Assembly.pdf', 'H999T-14A')],
+    certNozzles: [],
+  });
+  const h999t = { motorId: 'at-h999t', manufacturerAbbrev: 'AeroTech', designation: 'H999T', commonName: 'H999',
+    diameter: 38, caseInfo: null, type: 'SU', availability: 'regular' };
+  const JOIN = { docFamily: 'dms', file: '38mm/H998T-14A Assembly.pdf', titleBlock: 'H999T-14A',
+    catalogDesignation: 'H999T', evidence: ['synthetic: the title block reads "H999T-14A"'] };
+
+  it('joins a sheet filed under another name to the motor its entry names, and keeps the evidence', async () => {
+    const { aerotechDrawingRows } = await builder();
+    const { rows, unmatched } = aerotechDrawingRows(misnamedRaw(), [h999t], { sheetJoins: [JOIN] });
+    expect(unmatched).toEqual([]);
+    expect(rows[0]).toMatchObject({
+      motorId: 'at-h999t',
+      designation: 'H998T-14A', // the file's, which is what the drawing is filed as
+      catalogDesignation: 'H999T',
+      exitDiameterIn: 0.4,
+      provenance: {
+        designationOnSheet: 'no',
+        // What findDbMotor re-resolves, so the shipped-file join check lands on the same motor.
+        matchedVia: 'H999T',
+        joinEvidence: ['synthetic: the title block reads "H999T-14A"'],
+      },
+    });
+    // Without the entry the file name reaches nothing, which is the gap it closes.
+    const bare = aerotechDrawingRows(misnamedRaw(), [h999t]);
+    expect(bare.rows[0].motorId).toBeUndefined();
+    expect(bare.unmatched).toEqual([{ file: '38mm/H998T-14A Assembly.pdf', designation: 'H998T-14A' }]);
+  });
+
+  it('refuses a join its sheet, the catalogue or the file name no longer bears out', async () => {
+    const { aerotechDrawingRows, BuildRefused } = await builder();
+    const refused = (joins, catalogue = [h999t], raw = misnamedRaw()) => {
+      try { aerotechDrawingRows(raw, catalogue, { sheetJoins: joins }); } catch (e) {
+        expect(e).toBeInstanceOf(BuildRefused);
+        return e.lines;
+      }
+      return null;
+    };
+    const head = 'A sheet join in SHEET_CATALOGUE_JOINS does not hold:';
+    // The title block says something else: the entry rests on a sheet that is not this one.
+    expect(refused([{ ...JOIN, titleBlock: 'H997T-14A' }])).toEqual([head,
+      '  dms 38mm/H998T-14A Assembly.pdf: the entry rests on a title block reading "H997T-14A", the sheet\'s reads "H999T-14A"']);
+    // The catalogue has no such motor, or two of them.
+    expect(refused([JOIN], [])).toEqual([head,
+      '  dms 38mm/H998T-14A Assembly.pdf: the catalogue has no AeroTech H999T at 38 mm (found 0)']);
+    expect(refused([JOIN], [h999t, { ...h999t, motorId: 'at-h999t-again' }])).toEqual([head,
+      '  dms 38mm/H998T-14A Assembly.pdf: the catalogue has no AeroTech H999T at 38 mm (found 2)']);
+    // The file name now reaches a motor by itself: the entry is redundant, or it contradicts the catalogue.
+    const named = { ...h999t, motorId: 'at-h998t', designation: 'H998T', commonName: 'H998' };
+    expect(refused([JOIN], [h999t, named])).toEqual([head,
+      '  dms 38mm/H998T-14A Assembly.pdf: its file name reaches H998T by itself now — re-read the sheet, then delete or correct the entry']);
+    // An entry for a sheet the set does not hold any more.
+    expect(refused([JOIN, { ...JOIN, file: '38mm/H996T-14A Assembly.pdf' }])).toEqual([head,
+      '  dms 38mm/H996T-14A Assembly.pdf: no such sheet in this document set — delete the entry, or correct its file']);
+    // Two entries for one sheet, and an entry whose sheet no longer names a nozzle.
+    expect(refused([JOIN, JOIN])).toEqual([head, '  dms 38mm/H998T-14A Assembly.pdf: named by two entries']);
+    const capOnly = { ...misnamedRaw(), assemblies: [{ ...misnamedRaw().assemblies[0], lomRows: [{ part: '04580', desc: 'NOZZLE CAP' }] }] };
+    expect(refused([JOIN], [h999t], capOnly)).toEqual([head,
+      '  dms 38mm/H998T-14A Assembly.pdf: the sheet names no nozzle, so the entry joins nothing']);
+  });
+
+  /**
+   * A NOZZLE NAMED ONLY IN AN INSTRUCTION SHEET (board Tier 1 row 13). L1365M-PS
+   * has no assembly drawing; its reload kit's instruction sheet prints the parts
+   * list. Two tables sit side by side on that page, so the extractor's row runs
+   * both together, and the nozzle line is transcribed in the builder and then
+   * checked against the row the extractor read.
+   */
+  const SHEET = '75mm High-Power Reloadable Motor Instructions/75-9999M (L9999M-PS) Instructions.pdf';
+  const INSTRUCTION = {
+    file: SHEET, page: 2, designation: 'L9999M-PS', caseFolder: 'RMS-75/5120',
+    row: { qty: '1', part: '01770', desc: 'HP 75MM NOZZLE (.685" DT UNDRILLED)', item: '3' },
+  };
+  const instructionRaw = (rows = ['L9999M-PS Assembly Drawing and Instructions',
+    '1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3 1 03287 SMOKE CHARGE(1.305" O.D. X 1.5") 10']) => ({
+    specPages: [specPage('01770', 'Nozzle for 75mm motors. Dimensions: 2.730" O.D. 0.685" diameter throat 1.875" diameter exit Weight = 300 grams')],
+    nozzleDrawings: [],
+    assemblies: [],
+    certNozzles: [],
+    instructionSheets: [{ file: SHEET, found: true, pages: [{ page: 2, rows }] }],
+  });
+  const l9999m = { motorId: 'at-l9999m', manufacturerAbbrev: 'AeroTech', designation: 'L9999M', commonName: 'L9999',
+    diameter: 75, caseInfo: 'RMS-75/5120', type: 'reload', availability: 'regular' };
+
+  it('takes a nozzle from an instruction sheet\'s parts list once the sheet bears out the transcription', async () => {
+    const { db } = await build({ raw: instructionRaw(), motorsDb: { generated: '2026-09-30', motors: [l9999m] },
+      instructionRows: [INSTRUCTION] });
+    const row = db.motors.find((m) => m.motorId === 'at-l9999m');
+    expect(row).toMatchObject({
+      designation: 'L9999M-PS',
+      catalogDesignation: 'L9999M',
+      caseFamily: 'RMS-75/5120',
+      docFamily: 'instructions',
+      nozzlePartNo: '01770',
+      // The exit is the part's store page, as for any drawing: nothing typed here but the parts-list line.
+      exitDiameterIn: 1.875,
+      exitSource: 'spec-page',
+      exitConfidence: 'high',
+      throatDiameterIn: 0.685,
+      provenance: {
+        lomDescription: 'HP 75MM NOZZLE (.685" DT UNDRILLED)',
+        lomLocation: 'page 2, item 3',
+        designationOnSheet: 'exact',
+        matchedVia: 'L9999M-PS',
+        caseAgrees: true,
+        assemblyDrawings: [SHEET],
+      },
+    });
+    // Counted apart from the drawings, so "resolved N of M drawings" still means drawings.
+    expect(db.counts).toMatchObject({ assemblyDrawings: 0, nozzlePartResolved: 0, instructionSheetRows: 1 });
+  });
+
+  it('refuses a transcription its sheet does not bear out, or one that reaches no motor in its case', async () => {
+    const { BuildRefused } = await builder();
+    const refused = async (over) => {
+      try {
+        await build({ motorsDb: { generated: '2026-09-30', motors: [l9999m] }, instructionRows: [INSTRUCTION], ...over });
+      } catch (e) {
+        expect(e).toBeInstanceOf(BuildRefused);
+        return e.lines;
+      }
+      return null;
+    };
+    const head = 'An instruction-sheet nozzle row in INSTRUCTION_SHEET_NOZZLES does not hold:';
+    // The item number belongs to the line: "... UNDRILLED) 4" is another row of the table.
+    expect(await refused({ raw: instructionRaw(), instructionRows: [{ ...INSTRUCTION, row: { ...INSTRUCTION.row, item: '4' } }] }))
+      .toEqual([head, `  ${SHEET} page 2: no row reads "1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 4"`]);
+    expect(await refused({ raw: instructionRaw(['1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3']) }))
+      .toEqual([head, `  ${SHEET} page 2: the page never names L9999M-PS`]);
+    expect(await refused({ raw: { ...instructionRaw(), instructionSheets: [] } }))
+      .toEqual([head, `  ${SHEET}: the extractor did not read it (python extract-nozzle-pdfs.py is given each entry's file)`]);
+    expect(await refused({ raw: { ...instructionRaw(), instructionSheets: [{ file: SHEET, found: false, pages: [] }] } }))
+      .toEqual([head, `  ${SHEET}: no such file under Instructions`]);
+    expect(await refused({ raw: instructionRaw(), instructionRows: [{ ...INSTRUCTION, page: 1 }] }))
+      .toEqual([head, `  ${SHEET} page 1: no LIST OF MATERIAL on that page`]);
+    // On the page word for word, but not a nozzle: nothing would reach the motor.
+    expect(await refused({
+      raw: instructionRaw(['L9999M-PS Assembly Drawing and Instructions', '1 75ACC AFT CLOSURE 2']),
+      instructionRows: [{ ...INSTRUCTION, row: { qty: '1', part: '75ACC', desc: 'AFT CLOSURE', item: '2' } }],
+    })).toEqual([head, `  ${SHEET}: the transcribed line is not a nozzle row (no LIST OF MATERIAL row names a nozzle)`]);
+    // Read correctly, but the motor it names is not in the catalogue in that case.
+    expect(await refused({ raw: instructionRaw(), motorsDb: { generated: '2026-09-30', motors: [{ ...l9999m, caseInfo: 'RMS-75/3840' }] } }))
+      .toEqual([head, `  ${SHEET}: L9999M-PS reaches L9999M, whose case RMS-75/3840 is not the sheet's RMS-75/5120`]);
+    expect(await refused({ raw: instructionRaw(), motorsDb: { generated: '2026-09-30', motors: [] } }))
+      .toEqual([head, `  ${SHEET}: L9999M-PS reaches no catalogue motor`]);
+  });
+
   it("breaks a tie by the drawing's own case family, and says when it could not", async () => {
     const { findMotor } = await builder();
     const at = [
@@ -625,15 +784,19 @@ describe('main', () => {
   });
 
   it('writes nothing and exits 1 when the build is refused', async () => {
-    const { main } = await builder();
+    const { main, INSTRUCTION_SHEET_NOZZLES } = await builder();
     const outPath = join(dir, 'nozzles.json');
     const motorsPath = join(dir, 'motors.json');
     writeFileSync(motorsPath, JSON.stringify(CATALOGUE()));
-    // The shipped Loki sheets name motors this synthetic catalogue does not have.
-    expect(main({ argv: [], source: dir, lokiSource: dir, outPath, motorsPath, extract: () => RAW() })).toBe(1);
+    const extract = vi.fn(() => RAW());
+    // The shipped instruction-sheet entry names a sheet this synthetic set never read.
+    expect(main({ argv: [], source: dir, lokiSource: dir, outPath, motorsPath, extract })).toBe(1);
     expect(existsSync(outPath)).toBe(false);
-    expect(errors[0]).toBe('Loki sheet readings do not hold together:');
-    expect(errors).toContain('  G66: read off a sheet, but the catalogue has no Loki motor by that name');
+    // The extractor is handed the instruction sheets the builder transcribes, and only those.
+    expect(INSTRUCTION_SHEET_NOZZLES.length).toBeGreaterThan(0);
+    expect(extract).toHaveBeenCalledWith(dir, INSTRUCTION_SHEET_NOZZLES.map((e) => e.file));
+    expect(errors[0]).toBe('An instruction-sheet nozzle row in INSTRUCTION_SHEET_NOZZLES does not hold:');
+    expect(errors[1]).toMatch(/: the extractor did not read it/);
   });
 });
 

@@ -1116,7 +1116,9 @@ describe('build-nozzle-db\'s conversions and readers', () => {
 
   it('dates the file from every document family it read, each joined to its own folder', () => {
     const raw = {
-      assemblies: [{ file: 'RMS-38/H.pdf', docFamily: 'reloadable' }, { file: '29mm/D.pdf', docFamily: 'dms' }],
+      assemblies: [{ file: 'RMS-38/H.pdf', docFamily: 'reloadable' }, { file: '29mm/D.pdf', docFamily: 'dms' },
+        // A reload kit's instruction sheet whose parts list the builder transcribes.
+        { file: '75mm Kits/L.pdf', docFamily: 'instructions' }],
       specPages: [{ file: 'Nozzles/a.mhtml' }],
       nozzleDrawings: [{ file: 'Nozzles/b.pdf' }],
       certNozzles: [{ file: 'Cert Docs/c.pdf' }],
@@ -1124,6 +1126,7 @@ describe('build-nozzle-db\'s conversions and readers', () => {
     expect(sourceDocuments(raw, ['38mm Red.pdf'])).toEqual([
       { root: 'rcs', file: 'Motor Assembly Drawings/RMS-38/H.pdf' },
       { root: 'rcs', file: 'DMS Motor Designs/29mm/D.pdf' },
+      { root: 'rcs', file: 'Instructions/75mm Kits/L.pdf' },
       { root: 'rcs', file: 'Nozzles/a.mhtml' },
       { root: 'rcs', file: 'Nozzles/b.pdf' },
       { root: 'rcs', file: 'Cert Docs/c.pdf' },
@@ -1132,7 +1135,7 @@ describe('build-nozzle-db\'s conversions and readers', () => {
     // A third family must be given its folder, not joined to one it is not in.
     expect(() => sourceDocuments({ ...raw, assemblies: [{ file: 'x.pdf', docFamily: 'hybrid' }] }))
       .toThrow(/unknown docFamily "hybrid"/);
-    expect(Object.keys(ASSEMBLY_FOLDER).sort()).toEqual(['dms', 'reloadable']);
+    expect(Object.keys(ASSEMBLY_FOLDER).sort()).toEqual(['dms', 'instructions', 'reloadable']);
   });
 
   /**

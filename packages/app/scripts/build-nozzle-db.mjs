@@ -336,6 +336,181 @@ export function findMotor(aerotech, designation, diameterMm, caseFolder, preferS
   return null;
 }
 
+/**
+ * SHEETS FILED UNDER A NAME THE CATALOGUE DOES NOT USE, joined by evidence
+ * (board Tier 1 row 13, 2026-10-01).
+ *
+ * Both rows below were built from the start and reached no motor, so two
+ * in-production motors loaded with a blank nozzle field: H219T's sheet is FILED
+ * as H218T-14A.pdf (RCS's own library page labels it that way too), and
+ * AeroTech write the motor thrustcurve.org calls J1265T as J1265ST-14A. Neither
+ * name can reach the catalogue through `designationCandidates`.
+ *
+ * NO JOIN FROM A FILE NAME. Each entry quotes the documents it rests on, and the
+ * build checks what it can: the sheet's own title block must read `titleBlock`
+ * (extract-nozzle-pdfs.py reports it), the catalogue must hold exactly one
+ * AeroTech `catalogDesignation` in the folder's casing size, and the file name
+ * must still reach nothing by itself, so an entry the catalogue has caught up
+ * with, or now contradicts, stops the build instead of lingering. A title block
+ * is not proof on its own either: 29mm/I205W-14A.pdf is titled "I205NT-14A"
+ * while its grains (8225W) and its 12.00 in case are the I205W's. So each entry
+ * also rests on a second document. Keyed by family and file, as the extractor
+ * names a sheet.
+ */
+const SHEET_CATALOGUE_JOINS = [
+  {
+    docFamily: 'dms',
+    file: '38mm/H218T-14A.pdf',
+    titleBlock: 'H219T-14A',
+    catalogDesignation: 'H219T',
+    evidence: [
+      'DMS Motor Designs/38mm/H218T-14A.pdf, title block: "H219T-14A DMS™ MOTOR ASSEMBLY", NUMBER "082114"; '
+        + 'the file name is the only place "H218T" appears.',
+      'Data Sheets/DMS Disposable Motor System Data Sheet.pdf, page 1, 38mm DMS table, read by word coordinates: '
+        + 'Motor "H219T", Part No. "082114", Length "6.12" in, Prop Wt. "109" g. The same drawing number as the '
+        + 'title block, and the catalogue\'s H219T carries the same 109 g of propellant.',
+    ],
+  },
+  {
+    docFamily: 'dms',
+    file: '54mm/J1265ST-14A.pdf',
+    titleBlock: 'J1265ST-14A',
+    catalogDesignation: 'J1265T',
+    evidence: [
+      'DMS Motor Designs/54mm/J1265ST-14A.pdf, title block: "J1265ST-14A DMS™ MOTOR ASSEMBLY", NUMBER "101214", '
+        + 'first release 12/7/22.',
+      'Cert Docs/TRA/54mm High Power Single-Use/J1265ST-14A DMS.pdf, Tripoli\'s letter of December 6, 2022 (image '
+        + 'only, read rendered): "Manufacturer\'s Designation J1265ST-14A [single use, DMS]", "Propellant Super '
+        + 'Thunder", "Overall Length 15.641″ 397.27 mm", "Loaded Mass 2.414 lb 1095.1 g", "Propellant Mass '
+        + '1.1177 lb* 507 g*", "Burn time 0.85 ± 0.007 sec", "Max Impulse 392.36 ± 57.25 lbf 1745.3 ± 254.7 N", '
+        + '"Average Impulse 283.51 ± 1.542 lbf 1261.1 ± 6.9 N".',
+      'The catalogue\'s J1265T (2026-09-30): Super Thunder, 397 mm, 1,095 g loaded, 507 g propellant, 0.85 s, '
+        + '1745.3 N peak, 1261.1 N average: the letter\'s motor, figure for figure.',
+    ],
+  },
+];
+
+/**
+ * The catalogue motor a SHEET_CATALOGUE_JOINS entry names, or null, with every
+ * way the entry fails to hold pushed onto `problems`. Mirrors findMotor's
+ * result so the row is built the same way either side.
+ */
+function joinByEvidence(aerotech, join, asm, diameterMm, folder, isDms, problems) {
+  const where = `${join.docFamily} ${join.file}`;
+  const titles = asm.titleBlockDesignations ?? [];
+  if (!titles.includes(join.titleBlock)) {
+    problems.push(`${where}: the entry rests on a title block reading "${join.titleBlock}", the sheet's reads `
+      + `${titles.map((t) => `"${t}"`).join(', ') || 'nothing'}`);
+  }
+  const byName = findMotor(aerotech, asm.designationFromFile, diameterMm, folder, isDms);
+  if (byName) {
+    problems.push(`${where}: its file name reaches ${byName.entry.designation} by itself now — re-read the sheet, `
+      + 'then delete or correct the entry');
+  }
+  const hits = aerotech.filter((m) => m.designation === join.catalogDesignation
+    && (!diameterMm || Math.abs(m.diameter - diameterMm) <= 1.5));
+  if (hits.length !== 1) {
+    problems.push(`${where}: the catalogue has no AeroTech ${join.catalogDesignation} at ${diameterMm} mm `
+      + `(found ${hits.length})`);
+    return null;
+  }
+  const [m] = hits;
+  return { entry: m, via: m.designation, caseAgrees: Boolean(m.caseInfo) && caseKey(m.caseInfo) === caseKey(folder), ambiguous: false };
+}
+
+/**
+ * A NOZZLE NAMED ONLY IN AN INSTRUCTION SHEET (board Tier 1 row 13, 2026-10-01).
+ *
+ * L1365M-PS has no assembly drawing in "Motor Assembly Drawings"; its reload
+ * kit's instruction sheet carries the motor's own parts list, on a page titled
+ * "L1365M-PS Assembly Drawing and Instructions". This build never read the
+ * Instructions folder, so an in-production motor loaded with a blank field.
+ *
+ * TRANSCRIBED, THEN CHECKED. That page holds two tables side by side, so the
+ * extractor's row runs one line of each together ("1 01770 HP 75MM NOZZLE
+ * (.685" DT UNDRILLED) 3 1 03287 SMOKE CHARGE ... 10"): parsed as a drawing
+ * row, the description and item would be wrong. So the nozzle line is written
+ * here, and `instructionSheetAssemblies` refuses the build unless one row the
+ * extractor read on that page holds it word for word, quantity to item number,
+ * and the page names the motor. From there it is an assembly like any other:
+ * the part resolves to its own store page, so no exit is typed here.
+ *
+ * Only sheets named here are read (extract-nozzle-pdfs.py is handed each
+ * `file`, relative to docs/RCS Schematics/Instructions). Reading all 213 takes
+ * about 40 s, several print a GENERIC drawing ("MAY BE A GENERIC REPRESENTATION
+ * OF THE ACTUAL MOTOR. NOZZLE SIZE ... MAY BE DIFFERENT", M1305M-PS's), and only
+ * 7 carry a part-numbered list at all, so a sheet is added here deliberately.
+ * `caseFolder` is the case the sheet names, which the motor it reaches must
+ * also be in.
+ */
+export const INSTRUCTION_SHEET_NOZZLES = [
+  {
+    file: '75mm High-Power Reloadable Motor Instructions/75-5120M (L1365M-PS) Instructions.pdf',
+    page: 2,
+    designation: 'L1365M-PS',
+    caseFolder: 'RMS-75/5120',
+    row: { qty: '1', part: '01770', desc: 'HP 75MM NOZZLE (.685" DT UNDRILLED)', item: '3' },
+    evidence: [
+      'Page 2, "L1365M-PS Assembly Drawing and Instructions", LIST OF MATERIAL item 3: QTY "1", PART NUMBER '
+        + '"01770", DESCRIPTION "HP 75MM NOZZLE (.685" DT UNDRILLED)". The page is drawn upside down; read on the '
+        + 'rendered page and by word coordinates.',
+      'Page 1: "L1365M-PS Rocket Motor Reload Kit For RMS-75/5120 Motor Hardware", "Total Impulse: 4780 N-sec", '
+        + '"Burn Time: 3.5 seconds", "Propellant Wt.: 2648 grams", "Loaded Wt.: 4908 grams", "Delay Time: Plugged". '
+        + 'The catalogue\'s L1365M (RMS-75/5120): 4780 N·s, 3.5 s, 2648 g, 4908 g, plugged.',
+    ],
+  },
+];
+
+/**
+ * The INSTRUCTION_SHEET_NOZZLES entries as assemblies, once the extractor's
+ * reading of each sheet (`raw.instructionSheets`) bears the transcription out.
+ * Throws BuildRefused for one it does not.
+ */
+export function instructionSheetAssemblies(raw, entries) {
+  const read = new Map((raw.instructionSheets ?? []).map((s) => [s.file, s]));
+  const problems = [];
+  const out = [];
+  for (const e of entries) {
+    const sheet = read.get(e.file);
+    if (!sheet) {
+      problems.push(`${e.file}: the extractor did not read it (python extract-nozzle-pdfs.py is given each entry's file)`);
+      continue;
+    }
+    if (!sheet.found) { problems.push(`${e.file}: no such file under Instructions`); continue; }
+    const page = (sheet.pages ?? []).find((pg) => pg.page === e.page);
+    if (!page) { problems.push(`${e.file} page ${e.page}: no LIST OF MATERIAL on that page`); continue; }
+    // Whole words: a row reading "11 01770 ..." must not pass for "1 01770 ...".
+    const line = `${e.row.qty} ${e.row.part} ${e.row.desc} ${e.row.item}`;
+    if (!page.rows.some((r) => ` ${r} `.includes(` ${line} `))) {
+      problems.push(`${e.file} page ${e.page}: no row reads "${line}"`);
+    }
+    if (!page.rows.some((r) => r.includes(e.designation))) {
+      problems.push(`${e.file} page ${e.page}: the page never names ${e.designation}`);
+    }
+    out.push({
+      file: e.file,
+      docFamily: 'instructions',
+      caseFolder: e.caseFolder,
+      atFamilyRoot: false,
+      designationFromFile: e.designation,
+      foundLomHeader: true,
+      designationOnSheet: true,
+      designationStemOnSheet: true,
+      titleBlockDesignations: [],
+      revisions: [],
+      lomRows: [{ ...e.row }],
+      lomLocation: `page ${e.page}, item ${e.row.item}`,
+    });
+  }
+  if (problems.length > 0) {
+    throw new BuildRefused([
+      'An instruction-sheet nozzle row in INSTRUCTION_SHEET_NOZZLES does not hold:',
+      ...problems.map((p) => `  ${p}`),
+    ]);
+  }
+  return out;
+}
+
 // -------------------------------------------------------------- build it up
 
 /**
@@ -343,10 +518,13 @@ export function findMotor(aerotech, designation, diameterMm, caseFolder, preferS
  * MATERIAL nozzle row, its part resolved against the store pages and the
  * nozzle drawings, and the sheet joined to `aerotech` (the catalogue's
  * AeroTech motors). Several sheets can describe one motor; oneRowPerMotor
- * below decides between them. `raw` is extract-nozzle-pdfs.py's output.
- * Throws BuildRefused for a sheet whose casing size cannot be read.
+ * below decides between them. `raw` is extract-nozzle-pdfs.py's output, with any
+ * instruction sheets already added as assemblies (`instructionSheetAssemblies`);
+ * `sheetJoins` are SHEET_CATALOGUE_JOINS. Throws BuildRefused for a sheet whose
+ * casing size cannot be read, a join that does not hold, or an instruction-sheet
+ * line that reaches no catalogue motor in the case its sheet names.
  */
-export function aerotechDrawingRows(raw, aerotech) {
+export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [] } = {}) {
   const specByPart = new Map();
   for (const page of raw.specPages) {
     if (!page.productCode) continue;
@@ -397,10 +575,26 @@ export function aerotechDrawingRows(raw, aerotech) {
     ]);
   }
 
+  // What SHEET_CATALOGUE_JOINS and INSTRUCTION_SHEET_NOZZLES fail on, reported
+  // together after the loop.
+  const joinProblems = [];
+  const instructionProblems = [];
+  const joinKey = (docFamily, file) => `${docFamily}\u0000${file}`;
+  const joins = new Map();
+  for (const j of sheetJoins) {
+    if (joins.has(joinKey(j.docFamily, j.file))) joinProblems.push(`${j.docFamily} ${j.file}: named by two entries`);
+    joins.set(joinKey(j.docFamily, j.file), j);
+  }
+  const joined = new Set();
+
   for (const asm of raw.assemblies) {
     const folder = asm.caseFolder;
     const { row, why } = nozzleRow(asm);
-    if (!row) { unresolved.push({ file: asm.file, why }); continue; }
+    if (!row) {
+      unresolved.push({ file: asm.file, why });
+      if (asm.docFamily === 'instructions') instructionProblems.push(`${asm.file}: the transcribed line is not a nozzle row (${why})`);
+      continue;
+    }
     // A PART NUMBER WITH A REVISION IN IT BLEEDS INTO THE DESCRIPTION.
     // The DMS sheets write the part cell as "01912 REV. 'C'", and the
     // extractor's row regex takes the first token as the part and everything
@@ -452,7 +646,18 @@ export function aerotechDrawingRows(raw, aerotech) {
     const diameterFromFolder = isDms
       ? Number(/^(\d+)\s*mm/i.exec(folder)?.[1]) || null
       : Number(/(\d\d)[-/ ]/.exec(folder.replace(/RMS\s*&\s*LMS/i, 'RMS'))?.[1]) || null;
-    const found = findMotor(aerotech, asm.designationFromFile, diameterFromFolder, folder, isDms);
+    const join = joins.get(joinKey(asm.docFamily, asm.file));
+    if (join) joined.add(join);
+    const found = join
+      ? joinByEvidence(aerotech, join, asm, diameterFromFolder, folder, isDms, joinProblems)
+      : findMotor(aerotech, asm.designationFromFile, diameterFromFolder, folder, isDms);
+    // A transcribed line exists only to reach its motor, in the case its own sheet names.
+    if (asm.docFamily === 'instructions' && !found) {
+      instructionProblems.push(`${asm.file}: ${asm.designationFromFile} reaches no catalogue motor`);
+    } else if (asm.docFamily === 'instructions' && !found.caseAgrees) {
+      instructionProblems.push(`${asm.file}: ${asm.designationFromFile} reaches ${found.entry.designation}, whose case `
+        + `${found.entry.caseInfo ?? '(none stated)'} is not the sheet's ${folder}`);
+    }
 
     // Throat: this motor's own drawing wins over the part's nominal.
     const throatIn = throatFromDescription(row.desc) ?? p.throatDiameterIn;
@@ -621,7 +826,7 @@ export function aerotechDrawingRows(raw, aerotech) {
       // motor that is the reload case; for a DMS motor there is no case to name,
       // so it says what the sheet actually is.
       caseFamily: isDms ? `${folder} DMS (single-use)` : folder,
-      docFamily: isDms ? 'dms' : 'reloadable',
+      docFamily: isDms ? 'dms' : asm.docFamily === 'instructions' ? 'instructions' : 'reloadable',
       ...(found ? { casingDiameterMm: found.entry.diameter } : {}),
       nozzlePartNo: part,
       ...(exitIn !== undefined ? { exitDiameterM: round6(inToM(exitIn)), exitDiameterIn: exitIn } : {}),
@@ -669,6 +874,8 @@ export function aerotechDrawingRows(raw, aerotech) {
       provenance: {
         assemblyDrawing: asm.file,
         lomDescription: row.desc,
+        // Where on an instruction sheet the transcribed line is (INSTRUCTION_SHEET_NOZZLES).
+        ...(asm.lomLocation ? { lomLocation: asm.lomLocation } : {}),
         // The drawing's own title block agrees with the filename's designation
         // (the sheet often omits the delay tag, so the stem is what is checked).
         designationOnSheet: asm.designationOnSheet ? 'exact' : asm.designationStemOnSheet ? 'stem' : 'no',
@@ -683,10 +890,31 @@ export function aerotechDrawingRows(raw, aerotech) {
               : p.provenance.specPage ?? p.provenance.baseSpecPage ?? p.provenance.drawing ?? asm.file,
         matchedVia: found?.via,
         caseAgrees: found ? found.caseAgrees : undefined,
+        // Why a sheet whose name reaches no motor has one: the documents its entry quotes.
+        ...(join ? { joinEvidence: join.evidence } : {}),
       },
     };
     rows.push(rec);
     if (!found) unmatched.push({ file: asm.file, designation: asm.designationFromFile });
+  }
+
+  // An entry that joined nothing is stale: the sheet was renamed, removed, or
+  // stopped naming a nozzle. Each says which.
+  const present = new Set(raw.assemblies.map((a) => joinKey(a.docFamily, a.file)));
+  for (const j of joins.values()) {
+    if (joined.has(j)) continue;
+    joinProblems.push(present.has(joinKey(j.docFamily, j.file))
+      ? `${j.docFamily} ${j.file}: the sheet names no nozzle, so the entry joins nothing`
+      : `${j.docFamily} ${j.file}: no such sheet in this document set — delete the entry, or correct its file`);
+  }
+  if (joinProblems.length > 0 || instructionProblems.length > 0) {
+    throw new BuildRefused([
+      ...(joinProblems.length > 0
+        ? ['A sheet join in SHEET_CATALOGUE_JOINS does not hold:', ...joinProblems.map((p) => `  ${p}`)] : []),
+      ...(instructionProblems.length > 0
+        ? ['An instruction-sheet nozzle row in INSTRUCTION_SHEET_NOZZLES does not hold:', ...instructionProblems.map((p) => `  ${p}`)]
+        : []),
+    ]);
   }
   return { parts, perDrawing, rows, unresolved, unmatched, contradicted };
 }
@@ -1444,11 +1672,16 @@ export function lokiMotorRows(loki, sheets = LOKI_SHEETS) {
 export function buildNozzleDb({
   raw, motorsDb, mtimeMs,
   lokiSheets = LOKI_SHEETS, observations = DMS_SHEET_OBSERVATIONS, measured = MEASURED_NOZZLES,
+  sheetJoins = SHEET_CATALOGUE_JOINS, instructionRows = INSTRUCTION_SHEET_NOZZLES,
 }) {
   const AEROTECH = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'AeroTech');
   const byMotorId = new Map(motorsDb.motors.map((m) => [m.motorId, m]));
-  const { parts, perDrawing, rows, unresolved, unmatched, contradicted } = aerotechDrawingRows(raw, AEROTECH);
-  const motorRows = oneRowPerMotor(rows, raw.assemblies);
+  // The checked instruction-sheet lines join the drawings as assemblies of their
+  // own family. Every count of DRAWINGS below still reads `raw`, the extractor's.
+  const instructionAssemblies = instructionSheetAssemblies(raw, instructionRows);
+  const read = { ...raw, assemblies: [...raw.assemblies, ...instructionAssemblies] };
+  const { parts, perDrawing, rows, unresolved, unmatched, contradicted } = aerotechDrawingRows(read, AEROTECH, { sheetJoins });
+  const motorRows = oneRowPerMotor(rows, read.assemblies);
   const LOKI = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'Loki');
   const { lokiRows, lokiFromSheet, lokiSheetVsTable } = lokiMotorRows(LOKI, lokiSheets);
 
@@ -1666,7 +1899,7 @@ export function buildNozzleDb({
    */
   const sourceDate = (() => {
     let newest = 0;
-    for (const doc of sourceDocuments(raw, lokiSheets.map((x) => x.file))) {
+    for (const doc of sourceDocuments(read, lokiSheets.map((x) => x.file))) {
       try { newest = Math.max(newest, mtimeMs(doc)); } catch { /* moved or renamed */ }
     }
     return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
@@ -1750,7 +1983,10 @@ export function buildNozzleDb({
     rule: 'A dash number drills the THROAT; the moulded EXIT is unchanged — AeroTech\'s own note, printed on 14 of the 23 nozzle drawing files. The 98mm 01800 "M" mould is the documented exception (1.750 in exit against the base 0.900 in) and is resolved from part-specific sources.',
     counts: {
       assemblyDrawings: raw.assemblies.length,
-      nozzlePartResolved: perDrawing.length,
+      nozzlePartResolved: perDrawing.filter((d) => d.asm.docFamily !== 'instructions').length,
+      // Rows from INSTRUCTION_SHEET_NOZZLES and SHEET_CATALOGUE_JOINS (2026-10-01).
+      instructionSheetRows: instructionAssemblies.length,
+      drawingsJoinedByEvidence: rows.filter((r) => r.provenance.joinEvidence).length,
       distinctNozzleParts: partRows.length,
       // TWO counts, not one (2026-09-08, from review). `partsWithExit` was
       // 101 of 102 while only 81 rows actually carry `exitDiameterIn` — the
@@ -1895,6 +2131,8 @@ function printReport({ db, certCheck, contradicted, unresolved, unmatched, lokiS
   console.log(`assembly drawings parsed          ${c.assemblyDrawings}`);
   console.log(`  reloadable / DMS single-use     ${c.reloadableDrawings} / ${c.dmsDrawings}`);
   console.log(`  nozzle part resolved            ${c.nozzlePartResolved} (${pct(c.nozzlePartResolved, c.assemblyDrawings)})`);
+  console.log(`  joined by a quoted entry        ${c.drawingsJoinedByEvidence} (SHEET_CATALOGUE_JOINS: the file name reaches no motor)`);
+  console.log(`instruction-sheet nozzle lines    ${c.instructionSheetRows} (INSTRUCTION_SHEET_NOZZLES, each checked against its sheet)`);
   console.log(`distinct nozzle parts             ${c.distinctNozzleParts}`);
   console.log(`  with an exit diameter           ${c.partsWithExitDiameter}`);
   console.log(`  exit resolved per motor         ${c.partsResolvedPerMotor} (Medusa: depends which throats the motor opens)`);
@@ -2039,7 +2277,7 @@ export function main({
   outPath = OUT,
   motorsPath = MOTORS,
   python = process.env.PYTHON ?? 'python',
-  extract = (dir) => JSON.parse(execFileSync(python, [EXTRACTOR, dir], {
+  extract = (dir, instructionFiles = []) => JSON.parse(execFileSync(python, [EXTRACTOR, dir, ...instructionFiles], {
     encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   })),
 } = {}) {
@@ -2048,7 +2286,8 @@ export function main({
     console.error('It is LOCAL-ONLY (docs/ is gitignored). Pass --source "<folder>" or set RCS_SCHEMATICS.');
     return 1;
   }
-  const raw = extract(source);
+  // The extractor reads an instruction sheet only when it is named here.
+  const raw = extract(source, INSTRUCTION_SHEET_NOZZLES.map((e) => e.file));
   const motorsDb = JSON.parse(readFileSync(motorsPath, 'utf8'));
   const roots = { rcs: source, loki: lokiSource };
   const mtimeMs = ({ root, file }) => statSync(join(roots[root], file)).mtimeMs;
