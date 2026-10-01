@@ -886,7 +886,8 @@ export function detachPatch(): Partial<ComponentNode> {
  * parts database, we should import the settings from our database."
  *
  * PRECEDENCE. The file's explicit values stand; the catalogue fills only what
- * the file left unset. That is desktop OpenRocket's own order — its saver writes
+ * the file left unset — a foreign file: in one this app wrote it fills nothing
+ * (`opts.ownFile`). That is desktop OpenRocket's own order — its saver writes
  * <preset> first and every explicit element after it, so the explicit values win
  * on load — and it is the rule that does not snap a body tube the author cut to
  * length back to the catalogue's stock length. For a RockSim chute the unset
@@ -908,6 +909,22 @@ export function applyPresetLinks(
   pending: readonly PendingPresetLink[],
   presets: readonly Preset[] | undefined,
   notes: string[],
+  opts?: {
+    /**
+     * A FILE THIS APP WROTE — an .ork carrying its creator stamp: a save, a
+     * share link, the autosave recovery file. A blank in it is the user's own,
+     * not a gap: an automatic Cd they went back to while the ≠ marker sat
+     * beside it, a vent they took out. So each part is linked and nothing
+     * else: the catalogue fills nothing, and nothing is said, because a
+     * difference the user kept is not news at every open (the owner's
+     * constraint on the conflict marker, issues-2026-09-03b: "we don't want to
+     * nag them every time they open the file if they decide to override the
+     * default catalogue values"). The property panel's markers show it. Filled,
+     * a save and reopen changed the design (wave 3 verifier): b2 Rocketry
+     * CL-24-N with its Cd cleared came back flying the rated 1.16.
+     */
+    ownFile?: boolean;
+  },
 ): number {
   if (!presets?.length || pending.length === 0) return 0;
   const byKey = new Map<string, Preset>();
@@ -936,6 +953,12 @@ export function applyPresetLinks(
     if (!kind) continue;
     const p = byKey.get(linkKey(kind, manufacturer, partNo));
     if (!p) continue;
+    if (opts?.ownFile) {
+      node['presetManufacturer'] = p.manufacturer;
+      node['presetPartNo'] = p.partNo;
+      linked += 1;
+      continue;
+    }
     const patch = presetPatch(node.type, p) as Record<string, unknown>;
     const filled = new Set<string>();
     // THE CANOPY PAIR IS EXEMPT FROM THE PER-KEY GATE BELOW.
@@ -1044,9 +1067,10 @@ export function applyPresetLinks(
       : '';
     lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}${declined}`);
   }
-  if (linked > 0) {
+  // One line per part matched in a foreign file; none from a file this app wrote.
+  if (lines.length > 0) {
     notes.push(
-      `${linked} part${linked === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
+      `${lines.length} part${lines.length === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
       + `The file's own values stand; the catalogue filled in only what the file left unset: ${lines.join('; ')}.`,
     );
     // Said once, after the match sentence, and only when there is something to

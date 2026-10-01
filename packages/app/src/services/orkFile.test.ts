@@ -8,7 +8,10 @@ import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '.
 import { conditionsKeyOf } from './simReport.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
-import { CATALOGUE_LINK_KEYS, detachPatch, loadPresets, presetPatch } from './presets.js';
+import {
+  CATALOGUE_LINK_KEYS, catalogueDifferences, detachPatch, linkedPreset, loadPresets, ORK_PRESET_KEYS, presetPatch,
+  type Preset,
+} from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -2905,8 +2908,13 @@ describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)"
     expect(xml).toContain('<cd>auto</cd>');
     const injected = xml.replace(
       /(<parachute>\s*<name>Main<\/name>\s*<id>[^<]*<\/id>)/,
-      '$1<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest="0"/>');
+      '$1<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest="0"/>')
+      // Desktop's own file, stamped as desktop stamps it: in a file this app
+      // wrote, a blank is the user's and the catalogue fills nothing (the
+      // round-trip block below).
+      .replace(`creator="${ORK_CREATOR}"`, 'creator="OpenRocket 24.12"');
     expect(injected).toContain('partno="IFC-084-S"');
+    expect(injected).toContain('creator="OpenRocket 24.12"');
     return injected;
   };
   const chuteOf = (xml: string, presets?: Awaited<ReturnType<typeof loadPresets>>) => {
@@ -3052,6 +3060,73 @@ describe('.ork <preset> — the catalogue link round-trips', () => {
       Object.assign(chute, detachPatch());
       for (const key of CATALOGUE_LINK_KEYS) expect(chute[key], key).toBeUndefined();
       expect(save(opened.tree)).not.toContain('<preset');
+    });
+  });
+
+  /**
+   * SAVING AND REOPENING NEVER CHANGES A DESIGN (wave 3 verifier). The
+   * catalogue fills what a FOREIGN file left unset — RockSim's "auto" Cd, or
+   * desktop's <cd>auto</cd> on a part its own database rates with no Cd (the
+   * block above) — but in a file this app wrote, a blank is the user's own: an
+   * automatic Cd they went back to while the ≠ marker sat beside it, a vent
+   * they took out. Once the link was written, reopening our own save, a share
+   * link or the autosave recovery file filled the catalogue's pair over those
+   * blanks: the marker went, and the canopy flew another Cd.
+   */
+  describe('a file this app wrote reopens exactly as it was saved', () => {
+    /** A canopy picked from the shipped row `partNo`, then edited by `over`. */
+    const picked = async (partNo: string, over: Record<string, unknown>) => {
+      const presets = await loadPresets();
+      const row = presets.find((p) => p.kind === 'Parachute' && p.partNo === partNo);
+      expect(row, `${partNo} is not in the shipped catalogue`).toBeTruthy();
+      return { presets, tree: linked({ ...presetPatch('parachute', row!), name: 'Main', ...over }) };
+    };
+    const reopen = (tree: RocketTree, presets: readonly Preset[]) => importOrk(save(tree), { presets });
+    /** The ≠ markers the property panel would draw on the part. */
+    const markers = (node: ComponentNode, presets: readonly Preset[]) =>
+      catalogueDifferences(node, linkedPreset(node, presets)!).map((d) => d.key);
+
+    it('an automatic Cd kept against a rated canopy stays automatic, and so does its marker', async () => {
+      // b2 Rocketry CL-24-N: rated Cd 1.16, no vent. The user cleared the Cd box.
+      const { presets, tree } = await picked('CL-24-N', { cd: undefined });
+      expect(markers(chuteIn(tree), presets)).toEqual(['cd']);
+      const back = chuteIn(reopen(tree, presets).tree);
+      expect(back['presetPartNo']).toBe('CL-24-N');
+      expect(back['cd']).toBeUndefined();
+      expect(markers(back, presets)).toEqual(['cd']);
+    });
+
+    it('a vent taken out of a vented canopy stays out', async () => {
+      // Fruity Chutes IFC-084-S: Cd 2.2 against its 375.5 mm vent. Automatic Cd, vent 0.
+      const { presets, tree } = await picked('IFC-084-S', { cd: undefined, spillHoleDiameter: 0 });
+      const back = chuteIn(reopen(tree, presets).tree);
+      expect(back['cd']).toBeUndefined();
+      expect(back['spillHoleDiameter'] ?? 0).toBe(0);
+    });
+
+    it('desktop’s own link with a value changed here keeps the change', async () => {
+      // Opened from a desktop file (its link kept verbatim), Cd cleared here, saved.
+      const { presets, tree } = await picked('IFC-084-S', {
+        cd: undefined, spillHoleDiameter: undefined,
+        [ORK_PRESET_KEYS.manufacturer]: 'Fruity Chutes', [ORK_PRESET_KEYS.partNo]: 'IFC-084-S',
+        [ORK_PRESET_KEYS.digest]: '0123456789abcdef0123456789abcdef',
+      });
+      expect(save(tree)).toContain('digest="0123456789abcdef0123456789abcdef"');
+      const back = chuteIn(reopen(tree, presets).tree);
+      expect(back['cd']).toBeUndefined();
+      expect(back['spillHoleDiameter']).toBeUndefined();
+    });
+
+    it('says nothing at open: a difference the user kept is not news every time they open it', async () => {
+      // Eric's constraint on the conflict marker (issues-2026-09-03b): "we don't
+      // want to nag them every time they open the file if they decide to
+      // override the default catalogue values." The panel's marker carries it.
+      const { presets, tree } = await picked('IFC-084-S', { lineCount: 8 });
+      const opened = reopen(tree, presets);
+      expect(opened.notes.filter((n) => /catalogue/.test(n))).toEqual([]);
+      const back = chuteIn(opened.tree);
+      expect(back['lineCount']).toBe(8);
+      expect(markers(back, presets)).toEqual(['lineCount']);
     });
   });
 });

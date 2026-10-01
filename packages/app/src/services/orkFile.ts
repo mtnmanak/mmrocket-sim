@@ -643,7 +643,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // writes it on any part picked from its catalogue, and writes every
       // explicit value AFTER it, so on load the explicit values win. We keep
       // that order: resolved after the tree is built (applyPresetLinks), the
-      // catalogue fills only what the file left unset.
+      // catalogue fills only what the file left unset — and nothing at all in
+      // a file this app wrote, whose blanks are the user's.
       const presetEl = el.querySelector(':scope > preset');
       const pMfr = presetEl?.getAttribute('manufacturer');
       const pNo = presetEl?.getAttribute('partno');
@@ -1317,7 +1318,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   }
 
-  applyPresetLinks(pendingLinks, opts?.presets, notes);
+  // In a file this app wrote, the links come back and the catalogue fills
+  // nothing: a blank there is the user's own choice, not a gap, so a save and
+  // reopen never changes a design (applyPresetLinks, `ownFile`). Our creator
+  // stamp, read as the time-step clamp reads it (readLaunchConditions).
+  applyPresetLinks(pendingLinks, opts?.presets, notes, {
+    ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
+  });
   const launch = readLaunchConditions(doc, notes, chosenConfigId);
 
   // THE LIMITS TABLE, applied here where its notes still reach the import
@@ -2077,14 +2084,19 @@ export function exportOrk({
    * The part's catalogue link, as desktop's RocketComponentSaver writes it:
    * <preset type manufacturer partno digest/>, straight after <id> and so
    * before every explicit value — on load desktop applies its preset first and
-   * each element after it, so the file's own values stand (and, for most
-   * fields, a value that differs makes desktop drop the link, as its own
-   * editor does). Without it a link did not survive a save, a reopen or a
-   * share link (format audit, `RocketComponent:preset`: "exp=omitted, rt=no").
+   * each element after it, so the file's own values stand. The link stands
+   * with them, whatever they are: desktop's loader switches its preset
+   * clearing off for the whole of a component's load (24.12
+   * ComponentParameterHandler: setIgnorePresetClearing(true)), so it is only
+   * desktop's EDITOR that lets go of a link when a value changes, never a
+   * file. Without this a link did not survive a save, a reopen or a share
+   * link (format audit, `RocketComponent:preset`: "exp=omitted, rt=no").
    * Checked against the installed desktop 24.12 JAR and its own catalogue
    * (2026-10-01): every <preset> in ninja_4in_54mm-MMT.ork (5), SS Wild Bash
    * 20260623v0.ork (13) and goblin-256.ork (2), opened here and saved, re-links
-   * in desktop with the structure mass unchanged.
+   * in desktop with the structure mass unchanged; and, measured by the review
+   * of this change, still re-links with a line count or a ring thickness
+   * changed here, keeping the changed value.
    *
    * THE DIGEST. Desktop takes a row only when its digest matches the file's
    * (24.12 ComponentPresetSetter; the type branch beside it never fires), and
