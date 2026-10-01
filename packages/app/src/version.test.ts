@@ -134,6 +134,10 @@ describe('changelog areas worked out from two diameters', () => {
   }
 
   const AREA_FIGURES: AreaFigure[] = [
+    { version: '0.145', says: '"34 percent more area"', from: 0.18, to: 0.242, claim: { areaPercent: 34 }, quoted: true },
+    { version: '0.145', says: '"56 percent more"', from: 0.18, to: 0.281, claim: { widerPercent: 56 }, quoted: true },
+    { version: '0.145', says: 'the areas grew 81 and 144 percent', from: 0.18, to: 0.242, claim: { areaPercent: 81 } },
+    { version: '0.145', says: 'the areas grew 81 and 144 percent', from: 0.18, to: 0.281, claim: { areaPercent: 144 } },
     { version: '0.133', says: 'from .180 to .242 in, which is 34 percent wider', from: 0.18, to: 0.242, claim: { widerPercent: 34 } },
     { version: '0.133', says: '34 percent wider and 81 percent more area', from: 0.18, to: 0.242, claim: { areaPercent: 81 } },
     { version: '0.133', says: 'from .180 to .281 in, 56 percent wider', from: 0.18, to: 0.281, claim: { widerPercent: 56 } },
