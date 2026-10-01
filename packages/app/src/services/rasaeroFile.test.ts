@@ -8,6 +8,7 @@ import { applyStageNozzles } from '../tree/treeModel.js';
 import { CDX1_ENGINE_EXPORT, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
+import { componentsIterated } from './componentsIterated.testSupport.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -2290,9 +2291,10 @@ describe('RASAero import — the pad pressure note', () => {
 
 /**
  * THE REST OF THE LAUNCH SITE (audit 2026-09-22). <RodAngle>, <RodLength>,
- * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks
- * them, so a file could fly an 80° rail or a negative rail. Each is now clamped
- * into the Launch panel's own range, with a note in the file's units.
+ * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks a
+ * rod or wind value, so a file could fly an 80° rail or a negative rail. Each is
+ * now clamped into the Launch panel's own range, with a note in the file's
+ * units.
  */
 describe('RASAero import — the launch site is held to the panel’s own bounds', () => {
   const site = (inner: string): string =>
@@ -2480,5 +2482,42 @@ describe('RASAero export — a blank temperature is the site’s standard one', 
   it('still writes a typed temperature as typed', () => {
     const xml = exportCdx1({ ...site, launch: { launchAltitudeM: 2682, temperatureC: 30, pressureHPa: null } });
     expect(xml).toContain('<Temperature>86</Temperature>');
+  });
+});
+
+/**
+ * A part hung under a tube used to copy every sibling already there
+ * (`children = [...children, node]`; audit 2026-09-30, Step 8 item 24), so N
+ * of them cost N²/2 reads on the main thread: 20,000 protuberances on one tube
+ * took 1.7 s to import, and 20,000 fin cans 1.9 s, measured. Three kinds can
+ * pile up under one tube: the protuberance entries of its <Protuberance>
+ * blocks, and the fin cans and recessed boat tails that hang off the last
+ * tube before them. Counted, not timed, as rocksimFileHardening.test.ts
+ * counts the RockSim reader.
+ */
+describe('RASAero import — a part hung under a tube does not copy its siblings', () => {
+  const N = 2000;
+  const cdx = (inTube: string, after: string) => `<?xml version="1.0"?><RASAeroDocument><RocketDesign>
+    <NoseCone><PartType>NoseCone</PartType><Length>10</Length><Diameter>3</Diameter>
+      <Shape>Tangent Ogive</Shape></NoseCone>
+    <BodyTube><PartType>BodyTube</PartType><Length>20</Length><Diameter>3</Diameter>${inTube}</BodyTube>
+    ${after}</RocketDesign></RASAeroDocument>`;
+  const many = (part: string) => part.repeat(N);
+
+  it.each([
+    ['protuberances', cdx(many('<Protuberance><StreamlinedNoBaseDrag>0.1</StreamlinedNoBaseDrag></Protuberance>'), ''),
+      'protuberance'],
+    ['fin cans', cdx('', many('<FinCan><PartType>FinCan</PartType><Length>2</Length><Diameter>3.2</Diameter></FinCan>')),
+      'podset'],
+    ['recessed boat tails', cdx('', many('<BoatTail><PartType>BoatTail</PartType><Length>2</Length><Diameter>3</Diameter>'
+      + '<RearDiameter>2.5</RearDiameter></BoatTail>')
+      + '<Booster><PartType>Booster</PartType><Length>15</Length><Diameter>3</Diameter></Booster>'), 'podset'],
+  ])('imports 2,000 %s on one tube in work linear in the parts', (_, xml, type) => {
+    let r: ReturnType<typeof importCdx1> | undefined;
+    const reads = componentsIterated(() => { r = importCdx1(xml); });
+    expect(reads / N).toBeLessThan(25);
+    // …and all of them hang off that tube.
+    const tube = r!.tree.components[0]!.children!.find((c) => c.type === 'bodytube')!;
+    expect((tube.children ?? []).filter((c) => (c.type as string) === type)).toHaveLength(N);
   });
 });

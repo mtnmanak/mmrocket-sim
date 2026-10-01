@@ -4,7 +4,7 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 // spellings of one company cannot each claim a slot in a list whose whole job
 // is to be spread ACROSS companies.
 import { mfrKey } from '../../scripts/manufacturers.mjs';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { LaunchConditions } from './launchConditions.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';

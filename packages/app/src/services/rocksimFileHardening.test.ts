@@ -2,6 +2,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
+import { componentsIterated } from './componentsIterated.testSupport.js';
 import { importRkt } from './rocksimFile.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
@@ -248,4 +249,36 @@ describe('a refused .rkt fin outline is replaced by one the user can see (audit 
     expect(withDefault.cp).toBe(empty.cp);
     expect(withDefault.cg).toBe(empty.cg);
   }, 60000);
+});
+
+/**
+ * Appending a part used to copy every sibling already under its parent
+ * (`children = [...children, node]`; audit 2026-09-30, Step 8 item 24), so N
+ * parts under one tube cost N²/2 reads on the main thread: 20,000 took 2.1 s
+ * to import, measured, and a crafted file could freeze the tab with an unsaved
+ * design behind it. Counted, not timed (componentsIterated): at 2,000 parts the
+ * copies came to about a thousand reads a part, and appending in place leaves a
+ * handful, so the bound sits far from both.
+ */
+describe('a part appended under its parent does not copy its siblings', () => {
+  const N = 2000;
+  const masses = Array.from({ length: N },
+    (_, i) => `<MassObject><Name>M${i}</Name><KnownMass>1</KnownMass><Len>10</Len></MassObject>`).join('');
+
+  it('counts a spread over components (the control)', () => {
+    const kids = [{ type: 'masscomponent', id: 'a' }, { type: 'masscomponent', id: 'b' }];
+    expect(componentsIterated(() => [...kids, { type: 'masscomponent', id: 'c' }])).toBe(2);
+  });
+
+  it.each([
+    ['directly', masses],
+    ['through a sub-assembly', `<SubAssembly><Name>S</Name><AttachedParts>${masses}</AttachedParts></SubAssembly>`],
+  ])('imports 2,000 parts under one tube %s in work linear in the parts', (_, parts) => {
+    let r: ReturnType<typeof importRkt> | undefined;
+    const reads = componentsIterated(() => { r = importRkt(rktXml(parts)); });
+    expect(reads / N).toBeLessThan(25);
+    // …and every part is there, under the tube, in the file's order.
+    const kids = r!.tree.components[0]!.children![0]!.children ?? [];
+    expect(kids.map((k) => k.name)).toEqual(Array.from({ length: N }, (_, i) => `M${i}`));
+  });
 });

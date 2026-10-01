@@ -1,15 +1,22 @@
 import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
 const root = process.cwd().replaceAll('\\', '/');
 const emit = row => appendFileSync(process.env.MATCHER_OUT, JSON.stringify(row) + '\n');
 writeFileSync(`${process.env.MATCHER_OUT}.pid`, String(process.pid));
+const baselineHas = path => execFileSync('git', ['ls-tree', '--name-only', process.env.MATCHER_BASELINE, path], { encoding: 'utf8' }).trim() !== '';
 const libraries = {};
 for (const side of ['baseline', 'current']) {
   const src = side === 'baseline' ? `${root}/.matcher-sweep/baseline/packages/app/src` : `${root}/packages/app/src`;
   const mod = file => import(pathToFileURL(`${src}/services/${file}.ts`).href);
+  // DEFAULT_CONDITIONS, from the React-free services/launchConditions.ts. A baseline from before that module
+  // (audit 2026-09-30, Step 8 item 22) has it only in components/LaunchPanel.tsx, which the loader compiles
+  // from the frozen tree alone.
+  const launch = side === 'current' || baselineHas('packages/app/src/services/launchConditions.ts')
+    ? `${src}/services/launchConditions.ts` : `${src}/components/LaunchPanel.tsx`;
   libraries[side] = { ...await mod('orkFile'), ...await mod('rocksimFile'), ...await mod('rasaeroFile'), ...await mod('motorDb'), ...await mod('motorMatch'), ...await mod('zipMember'), ...await mod('xmlUtil'), ...await mod('importApply'),
-    ...await import(pathToFileURL(`${src}/components/LaunchPanel.tsx`).href) };
+    ...await import(pathToFileURL(launch).href) };
 }
 for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
   for (const side of ['baseline', 'current']) {

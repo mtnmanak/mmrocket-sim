@@ -1,6 +1,6 @@
 import {
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE, WIND_MS_RANGE, type LaunchConditions,
-} from '../components/LaunchPanel.js';
+} from './launchConditions.js';
 import {
   densityAltitudeM, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -15,9 +15,11 @@ import { relativeWindDirection, scaleWindSigma, type RelativeWindLevel } from '.
  * here writes anything; `patchOf` is what Apply hands App.
  *
  * Kept out of openMeteo.ts (which the spec had it in) because it reads the
- * Launch panel's bounds, and LaunchPanel reaches openMeteo.ts through its
- * strip (WeatherStrip.tsx, for the valid-time label): with this in there, the
- * two modules would import each other.
+ * Launch panel's bounds, which lived in LaunchPanel.tsx, and LaunchPanel
+ * reaches openMeteo.ts through its strip (WeatherStrip.tsx, for the valid-time
+ * label): with this in there, the two modules would have imported each other.
+ * The bounds have moved to launchConditions.ts (audit 2026-09-30, Step 8 item
+ * 22), which imports neither, so that cycle is gone with them.
  */
 
 /** A row that cannot be applied, and why. */

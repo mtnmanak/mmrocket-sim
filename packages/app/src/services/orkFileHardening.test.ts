@@ -6,6 +6,8 @@ import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
+import { kernelSimOptions } from './launchConditions.js';
 import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
 import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, unreadableFinPoints } from './xmlUtil.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
@@ -588,6 +590,26 @@ describe('an imported atmosphere is checked before it reaches the engine', () =>
     expect(atmosphereNotes(r.notes)[0]).toMatch(/20 K/);
   });
 
+  /**
+   * The refusal is the NOTE, not the flight's only guard. Since the audit of
+   * 2026-09-22 the flight reads the pad through padAir, which flies a value
+   * outside the same envelope as blank, so either mistake stored as read would
+   * still fly the site's standard day — silently, under a box showing the
+   * file's number. orkFile.ts said the opposite until 2026-10-01: that
+   * kernelSimOptions converted such a value raw.
+   */
+  it('would fly neither mistake raw even unrefused: the flight re-checks the pad', () => {
+    const asRead = (tK: number, pPa: number) => kernelSimOptions({
+      ...DEFAULT_CONDITIONS, launchAltitudeM: 1500, temperatureC: tK - 273.15, pressureHPa: pPa / 100,
+    });
+    const hPaInPascals = asRead(293.15, 1013.25);
+    expect(hPaInPascals.pressure).toBe(isaPressurePa(1500));
+    expect(hPaInPascals.temperature).toBeCloseTo(293.15, 9);
+    const celsiusInKelvin = asRead(20, 101325);
+    expect(celsiusInKelvin.temperature).toBe(isaTemperatureK(1500));
+    expect(celsiusInKelvin.pressure).toBeCloseTo(101325, 6);
+  });
+
   it('still reads the ISA marker as "blank = standard"', () => {
     const r = importOrk(orkXml(BODY_TUBE,
       `<simulations><simulation status="notsimulated"><name>Sim</name>
@@ -602,9 +624,10 @@ describe('an imported atmosphere is checked before it reaches the engine', () =>
 /**
  * THE REST OF THE LAUNCH ENVELOPE (audit 2026-09-22). The atmosphere above had
  * the panel's bounds since v0.105; rod angle and length, wind, altitude and
- * latitude were imported raw, and nothing downstream re-checks them — so a file
- * flew an 80° rail (the panel stops at 30°, desktop at 60°) or a negative rod
- * length. Each is now clamped into the panel's own range, with a note.
+ * latitude were imported raw, and nothing downstream re-checks a rod, wind or
+ * latitude value — so a file flew an 80° rail (the panel stops at 30°, desktop
+ * at 60°) or a negative rod length. Each is now clamped into the panel's own
+ * range, with a note.
  */
 describe('an imported launch site is held to the panel’s own bounds', () => {
   const withConditions = (inner: string): string => orkXml(BODY_TUBE,

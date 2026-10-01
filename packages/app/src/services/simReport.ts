@@ -2,7 +2,7 @@ import type { DelayResolution } from './autoDelaySolver.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import { flownRodAimDeg, type LaunchConditions } from '../components/LaunchPanel.js';
+import { flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
@@ -1283,7 +1283,7 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
 }
 
 /**
- * The non-optional fields of `LaunchConditions` (LaunchPanel.tsx) — listed as
+ * The non-optional fields of `LaunchConditions` (launchConditions.ts) — listed as
  * data because a TypeScript type cannot be enumerated at runtime. A field
  * added to that interface and not added here still hashes; it merely loses the
  * absent/null equivalence above until it is listed, which matters only for a

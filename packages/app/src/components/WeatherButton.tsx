@@ -1,4 +1,4 @@
-import { useOnline } from '../services/net.js';
+import { useOnline } from '../hooks/useOnline.js';
 
 /**
  * ☁ GET WEATHER… — the one way into the weather lookup, on the Launch panel

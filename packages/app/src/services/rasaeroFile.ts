@@ -1,7 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
-} from '../components/LaunchPanel.js';
+} from './launchConditions.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
@@ -398,7 +398,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       if (cs && cs !== 'square') fin['crossSection'] = cs;
     }
     if (finish && finish !== 'normal') fin['finish'] = finish;
-    parentNode.children = [...(parentNode.children ?? []), fin];
+    (parentNode.children ??= []).push(fin);
   };
 
   /**
@@ -427,7 +427,12 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         position: { method: 'middle', offset: 0 },
       } as unknown as ComponentNode;
       if (dragClass === 'plate') node['plateAngle'] = (angleDeg * Math.PI) / 180;
-      tube.children = [...(tube.children ?? []), node];
+      // Every part under a tube is appended IN PLACE, as the stage pushes are.
+      // A spread copied every sibling at each append, N²/2 for N protuberances,
+      // fin cans or recessed boat tails under one tube (audit 2026-09-30:
+      // 20,000 protuberances took 1.7 s); the tree is this import's own until it
+      // returns, so nothing else holds these arrays.
+      (tube.children ??= []).push(node);
     };
     for (const prot of Array.from(el.querySelectorAll(':scope > Protuberance'))) {
       add(num(prot, 'StreamlinedNoBaseDrag', 0), 'streamlined', 0, 'Protuberance (streamlined)');
@@ -459,11 +464,11 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     const lugD = num(el, 'LaunchLugDiameter', 0);
     const lugL = num(el, 'LaunchLugLength', 0);
     if (lugD > 0 && lugL > 0) {
-      tube.children = [...(tube.children ?? []), {
+      (tube.children ??= []).push({
         type: 'launchlug', id: freshId(), name: 'Launch lug',
         length: lugL / IN, outerRadius: lugD / IN / 2, thickness: 0.0005,
         position: { method: 'middle', offset: 0 },
-      } as ComponentNode];
+      } as ComponentNode);
     }
     readProtuberances(el, tube, name);
     return tube;
@@ -593,12 +598,12 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         // ever overhangs: the fin-can pod is bottom-flush, and a recessed boat
         // tail is always followed by a booster stage longer than it.
         if (el.tagName === 'BoatTail' && hasBoosterEl && lastTube) {
-          lastTube.children = [...(lastTube.children ?? []), {
+          (lastTube.children ??= []).push({
             type: 'podset', id: freshId(), name: 'Boat tail pod',
             instanceCount: 1, radiusOffset: 0, radiusMethod: 'free', angleOffset: 0,
             position: { method: 'top', offset: lastTube['length'] as number },
             children: [trans],
-          } as unknown as ComponentNode];
+          } as unknown as ComponentNode);
           notes.push('The boat tail slides inside the booster below it, so it is imported as a pod on '
             + '“Body tube” — the booster starts where the boat tail starts, as it does in RASAero.');
           // stationIn, stationAftRadius and lastTube all stay where they were.
@@ -671,12 +676,12 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
               + 'we hold does this, so check it.');
           }
         }
-        lastTube.children = [...(lastTube.children ?? []), {
+        (lastTube.children ??= []).push({
           type: 'podset', id: freshId(), name: 'Fin can',
           instanceCount: 1, radiusOffset: 0, radiusMethod: 'free', angleOffset: 0,
           position: { method: 'bottom', offset: bottomOffM },
           children: podKids,
-        } as unknown as ComponentNode];
+        } as unknown as ComponentNode);
         notes.push('The RASAero fin can slides over the tube in front of it, so it is imported as a pod '
           + 'on “Body tube”, flush with that tube’s aft end — it adds no length. It shows in the tree '
           + 'as “Fin can”.');
@@ -784,7 +789,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         chute['deployAltitude'] = num(recovery, `Altitude${slot}`, 500) / FT;
       }
       if (firstTube) {
-        firstTube.children = [...(firstTube.children ?? []), chute];
+        (firstTube.children ??= []).push(chute);
       } else {
         sustainer.children!.push(chute);
       }
@@ -798,9 +803,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     launch = {};
     // Each value is clamped into the Launch panel's own bounds, with a note in
     // the file's units (audit 2026-09-22) — the rule the .ork reader follows.
-    // Nothing downstream re-checks these, so a <RodAngle>80</RodAngle> used to
-    // fly an 80° rail, and the <Altitude> reached the atmosphere unclamped
-    // (150,000 ft once made an import note read "about NaN mbar").
+    // Nothing downstream re-checks a rod or wind value (kernelSimOptions passes
+    // them as stored), so a <RodAngle>80</RodAngle> used to fly an 80° rail,
+    // and the <Altitude> reached the atmosphere unclamped (150,000 ft once made
+    // an import note read "about NaN mbar").
     const ft = (m: number): string => `${Number((m * FT).toPrecision(6))} ft`;
     const alt = num(site, 'Altitude', NaN);
     if (!Number.isNaN(alt)) {

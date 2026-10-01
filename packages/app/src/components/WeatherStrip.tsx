@@ -1,7 +1,7 @@
+import { useOnline } from '../hooks/useOnline.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { weatherPlaceLabel } from '../services/coordinates.js';
 import type { LaunchConditions } from './LaunchPanel.js';
-import { useOnline } from '../services/net.js';
 import { formatDay, formatValidTime } from '../services/openMeteo.js';
 import {
   fieldProvenance, staleness, type ApplyKey, type WeatherSnapshot,

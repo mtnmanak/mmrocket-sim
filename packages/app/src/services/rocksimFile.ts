@@ -534,6 +534,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
   };
 
+  // Appended IN PLACE, as the stage slots below are. A spread here copied every
+  // sibling at each append, N²/2 for N parts under one parent (audit
+  // 2026-09-30: 20,000 took 2.1 s); the tree is this import's own until it
+  // returns, so nothing else holds these arrays.
   const convertAttached = (el: Element, parentNode: ComponentNode) => {
     const wrap = el.querySelector(':scope > AttachedParts');
     if (!wrap) return;
@@ -541,13 +545,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       for (const child of Array.from(wrap.children)) {
         if (child.tagName === 'SubAssembly') {
           flattenSubAssembly(child, parentNode, (n) => {
-            parentNode.children = [...(parentNode.children ?? []), n];
+            (parentNode.children ??= []).push(n);
           });
           continue;
         }
         const node = convertPart(child, parentNode);
         if (node) {
-          parentNode.children = [...(parentNode.children ?? []), node];
+          (parentNode.children ??= []).push(node);
         }
       }
     });

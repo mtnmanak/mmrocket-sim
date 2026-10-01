@@ -3,7 +3,7 @@ import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE,
   LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
-} from '../components/LaunchPanel.js';
+} from './launchConditions.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -1498,10 +1498,11 @@ function readLaunchConditions(
 
   // Every launch value is believed only inside the bounds the panel enforces on
   // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
-  // since v0.105, for the same reason: nothing downstream re-checks what this
-  // returns, so a file could fly an 80° rail or a negative rod length that the
-  // panel would refuse to have typed. Clamped into the panel's range, with a
-  // note quoting the file's own number.
+  // since v0.105. Nothing downstream re-checks a rod, wind, latitude or
+  // longitude value (kernelSimOptions passes them as stored), so a file could
+  // fly an 80° rail or a negative rod length that the panel would refuse to
+  // have typed. Clamped into the panel's range, with a note quoting the file's
+  // own number.
   const m = (x: number): string => `${fmt6(x)} m`;
   const deg = (x: number): string => `${fmt6(x)}°`;
   const ms = (x: number): string => `${fmt6(x)} m/s`;
@@ -1643,21 +1644,25 @@ function readLaunchConditions(
     } else {
       // A stated atmosphere is believed only inside the envelope the panel
       // enforces on a typed value. Outside it the number is a UNIT MISTAKE in
-      // whatever wrote the file, not a launch site, and nothing downstream ever
-      // re-checks it: App.applyImported spreads these straight into launch
-      // state and LaunchPanel's kernelSimOptions converts them raw
-      // (`temperatureC + 273.15`, `pressureHPa * 100`) into the engine.
+      // whatever wrote the file, not a launch site:
       //   • hPa written into this PASCAL-valued element
-      //     (<basepressure>1013.25</basepressure>) flies the design at 1013 Pa
-      //     — 1 % of sea-level density, where drag collapses and apogee is
+      //     (<basepressure>1013.25</basepressure>) is 1013 Pa — 1 % of
+      //     sea-level density, where drag collapses and apogee would be
       //     overstated several times over.
       //   • Celsius written into the KELVIN-valued element
-      //     (<basetemperature>20</basetemperature>) gives 20 K, a speed of
-      //     sound near 90 m/s, so a genuinely subsonic flight is computed on
+      //     (<basetemperature>20</basetemperature>) is 20 K, a speed of sound
+      //     near 90 m/s, so a genuinely subsonic flight would be computed on
       //     transonic and supersonic drag.
-      // Fall back to the standard atmosphere and SAY SO — the same shape the
-      // <timestep> clamp below uses, and the same refusal `measuredNum` above
-      // makes for a non-positive weighed mass.
+      // This check is not what keeps either out of the flight. Since the audit
+      // of 2026-09-22 kernelSimOptions (launchConditions.ts) reads the pad
+      // through padAir, which flies a value outside the same envelope as blank
+      // (orkFileHardening.test pins both mistakes). What this check adds is the
+      // user's view of it: stored as read, the open's merge (importedLaunch)
+      // would put the number in the panel's box while the flight flew the
+      // site's standard day, and no note would say the file's figure was not
+      // flown. So fall back to the standard atmosphere HERE and SAY SO — the
+      // same shape the <timestep> clamp below uses, and the same refusal
+      // `measuredNum` above makes for a non-positive weighed mass.
       const tK = num(atmEl, 'basetemperature', NaN);
       if (!Number.isNaN(tK)) {
         const c = tK - 273.15;
