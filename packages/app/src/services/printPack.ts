@@ -193,6 +193,11 @@ function safeZipStem(name: string): string {
  * bulkhead in a coupler exported as a 24.0 mm disc with nothing on screen to
  * say the size was guessed). The DXF button sits beside it and cuts the same
  * placeholder, so the line names both.
+ *
+ * A centering ring's HOLE that had to be assumed (`boreAssumed`) is said the
+ * same way, for the same reason, with the DXF's own two reasons (audit
+ * 2026-09-30 review: an automatic ring aft of its motor tube printed a
+ * half-OD hole labelled "(assumed bore)" only inside the file).
  */
 export function printOffer(
   node: ComponentNode, ctx: SolidContext,
@@ -205,11 +210,24 @@ export function printOffer(
   // splitter has nothing to say about them. Nothing changes for those.
   const base = componentLoop(node, ctx);
   if (!base) return single(null, 'none');
+  const od = 2 * Math.max(0, ...base.loop.map(([, r]) => r));
   if (base.sizeAssumed) {
-    const od = 2 * Math.max(0, ...base.loop.map(([, r]) => r));
     return single(
       `Diameter assumed: ${mm1(od)} mm is a placeholder — the app could not find the tube `
-        + 'this part sits in. Measure the bore before you print or cut it.',
+        + 'this part sits in. Measure the bore before you print or cut it.'
+        + (base.boreAssumed ? ' The hole through it is a placeholder too.' : ''),
+      'warn',
+    );
+  }
+  if (base.boreAssumed) {
+    const hole = 2 * Math.min(...base.loop.map(([, r]) => r));
+    const mount = ctx.mountOuterRadius;
+    const why = mount === undefined
+      ? 'no motor mount passes through this ring'
+      : `motor mount ⌀ ${mm1(2 * mount)} mm does not fit this ring's ${mm1(od)} mm OD`;
+    return single(
+      `Bore assumed: ${mm1(hole)} mm is a placeholder — ${why}. `
+        + 'Measure what goes through it before you print or cut it.',
       'warn',
     );
   }

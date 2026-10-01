@@ -499,6 +499,15 @@ export interface PrintableLoop {
    * warning under the 🖨 button.
    */
   sizeAssumed?: boolean;
+  /**
+   * A centering ring's HOLE is a placeholder: no stated bore and no inner tube
+   * overlapping the ring gives one that fits (centeringRingBore), so it is cut
+   * at half the OD. The label says "(assumed bore)" and printOffer says so
+   * under the 🖨 button too — the label alone sits inside the file, where an
+   * automatic ring aft of its motor tube printed a hole the motor cannot pass
+   * with nothing on screen (audit 2026-09-30 review).
+   */
+  boreAssumed?: boolean;
 }
 
 /**
@@ -631,7 +640,7 @@ export function componentLoop(
       return {
         loop: ringLoop(R, R * 0.5, L),
         label: assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)',
-        bodySpan: [0, L], wall: R * 0.5, ...size,
+        bodySpan: [0, L], wall: R * 0.5, boreAssumed: true, ...size,
       };
     }
     case 'bulkhead': {

@@ -110,6 +110,33 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
     // ...and a sized one says nothing, as before.
     expect(printOffer(node('bulkhead', { length: 0.004 }), { parentInnerRadius: 0.0366 }, null).note).toBeNull();
   });
+
+  it('a centering ring no tube passes through warns that its bore is a placeholder', () => {
+    // An automatic bore with no inner tube overlapping the ring is cut at half
+    // the OD and labelled "(assumed bore)" INSIDE the file, and nothing on
+    // screen said so (audit 2026-09-30 review): LEM-IV's "Retainer Plate",
+    // 41 mm aft of its motor tube, printed a 49.5 mm hole a 75 mm motor cannot
+    // pass. Printer or not, the warning comes first, as for an assumed size.
+    const plate = node('centeringring', { length: 0.0032, outerRadius: 0.04953 });
+    for (const p of [null, H2D]) {
+      const o = printOffer(plate, { parentInnerRadius: 0.0495 }, p);
+      expect(o.kind).toBe('single');
+      expect(o.button).toBe(SINGLE_BUTTON);
+      expect(o.note).toBe('Bore assumed: 49.5 mm is a placeholder — no motor mount passes through this '
+        + 'ring. Measure what goes through it before you print or cut it.');
+      expect(o.tone).toBe('warn');
+    }
+    // A tube that overlaps the ring but is wider than it is named, as the DXF names it.
+    expect(printOffer(plate, { parentInnerRadius: 0.0495, mountOuterRadius: 0.05 }, null).note)
+      .toBe('Bore assumed: 49.5 mm is a placeholder — motor mount ⌀ 100.0 mm does not fit this '
+        + "ring's 99.1 mm OD. Measure what goes through it before you print or cut it.");
+    // Size AND bore assumed: the diameter warning, with the hole named in it.
+    expect(printOffer(node('centeringring', { length: 0.003 }), {}, null).note)
+      .toBe('Diameter assumed: 24.0 mm is a placeholder — the app could not find the tube this part '
+        + 'sits in. Measure the bore before you print or cut it. The hole through it is a placeholder too.');
+    // ...and a ring the mount passes through says nothing, as before.
+    expect(printOffer(plate, { parentInnerRadius: 0.0495, mountOuterRadius: 0.0401574 }, null).note).toBeNull();
+  });
 });
 
 describe('printOffer — printer set, part fits', () => {

@@ -121,6 +121,36 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     expect(dxf).toContain('OD ASSUMED: no tube found to size this part from');
   });
 
+  it('a centering ring no inner tube passes through says its bore is assumed, under the button too', async () => {
+    // LEM-IV's "Retainer Plate" (a tester's file): a 99.1 mm ring with an
+    // automatic bore, 41 mm aft of the 80.3 mm motor tube. No tube overlaps
+    // it, so the bore is the half-OD placeholder (the kernel flies a solid
+    // disc), and until the 2026-09-30 review only the label INSIDE the STL and
+    // the DXF's own note said so.
+    const plate = {
+      id: 'rp', type: 'centeringring', name: 'Retainer Plate', length: 0.0032, outerRadius: 0.04953,
+      position: { method: 'top', offset: 0.8033 },
+    } as unknown as ComponentNode;
+    const tree = {
+      name: 'Rocket',
+      components: [{ id: 's1', type: 'stage', children: [{
+        id: 'b1', type: 'bodytube', outerRadius: 0.051054, thickness: 0.0015, length: 0.7779,
+        children: [
+          { id: 'mmt', type: 'innertube', outerRadius: 0.0401574, thickness: 0.001, length: 0.6858,
+            position: { method: 'top', offset: 0.0762 }, motorMount: true },
+          plate,
+        ],
+      }] }],
+    } as unknown as RocketTree;
+    mount(tree, plate);
+    expect(note()!.textContent).toBe('Bore assumed: 49.5 mm is a placeholder — no motor mount passes '
+      + 'through this ring. Measure what goes through it before you print or cut it.');
+    expect(note()!.className).toContain('print-note-warn');
+    const dxf = await dxfText();
+    expect(dxf).toContain('OD 99.1 mm | bore 49.5 mm');
+    expect(dxf).toContain('BORE ASSUMED: no motor mount passes through this ring');
+  });
+
   it('the two buttons describe the sizing they do, not "from the parent tube"', () => {
     // A part's OWN stated diameter comes first, and the bore may be a
     // coupler's, a nose cone's or a transition's (audit 2026-09-22).
