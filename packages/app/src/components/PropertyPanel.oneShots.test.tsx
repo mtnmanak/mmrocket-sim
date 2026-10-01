@@ -235,6 +235,13 @@ describe('Fit tab to motor tube', () => {
     expect(fit(tube([FIN], { outerRadius: undefined }))).toBeNull();
   });
 
+  it('is not offered on a solid tube, which has no wall to pass through or motor tube inside', () => {
+    // As on a nose cone or transition. It offered the stated 1.5 mm wall, and
+    // with a mount listed inside the solid tube, the 22.2 mm to that mount.
+    expect(fit(tube([FIN], { filled: true }))).toBeNull();
+    expect(fit(tube([MMT, FIN], { filled: true }))).toBeNull();
+  });
+
   it('prints the depth in the length unit chosen', () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { length: 'in' } }));
     expect(fit(tube([MMT, FIN]))!.title).toBe('Set tab depth to reach the motor tube (0.874016 in)');
@@ -299,6 +306,19 @@ describe('Fit shoulder to tube ⌀', () => {
   it('is not offered with no body tube behind the nose, or one with no radius', () => {
     expect(fit(stageOf([NOSE]))).toBeNull();
     expect(fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5 }]))).toBeNull();
+  });
+
+  it('refuses a solid tube and says why: it has no bore to fit', () => {
+    // The rail-button idiom: the button stays, greyed, with the reason. It
+    // fitted the shoulder to the wall the solid tube states (26 mm here).
+    const refused = {
+      title: 'The adjacent tube is solid (filled), so it has no bore for a shoulder to fit into.',
+      disabled: true, patch: null,
+    };
+    const solid = { id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.027, thickness: 0.001, filled: true };
+    expect(fit(stageOf([NOSE, solid]))).toEqual(refused);
+    // The .ork reader's solid tube states no wall; it fitted the full radius.
+    expect(fit(stageOf([NOSE, { ...solid, thickness: undefined }]))).toEqual(refused);
   });
 
   it.each([

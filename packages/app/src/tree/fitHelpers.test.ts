@@ -126,6 +126,18 @@ describe('finTabFit', () => {
     expect(finTabFit(FIN, tube([node({ ...MMT, outerRadius: 0.0508 })]))).toBeNull();
     expect(finTabFit(FIN, tube([FIN], { thickness: 0 }))).toBeNull();
   });
+
+  it('offers nothing on a SOLID tube: no wall to pass through, no motor tube inside', () => {
+    // A dowel ticked Solid (filled) — withheld, as on a nose cone or transition,
+    // which can be solid too. Read through the wall it states, it offered that
+    // 1.5 mm; with a mount listed inside it, the depth to the mount.
+    expect(finTabFit(FIN, tube([FIN], { filled: true }))).toBeNull();
+    expect(finTabFit(FIN, tube([MMT, FIN], { filled: true }))).toBeNull();
+    // The .ork reader's solid tube states no wall at all.
+    expect(finTabFit(FIN, tube([FIN], { filled: true, thickness: undefined }))).toBeNull();
+    // `filled: false` is the hollow tube it always was.
+    expect(finTabFit(FIN, tube([FIN], { filled: false }))!.depth).toBe(0.0015);
+  });
 });
 
 describe('shoulderFit', () => {
@@ -162,5 +174,22 @@ describe('shoulderFit', () => {
     expect(fit([NOSE])).toBeNull();
     expect(fit([NOSE, node({ id: 'b1', type: 'bodytube' })])).toBeNull();
     expect(fit([NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: NaN })])).toBeNull();
+  });
+
+  it('marks a SOLID tube: its bore is 0, and the panel refuses the fit', () => {
+    // BodyTube.getInnerRadius is 0 when filled. Read through the wall it states,
+    // a solid 30 mm rod with a 1 mm wall fitted a 29 mm shoulder; the .ork
+    // reader's solid tube, which states no wall, fitted the full 30 mm.
+    const refused = { innerR: 0, patch: { shoulderRadius: 0 }, solid: true };
+    const rod = { id: 'b1', type: 'bodytube', outerRadius: 0.03, thickness: 0.001 };
+    expect(fit([NOSE, node({ ...rod, filled: true })])).toEqual(refused);
+    expect(fit([NOSE, node({ ...rod, filled: true, thickness: undefined })])).toEqual(refused);
+    // A tail cone's shoulder fits the tube AHEAD, so that is the one refused.
+    const tail = node({ ...NOSE, flipped: true });
+    const t = tree([node({ ...rod, filled: true }), tail]);
+    expect(shoulderFit(t, tail, t.components[0]!)).toEqual(refused);
+    // `filled: false` is the hollow tube it always was.
+    expect(fit([NOSE, node({ ...rod, filled: false })]))
+      .toEqual({ innerR: 0.03 - 0.001, patch: { shoulderRadius: 0.03 - 0.001 } });
   });
 });
