@@ -1,5 +1,10 @@
 // Hand-run sweep only. Resolve the baseline directly from an immutable Git tree;
 // it never borrows an edited importer or matcher from the working tree.
+// TSX is the frozen baseline's alone: a revision from before
+// services/launchConditions.ts (audit 2026-09-30, Step 8 item 22) reached
+// components/LaunchPanel.tsx from its file readers. The working tree's import
+// pipeline loads no React component (services/launchConditions.test.ts holds it
+// to that), so a .tsx reached from it is refused, not compiled.
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -18,6 +23,9 @@ export async function resolve(specifier, context, next) {
     const path = fileURLToPath(url).replaceAll('\\', '/');
     const choices = /\.js$/.test(path) ? [path.replace(/\.js$/, '.ts'), path.replace(/\.js$/, '.tsx'), path] : [path];
     const found = choices.find(present);
+    if (found?.endsWith('.tsx') && !found.startsWith(prefix)) {
+      throw new Error(`Matcher sweep: ${fileURLToPath(context.parentURL).replaceAll('\\', '/')} imports the React component ${found}; the working tree's import pipeline must load none`);
+    }
     if (found) return { url: pathToFileURL(found).href, shortCircuit: true };
   }
   return next(specifier, context);

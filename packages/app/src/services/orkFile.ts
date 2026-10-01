@@ -3,7 +3,7 @@ import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE,
   LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
-} from '../components/LaunchPanel.js';
+} from './launchConditions.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -1611,7 +1611,7 @@ function readLaunchConditions(
       // enforces on a typed value. Outside it the number is a UNIT MISTAKE in
       // whatever wrote the file, not a launch site, and nothing downstream ever
       // re-checks it: App.applyImported spreads these straight into launch
-      // state and LaunchPanel's kernelSimOptions converts them raw
+      // state and kernelSimOptions (launchConditions.ts) converts them raw
       // (`temperatureC + 273.15`, `pressureHPa * 100`) into the engine.
       //   • hPa written into this PASCAL-valued element
       //     (<basepressure>1013.25</basepressure>) flies the design at 1013 Pa

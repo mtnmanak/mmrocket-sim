@@ -25,8 +25,9 @@ async function openTab(): Promise<SessionModule> {
 
 /**
  * The file's first import of session.ts transforms its whole graph
- * (simReport, and LaunchPanel with React behind it): 1.0-2.4 s alone under
- * vitest 5, measured, where a re-import after vi.resetModules costs ~25 ms.
+ * (simReport and everything behind it): 1.0-2.4 s alone under vitest 5,
+ * measured while LaunchPanel and React were still in it (0.95 s without them,
+ * unloaded, 2026-10-01), where a re-import after vi.resetModules costs ~25 ms.
  * Paid inside the first test, it took that test to 5.5 s in one full-suite
  * run, timed it out and left its hundred saves running into the next (AUDIT
  * row 528, vitest 2 -> 5). session.ts has no import-time side effects, so the

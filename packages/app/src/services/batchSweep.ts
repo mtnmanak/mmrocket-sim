@@ -16,7 +16,7 @@ import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { machProbeSeconds } from './machProbe.js';
-import { kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
+import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 
 /**
  * THE BATCH SWEEP — every flight Batch Simulate flies, out of the component.

@@ -1,5 +1,5 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { LaunchConditions } from './launchConditions.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';

@@ -1,7 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
-} from '../components/LaunchPanel.js';
+} from './launchConditions.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';

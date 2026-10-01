@@ -110,8 +110,8 @@ export interface SimulationOptions {
    * carries directions of its own, and nothing in the app sets those yet).
    * Meaningless with a vertical rod — but not bit-for-bit inert (the launch
    * quaternion's product rounds), so the app sends it only when the rod is
-   * tilted AND aimed away from the wind (LaunchPanel's
-   * `flownRodAimDeg`). Left undefined, it is absent from the JSON the kernel
+   * tilted AND aimed away from the wind (`flownRodAimDeg`, the app's
+   * services/launchConditions.ts). Left undefined, it is absent from the JSON the kernel
    * reads, so every flight that never set it is byte-identical to before it
    * existed. Never NaN: JSON writes that as null, which the kernel's
    * `JsonLite.dbl` silently reads as the default.

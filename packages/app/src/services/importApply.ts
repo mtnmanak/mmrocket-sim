@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { DEFAULT_TIME_STEP_S, type LaunchConditions } from '../components/LaunchPanel.js';
+import { DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';

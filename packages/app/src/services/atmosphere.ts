@@ -251,9 +251,10 @@ export const PAD_PRESSURE_SEA_LEVEL_MARGIN = 0.05;
 export type PadPressureIssue = 'sea-level';
 
 /**
- * Structural, not `Partial<LaunchConditions>`: LaunchPanel imports this module
- * for its live caution, and taking the type from there would close a cycle
- * between them for no gain. Every caller's shape satisfies this one.
+ * Structural, not `Partial<LaunchConditions>`: launchConditions.ts, where that
+ * type lives, imports this module for `padAir`, and taking the type from there
+ * would close a cycle between them for no gain. Every caller's shape satisfies
+ * this one.
  */
 export interface PadConditions {
   launchAltitudeM?: number | null;
@@ -283,8 +284,9 @@ export function padPressureIssue(launch: PadConditions): PadPressureIssue | null
  * ARE these arrays, and the RASAero importer checks a file against them, so a
  * value the panel refuses can neither be imported nor flown.
  *
- * They live here rather than in LaunchPanel because `padAir` needs them and
- * LaunchPanel imports this module: the other way round is a cycle.
+ * They live here rather than with the other launch bounds in
+ * launchConditions.ts because `padAir` needs them and launchConditions.ts
+ * imports this module for `padAir`: the other way round is a cycle.
  *
  * Outside them a number is a unit mistake in whatever wrote it, not weather:
  * hPa written into RASAero's in-Hg field (1013.25 in-Hg is 34,313 hPa, 34x

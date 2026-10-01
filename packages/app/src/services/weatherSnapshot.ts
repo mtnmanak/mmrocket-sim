@@ -1,4 +1,4 @@
-import type { LaunchConditions } from '../components/LaunchPanel.js';
+import type { LaunchConditions } from './launchConditions.js';
 import { padAir } from './atmosphere.js';
 import type { Endpoint, PlaceMethod } from './openMeteo.js';
 import { editProfileSurface, reconcileProfileSurface, validWindLevels, validWindProfileSource, type WindProfileConditions } from './windProfile.js';
