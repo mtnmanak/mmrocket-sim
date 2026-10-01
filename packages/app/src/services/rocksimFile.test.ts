@@ -3059,6 +3059,88 @@ describe('.rkt export sizes an automatic ring as the kernel flies it', () => {
       expect(after[name]! / before[name]!, name).toBeCloseTo(1, 6);
     }
   });
+
+  it('round-trips an automatic ring around a 54 mm mount in a 98 mm airframe at the mount\'s size', async () => {
+    // Format audit row 26's own case: OD − 4 mm made this ring a 2 mm annulus,
+    // its mass ÷8.7 in RockSim, and the re-import then froze that bore.
+    const components = [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', name: 'Airframe', length: 0.9, outerRadius: 0.049, thickness: 0.0015, density: 1850,
+        children: [
+          { type: 'innertube', id: 'mm', name: 'Mount', length: 0.4, outerRadius: 0.0287, thickness: 0.001,
+            motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type: 'centeringring', id: 'cr', name: 'Ring', length: 0.006, density: 680,
+            position: { method: 'bottom', offset: -0.02 } },
+        ] },
+    ] }] as ComponentNode[];
+    const back = flatten(importRkt(exportRkt({ name: 'R', tree: { name: 'R', components } })).tree.components)
+      .find((c) => c.name === 'Ring')!;
+    expect(back['innerRadius'], 'the ring came back with a bore 2 mm inside its rim').toBeCloseTo(0.0287, 12);
+    expect(back['outerRadius']).toBeCloseTo(0.0475, 12);
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const flown = OrkRocket.buildTree(engineTree({ name: 'R', components })).componentInfo('cr').mass;
+    resetEngine();
+    const reopened = OrkRocket.buildTree(engineTree({ name: 'R', components: [{ type: 'stage', id: 's', children: [{
+      ...components[0]!.children![0]!, children: [components[0]!.children![0]!.children![0]!, { ...back, id: 'cr' }] }] }] as ComponentNode[] }))
+      .componentInfo('cr').mass;
+    expect(reopened / flown).toBeCloseTo(1, 9);
+  });
+});
+
+/**
+ * A RockSim BULKHEAD WITH A HOLE (format audit row 26). A <Ring> with
+ * <UsageCode>1 is RockSim's bulkhead, and RockSim weighs it with the <ID> the
+ * file gives it: Level 3 Rocket.rkt's "Bulkplate Nose cone" is 136.525 mm
+ * across with a 50.8 mm hole, and its <CalcMass> of 152.587 g is that annulus.
+ * The kernel's Bulkhead has no inner radius (Bulkhead.setInnerRadius is a
+ * no-op), so the reader dropped the ID and flew a solid disc — as desktop
+ * OpenRocket does. A centering ring with that bore is the part RockSim weighs.
+ */
+describe('RockSim bulkhead with a hole', () => {
+  const doc = (rings: string) => `<RockSimDocument><DesignInformation><RocketDesign><Name>H</Name>
+    <StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Airframe</Name><OD>139.7</OD><ID>136.525</ID><Len>600</Len>
+      <Density>1905.24</Density><DensityType>0</DensityType><AttachedParts>${rings}</AttachedParts></BodyTube>
+    </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+  // Level 3 Rocket's own figures, <CalcMass> included.
+  const ring = (name: string, id: number, at = 100) => `<Ring><Name>${name}</Name><UsageCode>1</UsageCode>
+    <OD>136.525</OD><ID>${id}</ID><Len>6.35</Len><Density>1905.24</Density><DensityType>0</DensityType>
+    <LocationMode>0</LocationMode><Xb>${at}</Xb><CalcMass>152.587</CalcMass></Ring>`;
+  const part = (r: ReturnType<typeof importRkt>, name: string) =>
+    flatten(r.tree.components).find((c) => c.name === name)!;
+
+  it('imports it as a centering ring with that bore, and names it in a note', () => {
+    const r = importRkt(doc(ring('Bulkplate Nose cone', 50.8)));
+    const p = part(r, 'Bulkplate Nose cone');
+    expect(p.type, 'a holed bulkhead imported solid').toBe('centeringring');
+    expect(p['innerRadius']).toBeCloseTo(0.0254, 12);
+    expect(p['outerRadius']).toBeCloseTo(0.0682625, 12);
+    // And that the motor-length estimate, which stops at a bulkhead and never
+    // at a centering ring, no longer stops at it.
+    expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
+      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm hole through it, .*centering ring with that bore: .*imports it solid\. .*Max motor length .*no longer stops at this part\.$/),
+    ]);
+  });
+
+  it('weighs what RockSim weighs it: its own CalcMass', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const r = importRkt(doc(ring('Bulkplate Nose cone', 50.8)));
+    const rocket = OrkRocket.buildTree(engineTree(r.tree));
+    // 152.587 g in the file; solid, the same disc is 177.1 g.
+    expect(rocket.componentInfo(part(r, 'Bulkplate Nose cone').id!).mass * 1000).toBeCloseTo(152.587, 1);
+  });
+
+  it('names every holed bulkhead in one note, and leaves a solid one a bulkhead', () => {
+    const r = importRkt(doc(ring('Ring Disc - Nose Cone', 101.6) + ring('Bulkplate Nose cone', 50.8, 200)
+      + ring('Ring Disc T Coupler', 0, 300)));
+    expect(part(r, 'Ring Disc T Coupler').type).toBe('bulkhead');
+    expect(part(r, 'Ring Disc T Coupler')['innerRadius']).toBeUndefined();
+    expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
+      expect.stringMatching(/^2 bulkheads have a hole through them \(“Ring Disc - Nose Cone” 101\.6 mm, “Bulkplate Nose cone” 50\.8 mm\)/),
+    ]);
+  });
 });
 
 /**

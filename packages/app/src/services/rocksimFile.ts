@@ -279,6 +279,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   let pinnedMassObjects = 0;
   /** Airfoil fin sets pinned to RockSim's own CalcMass/CalcCG (desktop parity). */
   const airfoilPinned = new Set<ComponentNode>();
+  /** Bulkheads the file gives a hole, imported as centering rings with that bore (the file's ID, mm). */
+  const holedBulkheads: { name: string; idMm: number }[] = [];
   /** RockSim SerialNo → our node id (links EngineSets to mounts). */
   const serialToNode = new Map<string, ComponentNode>();
   /** Off-axis inner tubes: node → cross-section offset (m), for cluster
@@ -644,9 +646,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       }
       case 'Ring': {
         const usage = Math.round(num(el, 'UsageCode', 0));
-        const type = usage === 1 ? 'bulkhead' : usage === 2 ? 'engineblock'
+        const id = num(el, 'ID', 0);
+        // A BULKHEAD WITH A HOLE is a centering ring with that bore (format
+        // audit row 26). RockSim weighs a <UsageCode>1 ring with the <ID> the
+        // file gives it — Level 3 Rocket's "Bulkplate Nose cone", 136.525 mm
+        // across with a 50.8 mm hole, states a <CalcMass> of 152.587 g, the
+        // annulus — while the kernel's Bulkhead has no inner radius
+        // (Bulkhead.setInnerRadius is a no-op), so the ID was dropped and the
+        // part flew solid: 177.1 g. Desktop does the same; correctness over
+        // desktop parity outside the physics models (owner, 2026-08-23).
+        const holed = usage === 1 && id > 0;
+        const type = usage === 1 && !holed ? 'bulkhead' : usage === 2 ? 'engineblock'
           : usage === 4 ? 'tubecoupler' : 'centeringring';
         const n = mk(type);
+        if (holed) holedBulkheads.push({ name: n.name ?? 'Bulkhead', idMm: id });
         n['length'] = num(el, 'Len', 2) / LEN;
         const od = num(el, 'OD', 0);
         // Every ring kind takes the OD the FILE states, not the kernel's automatic
@@ -661,7 +674,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         if (od > 0) {
           n['outerRadius'] = od / RAD;
         }
-        const id = num(el, 'ID', 0);
         if (type === 'centeringring' && id > 0) n['innerRadius'] = id / RAD;
         if ((type === 'engineblock' || type === 'tubecoupler') && od > 0) {
           n['thickness'] = tubeThickness(el) || 0.001;
@@ -1492,6 +1504,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       + "sits where the file's own station numbers put it. Desktop OpenRocket drops this and "
       + 'imports the rocket short. Where the cone states a measured mass, that mass already covers '
       + 'the extension, so the added tube carries none of its own.');
+  }
+  if (holedBulkheads.length) {
+    // The motor-room estimate stops at a bulkhead and never at a centering
+    // ring (motorRoom.ts, BLOCKING), so a converted e-bay bulkhead or baffle
+    // no longer limits it. Said here rather than changed there: the two ring
+    // rules tried (a stated bore smaller than the motor; a ring no inner tube
+    // passes through) moved 223 and 104 corpus mounts, where RockSim places
+    // and sizes rings loosely.
+    const n = holedBulkheads.length;
+    const one = holedBulkheads[0]!;
+    notes.push((n === 1
+      ? `Bulkhead “${one.name}” has a ${one.idMm} mm hole through it, and a bulkhead here is a solid disc, so it `
+        + 'was imported as a centering ring with that bore: it weighs what RockSim weighs it, where desktop '
+        + 'OpenRocket imports it solid.'
+      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${b.idMm} mm`).join(', ')}), `
+        + 'and a bulkhead here is a solid disc, so they were imported as centering rings with those bores: they '
+        + 'weigh what RockSim weighs them, where desktop OpenRocket imports them solid.')
+      + ' The ⌾ Estimate of Max motor length does not stop at a centering ring, so it no longer stops at '
+      + `${n === 1 ? 'this part' : 'these parts'}.`);
   }
   if (airfoilPinned.size) {
     const n = airfoilPinned.size;
