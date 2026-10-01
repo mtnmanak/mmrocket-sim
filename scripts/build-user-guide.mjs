@@ -381,7 +381,10 @@ function guideTokens(data, corrections) {
  *    describing its nozzle). The I40N-P's machined nozzle was named the same
  *    way until part 01600's published exit gave it a figure (2026-10-01), so
  *    that reason is no longer one the guide gives, and a row with no exit for
- *    it stops the build like any other unexplained one. And
+ *    it stops the build like any other unexplained one. So is the sentence on
+ *    what AeroTech have left uncovered, against the file's `missingByType` (the
+ *    catalogue's own type): it called them all single-use motors with neither a
+ *    reload kit nor a DMS sheet, and 12 of 40 were one or the other. And
  *    every AREA it states from two diameters is worked out from the file's
  *    diameters: the K1100T's two options, and Loki's 76 mm exit machined out
  *    against each standard exit for that casing.
@@ -424,6 +427,11 @@ function nozzleFacts(data) {
   // moulded 29 mm cases.
   const onPurpose = rows.filter((m) => m.manufacturer !== 'Loki' && m.motorId && m.exitDiameterM === undefined);
   const sheet = (m) => m.provenance?.lomDescription ?? '';
+  // The in-production AeroTech motors with no row, by the catalogue's own type and
+  // casing, as build-nozzle-db.mjs counts them: null in a file built before it did.
+  const byType = db.coverage?.byManufacturer?.AeroTech?.missingByType;
+  const aerotechMissing = byType ? Object.entries(byType).flatMap(([type, byMm]) => Object.entries(byMm)
+    .flatMap(([mm, names]) => names.map((designation) => ({ type, mm: Number(mm), designation })))) : null;
   return {
     tokens: {
       NOZZLE_LOKI_WITH_EXIT: lokiExit.toLocaleString('en-US'),
@@ -438,6 +446,7 @@ function nozzleFacts(data) {
       && m.docFamily === 'dms' && m.casingDiameterMm === 29),
     aerospike: onPurpose.filter((m) => /\bAEROSPIKE\b/i.test(sheet(m))),
     cutShort: onPurpose.filter((m) => /\bCUT TO\b/i.test(sheet(m))),
+    aerotechMissing,
   };
 }
 
@@ -509,6 +518,49 @@ function checkNozzleClaims(raw, facts) {
         + 'on the rows with no number on purpose does not account for: '
         + `${unexplained.map((m) => `${m.designation} ("${m.provenance?.lomDescription ?? 'no sheet line'}")`).join(', ')}`
         + ' — say why in that sentence, and check it in checkNozzleClaims()', at.ln);
+    }
+  }
+
+  // What AeroTech have left uncovered (board Tier 1 row 13, 2026-10-01). The sentence
+  // said "the older single-use line — motors with neither a reload kit nor a DMS design
+  // sheet" by hand, and 12 of the 40 it described were reload kits or DMS motors. It now
+  // gives the catalogue's own split, and every part of it is the file's: "most" are
+  // single-use motors in the sizes it calls hobby motors, the reload kits and larger
+  // single-use motors are the rest, and no motor of another type is left out of it.
+  at = find(new RegExp(String.raw`\bMost are single-use hobby motors of (\d+) mm to (\d+) mm\b.*\bthe rest are `
+    + String.raw`${SAID_COUNT} reload kits and ${SAID_COUNT} larger single-use motors\b`, 'i'));
+  if (at) {
+    const [, lo, hi, reloadSaid, largerSaid] = at.m;
+    const all = facts.aerotechMissing;
+    if (!all) {
+      fail('nozzles.json has no coverage.byManufacturer.AeroTech.missingByType, and user-guide.md\'s sentence on what '
+        + 'AeroTech have left uncovered is checked against it — rebuild nozzles.json with build-nozzle-db.mjs', at.ln);
+    }
+    const listed = (xs) => xs.map((x) => x.designation).join(', ');
+    const other = all.filter((x) => x.type !== 'reload' && x.type !== 'SU');
+    if (other.length) {
+      fail(`user-guide.md's sentence on what AeroTech have left uncovered does not account for `
+        + `${other.map((x) => `${x.designation} (${x.type})`).join(', ')} — say what they are there, and check it here`, at.ln);
+    }
+    const reload = all.filter((x) => x.type === 'reload');
+    if (asCount(reloadSaid) !== reload.length) {
+      fail(`user-guide.md says ${reloadSaid} reload kits remain uncovered; nozzles.json has `
+        + `${inWords(reload.length)} (${listed(reload)})`, at.ln);
+    }
+    const hobby = all.filter((x) => x.type === 'SU' && x.mm <= Number(hi));
+    const larger = all.filter((x) => x.type === 'SU' && x.mm > Number(hi));
+    if (asCount(largerSaid) !== larger.length) {
+      fail(`user-guide.md says ${largerSaid} larger single-use motors remain uncovered; nozzles.json has `
+        + `${inWords(larger.length)} (${listed(larger)})`, at.ln);
+    }
+    const sizes = hobby.map((x) => x.mm);
+    if (!sizes.length || Math.min(...sizes) !== Number(lo) || Math.max(...sizes) !== Number(hi)) {
+      fail(`user-guide.md says the uncovered single-use hobby motors run ${lo} mm to ${hi} mm; in nozzles.json they run `
+        + (sizes.length ? `${Math.min(...sizes)} mm to ${Math.max(...sizes)} mm` : 'nowhere: there are none'), at.ln);
+    }
+    if (hobby.length * 2 <= all.length) {
+      fail('user-guide.md says most of what AeroTech have left uncovered are single-use hobby motors; nozzles.json has '
+        + `${inWords(hobby.length)} of ${all.length}`, at.ln);
     }
   }
 

@@ -909,6 +909,18 @@ describe('the coverage this file claims about itself', () => {
       for (const mm of Object.keys(stated)) {
         if (!recomputed.has(mm)) bad.push(`${maker} ${mm} mm: stated, but the catalogue has no in-production ${maker} motor that size`);
       }
+      // The same motors by the catalogue's own type, which the guide's sentence on what
+      // AeroTech have left uncovered is held to (scripts/build-user-guide.mjs).
+      const typed = {};
+      for (const m of catalogue.motors) {
+        if (m.manufacturerAbbrev !== maker || m.availability === 'OOP' || byRow.has(m.motorId)) continue;
+        ((typed[m.type || 'unknown'] ??= {})[String(m.diameter)] ??= []).push(m.designation);
+      }
+      const asText = (byType) => Object.keys(byType ?? {}).sort().map((type) => `${type}: ${Object.keys(byType[type])
+        .sort((a, b) => a - b).map((mm) => `${mm} mm ${[...byType[type][mm]].sort().join(' ')}`).join(', ')}`).join('; ');
+      if (asText(byMaker[maker].missingByType) !== asText(typed)) {
+        bad.push(`${maker}: missingByType says [${asText(byMaker[maker].missingByType)}], catalogue gives [${asText(typed)}]`);
+      }
     }
     // Same verdict rule as the join: a stale count against a catalogue that
     // has moved on is a report, because only a regeneration can clear it.

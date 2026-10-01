@@ -39,10 +39,10 @@
  "gaps": {
   "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR (\"we can leave them as unknown and, if we get the data, we can update the database\") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed \"Historical Information Only — Not In Production\", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads \"Single Use\") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in `uncovered`.",
   "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 37 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 40 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 37 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. STILL NOT COVERED: 40 in-production AeroTech motors have no row here, because no document this build reads joins a nozzle to them. By the catalogue's own type (`coverage.byManufacturer.AeroTech.missingByType`): reload kits 8 (F62FJ, F63R, H130W, H550ST, I180W, J550ST-14, L2775ST-PS, M1305M); single-use 32, 28 of them 29 mm or smaller and 4 larger (I350R, N3120X-PS, N1975W-PS, O6000W). Every one is named in `uncovered` too. Until 2026-10-01 this sentence was written by hand and called them all the older single-use line, with neither a reload kit nor a DMS sheet; that day 12 of the 40 were reload kits or DMS motors."
  },
  "coverage": {
-  "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`.",
+  "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`; \"missingByType\" names the same motors by the catalogue's own type (\"SU\", \"reload\", \"hybrid\") and then by casing diameter.",
   "byManufacturer": {
    "AeroTech": {
     "byCasingDiameterMm": {
@@ -148,6 +148,76 @@
        "O6000W"
       ]
      }
+    },
+    "missingByType": {
+     "SU": {
+      "18": [
+       "D10W",
+       "D21T"
+      ],
+      "24": [
+       "D22W",
+       "E20W",
+       "E26W",
+       "E30T",
+       "F30FJ",
+       "F32T",
+       "F44W"
+      ],
+      "29": [
+       "E24C",
+       "F115SN-12A",
+       "F20W/L",
+       "F23FJ",
+       "F25W",
+       "F26FJ",
+       "F27R/L",
+       "F42T/L",
+       "F50T",
+       "F52C",
+       "F67C",
+       "F67W",
+       "G11",
+       "G40W",
+       "G73C",
+       "G74W",
+       "G77R/L",
+       "G78G/L",
+       "G79W/L"
+      ],
+      "38": [
+       "I350R"
+      ],
+      "75": [
+       "N3120X-PS"
+      ],
+      "98": [
+       "N1975W-PS"
+      ],
+      "152": [
+       "O6000W"
+      ]
+     },
+     "reload": {
+      "24": [
+       "F62FJ",
+       "F63R"
+      ],
+      "38": [
+       "H130W",
+       "H550ST",
+       "I180W"
+      ],
+      "54": [
+       "J550ST-14"
+      ],
+      "75": [
+       "L2775ST-PS"
+      ],
+      "98": [
+       "M1305M"
+      ]
+     }
     }
    },
    "Loki": {
@@ -178,6 +248,17 @@
       "withNozzleRow": 1,
       "withExitDiameter": 0,
       "missing": [
+       "N5500LW"
+      ]
+     }
+    },
+    "missingByType": {
+     "reload": {
+      "54": [
+       "L2050LW",
+       "M1378LR"
+      ],
+      "98": [
        "N5500LW"
       ]
      }

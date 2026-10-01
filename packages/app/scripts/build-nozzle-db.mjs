@@ -2050,6 +2050,33 @@ export function buildNozzleDb({
       .map(([mm, e]) => [String(mm), { ...e, missing: e.missing.sort() }]));
   };
 
+  /**
+   * THE SAME MISSING MOTORS, BY THE CATALOGUE'S OWN `type` ("SU", "reload",
+   * "hybrid") and then by casing diameter (board Tier 1 row 13, 2026-10-01).
+   * `gaps.AeroTechSingleUse` and the user guide said what AeroTech had left was
+   * "the older single-use line, which has neither a reload kit nor a DMS sheet",
+   * written by hand, and of the 40 it described that day, 8 were reload kits and
+   * 4 were DMS motors. The note below is written from this, and
+   * scripts/build-user-guide.mjs holds the guide's sentence to it.
+   */
+  const missingByTypeFor = (motors) => {
+    const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
+    const by = new Map();
+    for (const m of motors) {
+      if (m.availability === 'OOP' || have.has(m.motorId)) continue;
+      const type = m.type || 'unknown';
+      if (!by.has(type)) by.set(type, new Map());
+      const sizes = by.get(type);
+      if (!sizes.has(m.diameter)) sizes.set(m.diameter, []);
+      sizes.get(m.diameter).push(m.designation);
+    }
+    return Object.fromEntries([...by.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([type, sizes]) => [type, Object.fromEntries([...sizes.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([mm, names]) => [String(mm), names.sort()]))]));
+  };
+  const aerotechMissing = missingByTypeFor(AEROTECH);
+
   // Figures quoted in `gaps.AeroTechSingleUse`, counted rather than written down
   // — the last hand-written coverage claim in this file ("every 98 mm motor")
   // was wrong by four motors.
@@ -2058,6 +2085,22 @@ export function buildNozzleDb({
   const uncoveredInProd = (() => {
     const have = new Set(motorRows.filter((m) => m.motorId).map((m) => m.motorId));
     return AEROTECH.filter((m) => m.availability !== 'OOP' && !have.has(m.motorId)).length;
+  })();
+  // Those motors by type, in words for the note. 29 mm is the largest casing of
+  // AeroTech's hobby single-use line.
+  const uncoveredByType = (() => {
+    const flat = (type) => Object.entries(aerotechMissing[type] ?? {})
+      .flatMap(([mm, names]) => names.map((designation) => ({ designation, mm: Number(mm) })));
+    const names = (xs) => xs.map((x) => x.designation).join(', ');
+    const reload = flat('reload');
+    const su = flat('SU');
+    const larger = su.filter((x) => x.mm > 29);
+    const other = Object.keys(aerotechMissing).filter((t) => t !== 'reload' && t !== 'SU')
+      .flatMap((t) => flat(t).map((x) => `${x.designation}, ${t}`));
+    return `reload kits ${reload.length}${reload.length ? ` (${names(reload)})` : ''}; `
+      + `single-use ${su.length}, ${su.length - larger.length} of them 29 mm or smaller and ${larger.length} larger`
+      + `${larger.length ? ` (${names(larger)})` : ''}`
+      + `${other.length ? `; other ${other.length} (${other.join('; ')})` : ''}.`;
   })();
 
   const db = {
@@ -2139,13 +2182,13 @@ export function buildNozzleDb({
     gaps: {
       Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR ("we can leave them as unknown and, if we get the data, we can update the database") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed "Historical Information Only — Not In Production", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads "Single Use") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in \`uncovered\`.`,
       Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
-      AeroTechSingleUse: `AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the "Motor Assembly Drawings" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from "DMS Motor Designs": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth ${dmsWithExit} more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral ("adding a document family is a decision rather than a fix") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: ${uncoveredInProd} in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in \`uncovered\`.`,
+      AeroTechSingleUse: `AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the "Motor Assembly Drawings" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from "DMS Motor Designs": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth ${dmsWithExit} more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral ("adding a document family is a decision rather than a fix") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. STILL NOT COVERED: ${uncoveredInProd} in-production AeroTech motors have no row here, because no document this build reads joins a nozzle to them. By the catalogue's own type (\`coverage.byManufacturer.AeroTech.missingByType\`): ${uncoveredByType} Every one is named in \`uncovered\` too. Until 2026-10-01 this sentence was written by hand and called them all the older single-use line, with neither a reload kit nor a DMS sheet; that day 12 of the 40 were reload kits or DMS motors.`,
     },
     coverage: {
-      note: 'What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the rows this catalogue does not mark OOP; "withNozzleRow" is how many have a row here and "withExitDiameter" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki\'s published exit table). Every motor short of a row is named, and named again in `uncovered`.',
+      note: 'What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how "every 98 mm motor" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). "inProduction" is the rows this catalogue does not mark OOP; "withNozzleRow" is how many have a row here and "withExitDiameter" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki\'s published exit table). Every motor short of a row is named, and named again in `uncovered`; "missingByType" names the same motors by the catalogue\'s own type ("SU", "reload", "hybrid") and then by casing diameter.',
       byManufacturer: {
-        AeroTech: { byCasingDiameterMm: coverageFor(AEROTECH) },
-        Loki: { byCasingDiameterMm: coverageFor(LOKI) },
+        AeroTech: { byCasingDiameterMm: coverageFor(AEROTECH), missingByType: aerotechMissing },
+        Loki: { byCasingDiameterMm: coverageFor(LOKI), missingByType: missingByTypeFor(LOKI) },
       },
     },
     // Which AeroTech motors are NOT here, grouped by the case they belong to.

@@ -732,6 +732,44 @@ describe('buildNozzleDb, the whole composition', () => {
     expect(db.crossCheck.dmsSheetObservations.rows).toEqual([]);
   });
 
+  /**
+   * WHAT IS LEFT UNCOVERED, BY THE CATALOGUE'S OWN TYPE (board Tier 1 row 13,
+   * 2026-10-01). The gap note said, by hand, that what AeroTech had left was "the
+   * older single-use line, which has neither a reload kit nor a DMS sheet", and
+   * on the day it was checked 8 of the 40 were reload kits. It is counted now,
+   * per type and casing like `missing`, and the note is written from the count.
+   */
+  it('sorts the motors it has no row for by the catalogue\'s own type, and writes the gap from that', async () => {
+    const catalogue = CATALOGUE();
+    const motor = (motorId, designation, diameter, type, caseInfo = null, availability = 'regular') => ({
+      motorId, manufacturerAbbrev: 'AeroTech', designation, commonName: designation.match(/^[A-Z]\d+/)[0],
+      diameter, caseInfo, type, availability,
+    });
+    catalogue.motors.push(
+      motor('at-l9999', 'L9999W', 75, 'reload', 'RMS-75/3840'),
+      motor('at-e99', 'E99W', 24, 'SU'),
+      motor('at-f99', 'F99T', 29, 'SU'),
+      motor('at-o9999', 'O9999W', 152, 'SU'),
+      // Out of production, so no part of a coverage claim, as in `missing`.
+      motor('at-j99', 'J99H', 54, 'hybrid', 'RMS-54/1280', 'OOP'),
+    );
+    const { db } = await build({ motorsDb: catalogue });
+    expect(db.coverage.byManufacturer.AeroTech.missingByType).toEqual({
+      SU: { 24: ['E99W'], 29: ['F99T'], 152: ['O9999W'] },
+      reload: { 75: ['L9999W'] },
+    });
+    expect(db.coverage.byManufacturer.Loki.missingByType).toEqual({ reload: { 98: ['N5500LW'] } });
+    const gap = db.gaps.AeroTechSingleUse;
+    expect(gap).not.toMatch(/What is STILL not covered is the older single-use line/);
+    expect(gap).toMatch(/\b4 in-production AeroTech motors have no row here\b/);
+    expect(gap).toMatch(/\breload kits 1 \(L9999W\); single-use 3, 2 of them 29 mm or smaller and 1 larger \(O9999W\)\./);
+    // A type the sentence has no words for is still counted, and named with its type.
+    catalogue.motors.at(-1).availability = 'regular';
+    const withHybrid = (await build({ motorsDb: catalogue })).db;
+    expect(withHybrid.coverage.byManufacturer.AeroTech.missingByType.hybrid).toEqual({ 54: ['J99H'] });
+    expect(withHybrid.gaps.AeroTechSingleUse).toMatch(/\b5 in-production AeroTech motors\b.*; other 1 \(J99H, hybrid\)\./);
+  });
+
   it('refuses a DMS sheet that joins a reloadable motor', async () => {
     const { BuildRefused } = await builder();
     const raw = RAW();
