@@ -704,7 +704,8 @@ describe('buildNozzleDb, the whole composition', () => {
   it('merges a measured nozzle into a motor with no row, and refuses one that would replace a row', async () => {
     const { BuildRefused } = await builder();
     const measuredBy = { measuredBy: 'synthetic calipers', measuredOn: '2026-09-23' };
-    const fills = { manufacturer: 'Loki', partNo: 'synthetic-c', exitDiameterIn: 1.2, throatDiameterIn: 0.9, ...measuredBy, appliesTo: ['N5500LW'] };
+    const fills = { manufacturer: 'Loki', partNo: 'synthetic-c', exitDiameterIn: 1.2, throatDiameterIn: 0.9, ...measuredBy,
+      appliesTo: [{ motorId: 'loki-n5500', designation: 'N5500LW' }] };
     const { db } = await build({ measured: [fills] });
     expect(db.measured).toEqual([fills]);
     expect(db.motors.map((m) => `${m.manufacturer} ${m.designation}`))
@@ -719,7 +720,7 @@ describe('buildNozzleDb, the whole composition', () => {
     try {
       await build({
         measured: [
-          { ...fills, partNo: 'synthetic-a', appliesTo: ['H90-LR'] }, // H90-LR has Loki's own row
+          { ...fills, partNo: 'synthetic-a', appliesTo: [{ motorId: 'loki-h90', designation: 'H90-LR' }] }, // H90-LR has Loki's own row
           { ...fills, partNo: 'synthetic-b', exitDiameterIn: 0 },
         ],
       });

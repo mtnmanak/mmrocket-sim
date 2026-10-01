@@ -1253,12 +1253,15 @@ const MEASURED_NOZZLES = [
   // Ruled, measured additions go here, e.g.
   // { manufacturer: 'Loki', partNo: '54/4000 single-use', exitDiameterIn: 1.0,
   //   throatDiameterIn: 0.5, measuredBy: 'owner, calipers', measuredOn: '2026-09-??',
-  //   appliesTo: ['L2050LW'] },
+  //   appliesTo: [{ motorId: '5f4294d2000231000000043e', designation: 'L2050LW' }] },
   //
   // Only a motor with NO published row: Loki's tables cover the rest of their
   // line, and naming a motor that already has a row fails the build rather than
   // silently replacing it. Each entry is emitted as `measured` for the record
-  // AND merged into `motors` (mergeMeasured, below), so it reaches the app.
+  // AND merged into `motors` (mergeMeasured, in nozzle-db-helpers.mjs), so it
+  // reaches the app. `appliesTo` names each motor by its motors.json `motorId`
+  // AND its designation there, never by a name alone: a name can bind another
+  // maker's motor, and the build checks the maker and the name against the id.
 ];
 
 /* ------------------------------------------------------------------- LOKI
@@ -1725,8 +1728,9 @@ export function buildNozzleDb({
    * a hole. Found 2026-09-13, the day before Eric measures the two 54/4000
    * one-time-use nozzles (L2050LW, M1378LR) that are the last closeable Loki gap.
    *
-   * The merge and its two rules (a measurement never replaces a published row;
-   * provenance is mandatory) are `mergeMeasured` in nozzle-db-helpers.mjs, where
+   * The merge and its rules (a measurement never replaces a published row;
+   * provenance is mandatory; it binds by catalogue id, its maker and name checked,
+   * since 2026-10-01) are `mergeMeasured` in nozzle-db-helpers.mjs, where
    * nozzle-db.test.mjs runs it on a synthetic entry — so the path is exercised
    * before the first real measurement lands rather than on the day it does.
    * (Today no measured entry collides with anything.)

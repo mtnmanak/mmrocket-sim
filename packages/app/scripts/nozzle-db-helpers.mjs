@@ -212,7 +212,7 @@ export const basePartNo = (p) => p.replace(/-[\w()]+$/, '');
  * MEASURED NOZZLES, MERGED into the motor rows — `measured` entries become rows
  * of `motors`, the one table `nozzleDb.ts` reads.
  *
- * TWO RULES, both deliberate:
+ * THREE RULES, all deliberate:
  *
  *  1. A measurement fills a motor that has NO row. It never overwrites a
  *     published one. If it names a motor already covered, it is a PROBLEM and
@@ -222,6 +222,17 @@ export const basePartNo = (p) => p.replace(/-[\w()]+$/, '');
  *  2. Provenance is mandatory, exactly as it is for a published row: who
  *     measured it and when. A measured number with no measurer is
  *     indistinguishable, downstream, from one read off a drawing.
+ *  3. It binds BY CATALOGUE ID (2026-10-01). Each `appliesTo` entry is
+ *     `{ motorId, designation }`: the id binds, the maker must be the entry's
+ *     `manufacturer`, and the catalogue's name for that id must be the entry's
+ *     `designation`, which is what catches a pasted id of the wrong motor. It was
+ *     a name, matched with `find(designation || commonName)`, the first match in
+ *     file order, and the row took its maker from the ENTRY: keyed by common
+ *     name, 19 Cesaroni motors would have landed silently on another maker's
+ *     motor and been labelled Cesaroni's there (thrustcurve.org lists AeroTech's
+ *     G78G/L before Cesaroni's 141G78-15A, both "G78";
+ *     docs/research/cesaroni-nozzle-recheck-2026-10-01.md §5.2). A name alone is
+ *     now refused.
  *
  * `exitSource: 'measured'` and `exitConfidence: 'high'` — high because a
  * caliper on the part in hand is better evidence about THAT part than a band
@@ -240,10 +251,26 @@ export function mergeMeasured(measured, catalogueMotors, publishedRows) {
     if (!mn.measuredBy || !mn.measuredOn) { problems.push(`${mn.partNo}: measurements need measuredBy and measuredOn`); continue; }
     if (!Array.isArray(mn.appliesTo) || mn.appliesTo.length === 0) { problems.push(`${mn.partNo}: appliesTo names no motor`); continue; }
     for (const want of mn.appliesTo) {
-      const m = catalogueMotors.find((x) => x.designation === want || x.commonName === want);
-      if (!m) { problems.push(`${mn.partNo}: the catalogue has no motor "${want}"`); continue; }
+      if (typeof want?.motorId !== 'string' || typeof want?.designation !== 'string') {
+        problems.push(`${mn.partNo}: appliesTo names ${JSON.stringify(want)} — give { motorId, designation }: `
+          + 'a name alone can bind another maker\'s motor');
+        continue;
+      }
+      const m = catalogueMotors.find((x) => x.motorId === want.motorId);
+      if (!m) {
+        problems.push(`${mn.partNo}: the catalogue has no motor with id ${want.motorId} (the entry calls it ${want.designation})`);
+        continue;
+      }
+      if (m.manufacturerAbbrev !== mn.manufacturer) {
+        problems.push(`${mn.partNo}: ${want.motorId} is ${m.manufacturerAbbrev}'s ${m.designation}, not a ${mn.manufacturer} motor`);
+        continue;
+      }
+      if (m.designation !== want.designation) {
+        problems.push(`${mn.partNo}: ${want.motorId} is ${m.designation} in the catalogue, not ${want.designation} — check the id`);
+        continue;
+      }
       if (publishedRows.some((r) => r.motorId === m.motorId)) {
-        problems.push(`${mn.partNo}: ${want} already has a PUBLISHED row — a measurement must not `
+        problems.push(`${mn.partNo}: ${m.designation} already has a PUBLISHED row — a measurement must not `
           + 'silently replace one. Decide which source wins and say so here.');
         continue;
       }
@@ -251,7 +278,7 @@ export function mergeMeasured(measured, catalogueMotors, publishedRows) {
       const throatIn = mn.throatDiameterIn;
       rows.push({
         motorId: m.motorId,
-        manufacturer: mn.manufacturer,
+        manufacturer: m.manufacturerAbbrev,
         designation: m.designation,
         catalogDesignation: m.designation,
         commonName: m.commonName,
@@ -270,7 +297,7 @@ export function mergeMeasured(measured, catalogueMotors, publishedRows) {
         provenance: {
           lomDescription: `${mn.partNo} — measured exit ${exitIn} in`
             + (throatIn > 0 ? `, throat ${throatIn} in` : ''),
-          matchedVia: want,
+          matchedVia: m.designation,
           exitFrom: `Measured: ${mn.measuredBy}, ${mn.measuredOn}`,
           assemblyDrawings: [`Measured from the hardware (${mn.measuredBy}, ${mn.measuredOn})`],
         },

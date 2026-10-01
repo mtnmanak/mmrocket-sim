@@ -956,13 +956,14 @@ describe('the gaps are stated rather than left blank', () => {
     // exercised on every run regardless, on a synthetic entry (the describe
     // "a measured nozzle, before the first real one lands", below); this test
     // stays the check that the SHIPPED file holds what its `measured` says.
+    // By motorId, which is what an entry binds by (since 2026-10-01: a name could
+    // reach another maker's motor).
     const byId = new Map(rows.map((r) => [r.motorId, r]));
-    const byDesignation = new Map(rows.map((r) => [r.designation, r]));
     const bad = [];
     for (const m of db.measured) {
-      for (const want of m.appliesTo ?? []) {
-        const row = byDesignation.get(want) ?? [...byId.values()].find((r) => r.commonName === want);
-        if (!row) { bad.push(`${m.partNo}: ${want} is in \`measured\` but has no row in \`motors\``); continue; }
+      for (const { motorId, designation: want } of m.appliesTo ?? []) {
+        const row = byId.get(motorId);
+        if (!row) { bad.push(`${m.partNo}: ${want} (${motorId}) is in \`measured\` but has no row in \`motors\``); continue; }
         if (row.exitSource !== 'measured') {
           bad.push(`${m.partNo}: ${want}'s row says exitSource ${row.exitSource}, not "measured"`);
         }
@@ -1012,7 +1013,8 @@ describe('a measured nozzle, before the first real one lands', () => {
   ];
   const entry = {
     manufacturer: 'Loki', partNo: '54/4000 single-use (fixture)', exitDiameterIn: 1.0, throatDiameterIn: 0.5,
-    measuredBy: 'nozzle-db.test.mjs', measuredOn: '2026-09-22', appliesTo: ['L9001LW', 'M9002'],
+    measuredBy: 'nozzle-db.test.mjs', measuredOn: '2026-09-22',
+    appliesTo: [{ motorId: 'fixture-loki-54-a', designation: 'L9001LW' }, { motorId: 'fixture-loki-54-b', designation: 'M9002LR' }],
   };
   const merged = mergeMeasured([entry], catalogueFixture, rows);
   const withMeasured = [...rows, ...merged.rows];
@@ -1064,7 +1066,7 @@ describe('a measured nozzle, before the first real one lands', () => {
 
   it('refuses a measurement of a motor that already has a published row', () => {
     const published = rows.find((r) => r.manufacturer === 'Loki' && r.motorId);
-    const clash = mergeMeasured([{ ...entry, appliesTo: [published.designation] }],
+    const clash = mergeMeasured([{ ...entry, appliesTo: [{ motorId: published.motorId, designation: published.designation }] }],
       [{ ...catalogueFixture[0], motorId: published.motorId, designation: published.designation }], rows);
     expect(clash.rows).toEqual([]);
     expect(clash.problems.join('\n')).toMatch(/already has a PUBLISHED row/);
@@ -1076,7 +1078,51 @@ describe('a measured nozzle, before the first real one lands', () => {
     expect(problems({ measuredOn: undefined })).toHaveLength(1);
     expect(problems({ appliesTo: [] })).toHaveLength(1);
     expect(problems({ exitDiameterIn: 0 })).toHaveLength(1);
-    expect(problems({ appliesTo: ['NO-SUCH-MOTOR'] })).toHaveLength(1);
+    expect(problems({ appliesTo: [{ motorId: 'NO-SUCH-ID', designation: 'NO-SUCH-MOTOR' }] })).toHaveLength(1);
+  });
+
+  /**
+   * BY CATALOGUE ID, NEVER BY NAME (docs/research/cesaroni-nozzle-recheck-2026-10-01.md
+   * §5.2). `appliesTo` was matched with `find(designation || commonName)`, the first
+   * match in file order, and `manufacturer` was copied from the entry rather than
+   * the motor matched. Keyed by common name, 19 Cesaroni motors would have bound
+   * SILENTLY to another maker's motor with no row, and been labelled Cesaroni's on
+   * it: thrustcurve.org lists AeroTech's G78G/L before Cesaroni's 141G78-15A, and
+   * both are "G78". The fixture is that pair.
+   */
+  const g78s = [
+    { motorId: 'fixture-at-g78', manufacturerAbbrev: 'AeroTech', designation: 'G78G/L', commonName: 'G78', diameter: 29, caseInfo: null },
+    { motorId: 'fixture-cti-g78', manufacturerAbbrev: 'Cesaroni', designation: '141G78-15A', commonName: 'G78', diameter: 29, caseInfo: 'Pro29-2G' },
+  ];
+  const cti = { manufacturer: 'Cesaroni', partNo: 'Pro29 nozzle (fixture)', exitDiameterIn: 0.4,
+    measuredBy: 'nozzle-db.test.mjs', measuredOn: '2026-10-01' };
+
+  it('never binds a measurement to another maker\'s motor by its name', () => {
+    // A name alone is refused, the common name AND the motor's own full designation.
+    for (const appliesTo of [['G78'], ['141G78-15A']]) {
+      const named = mergeMeasured([{ ...cti, appliesTo }], g78s, []);
+      expect(named.rows, JSON.stringify(appliesTo)).toEqual([]);
+      expect(named.problems, JSON.stringify(appliesTo)).toEqual([`Pro29 nozzle (fixture): appliesTo names `
+        + `${JSON.stringify(appliesTo[0])} — give { motorId, designation }: a name alone can bind another maker's motor`]);
+    }
+    // The other maker's id, which is the mistake a pasted id makes.
+    const theirs = mergeMeasured([{ ...cti, appliesTo: [{ motorId: 'fixture-at-g78', designation: 'G78G/L' }] }], g78s, []);
+    expect(theirs.rows).toEqual([]);
+    expect(theirs.problems).toEqual(['Pro29 nozzle (fixture): fixture-at-g78 is AeroTech\'s G78G/L, not a Cesaroni motor']);
+    // Its own id binds it to that motor, labelled with the catalogue's maker.
+    const own = mergeMeasured([{ ...cti, appliesTo: [{ motorId: 'fixture-cti-g78', designation: '141G78-15A' }] }], g78s, []);
+    expect(own.problems).toEqual([]);
+    expect(own.rows.map((r) => [r.motorId, r.manufacturer, r.designation, r.provenance.matchedVia]))
+      .toEqual([['fixture-cti-g78', 'Cesaroni', '141G78-15A', '141G78-15A']]);
+  });
+
+  it('refuses an id the catalogue lacks, and one whose catalogue name is not the entry\'s', () => {
+    const problems = (appliesTo) => mergeMeasured([{ ...entry, appliesTo }], catalogueFixture, rows).problems;
+    expect(problems([{ motorId: 'no-such-id', designation: 'L9001LW' }]))
+      .toEqual([`${entry.partNo}: the catalogue has no motor with id no-such-id (the entry calls it L9001LW)`]);
+    // A wrong id from the right maker: only the name in the entry can catch it.
+    expect(problems([{ motorId: 'fixture-loki-54-b', designation: 'L9001LW' }]))
+      .toEqual([`${entry.partNo}: fixture-loki-54-b is M9002LR in the catalogue, not L9001LW — check the id`]);
   });
 });
 
