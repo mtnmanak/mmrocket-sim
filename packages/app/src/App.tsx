@@ -121,7 +121,7 @@ import { num, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
-import { estimateMotorRoom } from './tree/motorRoom.js';
+import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
 import { legacyStageLimits, migrateMotorLengths, motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
 import { MotorLengthField } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
@@ -4009,6 +4009,7 @@ export function App() {
                   </div>
                   <MotorLengthField mountName={m.name ?? 'Motor mount'}
                     value={motorLengthLimit(mNode)} room={estimateMotorRoom(tree, m.id!)}
+                    noBore={mNode ? noBoreReason(mNode) : null}
                     onCommit={(value) => setTree(updateNode(tree, m.id!, { maxMotorLength: value }))} />
                   <MotorPicker
                     mountDiameterMm={mountDiaMm(mNode)}

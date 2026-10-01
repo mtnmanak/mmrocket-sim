@@ -110,6 +110,120 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(exportRkt({ name: 'R', tree: tree as unknown as RocketTree })).toMatch(/<ID>0<\/ID>/);
   });
 
+  it('.rkt gives a solid motor mount the bore it has: none', () => {
+    // <MotorDia> is mountBore, the app's one reading of a mount's bore (the
+    // motor browser's fit, the Scale dialog, the recovery bay). Through the
+    // 0.5 mm wall this solid 25 mm rod states, it wrote 24 mm.
+    const motorDia = (extra: Record<string, unknown>) => {
+      const tree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'S', children: [
+        rod({ thickness: 0.0005, motorMount: true, ...extra }),
+      ] }] };
+      const xml = exportRkt({ name: 'R', tree: tree as unknown as RocketTree });
+      return Number(/<MotorDia>([^<]*)<\/MotorDia>/.exec(xml)![1]);
+    };
+    expect(motorDia({ filled: true })).toBe(0);
+    expect(motorDia({})).toBeCloseTo(24, 9);
+  });
+
+  it('.rkt writes an automatic ring inside it at the size the kernel flies: none', () => {
+    // RadiusRingComponent's automatic radius is the parent's inner radius, 0 in
+    // a filled tube; desktop's CenteringRingDTO writes that 0 too.
+    // solidContextFor gives no bore here, and the writer took that as
+    // "unresolved" and fell back to the stated wall: a 23 mm plug in a solid
+    // 25 mm rod.
+    const odOf = (tube: ComponentNode) => {
+      const bh = { type: 'bulkhead', id: 'bh', name: 'Plug', length: 0.003, position: { method: 'top', offset: 0 } };
+      const tree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'S', children: [{ ...tube, children: [bh] }] }] };
+      const ring = /<Ring>[\s\S]*?<\/Ring>/.exec(exportRkt({ name: 'R', tree: tree as unknown as RocketTree }))![0];
+      return Number(/<OD>([^<]*)<\/OD>/.exec(ring)![1]);
+    };
+    expect(odOf(rod({ filled: true, thickness: 0.001 }))).toBe(0);
+    expect(odOf(rod({ filled: true }))).toBe(0); // the .ork reader's form: no wall stated
+    expect(odOf(rod({ thickness: 0.001 }))).toBeCloseTo(23, 9); // hollow: the bore
+    // Only a SOLID tube is a 0. A hollow one the context cannot size (no
+    // outerRadius stated, which flies the kernel's 12 mm) keeps the wall's
+    // reading: 12 mm less its 1 mm wall.
+    expect(odOf(rod({ thickness: 0.001, outerRadius: undefined }))).toBeCloseTo(22, 9);
+  });
+
+  it('.rkt never folds a base extension made solid into a hollow cone', () => {
+    // A .rkt cone's <BaseExtensionLen> opens as a tube marked rktBaseExtension,
+    // folded back on export when unchanged. Ticked Solid behind a hollow cone it
+    // is changed: folded, it went out as the hollow cone's extension, and the
+    // file reopened it hollow.
+    const cone = { type: 'nosecone', id: 'n', name: 'Nose', length: 0.06, aftRadius: R, thickness: 0.002, shape: 'ogive' };
+    const ext = rod({ id: 'x', name: 'Nose base extension', length: 0.05, thickness: 0.002, rktBaseExtension: true });
+    const save = (tube: ComponentNode, nose: Record<string, unknown> = cone) => exportRkt({ name: 'R', tree: { name: 'R', components: [
+      { type: 'stage', id: 's', name: 'S', children: [nose, tube] },
+    ] } as unknown as RocketTree });
+    const extLen = (xml: string) => Number(/<BaseExtensionLen>([^<]*)<\/BaseExtensionLen>/.exec(xml)![1]);
+    const tubeOf = (xml: string) => (xml.match(/<BodyTube>[\s\S]*?<\/BodyTube>/g) ?? [])
+      .find((b) => b.includes('<Name>Nose base extension</Name>'));
+    // Unchanged, it folds: 50 mm on the cone, no tube of its own.
+    expect(extLen(save(ext))).toBeCloseTo(50, 9);
+    expect(tubeOf(save(ext))).toBeUndefined();
+    // Solid, it stays the solid tube it is.
+    const solid = save({ ...ext, filled: true } as ComponentNode);
+    expect(extLen(solid)).toBe(0);
+    expect(tubeOf(solid)).toMatch(/<ID>0<\/ID>/);
+    // Behind a SOLID cone a solid extension is the cone's own construction, so
+    // it still folds: the reader's form for a solid cone (a wall as thick as
+    // the radius), ticked Solid as well.
+    const solidCone = { ...cone, filled: true };
+    const behindSolid = save({ ...ext, thickness: R, filled: true } as ComponentNode, solidCone);
+    expect(extLen(behindSolid)).toBeCloseTo(50, 9);
+    expect(tubeOf(behindSolid)).toBeUndefined();
+  });
+
+  it('.ork: a bare automatic packed radius inside it takes the device’s own size, and says so', () => {
+    // OpenRocket 15.03 wrote a bare `auto`, resolved here as desktop's
+    // MassObject.getAutoRadius does: from the parent's inner radius, which is 0
+    // in a filled tube — and 0 is no answer there, so the device keeps its own
+    // radius, the kernel's 12.5 mm. Read through the word `filled` as a wall of
+    // none, the chute took the rod's full 30 mm radius.
+    const ork = (thickness: string) => `<openrocket version="1.5" creator="OpenRocket 15.03"><rocket>
+      <name>Rod</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>Nose</name><length>0.1</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.03</aftradius></nosecone>
+        <bodytube><name>Bay</name><length>0.4</length><thickness>${thickness}</thickness><radius>0.03</radius>
+          <subcomponents><parachute><name>Main</name><packedlength>0.05</packedlength>
+            <packedradius>auto</packedradius><diameter>0.6</diameter></parachute></subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const unresolved = (notes: string[]) => notes.some((n) => /no neighbour to take one from/.test(n) && /Main/.test(n));
+    const solid = importOrk(ork('filled'));
+    expect(find(solid.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.0125, 12);
+    expect(unresolved(solid.notes)).toBe(true);
+    // Hollow, the cavity is the bore, as before.
+    const hollow = importOrk(ork('0.001'));
+    expect(find(hollow.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.029, 12);
+    expect(unresolved(hollow.notes)).toBe(false);
+  });
+
+  it('.ork: a bare automatic MASS COMPONENT inside it keeps the same 12.5 mm, not this reader’s 5 mm', () => {
+    // desktop builds a mass component with MassComponent() — MassObject()'s
+    // 25 mm x 12.5 mm — and a bare `auto` only marks its radius automatic
+    // (DoubleSetter calls setRadiusAutomatic, never setRadius). getAutoRadius
+    // then takes the filled tube's inner radius of 0 as no answer and keeps the
+    // 12.5 mm. This reader gave it the 5 mm it keeps for a cavity it cannot
+    // RESOLVE — a cavity of none is a different answer.
+    const ork = (thickness: string) => `<openrocket version="1.5" creator="OpenRocket 15.03"><rocket>
+      <name>Rod</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>Nose</name><length>0.1</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.03</aftradius></nosecone>
+        <bodytube><name>Bay</name><length>0.4</length><thickness>${thickness}</thickness><radius>0.03</radius>
+          <subcomponents><masscomponent><name>Alt</name><mass>0.05</mass><packedlength>0.02</packedlength>
+            <packedradius>auto</packedradius></masscomponent></subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const solid = importOrk(ork('filled'));
+    expect(find(solid.tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);
+    expect(solid.notes.some((n) => /Alt uses a 25 mm default/.test(n))).toBe(true);
+    // A wall as thick as the tube's radius leaves no cavity either
+    // (BodyTube.getInnerRadius is max(outer − wall, 0)).
+    expect(find(importOrk(ork('0.03')).tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);
+    // Hollow, the cavity it sits in, as before.
+    expect(find(importOrk(ork('0.001')).tree.components, 'Alt')['radius']).toBeCloseTo(0.029, 12);
+  });
+
   it('leaves a part inside it no bore to size itself to, as the kernel does (BodyTube.getInnerRadius)', () => {
     const bh = { type: 'bulkhead', id: 'bh', length: 0.003, position: { method: 'top', offset: 0 } } as ComponentNode;
     const tree = (t: ComponentNode) => ({ name: 'R', components: [{ type: 'stage', id: 's', children: [{ ...t, children: [bh] }] }] });

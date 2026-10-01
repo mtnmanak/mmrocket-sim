@@ -581,6 +581,55 @@ describe('scaleRocket — motor mounts', () => {
     expect(previewMounts(md, 2)[0]!.maxBoreMm).toBeNull();
   });
 
+  it('a mount inside a SOLID tube has no room at all, never a negative one', () => {
+    // A tube ticked Solid (filled) has no bore (mountBore 0), so the room
+    // around a mount listed inside it is none. It came out as 0 less the
+    // mount's two scaled walls, -3.2 mm here: the dialog printed "at most
+    // -3.2 mm", seeded Custom… with -4 mm, and Apply wrote the mount a
+    // NEGATIVE outer radius.
+    const t = withMount(0.018);
+    t.components[0]!.children![0]!['filled'] = true;
+    const [p] = previewMounts(t, 2);
+    expect(p!.maxBoreMm).toBe(0);
+    expect(p!.inSolidTube).toBe(true);
+    // Hollow, the room it always had.
+    const [h] = previewMounts(withMount(0.018), 2);
+    expect(h!.maxBoreMm).toBeCloseTo((57 - 1.6) * 2, 9);
+    expect(h!.inSolidTube).toBe(false);
+  });
+
+  it('a SOLID mount says it has no bore, not "nearest is 6 mm" or a lost motor', () => {
+    // mountBore is 0 for a tube ticked Solid (filled). The mount then read
+    // "0.0 mm bore becomes 0.0 mm, which is not a standard motor size (nearest
+    // is 6 mm)" and, with a 24 mm motor loaded, "no longer fits the 0.0 mm
+    // bore. Choose another motor on Motors & Launch": a motor that never fitted
+    // it, sent to a browser that lists none for it. The remedy is the tick box.
+    const rod = (filled: boolean): RocketTree => ({
+      name: 'rod', components: [{
+        type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.03 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b', name: 'Mount', length: 0.8, outerRadius: 0.03, thickness: 0.001,
+            motorMount: true, ...(filled ? { filled: true } : {}),
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    const motor = { assignedMotorDiameters: { b: 0.024 } };
+    expect(previewMounts(rod(true), 1.5, motor)[0]!.verdict).toBe('solid');
+    const res = scaleRocket(rod(true), 1.5, motor);
+    const notes = res.notes.join(' ');
+    expect(notes).toContain('Mount: solid (filled), so it has no bore and no motor fits it, scaled or not.'
+      + ' Untick Solid (filled) on it to make it a tube.');
+    expect(notes).not.toContain('nearest is 6 mm');
+    expect(notes).not.toContain('Choose another motor');
+    expect(res.needsAttention).toBe(true);
+    // With nothing loaded in it, it still wants the reader's attention.
+    expect(scaleRocket(rod(true), 1.5).needsAttention).toBe(true);
+    // Hollow, what it always was: a 58 mm bore scaled to 87 mm, off-class.
+    expect(previewMounts(rod(false), 1.5, motor)[0]!.verdict).toBe('off-class');
+  });
+
   it('snapping keeps the wall and puts the bore exactly on the standard size', () => {
     const t = withMount(0.018);
     const out = scaleRocket(t, 2.27, { snapMounts: true }).tree;
@@ -974,6 +1023,26 @@ describe('scaleRocket — motor mounts', () => {
     // The promise the preview made, read back through the reader. With the old
     // writer this came out at 75 + 2x1.6 = 78.2 mm.
     expect(mountBore(findNode(applied, 'mt')!) * 1000).toBeCloseTo(75, 9);
+  });
+
+  it('a SOLID tube has no bore, whatever wall it states', () => {
+    // Solid (filled): BodyTube.getInnerRadius, and so getMotorMountDiameter,
+    // is 0. Read through its wall, a solid 60 mm rod with a 1 mm wall
+    // previewed a 58 mm bore, and the .ork reader's solid tube, which states
+    // no wall, the kernel's 0.3 mm one: 59.4 mm.
+    const rod = { type: 'bodytube', id: 'b', length: 0.3, motorMount: true, outerRadius: 0.03, thickness: 0.001 };
+    const solid = { ...rod, filled: true };
+    expect(mountBore(solid as ComponentNode)).toBe(0);
+    expect(mountBore({ ...solid, thickness: undefined } as ComponentNode)).toBe(0);
+    expect(mountBore({ ...rod, filled: false } as ComponentNode) * 1000).toBeCloseTo(58, 9);
+    // A case airframe's bore is its outside, which no reading of the wall moves.
+    expect(mountBore({ ...solid, caseAirframe: true } as ComponentNode) * 1000).toBeCloseTo(60, 9);
+    const t = { name: 'rod', components: [{ type: 'stage', id: 's', children: [
+      { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.03 }, solid,
+    ] }] } as unknown as RocketTree;
+    const [m] = previewMounts(t, 2);
+    expect(m!.boreMm).toBe(0);
+    expect(m!.scaledBoreMm).toBe(0);
   });
 });
 

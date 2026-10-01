@@ -274,12 +274,28 @@ export function rocketLength(tree: RocketTree): number {
 const mountWall = (n: ComponentNode): number =>
   num(n, 'thickness') ?? kernelDefault(n.type as string, 'thickness') ?? 0.0005;
 
-/** A motor mount's bore (m): outer radius less wall, or the outer radius for a case airframe. */
+/**
+ * A SOLID body tube (Solid (filled)), which has no bore at any size. A case
+ * airframe is not one: its bore is its outside, which no wall moves.
+ */
+const isSolidTube = (n: ComponentNode): boolean =>
+  n['caseAirframe'] !== true && n.type === 'bodytube' && n['filled'] === true;
+
+/**
+ * A motor mount's bore (m): outer radius less wall, or the outer radius for a
+ * case airframe — and none for a SOLID body tube (Solid (filled)), whatever wall
+ * it states: BodyTube.getInnerRadius, and so getMotorMountDiameter, is 0 when
+ * filled. Read through that wall, a solid 60 mm rod with a 1 mm wall had a
+ * 58 mm bore in the Scale dialog, the motor browser's fit, the recovery bay and
+ * a .rkt's <MotorDia>. A case airframe keeps its outside: that branch never
+ * reads the wall.
+ */
 export function mountBore(n: ComponentNode): number {
   // A coupler's absent radius is automatic (the bore it sits in): no constant,
   // so it keeps the inner tube's placeholder, as it always has.
   const or = num(n, 'outerRadius') ?? kernelDefault(n.type as string, 'outerRadius') ?? 0.0095;
   if (n['caseAirframe'] === true) return or * 2;
+  if (isSolidTube(n)) return 0;
   return (or - mountWall(n)) * 2;
 }
 
@@ -293,7 +309,9 @@ export function mountBore(n: ComponentNode): number {
  * split held shut by call-site geometry rather than by the code — the same
  * shape of latent bug that put a snapped tube 1 mm off the class it reported.
  * Writing the inverse next to the reader means the next thing that makes a
- * case-airframe mount snappable cannot re-open it.
+ * case-airframe mount snappable cannot re-open it. (A SOLID tube's bore is 0
+ * at any outer radius, so it has no inverse; only inner tubes are snapped, and
+ * an inner tube is never solid.)
  */
 function outerRadiusForBore(n: ComponentNode, boreM: number): number {
   if (n['caseAirframe'] === true) return boreM / 2;
@@ -348,8 +366,13 @@ export interface MountPreview {
    * the notes that it simply was not a standard size. One discriminant, three
    * consumers, so the next change to what counts as snapped cannot make the
    * dialog promise one outcome and the note report another.
+   *
+   * `solid` is a mount ticked Solid (filled): no bore at any size, so nothing
+   * to size and no motor to lose. As `off-class` it offered "nearest is 6 mm"
+   * for 0 mm, and the motor checks called a motor that never fitted it lost
+   * and sent the reader to a motor browser that lists none for it.
    */
-  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized';
+  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized' | 'solid';
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
@@ -391,8 +414,18 @@ export interface MountPreview {
    *
    * A necessary condition, not a sufficient one: a clustered or off-axis mount
    * can pass it and still hit the wall, which the 2D view shows.
+   *
+   * 0, never less, where that tube has no room for one: a SOLID tube has no
+   * bore at all. The room came out as minus the mount's two walls there, and
+   * the dialog printed "at most -3.2 mm" and seeded Custom… with -4 mm, which
+   * Apply wrote as a negative outer radius.
    */
   maxBoreMm: number | null;
+  /**
+   * The tube around this mount is SOLID (Solid (filled)) — why `maxBoreMm` is
+   * 0, which the dialog says in words.
+   */
+  inSolidTube: boolean;
 }
 
 /** The parents whose bore a motor mount sits in (`mountBore` reads them as tubes). */
@@ -466,11 +499,14 @@ export function previewMounts(
     // a null target. Found by the test, not by inspection.
     const chosenExplicitly = targetBoreMm !== null
       && choice !== undefined && choice !== 'scaled' && choice !== 'nearest';
-    const verdict: MountPreview['verdict'] = chosenExplicitly ? 'resized'
-      : onStandardClass && targetBoreMm === null ? 'on-class'
-        : targetBoreMm !== null ? 'snapped'
-          : snapMounts && isAirframe ? 'airframe-left'
-            : 'off-class';
+    // A SOLID mount comes first: it is the airframe, so nothing resizes it, and
+    // with no bore there is no class to be on, near or off.
+    const verdict: MountPreview['verdict'] = isSolidTube(m) ? 'solid'
+      : chosenExplicitly ? 'resized'
+        : onStandardClass && targetBoreMm === null ? 'on-class'
+          : targetBoreMm !== null ? 'snapped'
+            : snapMounts && isAirframe ? 'airframe-left'
+              : 'off-class';
     const fits = (boreMm2: number) => motorMm === null
       || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
     // The room inside the scaled tube around it, less this mount's own walls —
@@ -479,8 +515,9 @@ export function previewMounts(
     const parent = choosable && m.id ? findParent(tree, m.id) : null;
     const maxBoreMm = parent && parent !== 'stage' && TUBE_PARENTS.has(parent.type)
       && parent['caseAirframe'] !== true
-      ? (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000
+      ? Math.max(0, (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000)
       : null;
+    const inSolidTube = !!parent && parent !== 'stage' && isSolidTube(parent);
     return {
       id: m.id ?? '',
       name: m.name ?? 'Motor mount',
@@ -498,6 +535,7 @@ export function previewMounts(
       motorStillFits: fits(finalBoreMm),
       motorFitsUnsnapped: fits(scaledBoreMm),
       maxBoreMm,
+      inSolidTube,
     };
   });
 }
@@ -701,7 +739,10 @@ export function scaleRocket(
     const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
-    if (m.verdict === 'resized') {
+    if (m.verdict === 'solid') {
+      mountNotes.push(`${m.name}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
+        + ' Untick Solid (filled) on it to make it a tube.');
+    } else if (m.verdict === 'resized') {
       const target = m.targetBoreMm!;
       const standard = Math.abs(target - nearestCommonClass(target)) < CLASS_TOLERANCE_MM;
       mountNotes.push(`${head} — resized to the ${standard
@@ -720,7 +761,9 @@ export function scaleRocket(
       mountNotes.push(`${head}, which is not a standard motor size `
         + `(nearest is ${cls}) — pick the mount you can actually build.`);
     }
-    if (m.motorMm !== null && !m.motorStillFits) {
+    // Not on a SOLID mount, whose line above already says no motor fits it:
+    // the scale lost nothing there, and another motor is no remedy.
+    if (m.motorMm !== null && !m.motorStillFits && m.verdict !== 'solid') {
       // Name the bore that actually rejected it — the FINAL one, which is the
       // snapped bore when snapping applied. Naming the scaled bore there sent
       // the user to look at a number that was not the problem.
@@ -819,10 +862,11 @@ export function scaleRocket(
   // replaces (`!onStandardClass && !(snapMounts && snappable)`), stated in the
   // same vocabulary as the list and the notes.
   // A 'resized' mount is what the user asked for, so it is not a complaint.
+  // A 'solid' one is, motor or none: its note asks for the tick box to be cleared.
   // A dropped stated launch weight joins them: the stage's mass just changed by
   // whatever the file stated, and that note has to be on screen rather than
   // folded into a collapsed bar.
   const needsAttention = statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
-    || m.verdict === 'airframe-left' || m.verdict === 'off-class');
+    || m.verdict === 'airframe-left' || m.verdict === 'off-class' || m.verdict === 'solid');
   return { tree: next, notes, needsAttention };
 }

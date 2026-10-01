@@ -201,6 +201,29 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('a SOLID motor mount on Motors & Launch', () => {
+  it('says the mount has no bore, not to check its length, position and overhang', async () => {
+    // Solid (filled) leaves no bore (BodyTube.getMotorMountDiameter is 0), so
+    // there is no motor room to estimate — and the card's hint named three
+    // fields that were not the cause.
+    const tree = { name: 'Solid mount', components: [{
+      id: 's', type: 'stage', name: 'Stage', children: [
+        { id: 'n', type: 'nosecone', name: 'Nose', length: 0.1, aftRadius: 0.015 },
+        { id: 'core', type: 'bodytube', name: 'Core', length: 0.3, outerRadius: 0.015, thickness: 0.001,
+          motorMount: true, filled: true },
+      ],
+    }] } as SessionState['tree'];
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, launch: DEFAULT_CONDITIONS, mountMotors: {}, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await act(async () => { button(host, 'Motors & Launch').click(); });
+    const card = input(host, 'Max motor length for Core').closest('.mount-card')!;
+    expect(card.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.');
+    expect(card.textContent).not.toContain('Check its length');
+  }, 30000);
+});
+
 describe('a restored bulk density above the hard ceiling', () => {
   it('is clamped on app restore and the repaired value is autosaved', async () => {
     await mountApp();

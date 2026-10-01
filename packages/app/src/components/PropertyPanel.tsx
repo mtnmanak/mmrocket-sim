@@ -1335,11 +1335,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           // nose cones reference their base (aft) radius, so OD/ID/wall stay
           // in sync with the body tube behind them. Finite values only (audit
           // row 522): with a NaN radius the box read "—", and a diameter typed
-          // into it committed a NaN wall.
+          // into it committed a NaN wall. A SOLID part (Solid (filled)) has no
+          // bore, so no inner diameter: it flies no wall (BodyTube
+          // .getInnerRadius is 0 when filled), and the box showed the stated
+          // wall's bore — 38 mm on a solid 40 mm rod with a 1 mm wall.
           const outerR = numOpt(node, 'outerRadius')
             ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : undefined);
           const wall = numOpt(node, 'thickness');
-          if (f.key === 'thickness' && outerR !== undefined && wall !== undefined) {
+          if (f.key === 'thickness' && outerR !== undefined && wall !== undefined && node['filled'] !== true) {
             const innerSi = Math.max(0, outerR - wall) * 2;
             const idQuantity: Quantity = 'length';
             const idSym = prefs.units[idQuantity];
@@ -1533,7 +1536,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
 
       {node.type === 'nosecone' && (() => {
         // The shoulder into the tube behind the nose — ahead of a tail cone
-        // (tree/fitHelpers.ts).
+        // (tree/fitHelpers.ts). A SOLID tube has no bore: the button stays,
+        // greyed, and says why, as Auto-place rail buttons does.
         const shoulder = shoulderFit(tree, node, parent);
         if (!shoulder) return null;
         const shown = prefs.radiusMode === 'diameter' ? shoulder.innerR * 2 : shoulder.innerR;
@@ -1541,7 +1545,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           <button
             className="file-btn"
             style={{ marginTop: 6 }}
-            title={`Set the shoulder to the adjacent tube's inner ${prefs.radiusMode} (${lenToUi(shown)} ${lengthSym})`}
+            disabled={shoulder.solid}
+            title={shoulder.solid
+              ? 'The adjacent tube is solid (filled), so it has no bore for a shoulder to fit into.'
+              : `Set the shoulder to the adjacent tube's inner ${prefs.radiusMode} (${lenToUi(shown)} ${lengthSym})`}
             onClick={() => onPatch(shoulder.patch)}
           >
             Fit shoulder to tube ⌀

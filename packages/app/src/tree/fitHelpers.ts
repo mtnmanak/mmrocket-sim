@@ -7,9 +7,11 @@ import { isTailCone } from './tailCone.js';
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
  * "Fit shoulder to tube ⌀" — as rules: what each would write, or null where
- * the panel does not offer it. Moved out of PropertyPanel's render body
- * (audit 2026-09-22, extractions carried from 8 September) so they can be
- * tested without a panel; PropertyPanel.oneShots.test.tsx pins the buttons.
+ * the panel does not offer it (and a shoulder fit marked `solid` where the
+ * panel refuses it, as railButtonPlacement marks an infeasible pair). Moved
+ * out of PropertyPanel's render body (audit 2026-09-22, extractions carried
+ * from 8 September) so they can be tested without a panel;
+ * PropertyPanel.oneShots.test.tsx pins the buttons.
  *
  * The readers are nodeNum's (the house reader): identical to the inline
  * `typeof … === 'number'` reads they replace for every finite value, while a
@@ -50,9 +52,15 @@ export interface FinTabFit {
  * sat (audit 2026-09-30 review): with a forward payload tube listed before the
  * mount, a 3" airframe's aft fins got a 28.6 mm tab that ran 5.8 mm into the
  * 29 mm mount, and canards reached a mount at the other end of the tube.
+ *
+ * Not on a SOLID tube either (Solid (filled), a dowel): it has no wall for a
+ * tab to pass through and no motor tube inside it, so there is nothing to fit
+ * — withheld, as on a nose cone or transition, which can be solid too. Read
+ * through the wall a solid tube states, it offered that wall as the depth.
  */
 export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | null): FinTabFit | null {
   if (!parent || parent === 'stage' || parent.type !== 'bodytube') return null;
+  if (parent['filled'] === true) return null;
   const outerR = numOrNull(parent, 'outerRadius');
   if (outerR === null) return null;
   const mountR = mountRadiusAlongside(parent, fin);
@@ -126,6 +134,11 @@ export interface ShoulderFit {
   innerR: number;
   /** The one write. */
   patch: Partial<ComponentNode>;
+  /**
+   * The tube is SOLID (Solid (filled)): its bore is 0, and the panel refuses
+   * the fit and says why instead of offering a zero shoulder.
+   */
+  solid?: true;
 }
 
 /**
@@ -135,6 +148,12 @@ export interface ShoulderFit {
  * tube forward of the nose; null when there is none, or it states no radius.
  * A tube with no stated wall is its own outer radius. A TAIL CONE's shoulder
  * is at its front (tailCone.ts), so it fits the nearest body tube AHEAD.
+ *
+ * A SOLID tube (Solid (filled)) has no bore — BodyTube.getInnerRadius is 0
+ * when filled — so its fit is a zero shoulder marked `solid`, which the panel
+ * refuses with its reason. Read through the wall a solid tube states, the fit
+ * sized the shoulder to that wall, and to the tube's outside for the .ork
+ * reader's solid tube, which states none.
  */
 export function shoulderFit(
   tree: RocketTree, nose: ComponentNode, parent: ComponentNode | 'stage' | null,
@@ -144,6 +163,7 @@ export function shoulderFit(
   const toward = isTailCone(nose) ? siblings.slice(0, Math.max(idx, 0)).reverse() : siblings.slice(idx + 1);
   const tube = toward.find((n) => n.type === 'bodytube');
   if (!tube) return null;
+  if (tube['filled'] === true) return { innerR: 0, patch: { shoulderRadius: 0 }, solid: true };
   const outerR = numOrNull(tube, 'outerRadius');
   if (outerR === null) return null;
   const innerR = applyFieldLimit(fieldLimit(nose.type, 'shoulderRadius')!, outerR - num(tube, 'thickness', 0));

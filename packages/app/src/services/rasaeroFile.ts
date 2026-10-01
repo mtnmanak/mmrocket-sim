@@ -7,6 +7,7 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { isTailCone } from '../tree/tailCone.js';
+import { isAssembly } from '../tree/assembly.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1865,6 +1866,28 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         + 'Export as .ork or .rkt, or make it a transition.');
     }
   };
+
+  // The same in a POD SET or a STRAP-ON, wherever it sits. A pod's parts reach
+  // the file only as RASAero's fin can or recessed boat tail (podXml keeps its
+  // body tubes and transitions), a pod on a booster's tube or a transition not
+  // at all, and a strap-on never (RASAero has no parallel staging), so a tail
+  // cone in one vanished without a word: a tube with a tail cone behind it went
+  // out as a fin can. Refused, as a booster's is — the other place here whose
+  // nose cones are not written. desktop ignores the whole pod set or strap-on
+  // with a warning instead (BodyTubeDTOAdapter, RASAeroExport.warning9). No
+  // "make it a transition": a pod of a tube and a transition is not a shape
+  // podXml writes either, and a strap-on is not written at all.
+  const refusePodTailCones = (nodes: readonly ComponentNode[], pod: ComponentNode | null): void => {
+    for (const n of nodes) {
+      if (pod && isTailCone(n)) {
+        const strapOn = (pod.type as string) === 'parallelstage';
+        throw new Error(`RASAero has no tail cone — “${n.name ?? 'Nose cone'}” in ${strapOn ? 'strap-on' : 'pod set'} `
+          + `“${pod.name ?? (strapOn ? 'Strap-on' : 'Pod set')}” is flipped to point aft. Export as .ork or .rkt.`);
+      }
+      refusePodTailCones(n.children ?? [], isAssembly(n.type as string) ? n : pod);
+    }
+  };
+  for (const st of stagesIn) refusePodTailCones(st.children ?? [], null);
 
   const noseXml = (node: ComponentNode) => {
     refuseTailCone(node);

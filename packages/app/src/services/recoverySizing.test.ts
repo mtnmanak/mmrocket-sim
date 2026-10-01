@@ -578,6 +578,27 @@ describe('the fit filter', () => {
     // Nothing selected: the widest tube is the honest upper bound.
     expect(recoveryBayBore(t, null)).toBeCloseTo(0.2, 9);
   });
+
+  it('a SOLID tube is no bay, for the canopy listed in it or as the widest tube', () => {
+    // Solid (filled) has no bore (BodyTube.getInnerRadius is 0), so nothing
+    // packs in it. Read through its stated wall, the 80 mm rod below was the
+    // bay for the canopy listed in it and the widest bay in the design: 78 mm.
+    const t: RocketTree = {
+      name: 'rod',
+      components: [{
+        type: 'stage', id: 's', children: [
+          {
+            type: 'bodytube', id: 'rod', outerRadius: 0.04, thickness: 0.001, length: 0.5, filled: true,
+            children: [{ type: 'parachute', id: 'p', diameter: 0.5 }],
+          },
+          { type: 'bodytube', id: 'thin', outerRadius: 0.031, thickness: 0.001, length: 0.5 },
+        ],
+      } as unknown as ComponentNode],
+    };
+    const { main } = classifyRecoveryDevices(t);
+    expect(recoveryBayBore(t, main)).toBeCloseTo(0.06, 9);
+    expect(recoveryBayBore(t, null)).toBeCloseTo(0.06, 9);
+  });
 });
 
 describe('dedupe — five canopies, not six spellings of one', () => {

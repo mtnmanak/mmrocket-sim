@@ -44,4 +44,33 @@ describe('mount length field estimates and units', () => {
       localStorage.clear();
     }
   });
+
+  it('names a mount with no bore as the reason, not its length, position or overhang', () => {
+    // A mount ticked Solid (filled), or with a wall as thick as its radius, has
+    // no bore and so no room; the hint sent the reader to the wrong fields.
+    localStorage.clear();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const render = (noBore: 'solid' | 'wall' | null) => act(() => root.render(<PrefsProvider>
+      <MotorLengthField mountName="Rod" value={null} onCommit={() => {}} room={null} noBore={noBore} />
+    </PrefsProvider>));
+    try {
+      render('solid');
+      expect(host.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.'
+        + ' Untick Solid (filled) on it to make it a tube.');
+      expect(host.textContent).not.toContain('Check its length');
+      expect(host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Rod"]')!.disabled).toBe(true);
+      render('wall');
+      expect(host.textContent).toContain('No motor fits this mount: its wall is as thick as its radius, so it has no bore.');
+      expect(host.textContent).not.toContain('Check its length');
+      render(null);
+      expect(host.textContent).toContain('No positive motor-room estimate is available for this mount.'
+        + ' Check its length, position and overhang.');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      localStorage.clear();
+    }
+  });
 });

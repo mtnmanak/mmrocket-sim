@@ -196,6 +196,31 @@ describe('ScaleDialog', () => {
     expect(text()).toContain('no longer fit');
   });
 
+  it('a SOLID mount says it has no bore, and sends no one to pick another motor', async () => {
+    // Solid (filled): no bore before the scale or after it. The line read
+    // "0.0 → 0.0 mm — not a motor size you can buy; nearest is 6 mm. The 24 mm
+    // motor loaded in it will no longer fit.", with a warning to pick a new
+    // motor on Motors & Launch, whose browser lists none for a 0 mm bore.
+    const rod: RocketTree = {
+      name: 'rod',
+      components: [{
+        type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.03 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b', name: 'Mount', length: 0.8, outerRadius: 0.03, thickness: 0.001,
+            motorMount: true, filled: true,
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    await render({ b: 0.024 }, rod);
+    expect(text()).toContain('Mount: 0.0 → 0.0 mm — solid (filled), so it has no bore and no motor fits it,'
+      + ' scaled or not. Untick Solid (filled) on it to make it a tube.');
+    expect(text()).not.toContain('nearest is 6');
+    expect(text()).not.toContain('will no longer fit');
+    expect(text()).not.toContain('A loaded motor will not fit the scaled mount');
+  });
+
   it('applies the factor that is on screen', async () => {
     await render();
     const [factor] = numberInputs();
@@ -480,6 +505,41 @@ describe('ScaleDialog', () => {
       expect(applyButton().disabled).toBe(true);
       // Nearest is not offered as a choice either, and the scaled size still is.
       expect([...mountSelect().options].find((o) => o.value === 'nearest')!.disabled).toBe(true);
+      pick(mountSelect(), 'scaled');
+      expect(applyButton().disabled).toBe(false);
+    });
+
+    it('inside a SOLID tube no size fits, and Custom… resizes nothing', async () => {
+      // A tube ticked Solid (filled) has no bore, so there is no room around
+      // the mount. It read 0 less the mount's two walls, -3.2 mm at ×2: the
+      // box said "at most -3.2 mm", Custom… seeded a -4 mm bore with Apply on,
+      // and Apply wrote the mount a NEGATIVE outer radius (-0.4 mm).
+      const solid = tree();
+      solid.components[0]!.children![1]!['filled'] = true;
+      await render({}, solid);
+      const opt = (v: string) => [...mountSelect().options].find((o) => o.value === v)!;
+      for (const v of ['nearest', 'c6', 'c24', 'c54']) expect(opt(v).disabled, v).toBe(true);
+      expect(opt('scaled').disabled).toBe(false);
+      pick(mountSelect(), 'custom');
+      // Today's bore, 54.8 mm to the millimetre — marked invalid, chosen for nothing.
+      expect(customBore().value).toBe('55');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      expect(text()).toContain('no size fits inside the tube around it, which is solid (filled)');
+      expect(text()).not.toContain('mount you chose');
+      expect(text()).not.toMatch(/-\d[\d.]* mm/);
+      act(() => { applyButton().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      // The mount keeps its scaled size: the design's own geometry.
+      expect(mountOf(applied!)['outerRadius'] as number).toBeCloseTo(0.0145 * 2, 9);
+    });
+
+    it('inside a SOLID tube a snap is refused, and the refusal says why', async () => {
+      const solid = tree();
+      solid.components[0]!.children![1]!['filled'] = true;
+      await render({}, solid);
+      act(() => { host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+      expect(applyButton().disabled).toBe(true);
+      expect(text()).toContain('that tube is solid (filled), so no size does. Choose the scaled size.');
+      expect(text()).not.toMatch(/-\d[\d.]* mm/);
       pick(mountSelect(), 'scaled');
       expect(applyButton().disabled).toBe(false);
     });
