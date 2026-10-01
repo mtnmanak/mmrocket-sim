@@ -5,6 +5,7 @@ import {
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
+import { positionOf } from '../tree/position.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1754,7 +1755,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (count < FIN_MIN || count > FIN_MAX) {
       throw new Error(`RASAero needs 3–8 fins per set (found ${count}). Adjust "${fin.name ?? 'Fins'}".`);
     }
-    const pos = fin.position ?? { method: 'bottom', offset: 0 };
+    const pos = positionOf(fin);
     // Convert any position method to a bottom-referenced offset (of the fin's
     // trailing edge vs the tube's aft end) — silently zeroing top/middle
     // offsets used to shift the fins to the tube bottom.
@@ -1895,7 +1896,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       const kids = (pod.children ?? []).filter(
         (c) => c.type === 'bodytube' || c.type === 'transition',
       );
-      const pos = pod.position ?? { method: 'bottom', offset: 0 };
+      const pos = positionOf(pod);
       const canTube = kids.find((c) => c.type === 'bodytube');
       const shoulder = kids[0] !== canTube && kids[0]?.type === 'transition' ? kids[0] : undefined;
       if (canTube && (kids.length === 1 || (kids.length === 2 && shoulder

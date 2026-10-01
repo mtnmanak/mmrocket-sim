@@ -3197,3 +3197,35 @@ describe('guide allowance OpenRocket extension', () => {
     expect(importOrk(xml.replace(/<launchguideallowance>.*?<\/launchguideallowance>/g, '')).launch!.launchGuideAllowance).toBe(true);
   });
 });
+
+/**
+ * A part with NO position is written where it flies (2026-10-01). The writer
+ * used one default per element, and for the app's own two extension elements
+ * it was 'middle': a shroud with no position flies as a fin set from the
+ * BOTTOM of its tube, a protuberance from its TOP (treeModel engineTree), so
+ * saving and reopening moved either one, and its mass, in the simulation.
+ */
+describe('.ork export — a part with no position', () => {
+  it('writes a shroud from the bottom and a protuberance from the top, as they fly', () => {
+    const tree = {
+      name: 'NP',
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer',
+        children: [{
+          type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005,
+          children: [
+            { type: 'fairing', id: 'f', length: 0.08, width: 0.025, height: 0.02 },
+            { type: 'protuberance', id: 'p', length: 0.06, width: 0.02, height: 0.01 },
+            { type: 'tubecoupler', id: 'c', length: 0.05, thickness: 0.0005 },
+          ],
+        }],
+      }],
+    } as unknown as RocketTree;
+    const all = flatten(importOrk(exportOrk({ name: 'NP', tree })).tree.components);
+    const at = (type: string) => all.find((c) => c.type === type)!.position;
+    expect(at('fairing')).toEqual({ method: 'bottom', offset: 0 });
+    expect(at('protuberance')).toEqual({ method: 'top', offset: 0 });
+    // A desktop element: its default already agreed with the kernel.
+    expect(at('tubecoupler')).toEqual({ method: 'bottom', offset: 0 });
+  });
+});

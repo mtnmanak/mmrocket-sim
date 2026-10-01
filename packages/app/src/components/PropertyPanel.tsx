@@ -13,7 +13,7 @@ import {
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
-import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
@@ -387,7 +387,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
-  const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  // Where the kernel flies it: a part with no position is NOT at Top, 0.
+  const pos = positionOf(node);
   const parentLenSi = parent && parent !== 'stage' ? num(parent, 'length', 0.2) : 0.2;
 
   /**

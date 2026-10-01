@@ -13,6 +13,7 @@ import {
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
+import { positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -2006,7 +2007,12 @@ export function exportOrk({
   };
 
   const position = (depth: number, node: ComponentNode, dflt: ComponentPosition['method'] = 'top') => {
-    const pos = (node.position ?? { method: dflt, offset: 0 }) as ComponentPosition;
+    // A part with no position is written where the kernel flies it
+    // (`positionOf`). `dflt` was that answer too, and for the app's own shroud
+    // and protuberance it said 'middle' where they fly from the bottom and the
+    // top: saving and reopening one moved it (2026-10-01). It is now only the
+    // stand-in for a method outside the closed set, below.
+    const pos = positionOf(node);
     // Mapped through the closed set AT THE EMIT, like radiusoffset/angleoffset
     // below, not trusted because today's importers whitelist it: a future path
     // that kept a file-sourced method would write it raw into an attribute —

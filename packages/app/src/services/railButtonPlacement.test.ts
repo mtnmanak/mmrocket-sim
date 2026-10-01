@@ -38,10 +38,15 @@ describe('railButtonPlacement', () => {
 
   it('an inch is 25.4 mm', () => expect(RAIL_BUTTON_AFT_GAP).toBe(0.0254));
 
-  it('a button with no position resolves on the top method', () => {
-    const at = railButtonPlacement(button(), { rocketLength: 1.1, cg: 0.55, positionX: 0.1, parentLength: 1 });
-    expect(at.patch.position.method).toBe('top');
-    expect(at.patch.position.offset).toBeCloseTo(0.45, 12);
+  it('a button with no position resolves on the middle method, where the kernel flies it', () => {
+    // RailButton's own default is MIDDLE, so the kernel reports the tube's
+    // middle, 0.6 m, for a button with no position. Read as Top (until
+    // 2026-10-01), that put the tube at 0.6-1.6 m and refused the CG.
+    const at = railButtonPlacement(button(), { rocketLength: 1.1, cg: 0.55, positionX: STATION.middle, parentLength: 1 });
+    expect(at.parentStart).toBeCloseTo(0.1, 12);
+    expect(at.feasible).toBe(true);
+    expect(at.patch.position.method).toBe('middle');
+    expect(at.patch.position.offset).toBeCloseTo(-0.05, 12);
   });
 
   it('with no kernel station, the tube starts at the nose tip', () => {
@@ -167,5 +172,7 @@ describe('newRailButtonPair', () => {
   it("writes on the button's own position method", () => {
     const pair = newRailButtonPair(button({ method: 'top', offset: 0 }), 1, null);
     expect(pair.patch.position).toEqual({ method: 'top', offset: 0.5 });
+    // A button with no position is measured the way it flies: from the middle.
+    expect(newRailButtonPair(button(), 1, null).patch.position).toEqual({ method: 'middle', offset: 0 });
   });
 });

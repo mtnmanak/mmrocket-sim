@@ -122,8 +122,12 @@ describe('finSetSpan / spansOverlap', () => {
     expect(d).toBeCloseTo(0.08, 12);
   });
 
-  it('reads an absent position as top, offset 0', () => {
-    expect(finSetSpan({ type: 'trapezoidfinset', rootChord: 0.06 } as ComponentNode, 0.3)[0]).toBe(0);
+  it('reads an absent position where the kernel flies the set: the bottom, offset 0', () => {
+    // FinSet's own default is BOTTOM. Read as Top (until 2026-10-01), a set
+    // with no position was checked for overlap at the front of the tube.
+    const [a, b] = finSetSpan({ type: 'trapezoidfinset', rootChord: 0.06 } as ComponentNode, 0.3);
+    expect(a).toBeCloseTo(0.24, 12);
+    expect(b).toBeCloseTo(0.30, 12);
   });
 
   it('counts an overlap, and not two spans that only touch', () => {

@@ -1,6 +1,6 @@
 import { finCountOf } from './counts.js';
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { axialLength, drawnExtent, startFromPosition } from './position.js';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { axialLength, drawnExtent, positionOf, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
 
@@ -55,8 +55,7 @@ const countOf = (n: ComponentNode): number => finCountOf(n);
  * the 8 September record) — two copies of one geometric question.
  */
 export function finSetSpan(k: ComponentNode, parentLength: number): [number, number] {
-  const pos = (k.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-  const start = startFromPosition(pos, axialLength(k), parentLength);
+  const start = startFromPosition(positionOf(k), axialLength(k), parentLength);
   return [start, start + drawnExtent(k)];
 }
 

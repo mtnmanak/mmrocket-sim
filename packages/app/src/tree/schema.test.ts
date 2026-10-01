@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { defaultParams, FIELDS, finCountDefault, interleaveRotation } from './schema.js';
+import { defaultParams, FIELDS, finCountDefault, interleaveRotation, POSITIONABLE } from './schema.js';
 import { shroudEnds } from './shroud.js';
 import { protuberanceClass } from './treeModel.js';
 import { clusterCount } from './cluster.js';
@@ -217,6 +217,27 @@ describe('an unset select shows what the readers do with the absent key', () => 
     expect(shown('protuberance', 'dragClass'))
       .toBe(protuberanceClass({ id: 'p', type: 'fairing' } as ComponentNode));
     expect(clusterCount(shown('innertube', 'cluster'))).toBe(clusterCount(undefined));
+  });
+});
+
+/**
+ * A new part states where it sits (2026-10-01). A Tube coupler and a Bulkhead
+ * were the two positionable parts born with no position, which the app read as
+ * Top of parent while the kernel flew them at the bottom (position.ts
+ * `positionOf`). They now start where the kernel puts a part with none —
+ * flush with the bottom of the parent, as desktop OpenRocket adds them — so
+ * nothing anyone has already built moves.
+ */
+describe('every positionable part starts with a position', () => {
+  it('holds for every type the panel positions', () => {
+    for (const type of POSITIONABLE) {
+      expect(defaultParams(type).position, type).toBeDefined();
+    }
+  });
+
+  it('a new coupler or bulkhead sits flush with the bottom of its parent', () => {
+    expect(defaultParams('tubecoupler').position).toEqual({ method: 'bottom', offset: 0 });
+    expect(defaultParams('bulkhead').position).toEqual({ method: 'bottom', offset: 0 });
   });
 });
 

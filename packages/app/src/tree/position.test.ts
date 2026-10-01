@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket, resetEngine } from '@online-openrocket/engine';
+import { isAssembly } from './assembly.js';
 import {
-  absoluteStations, anchorStarts, axialLength, axialStart, drawnExtent, resolveAbsolutePositions,
+  absoluteStations, anchorStarts, axialLength, axialStart, drawnExtent, positionOf, resolveAbsolutePositions,
   startFromPosition,
 } from './position.js';
-import { engineTree, findNode } from './treeModel.js';
+import { POSITIONABLE } from './schema.js';
+import { engineTree, findNode, makeNode } from './treeModel.js';
 
 /**
  * `absoluteStations` — where every part sits along the assembled rocket.
@@ -329,8 +331,89 @@ describe('axialStart', () => {
     expect(axialStart(child('absolute', 0.55), 0.01, 0.4, 0.3)).toBeCloseTo(0.55, 12);
   });
 
-  it('defaults a child with no position to top, offset 0', () => {
-    expect(axialStart({ type: 'bulkhead', length: 0.003 } as unknown as ComponentNode, 0.003, 0.25, 0.3)).toBe(0.25);
+  it('places a child with no position where the kernel flies it, offset 0', () => {
+    // A bulkhead from the bottom (InternalComponent), a mass from the top
+    // (MassObject), a zero-length rail button from the middle (RailButton).
+    // This read Top for all three until 2026-10-01.
+    const bare = (type: string, length?: number) =>
+      ({ type, ...(length === undefined ? {} : { length }) } as unknown as ComponentNode);
+    expect(axialStart(bare('bulkhead', 0.003), 0.003, 0.25, 0.3)).toBeCloseTo(0.547, 12);
+    expect(axialStart(bare('masscomponent', 0.02), 0.02, 0.25, 0.3)).toBeCloseTo(0.25, 12);
+    expect(axialStart(bare('railbutton'), 0, 0.25, 0.3)).toBeCloseTo(0.40, 12);
+  });
+});
+
+/**
+ * A PART WITH NO POSITION SITS WHERE THE KERNEL FLIES IT (2026-10-01). The
+ * bridge positions a part only when the node carries a position
+ * (ComponentFactory.java:598), so a node with none flies at its kernel class's
+ * own default, offset 0 — and every reader in the app read Top of parent. A
+ * Tube coupler or Bulkhead from the Add menu carried no position, so it was
+ * drawn, listed and dragged at the TOP of its tube while it flew at the
+ * bottom: on the tube below, drawn at 0.150 m, flown at 0.800 m and 0.847 m.
+ * Pinned type by type against the kernel's own `positionX`.
+ */
+describe('positionOf — a part with no position sits where the kernel flies it', () => {
+  /** A 0.15 m nose, then a 0.7 m tube carrying the one part. */
+  const onTube = (part: ComponentNode): RocketTree => ({
+    name: 'K', components: [{ type: 'stage', id: 's1', children: [
+      { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.025, shape: 'ogive', thickness: 0.002 },
+      { type: 'bodytube', id: 'b1', length: 0.7, outerRadius: 0.025, thickness: 0.0005, children: [part] },
+    ] }],
+  } as unknown as RocketTree);
+
+  /** A new part of `type`, with its position taken away. */
+  const keyless = (type: Parameters<typeof makeNode>[0]): ComponentNode => {
+    const part = { ...makeNode(type), id: 'p' } as ComponentNode;
+    delete part.position;
+    // An assembly is as long as its own chain; give it one, so 'bottom' and
+    // 'top' are told apart.
+    if (isAssembly(type)) {
+      part.children = [{ type: 'bodytube', id: 'pt', length: 0.2, outerRadius: 0.01, thickness: 0.0005 } as ComponentNode];
+    }
+    return part;
+  };
+
+  it('stations every positionable type where the kernel builds it', () => {
+    resetEngine();
+    for (const type of POSITIONABLE) {
+      const part = keyless(type);
+      const t = onTube(part);
+      const start = absoluteStations(t).get('p')!.start;
+      // A protuberance flies as a zero-length carrier at the bump's centre
+      // (treeModel engineTree); every other part's station is its leading edge.
+      const drawn = type === 'protuberance' ? start + axialLength(part) / 2 : start;
+      const flown = OrkRocket.buildTree(engineTree(t)).componentInfo('p').positionX;
+      expect(drawn, type).toBeCloseTo(flown, 9);
+    }
+  }, 60000);
+
+  it('the Add menu\'s coupler and bulkhead: bottom of the tube, as they fly', () => {
+    for (const [type, len] of [['tubecoupler', 0.05], ['bulkhead', 0.003]] as const) {
+      expect(positionOf(keyless(type)), type).toEqual({ method: 'bottom', offset: 0 });
+      // 0.15 + 0.7 − the part's length, not the tube's top at 0.15.
+      expect(absoluteStations(onTube(keyless(type))).get('p')!.start, type).toBeCloseTo(0.85 - len, 12);
+    }
+  });
+
+  it('a stated position is the node\'s own, untouched', () => {
+    const position = { method: 'top', offset: 0.02 };
+    const node = { type: 'bulkhead', position } as unknown as ComponentNode;
+    expect(positionOf(node)).toBe(position);
+  });
+
+  it('snaps against a sibling with no position at the station it flies at', () => {
+    // A bulkhead with no position flies flush with the 0.3 m tube's aft end,
+    // 0.297-0.300 m; a 2 mm ring butts in front of it at 0.295 m. Read from
+    // the top, the ladder offered -0.002 m instead — in front of the tube.
+    const parent = { type: 'bodytube', id: 'b', length: 0.3, children: [
+      { type: 'bulkhead', id: 'bh', length: 0.003 },
+      { type: 'centeringring', id: 'cr', length: 0.002, position: { method: 'top', offset: 0.1 } },
+    ] } as unknown as ComponentNode;
+    const anchors = anchorStarts(parent, parent.children![1]!);
+    const has = (x: number) => anchors.some((a) => Math.abs(a - x) < 1e-12);
+    expect(has(0.295)).toBe(true);
+    expect(has(-0.002)).toBe(false);
   });
 });
 

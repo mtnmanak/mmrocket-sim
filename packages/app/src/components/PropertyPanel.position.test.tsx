@@ -155,4 +155,34 @@ describe('PropertyPanel — "Relative to" keeps the part where it is', () => {
       }
     }
   }, 60000);
+
+  /**
+   * A PART WITH NO POSITION (2026-10-01). A Tube coupler or Bulkhead added from
+   * the Add menu carried none, and the kernel flies such a part at its own
+   * default — the BOTTOM of its tube for both — while this panel showed "Top of
+   * parent", 0. A switch then re-measured the station the panel showed rather
+   * than the one the part flies at: a bulkhead in this 0.7 m tube switched to
+   * Middle moved 0.697 m forward, from the aft end to the top, and Top was
+   * already "selected", so it could not be picked at all.
+   */
+  it('a part with no position shows where the kernel flies it, and a switch keeps it there', () => {
+    resetEngine();
+    for (const part of [
+      { id: 'cp', type: 'tubecoupler', length: 0.05, thickness: 0.0005 },
+      { id: 'bh', type: 'bulkhead', length: 0.003 },
+    ]) {
+      const tree = onTube(part, { length: 0.7 });
+      const before = OrkRocket.buildTree(engineTree(tree)).componentInfo(part.id).positionX;
+      for (const to of ['top', 'middle'] as const) {
+        patches = [];
+        mount(tree, part as unknown as ComponentNode);
+        expect(methodSelect().value, part.type).toBe('bottom');
+        pick(methodSelect(), to);
+        expect(patches, `${part.type} → ${to}`).toHaveLength(1);
+        const patched = updateNode(tree, part.id, patches[0] as Partial<ComponentNode>);
+        const after = OrkRocket.buildTree(engineTree(patched)).componentInfo(part.id).positionX;
+        expect(after, `${part.type} → ${to}`).toBeCloseTo(before, 9);
+      }
+    }
+  }, 60000);
 });

@@ -77,6 +77,17 @@ describe('solidContextFor — the bore a part sits in', () => {
     expect(solidContextFor(t, find(t, 'bh')).parentInnerRadius).toBeCloseTo(0.0274, 12);
   });
 
+  it('a bulkhead with NO position is sized at the station it flies at: the aft end', () => {
+    // The kernel flies a bulkhead with no position from the BOTTOM of its
+    // parent (InternalComponent), so this is the 27.4 mm case above. Read as
+    // Top (until 2026-10-01) it sat at the tip, where there is no bore at all.
+    const t = tree({
+      id: 'n1', type: 'nosecone', shape: 'conical', length: 0.2, aftRadius: 0.03, thickness: 0.002,
+      children: [bulkhead],
+    });
+    expect(solidContextFor(t, find(t, 'bh')).parentInnerRadius).toBeCloseTo(0.0274, 12);
+  });
+
   it('a bulkhead in a transition: the same rule, on the transition profile', () => {
     // Conical 30 -> 20 mm over 100 mm; bulkhead at x = 10..14 mm, where the
     // radius is 29.0..28.6 mm; less 2 mm of wall -> 26.6 mm.

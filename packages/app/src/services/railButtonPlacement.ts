@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentPosition } from '@online-openrocket/engine';
-import { axialLength, offsetForStart, startFromPosition } from '../tree/position.js';
+import { axialLength, offsetForStart, positionOf, startFromPosition } from '../tree/position.js';
 
 /**
  * One-shot AUTO-PLACE for a rail button (Eric, 2026-08-31b): two buttons, the
@@ -64,7 +64,10 @@ export function railButtonPlacement(button: ComponentNode, at: {
   /** The parent tube's length (m). */
   parentLength: number;
 }): RailButtonPlacement {
-  const pos = (button.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  // The method the kernel's `positionX` was measured on: a button with no
+  // position flies from the MIDDLE of its tube (RailButton's own default), so
+  // reading it as Top put the tube half its length aft of where it is.
+  const pos = positionOf(button);
   const aftX = at.rocketLength - RAIL_BUTTON_AFT_GAP;
   const fwdX = at.cg;
   const childLen = axialLength(button);
@@ -164,7 +167,7 @@ export function newRailButtonPair(
     if (moved < NEW_PAIR_SETTLED_M) break;
   }
   if (placed) return { rule: 'auto-place', patch: placed, presses };
-  const pos = (button.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  const pos = positionOf(button);
   const childLen = axialLength(button);
   const len = Number.isFinite(parentLength) && parentLength > 0 ? parentLength : 0;
   const middle = len - RAIL_BUTTON_AFT_GAP - len / 2 > MIN_SPACING;

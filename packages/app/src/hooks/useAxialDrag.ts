@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type RefObject } from 'react';
 import type { ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import {
-  anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition,
+  anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition,
 } from '../tree/position.js';
 import { updateNode } from '../tree/treeModel.js';
 import { releasedDuring, startsGesture } from '../chartPanZoom.js';
@@ -131,7 +131,7 @@ export function useAxialDrag({ tree, onPatchNode, svgRef, viewWidth, pxPerMetre 
     if (!rect || rect.width === 0) return;
     e.stopPropagation(); // don't also start a background pan
     dragMoved.current = false;
-    const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+    const pos = positionOf(child);
     const captured = e.currentTarget as Element;
     drag.current = {
       pointerId: e.pointerId,
