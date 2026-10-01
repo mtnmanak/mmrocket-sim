@@ -58,9 +58,20 @@ describe('the published nozzle lookup', () => {
 });
 
 describe('the shipped nozzle data itself', () => {
-  const { motors, counts } = nozzles as unknown as {
-    motors: { motorId: string; exitDiameterM?: number; exitConfidence?: string }[];
-    counts: { motorsWithExit: number };
+  const { motors, counts, coverage } = nozzles as unknown as {
+    // `motorId` is optional because the data says so: ten rows match no catalogue motor.
+    motors: { motorId?: string; manufacturer: string; exitDiameterM?: number; exitConfidence?: string }[];
+    counts: {
+      motorsWithExit: number;
+      motorsLoadableWithExit: number;
+      aerotechMatchedInProduction: number;
+      lokiMatchedInProduction: number;
+    };
+    coverage: {
+      byManufacturer: Record<string, {
+        byCasingDiameterMm: Record<string, { inProduction: number; withNozzleRow: number; withExitDiameter: number }>;
+      }>;
+    };
   };
 
   it('never ships an exit diameter that is not a usable length', async () => {
@@ -120,5 +131,36 @@ describe('the shipped nozzle data itself', () => {
         expect(await nozzleForMotorId(m.motorId)).toBeNull();
       }
     }
+  });
+
+  it('counts the motors you can load and get a figure for exactly as the lookup serves them', async () => {
+    // THE COUNT v0.133 SAID "CANNOT DRIFT AGAIN" (board Tier 1 row 17). The builder
+    // writes `counts.motorsLoadableWithExit` - a row a user can reach needs BOTH a
+    // catalogue id and an exit - and until this test nothing read it back: the only
+    // two places it appeared were the line that writes it and the value it wrote,
+    // while the guide typed the same figure by hand. It is held here to the rows the
+    // way `motorsWithExit` is held above, and through the app's own lookup rather
+    // than a second filter, so it counts what a user actually gets.
+    const served = new Set<string>();
+    for (const m of motors) {
+      if (m.motorId && (await nozzleForMotorId(m.motorId))) served.add(m.motorId);
+    }
+    expect(served.size).toBe(counts.motorsLoadableWithExit);
+    // Rows are not motors: the ten rows with no catalogue id carry exits a user can
+    // never load, so this figure must stay below the all-rows one.
+    expect(counts.motorsLoadableWithExit).toBeLessThan(counts.motorsWithExit);
+  });
+
+  it('states coverage that agrees with its own summary counts', () => {
+    // `coverage` (per maker, per casing) and `counts` are two summaries of one build
+    // against one catalogue, so they cannot legitimately disagree. In-production rows
+    // with an exit are a subset of the loadable ones, which also counts the
+    // out-of-production motors a user can still load (three today).
+    const sum = (maker: string, key: 'withNozzleRow' | 'withExitDiameter') =>
+      Object.values(coverage.byManufacturer[maker]!.byCasingDiameterMm).reduce((s, e) => s + e[key], 0);
+    expect(sum('AeroTech', 'withNozzleRow')).toBe(counts.aerotechMatchedInProduction);
+    expect(sum('Loki', 'withNozzleRow')).toBe(counts.lokiMatchedInProduction);
+    expect(sum('AeroTech', 'withExitDiameter') + sum('Loki', 'withExitDiameter'))
+      .toBeLessThanOrEqual(counts.motorsLoadableWithExit);
   });
 });

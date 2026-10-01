@@ -9,9 +9,12 @@
  * {{TOKENS}} (motor counts, the catalogue date, the curve shares) are compiled
  * from motors.json and motorCurves.json, which the weekly refresh rewrites. A
  * refresh that committed only the JSON left the repo's guide quoting the
- * previous catalogue until some unrelated build happened to rewrite it.
+ * previous catalogue until some unrelated build happened to rewrite it. Since
+ * 2026-10-01 the nozzle coverage comes from nozzles.json the same way, and that
+ * file is rebuilt by hand on one machine, so a rebuild that skips the guide is
+ * caught here too.
  *
- * NOT FLAKY BY CONSTRUCTION: the compile is a pure function of three committed
+ * NOT FLAKY BY CONSTRUCTION: the compile is a pure function of four committed
  * files (no clock, no network, no locale beyond the pinned 'en-US'), and the
  * comparison ignores only a Windows checkout's CRLF, which git's autocrlf adds
  * and removes and the generator never writes.
@@ -71,7 +74,7 @@ describe('the committed userGuide.ts is current', () => {
     // Not toBe(): a 50 kB string diff is unreadable, and the remedy is one command.
     if (ts !== committed()) {
       expect.fail('packages/app/src/data/userGuide.ts is stale: it is not what user-guide.md and the '
-        + 'shipped motors.json / motorCurves.json compile to. Run `node scripts/build-user-guide.mjs` '
+        + 'shipped motors.json / motorCurves.json / nozzles.json compile to. Run `node scripts/build-user-guide.mjs` '
         + 'and commit the result.');
     }
     expect(ts).toBe(committed());
@@ -106,6 +109,7 @@ describe('the check can see what it exists to see', () => {
     // prints it as {{MOTOR_DB_DATE}}. Nothing else changes, and that alone
     // must be enough to make the committed file stale.
     copyFileSync(join(DATA, 'motorCurves.json'), join(dir, 'motorCurves.json'));
+    copyFileSync(join(DATA, 'nozzles.json'), join(dir, 'nozzles.json'));
     const motors = JSON.parse(readFileSync(join(DATA, 'motors.json'), 'utf8'));
     const refreshed = motors.generated === '2099-01-04' ? '2099-01-05' : '2099-01-04';
     writeFileSync(join(dir, 'motors.json'), JSON.stringify({ ...motors, generated: refreshed }));
@@ -126,5 +130,103 @@ describe('the check can see what it exists to see', () => {
     const bad = md.replace(/\n## /, '\n<div>raw html</div>\n\n## ');
     expect(() => compileGuide({ markdown: bad })).toThrow(GuideError);
     expect(() => compileGuide({ markdown: bad })).toThrow(/^build-user-guide: .*\n {2}at packages\/app\/user-guide\.md:\d+$/);
+  });
+});
+
+/**
+ * THE NOZZLE DATABASE'S FIGURES (board Tier 1 row 17). The guide's nozzle
+ * section quoted counts out of nozzles.json by hand, and they went stale the way
+ * the motor counts did: v0.133 fixed "278 motors you can load" to 279 and left
+ * "221 of AeroTech's 272" one clause away, so the paragraph's own parts summed
+ * to 275. Coverage now comes from the file at build time; the figures the prose
+ * writes in words come with names and reasons no token can carry, so they are
+ * checked against the file instead, and a rebuild that moves one fails the guide
+ * build until the sentence is rewritten.
+ */
+const shippedNozzles = () => JSON.parse(readFileSync(join(DATA, 'nozzles.json'), 'utf8'));
+const coverageSum = (db, maker, key) => Object.values(db.coverage.byManufacturer[maker].byCasingDiameterMm)
+  .reduce((s, e) => s + e[key], 0);
+/** Every section's html, joined: a sentence can be in any of them. */
+const allHtml = (ts) => [...ts.matchAll(/"html": (".*")/g)].map((m) => JSON.parse(m[1])).join('\n');
+
+describe('the nozzle database figures the guide quotes', () => {
+  const doc = (body) => `<a id="s"></a>\n## S\n\n${body}`;
+
+  it("compiles Loki's coverage from the file's own per-casing counts", () => {
+    const db = shippedNozzles();
+    const { ts } = compileGuide({ markdown: doc('X{{NOZZLE_LOKI_WITH_EXIT}}Y{{NOZZLE_LOKI_IN_PRODUCTION}}Z') });
+    expect(allHtml(ts)).toContain(`X${coverageSum(db, 'Loki', 'withExitDiameter')}Y${coverageSum(db, 'Loki', 'inProduction')}Z`);
+  });
+
+  it('refuses a coverage figure typed by hand, whatever the number', () => {
+    expect(() => compileGuide({ markdown: doc('Loki: 54 of their 58 in production.') })).toThrow(/hand-typed nozzle coverage/);
+    expect(() => compileGuide({ markdown: doc("AeroTech: 222 of AeroTech's 272 motors in production.") }))
+      .toThrow(/hand-typed nozzle coverage/);
+    // A count of something else that happens to say "of the" is not coverage.
+    expect(() => compileGuide({ markdown: doc('30 of the 72 hours had a gust.') })).not.toThrow();
+  });
+
+  it('is stated in the shipped guide, every figure the build checks, so no check is vacuous', () => {
+    const md = readFileSync(SRC, 'utf8');
+    expect(md).toContain('{{NOZZLE_LOKI_WITH_EXIT}} of their {{NOZZLE_LOKI_IN_PRODUCTION}} in production');
+    expect(md).toMatch(/\b[A-Za-z]+ AeroTech motors have two published nozzles\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ Loki motors are short\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ 29 mm DMS motors have the nozzle moulded into the case\b/);
+    expect(md).toMatch(/K1100T's two options differ by \d+ % in area/);
+  });
+});
+
+describe('a nozzle-database rebuild the guide has not caught up with', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'guide-nozzles-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  copyFileSync(join(DATA, 'motors.json'), join(dir, 'motors.json'));
+  copyFileSync(join(DATA, 'motorCurves.json'), join(dir, 'motorCurves.json'));
+  /** The shipped nozzles.json with one edit, as a data directory to compile against. */
+  const rebuilt = (edit) => {
+    const db = shippedNozzles();
+    edit(db);
+    writeFileSync(join(dir, 'nozzles.json'), JSON.stringify(db));
+    return dir;
+  };
+  const row = (db, designation) => db.motors.find((m) => m.designation === designation);
+  const loki = (db, mm) => db.coverage.byManufacturer.Loki.byCasingDiameterMm[mm];
+
+  it('reads as stale when the coverage it quotes moves', () => {
+    // A new in-production 38 mm Loki motor with a published exit: one more of one
+    // more, and the four short ones are still four, so no prose check objects.
+    const { ts } = compileGuide({
+      dataDir: rebuilt((db) => {
+        const e = loki(db, '38');
+        e.inProduction += 1; e.withNozzleRow += 1; e.withExitDiameter += 1;
+      }),
+    });
+    expect(ts).not.toBe(committed());
+    const db = shippedNozzles();
+    expect(allHtml(ts)).toContain(`${coverageSum(db, 'Loki', 'withExitDiameter') + 1} of their `
+      + `${coverageSum(db, 'Loki', 'inProduction') + 1} in production`);
+  });
+
+  it('refuses to compile when fewer Loki motors are short than the guide says, or others are', () => {
+    // The owner measures the two 54/4000 one-time-use nozzles: two short, not four.
+    const measured = rebuilt((db) => {
+      Object.assign(loki(db, '54'), { withNozzleRow: 16, withExitDiameter: 16, missing: [] });
+    });
+    expect(() => compileGuide({ dataDir: measured })).toThrow(/says four Loki motors are short; nozzles\.json has two/);
+    // The same count, a different motor: the sentence would name the wrong one.
+    const renamed = rebuilt((db) => { loki(db, '54').missing = ['L2050LW', 'K9999LW']; });
+    expect(() => compileGuide({ dataDir: renamed })).toThrow(/does not name K9999/);
+  });
+
+  it('refuses to compile when the two-nozzle, moulded-case or K1100T figures move', () => {
+    const fewer = rebuilt((db) => { delete row(db, 'K550W-L').exitAmbiguous; });
+    expect(() => compileGuide({ dataDir: fewer })).toThrow(/AeroTech motors have two published nozzles.*eight/);
+    const exitFound = rebuilt((db) => { row(db, 'G125T-14A').exitDiameterM = 0.0079; });
+    expect(() => compileGuide({ dataDir: exitFound })).toThrow(/29 mm DMS.*three/);
+    const altered = rebuilt((db) => { row(db, 'K1100T-L').alternatives[0].exitDiameterIn = 1.0; });
+    expect(() => compileGuide({ dataDir: altered })).toThrow(/K1100T.*56 %/);
+  });
+
+  it('compiles the shipped file unchanged, so each refusal above is the edit and not the copy', () => {
+    expect(compileGuide({ dataDir: rebuilt(() => {}) }).ts).toBe(compileGuide().ts);
   });
 });
