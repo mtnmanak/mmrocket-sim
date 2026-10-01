@@ -43,19 +43,23 @@ const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?
   ));
 };
 
-const options = (): string[] => [...host.querySelectorAll('select[aria-label="Quick picks"] option')]
-  .map((o) => o.textContent ?? '');
+/** The select the words "Quick picks" reach: the DOM's own `label.control`. */
+const quickPicks = (): HTMLSelectElement | null =>
+  ([...host.querySelectorAll('label')].find((l) => l.textContent === 'Quick picks')?.control ?? null) as
+    HTMLSelectElement | null;
+
+const options = (): string[] => [...(quickPicks()?.options ?? [])].map((o) => o.textContent ?? '');
 
 describe('Quick Picks — offered only on the untouched starter rocket', () => {
   it('lists picks when the design is still pristine', () => {
     render({ boreMm: 18, showQuickPicks: true });
-    expect(host.querySelector('select[aria-label="Quick picks"]')).not.toBeNull();
+    expect(quickPicks()?.tagName).toBe('SELECT');
     expect(host.textContent).toContain('Quick picks');
   });
 
   it('replaces the dropdown with a plain readout once the design is touched', () => {
     render({ boreMm: 18, showQuickPicks: false, selectedLabel: 'AeroTech J460T' });
-    expect(host.querySelector('select[aria-label="Quick picks"]')).toBeNull();
+    expect(host.querySelector('select')).toBeNull();
     // The dropdown's placeholder was the only place this card named the motor,
     // so the readout has to keep naming it — hiding the field outright would
     // strip the motor's name off every mount card.
@@ -98,7 +102,33 @@ describe('Quick Picks — filtered to the mount bore', () => {
     // A 13 mm mount takes none of the four; an empty dropdown would be worse
     // than none, so the field becomes the readout.
     render({ boreMm: 10, showQuickPicks: true, selectedLabel: 'Estes A10-3T' });
-    expect(host.querySelector('select[aria-label="Quick picks"]')).toBeNull();
+    expect(host.querySelector('select')).toBeNull();
     expect(host.textContent).toContain('Estes A10-3T');
+  });
+});
+
+/**
+ * Audit 2026-09-30, the class of the Preferences selects: "Quick picks" was a
+ * bare <label> beside a select named by an aria-label repeating its words, the
+ * label tied to nothing, and over the readout "Motor" was a <label> with no
+ * control at all. Neither showed to jsx-a11y: the label held an expression.
+ */
+describe('Quick Picks — the words on screen name the field', () => {
+  it('the Quick picks label is its select’s, and the select has no second name', () => {
+    render({ boreMm: 18, showQuickPicks: true });
+    const select = quickPicks();
+    expect(select?.tagName).toBe('SELECT');
+    expect(select!.hasAttribute('aria-label')).toBe(false);
+    for (const l of host.querySelectorAll('label')) {
+      expect(l.control, `"${l.textContent}" labels nothing`).not.toBeNull();
+    }
+  });
+
+  it('over the readout, "Motor" is a caption, not a label that labels nothing', () => {
+    render({ boreMm: 18, showQuickPicks: false, selectedLabel: 'AeroTech J460T' });
+    for (const l of host.querySelectorAll('label')) {
+      expect(l.control, `"${l.textContent}" labels nothing`).not.toBeNull();
+    }
+    expect(host.querySelector('.field-caption')?.textContent).toBe('Motor');
   });
 });
