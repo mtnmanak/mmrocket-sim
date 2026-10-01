@@ -1,8 +1,8 @@
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { finOutlineIntersection } from './finOutline.js';
 import { num } from './nodeNum.js';
 import { signedArea } from './polygon.js';
-import { positionOf } from './position.js';
+import { axialLength, positionOf } from './position.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -88,7 +88,29 @@ function reach(pts: [number, number][], k: 0 | 1): number {
   return hi > 0 ? hi : hi - Math.min(...pts.map((p) => p[k]));
 }
 
-/** Builds the fairing node a candidate freeform set becomes (same id/position). */
+/**
+ * The position that puts a part of length `toLen` at the station a part of
+ * length `fromLen` had — the method kept, the offset moved. 'bottom' and
+ * 'middle' measure from the far end, so the offset takes the length change
+ * (half of it for 'middle'); 'top' and 'absolute' measure from the front and
+ * need nothing. No parent length enters: it cancels.
+ *
+ * The conversion needs it because the two parts are stationed by different
+ * lengths: the fin set by its ROOT CHORD — the last point's x, as the kernel
+ * stations it (position.axialLength) — the fairing by its length, which is the
+ * outline's furthest-aft x. Copied unchanged (until audit 2026-09-30), the
+ * position moved a 'bottom' shroud whose aft corner overhangs its root forward
+ * by the overhang (5 mm on [[0,0],[0.02,0.02],[0.085,0.02],[0.08,0]], half that
+ * on 'middle'), and the kernel, flying the fairing as a fin of root chord =
+ * length, moved with it.
+ */
+function samePlace(pos: ComponentPosition, fromLen: number, toLen: number): ComponentPosition {
+  if (pos.method === 'bottom') return { ...pos, offset: pos.offset + (toLen - fromLen) };
+  if (pos.method === 'middle') return { ...pos, offset: pos.offset + (toLen - fromLen) / 2 };
+  return pos;
+}
+
+/** Builds the fairing node a candidate freeform set becomes (same id, same station). */
 export function shroudToFairing(n: ComponentNode): ComponentNode {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
   const length = pts.length ? reach(pts, 0) : 0.08;
@@ -127,7 +149,8 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     angleOffset: num(n, 'rotation', 0),
     // Where the fin set flew. One with no position flies from the BOTTOM of
     // its tube, and this read 'middle' (until 2026-10-01), moving the part.
-    position: positionOf(n),
+    // Re-anchored for the fairing's own length: see `samePlace`.
+    position: samePlace(positionOf(n), axialLength(n), length),
   } as ComponentNode;
   if (typeof n['finish'] === 'string') out['finish'] = n['finish'];
   if (typeof n['color'] === 'string') out['color'] = n['color'];
