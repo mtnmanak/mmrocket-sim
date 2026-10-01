@@ -361,6 +361,31 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
   }, 30000);
 });
 
+describe('✕ New starts the new design on Spherical Earth (GS1)', () => {
+  it('drops the Earth model the cleared design flew, keeps the rest of the launch, and marks what it writes', async () => {
+    // A design restored on Flat Earth — how one of desktop's examples opens.
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await unmountAll();
+    const session = storedSession()!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      ...session, launch: { ...session.launch, latitudeDeg: 45, geodeticMethod: 'flat' },
+    }));
+    const host = await mountApp();
+    await act(async () => { button(host, '✕ New').click(); });
+    if ((host.textContent ?? '').includes('Start a new design?')) {
+      await act(async () => { button(host, 'Discard & start new').click(); });
+    }
+    await settle(600);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.launch).not.toHaveProperty('geodeticMethod');
+    expect(storedSession()!.launch.latitudeDeg).toBe(45);
+    // The mark is over the launch New wrote, so a second ✕ New does not ask.
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.textContent).not.toContain('Start a new design?');
+  }, 30000);
+});
+
 describe('the 500-run cap is reported (audit 2026-09-22)', () => {
   it('a Launch with 500 runs saved says one old run was removed', async () => {
     const old = Array.from({ length: 500 }, (_, i) => ({ id: `old${i}`, when: i, rocket: 'Old', motor: 'A8-3' }));

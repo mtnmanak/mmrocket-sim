@@ -88,6 +88,14 @@ export function attachedSet(motors: Record<string, MountMotor>): Record<string, 
  * 0.01 and every later design, including .rkt and .CDX1 imports that carry no
  * step at all, silently inherited it and ran several times slower forever. So
  * it is always assigned, and a file without one goes back to the engine default.
+ *
+ * The geodetic model is the same kind of setting — desktop keeps it beside the
+ * time step in its simulation options — and follows the same rule: a file that
+ * names no model opens on the default Spherical Earth rather than inheriting
+ * the previous design's. That is a .rkt or a .ork with no simulation, which
+ * carry no launch conditions at all, and a .CDX1, whose launch site has no such
+ * setting. A .ork that HAS conditions always names one, because its reader
+ * writes desktop's own rule for a missing `<geodeticmethod>` (flat).
  */
 export function importedLaunch(
   prev: LaunchConditions, fromFile: Partial<LaunchConditions> | undefined,
@@ -97,6 +105,7 @@ export function importedLaunch(
     : { ...prev, timeStepS: undefined };
   // Older files must open with guide allowance on, even after an off design.
   if (fromFile?.launchGuideAllowance == null) delete next.launchGuideAllowance;
+  if (fromFile?.geodeticMethod == null) delete next.geodeticMethod;
   // A file without a profile must not inherit the previous rocket's winds.
   if (!fromFile?.windLevels?.length) {
     delete next.windLevels;
@@ -845,7 +854,18 @@ export function planOrkSave(
  * call while designFingerprint hashes the tree WITH its ids — so the mark
  * described a stage id one greater than the tree in state, and a design with
  * nothing in it was dirty the instant ✕ New was pressed. Launch and measured
- * are deliberately not reset by New, so they carry their current values.
+ * are deliberately not reset here, so they carry what the caller passes.
+ *
+ * BUT FOR THE GEODETIC MODEL (GS1). The launch conditions are the user's field
+ * and weather, so a new design keeps them — as desktop OpenRocket starts a new
+ * simulation from the site, wind and rod it saved as defaults. Desktop starts
+ * every new simulation on Spherical Earth, though (SimulationOptions.java:70;
+ * the defaults a new simulation copies, DefaultSimulationOptionFactory, never
+ * set the model), and a new design here does the same: carried, a Flat Earth
+ * opened from one of desktop's examples flew every design built after ✕ New
+ * without the Coriolis term. The key is dropped, not set, so the new design
+ * flies and keys as every design without one does. App applies the `launch`
+ * returned here, which the mark is taken over.
  *
  * NEW SUPERSEDES ANY OPEN IN FLIGHT (audit 2026-09-22). It never claimed the
  * open sequence, so an Open still waiting on a thrustcurve.org fetch landed on
@@ -858,10 +878,15 @@ export function planNewDesign(
   openSeq?: Sequencer,
 ): { snapshot: DesignSnapshot; mark: string } {
   openSeq?.begin();
+  let launch = keep.launch;
+  if (launch.geodeticMethod !== undefined) {
+    launch = { ...launch };
+    delete launch.geodeticMethod;
+  }
   const snapshot: DesignSnapshot = {
     tree: emptyTree(),
     mountMotors: {},
-    launch: keep.launch,
+    launch,
     savedConfigs: [],
     activeConfigId: null,
     measured: keep.measured,

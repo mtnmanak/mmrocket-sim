@@ -37,6 +37,7 @@ export {
   type FlightResult,
   type FlightSeries,
   type FlightSummary,
+  type GeodeticMethod,
   type IgnitionEvent,
   type MotorSpec,
   type SeparationEvent,

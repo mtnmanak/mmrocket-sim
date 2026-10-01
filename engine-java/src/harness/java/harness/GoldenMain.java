@@ -56,6 +56,97 @@ public final class GoldenMain {
         trueCgRollScenarios();
         zeroTorqueRollControl();
         podsOnlyNozzleScenarios();
+        geodeticScenarios();
+    }
+
+    /**
+     * THE GEODETIC MODEL (board Tier 1 row 2, GS1) - simulateJson's
+     * "geodeticMethod", desktop's "Geodetic calculations" option. Until it existed
+     * the bridge forced SPHERICAL on every flight, so FLAT and WGS84 were in the
+     * artifact only as the enum's other constants and had never flown through
+     * OrkEngine on either runtime.
+     *
+     * APPENDED AT THE END OF THE ROSTER ON PURPOSE - difftest.mjs compares the two
+     * runtimes' output BY LINE INDEX, so every existing line must keep its index.
+     *
+     * The windLevelScenarios rocket and C6 at the conditionsScenarios pad, in a
+     * STEADY 3 m/s wind (sigma 0, so the rows take difftest's flight tolerance, not
+     * the turbulent one) off a 5 degree rod, flown to the ground on the full
+     * series. Columns: maxAltitude, flightTime, the landing point's distance from
+     * the pad (m), and its latitude and longitude (degrees: the series' phi and
+     * lambda). A distance, not Px and Py: the flight lands some 216 m downwind and
+     * only millimeters across it, and that near-zero crosswind component is noise-
+     * dominated in relative terms - measured 1e-7 to 4e-7 relative between the
+     * runtimes, past the flight tolerance, the first time this ran - while the
+     * distance carries the Coriolis term whole (flat lands 0.149 m short of
+     * spherical). The tolerances were not touched; driftAtApogee met the same.
+     *   absent    - no geodeticMethod. Checked here, on both runtimes, to equal
+     *               `spherical` in every column bit for bit: the kernel's default
+     *               is the call the bridge always made.
+     *   spherical - named.
+     *   flat      - no Coriolis term, and the flat-Earth meters-per-degree position.
+     *               Checked to land elsewhere than spherical.
+     *   wgs84     - the spherical Coriolis term, positions on the ellipsoid.
+     *               Checked to report another longitude than spherical.
+     * The behavioural guards are packages/engine/src/geodetic.test.ts.
+     */
+    private static void geodeticScenarios() {
+        String reference = "{\"name\":\"Ref\",\"components\":["
+                + "{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002,\"shape\":\"ogive\"},"
+                + "{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":["
+                + "  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003},"
+                + "  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true},"
+                + "  {\"type\":\"parachute\",\"diameter\":0.30}"
+                + "]}]}";
+        String pad = "\"rodLength\":1.2,\"rodAngle\":0.087,\"launchAltitude\":1400,"
+                + "\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7,"
+                + "\"windAverage\":3.0,\"windStdDeviation\":0,\"series\":\"full\"";
+        String[] methods = { null, "spherical", "flat", "wgs84" };
+        double[][] rows = new double[methods.length][];
+        for (int k = 0; k < methods.length; k++) {
+            String m = methods[k];
+            int r = api.OrkEngine.buildRocket(reference);
+            api.OrkEngine.setMotorById(r, "mount", "C6", 0.018, 0.070,
+                    new double[] { 0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0 },
+                    new double[] { 0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0 },
+                    new double[] { 0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132 },
+                    0.035, 5.0);
+            String options = "{" + pad + (m == null ? "" : ",\"geodeticMethod\":\"" + m + "\"") + "}";
+            java.util.Map<String, Object> parsed = api.JsonLite.parseObject(api.OrkEngine.simulateJson(r, options));
+            java.util.Map<String, Object> summary = api.JsonLite.obj(parsed, "summary");
+            java.util.Map<String, Object> series = api.JsonLite.obj(parsed, "series");
+            double x = lastSample(series, "Px");
+            double y = lastSample(series, "Py");
+            rows[k] = new double[] {
+                    api.JsonLite.dbl(summary, "maxAltitude", Double.NaN),
+                    api.JsonLite.dbl(summary, "flightTime", Double.NaN),
+                    // sqrt, not Math.hypot: both runtimes round sqrt exactly.
+                    Math.sqrt(x * x + y * y),
+                    lastSample(series, "\u03c6"),
+                    lastSample(series, "\u03bb"),
+            };
+            line("flight.geodetic." + (m == null ? "absent" : m), rows[k]);
+        }
+        for (int i = 0; i < rows[0].length; i++) {
+            if (Double.compare(rows[0][i], rows[1][i]) != 0) {
+                throw new IllegalStateException("geodetic: absent and spherical differ in column " + i
+                        + ": " + rows[0][i] + " != " + rows[1][i]);
+            }
+        }
+        if (Double.compare(rows[2][2], rows[1][2]) == 0) {
+            throw new IllegalStateException("geodetic: flat landed where spherical did - the method never reached the flight");
+        }
+        if (Double.compare(rows[3][4], rows[1][4]) == 0) {
+            throw new IllegalStateException("geodetic: wgs84 reported spherical's longitude - the method never reached the flight");
+        }
+    }
+
+    /** A series' last sample, or NaN when the series is missing, empty or ends in a gap. */
+    private static double lastSample(java.util.Map<String, Object> series, String key) {
+        java.util.List<?> values = (java.util.List<?>) series.get(key);
+        if (values == null || values.isEmpty()) return Double.NaN;
+        Object v = values.get(values.size() - 1);
+        return v instanceof Number ? ((Number) v).doubleValue() : Double.NaN;
     }
 
     /** Pods-only area allocation, appended without shifting existing golden rows. */

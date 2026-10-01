@@ -921,6 +921,10 @@ export function App() {
     // 0.8 kg short, so B flew light and high (audit 2026-09-22).
     const unweighed: MeasuredFigures = { massKg: null, cgM: null };
     setMeasured(unweighed);
+    // The launch conditions stay, but for the Earth model: the new design flies
+    // Spherical Earth, as desktop's every new simulation does (planNewDesign).
+    // The same object when there was none to drop.
+    setLaunch(fresh.launch);
     // An empty design is not work anybody would mind losing, so the NEXT Open
     // must not ask about it. Same reasoning as seeding a first visit clean.
     // The mark is the plan's, taken over exactly the values just set, not from

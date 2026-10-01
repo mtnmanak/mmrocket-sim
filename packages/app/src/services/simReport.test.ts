@@ -1764,6 +1764,26 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
     }
   });
 
+  // GS1 (board Tier 1 row 2): an Earth model that flies as spherical — absent,
+  // 'spherical', or a stored value that is not a method — hashes as the key
+  // every run stored before the field has. The .ork reader writes 'spherical'
+  // into every design whose file names it, so it may not re-key a run. Flat and
+  // WGS84 are other flights (the Coriolis term; the coordinates a re-fly would
+  // report) and must.
+  it('folds an Earth model that flies as spherical onto the key every stored run already has', () => {
+    const base = conditionsKeyOf(DEFAULT_CONDITIONS);
+    for (const m of [undefined, 'spherical', 'Flat', 'ellipsoid', null]) {
+      const geodeticMethod = m as LaunchConditions['geodeticMethod'];
+      expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, geodeticMethod }), String(m)).toBe(base);
+    }
+    expect(base).not.toContain('geodeticMethod');
+    const flat = conditionsKeyOf({ ...DEFAULT_CONDITIONS, geodeticMethod: 'flat' });
+    const wgs84 = conditionsKeyOf({ ...DEFAULT_CONDITIONS, geodeticMethod: 'wgs84' });
+    expect(flat).toContain('geodeticMethod=flat');
+    expect(wgs84).toContain('geodeticMethod=wgs84');
+    expect(new Set([base, flat, wgs84]).size).toBe(3);
+  });
+
   it('KEEPS the spelling every stored run already uses for a null REQUIRED field', () => {
     // DEFAULT_CONDITIONS leaves temperatureC and pressureHPa null, so every
     // conditionsKey in a user's 500-flight history carries

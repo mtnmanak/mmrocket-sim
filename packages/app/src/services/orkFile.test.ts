@@ -807,8 +807,9 @@ describe('.ork launch conditions (simulations block)', () => {
     expect(launch.latitudeDeg).toBeCloseTo(39.1, 12);
     expect(launch.temperatureC).toBeCloseTo(25, 9);
     expect(launch.pressureHPa).toBeCloseTo(1015, 9);
-    // Non-spherical geodetic model: the app simulates a spherical Earth.
-    expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(1);
+    // The file's own geodetic model, flown as stated (GS1) — so nothing to say.
+    expect(launch.geodeticMethod).toBe('wgs84');
+    expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(0);
   });
 
   it('falls back to the legacy windturbulence intensity ratio (pre-24.x files)', () => {
@@ -819,6 +820,7 @@ describe('.ork launch conditions (simulations block)', () => {
     const result = importOrk(LEGACY);
     // stddev = intensity x average = 0.1 x 4.
     expect(result.launch!.windStdDev).toBeCloseTo(0.4, 12);
+    expect(result.launch!.geodeticMethod).toBe('spherical');
     expect(result.notes.filter((n) => n.includes('geodetic'))).toHaveLength(0);
   });
 
@@ -896,13 +898,13 @@ describe('.ork launch conditions (simulations block)', () => {
       expect(conditionsKeyOf(back)).toBe(conditionsKeyOf(asBefore));
     }
     // A saved blank reopens as the design that was saved: the fingerprint the
-    // unsaved-work guard compares differs only by the two keys every file
-    // states outright (the time step and Rod aim) — longitude is no longer a
-    // third.
+    // unsaved-work guard compares differs only by the keys every file states
+    // outright (the time step, Rod aim and, since GS1, the Earth model) —
+    // longitude is not one of them.
     const saved = { ...DEFAULT_CONDITIONS, windAverage: 3, longitudeDeg: null };
     const reopened = { ...saved, ...importOrk(exportOrk({ name: 'Cond', tree: SIMPLE_TREE, launch: saved })).launch! };
     const statedByFile = { timeStepS: reopened.timeStepS, launchRodAimDeg: reopened.launchRodAimDeg,
-      launchGuideAllowance: reopened.launchGuideAllowance };
+      launchGuideAllowance: reopened.launchGuideAllowance, geodeticMethod: reopened.geodeticMethod };
     expect(designFingerprint({ ...SNAPSHOT_BASE, launch: reopened }))
       .toBe(designFingerprint({ ...SNAPSHOT_BASE, launch: { ...saved, ...statedByFile } }));
   });

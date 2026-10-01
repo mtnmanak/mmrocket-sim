@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
+import { DEFAULT_CONDITIONS, kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
 import type { MotorMatchResult } from './motorMatch.js';
@@ -473,6 +473,19 @@ describe('planNewDesign — ✕ New marks what it writes', () => {
     expect(snapshot.mountMotors).toEqual({});
     expect(snapshot.savedConfigs).toEqual([]);
     expect(snapshot.activeConfigId).toBeNull();
+  });
+
+  // GS1: carried, a Flat Earth opened from one of desktop's examples flew every
+  // design built after ✕ New without the Coriolis term.
+  it('starts the new design on Spherical Earth, whatever the previous one flew, and keeps the rest', () => {
+    for (const geodeticMethod of ['flat', 'wgs84', 'spherical'] as const) {
+      const launch: LaunchConditions = { ...LAUNCH, latitudeDeg: 45, geodeticMethod };
+      const { snapshot, mark } = planNewDesign({ launch, measured: { massKg: null, cgM: null } });
+      const { geodeticMethod: _dropped, ...rest } = launch;
+      expect(snapshot.launch, geodeticMethod).toStrictEqual(rest);
+      expect(kernelSimOptions(snapshot.launch), geodeticMethod).not.toHaveProperty('geodeticMethod');
+      expect(mark, geodeticMethod).toBe(designFingerprint(snapshot));
+    }
   });
 });
 
