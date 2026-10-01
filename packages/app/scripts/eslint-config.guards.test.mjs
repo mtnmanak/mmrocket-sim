@@ -290,4 +290,15 @@ describe('eslint.config.mjs — a lint from the repo root reaches what CI’s do
       expect(await eslint.isPathIgnored(rel), rel).toBe(false);
     }
   });
+
+  it('builds the engine before it lints, so the type-aware rules see its types', () => {
+    // packages/app reads the engine's types from packages/engine/dist, a build
+    // output. Linted cold, every engine import is an error type and the
+    // type-aware rules check less, so a local lint could pass where CI's, run
+    // after typecheck has built dist, fails (audit 2026-09-30). eslint comes
+    // last, so the `--max-warnings 0` in `npm run lint -- --max-warnings 0`
+    // reaches it and not the build.
+    const { scripts } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+    expect(scripts.lint).toBe('npm run build -w @online-openrocket/engine && eslint .');
+  });
 });

@@ -7,11 +7,14 @@
   "workspaces": [
     "packages/*"
   ],
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "npm run dev -w @online-openrocket/app",
     "build": "npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
     "typecheck": "npm run build -w @online-openrocket/engine && npm run typecheck -w @online-openrocket/app",
-    "lint": "eslint .",
+    "lint": "npm run build -w @online-openrocket/engine && eslint .",
     "test": "npm run build -w @online-openrocket/engine && npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app",
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",

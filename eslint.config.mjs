@@ -424,15 +424,18 @@ export default tseslint.config(
     // COST: the parser now builds a TypeScript program per project. `npx eslint .`
     // went from 7.6 s to 20.1 s here (median of three, same machine and tree; a
     // cold first run took 34.6 s) — about 2.6x, the ratio the audit measured at
-    // a7756c5 (4.9 s to 12.6 s). CI runs it after `npm run typecheck`, which
-    // has built the engine's dist/index.d.ts that the app imports; run locally
-    // WITHOUT that build, engine imports resolve to error types and these rules
-    // see less. Each file's program is its own tsconfig project: tsconfig.app,
+    // a7756c5 (4.9 s to 12.6 s). These rules read the engine's types from its
+    // built dist/index.d.ts; WITHOUT that build every engine import is an
+    // error type and they see less (measured 2026-09-30: a switch over the
+    // engine's IgnitionEvent that misses four cases fails lint warm and passes
+    // cold). So `npm run lint` builds the engine first; a bare `npx eslint`
+    // does not. Each file's program is its own tsconfig project: tsconfig.app,
     // tsconfig.test or packages/engine's (packages/app/tsconfig.json says why).
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       // Not import.meta.dirname, which needs Node 20.11: written when the README
-      // promised 20. Its floor is 22.12 since the vitest 5 upgrade (AUDIT row 528).
+      // promised 20. The floor now is package.json's engines.node, the range the
+      // toolchain supports (packages/app/scripts/dependencies.nodeEngines.test.mjs).
       parserOptions: { projectService: true, tsconfigRootDir: fileURLToPath(new URL('.', import.meta.url)) },
     },
     rules: {
