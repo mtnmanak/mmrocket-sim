@@ -280,6 +280,74 @@ describe('StatsChip — the floating readout', () => {
         expect(JSON.parse(localStorage.getItem(CHIP_KEY)!)).toEqual({ x: 600, y: 80, folded: false });
       });
     });
+
+    /**
+     * Audit 2026-09-30: the reclamp ran when the STAGE or the window changed
+     * size, or the drawer opened or closed — never when the chip itself did.
+     * Fold it, drag the one-line pill to the bottom edge, unfold: the 124 px
+     * readout ran 94 px under the stage edge, CP and stability rows with it.
+     * The same 400 x 670 stage as above; the chip is 30 px folded, 124 open.
+     */
+    describe('when the chip itself changes size', () => {
+      let chipH = 124;
+      beforeEach(() => {
+        chipH = 124;
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+          configurable: true,
+          get(this: HTMLElement) { return this.classList.contains('stats-chip') ? host : null; },
+        });
+        Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => 400 });
+        Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => 670 });
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(210);
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+          return this.classList.contains('stats-chip-folded') ? 30 : chipH;
+        });
+      });
+      afterEach(() => {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      });
+      const fold = () => act(() => { (host.querySelector('.stats-chip-fold') as HTMLButtonElement).click(); });
+
+      it('unfolding the pill on the bottom edge brings the whole readout back into view', () => {
+        localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 100, y: 100, folded: true }));
+        mount();
+        press({ ...LEFT, buttons: 1, clientX: 110, clientY: 110 });
+        onWindow('pointermove', { ...LEFT, buttons: 1, clientX: 110, clientY: 2000 });
+        onWindow('pointerup', { ...LEFT, buttons: 0, clientX: 110, clientY: 2000 });
+        expect(chip().style.top).toBe('640px'); // 670 - 30: the pill, flush with the edge
+        fold();
+        expect(chip().className).not.toContain('stats-chip-folded');
+        expect(chip().style.top, 'the open readout runs under the stage edge').toBe('546px'); // 670 - 124
+        // Drawn there, not saved there: the placement is still theirs, so
+        // folding again puts the pill back on the edge where they left it.
+        expect(JSON.parse(localStorage.getItem(CHIP_KEY)!)).toEqual({ x: 100, y: 640, folded: false });
+        fold();
+        expect(chip().style.top).toBe('640px');
+      });
+
+      it('a readout that grows where it stands is pulled back in once the browser reports it', () => {
+        // happy-dom's ResizeObserver never fires. This one fires for exactly
+        // the elements a test says changed size, the way a browser would.
+        const observers: Array<{ cb: () => void; targets: Set<Element> }> = [];
+        vi.stubGlobal('ResizeObserver', class {
+          targets = new Set<Element>();
+          constructor(cb: () => void) { observers.push({ cb, targets: this.targets }); }
+          observe(t: Element) { this.targets.add(t); }
+          unobserve(t: Element) { this.targets.delete(t); }
+          disconnect() { this.targets.clear(); }
+        });
+        localStorage.setItem(CHIP_KEY, JSON.stringify({ x: 100, y: 546, folded: false }));
+        mount();
+        expect(chip().style.top).toBe('546px'); // 670 - 124: flush with the bottom edge
+        // A label wraps (a longer unit, the display font arriving): 16 px
+        // taller, with nothing else on the page having moved.
+        chipH = 140;
+        act(() => { for (const o of observers) if (o.targets.has(chip())) o.cb(); });
+        expect(chip().style.top, 'the grown readout runs under the stage edge').toBe('530px'); // 670 - 140
+      });
+    });
   });
 
   /** Audit 2026-09-22: it could be repositioned only by pointer drag. */

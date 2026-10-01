@@ -7,13 +7,14 @@ import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.j
 import {
   formatRunWhenProse, formatStability, hasAerodynamicForce, listAnd, shownStability, type SimRun,
 } from '../services/simReport.js';
-import { WEATHER_CREDIT, type WeatherSnapshot } from '../services/weatherSnapshot.js';
+import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
 import {
   hasLaunchGuides, rodLengthHelp, LaunchField, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { WeatherButton } from './WeatherButton.js';
+import { WeatherCredit } from './WeatherCredit.js';
 import { stabilityGlyphClass } from './StatTiles.js';
 import { TreeSchematic } from './TreeSchematic.js';
 
@@ -110,12 +111,16 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             {/* No onSelect: this drawing is a picture. A no-op one still made
                 every drawn part a focusable "Select …" button, hidden inside
                 the role="img" svg — a dead tab stop per part before the
-                flight numbers (audit 2026-09-22). */}
+                flight numbers (audit 2026-09-22).
+                No motors and no onPatchNode either, rather than `{}` and a
+                no-op (audit 2026-09-30): the drawing's layout is memoised on
+                `motors`, so a fresh `{}` per render walked the whole design
+                again on every FlyScreen render — every keystroke in the launch
+                fields below, on the phone. Absent draws the same: no motor
+                cases, and a vertical drawing never drags a part. */}
             <TreeSchematic
               tree={tree}
               info={info}
-              motors={{}}
-              onPatchNode={() => {}}
               selectedId={null}
               maxHeight={430}
               vertical
@@ -206,18 +211,10 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               {weather && (
                 <span>
                   Weather for {weatherPlaceLabel(weather.place)} —{' '}
-                  <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
-                  {' · '}
-                  <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
                   {/* A searched place's name is GeoNames data, shown right here,
                       so it carries their credit too — as the Launch panel's
                       strip does. */}
-                  {weather.place.method === 'search' && (
-                    <>
-                      {' · Place search: '}
-                      <a href={WEATHER_CREDIT.places.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.places.text}</a>
-                    </>
-                  )}
+                  <WeatherCredit geoNames={weather.place.method === 'search'} />
                 </span>
               )}
             </div>

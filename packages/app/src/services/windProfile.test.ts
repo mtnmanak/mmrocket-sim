@@ -210,6 +210,14 @@ describe('weather wind profile', () => {
     }
     expect(validWindProfileSource({ kind: 'ork' })).toBe(true);
     expect(validWindProfileSource(profile.windProfileSource)).toBe(true);
+    // How the place was chosen (audit 2026-09-30): optional, since v0.144 wrote
+    // none, but when it is there it must be one the app writes.
+    for (const method of ['search', 'coordinates', 'device']) {
+      expect(validWindProfileSource({ ...profile.windProfileSource, method }), method).toBe(true);
+    }
+    for (const method of ['gps', '', 1, null]) {
+      expect(validWindProfileSource({ ...profile.windProfileSource, method }), String(method)).toBe(false);
+    }
     for (const v of [null, {}, { kind: 'x' }, { ...profile.windProfileSource, kind: 'unknown' }, { kind: 'open-meteo', place: 1, validUnix: 1, surfaceFromDeg: 0 },
       { ...profile.windProfileSource, validUnix: NaN }, { ...profile.windProfileSource, surfaceFromDeg: Infinity }]) expect(validWindProfileSource(v)).toBe(false);
   });
@@ -546,6 +554,25 @@ describe('profile persistence', () => {
       expect(conditionsKeyOf({ ...DEFAULT_CONDITIONS, ...read.launch })).toBe(conditionsKeyOf(profile));
       expect(kernelSimOptions({ ...DEFAULT_CONDITIONS, ...read.launch })).toEqual(kernelSimOptions(profile));
     }
+  });
+
+  it('round trips how the place was chosen, and still reads a v0.144 file that never said', async () => {
+    // `profile` itself is the v0.144 shape (no method); the round trip above
+    // already proves such a file still opens with its source intact.
+    const searched: LaunchConditions = {
+      ...profile, windProfileSource: { kind: 'open-meteo', place: 'Gerlach, Nevada, US', validUnix: 1, surfaceFromDeg: 350, method: 'search' },
+    };
+    const written = exportOrk({ tree, name: tree.name, launch: searched });
+    for (const input of [written, await decodeShareFragment(await encodeShareFragment(written))]) {
+      expect(importOrk(input).launch!.windProfileSource).toEqual(searched.windProfileSource);
+    }
+    // A method the app never writes is not a source this app wrote: the
+    // levels still fly, under the plain .ork source.
+    const tampered = written.replace('&quot;method&quot;:&quot;search&quot;', '&quot;method&quot;:&quot;gps&quot;');
+    expect(tampered).not.toBe(written);
+    const read = importOrk(tampered);
+    expect(read.launch!.windProfileSource).toEqual({ kind: 'ork' });
+    expect(read.launch!.windLevels).toEqual(searched.windLevels);
   });
 
   it('flies desktop MSL profiles as AGL, ignores inactive blocks, and keeps below-pad interpolation', () => {

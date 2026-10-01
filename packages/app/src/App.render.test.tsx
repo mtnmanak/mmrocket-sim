@@ -633,8 +633,15 @@ describe('the All-stats drawer on a first look at the Design tab', () => {
     expect(document.activeElement).toBe(button(host, '▾ Collapse'));
   }, 30000);
 
-  it('is shut below 981px, with the chip to open it', async () => {
-    viewport(800);
+  /**
+   * 950 px is in the band the board's Tier 1 row 22 (2026-09-18) called dead:
+   * `.hero-view` is positioned only from 981 px, so the lift that keeps the
+   * drawing clear of an overlaid drawer cannot act between 901 and 980 px.
+   * Since v0.136 nothing there needs it — below 981 px the drawer is a block
+   * AFTER the stage, never over the drawing — which is what this pins.
+   */
+  it.each([800, 950])('is shut at %i px, and the chip opens it as a block under the canvas', async (w) => {
+    viewport(w);
     const host = await mountApp();
     await waitFor(() => host.querySelector('.stats-drawer-chip') !== null, 'the All-stats chip');
     await settle(50);
@@ -642,6 +649,8 @@ describe('the All-stats drawer on a first look at the Design tab', () => {
     // And the chip still opens it — as a block under the canvas at this width.
     await act(async () => { button(host, '▤ All stats').click(); });
     expect(host.querySelector('.stats-drawer')?.className).toContain('stats-drawer-flow');
+    expect(host.querySelector('.hero-stage .stats-drawer'), 'the drawer is over the drawing').toBeNull();
+    expect(host.querySelector<HTMLElement>('.hero-view')!.style.bottom).toBe('');
   }, 30000);
 });
 

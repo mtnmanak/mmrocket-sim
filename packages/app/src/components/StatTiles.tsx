@@ -323,8 +323,9 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
   // not from the last drawn position, or it only ever came back after a
   // reload. Mid-drag the pointer owns the position, so it is left alone.
   useLayoutEffect(() => {
-    const host = ref.current?.offsetParent as HTMLElement | null;
-    if (!host) return;
+    const el = ref.current;
+    const host = el?.offsetParent as HTMLElement | null;
+    if (!el || !host) return;
     const reclamp = () => setChip((c) => {
       const from = dragFrom.current ? c : placed.current;
       const { x, y } = clamp(from.x, from.y);
@@ -333,6 +334,10 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
     reclamp();
     const ro = new ResizeObserver(reclamp);
     ro.observe(host);
+    // The chip's OWN size is half the clamp too (audit 2026-09-30): a readout
+    // that grows where it stands — a label wrapping after a unit change, the
+    // display font arriving — runs past the edge with nothing else moving.
+    ro.observe(el);
     window.addEventListener('resize', reclamp);
     return () => {
       ro.disconnect();
@@ -340,8 +345,11 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
     };
     // Re-runs when the drawer opens or closes: that changes how much of the
     // stage is covered, and a chip sitting where the drawer is about to appear
-    // has to come back up before it is painted over.
-  }, [drawerOpen]);
+    // has to come back up before it is painted over. And on a fold, the
+    // biggest change the chip makes to its own size (the 30 px pill to the
+    // 124 px readout): the observer above catches that too, but a frame late,
+    // after the readout has been painted under the stage edge or the drawer.
+  }, [drawerOpen, chip.folded]);
 
   /**
    * Fold to the one-line pill while the All Stats drawer is open.

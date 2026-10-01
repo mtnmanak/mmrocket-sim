@@ -2,9 +2,24 @@ import { useState } from 'react';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
-import { compassPoint, formatValidTime } from '../services/openMeteo.js';
-import { WEATHER_CREDIT } from '../services/weatherSnapshot.js';
-import { windProfileSummary, type RelativeWindLevel, type WindProfileConditions } from '../services/windProfile.js';
+import { compassPoint, formatValidTime, parseCoordinates } from '../services/openMeteo.js';
+import {
+  windProfileSummary, type RelativeWindLevel, type WindProfileConditions, type WindProfileSource,
+} from '../services/windProfile.js';
+import { WeatherCredit } from './WeatherCredit.js';
+
+/**
+ * Whether a fetched profile's place name is GeoNames data — a place a search
+ * found. A profile saved by v0.144 did not record how its place was chosen, so
+ * then the label decides: the app names a pasted or device position by its
+ * coordinates, and a search result by name, region and country, which never
+ * reads as coordinates. Anything that is not plainly coordinates gets the
+ * credit — one link too many costs nothing; one too few breaches the licence.
+ */
+function placeFromSearch(source: Extract<WindProfileSource, { kind: 'open-meteo' }>): boolean {
+  if (source.method !== undefined) return source.method === 'search';
+  return parseCoordinates(source.place)?.ok !== true;
+}
 
 export function WindProfileTable({ levels, surfaceFromDeg }: {
   levels: readonly RelativeWindLevel[]; surfaceFromDeg?: number;
@@ -46,8 +61,7 @@ export function WindProfile({ value, onChange }: { value: LaunchConditions; onCh
       <WindProfileTable levels={levels} surfaceFromDeg={source?.kind === 'open-meteo' ? source.surfaceFromDeg : undefined} />
       {source?.kind === 'open-meteo' && <p className="weather-small">
         {source.place} · {formatValidTime(source.validUnix, 'UTC', true)} ·{' '}
-        <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>{' · '}
-        <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
+        <WeatherCredit geoNames={placeFromSearch(source)} />
       </p>}
     </details>
     <p className="weather-small">The flight uses this profile. Wind avg is the surface wind; changing it scales the profile’s speeds. Wind gusts σ sets its turbulence intensity.</p>

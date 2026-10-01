@@ -1,5 +1,6 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import type { RocketTree } from '@online-openrocket/engine';
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { recoverySummary } from './recoveryContext.js';
 
 /**
@@ -23,6 +24,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
   onApply: (cfg: SavedConfig) => void;
   onClear: () => void;
 }) {
+  const { prefs } = usePrefs();
   if (configs.length === 0) return null;
   // The divider is a STYLESHEET rule (.config-list > .config-row + .config-row),
   // not an inline style: as an inline border it outranked every author rule,
@@ -54,7 +56,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
         {configs.map((c, index) => {
           const labels = Object.values(c.motors).map((m) => m.label);
           const isActive = c.id === activeConfigId;
-          const recovery = configs.length > 1 ? recoverySummary(c, tree, isActive) : '';
+          const recovery = configs.length > 1 ? recoverySummary(c, prefs.units.distance, tree, isActive) : '';
           return (
             <div key={c.id} className="config-row" style={rowStyle}
               aria-current={isActive ? 'true' : undefined}>

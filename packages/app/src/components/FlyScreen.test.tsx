@@ -1,11 +1,18 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, rodLengthHelp } from './LaunchPanel.js';
 import { FlyScreen } from './FlyScreen.js';
 import type { SimRun } from '../services/simReport.js';
+import { layoutSchematic } from '../tree/schematicLayout.js';
+
+// The real layout, counted: how often the drawing walks the design.
+vi.mock('../tree/schematicLayout.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../tree/schematicLayout.js')>();
+  return { ...real, layoutSchematic: vi.fn(real.layoutSchematic) };
+});
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -75,6 +82,23 @@ describe('FlyScreen', () => {
     ));
     return calls;
   }
+
+  /**
+   * Audit 2026-09-30: FlyScreen handed its drawing a fresh `motors={{}}` on
+   * every render, and the drawing's layout is memoised on `motors`, so each
+   * FlyScreen render — every App render, each keystroke in its own launch
+   * fields — walked the whole design again, on the phone, the slowest target.
+   */
+  it('does not lay the drawing out again when nothing it draws has changed', () => {
+    const tree = { name: 'Field Bird', components: [{ id: 'bt', type: 'bodytube', length: 0.3, outerRadius: 0.012 }] } as never;
+    mount({ tree });
+    const laidOut = vi.mocked(layoutSchematic).mock.calls.length;
+    expect(laidOut, 'the drawing was never laid out at all').toBeGreaterThan(0);
+    // What typing in Wind avg does: App renders again with new launch conditions.
+    mount({ tree, launch: { ...DEFAULT_CONDITIONS, windAverage: 3 } });
+    mount({ tree, launch: { ...DEFAULT_CONDITIONS, windAverage: 3.5 } });
+    expect(vi.mocked(layoutSchematic).mock.calls.length).toBe(laidOut);
+  });
 
   it('shows the winds aloft summary on the phone', () => {
     mount({ launch: { ...DEFAULT_CONDITIONS, windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] } });

@@ -9,6 +9,7 @@ import {
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import { fmtSi } from '../prefs/units.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -448,6 +449,52 @@ describe('the pad-pressure caution', () => {
     const t = c!.textContent ?? '';
     expect(t).not.toMatch(/NaN/);
     expect(t).not.toMatch(/—\s*(mbar|°C)/);
+  });
+});
+
+/**
+ * Audit 2026-09-30: the blank Temperature and Station pressure boxes, and the
+ * value their spinners step from, read the STORED Site altitude, while the
+ * flight flies `padAir`'s — clamped into 0–10,000 m. A session stored before
+ * that chokepoint with 12,000 m advertised 12 km air, and one spinner step
+ * from blank COMMITTED it, at a pad the design flies at 10 km. (A NaN altitude
+ * was already read as 0 by the ISA helpers themselves; it is pinned here too.)
+ */
+describe('a stored site altitude outside the range the flight flies', () => {
+  const box = (label: string) => [...host.querySelectorAll('input')]
+    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!;
+  const placeholder = (label: string) => box(label).getAttribute('placeholder') ?? '';
+
+  it('shows the air at the altitude flown in the blank boxes', () => {
+    renderConditions({ launchAltitudeM: 12000 });
+    // Flown at 10,000 m: −50 °C and 264 mbar, not 12 km's −56.5 °C and 193.
+    expect(Number(placeholder('Temperature'))).toBeCloseTo(-50, 1);
+    expect(placeholder('Station pressure')).toBe('264');
+    renderConditions({ launchAltitudeM: NaN });
+    expect(Number(placeholder('Temperature'))).toBeCloseTo(15, 1);
+    expect(placeholder('Station pressure')).toBe('1013');
+  });
+
+  it('steps the spinner from that air, so a step commits the flown site’s day', () => {
+    renderConditions({ launchAltitudeM: 12000 });
+    act(() => {
+      box('Temperature').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    expect(lastLaunch?.temperatureC).toBeCloseTo(-49, 1);
+  });
+
+  it('quotes the flown site, and the pressure clearing would give, in the pad-pressure caution', () => {
+    const t = renderConditions({ launchAltitudeM: 12000, pressureHPa: 1013.25 })?.textContent ?? '';
+    expect(t).toMatch(/this pad is 10000 m up, where a barometer reads about 264 mbar/);
+    expect(t).toMatch(/Clear the field and the app uses 264 mbar/);
+    // Neither figure of the STORED site, which the caution quoted before the
+    // fix. Its pressure is derived through the caution's own formatter: this
+    // guard used to look for "194 mbar", which the app never printed (ISA at
+    // 12 km is 19,330 Pa, printed as 193), so that half of it could not fail.
+    const stored = `${fmtSi('pressure', 'mbar', isaPressurePa(12000))} mbar`;
+    expect(stored).toBe('193 mbar');
+    expect(t).not.toContain('12000');
+    expect(t).not.toContain(stored);
   });
 });
 

@@ -623,6 +623,39 @@ describe('a Save .rkt carries the Measured mass & CG box', () => {
   }, 30000);
 });
 
+/**
+ * THE USER'S DISTANCE UNIT, HANDED TO THE RockSim READER. A reader holds no
+ * unit preference, so App passes prefs.units.distance to importRkt, and the
+ * import note's recovery line quotes a deployment altitude in it, as Flight
+ * configurations does. Read the way a user meets it: someone who set feet
+ * opens a .rkt whose main opens at 121.92 m (400 ft).
+ */
+describe('a RockSim import note in the user’s distance unit', () => {
+  const RKT_MAIN_400FT = '<RockSimDocument><DesignInformation><RocketDesign><Name>Altitude Main</Name>'
+    + '<StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Body</Name><SerialNo>1</SerialNo><Len>500</Len>'
+    + '<OD>50</OD><ID>48</ID><IsMotorMount>1</IsMotorMount><AttachedParts><Parachute><Name>Main</Name>'
+    + '<SerialNo>12</SerialNo><Dia>450</Dia></Parachute></AttachedParts></BodyTube></Stage3Parts></RocketDesign>'
+    + '</DesignInformation><SimulationResultsList><SimulationResults><SimulationName>Run</SimulationName>'
+    + '<SimulationEvents><SimulationEvent><PartSerialNo>12</PartSerialNo><Type>5</Type>'
+    + '<DeployAltitude>121.92</DeployAltitude><DeplyTime>0</DeplyTime></SimulationEvent></SimulationEvents>'
+    + '<Stage3Engines><EngineSet><MountSerialNo>1</MountSerialNo><EngineCode>E15</EngineCode>'
+    + '<EngineMfg>AeroTech</EngineMfg><EjectionDelay>4</EjectionDelay></EngineSet></Stage3Engines>'
+    + '</SimulationResults></SimulationResultsList></RockSimDocument>';
+
+  it('quotes the main’s deployment altitude in feet to a user who set feet', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await pick(host, new File([RKT_MAIN_400FT], 'Altitude_Main.rkt'));
+    await waitFor(() => shownName(host) === 'Altitude Main', 'the file to open');
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+    expect(notes).toContain('recovery: Main at 400 ft descending.');
+    expect(notes).not.toContain('121.92');
+  }, 30000);
+});
+
 
 describe('maximum motor length export losses', () => {
   it.each(['.rkt', '.CDX1'])('reports a mount limit only when present on %s export', async (format) => {

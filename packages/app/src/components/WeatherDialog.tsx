@@ -13,10 +13,11 @@ import {
   applicable, buildProposal, defaultAltitudeChoice, densityAfter, patchOf, snapshotOf,
   type AltitudeChoice, type ProposalRow, type RowRefusal,
 } from '../services/weatherProposal.js';
-import { WEATHER_CREDIT, type WeatherPatch, type WeatherSnapshot } from '../services/weatherSnapshot.js';
+import type { WeatherPatch, WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
+import { WeatherCredit } from './WeatherCredit.js';
 import { WindProfileTable } from './WindProfile.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import {
@@ -355,8 +356,10 @@ export function WeatherDialog({
   const applyingWind = patch.windAverage !== undefined;
   if (proposal && place && aloftTicked && applyingWind && proposal.windLevels.length) {
     patch.windLevels = proposal.windLevels;
+    // `method` travels with the profile, which outlives this snapshot: only a
+    // searched place's name owes GeoNames a credit where the profile is shown.
     patch.windProfileSource = { kind: 'open-meteo', place: place.label, validUnix: proposal.sample.unix,
-      surfaceFromDeg: proposal.sample.windFromDeg! };
+      surfaceFromDeg: proposal.sample.windFromDeg!, method: place.method };
   } else if (applyingWind && launch.windLevels?.length) {
     patch.windLevels = [];
   }
@@ -624,15 +627,7 @@ export function WeatherDialog({
         </div>
 
         <p className="weather-credit">
-          <a href={WEATHER_CREDIT.source.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.source.text}</a>
-          {' · '}
-          <a href={WEATHER_CREDIT.licence.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.licence.text}</a>
-          {(searched || place?.method === 'search') && (
-            <>
-              {' · Place search: '}
-              <a href={WEATHER_CREDIT.places.href} target="_blank" rel="noopener noreferrer">{WEATHER_CREDIT.places.text}</a>
-            </>
-          )}
+          <WeatherCredit geoNames={searched || place?.method === 'search'} />
         </p>
       </div>
     </div>

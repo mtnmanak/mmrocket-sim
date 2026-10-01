@@ -54,4 +54,22 @@ describe('recovery configuration context', () => {
       expect(host.querySelector('button')!.getAttribute('aria-label')).toBe('Apply Same motors');
     } finally { act(() => root.unmount()); }
   });
+
+  it('prints the deployment altitude in the distance unit the user chose (audit 2026-09-30)', () => {
+    // An imperial user's 400 ft main read "Main: 121.92 m AGL descending": raw
+    // SI with a hard-coded "m", in the row and in its Apply button's name.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    const host = document.createElement('div'); const root = createRoot(host);
+    try {
+      act(() => root.render(<PrefsProvider>
+        <ConfigPanel configs={configs} tree={tree} activeConfigId="a" hasMotors={false}
+          onApply={() => {}} onClear={() => {}} />
+      </PrefsProvider>));
+      const buttons = [...host.querySelectorAll('button')];
+      expect(buttons[1]!.getAttribute('aria-label'))
+        .toBe('Apply Same motors — configuration 2; Recovery: Main: 400 ft AGL descending');
+      expect(host.textContent).toContain('Recovery: Main: 400 ft AGL descending');
+      expect(host.textContent).not.toContain(' m AGL');
+    } finally { act(() => root.unmount()); localStorage.clear(); }
+  });
 });

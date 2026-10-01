@@ -83,6 +83,21 @@ export interface TreeHistory {
   canRedo: boolean;
 }
 
+/**
+ * The <input> types a user TYPES into, where Ctrl+Z and Ctrl+Y belong to the
+ * browser's own text undo. Every other input — checkbox, radio, range slider,
+ * colour well, file picker, button — has no undo of its own, so with one
+ * focused the keys undo the design, as they do from a <select> (a choice in a
+ * list is not on the browser's undo stack either). Exempting EVERY input left
+ * Ctrl+Z dead after ticking a property-panel checkbox, which keeps focus
+ * (audit 2026-09-30). The date family is here because it is typed into, and a
+ * design undo mid-date would be the surprise; none is outside a modal today.
+ */
+const TYPED_INPUT_TYPES: ReadonlySet<string> = new Set([
+  'text', 'search', 'url', 'tel', 'email', 'password', 'number',
+  'date', 'time', 'datetime-local', 'month', 'week',
+]);
+
 /** Push onto an undo stack, dropping the oldest step past {@link HISTORY_CAP}. */
 function pushCapped(stack: RocketTree[], t: RocketTree): void {
   stack.push(t);
@@ -188,7 +203,7 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
       if (!(e.ctrlKey || e.metaKey) || !(z || y)) return;
       // Leave native text undo/redo alone while the user is typing.
       const t = e.target;
-      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
+      if ((t instanceof HTMLInputElement && TYPED_INPUT_TYPES.has(t.type)) || t instanceof HTMLTextAreaElement
           || (t instanceof HTMLElement && t.isContentEditable)) {
         return;
       }

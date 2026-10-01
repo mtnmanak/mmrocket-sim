@@ -257,6 +257,42 @@ describe('useTreeHistory — the key binding', () => {
   });
 
   /**
+   * Audit 2026-09-30: EVERY <input> was exempted, and a checkbox, a radio, a
+   * range slider or a colour well has no undo of its own. Tick a checkbox in
+   * the property panel — focus stays on it — and Ctrl+Z did nothing at all
+   * (the header's Undo button still worked). Only a field the user TYPES into
+   * keeps the key now; everything else undoes the design, as a <select>
+   * always has: a choice in a list is not on the browser's undo stack either.
+   */
+  it.each(['checkbox', 'radio', 'range', 'color', 'button', 'select'])(
+    'undoes and redoes the design from a focused %s, which has no undo of its own', (kind) => {
+      const h = renderHistory(t('0'));
+      editApart(h, t('a'));
+      const el = kind === 'select' ? document.createElement('select') : document.createElement('input');
+      if (el instanceof HTMLInputElement) el.type = kind;
+      document.body.appendChild(el);
+      expect(key('z', { ctrl: true }, el).defaultPrevented).toBe(true);
+      expect(h.current.tree.name).toBe('0');
+      key('y', { ctrl: true }, el);
+      expect(h.current.tree.name).toBe('a');
+      el.remove();
+    });
+
+  it.each(['text', 'number', 'search', 'email', 'url', 'tel', 'password', 'date', 'textarea', 'contenteditable'])(
+    'leaves Ctrl+Z to a focused %s, for its own typing', (kind) => {
+      const h = renderHistory(t('0'));
+      editApart(h, t('a'));
+      const el = kind === 'textarea' ? document.createElement('textarea')
+        : kind === 'contenteditable' ? document.createElement('div') : document.createElement('input');
+      if (el instanceof HTMLInputElement) el.type = kind;
+      if (kind === 'contenteditable') el.contentEditable = 'true';
+      document.body.appendChild(el);
+      expect(key('z', { ctrl: true }, el).defaultPrevented).toBe(false);
+      expect(h.current.tree.name).toBe('a');
+      el.remove();
+    });
+
+  /**
    * Audit 2026-09-22. useDialog lets every key but Escape and Tab through, so
    * Ctrl+Z during a Batch sweep rebuilt the rocket the sweep was flying, and
    * behind the Save/Discard modal it undid the design unseen — which Save then
