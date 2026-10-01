@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
 import { aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
+import { QUANTITY_LABEL, UNITS, type Quantity } from '../prefs/units.js';
 
 /**
  * The 3D-printing section: picking a machine fills the build volume, typing
@@ -178,6 +179,71 @@ describe('Preferences → 3D printing', () => {
 });
 
 /**
+ * Audit 2026-09-30: every select in the dialog sat beside a bare <label> and
+ * was named by an aria-label repeating its words. The label was tied to
+ * nothing — clicking it did nothing — and the name lived in two strings.
+ * jsx-a11y saw eight of them; the units grid's eleven hold their words in an
+ * expression, which the rule assumes may contain a control, and were the same.
+ */
+describe('Preferences → every label names its own control', () => {
+  const QUANTITIES = Object.keys(UNITS) as Quantity[];
+  /**
+   * The other selects: the words beside each, a value to pick (never the
+   * default), and where that pick lands — so each label is shown to reach ITS
+   * select, not merely a select. (Velocity and Wind speed offer one list.)
+   */
+  const SETTINGS: [string, string, (p: Preferences) => unknown][] = [
+    ['Round components entered as', 'radius', (p) => p.radiusMode],
+    ['Stability shown as', 'pct', (p) => p.stabilityUnit],
+    ['CG / CP markers in 3D', 'callout', (p) => p.markers3d],
+    ['Theme', 'light', (p) => p.theme],
+    ['Daylight mode', 'on', (p) => (p.daylight ? 'on' : 'off')],
+    ['First-run tour', 'off', (p) => (p.tourOff ? 'off' : 'on')],
+    ['Aerodynamics model', 'supersonic', (p) => aeroChoiceOf(p)],
+    ['Printer', 'bambu-h2d', (p) => p.printer?.preset],
+  ];
+
+  it('each select is the control of the label beside it, and has no second name', () => {
+    mount();
+    const check = (words: string, value: string, read: (p: Preferences) => unknown) => {
+      const select = byLabel(words) as HTMLSelectElement | null;
+      expect(select?.tagName, words).toBe('SELECT');
+      expect(select!.getAttribute('aria-label'), words).toBeNull();
+      pick(select!, value);
+      expect(read(stored()), words).toBe(value);
+    };
+    for (const q of QUANTITIES) {
+      const now = (byLabel(QUANTITY_LABEL[q]) as HTMLSelectElement | null)?.value;
+      check(QUANTITY_LABEL[q], UNITS[q].map((u) => u.symbol).find((s) => s !== now)!, (p) => p.units[q]);
+    }
+    for (const [words, value, read] of SETTINGS) check(words, value, read);
+  });
+
+  it('every label in the dialog reaches its own field, never a unit chip, and the field has no second name', () => {
+    mount();
+    pick(printerSelect(), 'bambu-h2d'); // every field on screen
+    const labels = [...host.querySelectorAll('label')];
+    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 4);
+    for (const l of labels) {
+      const control = l.control;
+      expect(control, `"${labelWords(l)}" labels nothing`).not.toBeNull();
+      expect(control!.classList.contains('unit-chip'), labelWords(l)).toBe(false);
+      expect(control!.hasAttribute('aria-label'), labelWords(l)).toBe(false);
+    }
+  });
+
+  it('clicking the words reaches the select (happy-dom forwards the click; a browser focuses it)', () => {
+    mount();
+    const theme = byLabel('Theme')!;
+    let clicks = 0;
+    theme.addEventListener('click', () => { clicks++; });
+    const label = [...host.querySelectorAll('label')].find((l) => labelWords(l) === 'Theme')!;
+    act(() => { label.click(); });
+    expect(clicks).toBe(1);
+  });
+});
+
+/**
  * The First-run tour setting. Two localStorage keys were involved and this
  * select only ever wrote one of them: the preference blob, while the tour's
  * own "seen" flag lives under its own key and was written solely by
@@ -187,8 +253,7 @@ describe('Preferences → 3D printing', () => {
  */
 describe('Preferences → First-run tour', () => {
   const TOUR_KEY = 'online-openrocket.tour.v1';
-  const tourSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="First-run tour"]')!;
+  const tourSelect = (): HTMLSelectElement => byLabel('First-run tour') as HTMLSelectElement;
 
   it('Off is durable — it stores the preference AND the tour’s own seen flag', () => {
     mount();
@@ -223,8 +288,7 @@ describe('Preferences → First-run tour', () => {
  * models with nothing saying why.
  */
 describe('Preferences → Aerodynamics vs the strip override', () => {
-  const aeroSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="Aerodynamics model"]')!;
+  const aeroSelect = (): HTMLSelectElement => byLabel('Aerodynamics model') as HTMLSelectElement;
 
   /** Renders the dialog plus a stand-in for the strip switch, one provider. */
   const mountBoth = () => act(() => root.render(
@@ -293,7 +357,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     // a theme toggle.
     mountBoth();
     pick(strip(), 'supersonic');
-    pick(host.querySelector('select[aria-label="Daylight mode"]') as HTMLSelectElement, 'on');
+    pick(byLabel('Daylight mode') as HTMLSelectElement, 'on');
     expect(strip().value).toBe('supersonic');
     expect(host.textContent).toContain('overriding the setting above');
   });
@@ -325,8 +389,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
 });
 
 describe('Preferences → CG / CP markers in 3D', () => {
-  const markerSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="CG / CP markers in 3D"]')!;
+  const markerSelect = (): HTMLSelectElement => byLabel('CG / CP markers in 3D') as HTMLSelectElement;
 
   it('defaults to showing everything, and stores nothing until asked', () => {
     mount();
