@@ -161,8 +161,8 @@ describe('Preferences → 3D printing', () => {
 
   /**
    * Audit 2026-09-30: each box's label was a bare sibling, so it reached the
-   * unit chip inside it — clicking "Bed X" opened the unit list — and the box
-   * was named by a second copy of the words in an aria-label, which had
+   * unit chip inside it — clicking "Bed X" focused the chip, not the box — and
+   * the box was named by a second copy of the words in an aria-label, which had
    * already drifted: "Joint clearance" under "Joint clearance (per side)".
    */
   it('each box is the control of the label above it, and has no second name', () => {

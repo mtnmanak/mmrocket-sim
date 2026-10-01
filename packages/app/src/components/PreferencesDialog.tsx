@@ -29,9 +29,10 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
    * Every field's `<label htmlFor>` points at its own control (audit
    * 2026-09-30), and the control carries no aria-label: the words on screen
    * are its one name. A label with no `for` names its first labelable
-   * descendant — the unit chip, so clicking "Bed X" opened the unit list — or
-   * nothing at all, which was every select here: each named by a second copy
-   * of its label's words in an aria-label, the label itself tied to nothing.
+   * descendant — the unit chip, so clicking "Bed X" focused the chip, not the
+   * box — or nothing at all, which was every select here: each named by a
+   * second copy of its label's words in an aria-label, the label itself tied
+   * to nothing.
    */
   const uid = useId();
   const idFor = (key: string) => `${uid}-${key}`;
