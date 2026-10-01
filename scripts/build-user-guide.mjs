@@ -27,8 +27,10 @@
  * (exit 1, with the offending line) on anything outside the known set, so an
  * unsupported edit to the markdown breaks the build instead of the dialog.
  *
- * Output is a pure function of its inputs (the markdown, and the two shipped
- * motor-data files its {{TOKENS}} come from) — byte-identical on re-run — and
+ * Output is a pure function of its inputs (the markdown, the three shipped data
+ * files its {{TOKENS}} come from — motors.json, motorCurves.json and
+ * nozzles.json — and the motor-catalogue corrections table) — byte-identical on
+ * re-run — and
  * its data strings are pure ASCII (non-ASCII escaped as \uXXXX) so the
  * content survives any editor/codepage mishap on the way through a Windows
  * checkout.
@@ -36,6 +38,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Lives beside the app that consumes it — the guide is a
@@ -255,9 +258,40 @@ const TOKEN_KIND = {
   CURVE_SHARE_CERT: 'percent',
   CURVE_SHARE_USER: 'percent',
   CURVE_SHARE_MFR: 'percent',
+  // Not 'count': small figures like these recur in honest prose (a bare 54 is also a
+  // casing size, "54, 75/76, 98 mm"), so a rule on the value would refuse it. The
+  // coverage PHRASE is refused instead, whatever its numbers (see checkBareFigures).
+  NOZZLE_LOKI_WITH_EXIT: 'coverage',
+  NOZZLE_LOKI_IN_PRODUCTION: 'coverage',
+  MOTOR_CORRECTIONS: 'text',
 };
 
-function guideTokens(data) {
+/**
+ * THE CATALOGUE ROWS THE APP CORRECTS, as one clause each (board Tier 1 row 6,
+ * 2026-10-01). The guide says the bundled motors are thrustcurve.org's "as
+ * pulled", and the rows packages/app/scripts/motor-corrections.mjs corrects are
+ * not, so the guide says which and how — phrased from that table, the same one
+ * the refresh applies, so retiring an entry there retires its words here. A
+ * field with no wording below stops the build: a correction must not go
+ * unmentioned just because nobody wrote a phrase for it.
+ */
+export function motorCorrectionsSentence(corrections, motors) {
+  const n = (v) => Number(v).toLocaleString('en-US');
+  const byId = new Map(motors.map((m) => [m.motorId, m]));
+  const clauses = corrections.flatMap((c) => Object.entries(c.fields).map(([field, { bad, good }]) => {
+    const name = `the ${c.manufacturer} ${c.designation}`;
+    if (field === 'length') return `${name} is ${n(good)} mm long, where thrustcurve.org lists ${n(bad)} mm`;
+    if (field === 'propWeightG') {
+      const loaded = byId.get(c.motorId)?.totalWeightG;
+      return `${name} carries ${n(good)} g of propellant, where thrustcurve.org lists ${n(bad)} g`
+        + (Number.isFinite(loaded) ? ` in a ${n(loaded)} g motor` : '');
+    }
+    return fail(`motor-corrections.mjs corrects ${c.designation} ${field}, and the guide has no wording for ${field} — add one in motorCorrectionsSentence()`);
+  }));
+  return clauses.length > 1 ? `${clauses.slice(0, -1).join('; ')}; and ${clauses.at(-1)}` : (clauses[0] ?? '');
+}
+
+function guideTokens(data, corrections) {
   const motors = JSON.parse(readFileSync(join(data, 'motors.json'), 'utf8'));
   const curves = JSON.parse(readFileSync(join(data, 'motorCurves.json'), 'utf8'));
   const total = motors.count ?? motors.motors.length;
@@ -317,7 +351,209 @@ function guideTokens(data) {
     CURVE_SHARE_CERT: share('cert'),
     CURVE_SHARE_USER: share('user'),
     CURVE_SHARE_MFR: share('mfr'),
+    MOTOR_CORRECTIONS: motorCorrectionsSentence(corrections, motors.motors),
   };
+}
+
+/**
+ * THE NOZZLE DATABASE'S FIGURES (board Tier 1 row 17, 2026-10-01). The nozzle
+ * section quoted counts out of nozzles.json by hand, and they drifted the way the
+ * motor counts had: v0.133 corrected "278 motors you can load" to 279 and left
+ * "221 of AeroTech's 272" standing one clause away, so the paragraph's own parts
+ * summed to 275 — and its changelog said the count "cannot drift again" while
+ * nothing read it. The figures are of two kinds, so there are two mechanisms:
+ *
+ *  - COVERAGE ("54 of their 58 in production") is a pair of numbers and nothing
+ *    else, so it is a token, summed per casing diameter from the file's own
+ *    `coverage` block — `withExitDiameter`, never `withNozzleRow`: a row is not
+ *    a number.
+ *  - The counts the prose writes IN WORDS come with names and reasons no token
+ *    can carry ("four Loki motors are short: ... N3800 and N5500 ... L2050,
+ *    M1378"). Measure two of those tomorrow and a token would print "two" in
+ *    front of four names. So those are CHECKED: wherever the guide states one,
+ *    it must be the file's figure, or the build stops until the sentence is
+ *    rewritten. user-guide-current.test.mjs holds the shipped guide to stating
+ *    every one of them, so no check here can go quietly vacuous. That includes
+ *    the motors the guide NAMES for a reason (the J615ST's aerospike, the
+ *    I40N-P's machined nozzle) and the sentence listing every row with no
+ *    number on purpose: a row with no exit for a reason it does not give stops
+ *    the build too (2026-10-01 — resolving the K76WN-P's cut-down exit
+ *    compiled byte for byte, with the guide still describing its nozzle). And
+ *    every AREA it states from two diameters is worked out from the file's
+ *    diameters: the K1100T's two options, and Loki's 76 mm exit machined out
+ *    against each standard exit for that casing.
+ *
+ * All of it reads nozzles.json alone, never motors.json: the weekly catalogue
+ * refresh runs this script, and nozzles.json can only be rebuilt on the one
+ * machine that holds its source documents, so a check joining the two would
+ * fail a workflow nobody on CI can clear (nozzle-db.test.mjs says the same).
+ */
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+/** A count as the guide writes it: a numeral, or a word up to twenty. */
+const SAID_COUNT = String.raw`(\d[\d,]*|${NUMBER_WORDS.join('|')})`;
+const inWords = (n) => (n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : n.toLocaleString('en-US'));
+const asCount = (said) => (/^\d/.test(said) ? Number(said.replace(/,/g, '')) : NUMBER_WORDS.indexOf(said.toLowerCase()));
+
+function nozzleFacts(data) {
+  const db = JSON.parse(readFileSync(join(data, 'nozzles.json'), 'utf8'));
+  const rows = db.motors ?? [];
+  const loki = Object.values(db.coverage?.byManufacturer?.Loki?.byCasingDiameterMm ?? {});
+  if (loki.length === 0) fail('nozzles.json states no coverage for Loki, and the guide quotes it');
+  const total = (key) => loki.reduce((s, e) => s + e[key], 0);
+  const lokiExit = total('withExitDiameter');
+  const lokiInProduction = total('inProduction');
+  // The in-production Loki motors the app has no exit for: those with no row at
+  // all, which each casing names, and those whose row carries none.
+  const lokiShort = [
+    ...loki.flatMap((e) => e.missing ?? []),
+    ...rows.filter((m) => m.manufacturer === 'Loki' && m.motorId && m.exitDiameterM === undefined)
+      .map((m) => m.designation),
+  ].sort();
+  if (lokiShort.length !== lokiInProduction - lokiExit) {
+    fail(`nozzles.json counts ${lokiInProduction - lokiExit} in-production Loki motors with no exit, but names `
+      + `${lokiShort.length} (${lokiShort.join(', ')}) — is a row with no exit out of production? nozzleFacts() `
+      + 'has to say which motors are short before the guide can name them');
+  }
+  // Every other loadable row with no exit carries none ON PURPOSE, for the reason
+  // its sheet's line of material gives, and the guide's sentence on those rows
+  // names each reason: an aerospike, a nozzle machined and drawn by its outside
+  // diameter, one cut shorter than its mould, and the moulded 29 mm cases.
+  const onPurpose = rows.filter((m) => m.manufacturer !== 'Loki' && m.motorId && m.exitDiameterM === undefined);
+  const sheet = (m) => m.provenance?.lomDescription ?? '';
+  return {
+    tokens: {
+      NOZZLE_LOKI_WITH_EXIT: lokiExit.toLocaleString('en-US'),
+      NOZZLE_LOKI_IN_PRODUCTION: lokiInProduction.toLocaleString('en-US'),
+    },
+    rows,
+    lokiShort,
+    twoNozzles: rows.filter((m) => m.exitAmbiguous),
+    onPurpose,
+    // The loadable 29 mm DMS rows with no exit: the moulded case, part 01912.
+    moulded29: rows.filter((m) => m.motorId && m.exitDiameterM === undefined
+      && m.docFamily === 'dms' && m.casingDiameterMm === 29),
+    aerospike: onPurpose.filter((m) => /\bAEROSPIKE\b/i.test(sheet(m))),
+    machinedOD: onPurpose.filter((m) => /\bMACHINED\b/i.test(sheet(m)) && /\bO\.D\./i.test(sheet(m))),
+    cutShort: onPurpose.filter((m) => /\bCUT TO\b/i.test(sheet(m))),
+  };
+}
+
+/** Wherever the guide states one of nozzleFacts()'s figures in words, it must be the file's. */
+function checkNozzleClaims(raw, facts) {
+  const lines = raw.split('\n');
+  const find = (re) => {
+    for (let ln = 0; ln < lines.length; ln++) {
+      const m = lines[ln].match(re);
+      if (m) return { m, ln, line: lines[ln] };
+    }
+    return null;
+  };
+  const named = (rows) => rows.map((m) => m.designation).join(', ');
+
+  let at = find(new RegExp(String.raw`\b${SAID_COUNT} (\w+) motors have two published nozzles\b`, 'i'));
+  if (at) {
+    const [said, count, maker] = at.m;
+    const two = facts.twoNozzles;
+    if (asCount(count) !== two.length || two.some((m) => m.manufacturer !== maker)) {
+      fail(`user-guide.md says "${said}"; nozzles.json has ${inWords(two.length)} motors with two published `
+        + `nozzles (${named(two)}) — rewrite the sentence`, at.ln);
+    }
+  }
+
+  at = find(new RegExp(String.raw`\b${SAID_COUNT} Loki motors are short\b`, 'i'));
+  if (at) {
+    const short = facts.lokiShort;
+    if (asCount(at.m[1]) !== short.length) {
+      fail(`user-guide.md says ${at.m[1]} Loki motors are short; nozzles.json has ${inWords(short.length)} in `
+        + `production with no exit (${short.join(', ')}) — rewrite that sentence and the motors it names`, at.ln);
+    }
+    for (const designation of short) {
+      const name = designation.match(/^[A-Z]\d+/)?.[0] ?? designation;
+      if (!at.line.includes(name)) {
+        fail(`user-guide.md's sentence on the Loki motors that are short does not name ${name} (${designation}), `
+          + 'which nozzles.json counts among them', at.ln);
+      }
+    }
+  }
+
+  at = find(new RegExp(String.raw`\b${SAID_COUNT} 29 mm DMS motors have the nozzle moulded into the case\b`, 'i'));
+  if (at && asCount(at.m[1]) !== facts.moulded29.length) {
+    fail(`user-guide.md says ${at.m[1]} 29 mm DMS motors have the nozzle moulded into the case; nozzles.json has `
+      + `${inWords(facts.moulded29.length)} loadable 29 mm DMS rows with no exit (${named(facts.moulded29)})`, at.ln);
+  }
+
+  // The rest of the rows with no number on purpose. The sentence names one motor
+  // for two of its reasons and counts the other two, and it reads as the whole
+  // list, so a row with no exit for a reason it does not give is a sentence to
+  // write, not a row to leave out.
+  const notTheFiles = (hit, what, rows) => fail(`user-guide.md says "${hit.m[0]}"; in nozzles.json the loadable `
+    + `rows with no exit ${what} are ${rows.length ? `${inWords(rows.length)}: ${named(rows)}` : 'none'}`, hit.ln);
+  const theOne = (re, what, rows) => {
+    const hit = find(re);
+    if (hit && !(rows.length === 1 && rows[0].designation.startsWith(hit.m[1]))) notTheFiles(hit, what, rows);
+  };
+  theOne(/\bthe ([A-Z]\d+[A-Z]*) is an aerospike\b/, 'and an aerospike on the sheet', facts.aerospike);
+  theOne(/\bthe ([A-Z]\d+[A-Z]*(?:-[A-Z]+)?)'s machined nozzle is drawn with its outside diameter and no exit\b/,
+    'and a nozzle the sheet gives machined to an outside diameter', facts.machinedOD);
+  at = find(new RegExp(String.raw`\b${SAID_COUNT} has a nozzle the sheet says was cut shorter than the mould\b`, 'i'));
+  if (at && asCount(at.m[1]) !== facts.cutShort.length) {
+    notTheFiles(at, 'and a nozzle the sheet says was "CUT TO" a length', facts.cutShort);
+  }
+  at = find(/\bcarry a row with no number on purpose\b/);
+  if (at) {
+    const given = [facts.aerospike, facts.moulded29, facts.machinedOD, facts.cutShort];
+    const unexplained = facts.onPurpose.filter((m) => !given.some((rows) => rows.includes(m)));
+    if (unexplained.length) {
+      fail(`nozzles.json has ${inWords(unexplained.length)} loadable row(s) with no exit that user-guide.md's sentence `
+        + 'on the rows with no number on purpose does not account for: '
+        + `${unexplained.map((m) => `${m.designation} ("${m.provenance?.lomDescription ?? 'no sheet line'}")`).join(', ')}`
+        + ' — say why in that sentence, and check it in checkNozzleClaims()', at.ln);
+    }
+  }
+
+  // An AREA, from two diameters — the comparison this project has got wrong most often.
+  at = find(/\b([A-Z]\d+[A-Z]*)'s two options differ by (\d+) % in area\b/);
+  if (at) {
+    const [, name, said] = at.m;
+    const row = facts.rows.find((m) => m.designation.startsWith(name) && m.alternatives?.length);
+    if (!row) fail(`user-guide.md compares the ${name}'s two nozzles; nozzles.json has no ${name} row with two`, at.ln);
+    const exits = [row.exitDiameterIn, ...row.alternatives.map((a) => a.exitDiameterIn)];
+    const pct = Math.round(100 * ((Math.max(...exits) / Math.min(...exits)) ** 2 - 1));
+    if (Number(said) !== pct) {
+      fail(`user-guide.md says the ${name}'s two options differ by ${said} % in area; nozzles.json's exits `
+        + `(${exits.join(' in and ')} in) give ${pct} %`, at.ln);
+    }
+  }
+
+  // Loki's 76 mm exit machined out, against each standard exit the app fills in
+  // for that casing: two areas from three diameters, every one of them the file's.
+  at = find(/\b(\d*\.\d+)″ against the standard (\d*\.\d+)″ is (\d+) % more area, and against the (\d*\.\d+)″ band it is (\d+) %/);
+  if (at) {
+    const [, out, ...said] = at.m;
+    const pairs = [[said[0], said[1]], [said[2], said[3]]];
+    // A figure is the file's when it reads the same at the decimals the guide writes.
+    const asWritten = (text, x) => Number(x.toFixed(text.split('.')[1]?.length ?? 0)) === Number(text);
+    const l76 = facts.rows.filter((m) => m.manufacturer === 'Loki' && m.casingDiameterMm === 76
+      && m.exitDiameterIn !== undefined);
+    const bands = [...new Set(l76.map((m) => m.exitDiameterIn))].sort((a, b) => b - a);
+    if (bands.length !== pairs.length || !pairs.every(([d]) => bands.some((x) => asWritten(d, x)))) {
+      fail(`user-guide.md compares a machined-out 76 mm Loki exit with ${pairs.map(([d]) => `${d}″`).join(' and ')}; `
+        + `nozzles.json's 76 mm Loki exits are ${bands.length > 1 ? `${bands.slice(0, -1).join(', ')} and ${bands.at(-1)}` : bands[0]} in`, at.ln);
+    }
+    const limits = [...new Set(l76.map((m) => m.customExitNote?.match(/\bout to (\d*\.\d+) in\b/)?.[1]))];
+    if (limits.length !== 1 || limits[0] === undefined || !asWritten(out, Number(limits[0]))) {
+      fail(`user-guide.md says a 76 mm Loki exit can be machined out to ${out}″; nozzles.json's 76 mm Loki rows say `
+        + `${limits.map((l) => (l === undefined ? 'nothing' : `${l} in`)).join(' or ')}`, at.ln);
+    }
+    for (const [d, pct] of pairs) {
+      const area = Math.round(100 * ((Number(out) / Number(d)) ** 2 - 1));
+      if (Number(pct) !== area) {
+        fail(`user-guide.md's ${out}″ against ${d}″ says ${pct} %; the area grows ${area} % (the diameter `
+          + `${Math.round(100 * (Number(out) / Number(d) - 1))} %)`, at.ln);
+      }
+    }
+  }
 }
 
 /**
@@ -335,7 +571,12 @@ function guideTokens(data) {
  *    any count of three digits or more of motors or curves, whatever the
  *    number — that is a catalogue figure however stale it is;
  *  - a date within a sentence's reach of "catalogue", "pulled" or
- *    "thrustcurve".
+ *    "thrustcurve";
+ *  - a nozzle coverage figure, "N of their M in production", whatever the
+ *    numbers (2026-10-01: that is the shape "221 of AeroTech's 272" shipped in).
+ *
+ * The two PHRASE rules (catalogue count, coverage) read the line with its
+ * **emphasis** taken out, since a bold figure is how the guide has written both.
  *
  * Designed against the guide as it stands: "0.80 (auto)", "above 80 N
  * average thrust" and "29 mm DMS motors" all pass. If a figure is refused that
@@ -344,6 +585,11 @@ function guideTokens(data) {
 const UNIT_AFTER = String.raw`(?!\s*(?:N·s|Ns|N|mm|cm|km|ms|m|s|kg|g|lb|oz|ft|in|K|Pa|hPa|kPa|percent|degrees?|cal|calibers?|px|x)(?![A-Za-z]))(?!\s*[%°″′×·/])`;
 const CATALOGUE_NOUN = String.raw`(?:motors?|simulator files?|thrust curves?|curve files?|curves?)\b`;
 const PROSE_DATE = new RegExp(String.raw`\b\d{1,2} (?:${MONTHS.join('|')}) \d{4}\b`, 'g');
+// "54 of their 58 in production", and the shapes it has been or could be written
+// in: "of AeroTech's 272", "out of", no "their" at all, up to three words before
+// "in production" ("272 AeroTech motors in production"), or "in-production
+// motors". Matched on the line with its emphasis taken out (see checkBareFigures).
+const COVERAGE_PHRASE = /(?<![\d.,])\d[\d,]*\s+(?:out\s+)?of\s+(?:(?:their|its|the|all|[A-Za-z]+(?:\s+Research)?['’]s)\s+)?\d[\d,]*\s+(?:[A-Za-z]+\s+){0,3}?in[\s-]+production\b/i;
 
 function checkBareFigures(raw, tokens) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -373,8 +619,20 @@ function checkBareFigures(raw, tokens) {
         fail(`bare "${hit[0].trim()}" is the shipped data's {{${key}}} (${TOKEN_KIND[key]}), typed by hand — write {{${key}}} so it follows the data`, ln);
       }
     }
+    // The two phrase rules read the line with its emphasis taken out: they need
+    // the figure and its noun side by side, and "**221** of AeroTech's 272" or
+    // "**1,129** motors" — the bold the guide uses for exactly these figures —
+    // put markup between them (2026-10-01: both compiled).
+    const plain = text.replace(/\*/g, '');
+    // Before the catalogue-count phrase, which would also catch "272 motors" and
+    // send the writer to the wrong tokens.
+    const coverage = plain.match(COVERAGE_PHRASE);
+    if (coverage) {
+      fail(`"${coverage[0]}" is a hand-typed nozzle coverage figure — use {{NOZZLE_LOKI_WITH_EXIT}} of their `
+        + '{{NOZZLE_LOKI_IN_PRODUCTION}}, or add a token for that maker in nozzleFacts(), so it follows nozzles.json', ln);
+    }
     phrase.lastIndex = 0;
-    const counted = phrase.exec(text);
+    const counted = phrase.exec(plain);
     if (counted) {
       fail(`"${counted[0]}" is a hand-typed catalogue count — use {{MOTOR_COUNT}}, {{CURVE_MOTORS}}, {{CURVE_FILES}} or {{CURVE_MISSING}}`, ln);
     }
@@ -398,22 +656,30 @@ const field = (k, v) => `    ${JSON.stringify(k)}: ${ascii(JSON.stringify(v))}`;
 /**
  * Compile the guide: markdown in, the text of userGuide.ts out. Pure — it
  * writes nothing — so user-guide-current.test.mjs can hold the committed file
- * to it. `dataDir` is where motors.json and motorCurves.json are read from.
+ * to it. `dataDir` is where motors.json, motorCurves.json and nozzles.json are
+ * read from; `corrections` is the motor-catalogue corrections table.
  */
-export function compileGuide({ markdown = readFileSync(SRC, 'utf8'), dataDir = DATA } = {}) {
-  const TOKENS = guideTokens(dataDir);
+export function compileGuide({
+  markdown = readFileSync(SRC, 'utf8'), dataDir = DATA, corrections = MOTOR_CORRECTIONS,
+} = {}) {
+  const nozzles = nozzleFacts(dataDir);
+  const TOKENS = { ...guideTokens(dataDir, corrections), ...nozzles.tokens };
   for (const key of Object.keys(TOKENS)) {
     if (!(key in TOKEN_KIND)) fail(`guide token {{${key}}} has no entry in TOKEN_KIND`);
   }
 
   const rawGuide = markdown.replace(/\r\n/g, '\n');
   checkBareFigures(rawGuide, TOKENS);
+  checkNozzleClaims(rawGuide, nozzles);
 
   const lines = rawGuide
     .replace(/\{\{([A-Z_]+)\}\}/g, (_m, key) => {
       if (!(key in TOKENS)) {
         fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);
       }
+      // A sentence built round a token must not print with a hole in it — the
+      // corrections sentence once the last correction is retired, say.
+      if (TOKENS[key] === '') fail(`{{${key}}} renders nothing from the data it is built on — remove or reword the sentence that uses it`);
       return TOKENS[key];
     })
     .split('\n');

@@ -8,6 +8,7 @@ import {
   OVERLAY_KEY, RECHECK_MIN_MS, changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay,
   diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry,
 } from './catalogueOverlay.js';
+import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
 
 /**
  * The in-app "check thrustcurve.org for newer motors" path. Everything here
@@ -217,21 +218,40 @@ describe('checkForCatalogueUpdates — the button', () => {
     expect(overlay.added.map((m) => m.motorId).sort()).toEqual(['a1', 'b1']);
   });
 
-  it('screens only what it would apply — a shipped row that is implausible but unchanged is left alone', async () => {
-    // The shipped catalogue carries rows that fail screenEntry (thrustcurve.org
-    // lists more propellant than loaded mass on at least one motor); the
-    // runtime refuses those at fly time with a message. A live pull that
-    // returns them UNCHANGED must not refuse them (they were reviewed when
-    // shipped) and must not mistake them for removed.
-    const implausible = MOTOR_DB.filter((m) => screenEntry(m) !== null);
-    expect(implausible.length).toBeGreaterThan(0);
-    const spy = stubApi(MOTOR_DB);
+  it('reads a live row still carrying a figure the shipped catalogue corrects as no change at all', async () => {
+    // Until 2026-10-01 the shipped catalogue itself carried two rows that fail
+    // screenEntry, exactly as thrustcurve.org lists them, and this test held a
+    // live pull returning them unchanged to refusing nothing. They are corrected
+    // now (scripts/motor-corrections.mjs) and thrustcurve.org still serves the
+    // known-bad figures, so a live pull returns them DIFFERENT from the shipped
+    // rows. Without the same corrections on the live side they would arrive as
+    // changes, fail the screen and be reported "refused" on every check.
+    const live = MOTOR_DB.map((m) => {
+      const c = MOTOR_CORRECTIONS.find((x) => x.motorId === m.motorId);
+      if (!c) return m;
+      const asUpstream: Record<string, unknown> = { ...m };
+      for (const [f, { bad }] of Object.entries(c.fields)) asUpstream[f] = bad;
+      return asUpstream as unknown as MotorDbEntry;
+    });
+    // Not vacuous: each of those live rows really is one the screen refuses.
+    expect(live.filter((m) => screenEntry(m) !== null)).toHaveLength(MOTOR_CORRECTIONS.length);
+    const spy = stubApi(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.rejected).toEqual([]);
     expect(overlay.removed).toEqual([]);
     expect(overlay.added).toEqual([]);
     expect(overlay.changed).toEqual([]);
     expect(getCatalogue()).toBe(MOTOR_DB);
+  });
+
+  it('still reports a corrected row that thrustcurve.org moves to a third figure, as any change', async () => {
+    // The corrections hide only their own known-bad figure, never a real move.
+    const id = '5f4294d200023100000000f5'; // Contrail J234-BG, shipped corrected to 922 mm
+    const live = MOTOR_DB.map((m) => (m.motorId === id ? { ...m, length: 914 } : m));
+    const spy = stubApi(live);
+    const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
+    expect(overlay.changed.map((c) => [c.motorId, c.fields])).toEqual([[id, ['length']]]);
+    expect(getCatalogue().find((m) => m.motorId === id)!.length).toBe(914);
   });
 
   it('refuses a CHANGE that makes a motor implausible, and keeps the shipped row', async () => {

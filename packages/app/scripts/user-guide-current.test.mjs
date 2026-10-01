@@ -9,9 +9,12 @@
  * {{TOKENS}} (motor counts, the catalogue date, the curve shares) are compiled
  * from motors.json and motorCurves.json, which the weekly refresh rewrites. A
  * refresh that committed only the JSON left the repo's guide quoting the
- * previous catalogue until some unrelated build happened to rewrite it.
+ * previous catalogue until some unrelated build happened to rewrite it. Since
+ * 2026-10-01 the nozzle coverage comes from nozzles.json the same way, and that
+ * file is rebuilt by hand on one machine, so a rebuild that skips the guide is
+ * caught here too.
  *
- * NOT FLAKY BY CONSTRUCTION: the compile is a pure function of three committed
+ * NOT FLAKY BY CONSTRUCTION: the compile is a pure function of four committed
  * files (no clock, no network, no locale beyond the pinned 'en-US'), and the
  * comparison ignores only a Windows checkout's CRLF, which git's autocrlf adds
  * and removes and the generator never writes.
@@ -23,7 +26,10 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { DATA, GuideError, OUT, SRC, compileGuide } from '../../../scripts/build-user-guide.mjs';
+import {
+  DATA, GuideError, OUT, SRC, compileGuide, motorCorrectionsSentence,
+} from '../../../scripts/build-user-guide.mjs';
+import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
@@ -71,7 +77,7 @@ describe('the committed userGuide.ts is current', () => {
     // Not toBe(): a 50 kB string diff is unreadable, and the remedy is one command.
     if (ts !== committed()) {
       expect.fail('packages/app/src/data/userGuide.ts is stale: it is not what user-guide.md and the '
-        + 'shipped motors.json / motorCurves.json compile to. Run `node scripts/build-user-guide.mjs` '
+        + 'shipped motors.json / motorCurves.json / nozzles.json compile to. Run `node scripts/build-user-guide.mjs` '
         + 'and commit the result.');
     }
     expect(ts).toBe(committed());
@@ -106,6 +112,7 @@ describe('the check can see what it exists to see', () => {
     // prints it as {{MOTOR_DB_DATE}}. Nothing else changes, and that alone
     // must be enough to make the committed file stale.
     copyFileSync(join(DATA, 'motorCurves.json'), join(dir, 'motorCurves.json'));
+    copyFileSync(join(DATA, 'nozzles.json'), join(dir, 'nozzles.json'));
     const motors = JSON.parse(readFileSync(join(DATA, 'motors.json'), 'utf8'));
     const refreshed = motors.generated === '2099-01-04' ? '2099-01-05' : '2099-01-04';
     writeFileSync(join(dir, 'motors.json'), JSON.stringify({ ...motors, generated: refreshed }));
@@ -126,5 +133,239 @@ describe('the check can see what it exists to see', () => {
     const bad = md.replace(/\n## /, '\n<div>raw html</div>\n\n## ');
     expect(() => compileGuide({ markdown: bad })).toThrow(GuideError);
     expect(() => compileGuide({ markdown: bad })).toThrow(/^build-user-guide: .*\n {2}at packages\/app\/user-guide\.md:\d+$/);
+  });
+});
+
+/**
+ * THE NOZZLE DATABASE'S FIGURES (board Tier 1 row 17). The guide's nozzle
+ * section quoted counts out of nozzles.json by hand, and they went stale the way
+ * the motor counts did: v0.133 fixed "278 motors you can load" to 279 and left
+ * "221 of AeroTech's 272" one clause away, so the paragraph's own parts summed
+ * to 275. Coverage now comes from the file at build time; the figures the prose
+ * writes in words come with names and reasons no token can carry, so they are
+ * checked against the file instead, and a rebuild that moves one fails the guide
+ * build until the sentence is rewritten.
+ */
+const shippedNozzles = () => JSON.parse(readFileSync(join(DATA, 'nozzles.json'), 'utf8'));
+const coverageSum = (db, maker, key) => Object.values(db.coverage.byManufacturer[maker].byCasingDiameterMm)
+  .reduce((s, e) => s + e[key], 0);
+/** Every section's html, joined: a sentence can be in any of them. */
+const allHtml = (ts) => [...ts.matchAll(/"html": (".*")/g)].map((m) => JSON.parse(m[1])).join('\n');
+
+describe('the nozzle database figures the guide quotes', () => {
+  const doc = (body) => `<a id="s"></a>\n## S\n\n${body}`;
+
+  it("compiles Loki's coverage from the file's own per-casing counts", () => {
+    const db = shippedNozzles();
+    const { ts } = compileGuide({ markdown: doc('X{{NOZZLE_LOKI_WITH_EXIT}}Y{{NOZZLE_LOKI_IN_PRODUCTION}}Z') });
+    expect(allHtml(ts)).toContain(`X${coverageSum(db, 'Loki', 'withExitDiameter')}Y${coverageSum(db, 'Loki', 'inProduction')}Z`);
+  });
+
+  it('refuses a coverage figure typed by hand, whatever the number', () => {
+    expect(() => compileGuide({ markdown: doc('Loki: 54 of their 58 in production.') })).toThrow(/hand-typed nozzle coverage/);
+    expect(() => compileGuide({ markdown: doc("AeroTech: 222 of AeroTech's 272 motors in production.") }))
+      .toThrow(/hand-typed nozzle coverage/);
+    // A count of something else that happens to say "of the" is not coverage.
+    expect(() => compileGuide({ markdown: doc('30 of the 72 hours had a gust.') })).not.toThrow();
+  });
+
+  it('refuses it in the shapes the guide writes it: bold, hyphenated, with or without "their"', () => {
+    for (const said of [
+      'Loki: **54** of their 58 in production.', // the bold the old guide used
+      "Together that is **221** of AeroTech's 272 in production.",
+      '222 of their 272 in-production motors have an exit.',
+      'Loki: 54 of 58 in production.',
+      'Loki: 54 out of their 58 in production.',
+      '222 of the 272 AeroTech motors in production.',
+      '*54* of their *58* in production.',
+    ]) {
+      expect(() => compileGuide({ markdown: doc(said) }), said).toThrow(/hand-typed nozzle coverage/);
+    }
+  });
+
+  it('refuses a catalogue count in bold as it does in plain text', () => {
+    // A stale figure, so no token's current value can be what catches it.
+    expect(() => compileGuide({ markdown: doc('The app bundles 1,129 motors.') })).toThrow(/hand-typed catalogue count/);
+    expect(() => compileGuide({ markdown: doc('The app bundles **1,129** motors.') })).toThrow(/hand-typed catalogue count/);
+    expect(() => compileGuide({ markdown: doc('**1,129 bundled** motors.') })).toThrow(/hand-typed catalogue count/);
+  });
+
+  it('is stated in the shipped guide, every figure the build checks, so no check is vacuous', () => {
+    const md = readFileSync(SRC, 'utf8');
+    expect(md).toContain('{{NOZZLE_LOKI_WITH_EXIT}} of their {{NOZZLE_LOKI_IN_PRODUCTION}} in production');
+    expect(md).toMatch(/\b[A-Za-z]+ AeroTech motors have two published nozzles\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ Loki motors are short\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ 29 mm DMS motors have the nozzle moulded into the case\b/);
+    expect(md).toMatch(/K1100T's two options differ by \d+ % in area/);
+    expect(md).toMatch(/\bcarry a row with no number on purpose\b/);
+    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]* is an aerospike\b/);
+    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]*(?:-[A-Z]+)?'s machined nozzle is drawn with its outside diameter and no exit\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ has a nozzle the sheet says was cut shorter than the mould\b/);
+    expect(md).toMatch(/\d*\.\d+″ against the standard \d*\.\d+″ is \d+ % more area, and against the \d*\.\d+″ band it is \d+ %/);
+  });
+});
+
+describe('a nozzle-database rebuild the guide has not caught up with', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'guide-nozzles-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  copyFileSync(join(DATA, 'motors.json'), join(dir, 'motors.json'));
+  copyFileSync(join(DATA, 'motorCurves.json'), join(dir, 'motorCurves.json'));
+  /** The shipped nozzles.json with one edit, as a data directory to compile against. */
+  const rebuilt = (edit) => {
+    const db = shippedNozzles();
+    edit(db);
+    writeFileSync(join(dir, 'nozzles.json'), JSON.stringify(db));
+    return dir;
+  };
+  const row = (db, designation) => db.motors.find((m) => m.designation === designation);
+  const loki = (db, mm) => db.coverage.byManufacturer.Loki.byCasingDiameterMm[mm];
+  /** A loadable 54 mm AeroTech reload with one published exit, to take that exit away from. */
+  const anOrdinaryReload = (db) => db.motors.find((m) => m.manufacturer === 'AeroTech' && m.motorId
+    && m.exitDiameterM !== undefined && m.casingDiameterMm === 54 && m.docFamily === 'reloadable' && !m.exitAmbiguous);
+
+  it('reads as stale when the coverage it quotes moves', () => {
+    // A new in-production 38 mm Loki motor with a published exit: one more of one
+    // more, and the four short ones are still four, so no prose check objects.
+    const { ts } = compileGuide({
+      dataDir: rebuilt((db) => {
+        const e = loki(db, '38');
+        e.inProduction += 1; e.withNozzleRow += 1; e.withExitDiameter += 1;
+      }),
+    });
+    expect(ts).not.toBe(committed());
+    const db = shippedNozzles();
+    expect(allHtml(ts)).toContain(`${coverageSum(db, 'Loki', 'withExitDiameter') + 1} of their `
+      + `${coverageSum(db, 'Loki', 'inProduction') + 1} in production`);
+  });
+
+  it('refuses to compile when fewer Loki motors are short than the guide says, or others are', () => {
+    // The owner measures the two 54/4000 one-time-use nozzles: two short, not four.
+    const measured = rebuilt((db) => {
+      Object.assign(loki(db, '54'), { withNozzleRow: 16, withExitDiameter: 16, missing: [] });
+    });
+    expect(() => compileGuide({ dataDir: measured })).toThrow(/says four Loki motors are short; nozzles\.json has two/);
+    // The same count, a different motor: the sentence would name the wrong one.
+    const renamed = rebuilt((db) => { loki(db, '54').missing = ['L2050LW', 'K9999LW']; });
+    expect(() => compileGuide({ dataDir: renamed })).toThrow(/does not name K9999/);
+  });
+
+  it('refuses to compile when the two-nozzle, moulded-case or K1100T figures move', () => {
+    const fewer = rebuilt((db) => { delete row(db, 'K550W-L').exitAmbiguous; });
+    expect(() => compileGuide({ dataDir: fewer })).toThrow(/AeroTech motors have two published nozzles.*eight/);
+    const exitFound = rebuilt((db) => { row(db, 'G125T-14A').exitDiameterM = 0.0079; });
+    expect(() => compileGuide({ dataDir: exitFound })).toThrow(/29 mm DMS.*three/);
+    const altered = rebuilt((db) => { row(db, 'K1100T-L').alternatives[0].exitDiameterIn = 1.0; });
+    expect(() => compileGuide({ dataDir: altered })).toThrow(/K1100T.*56 %/);
+  });
+
+  it('refuses to compile when a row the guide gives as having no exit on purpose gets one', () => {
+    // The K76WN-P's cut-down exit is resolved: AeroTech's 54 mm coverage and the
+    // file's counts gain one, which the guide quotes nowhere, so without a check on
+    // the sentence it compiled byte for byte and still said one motor's nozzle was
+    // cut shorter than the mould.
+    const resolved = rebuilt((db) => {
+      Object.assign(row(db, 'K76WN-P'), { exitDiameterM: 0.019, exitDiameterIn: 0.748 });
+      db.coverage.byManufacturer.AeroTech.byCasingDiameterMm['54'].withExitDiameter += 1;
+      db.counts.motorsWithExit += 1;
+      db.counts.motorsLoadableWithExit += 1;
+    });
+    expect(() => compileGuide({ dataDir: resolved }))
+      .toThrow(/says "one has a nozzle the sheet says was cut shorter than the mould"; .* are none/);
+    const spike = rebuilt((db) => { row(db, 'J615ST-20A').exitDiameterM = 0.02; });
+    expect(() => compileGuide({ dataDir: spike })).toThrow(/says "the J615ST is an aerospike"; .* are none/);
+    const machined = rebuilt((db) => { row(db, 'I40N-P').exitDiameterM = 0.02; });
+    expect(() => compileGuide({ dataDir: machined })).toThrow(/says "the I40N-P's machined nozzle .* are none/);
+    // A rebuild that adds a second aerospike, after the J615ST: the sentence names
+    // one, so it would leave the new one out.
+    const twoSpikes = rebuilt((db) => {
+      db.motors.push({ motorId: 'f'.repeat(24), manufacturer: 'AeroTech', designation: 'K950ST-14A',
+        casingDiameterMm: 54, docFamily: 'reloadable', provenance: { lomDescription: 'AEROSPIKE NOZZLE W/-4 ANNULAR RING' } });
+    });
+    expect(() => compileGuide({ dataDir: twoSpikes }))
+      .toThrow(/says "the J615ST is an aerospike"; .* are two: J615ST-20A, K950ST-14A/);
+  });
+
+  it("refuses to compile when Loki's 76 mm bands or their machined-out exit move", () => {
+    const loki76 = (db) => db.motors.filter((m) => m.manufacturer === 'Loki' && m.casingDiameterMm === 76);
+    // A rebuild that reads the 76/3600 band as 1.550 in: the guide's 1.500 and its 78 % go stale together.
+    const band = rebuilt((db) => { for (const r of loki76(db)) if (r.exitDiameterIn === 1.5) r.exitDiameterIn = 1.55; });
+    expect(() => compileGuide({ dataDir: band })).toThrow(/76 mm Loki exits are 1\.818 and 1\.55 in/);
+    // A third band: the sentence names two.
+    const third = rebuilt((db) => { row(db, 'M3464LB').exitDiameterIn = 1.9; });
+    expect(() => compileGuide({ dataDir: third })).toThrow(/76 mm Loki exits are 1\.9, 1\.818 and 1\.5 in/);
+    // Loki machine their 76 mm exits out further.
+    const further = rebuilt((db) => {
+      for (const r of loki76(db)) r.customExitNote = r.customExitNote.replace('out to 2.0 in', 'out to 2.1 in');
+    });
+    expect(() => compileGuide({ dataDir: further })).toThrow(/machined out to 2\.0″; nozzles\.json's 76 mm Loki rows say 2\.1 in/);
+  });
+
+  it('refuses to compile when the 76 mm percentages are not the areas of their own diameters', () => {
+    const md = readFileSync(SRC, 'utf8');
+    expect(md).toContain('1.818″ is 21 % more area');
+    // 21 % is the area; the diameter is 10 % wider, the shape v0.133's note got wrong.
+    expect(() => compileGuide({ markdown: md.replace('1.818″ is 21 % more area', '1.818″ is 10 % more area') }))
+      .toThrow(/against 1\.818″ says 10 %; the area grows 21 %/);
+    expect(() => compileGuide({ markdown: md.replace('1.500″ band it is 78 %', '1.500″ band it is 33 %') }))
+      .toThrow(/against 1\.500″ says 33 %; the area grows 78 %/);
+  });
+
+  it('refuses to compile when a loadable row has no exit for a reason the guide does not give', () => {
+    const unexplained = rebuilt((db) => {
+      const r = anOrdinaryReload(db);
+      delete r.exitDiameterM;
+      delete r.exitDiameterIn;
+      r.provenance = { ...r.provenance, lomDescription: '54MM NOZZLE, EXIT NOT DIMENSIONED' };
+    });
+    expect(() => compileGuide({ dataDir: unexplained }))
+      .toThrow(/with no exit that user-guide\.md's sentence on the rows with no number on purpose does not account for: \S+ \("54MM NOZZLE, EXIT NOT DIMENSIONED"\)/);
+  });
+
+  it('compiles the shipped file unchanged, so each refusal above is the edit and not the copy', () => {
+    expect(compileGuide({ dataDir: rebuilt(() => {}) }).ts).toBe(compileGuide().ts);
+  });
+});
+
+/**
+ * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 row 6). The guide says the
+ * app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01 two rows
+ * are not: motor-corrections.mjs replaces figures no motor can have. The sentence
+ * that says so is phrased FROM that table, so retiring an entry there retires
+ * its words here, and a correction to a field the guide has no wording for stops
+ * the build rather than going unmentioned.
+ */
+describe('the motor-catalogue corrections the guide states', () => {
+  const motors = JSON.parse(readFileSync(join(DATA, 'motors.json'), 'utf8')).motors;
+  const n = (v) => v.toLocaleString('en-US');
+
+  it('names every corrected figure, and the figure thrustcurve.org gives, in the shipped guide', () => {
+    expect(readFileSync(SRC, 'utf8')).toContain('{{MOTOR_CORRECTIONS}}');
+    const html = allHtml(compileGuide().ts);
+    for (const c of MOTOR_CORRECTIONS) {
+      for (const { bad, good } of Object.values(c.fields)) {
+        expect(html).toMatch(new RegExp(`${c.manufacturer} ${c.designation}[^;.]*\\b${n(good).replace('.', '\\.')} [^;]*thrustcurve\\.org lists ${n(bad)}\\b`));
+      }
+    }
+  });
+
+  it('is phrased from the table, field by field, and refuses a field it has no words for', () => {
+    const [c] = MOTOR_CORRECTIONS;
+    expect(motorCorrectionsSentence([c], motors)).toMatch(new RegExp(`^the ${c.manufacturer} ${c.designation} `));
+    const unworded = { ...c, fields: { avgThrustN: { bad: 1, good: 2 } } };
+    expect(() => motorCorrectionsSentence([unworded], motors)).toThrow(/no wording for .*avgThrustN/);
+    expect(motorCorrectionsSentence([], motors)).toBe('');
+  });
+
+  it('joins several corrections with semicolons, since each carries its own comma', () => {
+    const one = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(0, 1), motors);
+    const both = motorCorrectionsSentence(MOTOR_CORRECTIONS, motors);
+    expect(MOTOR_CORRECTIONS.length).toBeGreaterThan(1);
+    expect(both.startsWith(`${one}; and `)).toBe(true);
+  });
+
+  it('refuses to print the sentence once the table has nothing in it', () => {
+    const doc = '<a id="s"></a>\n## S\n\nCorrected: {{MOTOR_CORRECTIONS}}.';
+    expect(() => compileGuide({ markdown: doc })).not.toThrow();
+    expect(() => compileGuide({ markdown: doc, corrections: [] })).toThrow(/\{\{MOTOR_CORRECTIONS\}\} renders nothing/);
   });
 });

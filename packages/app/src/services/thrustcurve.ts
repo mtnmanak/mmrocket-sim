@@ -655,9 +655,12 @@ export function samplesToMotorSpec(
     pts.unshift({ time: 0, thrust: 0 });
   }
 
-  // thrustcurve.org's catalog is not uniformly populated: 146 of the 1129
-  // bundled entries publish no loaded weight and 14 no propellant weight, and
-  // one (Cesaroni 25E75-17A) lists more propellant than loaded mass. Without
+  // thrustcurve.org's catalog is not uniformly populated: 145 of the 1,156
+  // bundled entries publish no loaded weight and 13 no propellant weight
+  // (2026-09-30 snapshot), and thrustcurve.org lists Cesaroni 25E75-17A with
+  // more propellant than loaded mass (corrected since 2026-10-01 in the bundled
+  // catalogue and in a live overlay alike, scripts/motor-corrections.mjs, so
+  // the guard below is for the next row that arrives that way). Without
   // this guard those became NaN / negative masses that went straight into the
   // kernel, where TeaVM threw a raw "cannot be converted to a BigInt" and the
   // whole design blanked. Refuse with something a rocketeer can act on — never

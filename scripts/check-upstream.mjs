@@ -37,7 +37,11 @@
  *  4. ThrustCurve — the motor database source. `packages/app/src/data/
  *     motors.json` is a committed snapshot and thrust curves are fetched
  *     live in-app, so an API shape change breaks the running app, not just
- *     the build.
+ *     the build. 4b watches the catalogue rows this app CORRECTS
+ *     (packages/app/scripts/motor-corrections.mjs, imported, not restated),
+ *     the way section 1 watches the parts catalogue's: fixed upstream, an
+ *     entry is a no-op to retire; moved to a third figure, the next
+ *     `npm run motors:refresh` refuses to write.
  *  5. The nozzle database against that catalogue. `packages/app/src/data/
  *     nozzles.json` is keyed to motorIds and designations that thrustcurve.org
  *     owns, and it can only be rebuilt on the machine holding
@@ -80,6 +84,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
 
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
+import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/openrocket/openrocket-database/master/orc';
@@ -371,6 +376,62 @@ async function checkThrustCurve() {
 }
 
 /**
+ * What thrustcurve.org's live row says about one motor-corrections.mjs entry,
+ * field by field: still the known-bad figure (the correction is still needed),
+ * the corrected one (fixed upstream: retire the entry), a third figure (the next
+ * refresh refuses to write), or no row at all. Pure, so the verdicts are tested
+ * without the network.
+ */
+export function motorCorrectionVerdicts(c, live) {
+  const name = `${c.manufacturer} ${c.designation}`;
+  if (!live) {
+    return [{
+      moved: true,
+      line: `${name} (${c.motorId}) is no longer found on thrustcurve.org under that name — withdrawn or renamed. Re-check it, then retire or re-key its entry in motor-corrections.mjs.`,
+      note: `motor correction ${name}: row not found upstream`,
+    }];
+  }
+  return Object.entries(c.fields).map(([field, { bad, good }]) => {
+    const cur = live[field];
+    if (cur === bad) {
+      return { moved: false, line: `${name} ${field} = ${cur} (still the known-bad value; our correction to ${good} is still needed)` };
+    }
+    if (cur === good) {
+      return {
+        moved: true,
+        line: `${name} ${field} = ${cur} — THRUSTCURVE.ORG HAS FIXED THIS. Retire the entry from motor-corrections.mjs (refreshes still pass meanwhile: the contract accepts the corrected value).`,
+        note: `retire motor correction ${name} ${field}`,
+      };
+    }
+    return {
+      moved: true,
+      line: `${name} ${field} = ${JSON.stringify(cur)} — expected the known-bad ${bad} or the corrected ${good}. The next catalogue refresh WILL refuse to write until the entry is re-examined.`,
+      note: `investigate motor correction ${name} ${field}`,
+    };
+  });
+}
+
+/** 4b. The thrustcurve.org rows this app corrects. `getJson` is the network, injectable for the test. */
+export async function checkMotorCorrections(getJson = json) {
+  say('');
+  say('4b. thrustcurve.org rows this app corrects (packages/app/scripts/motor-corrections.mjs)');
+  for (const c of MOTOR_CORRECTIONS) {
+    const qs = new URLSearchParams({ manufacturer: c.manufacturer, designation: c.designation, availability: 'all' });
+    const body = await getJson(`${TC_API}/search.json?${qs}`);
+    const live = (Array.isArray(body?.results) ? body.results : []).find((m) => m?.motorId === c.motorId);
+    for (const v of motorCorrectionVerdicts(c, live)) {
+      checked++;
+      if (v.moved) {
+        flag(v.line);
+        notes.push(v.note);
+      } else {
+        say(`  ok   ${v.line}`);
+      }
+    }
+  }
+}
+
+/**
  * THE NOZZLE DATABASE, WHICH ONLY ONE MACHINE CAN REBUILD.
  *
  * `packages/app/src/data/nozzles.json` is a committed artifact built from
@@ -515,7 +576,7 @@ async function checkOpenMeteoTerms() {
 }
 
 export async function main(checks = [checkCorrections, checkWatch, checkHead, checkMaterials,
-  checkThrustCurve, checkNozzles, checkOpenMeteoTerms], advisories = checkAdvisories) {
+  checkThrustCurve, checkMotorCorrections, checkNozzles, checkOpenMeteoTerms], advisories = checkAdvisories) {
   let status;
   try {
     say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
@@ -529,7 +590,8 @@ export async function main(checks = [checkCorrections, checkWatch, checkHead, ch
       say(`${moved} of ${checked} watched value(s) MOVED:`);
       for (const n of notes) say(`  - ${n}`);
       say('');
-      say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs.');
+      say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs (parts) '
+        + 'or packages/app/scripts/motor-corrections.mjs (motors).');
       status = 1;
     }
   } catch (err) {

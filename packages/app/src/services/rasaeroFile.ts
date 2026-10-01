@@ -1173,8 +1173,9 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    * The mass is the bundled catalog's `totalWeightG`, which is exactly what
    * the loaded motor will weigh in flight (`thrustcurve.ts` builds
    * `masses[0]` from it), so the override and the motor can never disagree.
-   * 146 of the 1129 catalog entries publish no loaded weight — `hasMassData`
-   * is the same guard the motor picker uses to disable those rows.
+   * 145 of the 1,156 catalog entries publish no loaded weight (bundled snapshot
+   * of 2026-09-30) — `hasMassData` is the same guard the motor picker uses to
+   * disable those rows.
    */
   type StageMotor = { massKg: number; lengthM: number; label: string };
   const stageMotorOf = (stageIdx: number): StageMotor | null | 'absent' | 'unknown' => {
@@ -1203,7 +1204,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     // catalogue's “J-326-LR”; K1127LB, its “K1127-LB”). Four still do (M787,
     // O4374, ARA1200by9, ARA1100by8).
     if (!db) return 'absent';
-    // An entry that exists but publishes no loaded weight (146 of 1129) is the
+    // An entry that exists but publishes no loaded weight (145 of 1,156 at the
+    // 2026-09-30 snapshot) is the
     // dangerous one and still skips: thrustcurve.ts takes `masses[0]` from the
     // DOWNLOADED file's header when it carries one, so this motor may well be
     // mounted WITH a real mass — and folding that unknown mass into the

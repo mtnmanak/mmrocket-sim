@@ -4,6 +4,7 @@ import {
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
 import { API } from './thrustcurve.js';
+import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
 
 /**
  * "Check thrustcurve.org for newer motors" — the user's way round a stale
@@ -251,10 +252,19 @@ async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry
 
   // Projected, not screened: screening belongs to the rows the diff would
   // apply (checkForCatalogueUpdates), so a shipped row thrustcurve.org still
-  // lists unchanged — even an implausible one the runtime already refuses at
-  // fly time — is neither "refused" nor mistaken for "removed".
+  // lists unchanged is neither "refused" nor mistaken for "removed".
+  //
+  // And CORRECTED the way the shipped catalogue is (board Tier 1 row 6): the
+  // refresh writes motor-corrections.mjs's sourced figures over two rows
+  // thrustcurve.org still serves with impossible ones (a 9,122 mm Contrail
+  // J234-BG, a Cesaroni 25E75-17A with 104 g of propellant in 52 g). Compared
+  // raw, each would read as a change on every check, fail the screen, and be
+  // reported "refused" — for rows the user never touched. Only the known-bad
+  // figure is replaced; any other value thrustcurve.org moves to still arrives
+  // as a change, screened like every other.
   return [...byId.values()]
-    .map((raw) => Object.fromEntries(CATALOGUE_FIELDS.map((f) => [f, raw[f]])) as unknown as MotorDbEntry);
+    .map((raw) => correctMotorRow(
+      Object.fromEntries(CATALOGUE_FIELDS.map((f) => [f, raw[f]])) as unknown as MotorDbEntry));
 }
 
 /**
@@ -277,10 +287,11 @@ export async function checkForCatalogueUpdates(
   }
   const live = await fetchLiveCatalogue(opts);
   const d = diffCatalogue(MOTOR_DB, live);
-  // Screen only what would be APPLIED. The shipped catalogue carries two rows
-  // (measured 2026-09-05) that fail this same screen and that the runtime
-  // refuses at fly time with a message; a live pull returning them unchanged
-  // must leave them exactly as they are.
+  // Screen only what would be APPLIED: a shipped row was looked at when it
+  // shipped. The shipped catalogue carried two rows that fail this same screen
+  // (measured 2026-09-05) until 2026-10-01, when both were corrected from
+  // their makers' published data (scripts/motor-corrections.mjs);
+  // motor-catalogue-screen.test.mjs now keeps any other from shipping.
   const rejected: { entry: Partial<MotorDbEntry>; reason: string }[] = [];
   const added = d.added.filter((m) => {
     const reason = screenEntry(m);

@@ -90,8 +90,9 @@ export interface NozzleEntry {
 interface RawMotor {
   /**
    * OPTIONAL, because the DATA says so (2026-09-14, from review). This was declared
-   * `motorId: string` while ten shipped rows carry none — the eight AeroTech parts in no
-   * thrustcurve.org catalogue entry, plus two more. `nozzles.json` reaches this file through
+   * `motorId: string` while ten shipped rows carry none — ten AeroTech MOTOR rows (not
+   * parts) whose designation matches no thrustcurve.org catalogue entry: nine with an exit,
+   * and J33N-P with neither an id nor an exit. `nozzles.json` reaches this file through
    * `as unknown as RawDb`, which casts straight past the real shape, so the declaration was
    * simply a lie the compiler could not see: the runtime guard below reads as dead code, and
    * any future `map.set(m.motorId, …)` or `m.motorId.startsWith(…)` would typecheck clean and

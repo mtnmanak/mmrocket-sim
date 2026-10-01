@@ -1120,11 +1120,13 @@ export function manufacturersForMount(
 /**
  * Does this catalog ROW carry a usable loaded/propellant pair?
  *
- * thrustcurve.org's catalog is not uniformly populated. As of the bundled
- * snapshot, 146 of 1129 entries publish no loaded weight, 14 no propellant
- * weight, and Cesaroni 25E75-17A lists more propellant (104 g) than loaded
- * mass (52 g). Those produce NaN or negative motor masses, which used to reach
- * the kernel and blank the user's design with a raw BigInt error.
+ * thrustcurve.org's catalog is not uniformly populated. Counted on the bundled
+ * snapshot of 2026-09-30, 145 of 1,156 entries publish no loaded weight and 13
+ * no propellant weight; and thrustcurve.org lists Cesaroni 25E75-17A with more
+ * propellant (104 g) than loaded mass (52 g), which the bundled catalogue
+ * corrects to Cesaroni's own 10.4 g (scripts/motor-corrections.mjs). Rows like
+ * those produce NaN or negative motor masses, which used to reach the kernel
+ * and blank the user's design with a raw BigInt error.
  *
  * It judges the catalogue row alone, and a row without a pair can still fly:
  * samplesToMotorSpec checks the masses that FLY, the data file's own when it
