@@ -12,6 +12,7 @@ import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
+import { solidContextFor } from '../tree/solidContext.js';
 import {
   autoDelaySaveNote, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
 } from './orkFile.js';
@@ -2510,12 +2511,24 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
           : node.type === 'tubecoupler' ? 4 : 0;
         emit('<Ring>');
         common(node, parent, 'Ring');
-        const parentInner = parent
+        // A radius the node leaves AUTOMATIC goes out at the size the kernel
+        // flies, resolved by solidContextFor as the STL and DXF resolve it: the
+        // OD is the bore the ring sits in (a nose cone's or transition's
+        // profile included), and a centering ring's ID is the widest inner tube
+        // overlapping it, at most its OD, or 0 (a solid disc) when none does
+        // (CenteringRing.getInnerRadius; desktop's CenteringRingDTO writes the
+        // same value). This took a centering ring's ID as OD − 2 mm, a 2 mm
+        // annulus on every ring the Add menu makes, and the OD from the
+        // parent's own stated outerRadius, 20 mm on any nose cone (2026-09-30
+        // review). The old reading stays only where the context cannot resolve one.
+        const ctx = solidContextFor(tree, node);
+        const parentInner = ctx.parentInnerRadius ?? (parent
           ? nnum(parent, 'outerRadius', 0.012) - nnum(parent, 'thickness', 0.0005)
-          : 0.012;
+          : 0.012);
         const od = nnum(node, 'outerRadius', parentInner);
         emit(`<OD>${od * RAD}</OD>`);
         const id = node.type === 'bulkhead' ? 0
+          : node.type === 'centeringring' ? nnum(node, 'innerRadius', Math.min(ctx.mountOuterRadius ?? 0, od))
           : nnum(node, 'innerRadius', Math.max(0, od - nnum(node, 'thickness', 0.002)));
         emit(`<ID>${id * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.002) * LEN}</Len>`);
