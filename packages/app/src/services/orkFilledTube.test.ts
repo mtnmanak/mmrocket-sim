@@ -125,6 +125,44 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(motorDia({})).toBeCloseTo(24, 9);
   });
 
+  it('.rkt writes an automatic ring inside it at the size the kernel flies: none', () => {
+    // RadiusRingComponent's automatic radius is the parent's inner radius, 0 in
+    // a filled tube; desktop's RingDTO writes that 0 too. solidContextFor gives
+    // no bore here, and the writer took that as "unresolved" and fell back to
+    // the stated wall: a 23 mm plug in a solid 25 mm rod.
+    const odOf = (tube: ComponentNode) => {
+      const bh = { type: 'bulkhead', id: 'bh', name: 'Plug', length: 0.003, position: { method: 'top', offset: 0 } };
+      const tree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'S', children: [{ ...tube, children: [bh] }] }] };
+      const ring = /<Ring>[\s\S]*?<\/Ring>/.exec(exportRkt({ name: 'R', tree: tree as unknown as RocketTree }))![0];
+      return Number(/<OD>([^<]*)<\/OD>/.exec(ring)![1]);
+    };
+    expect(odOf(rod({ filled: true, thickness: 0.001 }))).toBe(0);
+    expect(odOf(rod({ filled: true }))).toBe(0); // the .ork reader's form: no wall stated
+    expect(odOf(rod({ thickness: 0.001 }))).toBeCloseTo(23, 9); // hollow: the bore
+  });
+
+  it('.rkt never folds a base extension made solid into a hollow cone', () => {
+    // A .rkt cone's <BaseExtensionLen> opens as a tube marked rktBaseExtension,
+    // folded back on export when unchanged. Ticked Solid behind a hollow cone it
+    // is changed: folded, it went out as the hollow cone's extension, and the
+    // file reopened it hollow.
+    const cone = { type: 'nosecone', id: 'n', name: 'Nose', length: 0.06, aftRadius: R, thickness: 0.002, shape: 'ogive' };
+    const ext = rod({ id: 'x', name: 'Nose base extension', length: 0.05, thickness: 0.002, rktBaseExtension: true });
+    const save = (tube: ComponentNode) => exportRkt({ name: 'R', tree: { name: 'R', components: [
+      { type: 'stage', id: 's', name: 'S', children: [cone, tube] },
+    ] } as unknown as RocketTree });
+    const extLen = (xml: string) => Number(/<BaseExtensionLen>([^<]*)<\/BaseExtensionLen>/.exec(xml)![1]);
+    const tubeOf = (xml: string) => (xml.match(/<BodyTube>[\s\S]*?<\/BodyTube>/g) ?? [])
+      .find((b) => b.includes('<Name>Nose base extension</Name>'));
+    // Unchanged, it folds: 50 mm on the cone, no tube of its own.
+    expect(extLen(save(ext))).toBeCloseTo(50, 9);
+    expect(tubeOf(save(ext))).toBeUndefined();
+    // Solid, it stays the solid tube it is.
+    const solid = save({ ...ext, filled: true } as ComponentNode);
+    expect(extLen(solid)).toBe(0);
+    expect(tubeOf(solid)).toMatch(/<ID>0<\/ID>/);
+  });
+
   it('.ork: a bare automatic packed radius inside it takes the device’s own size, and says so', () => {
     // OpenRocket 15.03 wrote a bare `auto`, resolved here as desktop's
     // MassObject.getAutoRadius does: from the parent's inner radius, which is 0

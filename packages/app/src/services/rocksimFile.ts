@@ -2357,6 +2357,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       if (Math.abs(nnum(b, 'outerRadius', -2) - or) > 1e-9) continue;
       const wantThickness = a['filled'] === true ? or : nnum(a, 'thickness', -2);
       if (Math.abs(nnum(b, 'thickness', -3) - wantThickness) > 1e-9) continue;
+      // A tube ticked Solid (filled) behind a HOLLOW cone is something else too,
+      // whatever wall it still states: the fold hands it the cone's hollow
+      // construction, and the file reopened it hollow.
+      if (b['filled'] === true && a['filled'] !== true) continue;
       if ((b.children ?? []).length) continue;
       // Finite overrides only, as common() reads them (audit row 522): a NaN or
       // infinite one overrides nothing in the kernel, and it kept the fold from
@@ -2828,8 +2832,13 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // annulus on every ring the Add menu makes, and the OD from the
         // parent's own stated outerRadius, 20 mm on any nose cone (2026-09-30
         // review). The old reading stays only where the context cannot resolve one.
+        // A SOLID body tube is not one of those: it has a bore, of 0
+        // (BodyTube.getInnerRadius when filled), which the kernel sizes an
+        // automatic ring to and desktop's RingDTO writes. The context gives no
+        // bore there, and the fallback read the tube's stated wall instead.
         const ctx = solidContextFor(tree, node);
-        const parentInner = ctx.parentInnerRadius ?? (parent
+        const solidHost = parent?.type === 'bodytube' && parent['filled'] === true;
+        const parentInner = ctx.parentInnerRadius ?? (solidHost ? 0 : parent
           ? nnum(parent, 'outerRadius', 0.012) - nnum(parent, 'thickness', 0.0005)
           : 0.012);
         const od = nnum(node, 'outerRadius', parentInner);
