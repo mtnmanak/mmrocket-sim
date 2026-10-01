@@ -30,7 +30,8 @@
  * figures no motor can have, each corrected from the manufacturer's or the
  * certifying body's own published data. Writing thrustcurve.org's figures back
  * over them would undo that on every refresh. A corrected row that comes back
- * holding a THIRD figure stops the write, as a short page does.
+ * holding a THIRD figure stops the write, as a short page does, and so does a
+ * corrected motor that does not come back at all.
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -154,9 +155,18 @@ export async function main({ outPath = OUT, fetchImpl = fetch, log } = {}) {
       + `it. Nothing was written; ${outPath} is as it was.`);
     return 1;
   }
+  if (corrected.missing.length) {
+    // apply-preset-corrections.mjs's MISSING ROW, for the same reason: the entry
+    // would go on describing a row nobody ships, and motor-corrections.test.mjs
+    // fails the deploy gate on it. Decided here, before the write, like a short
+    // page, rather than written and then refused by the gate a step later.
+    console.error('A motor motor-corrections.mjs corrects is no longer in thrustcurve.org\'s catalogue:\n  '
+      + `${corrected.missing.join('\n  ')}\nIf it was withdrawn, retire its entry from motor-corrections.mjs; if it `
+      + `came back under a new motorId, move the entry to that id. Nothing was written; ${outPath} is as it was.`);
+    return 1;
+  }
   for (const s of corrected.applied) console.log(`corrected ${s} (motor-corrections.mjs)`);
   for (const s of corrected.already) console.log(`thrustcurve.org now gives ${s} itself: retire that entry from motor-corrections.mjs`);
-  for (const s of corrected.missing) console.log(`no longer catalogued: ${s}: retire its entry from motor-corrections.mjs`);
   writeFileSync(outPath, JSON.stringify(catalogueDocument(corrected.motors, new Date().toISOString().slice(0, 10))));
   console.log(`\nWrote ${corrected.motors.length} motors to ${outPath}`);
   return 0;

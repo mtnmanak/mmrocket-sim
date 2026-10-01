@@ -80,7 +80,8 @@ describe('the shipped catalogue carries every correction', () => {
     const byId = new Map(shipped.motors.map((m) => [m.motorId, m]));
     for (const c of MOTOR_CORRECTIONS) {
       const row = byId.get(c.motorId);
-      expect(row, `${c.designation} is not in motors.json`).toBeDefined();
+      expect(row, `${c.manufacturer} ${c.designation} (${c.motorId}) is not in motors.json: retire its entry from `
+        + "motor-corrections.mjs, or move it to the motor's new id (a refresh refuses to write without it)").toBeDefined();
       expect([row.manufacturerAbbrev, row.designation]).toEqual([c.manufacturer, c.designation]);
       for (const [field, { good }] of Object.entries(c.fields)) expect(row[field], `${c.designation} ${field}`).toBe(good);
     }

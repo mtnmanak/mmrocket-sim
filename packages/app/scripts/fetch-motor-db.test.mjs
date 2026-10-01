@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CAP, FIELDS, catalogueDocument, fetchCatalogue, main } from './fetch-motor-db.mjs';
+import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 /**
  * fetch-motor-db.mjs against a stand-in for thrustcurve.org — never the network.
@@ -55,6 +56,17 @@ function fakeApi({ motors = catalogue(), manufacturers = ['Small', 'Big'], class
 }
 
 const quiet = () => {};
+
+/**
+ * Every row motor-corrections.mjs corrects, as thrustcurve.org serves it (each
+ * known-bad figure), under the synthetic small maker. A refresh refuses a
+ * catalogue that no longer holds one of them, so a catalogue main() is to write
+ * must carry them, as the real one does.
+ */
+const correctedRows = () => MOTOR_CORRECTIONS.map((c) => ({
+  motorId: c.motorId, manufacturerAbbrev: 'Small', designation: c.designation, impulseClass: 'J',
+  ...Object.fromEntries(Object.entries(c.fields).map(([field, { bad }]) => [field, bad])),
+}));
 
 describe('fetchCatalogue', () => {
   it('pages a maker over the cap by impulse class and returns the whole catalogue', async () => {
@@ -112,9 +124,10 @@ describe('main', () => {
     const dir = tmp();
     try {
       const outPath = join(dir, 'motors.json');
-      expect(await main({ outPath, fetchImpl: fakeApi().fetchImpl, log: quiet })).toBe(0);
+      const motors = [...catalogue(), ...correctedRows()];
+      expect(await main({ outPath, fetchImpl: fakeApi({ motors }).fetchImpl, log: quiet })).toBe(0);
       const doc = JSON.parse(readFileSync(outPath, 'utf8'));
-      expect(doc.count).toBe(3 + CAP + 20);
+      expect(doc.count).toBe(3 + CAP + 20 + MOTOR_CORRECTIONS.length);
       expect(doc.motors).toHaveLength(doc.count);
       expect(doc.generated).toMatch(/^\d{4}-\d\d-\d\d$/);
     } finally {
@@ -145,19 +158,20 @@ describe('main', () => {
  */
 describe('main, with the rows motor-corrections.mjs corrects', () => {
   const tmp = () => mkdtempSync(join(tmpdir(), 'motor-db-'));
+  const CONTRAIL = '5f4294d200023100000000f5';
   /** The synthetic catalogue plus the Contrail row, as thrustcurve.org serves it but for `length`. */
-  const withContrail = (length) => [...catalogue(), {
-    motorId: '5f4294d200023100000000f5', manufacturerAbbrev: 'Small', designation: 'J234-BG',
-    impulseClass: 'J', diameter: 54, ...(length === undefined ? {} : { length }),
-  }];
+  const withContrail = (length) => [...catalogue(), ...correctedRows().map((r) => (r.motorId === CONTRAIL ? { ...r, length } : r))];
   async function run(motors) {
     const dir = tmp();
     const outPath = join(dir, 'motors.json');
+    const said = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((m) => { said.push(String(m)); });
     try {
       const code = await main({ outPath, fetchImpl: fakeApi({ motors }).fetchImpl, log: quiet });
       const doc = existsSync(outPath) ? JSON.parse(readFileSync(outPath, 'utf8')) : null;
-      return { code, row: doc?.motors.find((m) => m.motorId === '5f4294d200023100000000f5') ?? null, doc };
+      return { code, row: doc?.motors.find((m) => m.motorId === CONTRAIL) ?? null, doc, said: said.join('\n') };
     } finally {
+      error.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
   }
@@ -174,11 +188,19 @@ describe('main, with the rows motor-corrections.mjs corrects', () => {
     expect(doc).toBeNull();
   });
 
-  it('writes a row thrustcurve.org has fixed as it is, and is not refused by a withdrawn one', async () => {
+  it('writes a row thrustcurve.org has fixed as it is', async () => {
     expect((await run(withContrail(922))).row.length).toBe(922);
-    const withdrawn = await run(catalogue());
-    expect(withdrawn.code).toBe(0);
-    expect(withdrawn.row).toBeNull();
+  });
+
+  it('refuses to write when a motor it corrects is no longer catalogued, and names the entry to retire', async () => {
+    // A withdrawal used to be logged and written, and the deploy gate then failed
+    // the weekly refresh on motor-corrections.test.mjs, one step later and less
+    // plainly. It is decided here, before the write, as a short page is.
+    const withdrawn = await run([...catalogue(), ...correctedRows().filter((r) => r.motorId !== CONTRAIL)]);
+    expect(withdrawn.code).toBe(1);
+    expect(withdrawn.doc).toBeNull();
+    expect(withdrawn.said).toMatch(/no longer in thrustcurve\.org's catalogue:\n {2}Contrail J234-BG \(5f4294d200023100000000f5\)/);
+    expect(withdrawn.said).toMatch(/retire its entry from motor-corrections\.mjs/);
   });
 });
 

@@ -36,9 +36,14 @@
  * CONTRACT, as apply-preset-corrections.mjs's: idempotent, and loud on surprise.
  * A row holding the known-bad figure is corrected. A row already holding the
  * corrected figure is left alone: thrustcurve.org has fixed it, and the entry
- * should be retired. A THIRD value is reported, and the refresh refuses to write
- * rather than ship either figure unexamined. A motor no longer in the catalogue
- * is reported, not refused: withdrawing a motor is thrustcurve.org's call.
+ * should be retired (fetch-motor-db.mjs logs it, check-upstream.mjs flags it).
+ * A THIRD value is reported, and the refresh refuses to write rather than ship
+ * either figure unexamined. So does a motor no longer in the catalogue, as
+ * apply-preset-corrections.mjs's MISSING ROW does: withdrawing a motor is
+ * thrustcurve.org's call, but this table, the guide's sentence and
+ * motor-corrections.test.mjs would all go on naming it, and the deploy gate the
+ * weekly refresh runs fails on that test. The refresh waits for the entry to be
+ * retired (or moved to the motor's new id), and says so before writing anything.
  */
 export const MOTOR_CORRECTIONS = [
   {
