@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { signedArea } from './polygon.js';
+import { enclosesArea, signedArea } from './polygon.js';
 
 describe('signedArea — the one shoelace', () => {
   it('is positive counter-clockwise and negative clockwise, closing edge implied', () => {
@@ -21,5 +21,25 @@ describe('signedArea — the one shoelace', () => {
   it('is zero below three points', () => {
     expect(signedArea([])).toBe(0);
     expect(signedArea([[1, 2], [3, 4]])).toBe(0);
+  });
+});
+
+describe('enclosesArea', () => {
+  it('is false for an outline flat along its root — a fin at height 0', () => {
+    expect(enclosesArea([[0, 0], [0.02, 0], [0.05, 0], [0.06, 0]])).toBe(false);
+  });
+
+  it('is false for points on a slanted line, where the shoelace rounds to a crumb', () => {
+    const line: [number, number][] = [0, 1, 2, 3, 4].map((i) => [0.013 * i, 0.0071 * i]);
+    expect(enclosesArea(line)).toBe(false);
+  });
+
+  it('is true for a real planform, including one with a corner on a straight edge', () => {
+    expect(enclosesArea([[0, 0], [0.02, 0.03], [0.05, 0.03], [0.06, 0]])).toBe(true);
+    expect(enclosesArea([[0, 0], [0.01, 0.02], [0.02, 0.04], [0.05, 0.04], [0.06, 0]])).toBe(true);
+  });
+
+  it('is false below three points', () => {
+    expect(enclosesArea([[0, 0], [1, 1]])).toBe(false);
   });
 });

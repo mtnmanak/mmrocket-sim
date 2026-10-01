@@ -8,6 +8,7 @@ import { clusterOffsets } from './cluster.js';
 import { finOutlineProblem } from './finOutline.js';
 import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
 import { num, numOpt } from './nodeNum.js';
+import { enclosesArea } from './polygon.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
 import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
@@ -230,6 +231,17 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       shape.lineTo(root, 0);
     }
     shape.closePath();
+
+    // A planform with NO AREA is not a fin: a trapezoid or elliptical set at
+    // height 0, which the height field allows, or a freeform outline lying
+    // along its root. ExtrudeGeometry gives it no caps and keeps the side
+    // walls — an open sheet of coplanar quads, 18 triangles for a 3-fin set
+    // against a sound 36 — and it went into the display-shell STL, OBJ and glTF
+    // while solidMesh.extrudePolygon refuses the same outline (audit
+    // 2026-09-30). Skipped as the zero-thickness set below is. The test is the
+    // AREA, not extrudePolygon's face count: ear-clipping drops a corner lying
+    // on a straight edge, so a sound fin with one would fail a count.
+    if (!enclosesArea(shape.extractPoints(12).shape.map((v): [number, number] => [v.x, v.y]))) return;
 
     // A zero-or-negative depth extrudes to COINCIDENT caps: measured on a
     // 3-fin trapezoid at thickness 0, 228 triangles of which 24 had exactly

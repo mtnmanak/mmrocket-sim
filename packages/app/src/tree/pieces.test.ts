@@ -74,6 +74,50 @@ describe('a freeform fin set with no usable points', () => {
   });
 });
 
+/**
+ * A planform with NO AREA is not extruded (audit 2026-09-30). The height field
+ * allows 0, and a trapezoid or elliptical set at height 0 has an outline that
+ * lies along its root: three's ExtrudeGeometry gives it no caps and keeps the
+ * side walls, an open sheet of coplanar quads (a 3-fin set: 18 triangles
+ * against a sound 36) that went into the display-shell STL, OBJ and glTF
+ * while solidMesh.extrudePolygon refuses the same outline.
+ */
+describe('a fin set whose planform has no area draws nothing', () => {
+  const finsOf = (fin: Record<string, unknown>) => buildPieces(withChildren([{
+    id: 'f', finCount: 3, thickness: 0.003, position: { method: 'bottom', offset: 0 }, ...fin,
+  } as unknown as ComponentNode])).pieces.filter((p) => p.key.startsWith('fin'));
+
+  it('a trapezoid at height 0', () => {
+    expect(finsOf({ type: 'trapezoidfinset', rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0 }))
+      .toHaveLength(0);
+  });
+
+  it('an elliptical set at height 0', () => {
+    expect(finsOf({ type: 'ellipticalfinset', rootChord: 0.05, height: 0 })).toHaveLength(0);
+  });
+
+  it('a freeform outline lying along its root', () => {
+    // Passes finOutlineProblem — no crossing, a positive root chord — and
+    // encloses nothing.
+    expect(finsOf({ type: 'freeformfinset', points: [[0, 0], [0.02, 0], [0.05, 0]] })).toHaveLength(0);
+  });
+
+  it('a real fin of the same sizes still draws, one piece per fin, and closed', () => {
+    const fins = finsOf({ type: 'trapezoidfinset', rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03 });
+    expect(fins).toHaveLength(3);
+    // Caps and walls: 2 + 2 cap triangles and 4 walls of 2 per fin.
+    const tris = fins.reduce((n, p) => n + (p.geometry.index?.count ?? p.geometry.getAttribute('position').count) / 3, 0);
+    expect(tris).toBe(36);
+  });
+
+  it('a fin with a point on a straight edge still draws', () => {
+    // A collinear corner is a sound outline, which ear-clipping simplifies;
+    // a face-count test would have dropped this fin.
+    expect(finsOf({ type: 'freeformfinset', points: [[0, 0], [0.01, 0.02], [0.02, 0.04], [0.05, 0.04], [0.06, 0]] }))
+      .toHaveLength(3);
+  });
+});
+
 describe('a rail button is centred on its station', () => {
   const btn = (position: Record<string, unknown>) => withChildren([{
     id: 'rb', type: 'railbutton', outerDiameter: 0.0097, totalHeight: 0.0097,
