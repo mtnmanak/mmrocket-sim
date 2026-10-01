@@ -21,8 +21,10 @@ reads the 43 letters in the form TMT has used since 2019 (dated 2019 to 2025),
 one labelled row per figure with SI beside imperial ("Manufacturer's Designation
 ... TMT Nomenclature ... Total Impulse ... Max Impulse ... Average Impulse ...
 Number of Motors Tested"). It is the only form with a "Manufacturer's
-Designation" row; the 1995-2016 letters, tables and charts have none, and are
-a different job (the research note's section 1(b)).
+Designation" row; the earlier letters, tables and charts have none (the 134
+with a text layer are dated December 1998 to August 2018, and the 39 scans'
+files were made in 1998 to 2002), and are a different job (the research note's
+section 1(b)).
 
   - 30 have a text layer, read by WORD COORDINATES (`lines`, `text_rows`).
   - 13 are scans with no text layer, and this machine has no OCR. They were
