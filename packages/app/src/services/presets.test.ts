@@ -795,6 +795,31 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
   });
 
   /**
+   * DETACH IS NOT A WEIGHING (wave 3 verifier). Detach unlinks a part and keeps
+   * every value it has, its catalogue mass included, but that mass is still
+   * the old part's catalogue weight, which a pick owes a clear of. Measured:
+   * Apogee 10063 (5.8 g), Detach, then Always Ready Rocketry BT_1.15_12_MMT (no
+   * catalogue mass), and the new tube flew 5.8 g whatever its length, where the
+   * same re-pick without Detach cleared it.
+   */
+  it('a row with no mass clears a catalogue mass that Detach left on the part', () => {
+    const tube = row('BodyTube', '10063');
+    const noMass = row('BodyTube', 'BT_1.15_12_MMT');
+    expect(noMass.mass).toBeUndefined();
+    const detached = { ...fresh('bodytube', tube), ...detachPatch() } as ComponentNode;
+    expect(detached['overrideMass']).toBe(tube.mass); // Detach keeps every value
+    expect(detached['presetPartNo']).toBeUndefined();
+    expect(pick(detached, noMass)['overrideMass']).toBeUndefined();
+    // Re-weighed after Detach, the figure is the user's and stays …
+    const weighed = { ...detached, overrideMass: 0.0071 } as ComponentNode;
+    expect(pick(weighed, noMass)['overrideMass']).toBe(0.0071);
+    // … and so does one on a part renamed after Detach: with the link gone,
+    // the name the pick gave it is the only sign of which row it was.
+    const renamed = { ...detached, name: 'Booster airframe' } as ComponentNode;
+    expect(pick(renamed, noMass)['overrideMass']).toBe(tube.mass);
+  });
+
+  /**
    * Review of the audit 2026-09-22 fix: it cleared EVERY override on a row with
    * no mass, so a weight the user typed went with the old part's catalogue
    * mass — on 1,197 of the 1,308 body-tube rows. Desktop never touches the mass

@@ -507,6 +507,10 @@ export interface PendingPresetLink {
 const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =>
   `${kind}|${mfrKey(manufacturer)}|${partKey(partNo)}`;
 
+/** Every part number a row answers to: its own, and those of the duplicates it absorbed. */
+const partNumbersOf = (p: Preset): unknown[] =>
+  [p.partNo, ...(Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [])];
+
 /**
  * Is this node's mass override the catalogue mass of the part it is linked to
  * — one `presetPatch` wrote, or a file copied from the same row — rather than a
@@ -517,6 +521,13 @@ const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =
  * included, and to 0.01 % so a mass that has been through a saved file still
  * reads as the catalogue's (a user who typed the catalogue's own figure has, in
  * effect, kept the catalogue's mass, and it goes with that part).
+ *
+ * A PART DETACH HAS UNLINKED still holds that mass — Detach keeps every value
+ * — and it is still the old part's catalogue weight (wave 3 verifier: Apogee
+ * 10063's 5.8 g, detached, rode onto a re-picked tube that has no catalogue
+ * mass). With the link gone, the part is matched by the name the pick gave it,
+ * "<manufacturer> <part number>". A part renamed since is the user's, and so is
+ * its mass: kept, as a typed one is.
  */
 export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset[]): boolean {
   // Finite (audit row 522): a NaN passed a typeof test and then failed the
@@ -524,14 +535,16 @@ export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset
   // difference is never greater than anything.
   const held = numOpt(node, 'overrideMass');
   const kind = KIND_FOR_TYPE[node.type];
-  if (held === undefined || !kind || node['presetPartNo'] == null) return false;
+  if (held === undefined || !kind) return false;
+  const weighsAsRow = (p: Preset) => p.kind === kind && typeof p.mass === 'number' && p.mass > 0
+    && Math.abs(held - p.mass) <= 1e-4 * p.mass;
+  if (node['presetPartNo'] == null) {
+    const name = typeof node.name === 'string' ? node.name.trim() : '';
+    return name !== '' && presets.some((p) => weighsAsRow(p) && `${p.manufacturer} ${p.partNo}` === name);
+  }
   const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
-  return presets.some((p) => {
-    if (p.kind !== kind || !(typeof p.mass === 'number' && p.mass > 0)) return false;
-    if (Math.abs(held - p.mass) > 1e-4 * p.mass) return false;
-    const alts = Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [];
-    return [p.partNo, ...alts].some((pn) => linkKey(kind, p.manufacturer, pn) === want);
-  });
+  return presets.some((p) => weighsAsRow(p)
+    && partNumbersOf(p).some((pn) => linkKey(kind, p.manufacturer, pn) === want));
 }
 
 // ---------------------------------------------------------------------------
@@ -845,10 +858,6 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
   }
   return out;
 }
-
-/** Every part number a row answers to: its own, and those of the duplicates it absorbed. */
-const partNumbersOf = (p: Preset): unknown[] =>
-  [p.partNo, ...(Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [])];
 
 /**
  * The catalogue row a part is linked to, or undefined: no link, or a row this
