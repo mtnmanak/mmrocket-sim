@@ -350,8 +350,10 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
  *
  * Order of preference: the sort at the end of pickSampleFile, one commented
  * term per key, best first. The user guide (Motors → The database and
- * browser) names every term in the same order, and thrustcurve.test.ts holds
- * it to that: a term added to the sort is a clause added to the guide.
+ * browser) names every term in the same order. thrustcurve.test.ts checks the
+ * guide against a hand-kept list of those phrases, NOT against the comparator:
+ * a term added to the sort needs its clause added to the guide and to that
+ * list by hand, or nothing will notice.
  */
 /**
  * A file whose burn time is this far from the catalogue's certified figure is

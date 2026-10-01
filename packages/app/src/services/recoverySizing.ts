@@ -321,8 +321,9 @@ export function classifyRecoveryDevices(
  * design has no tube at all.
  *
  * `mountBore` is reused rather than re-derived: it is the app's ONE reading of
- * "outer radius less wall, doubled", it already carries the 0.5 mm default the
- * kernel applies to a tube stating no thickness, and it already handles the
+ * "outer radius less wall, doubled", it already carries the wall the kernel
+ * applies to a mount stating no thickness (each type's own: 0.3 mm for a body
+ * tube, 0.5 mm for an inner tube or coupler — tree/kernelDefaults.ts), and it already handles the
  * `caseAirframe` case where the outer radius IS the bore. Writing
  * `(or - t) * 2` again here is how the fit filter would start disagreeing with
  * the motor-mount readout about what a tube's inside is
