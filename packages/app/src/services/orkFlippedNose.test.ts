@@ -179,4 +179,37 @@ describe('exporters with no flipped nose cone', () => {
     } as ComponentNode);
     expect(() => exportCdx1({ name: 'Two', tree: t })).toThrow(/Booster tail/);
   });
+
+  it('RASAero: refuses a tail cone in a pod set too, which the pod writer dropped without a word', () => {
+    // The pod writer keeps only a pod's body tubes and transitions, as RASAero's
+    // fin can or recessed boat tail. A tube with a tail cone behind it went out
+    // as a fin can, the cone left out of the file; a pod on a booster's tube
+    // was never written at all. desktop ignores a whole pod set with a warning
+    // ("Unsupported component ..., ignoring"); the guide promises a .CDX1
+    // export refuses a tail cone "for the back of a rocket or pod".
+    const podded = (tail: Record<string, unknown>): RocketTree => {
+      const t = tree();
+      const sustainer = t.components[0]!;
+      sustainer.children = sustainer.children!.filter((c) => c.id !== 't');
+      sustainer.children.find((c) => c.id === 'b')!.children = [{
+        type: 'podset', id: 'p', name: 'Side pods', instanceCount: 2, children: [
+          { type: 'bodytube', id: 'pb', name: 'Pod tube', length: 0.2, outerRadius: 0.012, thickness: 0.0005 },
+          { type: 'nosecone', id: 'pt', name: 'Pod tail', length: 0.05, aftRadius: 0.012, shape: 'conical', ...tail },
+        ],
+      } as unknown as ComponentNode];
+      return t;
+    };
+    expect(() => exportCdx1({ name: 'Pods', tree: podded({ flipped: true }) }))
+      .toThrow(/RASAero has no tail cone — “Pod tail” in pod set “Side pods” is flipped to point aft/);
+    // An unflipped nose cone in a pod is not written either, and is not refused:
+    // only a tail cone, as in a booster.
+    expect(() => exportCdx1({ name: 'Pods', tree: podded({}) })).not.toThrow();
+    // A pod on a BOOSTER's tube, which the writer never visits.
+    const t = tree();
+    const sustainer = t.components[0]!;
+    sustainer.children = sustainer.children!.filter((c) => c.id !== 't');
+    const booster = podded({ flipped: true }).components[0]!.children!.find((c) => c.id === 'b')!;
+    t.components.push({ type: 'stage', id: 's2', name: 'Booster', children: [{ ...booster, id: 'bb' }] } as ComponentNode);
+    expect(() => exportCdx1({ name: 'Two', tree: t })).toThrow(/“Pod tail” in pod set “Side pods”/);
+  });
 });

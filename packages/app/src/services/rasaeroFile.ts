@@ -1863,6 +1863,26 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     }
   };
 
+  // The same in a POD SET, wherever the pod sits. A pod's parts reach the file
+  // only as RASAero's fin can or recessed boat tail (podXml keeps its body tubes
+  // and transitions), and a pod on a booster's tube or a transition not at all,
+  // so a tail cone in one vanished without a word: a tube with a tail cone
+  // behind it went out as a fin can. Refused, as a booster's is — the other
+  // place here whose nose cones are not written. desktop ignores the whole pod
+  // set with a warning instead (BodyTubeDTOAdapter, RASAeroExport.warning9). No
+  // "make it a transition": a pod of a tube and a transition is not a shape
+  // podXml writes either.
+  const refusePodTailCones = (nodes: readonly ComponentNode[], pod: ComponentNode | null): void => {
+    for (const n of nodes) {
+      if (pod && isTailCone(n)) {
+        throw new Error(`RASAero has no tail cone — “${n.name ?? 'Nose cone'}” in pod set `
+          + `“${pod.name ?? 'Pod set'}” is flipped to point aft. Export as .ork or .rkt.`);
+      }
+      refusePodTailCones(n.children ?? [], (n.type as string) === 'podset' ? n : pod);
+    }
+  };
+  for (const st of stagesIn) refusePodTailCones(st.children ?? [], null);
+
   const noseXml = (node: ComponentNode) => {
     refuseTailCone(node);
     const shape = String(node['shape'] ?? 'ogive');
