@@ -722,8 +722,11 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
   if (!issue) return null;
   const sym = prefs.units.pressure;
   const altSym = prefs.units.distance;
-  const site = fmtSi('distance', altSym, value.launchAltitudeM);
-  const standing = `${fmtSi('pressure', sym, isaPressurePa(value.launchAltitudeM))} ${sym}`;
+  // The site the flight flies (`padAir` clamps the stored one into its range),
+  // so "Clear the field and the app uses …" names the pressure it really would.
+  const siteM = padAir(value).altitudeM;
+  const site = fmtSi('distance', altSym, siteM);
+  const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM))} ${sym}`;
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
@@ -797,6 +800,12 @@ export function LaunchPanel({
   // eslint-disable-next-line no-restricted-syntax -- a null test, not a design number (audit row 522)
   const forecastWind = weather && typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
     ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs, source: sourceWord(weather.endpoint) } : null;
+  // The Site altitude the flight flies: `padAir` clamps the stored one into the
+  // field's range (NaN as 0). The blank atmosphere boxes advertise, and their
+  // spinners step from, the standard day HERE — the stored figure is not a pad
+  // the design flies (audit 2026-09-30: a session stored at 12,000 m showed,
+  // and one step committed, 12 km air for a flight at 10 km).
+  const siteM = padAir(value).altitudeM;
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false, help?: string, autoStored?: number, absentStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
@@ -855,14 +864,14 @@ export function LaunchPanel({
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
         {numField('Temperature', 'temperatureC', 1, ...PAD_TEMP_C_RANGE, true, SITE_TEMPERATURE_HELP,
-          isaTemperatureK(value.launchAltitudeM) - 273.15)}
+          isaTemperatureK(siteM) - 273.15)}
         {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
             words, sentence case, the same shape as "Site altitude" above it. */}
         {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
-          isaPressurePa(value.launchAltitudeM) / 100)}
+          isaPressurePa(siteM) / 100)}
         <DensityAltitudeReadout value={value} />
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
