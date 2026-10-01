@@ -1,10 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createElement, act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { DEFAULT_MAX_JSON_BYTES, getJsonCapped, NetError, useOnline } from './net.js';
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { DEFAULT_MAX_JSON_BYTES, getJsonCapped, NetError } from './net.js';
 
 /**
  * services/net.ts — the capped, deadlined JSON GET every weather request goes
@@ -133,26 +129,5 @@ describe('getJsonCapped', () => {
     const p = kindOf(getJsonCapped(URL_, { timeoutMs: 12_000, fetchImpl }));
     await vi.advanceTimersByTimeAsync(12_000);
     expect(await p).toBe('timeout');
-  });
-});
-
-describe('useOnline', () => {
-  it('follows the browser’s offline and online events', () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const seen: boolean[] = [];
-    function Probe() {
-      seen.push(useOnline());
-      return null;
-    }
-    act(() => root.render(createElement(Probe)));
-    expect(seen.at(-1)).toBe(true);
-    act(() => { window.dispatchEvent(new Event('offline')); });
-    expect(seen.at(-1)).toBe(false);
-    act(() => { window.dispatchEvent(new Event('online')); });
-    expect(seen.at(-1)).toBe(true);
-    act(() => root.unmount());
-    host.remove();
   });
 });

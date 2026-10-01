@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-
 /**
  * THE APP'S NETWORK SURFACE, IN ONE PLACE (weather build, 2026-09-22).
  *
@@ -11,6 +9,10 @@ import { useEffect, useState } from 'react';
  * `networkSurface.test.ts` holds the host list against the source and the
  * user guide's "What needs the network" paragraph, so a new outside host
  * cannot be fetched without being listed here and named there.
+ *
+ * No React here: the file readers reach this module (through thrustcurve.ts
+ * and openMeteo.ts), and `launchConditions.test.ts` holds them React-free. The
+ * online/offline hook a button gates on is hooks/useOnline.ts.
  */
 
 /**
@@ -232,26 +234,4 @@ function hostOf(url: string): string {
   } catch {
     return 'the server';
   }
-}
-
-/**
- * Is the browser online, kept current by its `online`/`offline` events?
- *
- * `navigator.onLine` is a hint, not a promise — true can still mean a dead
- * hotspot — so a feature gates its BUTTON on this and still handles a failed
- * request. False, though, is reliable: nothing is going to answer.
- */
-export function useOnline(): boolean {
-  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
-  useEffect(() => {
-    const up = () => setOnline(true);
-    const down = () => setOnline(false);
-    window.addEventListener('online', up);
-    window.addEventListener('offline', down);
-    return () => {
-      window.removeEventListener('online', up);
-      window.removeEventListener('offline', down);
-    };
-  }, []);
-  return online;
 }

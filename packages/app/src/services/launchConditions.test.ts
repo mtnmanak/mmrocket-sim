@@ -70,22 +70,25 @@ describe('the launch conditions load no React', () => {
   });
 
   /**
-   * No component, though React itself still arrives: each of these reaches
-   * services/net.ts (through thrustcurve.ts or openMeteo.ts), whose `useOnline`
-   * hook sits beside the network helpers — a hook, not a component, and not the
-   * Launch panel's doing. What must not come back is a component module: the
-   * corpus sweep's loader refuses a .tsx from the working tree, and loads the
-   * `react` package as it would any package.
+   * React-free as well since the `useOnline` hook left services/net.ts for
+   * hooks/useOnline.ts. Each of these reaches net.ts, through thrustcurve.ts or
+   * openMeteo.ts, so with the hook beside the network helpers they still loaded
+   * the `react` package (though no component) after the Launch panel stopped
+   * being their way in. net.ts and its two importers are listed themselves, so
+   * a failure names the module that brought React back.
    */
   it.each<[string, () => Promise<unknown>]>([
+    ['net', () => import('./net.js')],
+    ['thrustcurve', () => import('./thrustcurve.js')],
+    ['openMeteo', () => import('./openMeteo.js')],
     ['batchSweep', () => import('./batchSweep.js')],
     ['importApply', () => import('./importApply.js')],
     ['weatherProposal', () => import('./weatherProposal.js')],
     ['rocksimFile', () => import('./rocksimFile.js')],
     ['motorMatch', () => import('./motorMatch.js')],
-  ])('%s loads no React component', async (_, load) => {
+  ])('%s', async (_, load) => {
     await load();
-    expect(loaded.filter((id) => id !== 'react')).toEqual([]);
+    expect(loaded).toEqual([]);
   });
 });
 
