@@ -235,6 +235,15 @@ export function WeatherDialog({
 
   const choosePlace = (p: WeatherPlace, fromDesign = false,
       nextDate = dateTouched ? date : ymdInZone(now(), p.timezone)) => {
+    // A new place ends whatever is still out for the old one, as a new date
+    // does (audit 2026-09-30). The result list stays live while a fetch or a
+    // location request runs, and a pick there cancelled nothing: the old
+    // place's forecast then passed the sequencer, nothing newer having begun,
+    // and showed, ready to Apply, its air under the new place's name and
+    // coordinates; a late device fix replaced the place just picked. When a
+    // search's own answer calls this, that request has already answered, and
+    // cancel() only clears `busy` as its `finally` would.
+    if (busy !== null) cancel();
     setDesignSite(fromDesign);
     setPlace(p);
     setPlaces(null);

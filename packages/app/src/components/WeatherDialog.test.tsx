@@ -593,6 +593,68 @@ describe('the weather dialog', () => {
     expect(applied).toHaveLength(0);
   });
 
+  // A PICK FROM THE LIST ENDS A FETCH STILL OUT (audit 2026-09-30). The list
+  // was the one place control left live while a fetch ran, and a pick
+  // cancelled nothing: the earlier place's answer then passed the sequencer,
+  // and Reno's air sat under "Forecast for Gerlach" with Gerlach's
+  // coordinates, one Apply away from the launch conditions.
+  it('never shows, or applies, one place’s weather under a place picked while it was out', async () => {
+    const RENO: WeatherPlace = { label: 'Reno, Nevada, US', latitudeDeg: 39.52963, longitudeDeg: -119.8138,
+      method: 'search', timezone: 'America/Los_Angeles' };
+    // Reno's air, unmistakable: 31.7 °C every hour.
+    const renoAir = (fixture('forecast-gerlach-0-1202m.json') as { hourly: { temperature_2m: number[] } }[])
+      .map((v) => ({ ...v, hourly: { ...v.hourly, temperature_2m: v.hourly.temperature_2m.map(() => 31.7) } }));
+    const held: Array<(v: { body: unknown }) => void> = [];
+    render({ initialPlace: RENO, route: (u) => (u.includes('/v1/forecast')
+      ? new Promise((resolve) => { held.push(resolve); })
+      : GERLACH(u)) });
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    // Reno is still the place; Gerlach's results wait in the list.
+    expect(q('.weather-chosen')!.textContent).toContain('Reno, Nevada, US');
+    await click(button('Fetch'));
+    expect(held).toHaveLength(1);
+    expect(urls.at(-1)).toContain('latitude=39.530,39.530');
+    // A slow connection: the user picks Gerlach before Reno's answer lands.
+    await click(button(/^Gerlach, Nevada, US/));
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(button('Fetch'), 'Fetch is back: nothing is left running').toBeTruthy();
+    held[0]!({ body: renoAir });
+    await settle();
+    expect(q('.weather-review')).toBeNull();
+    expect(button('Apply')!.hasAttribute('disabled')).toBe(true);
+    // Gerlach's own fetch shows Gerlach's own air, and applies it.
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('latitude=40.652,40.652');
+    held[1]!({ body: fixture('forecast-gerlach-0-1202m.json') });
+    await settle();
+    expect(q('.weather-review h3')!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · /);
+    expect(row('temperatureC')!.textContent).not.toContain(fieldText('temperatureC', 31.7, INITIAL_UNITS));
+    await click(button('Apply'));
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.patch.temperatureC).not.toBe(31.7);
+    expect(applied[0]!.patch.latitudeDeg).toBe(40.65157);
+  });
+
+  it('keeps a place picked while the browser was still locating, whatever the browser answers later', async () => {
+    let answer: PositionCallback | undefined;
+    render({ geolocation: { getCurrentPosition: (ok) => { answer = ok; } } });
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    // The permission prompt is still up when the user picks from the list instead.
+    await click(button(/^Gerlach, Nevada, US/));
+    expect(button(WEATHER_DIALOG_COPY.locate), 'the location request is over').toBeTruthy();
+    expect(button(WEATHER_DIALOG_COPY.locate)!.hasAttribute('disabled')).toBe(false);
+    await act(async () => { answer!({ coords: { latitude: 39.52963, longitude: -119.8138, accuracy: 30 } } as GeolocationPosition); });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(host.textContent).not.toContain('Located to within');
+  });
+
   it('can cancel a location request the browser never answers', async () => {
     // A permission prompt left unanswered: neither callback ever runs.
     const silent = { getCurrentPosition: vi.fn() };
