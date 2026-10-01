@@ -130,8 +130,10 @@ export function useNozzleFollow(opts: {
       // the decision with nothing left to make it again: the new motor flew the
       // previous motor's exit, unannounced, until the motors changed once more.
       // Unknown is what the rule clears, with the note saying whose the number
-      // was; NozzleField says the data could not be loaded, and fills the blank
-      // from the published figure once a look-up succeeds.
+      // was; NozzleField says the data could not be loaded and offers a reload,
+      // and a look-up after it fills the blank from the published figure. In
+      // Chrome nothing short of that reload does: the browser keeps a failed
+      // chunk for the life of the page (nozzleDb.ts).
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
       for (const s of acted) {
         looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId).catch(() => null))) });

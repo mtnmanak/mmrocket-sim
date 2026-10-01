@@ -18,8 +18,12 @@ import { resetNozzleDbCache } from '../services/nozzleDb.js';
  * The chunk fails here the way the network fails it, through nozzleDb's own
  * import and with Chrome's words, thrown where nozzleDb reads the module's
  * default export (vitest wraps a factory's own throw in a message of its own;
- * App.lazyDialogs.test.tsx does the same). `data.fail` lets the next look-up
- * succeed, the way a chunk can be had again once the connection is back.
+ * App.lazyDialogs.test.tsx does the same). `data.fail` lets a later look-up
+ * succeed. In Chrome that look-up comes only after the reload the note offers:
+ * the browser keeps a failed chunk for the life of the page (nozzleDb.ts says
+ * what was measured), and this mock re-reads `default` where Chrome would not
+ * fetch again. So the recovery case proves that nozzleDb keeps no failure of
+ * its OWN, not that a page heals itself once the connection is back.
  */
 const data = vi.hoisted(() => ({ fail: true }));
 vi.mock('../data/nozzles.json', async (importOriginal) => {
@@ -125,7 +129,7 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
   // the default order if the map is ever carried from one case to the next —
   // the order dependence a shuffled run found (2026-10-01), when this case ran
   // last and hid it.
-  it('fills the field once a later look-up can load the data — a failure is not kept', async () => {
+  it('fills the field once a later look-up can load the data — nozzleDb keeps no failure of its own', async () => {
     render({ exitDiameterM: null });
     await waitFor(() => note() !== null, 'the could-not-load note');
     data.fail = false;
