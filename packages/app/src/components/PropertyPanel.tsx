@@ -389,7 +389,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
   // Where the kernel flies it: a part with no position is NOT at Top, 0.
   const pos = positionOf(node);
-  const parentLenSi = parent && parent !== 'stage' ? num(parent, 'length', 0.2) : 0.2;
+  // The kernel's length (axialLength), as the drag and the snap ladder read
+  // it — a cleared tube is its type's 300 mm, not 200 (audit 2026-09-30).
+  const parentLenSi = parent && parent !== 'stage' ? axialLength(parent) : 0.2;
 
   /**
    * What the 🖨 button offers for this component: its caption, the one line

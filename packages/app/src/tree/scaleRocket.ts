@@ -5,6 +5,7 @@ import {
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { findParent, motorMounts } from './treeModel.js';
+import { axialLength } from './position.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -236,7 +237,8 @@ export function rocketLength(tree: RocketTree): number {
     for (const n of nodes) {
       const t = n.type as string;
       if (OFF_AXIS.has(t)) continue;
-      if (CHAIN.has(t)) total += num(n, 'length') ?? 0;
+      // The kernel's length: a cleared one is its type's default, not 0.
+      if (CHAIN.has(t)) total += axialLength(n);
       walk(n.children ?? []);
     }
   };

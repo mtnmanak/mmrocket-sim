@@ -90,7 +90,9 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
     const kids = parentNode.children ?? [];
     const finSets = kids.filter((k) => k.type.endsWith('finset'));
     if (finSets.length >= 2) {
-      const pLen = num(parentNode, 'length', 0.2);
+      // The kernel's length, as the stations it is compared with are built
+      // from — a cleared tube is its type's default, not 0.2 m.
+      const pLen = axialLength(parentNode);
 
       for (let i = 1; i < finSets.length; i++) {
         const me = finSets[i]!;

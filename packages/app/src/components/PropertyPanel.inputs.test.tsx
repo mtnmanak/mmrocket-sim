@@ -295,6 +295,21 @@ describe('PropertyPanel — sliders', () => {
   });
 
   /**
+   * Audit 2026-09-30 (ledger row 373, regressed): a tube saved with no
+   * `length` flies at the kernel's 300 mm, and the Position slider read it as
+   * 200 mm — its range, its snap window and the offset a drag resolves to.
+   */
+  it('the Position slider spans a no-length tube at the kernel\'s 300 mm', () => {
+    const fins = { id: 'f', type: 'trapezoidfinset', name: 'f', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03, position: { method: 'bottom', offset: 0 } } as unknown as ComponentNode;
+    const bare = tube('A', { children: [fins] });
+    delete bare['length'];
+    show(treeOf(bare), fins);
+    expect(Number(sliderNamed('Position offset').max)).toBeCloseTo(300, 9);
+    expect(Number(sliderNamed('Position offset').min)).toBeCloseTo(-300, 9);
+  });
+
+  /**
    * Audit 2026-09-22: the range a drag freezes (so the handle does not chase
    * its own updates) was released only on pointerup. A touch the browser
    * cancels — a scroll gesture taking over — never sends one, and the slider

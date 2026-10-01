@@ -1,5 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { num, numOpt } from '../tree/nodeNum.js';
+import { numOpt } from '../tree/nodeNum.js';
+import { axialLength } from '../tree/position.js';
 import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designationText.js';
 
 /**
@@ -147,7 +148,11 @@ function stageOf(tree: RocketTree, mountId: string): { stage: ComponentNode; ind
 }
 
 /**
- * A node's own axial length, 0 when it carries none.
+ * A node's own axial length — the kernel's (`position.axialLength`), so one
+ * that carries none is its type's default, as the kernel builds it. It was 0
+ * (until audit 2026-09-30): a stage frame summed from it came up short of the
+ * kernel's by every cleared tube, the defect ledger row 373 had closed in
+ * `position.ts` alone.
  *
  * SHARED WITH THE IMPORTER (2026-09-08, from review). `rasaeroFile.ts` held
  * its own copy of this, of {@link stageLength} and of {@link cgFromCombined},
@@ -157,7 +162,7 @@ function stageOf(tree: RocketTree, mountId: string): { stage: ComponentNode; ind
  * already depends on this module (for {@link OVERRIDE_INCLUDES_MOTOR}) and not
  * the other way round.
  */
-export const nodeLength = (n: ComponentNode): number => num(n, 'length', 0);
+export const nodeLength = (n: ComponentNode): number => axialLength(n);
 
 /** A stage's own length: its DIRECT children only, so pods add nothing. */
 export const stageLength = (st: ComponentNode | undefined): number =>

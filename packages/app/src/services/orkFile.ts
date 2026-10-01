@@ -13,7 +13,7 @@ import {
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
-import { positionOf } from '../tree/position.js';
+import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -2270,7 +2270,9 @@ export function exportOrk({
         header(depth + 1, node, 'Nose Cone');
         finishXml(depth + 1, node);
         material(depth + 1, node);
-        emit(depth + 1, `<length>${n(node, 'length', 0.07)}</length>`);
+        // A chain member's length is the kernel's (axialLength): a cleared one
+        // writes what flew, its type's default (audit 2026-09-30).
+        emit(depth + 1, `<length>${axialLength(node)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'ogive'))}</shape>`);
         emit(depth + 1, '<shapeclipped>false</shapeclipped>');
@@ -2289,7 +2291,7 @@ export function exportOrk({
         header(depth + 1, node, 'Transition');
         finishXml(depth + 1, node);
         material(depth + 1, node);
-        emit(depth + 1, `<length>${n(node, 'length', 0.04)}</length>`);
+        emit(depth + 1, `<length>${axialLength(node)}</length>`);
         thicknessXml(depth + 1, node, 0.002);
         emit(depth + 1, `<shape>${escapeXml(String(node['shape'] ?? 'conical'))}</shape>`);
         // Write what actually simulated so the desktop reproduces our
@@ -2327,7 +2329,7 @@ export function exportOrk({
         header(depth + 1, node, 'Body Tube');
         finishXml(depth + 1, node);
         material(depth + 1, node);
-        emit(depth + 1, `<length>${n(node, 'length', 0.3)}</length>`);
+        emit(depth + 1, `<length>${axialLength(node)}</length>`);
         emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
         // Extension tag (desktop warns-and-ignores): sub-minimum flag.

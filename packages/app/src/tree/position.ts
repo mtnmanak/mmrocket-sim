@@ -396,7 +396,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
  * the kernel's tab offset is measured from.
  */
 export function anchorStarts(parent: ComponentNode, child: ComponentNode): number[] {
-  const pLen = num(parent, 'length', 0.2);
+  const pLen = axialLength(parent);
   const cLen = axialLength(child);
   const anchors = new Set<number>([0, pLen - cLen, (pLen - cLen) / 2]);
   for (const sib of parent.children ?? []) {

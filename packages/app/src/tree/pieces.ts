@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
-  assemblyBoundingRadius, assemblyChainLength, isAssembly,
+  assemblyBoundingRadius, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
@@ -427,7 +427,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // radius + angle (the addFins rotate-about-X primitive, lifted from one
         // fin to a mini-rocket). Nested pods compose transforms.
         const podChain = child.children ?? [];
-        const podLen = assemblyChainLength(child);
+        const podLen = axialLength(child);
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = assemblyInstanceCount(child);
@@ -449,7 +449,9 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
   const addChain = (nodes: ComponentNode[], xform?: THREE.Matrix4): number => {
     let x = 0;
     for (const n of nodes) {
-      const len = num(n, 'length', 0);
+      // The kernel's length — a cleared one is its type's default, not 0
+      // (audit 2026-09-30, row 373 regressed: only position.ts had changed).
+      const len = axialLength(n);
       if (n.type === 'nosecone') {
         const R = num(n, 'aftRadius', 0.012);
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';

@@ -11,15 +11,13 @@ import { num } from './nodeNum.js';
  */
 
 
-/** The assembly's own axial chain members (a mini nose→body→transition stack). */
-const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
-
-/** Total axial length of the assembly's own body chain (m). */
-export function assemblyChainLength(pod: ComponentNode): number {
-  return (pod.children ?? [])
-    .filter((c) => CHAIN_TYPES.has(c.type))
-    .reduce((s, c) => s + num(c, 'length', 0), 0);
-}
+/*
+ * An assembly's AXIAL length — its own nose→body→transition chain, summed — is
+ * `position.axialLength(pod)`, which reads each member at the kernel's length.
+ * `assemblyChainLength` here was a second copy that read a cleared length as 0
+ * (audit 2026-09-30, ledger row 373 regressed), so a pod with a cleared tube
+ * was drawn and placed short in the 3D and side views while it flew long.
+ */
 
 /** Largest outer radius among the assembly's own body chain (m). */
 export function assemblyBoundingRadius(pod: ComponentNode): number {

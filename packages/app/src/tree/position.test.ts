@@ -539,3 +539,38 @@ describe('axialLength — a cleared length is the kernel’s default for the typ
     }
   }, 60000);
 });
+
+/**
+ * A POD SET'S axial length is its own chain's (audit 2026-09-30). These were
+ * assembly.ts's `assemblyChainLength` pins until that second copy — which read
+ * a cleared length as 0 — was retired in favour of this one.
+ */
+describe('axialLength — a pod set is the length of its own nose→body→transition chain', () => {
+  const pod = (children: Record<string, unknown>[]) =>
+    ({ type: 'podset', children } as unknown as ComponentNode);
+
+  it('sums the chain', () => {
+    expect(axialLength(pod([
+      { type: 'nosecone', length: 0.06, aftRadius: 0.015 },
+      { type: 'bodytube', length: 0.2, outerRadius: 0.015 },
+      { type: 'transition', length: 0.04, foreRadius: 0.015, aftRadius: 0.008 },
+    ]))).toBeCloseTo(0.30, 12);
+  });
+
+  it('counts ONLY chain members — an internal part is not axial length', () => {
+    // A chute, a fin set and a mass component sit INSIDE or ON the chain, so
+    // their own length must not extend it.
+    expect(axialLength(pod([
+      { type: 'bodytube', length: 0.2, outerRadius: 0.015 },
+      { type: 'parachute', length: 0.05, diameter: 0.3 },
+      { type: 'trapezoidfinset', rootChord: 0.05, height: 0.04 },
+      { type: 'masscomponent', length: 0.03, mass: 0.02 },
+    ]))).toBeCloseTo(0.2, 12);
+  });
+
+  it('reads a cleared member at the kernel\'s length, and an empty pod as 0', () => {
+    expect(axialLength(pod([{ type: 'bodytube' }]))).toBeCloseTo(0.3, 12);
+    expect(axialLength(pod([]))).toBe(0);
+    expect(axialLength({ type: 'podset' } as unknown as ComponentNode)).toBe(0);
+  });
+});

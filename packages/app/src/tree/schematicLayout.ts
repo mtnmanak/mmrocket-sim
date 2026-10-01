@@ -7,7 +7,7 @@ import { tubeFinRadius } from './tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
 import { DISPLAY_NAME } from './schema.js';
 import {
-  assemblyBoundingRadius, assemblyChainLength, isAssembly,
+  assemblyBoundingRadius, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
@@ -182,7 +182,10 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
   let maxR = 0.001;
   for (const n of chain) {
     if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') {
-      totalLen += num(n, 'length', 0);
+      // `axialLength`: the kernel's length, a cleared one included (its type's
+      // default) — not 0, which drew a zero-length tube and everything behind
+      // it that much too far forward (audit 2026-09-30, row 373 regressed).
+      totalLen += axialLength(n);
       maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
     }
   }
@@ -681,7 +684,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // instance's projected baseline (side view projects y, ignores depth z).
       if (isAssembly(t)) {
         const podChain = child.children ?? [];
-        const podLen = assemblyChainLength(child);
+        const podLen = axialLength(child);
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = assemblyInstanceCount(child);
@@ -1202,7 +1205,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   const renderChain = (nodes: ComponentNode[], xStart: number, baseY: number, scope: string) => {
     let cx = xStart;
     for (const n of nodes) {
-      const len = num(n, 'length', 0);
+      // The kernel's length, as the frame above reads it and every child's
+      // drag resolves against (Grip.pLen) — never 0 for a cleared one.
+      const len = axialLength(n);
       const key = n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition'
         ? partKey(n, scope) : '';
       const part = partOf(n, false);
