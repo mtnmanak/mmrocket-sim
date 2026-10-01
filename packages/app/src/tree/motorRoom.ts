@@ -31,7 +31,10 @@ import { ancestorsOf, findNode } from './treeModel.js';
  *   to stop a motor, and the ebay's aft bulkhead is the one he means. One
  *   inside the mount always is; anywhere else its section has to cover part
  *   of the motor's (`inTheWay`), so a thrust ring in an outboard tube BESIDE
- *   the mount stops only the outboard motor;
+ *   the mount stops only the outboard motor. A bulkhead with a hole through
+ *   it — an eyebolt's, a baffle's — is one too, though a `.rkt` opens it as a
+ *   centering ring with that bore (`holedBulkhead`, `stopsMotor`): its hole
+ *   counts, so it stops a motor the hole is too small for;
  * - the aft end of a **nose cone**, which a motor cannot enter;
  * - the aft end of a **transition that narrows going forward**, which closes
  *   down below the tube the motor is travelling up — an AUTOMATIC (absent)
@@ -54,7 +57,7 @@ import { ancestorsOf, findNode } from './treeModel.js';
  * - a **centering ring** or **tube coupler** around or inside the mount. A
  *   ring's bore is the motor tube's outside — the motor passes through it —
  *   and treating it as a stop would return a few millimetres on almost every
- *   high-power rocket.
+ *   high-power rocket. (The holed bulkhead above is the one ring that stops.)
  * - a **mass component** (owner ruling, 2026-09-01). This used to block, on
  *   the reasoning that a mass component is how an altimeter sled gets
  *   modelled. That was wrong, and his own 4" Wildman Extreme is the
@@ -99,6 +102,20 @@ export interface MotorRoom {
  * above on why a mass component is not one of them.
  */
 const BLOCKING = new Set(['engineblock', 'bulkhead']);
+
+/**
+ * One of those, or a BULKHEAD WITH A HOLE: a `.rkt` bulkhead the file gives a
+ * hole opens as a centering ring with that bore, so that it weighs what RockSim
+ * weighs (rocksimFile.ts, `holedBulkhead`), and it is still a wall. Read as a
+ * plain ring, LifeProof Rocket Upward.rkt's aft e-bay bulkhead, with a 6.35 mm
+ * eyebolt hole, let this run on to the nose cone: 2.397 m of room where
+ * 0.994 m is true, across 6 mounts in the RockSim corpus. Its hole counts in
+ * `inTheWay`, so Glencoe Jupiter C's base plate, a 19.1 mm hole over an 18 mm
+ * mount, stops nothing.
+ */
+function stopsMotor(n: ComponentNode): boolean {
+  return BLOCKING.has(n.type) || (n.type === 'centeringring' && n['holedBulkhead'] === true);
+}
 
 const DISPLAY: Record<string, string> = {
   engineblock: 'engine block',
@@ -213,8 +230,9 @@ function axisCentres(tree: RocketTree, node: ComponentNode): SectionPoint[] {
 
 /**
  * Whether an engine block or bulkhead is in this mount's motor's way: whether
- * its solid section — a full disc for a bulkhead, a ring for an engine block —
- * covers any part of the motor's (audit 2026-09-30).
+ * its solid section — a full disc for a bulkhead, a ring for an engine block or
+ * a bulkhead with a hole (`stopsMotor`) — covers any part of the motor's (audit
+ * 2026-09-30).
  *
  * One INSIDE the mount always is: it is there to stop this motor. This used to
  * be the rule for every stop in the mount's airframe, so a thrust ring inside
@@ -246,6 +264,7 @@ function inTheWay(
   if (outer === undefined) return true;
   const inner = stop.type === 'engineblock'
     ? Math.max(outer - num(stop, 'thickness', 0.00095), 0) // the bridge's default wall
+    : stop.type === 'centeringring' ? num(stop, 'innerRadius', 0) // a holed bulkhead's own hole
     : 0;
   return axisCentres(tree, stop).some((s) => motor.centres.some((m) => {
     const d = Math.hypot(m.y - s.y, m.z - s.z);
@@ -300,7 +319,7 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
 
   for (const { end, node } of stations.values()) {
     if (node.id === mountId || !frame.has(node.id)) continue;
-    const blocks = (BLOCKING.has(node.type) && inTheWay(tree, mount, node, motor))
+    const blocks = (stopsMotor(node) && inTheWay(tree, mount, node, motor))
       || node.type === 'nosecone'
       || (node.type === 'transition' && narrowsForward(tree, node));
     if (!blocks) continue;
@@ -309,7 +328,8 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
     if (end > mountAft) continue;
     if (end > limit) {
       limit = end;
-      limitedBy = node.name ?? DISPLAY[node.type] ?? node.type;
+      // A holed bulkhead is named as the bulkhead it is.
+      limitedBy = node.name ?? DISPLAY[node.type === 'centeringring' ? 'bulkhead' : node.type] ?? node.type;
     }
   }
 

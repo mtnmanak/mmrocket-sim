@@ -12,6 +12,7 @@ import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
 import { clusterOffsets } from '../tree/cluster.js';
+import { estimateMotorRoom } from '../tree/motorRoom.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1246,6 +1247,218 @@ describe('RockSim design-level stage mass & CG', () => {
     expect(read('').measured).toBeUndefined();
     expect(read('').notes).not.toMatch(/Measured mass/i);
   });
+});
+
+/**
+ * The same design-level known mass going OUT (format audit row 21). RockSim
+ * keeps a weighed stage's mass on <RocketDesign> — <Stage3Mass> for the
+ * sustainer, then <Stage2Mass> and <Stage1Mass> down the stack — with its
+ * balance point and one <UseKnownMass>1</UseKnownMass>, and flies that mass in
+ * place of the stage's parts; desktop OpenRocket's StageDTO writes a stage
+ * override there and its reader pins the stage to it. The writer wrote none of
+ * it, so a stage pinned to a weighed mass (App's Pin stage to measured, every
+ * RASAero import) reached RockSim as the sum of its parts, and the Measured
+ * mass & CG box a RockSim file had filled went back out empty. The figures
+ * are the ones the kernel flies for the stage; this app's reader takes them
+ * back into the box, never as a pin (ruling 2026-08-23).
+ */
+describe('.rkt export writes a stage\'s known mass where RockSim keeps it', () => {
+  const sustainerParts = (): ComponentNode[] => [
+    { type: 'nosecone', id: 'n', name: 'Nose', shape: 'ogive', length: 0.25, aftRadius: 0.0275, thickness: 0.002, density: 1050 },
+    { type: 'bodytube', id: 'b', name: 'Airframe', length: 0.8, outerRadius: 0.0275, thickness: 0.0015, density: 1250,
+      children: [
+        { type: 'innertube', id: 'mm', name: 'Mount', length: 0.3, outerRadius: 0.0145, thickness: 0.0005,
+          motorMount: true, position: { method: 'bottom', offset: 0 } },
+        { type: 'trapezoidfinset', id: 'f', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.05, height: 0.06,
+          thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+      ] },
+  ] as ComponentNode[];
+  const oneStage = (over: Record<string, unknown> = {}): ComponentNode[] =>
+    [{ type: 'stage', id: 's0', name: 'Sustainer', ...over, children: sustainerParts() }] as ComponentNode[];
+  const twoStage = (upper: Record<string, unknown>, lower: Record<string, unknown>): ComponentNode[] => [
+    { type: 'stage', id: 's0', name: 'Sustainer', ...upper, children: [
+      { type: 'nosecone', id: 'n', name: 'Nose', shape: 'ogive', length: 0.25, aftRadius: 0.0275, thickness: 0.002, density: 1050 },
+      { type: 'bodytube', id: 'b', name: 'Upper airframe', length: 0.6, outerRadius: 0.0275, thickness: 0.0015, density: 1250 },
+    ] },
+    { type: 'stage', id: 's1', name: 'Booster', ...lower, children: [
+      { type: 'bodytube', id: 'bb', name: 'Booster airframe', length: 0.5, outerRadius: 0.0275, thickness: 0.0015, density: 1250,
+        children: [
+          { type: 'innertube', id: 'bm', name: 'Booster mount', length: 0.3, outerRadius: 0.0145, thickness: 0.0005,
+            motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type: 'trapezoidfinset', id: 'bf', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.05, height: 0.06,
+            thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+        ] },
+    ] },
+  ] as ComponentNode[];
+  /** The kernel's rocket for `components`, and the compInfo App's Save .rkt hands the writer. */
+  const kernel = async (components: ComponentNode[]) => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree({ name: 'K', components }));
+    return { rocket, compInfo: rktComponentInfo({ components }, (id) => rocket.componentInfo(id)) };
+  };
+  /** One design-level field, or undefined when the file has none. */
+  const field = (xml: string, tag: string): number | undefined => {
+    const m = new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml);
+    return m ? Number(m[1]) : undefined;
+  };
+  // What App's Pin stage to measured writes (pinBlockerToMeasured), and what
+  // every RASAero import and desktop's own RockSim reader put on a stage.
+  const PINNED = { overrideMass: 0.5, overrideSubcomponentsMass: true, overrideCGX: 0.6, overrideSubcomponentsCG: true };
+
+  it('writes a pinned stage as RockSim\'s known mass and balance point, ahead of the parts', async () => {
+    const components = oneStage(PINNED);
+    const { rocket, compInfo } = await kernel(components);
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'P', tree: { components }, compInfo, notes });
+    const info = rocket.staticInfo();
+    expect(field(xml, 'Stage3Mass'), 'the stage went out as the sum of its parts').toBeCloseTo(info.massEmpty * 1000, 6);
+    expect(field(xml, 'Stage3Mass')).toBeCloseTo(500, 6);
+    expect(field(xml, 'Stage3CG')).toBeCloseTo(info.cgEmpty * 1000, 6);
+    expect(field(xml, 'Stage3CG')).toBeCloseTo(600, 6);
+    expect(field(xml, 'Stage2Mass')).toBe(0);
+    expect(field(xml, 'Stage1Mass')).toBe(0);
+    expect(field(xml, 'UseKnownMass')).toBe(1);
+    // Desktop's reader is SAX and builds each stage when its <StageNParts>
+    // opens, from the masses read so far: after it, they are never applied.
+    expect(xml.indexOf('<UseKnownMass>')).toBeLessThan(xml.indexOf('<Stage3Parts>'));
+    expect(xml.indexOf('<Stage3Mass>')).toBeLessThan(xml.indexOf('<Stage3Parts>'));
+    // Re-opened here it lands in Measured mass & CG, not as a pin (ruling
+    // 2026-08-23), so the re-opened design flies its parts; the save says so.
+    const back = importRkt(xml);
+    expect(back.measured?.massKg).toBeCloseTo(0.5, 9);
+    expect(back.measured?.cgM).toBeCloseTo(0.6, 9);
+    expect(back.tree.components[0]!['overrideMass']).toBeUndefined();
+    expect(notes).toEqual([expect.stringMatching(/“Sustainer”: its mass and CG overrides go out as RockSim's known mass .*Measured mass & CG/)]);
+  }, 60000);
+
+  it('states the mass the kernel flies, and a balance point only where the override moves it', async () => {
+    const cases: [string, Record<string, unknown>, 'cg' | 'none'][] = [
+      // The override does not cover the parts: the stage weighs it AND them.
+      // Desktop's StageDTO writes the override alone, every part light.
+      ['a mass override on top of the parts', { overrideMass: 0.1 }, 'none'],
+      ['a mass override for everything', { overrideMass: 0.5, overrideSubcomponentsMass: true }, 'none'],
+      // The CG moves the parts and leaves their mass: RockSim couples the two,
+      // so the computed mass goes out beside it, as a part's does.
+      ['a CG override for everything', { overrideCGX: 0.6, overrideSubcomponentsCG: true }, 'cg'],
+      ['a mass override at its own CG', { overrideMass: 0.1, overrideCGX: 0.2 }, 'cg'],
+    ];
+    for (const [label, over, cg] of cases) {
+      const components = oneStage(over);
+      const { rocket, compInfo } = await kernel(components);
+      const xml = exportRkt({ name: 'P', tree: { components }, compInfo });
+      const info = rocket.staticInfo();
+      expect(field(xml, 'Stage3Mass'), label).toBeCloseTo(info.massEmpty * 1000, 6);
+      // RockSim's own "no balance point stated" (4 of the 67 corpus files that
+      // state a mass), which this app's reader leaves out of the box.
+      if (cg === 'none') expect(field(xml, 'Stage3CG'), label).toBe(0);
+      else expect(field(xml, 'Stage3CG'), label).toBeCloseTo(info.cgEmpty * 1000, 6);
+      const back = importRkt(xml).measured;
+      expect(back?.massKg, label).toBeCloseTo(info.massEmpty, 9);
+      if (cg === 'none') expect(back?.cgM, label).toBeNull();
+      else expect(back?.cgM, label).toBeCloseTo(info.cgEmpty, 9);
+    }
+  }, 60000);
+
+  it('writes nothing for a stage whose override changes nothing, or a rocket with none', async () => {
+    // A stage has no mass of its own, so a CG override that does not cover
+    // the parts places nothing (MassCalculation.calculateStructure).
+    for (const over of [{}, { overrideCGX: 0.6 }]) {
+      const components = oneStage(over);
+      const { compInfo } = await kernel(components);
+      const xml = exportRkt({ name: 'P', tree: { components }, compInfo });
+      expect(xml).not.toMatch(/<Stage3Mass>|<UseKnownMass>/);
+    }
+  }, 60000);
+
+  it('writes the override itself when there are no kernel figures', () => {
+    const xml = exportRkt({ name: 'P', tree: { components: oneStage(PINNED) } });
+    expect(field(xml, 'Stage3Mass')).toBeCloseTo(500, 9);
+    expect(field(xml, 'Stage3CG')).toBeCloseTo(600, 9);
+    expect(field(xml, 'UseKnownMass')).toBe(1);
+  });
+
+  it('writes the Measured mass & CG box of a one-stage rocket, and reads it back into the box', () => {
+    const tree = { components: oneStage() };
+    const both = exportRkt({ name: 'M', tree, measured: { massKg: 0.45, cgM: 0.55 } });
+    expect(field(both, 'Stage3Mass')).toBeCloseTo(450, 9);
+    expect(field(both, 'Stage3CG')).toBeCloseTo(550, 9);
+    expect(field(both, 'UseKnownMass')).toBe(1);
+    expect(importRkt(both).measured).toEqual({ massKg: expect.closeTo(0.45, 9), cgM: expect.closeTo(0.55, 9) });
+    // A weight with no balance point stays one.
+    const massOnly = exportRkt({ name: 'M', tree, measured: { massKg: 0.45, cgM: null } });
+    expect(field(massOnly, 'Stage3CG')).toBe(0);
+    expect(importRkt(massOnly).measured).toEqual({ massKg: expect.closeTo(0.45, 9), cgM: null });
+    // RockSim's known mass is a mass: a balance point alone has nowhere to go.
+    expect(exportRkt({ name: 'M', tree, measured: { massKg: null, cgM: 0.55 } })).not.toMatch(/<UseKnownMass>/);
+    expect(exportRkt({ name: 'M', tree, measured: { massKg: null, cgM: null } })).not.toMatch(/<UseKnownMass>/);
+  });
+
+  it('is what the guide says Save .rkt does with the box and a stage override', () => {
+    // The File formats row is where a user checks what a .rkt keeps before
+    // relying on it, and it said the save leaves the box out: so a weight
+    // typed there as a guess reached RockSim, which flies it in place of the
+    // parts, with the guide promising it would not.
+    const guide = readFileSync(join(here, '..', '..', 'user-guide.md'), 'utf8');
+    const row = guide.split('\n').find((l) => l.startsWith('| `.rkt` |'))!;
+    expect(field(exportRkt({ name: 'M', tree: { components: oneStage() }, measured: { massKg: 0.45, cgM: 0.55 } }),
+      'Stage3Mass')).toBeCloseTo(450, 9);
+    expect(field(exportRkt({ name: 'P', tree: { components: oneStage(PINNED) } }), 'Stage3Mass')).toBeCloseTo(500, 9);
+    expect(row, 'the guide says Save .rkt leaves the box out').not.toMatch(/leaves out[^.]*Measured mass & CG/);
+    expect(row).toMatch(/A stage's mass and CG overrides go out as RockSim's known mass for that stage/);
+    expect(row).toMatch(/your \*\*Measured mass & CG\*\* figures go out there instead/);
+  });
+
+  it('credits a stage override in the save note only when the override is what went out', async () => {
+    // Stage overrides that move nothing the kernel flies — a CG override that
+    // does not cover the parts, a 0 g mass that does — write nothing, so the
+    // box takes the slot. The note said the override had gone out.
+    const box = { massKg: 0.45, cgM: 0.5 };
+    for (const over of [{ overrideCGX: 0.6 }, { overrideMass: 0, overrideSubcomponentsMass: true }]) {
+      const label = JSON.stringify(over);
+      const components = oneStage(over);
+      const { compInfo } = await kernel(components);
+      for (const info of [compInfo, undefined]) {
+        const notes: string[] = [];
+        const xml = exportRkt({ name: 'M', tree: { components }, compInfo: info, measured: box, notes });
+        expect(field(xml, 'Stage3Mass'), label).toBeCloseTo(450, 9);
+        expect(field(xml, 'Stage3CG'), label).toBeCloseTo(500, 9);
+        expect(notes.filter((n) => /known mass/.test(n)), `${label}: the box went out, credited to the override`).toEqual([]);
+      }
+    }
+    // The override that does go out keeps the slot, and its note.
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'M', tree: { components: oneStage(PINNED) }, measured: box, notes });
+    expect(field(xml, 'Stage3Mass')).toBeCloseTo(500, 9);
+    expect(notes).toEqual([expect.stringMatching(/^“Sustainer”: its mass and CG overrides go out as RockSim's known mass/)]);
+  }, 60000);
+
+  it('writes each stage of a two-stage rocket in its own slot, the booster\'s CG from its own front', async () => {
+    const components = twoStage({ overrideMass: 0.4, overrideSubcomponentsMass: true },
+      { overrideMass: 0.3, overrideSubcomponentsMass: true, overrideCGX: 0.25, overrideSubcomponentsCG: true });
+    const { rocket, compInfo } = await kernel(components);
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'T', tree: { components }, compInfo, notes });
+    expect(field(xml, 'Stage3Mass')).toBeCloseTo(400, 6);
+    expect(field(xml, 'Stage3CG')).toBe(0);
+    expect(field(xml, 'Stage2Mass')).toBeCloseTo(300, 6);
+    // From the booster's own front, as desktop reads and writes <Stage2CGAlone>.
+    expect(field(xml, 'Stage2CGAlone')).toBeCloseTo(250, 6);
+    expect(field(xml, 'Stage1Mass')).toBe(0);
+    expect(field(xml, 'UseKnownMass')).toBe(1);
+    // The whole stack weighs what the two stated masses add up to.
+    expect(rocket.staticInfo().massEmpty * 1000).toBeCloseTo(field(xml, 'Stage3Mass')! + field(xml, 'Stage2Mass')!, 6);
+    // A per-stage mass has no place in the whole-rocket box: re-opened here,
+    // every stage's is named in a note, the booster's included.
+    const back = importRkt(xml);
+    expect(back.measured).toBeUndefined();
+    expect(back.notes.join(' ')).toMatch(/“Sustainer” 400 g, “Booster” 300 g/);
+    expect(notes).toEqual([
+      expect.stringMatching(/“Sustainer”: its mass override goes out .*as a note only/),
+      expect.stringMatching(/“Booster”: its mass and CG overrides go out .*as a note only/),
+    ]);
+  }, 60000);
 });
 
 /**
@@ -2885,6 +3098,120 @@ describe('.rkt export sizes an automatic ring as the kernel flies it', () => {
       expect(before[name]!, name).toBeGreaterThan(0);
       expect(after[name]! / before[name]!, name).toBeCloseTo(1, 6);
     }
+  });
+
+  it('round-trips an automatic ring around a 54 mm mount in a 98 mm airframe at the mount\'s size', async () => {
+    // Format audit row 26's own case: OD − 4 mm made this ring a 2 mm annulus,
+    // its mass ÷8.7 in RockSim, and the re-import then froze that bore.
+    const components = [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', name: 'Airframe', length: 0.9, outerRadius: 0.049, thickness: 0.0015, density: 1850,
+        children: [
+          { type: 'innertube', id: 'mm', name: 'Mount', length: 0.4, outerRadius: 0.0287, thickness: 0.001,
+            motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type: 'centeringring', id: 'cr', name: 'Ring', length: 0.006, density: 680,
+            position: { method: 'bottom', offset: -0.02 } },
+        ] },
+    ] }] as ComponentNode[];
+    const back = flatten(importRkt(exportRkt({ name: 'R', tree: { name: 'R', components } })).tree.components)
+      .find((c) => c.name === 'Ring')!;
+    expect(back['innerRadius'], 'the ring came back with a bore 2 mm inside its rim').toBeCloseTo(0.0287, 12);
+    expect(back['outerRadius']).toBeCloseTo(0.0475, 12);
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const flown = OrkRocket.buildTree(engineTree({ name: 'R', components })).componentInfo('cr').mass;
+    resetEngine();
+    const reopened = OrkRocket.buildTree(engineTree({ name: 'R', components: [{ type: 'stage', id: 's', children: [{
+      ...components[0]!.children![0]!, children: [components[0]!.children![0]!.children![0]!, { ...back, id: 'cr' }] }] }] as ComponentNode[] }))
+      .componentInfo('cr').mass;
+    expect(reopened / flown).toBeCloseTo(1, 9);
+  });
+});
+
+/**
+ * A RockSim BULKHEAD WITH A HOLE (format audit row 26). A <Ring> with
+ * <UsageCode>1 is RockSim's bulkhead, and RockSim weighs it with the <ID> the
+ * file gives it: Level 3 Rocket.rkt's "Bulkplate Nose cone" is 136.525 mm
+ * across with a 50.8 mm hole, and its <CalcMass> of 152.587 g is that annulus.
+ * The kernel's Bulkhead has no inner radius (Bulkhead.setInnerRadius is a
+ * no-op), so the reader dropped the ID and flew a solid disc — as desktop
+ * OpenRocket does. A centering ring with that bore is the part RockSim weighs.
+ */
+describe('RockSim bulkhead with a hole', () => {
+  const doc = (rings: string) => `<RockSimDocument><DesignInformation><RocketDesign><Name>H</Name>
+    <StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Airframe</Name><OD>139.7</OD><ID>136.525</ID><Len>600</Len>
+      <Density>1905.24</Density><DensityType>0</DensityType><AttachedParts>${rings}</AttachedParts></BodyTube>
+    </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+  // Level 3 Rocket's own figures, <CalcMass> included.
+  const ring = (name: string, id: number, at = 100) => `<Ring><Name>${name}</Name><UsageCode>1</UsageCode>
+    <OD>136.525</OD><ID>${id}</ID><Len>6.35</Len><Density>1905.24</Density><DensityType>0</DensityType>
+    <LocationMode>0</LocationMode><Xb>${at}</Xb><CalcMass>152.587</CalcMass></Ring>`;
+  const part = (r: ReturnType<typeof importRkt>, name: string) =>
+    flatten(r.tree.components).find((c) => c.name === name)!;
+
+  it('imports it as a centering ring with that bore, and names it in a note', () => {
+    const r = importRkt(doc(ring('Bulkplate Nose cone', 50.8)));
+    const p = part(r, 'Bulkplate Nose cone');
+    expect(p.type, 'a holed bulkhead imported solid').toBe('centeringring');
+    expect(p['innerRadius']).toBeCloseTo(0.0254, 12);
+    expect(p['outerRadius']).toBeCloseTo(0.0682625, 12);
+    expect(p['holedBulkhead']).toBe(true);
+    // What RockSim does with the hole, not what this app weighs: the kernel's
+    // own bore can differ (US Rockets 2.25 V2.rkt's baffle still flies solid,
+    // RadiusRingComponent.setInnerRadius), and the estimate still stops at it.
+    expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
+      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm hole through it\. RockSim weighs the part with that hole, .*centering ring with that bore; desktop OpenRocket imports it solid\. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough for the motor\.$/),
+    ]);
+  });
+
+  /**
+   * …and it is still the wall it was. The motor-length estimate stops at a
+   * bulkhead and never at a centering ring, so read as a plain ring, LifeProof
+   * Rocket Upward.rkt's "Aft e-bay Bulkhead", with a 6.35 mm eyebolt hole, let
+   * ⌾ Estimate and the Room for line run on to the nose cone: 2.397 m where
+   * 0.994 m is true, and the motor browser's fit filter with them. The part
+   * carries `holedBulkhead`, which motorRoom.ts reads, through a .rkt save (as
+   * RockSim's own bulkhead, <UsageCode>1 with its <ID>) and a .ork one.
+   */
+  it('still stops the motor-length estimate where its hole is too small for the motor, through a .rkt and a .ork save', () => {
+    const withMount = (rings: string) => doc(`<BodyTube><Name>Mount</Name><OD>57.404</OD><ID>54.102</ID><Len>300</Len>
+      <IsMotorMount>1</IsMotorMount><LocationMode>2</LocationMode><Xb>0</Xb></BodyTube>${rings}`);
+    const room = (r: ReturnType<typeof importRkt>) => estimateMotorRoom(r.tree, part(r, 'Mount').id!)!;
+    const opened = importRkt(withMount(ring('Aft e-bay Bulkhead', 6.35)));
+    expect(room(opened).limitedBy, 'an eyebolt hole let the motor through the e-bay').toBe('Aft e-bay Bulkhead');
+    expect(room(opened).lengthM).toBeCloseTo(0.6 - 0.10635, 9);
+    const rkt = exportRkt({ name: 'H', tree: opened.tree });
+    const out = rkt.match(/<Ring>[\s\S]*?<\/Ring>/g)!.find((b) => b.includes('<Name>Aft e-bay Bulkhead</Name>'))!;
+    expect(out, 'saved as a plain centering ring').toMatch(/<UsageCode>1<\/UsageCode>/);
+    expect(Number(/<ID>([^<]*)<\/ID>/.exec(out)![1])).toBeCloseTo(6.35, 9);
+    for (const [via, back] of [['.rkt', importRkt(rkt)], ['.ork', importOrk(exportOrk({ name: 'H', tree: opened.tree }))]] as const) {
+      expect(part(back, 'Aft e-bay Bulkhead')['holedBulkhead'], via).toBe(true);
+      expect(part(back, 'Aft e-bay Bulkhead')['innerRadius'], via).toBeCloseTo(0.003175, 12);
+      expect(room(back).limitedBy, `re-opened from ${via}`).toBe('Aft e-bay Bulkhead');
+    }
+    // A hole wide enough for the motor lets it through (Glencoe Jupiter C's
+    // base plate: a 19.1 mm hole over an 18 mm mount).
+    expect(room(importRkt(withMount(ring('Aft base plate', 60)))).limitedBy).toBe('the front of the airframe');
+  });
+
+  it('weighs what RockSim weighs it: its own CalcMass', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    resetEngine();
+    const r = importRkt(doc(ring('Bulkplate Nose cone', 50.8)));
+    const rocket = OrkRocket.buildTree(engineTree(r.tree));
+    // 152.587 g in the file; solid, the same disc is 177.1 g.
+    expect(rocket.componentInfo(part(r, 'Bulkplate Nose cone').id!).mass * 1000).toBeCloseTo(152.587, 1);
+  });
+
+  it('names every holed bulkhead in one note, and leaves a solid one a bulkhead', () => {
+    const r = importRkt(doc(ring('Ring Disc - Nose Cone', 101.6) + ring('Bulkplate Nose cone', 50.8, 200)
+      + ring('Ring Disc T Coupler', 0, 300)));
+    expect(part(r, 'Ring Disc T Coupler').type).toBe('bulkhead');
+    expect(part(r, 'Ring Disc T Coupler')['innerRadius']).toBeUndefined();
+    expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
+      expect.stringMatching(/^2 bulkheads have a hole through them \(“Ring Disc - Nose Cone” 101\.6 mm, “Bulkplate Nose cone” 50\.8 mm\)/),
+    ]);
   });
 });
 

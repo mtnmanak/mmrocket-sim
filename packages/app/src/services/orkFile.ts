@@ -871,6 +871,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['length'] = num(el, 'length', 0.002);
         readRingRadii(el, n);
         readInstances(el, n);
+        // Extension tag: a bulkhead with a hole, which stops a motor (motorRoom.ts).
+        if (text(el, ':scope > holedbulkhead') === 'true') n['holedBulkhead'] = true;
         return n;
       }
       case 'bulkhead': {
@@ -2509,6 +2511,12 @@ export function exportOrk({
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         ringRadii(depth + 1, node, t === 'centeringring');
+        // Extension tag (desktop warns-and-ignores): a bulkhead with a hole,
+        // flown as this ring with that bore, which still stops a motor its
+        // hole is too small for (rocksimFile.ts, motorRoom.ts).
+        if (t === 'centeringring' && node['holedBulkhead'] === true) {
+          emit(depth + 1, '<holedbulkhead>true</holedbulkhead>');
+        }
         close(t);
         break;
       }

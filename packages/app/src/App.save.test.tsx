@@ -10,6 +10,7 @@ import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { exportOrk } from './services/orkFile.js';
+import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
@@ -593,6 +594,32 @@ describe('a Save .rkt that could not carry an ignition', () => {
     expect(item?.textContent).toContain('“C6” is set never to light.');
     expect(item?.textContent).toContain('so the .rkt lights it 0 s after launch.');
     expect(item?.className).toContain('notice-warn');
+  }, 30000);
+});
+
+/**
+ * WHAT A Save .rkt HANDS THE WRITER: THE MEASURED MASS & CG BOX (format audit
+ * row 21). A one-stage rocket's box goes out as RockSim's known mass —
+ * <Stage3Mass> and <Stage3CG> under <UseKnownMass>1, the figures importRkt
+ * fills the box from — but exportRkt writes it only when App passes
+ * `measured`, and taking that out of onSaveRkt left every test green
+ * (rocksimFile.test.ts calls the writer with it directly). Here the box is
+ * typed, the file read back as it was written, and opened again.
+ */
+describe('a Save .rkt carries the Measured mass & CG box', () => {
+  it('writes the typed figures as the rocket’s known mass, and they reopen in the box', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(input(host, 'Measured mass'), '31');
+    await type(input(host, 'Measured CG'), '250');
+    await saveAs(host, 'Save .rkt');
+    await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'the .rkt save');
+    const xml = await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).text();
+    const field = (tag: string) => Number(new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml)?.[1]);
+    expect(field('Stage3Mass'), 'the box never reached the file').toBeCloseTo(31, 9);
+    expect(field('Stage3CG')).toBeCloseTo(250, 9);
+    expect(field('UseKnownMass')).toBe(1);
+    expect(importRkt(xml).measured).toEqual({ massKg: expect.closeTo(0.031, 9), cgM: expect.closeTo(0.25, 9) });
   }, 30000);
 });
 
