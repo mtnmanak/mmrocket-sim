@@ -975,6 +975,26 @@ describe('scaleRocket — motor mounts', () => {
     // writer this came out at 75 + 2x1.6 = 78.2 mm.
     expect(mountBore(findNode(applied, 'mt')!) * 1000).toBeCloseTo(75, 9);
   });
+
+  it('a SOLID tube has no bore, whatever wall it states', () => {
+    // Solid (filled): BodyTube.getInnerRadius, and so getMotorMountDiameter,
+    // is 0. Read through its wall, a solid 60 mm rod with a 1 mm wall
+    // previewed a 58 mm bore, and the .ork reader's solid tube, which states
+    // no wall, the kernel's 0.3 mm one: 59.4 mm.
+    const rod = { type: 'bodytube', id: 'b', length: 0.3, motorMount: true, outerRadius: 0.03, thickness: 0.001 };
+    const solid = { ...rod, filled: true };
+    expect(mountBore(solid as ComponentNode)).toBe(0);
+    expect(mountBore({ ...solid, thickness: undefined } as ComponentNode)).toBe(0);
+    expect(mountBore({ ...rod, filled: false } as ComponentNode) * 1000).toBeCloseTo(58, 9);
+    // A case airframe's bore is its outside, which no reading of the wall moves.
+    expect(mountBore({ ...solid, caseAirframe: true } as ComponentNode) * 1000).toBeCloseTo(60, 9);
+    const t = { name: 'rod', components: [{ type: 'stage', id: 's', children: [
+      { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.03 }, solid,
+    ] }] } as unknown as RocketTree;
+    const [m] = previewMounts(t, 2);
+    expect(m!.boreMm).toBe(0);
+    expect(m!.scaledBoreMm).toBe(0);
+  });
 });
 
 describe('scaleRocket — guardrails and reporting', () => {

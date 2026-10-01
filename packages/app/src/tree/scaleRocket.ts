@@ -274,12 +274,21 @@ export function rocketLength(tree: RocketTree): number {
 const mountWall = (n: ComponentNode): number =>
   num(n, 'thickness') ?? kernelDefault(n.type as string, 'thickness') ?? 0.0005;
 
-/** A motor mount's bore (m): outer radius less wall, or the outer radius for a case airframe. */
+/**
+ * A motor mount's bore (m): outer radius less wall, or the outer radius for a
+ * case airframe — and none for a SOLID body tube (Solid (filled)), whatever wall
+ * it states: BodyTube.getInnerRadius, and so getMotorMountDiameter, is 0 when
+ * filled. Read through that wall, a solid 60 mm rod with a 1 mm wall had a
+ * 58 mm bore in the Scale dialog, the motor browser's fit, the recovery bay and
+ * a .rkt's <MotorDia>. A case airframe keeps its outside: that branch never
+ * reads the wall.
+ */
 export function mountBore(n: ComponentNode): number {
   // A coupler's absent radius is automatic (the bore it sits in): no constant,
   // so it keeps the inner tube's placeholder, as it always has.
   const or = num(n, 'outerRadius') ?? kernelDefault(n.type as string, 'outerRadius') ?? 0.0095;
   if (n['caseAirframe'] === true) return or * 2;
+  if (n.type === 'bodytube' && n['filled'] === true) return 0;
   return (or - mountWall(n)) * 2;
 }
 
@@ -293,7 +302,9 @@ export function mountBore(n: ComponentNode): number {
  * split held shut by call-site geometry rather than by the code — the same
  * shape of latent bug that put a snapped tube 1 mm off the class it reported.
  * Writing the inverse next to the reader means the next thing that makes a
- * case-airframe mount snappable cannot re-open it.
+ * case-airframe mount snappable cannot re-open it. (A SOLID tube's bore is 0
+ * at any outer radius, so it has no inverse; only inner tubes are snapped, and
+ * an inner tube is never solid.)
  */
 function outerRadiusForBore(n: ComponentNode, boreM: number): number {
   if (n['caseAirframe'] === true) return boreM / 2;

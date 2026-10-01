@@ -679,6 +679,41 @@ describe('a transition with an automatic radius', () => {
   });
 });
 
+/**
+ * A SOLID minimum-diameter mount (Solid (filled)) has no bore — the kernel's
+ * BodyTube.getMotorMountDiameter is 0 — so no motor goes in it and there is no
+ * room to estimate. Measured through the wall it states it had a 28 mm motor
+ * section; with no bore at all, a section of radius 0 slipped past a bulkhead
+ * on the axis and the estimate ran on to the nose cone.
+ */
+describe('a solid mount has no room for a motor', () => {
+  const rocket = (filled: boolean) => ({
+    name: 'Rod',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'nc', type: 'nosecone', name: 'Nose cone', length: 0.10, aftRadius: 0.015 },
+        {
+          id: 'fw', type: 'bodytube', name: 'Payload', length: 0.30, outerRadius: 0.015, thickness: 0.001,
+          children: [{ id: 'bh', type: 'bulkhead', name: 'Floor', length: 0.005, position: { method: 'bottom', offset: 0 } }],
+        },
+        {
+          id: 'mm', type: 'bodytube', name: 'Mount', length: 0.30, outerRadius: 0.015, thickness: 0.001,
+          motorMount: true, ...(filled ? { filled: true } : {}),
+        },
+      ],
+    }],
+  } as unknown as RocketTree);
+
+  it('hollow, the motor runs forward to the bulkhead ahead', () => {
+    expect(estimateMotorRoom(rocket(false), 'mm')).toMatchObject({ lengthM: expect.closeTo(0.30, 9), limitedBy: 'Floor' });
+  });
+
+  it('solid, there is none', () => {
+    expect(estimateMotorRoom(rocket(true), 'mm')).toBeNull();
+  });
+});
+
 /** The node with this id, for editing a fixture in place. */
 function findIn(t: RocketTree, id: string): { children?: unknown[] } & Record<string, unknown> {
   const walk = (ns: readonly Record<string, unknown>[]): Record<string, unknown> | null => {

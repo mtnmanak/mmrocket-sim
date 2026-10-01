@@ -110,6 +110,21 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(exportRkt({ name: 'R', tree: tree as unknown as RocketTree })).toMatch(/<ID>0<\/ID>/);
   });
 
+  it('.rkt gives a solid motor mount the bore it has: none', () => {
+    // <MotorDia> is mountBore, the app's one reading of a mount's bore (the
+    // motor browser's fit, the Scale dialog, the recovery bay). Through the
+    // 0.5 mm wall this solid 25 mm rod states, it wrote 24 mm.
+    const motorDia = (extra: Record<string, unknown>) => {
+      const tree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'S', children: [
+        rod({ thickness: 0.0005, motorMount: true, ...extra }),
+      ] }] };
+      const xml = exportRkt({ name: 'R', tree: tree as unknown as RocketTree });
+      return Number(/<MotorDia>([^<]*)<\/MotorDia>/.exec(xml)![1]);
+    };
+    expect(motorDia({ filled: true })).toBe(0);
+    expect(motorDia({})).toBeCloseTo(24, 9);
+  });
+
   it('leaves a part inside it no bore to size itself to, as the kernel does (BodyTube.getInnerRadius)', () => {
     const bh = { type: 'bulkhead', id: 'bh', length: 0.003, position: { method: 'top', offset: 0 } } as ComponentNode;
     const tree = (t: ComponentNode) => ({ name: 'R', components: [{ type: 'stage', id: 's', children: [{ ...t, children: [bh] }] }] });

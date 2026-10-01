@@ -324,7 +324,8 @@ export function classifyRecoveryDevices(
  * "outer radius less wall, doubled", it already carries the wall the kernel
  * applies to a mount stating no thickness (each type's own: 0.3 mm for a body
  * tube, 0.5 mm for an inner tube or coupler — tree/kernelDefaults.ts), and it already handles the
- * `caseAirframe` case where the outer radius IS the bore. Writing
+ * `caseAirframe` case where the outer radius IS the bore, and a SOLID tube's
+ * bore of 0, which makes it no bay at all. Writing
  * `(or - t) * 2` again here is how the fit filter would start disagreeing with
  * the motor-mount readout about what a tube's inside is
  * (`scaleRocket.ts:248-258`).
