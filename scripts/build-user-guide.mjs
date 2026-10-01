@@ -543,6 +543,9 @@ function checkNozzleClaims(raw, facts) {
  *  - a nozzle coverage figure, "N of their M in production", whatever the
  *    numbers (2026-10-01: that is the shape "221 of AeroTech's 272" shipped in).
  *
+ * The two PHRASE rules (catalogue count, coverage) read the line with its
+ * **emphasis** taken out, since a bold figure is how the guide has written both.
+ *
  * Designed against the guide as it stands: "0.80 (auto)", "above 80 N
  * average thrust" and "29 mm DMS motors" all pass. If a figure is refused that
  * genuinely counts something else, give it its unit or write it in words.
@@ -550,7 +553,11 @@ function checkNozzleClaims(raw, facts) {
 const UNIT_AFTER = String.raw`(?!\s*(?:N·s|Ns|N|mm|cm|km|ms|m|s|kg|g|lb|oz|ft|in|K|Pa|hPa|kPa|percent|degrees?|cal|calibers?|px|x)(?![A-Za-z]))(?!\s*[%°″′×·/])`;
 const CATALOGUE_NOUN = String.raw`(?:motors?|simulator files?|thrust curves?|curve files?|curves?)\b`;
 const PROSE_DATE = new RegExp(String.raw`\b\d{1,2} (?:${MONTHS.join('|')}) \d{4}\b`, 'g');
-const COVERAGE_PHRASE = /(?<![\d.,])\d[\d,]*\s+of\s+(?:their|its|the|[A-Za-z]+(?:\s+Research)?'s)\s+\d[\d,]*(?:\s+motors)?\s+in\s+production\b/i;
+// "54 of their 58 in production", and the shapes it has been or could be written
+// in: "of AeroTech's 272", "out of", no "their" at all, up to three words before
+// "in production" ("272 AeroTech motors in production"), or "in-production
+// motors". Matched on the line with its emphasis taken out (see checkBareFigures).
+const COVERAGE_PHRASE = /(?<![\d.,])\d[\d,]*\s+(?:out\s+)?of\s+(?:(?:their|its|the|all|[A-Za-z]+(?:\s+Research)?['’]s)\s+)?\d[\d,]*\s+(?:[A-Za-z]+\s+){0,3}?in[\s-]+production\b/i;
 
 function checkBareFigures(raw, tokens) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -580,15 +587,20 @@ function checkBareFigures(raw, tokens) {
         fail(`bare "${hit[0].trim()}" is the shipped data's {{${key}}} (${TOKEN_KIND[key]}), typed by hand — write {{${key}}} so it follows the data`, ln);
       }
     }
+    // The two phrase rules read the line with its emphasis taken out: they need
+    // the figure and its noun side by side, and "**221** of AeroTech's 272" or
+    // "**1,129** motors" — the bold the guide uses for exactly these figures —
+    // put markup between them (2026-10-01: both compiled).
+    const plain = text.replace(/\*/g, '');
     // Before the catalogue-count phrase, which would also catch "272 motors" and
     // send the writer to the wrong tokens.
-    const coverage = text.match(COVERAGE_PHRASE);
+    const coverage = plain.match(COVERAGE_PHRASE);
     if (coverage) {
       fail(`"${coverage[0]}" is a hand-typed nozzle coverage figure — use {{NOZZLE_LOKI_WITH_EXIT}} of their `
         + '{{NOZZLE_LOKI_IN_PRODUCTION}}, or add a token for that maker in nozzleFacts(), so it follows nozzles.json', ln);
     }
     phrase.lastIndex = 0;
-    const counted = phrase.exec(text);
+    const counted = phrase.exec(plain);
     if (counted) {
       fail(`"${counted[0]}" is a hand-typed catalogue count — use {{MOTOR_COUNT}}, {{CURVE_MOTORS}}, {{CURVE_FILES}} or {{CURVE_MISSING}}`, ln);
     }

@@ -169,6 +169,27 @@ describe('the nozzle database figures the guide quotes', () => {
     expect(() => compileGuide({ markdown: doc('30 of the 72 hours had a gust.') })).not.toThrow();
   });
 
+  it('refuses it in the shapes the guide writes it: bold, hyphenated, with or without "their"', () => {
+    for (const said of [
+      'Loki: **54** of their 58 in production.', // the bold the old guide used
+      "Together that is **221** of AeroTech's 272 in production.",
+      '222 of their 272 in-production motors have an exit.',
+      'Loki: 54 of 58 in production.',
+      'Loki: 54 out of their 58 in production.',
+      '222 of the 272 AeroTech motors in production.',
+      '*54* of their *58* in production.',
+    ]) {
+      expect(() => compileGuide({ markdown: doc(said) }), said).toThrow(/hand-typed nozzle coverage/);
+    }
+  });
+
+  it('refuses a catalogue count in bold as it does in plain text', () => {
+    // A stale figure, so no token's current value can be what catches it.
+    expect(() => compileGuide({ markdown: doc('The app bundles 1,129 motors.') })).toThrow(/hand-typed catalogue count/);
+    expect(() => compileGuide({ markdown: doc('The app bundles **1,129** motors.') })).toThrow(/hand-typed catalogue count/);
+    expect(() => compileGuide({ markdown: doc('**1,129 bundled** motors.') })).toThrow(/hand-typed catalogue count/);
+  });
+
   it('is stated in the shipped guide, every figure the build checks, so no check is vacuous', () => {
     const md = readFileSync(SRC, 'utf8');
     expect(md).toContain('{{NOZZLE_LOKI_WITH_EXIT}} of their {{NOZZLE_LOKI_IN_PRODUCTION}} in production');
