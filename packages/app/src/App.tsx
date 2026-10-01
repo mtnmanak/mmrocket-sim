@@ -75,6 +75,7 @@ import { fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { orkMotorSet, type FlownAutoDelays } from './services/orkExportMotors.js';
+import { withAuto, withDelay, withPlugged } from './services/mountDelayEdits.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
@@ -251,13 +252,6 @@ const afterPaint = (): Promise<void> =>
  */
 function baseLabel(label: string): string {
   return stripDelay(label);
-}
-
-/** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
-function labelWithDelay(label: string, delay: number | 'auto'): string {
-  const base = baseLabel(label);
-  if (delay === 'auto') return `${base} (auto delay)`;
-  return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
 
 export function App() {
@@ -4032,17 +4026,8 @@ export function App() {
                             ariaLabel={`Ejection delay for ${m.name ?? m.id}`}
                             onCommit={(v) => {
                               if (v === null) return;
-                              // Typing a delay overrides auto — real motors get
-                              // drilled to whatever whole second the flyer wants.
-                              setMountMotors((prev) => ({
-                                ...prev,
-                                [m.id!]: {
-                                  ...mm,
-                                  spec: { ...mm.spec, ejectionDelay: v },
-                                  meta: { ...mm.meta, autoDelay: false },
-                                  label: labelWithDelay(mm.label, v),
-                                },
-                              }));
+                              // Typing a delay overrides auto (mountDelayEdits).
+                              setMountMotors((prev) => ({ ...prev, [m.id!]: withDelay(mm, v) }));
                             }}
                           />
                         </div>
@@ -4053,21 +4038,10 @@ export function App() {
                             checked={!Number.isFinite(mm.spec.ejectionDelay)}
                             style={{ width: 'auto' }}
                             onChange={(e) => {
-                              const plugged = e.target.checked;
                               // Un-plugging restores the longest prescribed
-                              // delay (or 6 s when the motor lists none).
-                              const finite = (mm.meta.availableDelays ?? []).filter((d) => Number.isFinite(d));
-                              const restored = finite[finite.length - 1] ?? 6;
-                              const next = plugged ? Infinity : restored;
-                              setMountMotors((prev) => ({
-                                ...prev,
-                                [m.id!]: {
-                                  ...mm,
-                                  spec: { ...mm.spec, ejectionDelay: next },
-                                  meta: { ...mm.meta, autoDelay: false },
-                                  label: labelWithDelay(mm.label, next),
-                                },
-                              }));
+                              // delay, or 6 s (mountDelayEdits).
+                              const plugged = e.target.checked;
+                              setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(mm, plugged) }));
                             }}
                           />
                           plugged
@@ -4080,15 +4054,8 @@ export function App() {
                               checked={mm.meta.autoDelay === true}
                               style={{ width: 'auto' }}
                               onChange={(e) => {
-                                setMountMotors((prev) => ({
-                                  ...prev,
-                                  [m.id!]: {
-                                    ...mm,
-                                    meta: { ...mm.meta, autoDelay: e.target.checked },
-                                    label: labelWithDelay(
-                                      mm.label, e.target.checked ? 'auto' : mm.spec.ejectionDelay),
-                                  },
-                                }));
+                                const auto = e.target.checked;
+                                setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(mm, auto) }));
                               }}
                             />
                             auto (optimal)
