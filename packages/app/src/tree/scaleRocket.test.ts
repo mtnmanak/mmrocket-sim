@@ -467,7 +467,10 @@ describe('scaleRocket — the geometry really is similar', () => {
     expect(chute).toBeGreaterThan(2);
     expect(chute).toBeLessThan(4);
     expect(massOf(dflt, 'p') * 1000).toBeCloseTo(7.976, 2);
-    expect(massOf(two, 'p') * 1000).toBeCloseTo(22.184, 2);
+    // The canopy x4 and its six 0.3 m lines x2. This chute states no line
+    // length, as no chute the Add menu makes does, and its lines stayed 0.3 m
+    // through a scale until 2026-10-01: 22.184 g.
+    expect(massOf(two, 'p') * 1000).toBeCloseTo(25.424, 2);
     // …so the margin moves, a little, and the notes say so.
     const notes = scaleRocket(dflt, 2).notes.join(' ');
     expect(notes).toContain('does NOT go as the cube');
@@ -630,11 +633,12 @@ describe('scaleRocket — motor mounts', () => {
   });
 
   it('previews the bore the SCALED TREE really has, blank wall included', () => {
-    // scaleNode multiplies a thickness only when it is PRESENT, so an absent
-    // wall stays absent and the kernel keeps applying its own 0.5 mm default
-    // to the bigger tube. Multiplying the whole bore by k assumed the default
-    // scaled too, and the preview then disagreed with the applied tree by
+    // While scaleNode multiplied a thickness only when it was PRESENT, an
+    // absent wall stayed the kernel's 0.5 mm on the bigger tube, and a preview
+    // multiplying the whole bore by k disagreed with the applied tree by
     // 2 x 0.0005 x (k-1) - the same reader/writer split the snap path closed.
+    // The preview runs scaleNode itself, so it agrees whatever scaleNode does;
+    // since 2026-10-01 that is to scale the 0.5 mm wall the kernel flies.
     const blank: RocketTree = {
       name: 'blank', components: [{
         type: 'stage', id: 's', children: [{
@@ -647,10 +651,11 @@ describe('scaleRocket — motor mounts', () => {
     };
     const preview = previewMounts(blank, 2)[0]!;
     const applied = findNode(scaleRocket(blank, 2).tree, 'mt')!;
-    expect(applied['thickness']).toBeUndefined();       // still automatic
+    expect(applied['thickness']).toBeCloseTo(0.001, 12); // the kernel's 0.5 mm, x2
     expect(preview.scaledBoreMm).toBeCloseTo(mountBore(applied) * 1000, 9);
-    // 0.029 outer, kernel's 0.5 mm wall -> 57.0 mm, NOT 28.0 x 2 = 56.0.
-    expect(preview.scaledBoreMm).toBeCloseTo(57, 9);
+    // 0.029 outer less a 1 mm wall: 56.0 mm, 28.0 x 2. It was 57.0 while the
+    // wall stayed 0.5 mm.
+    expect(preview.scaledBoreMm).toBeCloseTo(56, 9);
   });
 
   it('a min-diameter mount is never counted as snappable, motor and all', () => {
@@ -1175,5 +1180,124 @@ describe('scaleRocket — a parachute with no diameter', () => {
     const flownCd = (tree: RocketTree): number => findNode(engineTree(tree), 'pc')!['cd'] as number;
     expect(flownCd(t)).toBeCloseTo(1.5 * (1 - (0.1 / 0.3) ** 2), 12);
     expect(flownCd(out)).toBeCloseTo(flownCd(t), 12);
+  });
+});
+
+/**
+ * A DIMENSION LEFT TO THE KERNEL IS STILL A DIMENSION (audit 2026-09-30, on
+ * review). An absent `length`, `outerRadius`, `thickness`, `rootChord`, …
+ * flies the bridge's constant (ComponentFactory.java: a 300 mm tube of 12 mm
+ * radius, a 70 mm nose, a 10 g mass component, a 0.3 m line). The walk scaled
+ * present keys only, so such a part kept its size while the rest of the rocket
+ * grew round it: a nose, tube and transition with no length came out of a 2x
+ * scale 420 mm long, as they went in, under a dialog promising 840 mm; a tube
+ * with no radius kept 12 mm under a nose grown to 24.
+ */
+describe('scaleRocket — a dimension the design leaves to the kernel', () => {
+  /** Every type that defaults a dimension, each bare or with the bridge's defaults written in. */
+  const design = (stated: boolean): RocketTree => {
+    const d = (type: string, id: string, dims: Record<string, number>, extra: Record<string, unknown> = {}) =>
+      ({ type, id, ...(stated ? dims : {}), ...extra } as unknown as ComponentNode);
+    return {
+      name: stated ? 'stated' : 'bare',
+      components: [{
+        type: 'stage', id: 's', children: [
+          d('nosecone', 'n', { length: 0.07, aftRadius: 0.012, thickness: 0.002 }, { shape: 'ogive' }),
+          {
+            ...d('bodytube', 'b', { length: 0.3, outerRadius: 0.012, thickness: 0.0003 }),
+            children: [
+              d('trapezoidfinset', 'tf', { rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003 }),
+              d('ellipticalfinset', 'ef', { rootChord: 0.05, height: 0.03, thickness: 0.003 },
+                { position: { method: 'top', offset: 0.05 } }),
+              d('tubefinset', 'tu', { length: 0.1 }, { position: { method: 'top', offset: 0.1 } }),
+              d('innertube', 'mm', { length: 0.07, outerRadius: 0.0095, thickness: 0.0005 }, { motorMount: true }),
+              d('tubecoupler', 'tc', { length: 0.05, thickness: 0.0005 }, { position: { method: 'top', offset: 0 } }),
+              d('centeringring', 'cr', { length: 0.002 }, { position: { method: 'top', offset: 0.2 } }),
+              d('bulkhead', 'bh', { length: 0.002 }, { position: { method: 'top', offset: 0.06 } }),
+              d('engineblock', 'eb', { length: 0.005, thickness: 0.00095 }, { position: { method: 'top', offset: 0.22 } }),
+              d('launchlug', 'll', { length: 0.05 }, { position: { method: 'top', offset: 0.1 } }),
+              d('masscomponent', 'mc', { length: 0.02, radius: 0.005, mass: 0.01 }, { position: { method: 'top', offset: 0.07 } }),
+              d('parachute', 'pc', { diameter: 0.3, lineLength: 0.3 }, { position: { method: 'top', offset: 0.09 } }),
+              d('streamer', 'sm', { stripLength: 0.5, stripWidth: 0.05 }, { position: { method: 'top', offset: 0.11 } }),
+              d('shockcord', 'sc', { cordLength: 0.3 }, { position: { method: 'top', offset: 0.13 } }),
+            ],
+          } as ComponentNode,
+          // A boat tail: the fore radius is AUTOMATIC (no constant), the aft one stated in both.
+          d('transition', 't', { length: 0.05, thickness: 0.002 }, { aftRadius: 0.008 }),
+        ],
+      } as ComponentNode],
+    };
+  };
+  const IDS = ['n', 'b', 'tf', 'ef', 'tu', 'mm', 'tc', 'cr', 'bh', 'eb', 'll', 'mc', 'pc', 'sm', 'sc', 't'];
+
+  it('a part that leaves its dimensions to the kernel scales to what the same part stating them does', () => {
+    const k = 2.5;
+    const bare = OrkRocket.buildTree(engineTree(scaleRocket(design(false), k).tree));
+    const stated = OrkRocket.buildTree(engineTree(scaleRocket(design(true), k).tree));
+    const rel = (x: number, y: number) => Math.abs(x / y - 1);
+    // Mass and station part by part: each one's size, as the kernel flies it.
+    for (const id of IDS) {
+      const a = bare.componentInfo(id);
+      const b = stated.componentInfo(id);
+      expect(rel(a.mass, b.mass), `${id} mass`).toBeLessThan(1e-9);
+      expect(Math.abs(a.positionX - b.positionX), `${id} station`).toBeLessThan(1e-12);
+    }
+    const a = bare.staticInfo();
+    const b = stated.staticInfo();
+    for (const key of ['length', 'refDiameter', 'cp', 'cgEmpty', 'massEmpty', 'cna'] as const) {
+      expect(rel(a[key], b[key]), key).toBeLessThan(1e-9);
+    }
+  });
+
+  it('the dialog\'s headline numbers are the applied design\'s', () => {
+    // The Scale dialog prints rocketLength x factor and maxBodyDiameter x
+    // factor; both must be what the scaled tree measures. A tube with no
+    // radius is 24 mm across, not 0.
+    for (const stated of [false, true]) {
+      const t = design(stated);
+      expect(maxBodyDiameter(t), t.name).toBeCloseTo(0.024, 12);
+      const out = scaleRocket(t, 2).tree;
+      expect(rocketLength(out), t.name).toBeCloseTo(2 * rocketLength(t), 12);
+      expect(maxBodyDiameter(out), t.name).toBeCloseTo(2 * maxBodyDiameter(t), 12);
+    }
+  });
+
+  it('the reviewer\'s case: a nose, tube and transition with no length, 420 mm becomes 840', () => {
+    const t = {
+      name: 'r', components: [{ type: 'stage', id: 's', children: [
+        { type: 'nosecone', id: 'n', aftRadius: 0.02 },
+        { type: 'bodytube', id: 'b', outerRadius: 0.02, children: [
+          { type: 'trapezoidfinset', id: 'f', rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03 },
+        ] },
+        { type: 'transition', id: 't', foreRadius: 0.02, aftRadius: 0.015 },
+      ] }],
+    } as unknown as RocketTree;
+    expect(rocketLength(t)).toBeCloseTo(0.42, 12);
+    const out = scaleRocket(t, 2).tree;
+    expect(rocketLength(out)).toBeCloseTo(0.84, 12);
+    for (const id of ['n', 'b', 't']) {
+      expect(axialLength(findNode(out, id)!), id).toBeCloseTo(2 * axialLength(findNode(t, id)!), 12);
+    }
+    const flown = (tree: RocketTree) => OrkRocket.buildTree(engineTree(tree)).staticInfo().length;
+    expect(Math.abs(flown(out) / flown(t) - 2)).toBeLessThan(1e-9);
+  });
+
+  it('a min-diameter mount with no radius or wall previews the bore it has and the one it gets', () => {
+    // The body tube's own 12 mm radius and 0.3 mm wall: a 23.4 mm bore, not the
+    // inner tube's 18 mm, and 46.8 mm at 2x.
+    for (const stated of [false, true]) {
+      const t = {
+        name: 'md', components: [{ type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.012 },
+          { type: 'bodytube', id: 'b', length: 0.3, motorMount: true,
+            ...(stated ? { outerRadius: 0.012, thickness: 0.0003 } : {}) },
+        ] }],
+      } as unknown as RocketTree;
+      const [m] = previewMounts(t, 2);
+      expect(m!.boreMm, String(stated)).toBeCloseTo(23.4, 9);
+      expect(m!.scaledBoreMm, String(stated)).toBeCloseTo(46.8, 9);
+      const b = findNode(scaleRocket(t, 2).tree, 'b')!;
+      expect(mountBore(b) * 1000, String(stated)).toBeCloseTo(46.8, 9);
+    }
   });
 });

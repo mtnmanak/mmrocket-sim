@@ -72,9 +72,13 @@ describe('the bridge parse finds the defaults it needs', () => {
   });
 });
 
-/** The dimensions a node can omit and the kernel still fly one value for. */
+/**
+ * The dimensions a node can omit and the kernel still fly one value for — and
+ * a mass component's mass, which Scale rocket multiplies as it does them.
+ */
 const DIMENSIONS = ['length', 'outerRadius', 'aftRadius', 'radius', 'thickness',
-  'rootChord', 'tipChord', 'sweep', 'height'];
+  'rootChord', 'tipChord', 'sweep', 'height',
+  'diameter', 'lineLength', 'stripLength', 'stripWidth', 'cordLength', 'mass'];
 
 describe('the table IS the bridge (tree/kernelDefaults.ts)', () => {
   it('every entry for a kernel part is the bridge\'s own default', () => {

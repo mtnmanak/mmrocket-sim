@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { num } from './nodeNum.js';
 
 /**
@@ -18,6 +19,10 @@ import { num } from './nodeNum.js';
  * but 30 mm on the paper template and 0.6 x the root in the side view.
  * `kernelDefaults.test.ts` reads ComponentFactory.java itself and builds every
  * consumer from a part with no dimension keys against it.
+ *
+ * Recovery gear's sizes and a mass component's mass are here too: Scale rocket
+ * multiplies whatever a part flies, and a part that left them to the kernel
+ * kept its size while the rocket grew round it (audit 2026-09-30, on review).
  *
  * ABSENT ON PURPOSE, because no constant is the kernel's answer:
  *  - an AUTOMATIC radius — a transition's ends (taken from its neighbours), a
@@ -45,7 +50,10 @@ const KERNEL_DEFAULTS: Record<string, Readonly<Record<string, number>>> = Object
     bulkhead: { length: 0.002 },
     engineblock: { length: 0.005, thickness: 0.00095 },
     launchlug: { length: 0.05, outerRadius: 0.0022, thickness: 0.0003 },
-    masscomponent: { length: 0.02, radius: 0.005 },
+    masscomponent: { length: 0.02, radius: 0.005, mass: 0.01 },
+    parachute: { diameter: CANOPY_DIAMETER_FALLBACK, lineLength: 0.3 },
+    streamer: { stripLength: 0.5, stripWidth: 0.05 },
+    shockcord: { cordLength: 0.3 },
     // App-only parts, as engineTree lowers them. A shroud flies as a one-fin
     // strake whose root chord is its length; a protuberance as a zero-length
     // carrier at the bump's centre, so its length is the one the views draw
