@@ -513,6 +513,31 @@ describe('a fin is drawn end-on where it is mounted', () => {
       .extent).toBeCloseTo(0.065, 12);
   });
 
+  /**
+   * The same fin on a TAIL CONE (a nose cone flipped base-forward, KB2): the
+   * cone it roots on is 54 mm at its FRONT and narrows to the point 80 mm aft,
+   * the way the kernel flies it, not a nose cone pointing forward off the tube.
+   */
+  it('a freeform fin on a tail cone: tip at 20.25 + 40 mm, root down to the point', () => {
+    const tailCone = (flipped: boolean): RocketTree => ({
+      name: 'Rocket',
+      components: [{ id: 's1', type: 'stage', children: [
+        { id: 'n1', type: 'nosecone', length: 0.1, aftRadius: 0.027 },
+        { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.027 },
+        { id: 't1', type: 'nosecone', shape: 'conical', length: 0.08, aftRadius: 0.027, flipped,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            position: { method: 'bottom', offset: 0 }, points: [[0, 0], [0.02, 0.04], [0.05, 0.04], [0.06, 0]] }] },
+      ] }],
+    } as unknown as RocketTree);
+    const [fin] = finsOf(tailCone(true));
+    // 20 mm behind a 27 mm base on an 80 mm cone: 27 x (1 - 20/80) = 20.25 mm.
+    expect(fin!.to).toBeCloseTo(0.02025 + 0.04, 12);
+    expect(fin!.from).toBeCloseTo(0, 12);
+    // Unflipped, the same cone points forward: 6.75 mm under the leading edge.
+    const [plain] = finsOf(tailCone(false));
+    expect(plain!.to).toBeCloseTo(0.00675 + 0.04, 12);
+  });
+
   it('on a body tube nothing moves: tube radius to radius + height', () => {
     const fins = finsOf(finRocket());
     expect(fins).toHaveLength(3);
