@@ -214,20 +214,28 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
 
   // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
   // reach (its centerline radius + its own body + its fins) so pods don't clip.
+  // `centre` is how far the axis of the chain being scanned sits from the
+  // CORE axis: 0 for the core, the pod's own offset inside a pod, and the two
+  // offsets summed inside a pod on a pod — the renderer draws a nested set at
+  // its outer pod's offset plus its own, and this measured it from the outer
+  // pod's axis alone, so nested pods were clipped (audit 2026-09-30). The
+  // sum bounds the drawing at every roll angle, which is the frame's job: it
+  // must not rescale as the view rolls.
   let vHalf = maxR + finH;
-  const scanRadial = (nodes: ComponentNode[], parentR: number) => {
+  const scanRadial = (nodes: ComponentNode[], parentR: number, centre: number) => {
     for (const n of nodes) {
       if (isAssembly(n.type)) {
         const podFin = Math.max(0, ...collect(n.children ?? [], finSpan));
-        vHalf = Math.max(vHalf, resolveAssemblyRadius(n, parentR) + assemblyBoundingRadius(n) + podFin);
-        scanRadial(n.children ?? [], assemblyBoundingRadius(n));
+        const podCentre = centre + resolveAssemblyRadius(n, parentR);
+        vHalf = Math.max(vHalf, podCentre + assemblyBoundingRadius(n) + podFin);
+        scanRadial(n.children ?? [], assemblyBoundingRadius(n), podCentre);
       } else {
         const r = Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0)) || parentR;
-        scanRadial(n.children ?? [], r);
+        scanRadial(n.children ?? [], r, centre);
       }
     }
   };
-  scanRadial(chain, maxR);
+  scanRadial(chain, maxR, 0);
 
   // Vertical mode swaps the container roles BEFORE layout: all layout math
   // stays horizontal (length along x) and the finished drawing rotates

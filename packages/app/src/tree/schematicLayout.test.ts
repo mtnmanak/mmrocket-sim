@@ -197,6 +197,40 @@ describe('the frame reads sizes, never positions', () => {
     const moved = updateNode(busy, 'rb', { position: { method: 'top', offset: 0.22 } });
     expect(schematicFrame(moved, FRAME)).toEqual(schematicFrame(busy, FRAME));
   });
+
+  /**
+   * PODS ON PODS (allowed: a pod's body tube takes a pod set like any other).
+   * The renderer draws a nested set at its outer pod's offset PLUS its own;
+   * the frame measured it from the outer pod's axis alone, so its vertical
+   * fit was short and the nested pods were clipped or drawn over the CG/CP
+   * callout lanes (audit 2026-09-30).
+   */
+  it('measures a nested pod set from the core axis, as it is drawn', () => {
+    // Core 20 mm. Outer pod: 10 mm tube touching the core, centre at 30 mm.
+    // Nested pod: 5 mm tube touching the outer pod, centre 15 mm further out,
+    // so its tube reaches 30 + 15 + 5 = 50 mm from the core axis.
+    const nested = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.02 },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.02, children: [
+            { id: 'p1', type: 'podset', instanceCount: 1, radiusOffset: 0, position: { method: 'top', offset: 0 },
+              children: [{ id: 'pb', type: 'bodytube', length: 0.2, outerRadius: 0.01, children: [
+                { id: 'p2', type: 'podset', instanceCount: 1, radiusOffset: 0, position: { method: 'top', offset: 0 },
+                  children: [{ id: 'qb', type: 'bodytube', length: 0.1, outerRadius: 0.005 }] },
+              ] }] },
+          ] },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const { f, l } = lay(nested);
+    expect(f.vHalf).toBeCloseTo(0.05, 12);
+    // …and the nested tube, drawn straight up at rest, lies inside the frame.
+    const tube = l.shapes.find((s) => s.key === 'p1#0/p2#0/qb:body')!;
+    expect(Number(tube.attrs['y'])).toBeGreaterThanOrEqual(f.cy - f.vHalf * f.scale - 1e-9);
+  });
 });
 
 describe('parts, grips and extents', () => {
