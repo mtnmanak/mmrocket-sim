@@ -1,5 +1,6 @@
 import type { MotorDbEntry } from './motorDb.js';
 import { clearCurveCache } from './thrustcurve.js';
+import { parseDecimal } from './xmlUtil.js';
 
 /**
  * User-imported (EX / experimental) motors from RASP .eng or RockSim .rse
@@ -423,8 +424,11 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
   const skipped: string[] = [];
   for (const el of engines) {
     const attr = (n: string) => el.getAttribute(n) ?? '';
+    // Every number through parseDecimal, as the .ork and .rkt readers take
+    // theirs (audit 2026-09-30). `Number()` read an absent or blank attribute
+    // as 0 and `0x10` as 16, where desktop's Double.parseDouble refuses both.
     const numAttr = (n: string, fb = 0) => {
-      const v = Number(el.getAttribute(n));
+      const v = parseDecimal(el.getAttribute(n));
       return Number.isFinite(v) ? v : fb;
     };
     const name = attr('code') || 'EX motor';
@@ -441,12 +445,34 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       skipped.push(`Motor ${name}: ${massWrong}`);
       continue;
     }
+    // …and "Diameter missing" / "Length missing" on these. A zero is refused
+    // too: a 0 mm motor was offered for every mount (diameterClass(0) is 0,
+    // and 0 fits any bore), and a 0 mm long one put its CG at its top face.
+    const dimension = (['dia', 'len'] as const).find((a) => !(numAttr(a, NaN) > 0));
+    if (dimension) {
+      skipped.push(`Motor ${name}: ${dimension === 'dia' ? 'diameter' : 'length'} (${dimension}) missing or not a positive number`);
+      continue;
+    }
     const mfr = attr('mfg') || 'EX';
     const data = Array.from(el.querySelectorAll('data > eng-data'));
+    // Every point's time and thrust, or the motor is skipped with the point
+    // named. Desktop refuses the file ("Illegal motor data point encountered");
+    // a point read as 0 — `Number(null)` — put a zero-thrust dip in the curve,
+    // and one dropped joined its neighbours with a straight line, unsaid.
+    const unread = (d: Element, a: 't' | 'f'): string | null => {
+      const raw = d.getAttribute(a);
+      return Number.isFinite(parseDecimal(raw)) ? null : raw === null ? `no ${a}` : `${a}="${raw.slice(0, 20)}"`;
+    };
+    const bad = data.findIndex((d) => unread(d, 't') !== null || unread(d, 'f') !== null);
+    if (bad >= 0) {
+      const why = [unread(data[bad]!, 't'), unread(data[bad]!, 'f')].filter((w) => w !== null).join(', ');
+      skipped.push(`Motor ${name}: data point ${bad + 1} of ${data.length} cannot be read (${why})`);
+      continue;
+    }
     const samples = data.map((d) => ({
-      time: Number(d.getAttribute('t')),
-      thrust: Number(d.getAttribute('f')),
-    })).filter((s) => Number.isFinite(s.time) && Number.isFinite(s.thrust));
+      time: parseDecimal(d.getAttribute('t')),
+      thrust: parseDecimal(d.getAttribute('f')),
+    }));
     if (samples.length < 2) {
       skipped.push(`Motor ${name}: no thrust data`);
       continue;
@@ -456,19 +482,15 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
     // used to produce an all-zero mass array that was then preferred over the
     // impulse-proportional fallback. The kernel accepts a zero-mass motor
     // without complaint, so the flight simply came out optimistic with nothing
-    // said. Absent/blank reads as NaN, which rseSampleMassesKg never flies.
-    const masses = data.map((d) => {
-      const raw = d.getAttribute('m');
-      return raw === null || raw.trim() === '' ? NaN : Number(raw);
-    });
+    // said. Absent/blank reads as NaN (parseDecimal), which rseSampleMassesKg
+    // never flies.
+    const masses = data.map((d) => parseDecimal(d.getAttribute('m')));
     // The nozzle exit, when the file states a believable one. 1,274 of the
     // 1,275 engine records in the local .rse corpus say exitDia="0."; the one
     // that does not is a real 5 mm exit on an 18 mm Klima B2. throatDia is
     // deliberately NOT read: no line of this app or its kernel uses a throat.
-    const exitRaw = el.getAttribute('exitDia');
-    const exit = exitDiameterFromRse(
-      exitRaw === null || exitRaw.trim() === '' ? null : Number(exitRaw), numAttr('dia'),
-    );
+    // Absent or blank is NaN, which exitDiameterFromRse reads as no exit.
+    const exit = exitDiameterFromRse(parseDecimal(el.getAttribute('exitDia')), numAttr('dia'));
     // Said, not just dropped (audit 2026-09-22): the v0.137 notes and the guide
     // promise an out-of-band exit "is ignored with a note", and without one an
     // inches-denominated file lost its exit with nothing to say why.

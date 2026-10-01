@@ -189,6 +189,80 @@ describe('.rse files with missing mass data', () => {
   });
 });
 
+/**
+ * Audit 2026-09-30: parseRse read `dia`, `len` and each point's `t`/`f` with
+ * bare `Number()`, so an ABSENT or blank attribute was 0 and `0x10` was 16.
+ * Desktop's RockSimMotorLoader refuses each ("Diameter missing", "Length
+ * missing", "Illegal motor data point encountered"). A motor with no `len`
+ * imported at 0 mm (its CG at the top face); with no `dia`, diameterClass(0)
+ * is 0 and it was offered for every mount; a point with no `f` was a silent
+ * zero-thrust dip in the curve.
+ */
+describe('.rse numbers are read as desktop reads them', () => {
+  const PTS = '<eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/>';
+  const engine = (attrs: string, pts = PTS) =>
+    `<engine code="BAD" mfg="Home" initWt="100" propWt="50" delays="5" ${attrs}><data>${pts}</data></engine>`;
+  const GOOD = engine('dia="29" len="120"').replace('code="BAD"', 'code="GOOD"');
+  /** The motors a two-engine file yields with `bad` first, and what the import said. */
+  const read = (bad: string): { names: string[]; notes: string[] } => {
+    const notes: string[] = [];
+    const names = parseRse(`<engine-database><engine-list>${bad}${GOOD}</engine-list></engine-database>`, notes)
+      .map((m) => m.designation);
+    return { names, notes };
+  };
+
+  it('skips a motor with no length instead of importing it at 0 mm, and says so', () => {
+    expect(read(engine('dia="29"'))).toEqual({
+      names: ['GOOD'],
+      notes: ['skipped 1 motor — Motor BAD: length (len) missing or not a positive number'],
+    });
+  });
+
+  it('skips a motor with no diameter, which was offered for every mount', () => {
+    expect(read(engine('len="120"'))).toEqual({
+      names: ['GOOD'],
+      notes: ['skipped 1 motor — Motor BAD: diameter (dia) missing or not a positive number'],
+    });
+  });
+
+  it('refuses a blank, zero, negative, overflowing or hex dimension', () => {
+    for (const attrs of ['dia="" len="120"', 'dia="0" len="120"', 'dia="0x1d" len="120"',
+      'dia="29" len="-5"', 'dia="29" len="1e999"', 'dia="29" len="0x78"']) {
+      expect(read(engine(attrs)).names, attrs).toEqual(['GOOD']);
+    }
+    expect(parseRse(`<engine-database><engine-list>${GOOD}</engine-list></engine-database>`)[0])
+      .toMatchObject({ diameter: 29, length: 120 });
+  });
+
+  it('skips a motor whose data point has no thrust, instead of flying a zero-thrust dip', () => {
+    const { names, notes } = read(engine('dia="29" len="120"',
+      '<eng-data t="0" f="0"/><eng-data t="0.5"/><eng-data t="1" f="0"/>'));
+    expect(names).toEqual(['GOOD']);
+    expect(notes).toEqual(['skipped 1 motor — Motor BAD: data point 2 of 3 cannot be read (no f)']);
+  });
+
+  it('reads no hex, blank or missing time or thrust', () => {
+    for (const [pts, why] of [
+      ['<eng-data t="0x1" f="60"/>', 't="0x1"'], ['<eng-data t="" f="60"/>', 't=""'],
+      ['<eng-data f="60"/>', 'no t'], ['<eng-data t="0.5" f="abc"/>', 'f="abc"'],
+    ] as const) {
+      const { names, notes } = read(engine('dia="29" len="120"', `<eng-data t="0" f="0"/>${pts}<eng-data t="1" f="0"/>`));
+      expect(names, pts).toEqual(['GOOD']);
+      expect(notes, pts).toEqual([`skipped 1 motor — Motor BAD: data point 2 of 3 cannot be read (${why})`]);
+    }
+  });
+
+  it('reads no hex mass or nozzle exit either', () => {
+    expect(read(engine('dia="29" len="120"').replace('initWt="100"', 'initWt="0x64"')).names).toEqual(['GOOD']);
+    const [m] = parseRse(`<engine-database><engine-list>${engine(
+      'dia="18" len="70" exitDia="0x5" auto-calc-mass="0"',
+      '<eng-data t="0" f="0" m="0x32"/><eng-data t="0.5" f="60" m="25"/><eng-data t="1" f="0" m="0"/>',
+    )}</engine-list></engine-database>`);
+    expect(m!.exitDiameterM).toBeUndefined(); // Number('0x5') was a 5 mm exit
+    expect(m!.sampleMassesKg).toBeUndefined(); // Number('0x32') was 50 g aboard
+  });
+});
+
 describe('.eng header mass columns', () => {
   // The header check tested only the two DIMENSION columns (diameter, length)
   // and left the two MASS columns to `Number()`, which returns NaN for junk.
