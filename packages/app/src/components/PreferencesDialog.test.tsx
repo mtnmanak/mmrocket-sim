@@ -28,8 +28,23 @@ const printerSelect = (): HTMLSelectElement =>
     (s) => [...s.options].some((o) => o.value === 'bambu-h2d'),
   ) as HTMLSelectElement;
 
-const axis = (label: string): HTMLInputElement | null =>
-  host.querySelector(`input[aria-label="${label}"]`);
+/** A label's own words: its text without the unit chip's options, as getByLabelText reads it. */
+const labelWords = (l: HTMLLabelElement): string => {
+  const words = l.cloneNode(true) as HTMLLabelElement;
+  words.querySelectorAll('select').forEach((s) => s.remove());
+  return (words.textContent ?? '').replace(/\s+/g, ' ').trim();
+};
+
+/**
+ * The control the label reading `words` reaches: the DOM's own `label.control`.
+ * A label with no `for` reaches nothing, or its first labelable descendant —
+ * the unit chip — so this finds a field only through a real association.
+ * (getByLabelText would also take a matching aria-label, and pass unassociated.)
+ */
+const byLabel = (words: string): HTMLElement | null =>
+  [...host.querySelectorAll('label')].find((l) => labelWords(l) === words)?.control ?? null;
+
+const axis = (label: string): HTMLInputElement | null => byLabel(label) as HTMLInputElement | null;
 
 const pick = (el: HTMLSelectElement, value: string) => act(() => {
   el.value = value;
@@ -115,7 +130,7 @@ describe('Preferences → 3D printing', () => {
   it('joint clearance is editable and defaults to 0.15 mm', () => {
     mount();
     pick(printerSelect(), 'bambu-h2d');
-    const clearance = host.querySelector('input[aria-label="Joint clearance"]') as HTMLInputElement;
+    const clearance = byLabel('Joint clearance (per side)') as HTMLInputElement;
     expect(clearance.value).toBe('0.15');
     type(clearance, '0.05');
     expect(stored().printer!.clearance).toBeCloseTo(0.00005, 12);
@@ -141,6 +156,24 @@ describe('Preferences → 3D printing', () => {
     expect(hint).toContain('8 mm is kept clear at both edges of the bed in X and Y');
     expect(hint).toContain('at the top of Z');
     expect(hint).not.toContain('every axis');
+  });
+
+  /**
+   * Audit 2026-09-30: each box's label was a bare sibling, so it reached the
+   * unit chip inside it — clicking "Bed X" opened the unit list — and the box
+   * was named by a second copy of the words in an aria-label, which had
+   * already drifted: "Joint clearance" under "Joint clearance (per side)".
+   */
+  it('each box is the control of the label above it, and has no second name', () => {
+    mount();
+    pick(printerSelect(), 'bambu-h2d');
+    for (const words of ['Bed X', 'Bed Y', 'Maximum Z', 'Joint clearance (per side)']) {
+      const box = byLabel(words);
+      expect(box?.tagName, words).toBe('INPUT');
+      expect(box!.getAttribute('aria-label'), words).toBeNull();
+    }
+    expect(axis('Maximum Z')!.value).toBe('325');
+    expect(axis('Joint clearance (per side)')!.value).toBe('0.15');
   });
 });
 

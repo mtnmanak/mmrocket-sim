@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
@@ -24,6 +25,14 @@ const CUSTOM_SEED: PrinterPrefs = {
 
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   const { prefs, setPrefs, aeroOverride, setAeroOverride } = usePrefs();
+  /**
+   * The printer boxes' `<label htmlFor>` point at their own inputs (audit
+   * 2026-09-30), and the inputs carry no aria-label: the words on screen are
+   * their one name. A label with no `for` names its first labelable
+   * descendant — here the unit chip, so clicking "Bed X" opened the unit list.
+   */
+  const uid = useId();
+  const idFor = (key: string) => `${uid}-${key}`;
 
   // Build volumes are stored in metres and edited through the same
   // siToUi/uiToSi plumbing as every other length (prefs/printers.ts explains
@@ -40,11 +49,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   };
   const axisField = (axis: 'x' | 'y' | 'z', label: string) => (
     <div className="field">
-      <label>{label} <UnitChip quantity="length" /></label>
+      <label htmlFor={idFor(`printer-${axis}`)}>{label} <UnitChip quantity="length" /></label>
       <NumField
+        id={idFor(`printer-${axis}`)}
         value={printer ? toUi(printer[axis]) : undefined}
         step={niceStep(toUi(0.001))}
-        ariaLabel={label}
         onCommit={(v) => { if (v !== null && v > 0) setAxis(axis, uiToSi('length', lengthSym, v)); }}
       />
     </div>
@@ -304,15 +313,17 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               {axisField('y', 'Bed Y')}
               {axisField('z', 'Maximum Z')}
               <div className="field">
-                <label>Joint clearance (per side) <UnitChip quantity="length" /></label>
+                {/* Its aria-label read "Joint clearance" under these words:
+                    two copies of one name, already drifted apart. */}
+                <label htmlFor={idFor('printer-clearance')}>Joint clearance (per side) <UnitChip quantity="length" /></label>
                 <NumField
+                  id={idFor('printer-clearance')}
                   value={toUi(printer.clearance)}
                   step={niceStep(toUi(0.00005))}
                   // 0 is not "no clearance", it is two parts that cannot be
                   // assembled; prefs substitutes the 0.15 mm default for it,
                   // which is safe but silent. Refuse it at the keyboard.
                   min={toUi(0.00002)}
-                  ariaLabel="Joint clearance"
                   onCommit={(v) => {
                     if (v !== null) setPrinter({ ...printer, clearance: uiToSi('length', lengthSym, v) });
                   }}
