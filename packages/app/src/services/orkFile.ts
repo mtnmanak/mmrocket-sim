@@ -375,7 +375,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // take the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
       // object keeps this reader's existing fallback, so nothing moves for a
       // file we cannot do better on.
-      autoFallback = DEFAULT_AUTO_RADIUS): number => {
+      autoFallback = DEFAULT_AUTO_RADIUS,
+      // What it becomes where `resolve` finds a cavity of NONE (0, a solid
+      // tube's), not one it cannot find (< 0): MassObject.getAutoRadius takes
+      // the 0 as no answer and keeps the part's own radius, MassObject()'s
+      // 12.5 mm — which a mass component's 5 mm fallback above is not.
+      noCavity = autoFallback): number => {
     const raw = text(el, `:scope > ${tag}`);
     if (raw === null) return fallback;
     const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
@@ -387,8 +392,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       autoInferred.push({ name: label, radius: r });
       return r;
     }
-    autoUnresolved.push({ el, name: label, radius: autoFallback });
-    return autoFallback;
+    const kept = r === 0 ? noCavity : autoFallback;
+    autoUnresolved.push({ el, name: label, radius: kept });
+    return kept;
   };
   /**
    * A parachute's, streamer's or shock cord's PACKED size (MassObject
@@ -1083,7 +1089,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // MassObject:packedradius is automatic-capable too (the cavity it sits
         // in — MassObject.getMaxParentRadius). No aero effect, but it sets the
         // packed cylinder's rotational inertia and how the mass draws.
-        n['radius'] = autoDim(el, 'packedradius', 0.005, autoRadii.packed, 0.005);
+        n['radius'] = autoDim(el, 'packedradius', 0.005, autoRadii.packed, 0.005, MASS_OBJECT_RADIUS);
         // Preserve-through: what KIND of mass this is (altimeter, payload…).
         // No mass/CG effect, but the desktop shows it and users set it there.
         const mct = text(el, ':scope > masscomponenttype');
@@ -1243,8 +1249,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   if (autoUnresolved.length > 0) {
     // Group by the fallback each name ACTUALLY got. A centreline component
     // takes the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
-    // object takes this reader's 5 mm (autoDim's autoFallback). Printing one
-    // diameter for the whole list named a number the mass never got.
+    // object takes this reader's 5 mm (autoDim's autoFallback), or its own
+    // 12.5 mm in a cavity of none (autoDim's noCavity). Printing one diameter
+    // for the whole list named a number the mass never got.
     const byFallback = new Map<number, string[]>();
     for (const a of autoUnresolved) {
       const names = byFallback.get(a.radius);
@@ -3211,6 +3218,13 @@ const SYMMETRIC_TAGS = new Set(['nosecone', 'bodytube', 'transition']);
  * back to for a missing tag; that fallback is ours and stays where it is.
  */
 const DEFAULT_AUTO_RADIUS = 0.025;
+
+/**
+ * `MassObject()`'s own radius, 12.5 mm — what every mass object (a mass
+ * component too, built with `MassComponent()`) keeps when its automatic radius
+ * finds a cavity of none: `MassObject.getAutoRadius` takes the 0 as no answer.
+ */
+const MASS_OBJECT_RADIUS = 0.0125;
 
 /** An automatic radius that could not be resolved from any neighbour. */
 const UNRESOLVED = -1;

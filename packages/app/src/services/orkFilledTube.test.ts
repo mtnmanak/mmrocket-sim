@@ -187,6 +187,31 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(unresolved(hollow.notes)).toBe(false);
   });
 
+  it('.ork: a bare automatic MASS COMPONENT inside it keeps the same 12.5 mm, not this reader’s 5 mm', () => {
+    // desktop builds a mass component with MassComponent() — MassObject()'s
+    // 25 mm x 12.5 mm — and a bare `auto` only marks its radius automatic
+    // (DoubleSetter calls setRadiusAutomatic, never setRadius). getAutoRadius
+    // then takes the filled tube's inner radius of 0 as no answer and keeps the
+    // 12.5 mm. This reader gave it the 5 mm it keeps for a cavity it cannot
+    // RESOLVE — a cavity of none is a different answer.
+    const ork = (thickness: string) => `<openrocket version="1.5" creator="OpenRocket 15.03"><rocket>
+      <name>Rod</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>Nose</name><length>0.1</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.03</aftradius></nosecone>
+        <bodytube><name>Bay</name><length>0.4</length><thickness>${thickness}</thickness><radius>0.03</radius>
+          <subcomponents><masscomponent><name>Alt</name><mass>0.05</mass><packedlength>0.02</packedlength>
+            <packedradius>auto</packedradius></masscomponent></subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const solid = importOrk(ork('filled'));
+    expect(find(solid.tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);
+    expect(solid.notes.some((n) => /Alt uses a 25 mm default/.test(n))).toBe(true);
+    // A wall as thick as the tube's radius leaves no cavity either
+    // (BodyTube.getInnerRadius is max(outer − wall, 0)).
+    expect(find(importOrk(ork('0.03')).tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);
+    // Hollow, the cavity it sits in, as before.
+    expect(find(importOrk(ork('0.001')).tree.components, 'Alt')['radius']).toBeCloseTo(0.029, 12);
+  });
+
   it('leaves a part inside it no bore to size itself to, as the kernel does (BodyTube.getInnerRadius)', () => {
     const bh = { type: 'bulkhead', id: 'bh', length: 0.003, position: { method: 'top', offset: 0 } } as ComponentNode;
     const tree = (t: ComponentNode) => ({ name: 'R', components: [{ type: 'stage', id: 's', children: [{ ...t, children: [bh] }] }] });
