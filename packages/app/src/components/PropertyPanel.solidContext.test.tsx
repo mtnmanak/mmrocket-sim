@@ -174,9 +174,10 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
 });
 
 describe('PropertyPanel — a fin tab cuts no deeper than the body', () => {
-  // A 30 mm tab on a 38 mm minimum-diameter airframe (audit 2026-09-30): the
-  // kernel and the side view clamp it to the 19.5 mm body radius, and so must
-  // both files these buttons hand over — the 📐 template took no context at all.
+  // A 30 mm tab on a 38 mm minimum-diameter airframe, 39.0 mm across with a
+  // 38.0 mm bore (audit 2026-09-30): the kernel and the side view clamp it to
+  // the 19.5 mm body radius, and so must both files these buttons hand over —
+  // the 📐 template took no context at all.
   const fins = {
     id: 'fins', type: 'trapezoidfinset', name: 'Fins', finCount: 3, rootChord: 0.1, tipChord: 0.05,
     sweep: 0.05, height: 0.06, thickness: 0.003, tabHeight: 0.03, tabLength: 0.06,

@@ -246,10 +246,14 @@ describe('an automatic centering ring is bored to the inner tubes it overlaps', 
  * tab's depth to the parent's radius at the tab — the smaller of its two ends
  * (`FinSet.getMaxTabHeight`) — and the side view clamps its drawn tab; the
  * STL, the DXF and the paper template cut the raw depth. A `.rkt` tab on a
- * minimum-diameter airframe is the way in: a 30 mm tab on a 38 mm tube.
+ * minimum-diameter airframe is the way in: a 30 mm tab on a tube 39.0 mm
+ * across (radius 19.5 mm; its 38.0 mm bore takes a 38 mm motor).
  */
 describe('a fin tab is cut no deeper than the body at the tab', () => {
-  /** A 38 mm minimum-diameter airframe; 100 mm root, 60 mm tab centred on it, 30 mm deep. */
+  /**
+   * A 38 mm minimum-diameter airframe: 39.0 mm OD (radius 19.5 mm), 38.0 mm
+   * bore. 100 mm root, 60 mm tab centred on it, 30 mm deep.
+   */
   const minDiameter = () => tree({
     id: 'b1', type: 'bodytube', outerRadius: 0.0195, thickness: 0.0005, length: 0.6,
     children: [{
