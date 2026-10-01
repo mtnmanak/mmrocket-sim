@@ -329,6 +329,16 @@ const CANONICAL_KIND = new Map(
  */
 const SURFACE_KINDS = new Set(['Parachute', 'Streamer']);
 
+/**
+ * The material type a kind's rows carry, and the only one presetPatch applies
+ * to it: SURFACE on a canopy or streamer, BULK on anything else. A row typed
+ * otherwise would label the part with its material and weigh it with the old
+ * one, so PresetPicker refuses it (review of the audit fixes, 2026-10-01).
+ */
+export function materialTypeFor(kind: string): 'SURFACE' | 'BULK' {
+  return SURFACE_KINDS.has(kind) ? 'SURFACE' : 'BULK';
+}
+
 const CSV_COLS = [
   'kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType',
   'materialDensity', 'mass', 'length', 'outsideDiameter', 'insideDiameter', 'shape',
@@ -421,8 +431,7 @@ export function csvToPresets(csv: string): Preset[] {
         // above (audit 2026-09-30). presetPatch tests `=== 'SURFACE'` and
         // `=== 'BULK'`, so a typed `surface` passed rowIsSound and then wrote no
         // fabric weight, and a lone space was not blank. Blank takes the kind's.
-        type: (row['materialType'] ?? '').trim().toUpperCase()
-          || (SURFACE_KINDS.has(p.kind) ? 'SURFACE' : 'BULK'),
+        type: (row['materialType'] ?? '').trim().toUpperCase() || materialTypeFor(p.kind),
         density: Number(row['materialDensity']),
       };
     }
