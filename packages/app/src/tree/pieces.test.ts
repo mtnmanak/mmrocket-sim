@@ -110,10 +110,13 @@ describe('a fin set whose planform has no area draws nothing', () => {
     expect(tris).toBe(36);
   });
 
-  it('a fin with a point on a straight edge still draws', () => {
-    // A collinear corner is a sound outline, which ear-clipping simplifies;
-    // a face-count test would have dropped this fin.
-    expect(finsOf({ type: 'freeformfinset', points: [[0, 0], [0.01, 0.02], [0.02, 0.04], [0.05, 0.04], [0.06, 0]] }))
+  it('a fin with a flat run along its root still draws', () => {
+    // The last two points and the first lie EXACTLY on y = 0: a sound outline
+    // that three's ear clipper simplifies by dropping the middle one, so it
+    // returns fewer than m - 2 cap triangles. A face-count test (the one
+    // solidMesh.extrudePolygon makes, which refuses this fin outright) would
+    // have dropped it from the 3D view too; the area test keeps it.
+    expect(finsOf({ type: 'freeformfinset', points: [[0, 0], [0.02, 0.02], [0.07, 0.02], [0.075, 0], [0.08, 0]] }))
       .toHaveLength(3);
   });
 });

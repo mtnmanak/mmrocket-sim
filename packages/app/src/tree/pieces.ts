@@ -243,7 +243,8 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // while solidMesh.extrudePolygon refuses the same outline (audit
     // 2026-09-30). Skipped as the zero-thickness set below is. The test is the
     // AREA, not extrudePolygon's face count: ear-clipping drops a corner lying
-    // on a straight edge, so a sound fin with one would fail a count.
+    // EXACTLY on a straight edge — a flat run along the root, say — so a sound
+    // fin with one fails a count (extrudePolygon refuses that fin outright).
     if (!enclosesArea(shape.extractPoints(12).shape.map((v): [number, number] => [v.x, v.y]))) return;
 
     // A zero-or-negative depth extrudes to COINCIDENT caps: measured on a
