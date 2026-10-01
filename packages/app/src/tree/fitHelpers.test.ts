@@ -38,12 +38,72 @@ describe('finTabFit', () => {
     expect(finTabFit(fin, tube([MMT, fin]))!.patch).toEqual({ tabHeight: 0.0508 - 0.0286 });
   });
 
-  it('takes the first inner tube that states a usable radius as the mount', () => {
+  it('takes an inner tube that states a usable radius as the mount', () => {
     const fit = finTabFit(FIN, tube([
       node({ id: 'a', type: 'innertube' }), node({ id: 'n', type: 'innertube', outerRadius: NaN }),
       node({ id: 'c', type: 'coupler', outerRadius: 0.04 }), node({ id: 'm', type: 'innertube', outerRadius: 0.019 }),
     ]))!;
     expect(fit.depth).toBeCloseTo(0.0508 - 0.019, 15);
+  });
+
+  /** A 3" airframe 0.8 m long, the layout of the 2026-09-30 review. */
+  const air = (children: ComponentNode[]) =>
+    node({ id: 'b2', type: 'bodytube', length: 0.8, outerRadius: 0.0381, thickness: 0.001, children });
+  const AFT_FINS = node({ ...FIN, position: { method: 'bottom', offset: 0 } });
+  // Both marked as motor mounts, as the Add menu marks every inner tube.
+  const PAYLOAD = node({
+    id: 'pl', type: 'innertube', length: 0.2, outerRadius: 0.0095, motorMount: true, position: { method: 'top', offset: 0.1 },
+  });
+  const MOUNT = node({
+    id: 'mm', type: 'innertube', length: 0.3, outerRadius: 0.0153, motorMount: true, position: { method: 'bottom', offset: 0 },
+  });
+
+  it('reaches the motor tube alongside the fins, not the first one listed', () => {
+    // A forward 18 mm payload tube LISTED FIRST and a 29 mm motor mount at the
+    // aft end, fins at the aft end: the fit took the payload tube, 28.6 mm,
+    // and ran the tab 5.8 mm into the mount. The tab meets the mount at
+    // 38.1 - 15.3 = 22.8 mm.
+    const fit = finTabFit(AFT_FINS, air([PAYLOAD, MOUNT, AFT_FINS]))!;
+    expect(fit.toMount).toBe(true);
+    expect(fit.depth).toBeCloseTo(0.0381 - 0.0153, 15);
+  });
+
+  it('prefers the motor tube alongside the fins over a wider piston beside them', () => {
+    // The RockSim corpus's kit layouts (Hydra, Matrix, Pterodactyl, 1/2-scale
+    // Patriot): a piston or insulator tube nearly as wide as the airframe
+    // overlaps the fins' forward root. The widest tube alongside — desktop's
+    // own rule — would stop the tab 1.6 mm in; the button reaches the MOTOR tube.
+    const piston = node({
+      id: 'pi', type: 'innertube', length: 0.1, outerRadius: 0.0365, position: { method: 'bottom', offset: -0.06 },
+    });
+    expect(finTabFit(AFT_FINS, air([piston, MOUNT, AFT_FINS]))!.depth).toBeCloseTo(0.0381 - 0.0153, 15);
+    // A tube that HOLDS the marked mount — a 38 mm tube around a 29 mm adapter,
+    // as the corpus's adapter variants of those kits carry it — is the motor tube too.
+    const holder = node({
+      ...MOUNT, id: 'm38', motorMount: false,
+      children: [node({ id: 'ad', type: 'innertube', length: 0.3, outerRadius: 0.0145, motorMount: true })],
+    });
+    expect(finTabFit(AFT_FINS, air([piston, holder, AFT_FINS]))!.depth).toBeCloseTo(0.0381 - 0.0153, 15);
+  });
+
+  it('with no motor tube alongside, reaches the widest tube there, as desktop does', () => {
+    // Two unmarked tubes alongside the fins: the tab meets the wider one first.
+    const tube29 = node({ ...MOUNT, motorMount: undefined });
+    const sleeve = node({ ...tube29, id: 'sl', length: 0.15, outerRadius: 0.0175 });
+    expect(finTabFit(AFT_FINS, air([tube29, sleeve, AFT_FINS]))).toMatchObject({ toMount: true, depth: expect.closeTo(0.0381 - 0.0175, 15) });
+  });
+
+  it('a tube clear of the fins is not their mount — strictly, as desktop tests the fin span', () => {
+    // Canards at 0.25-0.375 m: the aft mount is nowhere near them, so the tab
+    // goes to the wall, as with no tube at all.
+    const canards = node({ ...FIN, rootChord: 0.125, position: { method: 'top', offset: 0.25 } });
+    expect(finTabFit(canards, air([MOUNT, canards]))).toMatchObject({ toMount: false, depth: 0.001 });
+    // A tube that starts exactly where the fin ends only touches it
+    // (FinSetConfig.isComponentInsideFinSpan); one 1 mm further forward is alongside.
+    const touching = node({ ...MOUNT, length: 0.2, position: { method: 'top', offset: 0.375 } });
+    expect(finTabFit(canards, air([touching, canards]))!.toMount).toBe(false);
+    const overlapping = node({ ...touching, position: { method: 'top', offset: 0.374 } });
+    expect(finTabFit(canards, air([overlapping, canards]))!.depth).toBeCloseTo(0.0381 - 0.0153, 15);
   });
 
   it('offers nothing off a body tube, without its radius, or with no depth to fill', () => {
