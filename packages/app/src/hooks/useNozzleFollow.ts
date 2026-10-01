@@ -153,10 +153,21 @@ export function useNozzleFollow(opts: {
       for (const { s, entries } of looked) {
         const current = seen.current.get(s.stageId);
         if (current?.key !== stageMotorKey(s)) continue;
+        // "The motors before" is what the nozzle IN THE TREE was decided for —
+        // `decided`, NOT `previous` (audit 2026-09-30). While an earlier
+        // look-up was pending, `previous` names a loadout that never got a
+        // decision: pick K then L before K's look-up lands, and L's run took K
+        // for the motor before, so a value typed with NO motor loaded (the case
+        // `hadMotorsBefore` protects) was overwritten, and a cleared note named
+        // K for an exit that was J's. Read now, after the await, because a seed
+        // or a restore may have decided this stage meanwhile: a configuration
+        // switch onto this very loadout has written the nozzle it states, and
+        // there is no change left to act on.
+        const was = decided.current.get(s.stageId);
+        if (was?.key === current.key) continue;
         nowDecided.set(s.stageId, current);
         // The stage as it stands NOW, not when the lookup started.
         const node = findNode(treeRef.current, s.stageId);
-        const was = previous.get(s.stageId);
         const act = followNozzle({
           hadMotorsBefore: (was?.key ?? '') !== '',
           previousLabel: was?.label ?? '',
