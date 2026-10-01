@@ -88,11 +88,16 @@ const READ_AS = {
   },
 };
 
-/** Letters for a motor the catalogue does not carry, by the letter's file. Held to it: the day one arrives, it is screened. */
+/**
+ * Letters the screen does not compare, by the letter's file: for a motor the catalogue does not carry, or carries
+ * only under a later certification. Held to it: the day a letter's own designation finds a row, it is screened.
+ */
 const ABSENT = {
-  '98mm High Power Single Use/O5280X-PS DMS.pdf': 'the O5280X-P (22,223 N·s, tested 7 December 2019) has no row, '
-    + 'and thrustcurve.org has no motor of that designation; asked for its common name, O5280, it answers with its '
-    + 'O5500X-PS, the "New Version" certified in January 2023, which is read and matched here',
+  '98mm High Power Single Use/O5280X-PS DMS.pdf': 'the O5280X-P (22,223 N·s, tested 7 December 2019) has no row of '
+    + 'its own: thrustcurve.org files "O5280X-P" as another name for its motor 5f4294d2000231000000046c (a search for '
+    + 'that designation returns it, read 2026-10-01), listed as the O5500X-PS with the figures of the January 2023 '
+    + 'letter, which is read and matched to that row here; both letters give 9,779 g of Propellant X. The catalogue '
+    + 'ships the row, so there is no motor to add, and the 2019 figures are not compared',
   '98mm High Power Single Use/N1100W-PS DMS.pdf': 'the N1100W-P (14,418.21 N·s) has no row, and thrustcurve.org lists '
     + 'no AeroTech N1100; the catalogue\'s only N1100 is Cesaroni\'s 14005N1100-P, another maker\'s motor',
 };
