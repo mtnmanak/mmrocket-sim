@@ -371,6 +371,25 @@ describe('SimHistory — the run table names its data', () => {
       .some((b) => (b.textContent ?? '').includes('Charts'))).toBe(false);
   });
 
+  /**
+   * A Launch flies on the same engine handle a re-fly uses, and yields between
+   * its auto-delay probes; a re-fly fired then handed the handle back on the
+   * current model mid-Launch (audit 2026-09-30). The button stays — it would
+   * come back the moment the flight lands — but does nothing until then.
+   */
+  it('waits while a flight is running: the Charts button is there, and does nothing', () => {
+    const shown: string[] = [];
+    render(<SimHistory runs={[run()]} onRunsChange={() => {}}
+      canShowCharts={() => true} hasChartsFor={() => false} onShowCharts={(x) => shown.push(x.id)}
+      flightRunning />);
+    openTable();
+    const btn = Array.from(host.querySelectorAll('button'))
+      .find((b) => (b.textContent ?? '').includes('Charts')) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    act(() => { btn.click(); });
+    expect(shown).toEqual([]);
+  });
+
   it('the Charts button does not also select the row it sits in', () => {
     // The row's own onClick opens the run; a click on the button must not
     // fire both.

@@ -177,6 +177,38 @@ describe('FlightCharts — the Flight plots block', () => {
       expect(full).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * A LAUNCH FLIES ON THE SAME ENGINE (audit 2026-09-30). The downloads re-fly
+   * the shown flight on the design's handle, and a Launch on auto delay yields
+   * between its probes: a re-fly fired then handed the handle back on the
+   * current model, and the rest of the Launch flew Classic under an
+   * auto-supersonic stamp. So while one runs they wait, and say why.
+   */
+  describe('the downloads wait while a flight is running', () => {
+    const running = (full: () => Promise<FlightResult>, staleReason: string | null = null) => act(() => root.render(
+      <PrefsProvider>
+        <FlightCharts result={fakeResult()} onFullSeries={full} designName="Big Dog 4in"
+          staleReason={staleReason} flightRunning />
+      </PrefsProvider>,
+    ));
+
+    it('disables both, says why in text, and a click fires no re-fly', () => {
+      const full = vi.fn(() => Promise.resolve(fakeResult()));
+      running(full);
+      expect(labelled('⬇ Flight data (.csv)')!.disabled).toBe(true);
+      expect(labelled('⬇ Flight data + charts (.xlsx)')!.disabled).toBe(true);
+      expect(host.querySelector('#flight-data-stale')?.textContent).toBe('Not available while a flight is running.');
+      expect(labelled('⬇ Flight data (.csv)')!.getAttribute('aria-describedby')).toBe('flight-data-stale');
+      labelled('⬇ Flight data (.csv)')!.click();
+      expect(full).not.toHaveBeenCalled();
+    });
+
+    it('a stale flight still says it is stale: that outlasts the flight', () => {
+      running(vi.fn(), 'the weighed pad mass');
+      expect(host.textContent).toContain('Not available — the weighed pad mass changed since this flight');
+    });
+  });
 });
 
 /**

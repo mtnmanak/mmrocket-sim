@@ -192,7 +192,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
   );
 }
 
-export function FlightCharts({ result, onFullSeries, designName, staleReason }: {
+export function FlightCharts({ result, onFullSeries, designName, staleReason, flightRunning }: {
   result: FlightResult;
   /**
    * Re-flies the shown flight with the full series payload. Absent = the
@@ -212,6 +212,14 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
    * matter and not a reason to refuse.
    */
   staleReason?: string | null;
+  /**
+   * A Launch is flying the engine handle the downloads re-fly on. They wait
+   * for it: a Launch yields between its auto-delay probes, and a re-fly in one
+   * of those yields handed the handle back on the current model mid-Launch
+   * (audit 2026-09-30). A stale reason outranks it in the caption — that one
+   * outlasts the flight.
+   */
+  flightRunning?: boolean;
 }) {
   const { prefs, daylight, resolvedTheme } = usePrefs();
   const catalog = useMemo(
@@ -321,18 +329,20 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason }: 
             <span className="download-caption" id="flight-data-stale" role="status">
               {staleReason
                 ? `Not available — ${staleReason} changed since this flight. Press Launch to fly the current design, then export.`
-                : 'Download this flight, every timestep:'}
+                : flightRunning
+                  ? 'Not available while a flight is running.'
+                  : 'Download this flight, every timestep:'}
             </span>
-            <button className="file-btn" disabled={exportBusy !== null || !!staleReason}
-              aria-describedby={staleReason ? 'flight-data-stale' : undefined}
+            <button className="file-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
+              aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
                 ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
                 : 'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
               onClick={() => exportFlightData('csv')}>
               {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data (.csv)'}
             </button>
-            <button className="file-btn" disabled={exportBusy !== null || !!staleReason}
-              aria-describedby={staleReason ? 'flight-data-stale' : undefined}
+            <button className="file-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
+              aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
                 ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
                 : 'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}

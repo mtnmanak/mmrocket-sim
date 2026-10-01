@@ -481,7 +481,7 @@ export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'mo
 
 export function SimHistory({
   runs, onRunsChange, onSelect, selectedId,
-  canShowCharts, onShowCharts, reflyingId, hasChartsFor, designName,
+  canShowCharts, onShowCharts, reflyingId, flightRunning, hasChartsFor, designName,
 }: {
   runs: SimRun[];
   onRunsChange: (runs: SimRun[]) => void;
@@ -498,6 +498,13 @@ export function SimHistory({
   onShowCharts?: (run: SimRun) => void;
   /** Run currently being re-flown, if any. */
   reflyingId?: string | null;
+  /**
+   * A Launch is flying the engine handle a re-fly would use. Every 📈 Charts
+   * waits for it: a Launch yields between its auto-delay probes, and a re-fly
+   * in one of those yields handed the handle back on the current model
+   * mid-Launch (audit 2026-09-30).
+   */
+  flightRunning?: boolean;
   /** Whether this run's series are already in memory (so no button is needed). */
   hasChartsFor?: (run: SimRun) => boolean;
   /** Stamped into the export filenames, as every other export here does. */
@@ -658,7 +665,7 @@ export function SimHistory({
                           fire the row's own select. */}
                       {onShowCharts && !hasChartsFor?.(r) && canShowCharts?.(r) && (
                         <button className="file-btn" style={{ marginRight: 6, fontSize: 11, padding: '2px 6px' }}
-                          disabled={reflyingId != null}
+                          disabled={reflyingId != null || flightRunning}
                           title="Re-fly the design at this run's conditions to draw its plots. Deterministic — the same flight, not a new one — and it does not add a row here."
                           onClick={(e) => { e.stopPropagation(); onShowCharts(r); }}>
                           {reflyingId === r.id ? '⏳' : '📈 Charts'}

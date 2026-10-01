@@ -1314,6 +1314,20 @@ export function App() {
     // see the whole closure — the lint ceiling is 0, so a genuinely missing
     // dep added here later cannot hide behind this one.
   }, [physicsKey, mountMotors, launch, reflightCache]);
+  /**
+   * The design on screen, in the three terms the effect above resets on — what
+   * onLaunch compares the design it flew against before anything it computed
+   * lands (audit 2026-09-30). A Launch awaits a paint and, on auto delay,
+   * yields between up to eight probes, and the whole UI stays live meanwhile:
+   * Open…, a share link, ✕ New, ⏏ Unload, every field on Design and Motors &
+   * Launch. Each of those moves one of these terms; the effect clears the shown
+   * flight, the Auto aero upgrade and the error for the design now on screen,
+   * and a write landing after it put them back on a design that never flew.
+   * Mirrored on every render, not counted by the effect: a click handler reads
+   * it, and must not depend on when an effect last ran.
+   */
+  const designNow = useRef({ physicsKey, mountMotors, launch });
+  designNow.current = { physicsKey, mountMotors, launch };
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -1713,6 +1727,17 @@ export function App() {
     if (!built || !primaryMountId || simulating || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     const primary = mountMotors[primaryMountId]!;
+    // The design this flight flies: this render's, the one `built` was built
+    // from. Everything it computed lands after an await, and only while that
+    // design still stands (`designNow`, audit 2026-09-30) — an Open, a ✕ New,
+    // an ⏏ Unload or an edit made meanwhile has had the reset effect clear the
+    // screen for the design that replaced it. An edit to this same design
+    // counts: the flight does not describe the edited one, and a Save .ork
+    // would not write it into the file as the edited one's. The RUN is kept
+    // either way (below), stamped with the design it flew.
+    const flown = { physicsKey, mountMotors, launch };
+    const stillFlown = () => designNow.current.physicsKey === flown.physicsKey
+      && designNow.current.mountMotors === flown.mountMotors && designNow.current.launch === flown.launch;
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there, focus
     // included: on the Results <main>, before the flight blocks the thread,
@@ -1735,8 +1760,10 @@ export function App() {
           supersonic: effectiveSupersonic,
           isOnLaunchStage: (id) => isOnLaunchStage(tree, id),
           // Rebuilds the engine handle with the flag on after this callback
-          // finishes, so the design's displayed statics follow the flight.
-          onSupersonicUpgrade: () => setAutoSupersonic(true),
+          // finishes, so the design's displayed statics follow the flight. The
+          // runner calls it after its last await: on a design opened meanwhile
+          // it put "M+" on the strip and flew every later flight supersonic.
+          onSupersonicUpgrade: () => { if (stillFlown()) setAutoSupersonic(true); },
         });
         // Per-stage motor info so booster branches can be safety-checked
         // (a chuteless booster above the high-power line must warn). The branch
@@ -1795,12 +1822,16 @@ export function App() {
           // the two model stamps above, which is the rest of that gate.
           nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
         });
+        // Saved simulations keeps the flight whatever is on screen now: it is
+        // stamped with the design it flew, and selecting it says what changed
+        // since — a Launch press never simply vanishes.
+        recordRuns(addRun(run));
+        if (!stillFlown()) return;
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.
         setResult({ runId: run.id, value: res });
         setLastRun(run);
         setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
-        recordRuns(addRun(run));
         // A flight is work even though it does not touch the design, and the
         // owner asked for it to count. Hooked HERE, at the one place a run is
         // recorded - NOT inside recordRuns, which is also SimResults' delete-one
@@ -1814,7 +1845,8 @@ export function App() {
             + ` ${prefs.units.distance}.`,
         }));
       } catch (e) {
-        setSimError(e instanceof Error ? e.message : String(e));
+        // The error is the launched design's, and dies with it like the rest.
+        if (stillFlown()) setSimError(e instanceof Error ? e.message : String(e));
       } finally {
         setSimulating(false);
       }
@@ -1908,7 +1940,13 @@ export function App() {
    * `reflyRun` owns that and the rest of the handle protocol.
    */
   const showChartsFor = useCallback(async (run: SimRun): Promise<void> => {
-    if (!built || !primaryMountId || !canShowCharts(run)) return;
+    // Not while a flight holds this handle. A Launch yields between its
+    // auto-delay probes, and a re-fly in one of those yields handed the handle
+    // back on the CURRENT model: on an Auto design the probe had upgraded, the
+    // rest of the Launch flew Classic under an auto-supersonic stamp (audit
+    // 2026-09-30). Every button that calls this waits while one runs; this is
+    // the gate behind them.
+    if (!built || !primaryMountId || flightHoldsHandle.current || !canShowCharts(run)) return;
     setReflying(run.id);
     setLastRun(run);
     // Let the busy state paint before the synchronous simulation blocks.
@@ -1945,6 +1983,9 @@ export function App() {
    * handle and kernelSimOptions — no second sim-setup.
    */
   const fetchFullSeriesResult = useCallback(async (): Promise<FlightResult> => {
+    // Not while a flight holds this handle — see showChartsFor. The download
+    // buttons wait while one runs; this is the gate behind them.
+    if (flightHoldsHandle.current) throw new Error('a flight is running — download once it has finished.');
     if (!built || !primaryMountId || !lastRun) {
       throw new Error('no flight in memory — press Launch first');
     }
@@ -4370,7 +4411,10 @@ export function App() {
                      runs, so a model switch is a labelling matter, not a
                      different rocket. */
                   staleReason={changedSinceNonModel.length > 0
-                    ? listAnd(changedSinceNonModel) : null} />
+                    ? listAnd(changedSinceNonModel) : null}
+                  /* And they wait while a Launch flies the same handle (see
+                     showChartsFor). */
+                  flightRunning={simulating} />
               </PanelBoundary>
             </>
           ) : lastRun ? (
@@ -4398,7 +4442,7 @@ export function App() {
                     : ' This run no longer matches the design, so its plots cannot be redrawn for it.'}
                 </p>
                 {canShowCharts(lastRun) && (
-                  <button className="file-btn file-btn-primary" disabled={reflying !== null}
+                  <button className="file-btn file-btn-primary" disabled={reflying !== null || simulating}
                     title="Re-fly this design at this run's conditions to redraw its plots. Does not add a row to the run history."
                     onClick={() => { void showChartsFor(lastRun); }}>
                     {reflying === lastRun.id ? '⏳ Re-flying…' : '📈 Show charts'}
@@ -4416,7 +4460,7 @@ export function App() {
                 {chartableRun && ' Its previous flights are saved below — the report and the plots for any of them can be brought back without flying a new one.'}
               </p>
               {chartableRun && (
-                <button className="file-btn file-btn-primary" disabled={reflying !== null}
+                <button className="file-btn file-btn-primary" disabled={reflying !== null || simulating}
                   title="Re-fly this design at that run's conditions to redraw its report and plots. Does not add a row to the run history."
                   onClick={() => { void showChartsFor(chartableRun); }}>
                   {reflying === chartableRun.id ? '⏳ Re-flying…' : '📈 Show the last saved flight'}
@@ -4459,6 +4503,7 @@ export function App() {
               canShowCharts={canShowCharts}
               onShowCharts={(r) => { void showChartsFor(r); }}
               reflyingId={reflying}
+              flightRunning={simulating}
               hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
               designName={tree.name}
             />
