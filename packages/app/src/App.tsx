@@ -1738,7 +1738,9 @@ export function App() {
         // test can fly them (audit 2026-09-22, extraction #1).
         const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
           assigned,
-          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? m.id!])),
+          // What the report's delay table and the Auto-delay refusal call each
+          // mount: the card heading's own fallback, never the internal id.
+          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? 'Motor mount'])),
           refusedMountIds,
           hardware: built.hardware,
           primaryMountId,

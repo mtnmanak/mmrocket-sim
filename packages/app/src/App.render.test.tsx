@@ -639,6 +639,38 @@ describe('the delay boxes on a motor card', () => {
 });
 
 /**
+ * THE LAUNCH REPORT NAMES A MOUNT AS ITS CARD DOES (review of the audit
+ * 2026-09-30 fixes). The report's per-mount ejection-delay table, and the
+ * "Auto delay did not settle for …" refusal, name each mount from the map App
+ * hands flyLaunch, and that map fell back to the internal id (`m.name ??
+ * m.id!`): on a mount with no name the card said "Motor mount" while the
+ * report flown from it said "c4". A mount has no name when a desktop file's
+ * part has an empty or absent <name> (orkFile names a node only from a
+ * non-empty one), or when a stored session or share link was written without
+ * it, as seeded here.
+ */
+describe('the ejection-delay table in the launch report', () => {
+  it('names a mount with no name "Motor mount", as its card does, never by its internal id', async () => {
+    const { mount } = await seedStarterSession({
+      edit: (t) => {
+        const bare = structuredClone(t);
+        delete (motorMounts(bare)[0]! as Record<string, unknown>)['name'];
+        return bare;
+      },
+    });
+    expect(mount).toMatch(/^c\d+$/); // the internal id the row used to read
+    const host = await mountApp();
+    const launch = () => host.querySelector<HTMLButtonElement>('.vitals-launch');
+    await waitFor(() => launch()?.disabled === false, 'Launch to be ready');
+    await act(async () => { launch()!.click(); });
+    const rowHeads = () => [...host.querySelectorAll('section[aria-label="Per-mount ejection delays"] tbody th[scope="row"]')]
+      .map((th) => th.textContent);
+    await waitFor(() => rowHeads().length > 0, 'the per-mount delay table');
+    expect(rowHeads()).toEqual(['Motor mount']);
+  }, 30000);
+});
+
+/**
  * THE HERO CANVAS SIZES TO THE DRAWING (v0.076, v0.092). The schematic reports
  * its natural height and App's stage asks for that plus the stats chip's
  * headroom plus the open drawer, and publishes the drawer's height on its own
