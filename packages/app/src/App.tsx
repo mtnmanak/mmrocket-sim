@@ -4075,10 +4075,13 @@ export function App() {
                   {mm && isStaged && (
                     <div className="field" style={{ marginTop: 6 }}
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
-                      <label>Ignition</label>
+                      {/* The words on screen name the select (audit
+                          2026-09-30): it carried its own aria-label, "Ignition
+                          event", beside a label tied to nothing. */}
+                      <label htmlFor={`ignition-${m.id}`}>Ignition</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select
-                          aria-label="Ignition event"
+                          id={`ignition-${m.id}`}
                           style={{ flex: 1 }}
                           value={mm.ignition.event}
                           onChange={(e) => setMountMotors((prev) => ({

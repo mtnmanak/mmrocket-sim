@@ -3,8 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { flyLaunch } from './services/flightRunner.js';
+import { loadCatalogueMotor } from './services/motorMatch.js';
+import { addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { APP_VERSION } from './version.js';
 
 /**
  * App-level accessibility from the 2026-09-22 audit (rows 443, 444, 445, 453,
@@ -237,5 +241,31 @@ describe('App — accessibility, as rendered', () => {
       + ' — not the model now selected. Press Launch to re-fly it.');
     expect(apogee().querySelector('.vitals-stale')?.getAttribute('aria-hidden')).toBe('true');
     expect(apogee().querySelector('.vitals-value .sr-only')?.textContent).toBe(` — warning: ${why}`);
+  }, 30000);
+
+  /**
+   * Audit 2026-09-30: a staged design's motor card put a bare "Ignition"
+   * label beside a select its own aria-label named "Ignition event" — the
+   * label tied to nothing, and a name that was not the one on screen. The
+   * label names the select now: what is heard is what is shown.
+   */
+  it('a staged motor card’s Ignition label names its select, and the select has no second name', async () => {
+    const tree = addStage(defaultTree()).tree;
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: c6 }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const label = [...host.querySelectorAll<HTMLLabelElement>('.mount-card label')]
+      .find((l) => l.textContent === 'Ignition');
+    expect(label, 'a staged design shows the Ignition field').toBeTruthy();
+    const select = label!.control as HTMLSelectElement | null;
+    expect(select?.tagName).toBe('SELECT');
+    expect(select!.hasAttribute('aria-label')).toBe(false);
+    // ITS select: the one that sets when this motor lights.
+    expect([...select!.options].map((o) => o.value))
+      .toEqual(['automatic', 'burnout', 'launch', 'ejectioncharge', 'never']);
   }, 30000);
 });
