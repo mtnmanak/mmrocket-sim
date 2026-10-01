@@ -48,6 +48,34 @@ describe('the published nozzle lookup', () => {
     expect(e!.exitDiameterM).toBeCloseTo(0.011125, 9);
   });
 
+  it('fills the motors whose drawing is filed under another name, or in another folder', async () => {
+    // Board Tier 1 row 13 (2026-10-01). All three loaded with a blank nozzle field:
+    // H219T's DMS sheet is filed as H218T-14A.pdf, J1265T is AeroTech's J1265ST-14A,
+    // and L1365M's nozzle is named only in its reload kit's instruction sheet.
+    for (const [motorId, designation, partNo, exitIn] of [
+      ['5f4294d2000231000000044e', 'H219T', '01500-5', 0.438],
+      ['63bb65281d26f30004b4b07b', 'J1265T', '01670-7', 1.25],
+      ['5f4294d200023100000003fc', 'L1365M', '01770', 1.875],
+    ] as const) {
+      const e = await nozzleForMotorId(motorId);
+      expect(e, designation).not.toBeNull();
+      expect(e!.nozzlePartNo, designation).toBe(partNo);
+      expect(e!.exitDiameterM, designation).toBeCloseTo(exitIn * 0.0254, 6);
+      expect(e!.confidence, designation).toBe('high');
+      expect(e!.drawings.length, designation).toBeGreaterThan(0);
+    }
+  });
+
+  it('fills the I40N-P from part 01600’s published exit', async () => {
+    // RCS's store page for 01600 states "0.289" diameter exit" (read 2026-10-01); the
+    // file said the part had none, so the I40N-P loaded with a blank field.
+    const e = await nozzleForMotorId('616e6152763045000425980a'); // I40N-P
+    expect(e).not.toBeNull();
+    expect(e!.nozzlePartNo).toBe('01600');
+    expect(e!.exitDiameterM).toBeCloseTo(0.289 * 0.0254, 6);
+    expect(e!.confidence).toBe('high');
+  });
+
   it('ships the database’s own provenance', () => {
     // Read off the file itself: the accessor that carried it (nozzleDbMeta)
     // had no production caller and went (audit 2026-09-22, Dead code row 575).
@@ -59,7 +87,7 @@ describe('the published nozzle lookup', () => {
 
 describe('the shipped nozzle data itself', () => {
   const { motors, counts, coverage } = nozzles as unknown as {
-    // `motorId` is optional because the data says so: ten rows match no catalogue motor.
+    // `motorId` is optional because the data says so: some rows match no catalogue motor.
     motors: { motorId?: string; manufacturer: string; exitDiameterM?: number; exitConfidence?: string }[];
     counts: {
       motorsWithExit: number;
@@ -146,9 +174,8 @@ describe('the shipped nozzle data itself', () => {
       if (m.motorId && (await nozzleForMotorId(m.motorId))) served.add(m.motorId);
     }
     expect(served.size).toBe(counts.motorsLoadableWithExit);
-    // Rows are not motors: nine of the ten rows with no catalogue id carry an exit a
-    // user can never load (J33N-P carries none), so this figure must stay below the
-    // all-rows one.
+    // Rows are not motors: a row with no catalogue id can carry an exit a user can
+    // never load, so this figure must stay below the all-rows one.
     expect(counts.motorsLoadableWithExit).toBeLessThan(counts.motorsWithExit);
   });
 

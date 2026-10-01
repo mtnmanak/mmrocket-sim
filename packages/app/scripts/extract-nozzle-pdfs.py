@@ -35,7 +35,11 @@ different lines, and a naive line-adjacency parse resolved a nozzle part in only
 
 With both, all 324 drawings yield a header and a nozzle row.
 
-Usage: python extract-nozzle-pdfs.py "<RCS Schematics folder>"
+Usage: python extract-nozzle-pdfs.py "<RCS Schematics folder>" ["<instruction sheet>" ...]
+
+Each further argument is an instruction sheet to read, as a path under the set's
+`Instructions` folder; build-nozzle-db.mjs passes the ones it transcribes a
+nozzle line from (INSTRUCTION_SHEET_NOZZLES), and no other is read.
 """
 import email
 import glob
@@ -187,6 +191,50 @@ REVISION = re.compile(
 # Which revisions are ABOUT the nozzle — the word in the revision's own text.
 REV_NOZZLE = re.compile(r'NOZZLE', re.I)
 
+# The motor a sheet's own TITLE BLOCK names. Added 2026-10-01, because a FILE
+# NAME is not the sheet: DMS Motor Designs/38mm/H218T-14A.pdf is titled
+# H219T-14A. The two families title a sheet differently, so each form has its
+# own pattern:
+#
+#   DMS          "H219T-14A DMS™ MOTOR ASSEMBLY"
+#   reload kit   "HP 54/1706 MOTOR WITH K1100T-L RMS-PLUS™ RELOAD KIT ASSY DWG",
+#                "RMS-29/40-120 MOTOR WITH 2-GRAIN G53-5FJ RELOAD KIT ASSY DWG"
+#   LMS          "HP 54MM S/U K250W-P LOADABLE MOTOR SYSTEM ASSY DWG"
+#
+# On these sheets "MOTOR WITH" and "S/U" appear in the title block and nowhere
+# else. "MOTOR ASSEMBLY" does not: every reload-kit sheet's notes open "NOTES:
+# 1. MOTOR ASSEMBLY SHOWN WITH ...", and two sheets, one in each family, add
+# "BEFORE PROCEEDING WITH MOTOR ASSEMBLY!". So THE DESIGNATION MUST LOOK LIKE
+# ONE: an impulse letter, then the thrust. The first pattern took any word
+# before "MOTOR ASSEMBLY" and read "1." on all 324 reload-kit sheets and "WITH"
+# on those two, while this comment said it found exactly one title on each
+# sheet. Only the two DMS joins read it, so no row moved, but a join resting on
+# a reload kit's title block could never have held.
+#
+# Read on all 375 sheets on 2026-10-01, these find exactly one title on each.
+# It is not the file's designation on 43. On 38 reload-kit sheets only the delay
+# or plug tag differs (H165R for H165R-L, K1800ST-P for K1800ST-PS). On five the
+# rest differs too, as the sheets print it: H218T-14A.pdf is titled H219T-14A,
+# I205W-14A.pdf I205NT-14A, M1340W-PS.pdf M1340W-PS-PS, K1000T-P K1000W-P and
+# M1075DM-PS M1075M-PS. Reported, never trusted on its own: the I205W sheet's
+# grains and length are the I205W's whatever its title says, so the builder uses
+# this only to check an entry that quotes it.
+
+# A designation as a title block prints one: "K1100T-L", "C3.4-PT",
+# "HP-G138T-14A", "M1340W-PS-PS".
+DESIGNATION = r'((?:HP-)?[A-O]\d+(?:\.\d+)?[A-Z]*(?:-[A-Z0-9]+)*)'
+TITLE_BLOCKS = (
+    re.compile(DESIGNATION + r'\s+(?:DMS\S*\s+)?MOTOR\s+ASSEMBLY'),
+    re.compile(r'MOTOR\s+WITH\s+(?:\d+-GRAIN\s+)?' + DESIGNATION),
+    re.compile(r'S/U\s+' + DESIGNATION),
+)
+
+
+def title_block_designations(text):
+    """The motors the sheet's title block names, in the order its text gives them."""
+    found = sorted((m.start(1), m.group(1)) for pattern in TITLE_BLOCKS for m in pattern.finditer(text))
+    return [name for _, name in found]
+
 
 def revisions(text):
     """Every REVISIONS row as {letter, text, date, isoDate, mentionsNozzle}.
@@ -211,9 +259,9 @@ def revisions(text):
     return out
 
 
-def main(root):
+def main(root, instruction_files=()):
     out = {'root': os.path.abspath(root), 'assemblies': [], 'specPages': [],
-           'nozzleDrawings': [], 'certNozzles': []}
+           'nozzleDrawings': [], 'certNozzles': [], 'instructionSheets': []}
 
     # TWO DOCUMENT FAMILIES, read the same way (2026-09-13).
     #
@@ -285,9 +333,31 @@ def main(root):
                 'foundLomHeader': found_header,
                 'designationOnSheet': squash(designation) in squash(text),
                 'designationStemOnSheet': squash(stem) in squash(text),
+                'titleBlockDesignations': title_block_designations(text),
                 'revisions': revisions(text),
                 'lomRows': rows,
             })
+
+    # INSTRUCTION SHEETS, only the ones the builder names (2026-10-01). A reload
+    # kit's instruction sheet sometimes carries the motor's own parts list, and
+    # for L1365M-PS that list is the only document naming its nozzle. Reading
+    # all 213 takes about 40 s, and several carry a GENERIC drawing ("MAY BE A
+    # GENERIC REPRESENTATION"), so none is read unless asked for. Two tables sit
+    # side by side on those pages, so a row here can hold one line of each: the
+    # rows are reported as read, and the builder checks its transcription
+    # against them rather than parsing them.
+    ins_root = os.path.join(root, 'Instructions')
+    for rel in instruction_files:
+        path = os.path.join(ins_root, rel)
+        if not os.path.isfile(path):
+            out['instructionSheets'].append({'file': rel, 'found': False, 'pages': []})
+            continue
+        pages = []
+        for number, page in enumerate(fitz.open(path), start=1):
+            rows = lom_rows(page)
+            if rows is not None:
+                pages.append({'page': number, 'rows': rows})
+        out['instructionSheets'].append({'file': rel, 'found': True, 'pages': pages})
 
     noz_root = os.path.join(root, 'Nozzles')
     for path in sorted(glob.glob(os.path.join(noz_root, '*.mhtml'))):
@@ -342,5 +412,5 @@ def main(root):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        sys.exit('usage: extract-nozzle-pdfs.py "<RCS Schematics folder>"')
-    main(sys.argv[1])
+        sys.exit('usage: extract-nozzle-pdfs.py "<RCS Schematics folder>" ["<instruction sheet>" ...]')
+    main(sys.argv[1], sys.argv[2:])

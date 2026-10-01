@@ -90,9 +90,12 @@ export interface NozzleEntry {
 interface RawMotor {
   /**
    * OPTIONAL, because the DATA says so (2026-09-14, from review). This was declared
-   * `motorId: string` while ten shipped rows carry none — ten AeroTech MOTOR rows (not
-   * parts) whose designation matches no thrustcurve.org catalogue entry: nine with an exit,
-   * and J33N-P with neither an id nor an exit. `nozzles.json` reaches this file through
+   * `motorId: string` while shipped rows carry none — AeroTech MOTOR rows (not parts) whose
+   * designation matches no thrustcurve.org catalogue entry. Ten did that day, nine with an
+   * exit and J33N-P with neither an id nor an exit; eight do on 2026-10-01, every one with
+   * an exit, since the H219T and J1265T sheets were joined to their motors and part 01600's
+   * store page gave J33N-P its exit. The file's row count less its
+   * `counts.motorsMatchedToCatalogue` is the figure today. `nozzles.json` reaches this file through
    * `as unknown as RawDb`, which casts straight past the real shape, so the declaration was
    * simply a lie the compiler could not see: the runtime guard below reads as dead code, and
    * any future `map.set(m.motorId, …)` or `m.motorId.startsWith(…)` would typecheck clean and
@@ -126,10 +129,11 @@ function toEntry(m: RawMotor): NozzleEntry | null {
   // of being cast away. This is the check the old `motorId: string` lie was hiding.
   if (typeof m.motorId !== 'string' || !m.motorId) return null;
   const d = m.exitDiameterM;
-  // A motor row can exist with no usable exit. NINE do in the shipped file (2026-09-23):
-  // eight AeroTech rows (see nozzleForMotorId) and Loki's N3800-LW, whose throat is known
+  // A motor row can exist with no usable exit. SEVEN do in the shipped file (2026-10-01):
+  // six AeroTech rows (see nozzleForMotorId) and Loki's N3800-LW, whose throat is known
   // and whose exit Loki do not publish above 76 mm. (It said "one does" until 2026-09-14,
-  // then TEN until v0.133 gave the I65W-PS its exit — the count moves with every rebuild.)
+  // then TEN until v0.133 gave the I65W-PS its exit, then NINE until part 01600's store
+  // page gave the I40N-P and J33N-P theirs — the count moves with every rebuild.)
   // Returning it would fill the field with nothing, which is the one outcome
   // worse than leaving it blank.
   if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return null;
@@ -168,11 +172,12 @@ async function db(): Promise<Map<string, NozzleEntry>> {
     const map = new Map<string, NozzleEntry>();
     for (const m of raw.motors ?? []) {
       // A ROW WITH NO motorId CANNOT BE LOOKED UP, so it must not be inserted.
-      // Nine shipped rows have a drawing and an exit but matched no catalogue
-      // motor, and `map.set(undefined, e)` put every one of them on the same
-      // unreachable key — harmless only because `nozzleForMotorId` returns
-      // early on a falsy id, which is a second guard standing in for a missing
-      // first one (2026-09-13, from review).
+      // Shipped rows have a drawing and an exit but matched no catalogue motor
+      // (nine on 2026-09-13, eight on 2026-10-01: `counts.motorsWithExit` less
+      // `counts.motorsLoadableWithExit`), and `map.set(undefined, e)` put every
+      // one of them on the same unreachable key — harmless only because
+      // `nozzleForMotorId` returns early on a falsy id, which is a second guard
+      // standing in for a missing first one (2026-09-13, from review).
       if (typeof m.motorId !== 'string' || !m.motorId) continue;
       const e = toEntry(m);
       if (e) map.set(e.motorId, e);
@@ -188,17 +193,17 @@ async function db(): Promise<Map<string, NozzleEntry>> {
  * Keyed on `motorId` and NOT on the designation: designations repeat across
  * manufacturers and across a motor's own history, and the database is built
  * against a dated catalogue snapshot. An id that has no row simply has nothing
- * published. Counted off the shipped file on 2026-09-23 (its `coverage`, summed
- * per maker — `withExitDiameter`, never `withNozzleRow`): 222 of AeroTech's 272
- * in-production motors have a figure, and 54 of Loki's 58. EIGHT AeroTech rows
+ * published. Counted off the shipped file on 2026-10-01 (its `coverage`, summed
+ * per maker — `withExitDiameter`, never `withNozzleRow`): 226 of AeroTech's 272
+ * in-production motors have a figure, and 54 of Loki's 58. SIX AeroTech rows
  * exist with no number on purpose: the J615ST aerospike (no exit plane at all),
- * four 29 mm DMS motors whose nozzle is moulded into the case, two on a machined
- * part that states an O.D. and no exit, and one whose sheet says the nozzle was
- * cut shorter than its mould. (This said NINE, counting the I65W-PS Medusa, until
- * v0.133 read its exit off part 01700-1.) Cesaroni publish nothing anyone has
- * found. These figures move with every rebuild; the file's own `coverage` and
- * `gaps` are counted at build time, so check this sentence against them rather
- * than quoting it.
+ * four 29 mm DMS motors whose nozzle is moulded into the case, and one whose
+ * sheet says the nozzle was cut shorter than its mould. (This said NINE, counting
+ * the I65W-PS Medusa, until v0.133 read its exit off part 01700-1, and EIGHT,
+ * counting two on machined part 01600, until its store page's exit was read on
+ * 2026-10-01.) Cesaroni publish nothing anyone has found. These figures move
+ * with every rebuild; the file's own `coverage` and `gaps` are counted at build
+ * time, so check this sentence against them rather than quoting it.
  */
 export async function nozzleForMotorId(motorId: string | undefined): Promise<NozzleEntry | null> {
   if (!motorId) return null;

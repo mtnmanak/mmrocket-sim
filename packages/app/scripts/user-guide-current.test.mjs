@@ -199,9 +199,9 @@ describe('the nozzle database figures the guide quotes', () => {
     expect(md).toMatch(/K1100T's two options differ by \d+ % in area/);
     expect(md).toMatch(/\bcarry a row with no number on purpose\b/);
     expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]* is an aerospike\b/);
-    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]*(?:-[A-Z]+)?'s machined nozzle is drawn with its outside diameter and no exit\b/);
     expect(md).toMatch(/\b[A-Za-z]+ has a nozzle the sheet says was cut shorter than the mould\b/);
     expect(md).toMatch(/\d*\.\d+″ against the standard \d*\.\d+″ is \d+ % more area, and against the \d*\.\d+″ band it is \d+ %/);
+    expect(md).toMatch(/\bMost are single-use hobby motors of \d+ mm to \d+ mm\b.*\bthe rest are [A-Za-z]+ reload kits and [A-Za-z]+ larger single-use motors\b/);
   });
 });
 
@@ -273,8 +273,12 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
       .toThrow(/says "one has a nozzle the sheet says was cut shorter than the mould"; .* are none/);
     const spike = rebuilt((db) => { row(db, 'J615ST-20A').exitDiameterM = 0.02; });
     expect(() => compileGuide({ dataDir: spike })).toThrow(/says "the J615ST is an aerospike"; .* are none/);
-    const machined = rebuilt((db) => { row(db, 'I40N-P').exitDiameterM = 0.02; });
-    expect(() => compileGuide({ dataDir: machined })).toThrow(/says "the I40N-P's machined nozzle .* are none/);
+    // The I40N-P's machined nozzle went the other way: part 01600's exit was published
+    // (2026-10-01) and the guide stopped giving a reason for it to have none. Losing it
+    // again is a row with no reason the guide gives, not one it already explains.
+    const machined = rebuilt((db) => { const r = row(db, 'I40N-P'); delete r.exitDiameterM; delete r.exitDiameterIn; });
+    expect(() => compileGuide({ dataDir: machined }))
+      .toThrow(/does not account for: I40N-P \("38MM NOZZLE MACHINED 1\.25" O\.D\. X \.156" DT"\)/);
     // A rebuild that adds a second aerospike, after the J615ST: the sentence names
     // one, so it would leave the new one out.
     const twoSpikes = rebuilt((db) => {
@@ -319,6 +323,38 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
     });
     expect(() => compileGuide({ dataDir: unexplained }))
       .toThrow(/with no exit that user-guide\.md's sentence on the rows with no number on purpose does not account for: \S+ \("54MM NOZZLE, EXIT NOT DIMENSIONED"\)/);
+  });
+
+  it('refuses to compile when what AeroTech have left uncovered moves', () => {
+    // The sentence said "the older single-use line — motors with neither a reload kit nor
+    // a DMS design sheet" by hand, and 12 of the 40 it described were reload kits or DMS
+    // motors (board Tier 1 row 13, 2026-10-01). It now states the catalogue's own split.
+    const missing = (db) => db.coverage.byManufacturer.AeroTech.missingByType;
+    /** A row for the first uncovered motor of this type in a casing `inSize` accepts. */
+    const covered = (type, inSize) => (db) => {
+      const byMm = missing(db)[type];
+      const mm = Object.keys(byMm).find((k) => inSize(Number(k)));
+      byMm[mm] = byMm[mm].slice(1);
+      if (byMm[mm].length === 0) delete byMm[mm];
+    };
+    // AeroTech post one of the reload kits' assembly drawings.
+    expect(() => compileGuide({ dataDir: rebuilt(covered('reload', () => true)) }))
+      .toThrow(/says eight reload kits remain uncovered; nozzles\.json has seven/);
+    // A larger single-use motor gets a row.
+    expect(() => compileGuide({ dataDir: rebuilt(covered('SU', (mm) => mm > 29)) }))
+      .toThrow(/says four larger single-use motors remain uncovered; nozzles\.json has three/);
+    // Both 18 mm motors get one: the sizes the sentence gives no longer start at 18 mm.
+    expect(() => compileGuide({ dataDir: rebuilt((db) => { delete missing(db).SU['18']; }) }))
+      .toThrow(/hobby motors run 18 mm to 29 mm; in nozzles\.json they run 24 mm to 29 mm/);
+    // All but one at each end get one: the sizes and the other counts still hold, "most" does not.
+    expect(() => compileGuide({ dataDir: rebuilt((db) => { missing(db).SU = { ...missing(db).SU, 18: ['D10W'], 24: [], 29: ['G11'] }; }) }))
+      .toThrow(/says most of what AeroTech have left uncovered are single-use hobby motors; nozzles\.json has two of 14/);
+    // A type the sentence has no words for.
+    expect(() => compileGuide({ dataDir: rebuilt((db) => { missing(db).hybrid = { 54: ['K999H'] }; }) }))
+      .toThrow(/does not account for K999H \(hybrid\)/);
+    // A file built before the split existed cannot vouch for the sentence.
+    expect(() => compileGuide({ dataDir: rebuilt((db) => { delete db.coverage.byManufacturer.AeroTech.missingByType; }) }))
+      .toThrow(/nozzles\.json has no coverage\.byManufacturer\.AeroTech\.missingByType/);
   });
 
   it('compiles the shipped file unchanged, so each refusal above is the edit and not the copy', () => {
