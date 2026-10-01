@@ -631,8 +631,17 @@ export function removeNode(tree: RocketTree, id: string): RocketTree {
   return { ...tree, components: walk(tree.components) };
 }
 
+/**
+ * Where a new part goes: a component's id, or 'stage' for the FIRST stage (the
+ * Add menu's target with nothing selected). To the compiler this is plain
+ * string, as the `string | 'stage'` it was written as already was ('stage' is
+ * a string, so the union widens: no-redundant-type-constituents); the name
+ * keeps what the literal said.
+ */
+export type ParentId = string;
+
 /** Adds a child to the given parent id ('stage' = the FIRST stage, legacy). */
-export function addChild(tree: RocketTree, parentId: string | 'stage', child: ComponentNode): RocketTree {
+export function addChild(tree: RocketTree, parentId: ParentId, child: ComponentNode): RocketTree {
   if (parentId === 'stage') {
     const first = stages(tree)[0];
     if (!first) return { ...tree, components: [...tree.components, child] };

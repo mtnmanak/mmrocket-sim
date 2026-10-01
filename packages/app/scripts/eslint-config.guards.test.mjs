@@ -199,6 +199,18 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('turns no-redundant-type-constituents on for shipped source and its tests (audit Step B)', async () => {
+    // 9 hits on 2026-10-01, 2 of them in tests, all fixed before it went on.
+    // The header's count reads App.tsx's rules alone, so a tests-block edit
+    // that switched it off there would leave the count right and lint green.
+    const STEP_B = ['@typescript-eslint/no-redundant-type-constituents'];
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/App.session.test.tsx',
+      'packages/engine/src/index.ts', 'packages/engine/src/orkEngine.test.ts']) {
+      const rules = await rulesFor(rel, STEP_B);
+      expect(STEP_B.map((r) => severity(rules[r])), rel).toEqual([2]);
+    }
+  });
+
   it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
     // an operand of && / || beside a bound or Number.isFinite has a partner

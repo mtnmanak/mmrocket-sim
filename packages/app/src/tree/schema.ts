@@ -457,7 +457,7 @@ const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<R
  * has none. The ONE table the property panel's commit and the sanitize pass
  * both read (audit 2026-09-22) — see FieldLimit.
  */
-export function fieldLimit(type: EditorComponentType | string, key: string): FieldLimit | undefined {
+export function fieldLimit(type: EditorComponentType, key: string): FieldLimit | undefined {
   const byType = LIMITS_BY_TYPE[type];
   if (byType && Object.hasOwn(byType, key)) return byType[key];
   return LIMITS_BY_KEY[key];
@@ -1256,7 +1256,7 @@ const BLANK_BY_TYPE: Record<string, Record<string, number>> = lookupTable<Record
  * flies 3 fins. Those went dead too, with nothing on screen saying what the
  * blank meant. Before the audit, ▴ on a new canopy's lines committed ONE line.
  */
-export function blankValue(type: EditorComponentType | string, key: string): number | undefined {
+export function blankValue(type: EditorComponentType, key: string): number | undefined {
   const byType = BLANK_BY_TYPE[type];
   if (byType && Object.hasOwn(byType, key)) return byType[key];
   return BLANK_BY_KEY[key];

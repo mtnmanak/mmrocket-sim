@@ -1,7 +1,7 @@
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { axialLength } from '../tree/position.js';
 import { interleaveRotation } from '../tree/schema.js';
-import { addChild, findNode, inheritDefaults, makeNode, stages } from '../tree/treeModel.js';
+import { addChild, findNode, inheritDefaults, makeNode, stages, type ParentId } from '../tree/treeModel.js';
 import { newRailButtonPair, railButtonPlacement, type NewPairRule } from './railButtonPlacement.js';
 
 /**
@@ -41,7 +41,7 @@ export type MeasureDesign = (tree: RocketTree) => DesignMeasure | null;
  */
 export function addNewComponent(
   tree: RocketTree,
-  parentId: string | 'stage',
+  parentId: ParentId,
   type: ComponentType,
   measure: MeasureDesign | null,
 ): { tree: RocketTree; node: ComponentNode; railButtonRule?: NewPairRule } {

@@ -17,9 +17,9 @@
 //
 // Deliberately NOT enabled, with the measured reason:
 //   - the type-aware typescript-eslint CONFIGS (recommendedTypeChecked and up):
-//     twelve type-aware RULES are on, in their own block below, each at 0 hits
+//     thirteen type-aware RULES are on, in their own block below, each at 0 hits
 //     in shipped source when it went on; recommendedTypeCheckedOnly would add
-//     13 more, not all of them measured here. Both figures are recounted from
+//     12 more, not all of them measured here. Both figures are recounted from
 //     the installed typescript-eslint by
 //     packages/app/scripts/eslint-config.guards.test.mjs
 //   - @typescript-eslint/no-non-null-assertion: 4,433 hits (631 outside tests) on
@@ -469,6 +469,15 @@ export default tseslint.config(
       '@typescript-eslint/no-meaningless-void-operator': 'error',
       '@typescript-eslint/no-duplicate-type-constituents': 'error',
       '@typescript-eslint/require-await': 'error',
+      // Step B (audit 2026-09-30): a union member another member swallows,
+      // which reads as a constraint and is none. 9 hits on 2026-10-01, 7 in
+      // shipped source and 2 in tests, all fixed first: five `string | 'stage'`
+      // parent ids (ComponentTree, addComponent, treeModel's addChild), which
+      // are plain string to the compiler and now say what 'stage' means through
+      // treeModel's ParentId; schema's fieldLimit and blankValue, whose
+      // `EditorComponentType | string` now takes the component type every
+      // caller passes; and two test unions with `unknown` in them.
+      '@typescript-eslint/no-redundant-type-constituents': 'error',
     },
   },
 

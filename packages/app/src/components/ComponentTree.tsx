@@ -4,7 +4,7 @@ import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 import { Icon } from './Icon.js';
-import { findParent, stageIndexOf } from '../tree/treeModel.js';
+import { findParent, stageIndexOf, type ParentId } from '../tree/treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
 const TYPE_ICON = lookupTable<string>({
@@ -121,7 +121,7 @@ export function ComponentTree({
   onMove: (id: string, dir: -1 | 1) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
-  onAdd: (parentId: string | 'stage', type: ComponentType) => void;
+  onAdd: (parentId: ParentId, type: ComponentType) => void;
   /** Appends a booster stage below the existing ones. */
   onAddStage: () => void;
   /** Copied/cut component awaiting paste (null = empty clipboard). */
@@ -151,7 +151,7 @@ export function ComponentTree({
    * stage — e.g. a selected nose cone offers "Add to Nose cone" AND
    * "Add to Sustainer".
    */
-  interface AddTarget { id: string | 'stage'; label: string; types: ComponentType[] }
+  interface AddTarget { id: ParentId; label: string; types: ComponentType[] }
   const targets: AddTarget[] = [];
   if (selectedNode) {
     const selAddable = allowedChildren(selectedNode.type);
@@ -184,7 +184,7 @@ export function ComponentTree({
     targets.push({ id: 'stage', label: '', types: allowedChildren('stage') });
   }
 
-  const menu = (list: ComponentType[], parentId: string | 'stage') => (
+  const menu = (list: ComponentType[], parentId: ParentId) => (
     <div className="add-menu">
       {list.map((t) => (
         <button key={t} className="add-menu-item"
