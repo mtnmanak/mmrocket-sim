@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { isAssembly } from './assembly.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { num } from './nodeNum.js';
 
 /**
@@ -40,9 +41,15 @@ import { num } from './nodeNum.js';
  * member at ITS length here — `ComponentAssembly.updateBounds` sums the
  * lengths of the children positioned AFTER one another.
  *
- * A CLEARED LENGTH is the kernel's default for the type (`LENGTH_DEFAULTS`
- * below). This fell back to one generic 25 mm, which the kernel uses only for
- * a packed recovery device (audit 2026-09-22, row 373).
+ * A CLEARED LENGTH is the kernel's default for the type (the bridge's table,
+ * tree/kernelDefaults.ts — this module's LENGTH_DEFAULTS until it was extended
+ * to every dimension, audit 2026-09-30). This fell back to one generic 25 mm,
+ * which the kernel uses only for a packed recovery device (audit 2026-09-22,
+ * row 373): measured 25 mm off for a launch lug, 45 mm for an inner tube,
+ * 55 mm for a camera shroud, 75 mm for a tube-fin set and 275 mm for
+ * everything behind a body tube. A parachute, streamer or shock cord has no
+ * entry ON PURPOSE: the bridge never sets their length, so the kernel keeps
+ * `MassObject`'s packed 25 mm — which the fallback here already is.
  */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
@@ -50,50 +57,18 @@ export function axialLength(n: ComponentNode): number {
     return pts.length ? pts[pts.length - 1]![0] : 0.05;
   }
   if (n.type === 'trapezoidfinset' || n.type === 'ellipticalfinset') {
-    return num(n, 'rootChord', 0.05);
+    return kernelNum(n, 'rootChord');
   }
   if (n.type === 'railbutton') return 0;
   if (isAssembly(n.type)) {
     return (n.children ?? []).filter((c) => CHAIN_TYPES.has(c.type)).reduce((s, c) => s + axialLength(c), 0);
   }
-  return num(n, 'length', num(n, 'packedLength', LENGTH_DEFAULTS[n.type as string] ?? 0.025));
+  return num(n, 'length', num(n, 'packedLength', kernelDefault(n.type as string, 'length') ?? 0.025));
 }
 
 /** The members of a nose-to-tail chain: what stacks AFTER the one before it. */
 const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
 
-/**
- * The length the KERNEL builds when a node carries no `length` — the bridge's
- * own `dbl(node, "length", …)` default in `ComponentFactory.create`, or what
- * `engineTree` lowers an app-only part to. One table (audit 2026-09-22, row
- * 373): the generic 25 mm fallback put a cleared-length part 'bottom'- or
- * 'middle'-anchored away from where it flies — measured 25 mm for a launch
- * lug, 45 mm for an inner tube, 55 mm for a camera shroud and 75 mm for a
- * tube-fin set, and 275 mm for everything behind a body tube.
- *
- * Parachutes, streamers and shock cords are absent ON PURPOSE: the bridge
- * never sets their length, so the kernel keeps `MassObject`'s packed 25 mm —
- * which the fallback already is. A protuberance is lowered to a zero-length
- * carrier anchored at the bump's centre (treeModel `engineTree`), so its
- * entry is the length the views draw it with, which that centre is taken from.
- */
-const LENGTH_DEFAULTS: Record<string, number> = Object.assign(Object.create(null) as Record<string, number>, {
-  nosecone: 0.07,
-  bodytube: 0.3,
-  transition: 0.05,
-  innertube: 0.07,
-  tubecoupler: 0.05,
-  centeringring: 0.002,
-  bulkhead: 0.002,
-  engineblock: 0.005,
-  launchlug: 0.05,
-  tubefinset: 0.1,
-  masscomponent: 0.02,
-  // engineTree lowers a shroud to a one-fin strake whose root chord is its
-  // length, `nnum(n, 'length', 0.08)`.
-  fairing: 0.08,
-  protuberance: 0.06,
-});
 
 /**
  * How far a component's drawn shape reaches FORE and AFT of its own station —
@@ -120,9 +95,9 @@ export function drawnSpan(n: ComponentNode): [number, number] {
     return [Math.min(...xs), Math.max(...xs)];
   }
   if (n.type === 'trapezoidfinset') {
-    // The kernel bridge's defaults (ComponentFactory), as axialLength's.
-    const sweep = num(n, 'sweep', 0.02);
-    const xs = [0, sweep, sweep + num(n, 'tipChord', 0.03), num(n, 'rootChord', 0.05)];
+    // The kernel bridge's defaults for absent keys (tree/kernelDefaults.ts).
+    const sweep = kernelNum(n, 'sweep');
+    const xs = [0, sweep, sweep + kernelNum(n, 'tipChord'), kernelNum(n, 'rootChord')];
     return [Math.min(...xs), Math.max(...xs)];
   }
   return [0, axialLength(n)];

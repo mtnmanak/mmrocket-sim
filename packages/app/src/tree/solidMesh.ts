@@ -10,7 +10,9 @@
  * isWatertight()/solidVolume() exist so tests can prove it.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
+import { kernelNum } from './kernelDefaults.js';
 import { num, numOpt } from './nodeNum.js';
+import { axialLength } from './position.js';
 import { signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
@@ -389,15 +391,18 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  */
 export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
+  // An absent dimension is the kernel's (tree/kernelDefaults.ts): the tip here
+  // was 25 mm where the kernel, the 3D view and the paper template had 30
+  // (audit 2026-09-30).
   if (node.type === 'trapezoidfinset') {
-    const root = num(node, 'rootChord', 0.05);
-    const tip = Math.max(num(node, 'tipChord', 0.025), 0);
-    const sweep = num(node, 'sweep', 0.02);
-    const height = num(node, 'height', 0.03);
+    const root = kernelNum(node, 'rootChord');
+    const tip = Math.max(kernelNum(node, 'tipChord'), 0);
+    const sweep = kernelNum(node, 'sweep');
+    const height = kernelNum(node, 'height');
     pts = [[0, 0], [sweep, height], [sweep + tip, height], [root, 0]];
   } else if (node.type === 'ellipticalfinset') {
-    const root = num(node, 'rootChord', 0.05);
-    const height = num(node, 'height', 0.03);
+    const root = kernelNum(node, 'rootChord');
+    const height = kernelNum(node, 'height');
     // A TRUE half-ellipse, not a sine hump. The kernel's own planform is
     // EllipticalFinSet.java lines 17-25 (OpenRocket 24.12):
     //   POINT_X[i] = (Math.cos(a) + 1) / 2;  POINT_Y[i] = Math.sin(a);
@@ -566,11 +571,18 @@ export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: num
 export function componentLoop(
   node: ComponentNode, ctx: SolidContext, extraX?: readonly number[],
 ): PrintableLoop | null {
+  // AN ABSENT DIMENSION IS THE KERNEL'S (audit 2026-09-30): every length is
+  // `axialLength` and every stated wall or radius `kernelNum`, the bridge's own
+  // defaults (tree/kernelDefaults.ts). Each case kept its own until then — an
+  // engine block printed 50 mm long where 5 mm flies, a body tube 100 mm with a
+  // 1 mm wall where 300 mm with 0.3 mm flies — with nothing to say so. Only an
+  // AUTOMATIC radius keeps a placeholder: a transition's ends (FALLBACK_RADIUS)
+  // and a ring part's outer radius (ringOuterRadius, which says when).
   switch (node.type) {
     case 'nosecone': {
-      const L = num(node, 'length', 0.1);
-      const R = num(node, 'aftRadius', FALLBACK_RADIUS);
-      const wall = num(node, 'thickness', 0.002);
+      const L = axialLength(node);
+      const R = kernelNum(node, 'aftRadius');
+      const wall = kernelNum(node, 'thickness');
       const { shape, param } = shapeOf(node);
       // No `clipped` argument on purpose: NoseCone.isClipped() is always false
       // in the kernel, and foreR = 0 makes outerProfile's clip branch
@@ -580,10 +592,10 @@ export function componentLoop(
       return { loop, label: 'Nose cone', bodySpan: [0, L], wall };
     }
     case 'transition': {
-      const L = num(node, 'length', 0.05);
+      const L = axialLength(node);
       const Rf = num(node, 'foreRadius', FALLBACK_RADIUS);
       const Ra = num(node, 'aftRadius', FALLBACK_RADIUS);
-      const wall = num(node, 'thickness', 0.002);
+      const wall = kernelNum(node, 'thickness');
       const { shape, param } = shapeOf(node);
       // node['clipped'] (.ork <shapeclipped>) MUST ride along, exactly as
       // Rocket3D.tsx and schematicLayout.ts forward it: absent = the kernel
@@ -607,17 +619,17 @@ export function componentLoop(
     case 'bodytube':
     case 'innertube':
     case 'launchlug': {
-      const R = num(node, 'outerRadius', FALLBACK_RADIUS);
-      const wall = num(node, 'thickness', 0.001);
-      const L = num(node, 'length', 0.1);
+      const R = kernelNum(node, 'outerRadius');
+      const wall = kernelNum(node, 'thickness');
+      const L = axialLength(node);
       const label = node.type === 'bodytube' ? 'Body tube' : node.type === 'innertube' ? 'Inner tube' : 'Launch lug';
       return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
     }
     case 'tubecoupler':
     case 'engineblock': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
-      const wall = num(node, 'thickness', 0.001);
-      const L = num(node, 'length', 0.05);
+      const wall = kernelNum(node, 'thickness');
+      const L = axialLength(node);
       const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
         + (assumed ? ' (assumed size)' : '');
       return {
@@ -627,7 +639,7 @@ export function componentLoop(
     }
     case 'centeringring': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
-      const L = num(node, 'length', 0.003);
+      const L = axialLength(node);
       const bore = centeringRingBore(node, ctx, R);
       const size = assumed ? { sizeAssumed: true } : {};
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
@@ -645,7 +657,7 @@ export function componentLoop(
     }
     case 'bulkhead': {
       const { r: R, assumed } = ringOuterRadius(node, ctx);
-      const L = num(node, 'length', 0.003);
+      const L = axialLength(node);
       return {
         loop: ringLoop(R, 0, L), label: assumed ? 'Bulkhead (assumed size)' : 'Bulkhead',
         bodySpan: [0, L], wall: R, ...(assumed ? { sizeAssumed: true } : {}),
@@ -653,8 +665,9 @@ export function componentLoop(
     }
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);
+      // No kernel constant: an absent wall inherits the parent tube's.
       const wall = Math.min(num(node, 'thickness', 0.0005), r * 0.45);
-      const L = num(node, 'length', 0.1);
+      const L = axialLength(node);
       return { loop: ringLoop(r, r - wall, L), label: 'Tube fin', bodySpan: [0, L], wall };
     }
     default:
@@ -700,7 +713,7 @@ export async function componentSolid(
     case 'freeformfinset': {
       const outline = finCutOutline(node, ctx);
       if (!outline) return null;
-      const mesh = await extrudePolygon(outline, num(node, 'thickness', 0.003));
+      const mesh = await extrudePolygon(outline, kernelNum(node, 'thickness'));
       // extrudePolygon returns EMPTY rather than an open shell when the
       // planform cannot be triangulated (edges that cross, a zero-height
       // outline). Report that the same way an unprintable type reports it —

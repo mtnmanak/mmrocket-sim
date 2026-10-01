@@ -2,6 +2,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, axialStart } from './position.js';
 import { finTabFront } from './finTab.js';
 import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
 import { tubeFinRadius } from './tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
@@ -186,7 +187,9 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
       // default) — not 0, which drew a zero-length tube and everything behind
       // it that much too far forward (audit 2026-09-30, row 373 regressed).
       totalLen += axialLength(n);
-      maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
+      // The radius it is DRAWN at (renderChain) — a cleared one is the
+      // kernel's, not 0, or the frame is sized for a part it does not draw.
+      maxR = Math.max(maxR, drawnRadius(n));
     }
   }
   // A fin set's vertical span: freeform fins carry no 'height' key — their
@@ -202,12 +205,11 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
     }
     // Tube fins reach one tube diameter above the body surface.
     if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
-    return num(n, 'height', 0.03);
+    // The kernel's height when absent; a freeform set with no points has none.
+    return num(n, 'height', kernelDefault(n.type, 'height') ?? 0.03);
   };
   const protuberanceSpan = (n: ComponentNode): number =>
-    (n.type === 'fairing' ? num(n, 'height', 0.02)
-      : (n.type as string) === 'protuberance' ? num(n, 'height', 0.01)
-        : 0);
+    (n.type === 'fairing' || (n.type as string) === 'protuberance' ? kernelNum(n, 'height') : 0);
   const finH = Math.max(
     0,
     ...collect(tree.components, finSpan),
@@ -233,7 +235,8 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
         vHalf = Math.max(vHalf, podCentre + assemblyBoundingRadius(n) + podFin);
         scanRadial(n.children ?? [], assemblyBoundingRadius(n), podCentre);
       } else {
-        const r = Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0)) || parentR;
+        const r = (CHAIN.has(n.type) ? drawnRadius(n)
+          : Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0))) || parentR;
         scanRadial(n.children ?? [], r, centre);
       }
     }
@@ -805,10 +808,13 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           }
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
-        const root = num(child, 'rootChord', 0.05);
-        const tip = t === 'trapezoidfinset' ? num(child, 'tipChord', root * 0.6) : 0;
-        const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
-        const height = num(child, 'height', 0.03);
+        // An absent dimension is the kernel's (tree/kernelDefaults.ts): an
+        // absent tip drew at 0.6 x the root here, where the kernel, the 3D view
+        // and the printed part all have 30 mm (audit 2026-09-30).
+        const root = kernelNum(child, 'rootChord');
+        const tip = t === 'trapezoidfinset' ? kernelNum(child, 'tipChord') : 0;
+        const sweep = t === 'trapezoidfinset' ? kernelNum(child, 'sweep') : root / 2;
+        const height = kernelNum(child, 'height');
         const start = axialStart(child, root, pStart, pLen);
         // Rooted at the body's radius at the leading edge (FinSet.getFinFront),
         // as the freeform branch above is. The kernel refuses these two types
@@ -865,7 +871,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // inside the airframe are hidden behind it and dropped; that is the
         // honest form of the old "side tubes project onto the body — omitted"
         // shortcut, which drew exactly two tubes whatever the count.
-        const len = num(child, 'length', 0.1);
+        const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
         const start = axialStart(child, len, pStart, pLen);
         const X = ctx.x0 + start * ctx.scale;
@@ -909,8 +915,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // External shroud: SOLID, at its own mounting angle (v0.087), turned
         // from there by the view roll. It stays solid EVEN WHILE ROLLED — see
         // `solidWhileRolled`.
-        const len = num(child, 'length', 0.08);
-        const hgt = num(child, 'height', 0.02);
+        const len = axialLength(child);
+        const hgt = kernelNum(child, 'height');
         const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
         const { p: sp, near: snear } = surfaceAt(child);
@@ -970,8 +976,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // ramp for an inclined flat plate, a faired nose with a blunt back for
         // "with base drag", faired both ends for "no base drag". Sits at its
         // own mounting angle (v0.087) and stays solid while rolled.
-        const len = num(child, 'length', 0.06);
-        const hgt = num(child, 'height', 0.01);
+        const len = axialLength(child);
+        const hgt = kernelNum(child, 'height');
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
         const { p: pp, near: pnear } = surfaceAt(child);
@@ -1006,7 +1012,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // drag and the snap ladder resolve it with — so a lug with no length
         // of its own draws where it flies, 50 mm, not 10 (audit 2026-09-22).
         const len = t === 'railbutton' ? btnDia : axialLength(child);
-        const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
+        const r = t === 'railbutton' ? btnDia / 2 : kernelNum(child, 'outerRadius');
         const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
         // A BUTTON IS CENTRED ON ITS STATION; a lug starts at it (v0.105).
         // `axialLength` is 0 for a rail button and the lug's own length for a
@@ -1059,9 +1065,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // grabbed (audit 2026-09-22; it used to fall back to 25 mm here and
         // there alike, where the kernel builds a 70 mm inner tube).
         const len = axialLength(child);
+        // A stated radius, else the kernel's (an inner tube's 9.5 mm, a mass
+        // component's 5 mm — what its cluster offsets below are spaced by),
+        // else a share of the body for a part sized by what it sits in.
         const r = Math.min(
           pRadius * 0.85,
-          num(child, 'outerRadius', num(child, 'radius', num(child, 'packedRadius', pRadius * 0.7))),
+          num(child, 'outerRadius', kernelDefault(child.type, 'outerRadius')
+            ?? num(child, 'radius', kernelDefault(child.type, 'radius')
+              ?? num(child, 'packedRadius', pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
@@ -1069,7 +1080,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           // kernel turns a pattern by MINUS its rotation (cluster.ts).
           ? clusterOffsets(
             child['cluster'] as string | undefined,
-            num(child, 'outerRadius', 0.0095),
+            kernelNum(child, 'outerRadius'),
             num(child, 'clusterScale', 1),
             num(child, 'clusterRotation', 0),
             { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
@@ -1212,7 +1223,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         ? partKey(n, scope) : '';
       const part = partOf(n, false);
       if (n.type === 'nosecone') {
-        const r = num(n, 'aftRadius', 0.012);
+        const r = drawnRadius(n);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:nose`, layer: 'base', tag: 'path', part, sel: true,
@@ -1222,7 +1233,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, 0, r));
         cx += len;
       } else if (n.type === 'bodytube') {
-        const r = num(n, 'outerRadius', 0.012);
+        const r = drawnRadius(n);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:body`, layer: 'base', tag: 'rect', part, sel: true,
@@ -1274,6 +1285,23 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     if (n !== undefined) s.key = `${s.key}~${n}`;
   }
   return { shapes: all, clips, extents, grips };
+}
+
+/** The members of a nose-to-tail chain. */
+const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
+
+/**
+ * The largest radius the side view draws a chain member at: a nose cone's aft
+ * radius and a body tube's outer radius as the kernel flies them (stated, else
+ * its default — tree/kernelDefaults.ts), a transition's two ends as stated or,
+ * when automatic, the drawing's own placeholders, which no kernel constant
+ * replaces. The frame (schematicFrame) is sized from the same number, so a
+ * cleared radius cannot leave it measuring a part it does not draw.
+ */
+function drawnRadius(n: ComponentNode): number {
+  if (n.type === 'nosecone') return kernelNum(n, 'aftRadius');
+  if (n.type === 'bodytube') return kernelNum(n, 'outerRadius');
+  return Math.max(num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009));
 }
 
 /** A nose cone's or transition's profile shape, with each type's kernel default. */

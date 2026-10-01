@@ -193,7 +193,7 @@ exports[`real files > TubeFins2.rkt, at rest 1`] = `
     <rect aria-label="Select Engine block" fill="rgba(127,127,127,0.001)" height="13.446149568713905" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="5.373301458085798" x="565.6402868772277" y="102.27692521564305">
       <title>
         "Engine block"
-    <rect aria-label="Select Engine hook (mass object)" fill="rgba(127,127,127,0.001)" height="11.073299644823216" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#a85f5c" style="cursor: grab;" tabindex="0" width="2" x="595.1934448966997" y="103.4633501775884">
+    <rect aria-label="Select Engine hook (mass object)" fill="rgba(127,127,127,0.001)" height="8.461892059977636" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#a85f5c" style="cursor: grab;" tabindex="0" width="2" x="595.1934448966997" y="104.76905397001119">
       <title>
         "Engine hook (mass object)"
     <rect aria-label="Select Front Engine Mount Centering Ring" fill="rgba(127,127,127,0.001)" height="21.557685449840225" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#6f8a5c" style="cursor: grab;" tabindex="0" width="5.373301458085798" x="533.400478128713" y="98.22115727507989">
@@ -258,7 +258,7 @@ exports[`real files > TubeFins2.rkt, rolled 1`] = `
     <rect fill="rgba(127,127,127,0.001)" height="13.446149568713905" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="5.373301458085798" x="565.6402868772277" y="102.27692521564305">
       <title>
         "Engine block"
-    <rect fill="rgba(127,127,127,0.001)" height="11.073299644823216" stroke-dasharray="3 2" stroke-width="1" stroke="#a85f5c" width="2" x="595.1934448966997" y="103.4633501775884">
+    <rect fill="rgba(127,127,127,0.001)" height="8.461892059977636" stroke-dasharray="3 2" stroke-width="1" stroke="#a85f5c" width="2" x="595.1934448966997" y="104.76905397001119">
       <title>
         "Engine hook (mass object)"
     <rect fill="rgba(127,127,127,0.001)" height="21.557685449840225" stroke-dasharray="3 2" stroke-width="1" stroke="#6f8a5c" width="5.373301458085798" x="533.400478128713" y="98.22115727507989">
