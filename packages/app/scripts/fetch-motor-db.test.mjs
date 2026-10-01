@@ -137,6 +137,51 @@ describe('main', () => {
   });
 });
 
+/**
+ * THE SOURCED CORRECTIONS SURVIVE A REFRESH (board Tier 1 row 6). motors.json
+ * ships two of thrustcurve.org's rows corrected from the manufacturer's and the
+ * certifying body's data (motor-corrections.mjs); a refresh that wrote
+ * thrustcurve.org's figures back over them would undo that every Monday.
+ */
+describe('main, with the rows motor-corrections.mjs corrects', () => {
+  const tmp = () => mkdtempSync(join(tmpdir(), 'motor-db-'));
+  /** The synthetic catalogue plus the Contrail row, as thrustcurve.org serves it but for `length`. */
+  const withContrail = (length) => [...catalogue(), {
+    motorId: '5f4294d200023100000000f5', manufacturerAbbrev: 'Small', designation: 'J234-BG',
+    impulseClass: 'J', diameter: 54, ...(length === undefined ? {} : { length }),
+  }];
+  async function run(motors) {
+    const dir = tmp();
+    const outPath = join(dir, 'motors.json');
+    try {
+      const code = await main({ outPath, fetchImpl: fakeApi({ motors }).fetchImpl, log: quiet });
+      const doc = existsSync(outPath) ? JSON.parse(readFileSync(outPath, 'utf8')) : null;
+      return { code, row: doc?.motors.find((m) => m.motorId === '5f4294d200023100000000f5') ?? null, doc };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("writes the correction over thrustcurve.org's known-bad figure", async () => {
+    const { code, row } = await run(withContrail(9122));
+    expect(code).toBe(0);
+    expect(row.length).toBe(922);
+  });
+
+  it('refuses to write when the row holds a third figure, so neither ships unexamined', async () => {
+    const { code, doc } = await run(withContrail(914));
+    expect(code).toBe(1);
+    expect(doc).toBeNull();
+  });
+
+  it('writes a row thrustcurve.org has fixed as it is, and is not refused by a withdrawn one', async () => {
+    expect((await run(withContrail(922))).row.length).toBe(922);
+    const withdrawn = await run(catalogue());
+    expect(withdrawn.code).toBe(0);
+    expect(withdrawn.row).toBeNull();
+  });
+});
+
 describe('catalogueDocument', () => {
   it('is the shape the app and the refresh diff read', () => {
     expect(catalogueDocument([{ motorId: 'a' }], '2026-09-22')).toEqual({

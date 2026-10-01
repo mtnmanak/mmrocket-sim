@@ -487,6 +487,26 @@ export default tseslint.config(
   },
 
   {
+    // packages/app/scripts/motor-corrections.mjs is the second such file (2026-10-01): the
+    // weekly catalogue refresh applies its sourced corrections, and so does the browser,
+    // to the live pull behind "Check thrustcurve.org" (src/services/catalogueOverlay.ts).
+    // Same reasons as the block above; motor-corrections.test.mjs scans for what this
+    // rule cannot see.
+    files: ['packages/app/scripts/motor-corrections.mjs'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['node:*', 'fs', 'path', 'url', 'os', 'crypto', 'child_process'],
+          message:
+            'motor-corrections.mjs is bundled into the browser app (imported by '
+            + 'src/services/catalogueOverlay.ts). A node: import here deploys a module that throws when '
+            + 'a user checks thrustcurve.org. Put pipeline-only code in fetch-motor-db.mjs instead.',
+        }],
+      }],
+    },
+  },
+
+  {
     // Tests run under Node (vitest), some under happy-dom, and a few print measured
     // sweep numbers on purpose (services/lemivSweep.test.ts) — which is why
     // no-console is off here rather than suppressed line by line.

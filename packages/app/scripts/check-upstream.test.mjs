@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { main } from '../../../scripts/check-upstream.mjs';
+import { checkMotorCorrections, main, motorCorrectionVerdicts } from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
+import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const { unexpectedFetch } = vi.hoisted(() => {
   const unexpectedFetch = vi.fn(() => { throw new Error('unexpected network request'); });
@@ -220,5 +221,64 @@ describe('report-only execution, without network', () => {
     const report = vi.fn();
     expect(await main([() => { throw new Error('earlier network failure'); }], report)).toBe(2);
     expect(report).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * Section 4b watches the thrustcurve.org rows motor-corrections.mjs corrects
+ * (board Tier 1 row 6), the way section 1 watches the parts catalogue's: the
+ * day thrustcurve.org fixes one, the correction is a no-op to retire; the day it
+ * moves one to a third figure, the next catalogue refresh will refuse to write.
+ * The verdicts are a pure function, tested here; the module's own "moved" count
+ * is shared by every check in a run, so nothing here makes it move.
+ */
+describe('thrustcurve.org rows this app corrects', () => {
+  const contrail = MOTOR_CORRECTIONS.find((c) => c.designation === 'J234-BG');
+  const liveRow = (length) => ({ motorId: contrail.motorId, designation: 'J234-BG', length });
+
+  it('says the correction is still needed while thrustcurve.org serves the known-bad figure', () => {
+    expect(motorCorrectionVerdicts(contrail, liveRow(9122))).toEqual([
+      expect.objectContaining({ moved: false, line: expect.stringMatching(/length = 9122 \(still the known-bad value/) }),
+    ]);
+  });
+
+  it('flags a row thrustcurve.org has fixed, for retirement', () => {
+    const [v] = motorCorrectionVerdicts(contrail, liveRow(922));
+    expect(v.moved).toBe(true);
+    expect(v.line).toMatch(/HAS FIXED THIS\. Retire the entry/);
+  });
+
+  it('flags a third figure, which the next refresh will refuse to write', () => {
+    const [v] = motorCorrectionVerdicts(contrail, liveRow(914));
+    expect(v.moved).toBe(true);
+    expect(v.line).toMatch(/expected the known-bad 9122 or the corrected 922\. The next catalogue refresh WILL refuse/);
+  });
+
+  it('flags a motor thrustcurve.org no longer lists under that name', () => {
+    const [v] = motorCorrectionVerdicts(contrail, undefined);
+    expect(v.moved).toBe(true);
+    expect(v.line).toMatch(/no longer found on thrustcurve\.org/);
+  });
+
+  it('asks thrustcurve.org for every corrected motor by maker and designation, and reads its own row', async () => {
+    // thrustcurve.org as it stands: every corrected row still carries its known-bad figure.
+    const asked = [];
+    const getJson = async (url) => {
+      asked.push(url);
+      const c = MOTOR_CORRECTIONS.find((x) => x.designation === new URL(url).searchParams.get('designation'));
+      const bad = Object.fromEntries(Object.entries(c.fields).map(([f, { bad }]) => [f, bad]));
+      return { results: [{ motorId: 'someone-else', ...bad }, { motorId: c.motorId, ...bad }] };
+    };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await checkMotorCorrections(getJson);
+    const printed = log.mock.calls.flat().join('\n');
+    expect(asked).toHaveLength(MOTOR_CORRECTIONS.length);
+    for (const c of MOTOR_CORRECTIONS) {
+      const u = new URL(asked.find((a) => a.includes(encodeURIComponent(c.designation))));
+      expect(u.pathname).toBe('/api/v1/search.json');
+      expect(Object.fromEntries(u.searchParams)).toMatchObject({ manufacturer: c.manufacturer, designation: c.designation, availability: 'all' });
+      expect(printed).toContain(`ok   ${c.manufacturer} ${c.designation}`);
+    }
+    expect(printed).not.toContain('**');
   });
 });

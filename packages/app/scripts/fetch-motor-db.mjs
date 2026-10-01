@@ -24,10 +24,18 @@
  * The work is exported and the CLI runs only when this file is the entry point,
  * so fetch-motor-db.test.mjs drives it against a stubbed API and never touches
  * the network.
+ *
+ * THE SOURCED CORRECTIONS ARE APPLIED BEFORE ANYTHING IS WRITTEN (board Tier 1
+ * row 6, 2026-10-01): motor-corrections.mjs holds thrustcurve.org rows whose
+ * figures no motor can have, each corrected from the manufacturer's or the
+ * certifying body's own published data. Writing thrustcurve.org's figures back
+ * over them would undo that on every refresh. A corrected row that comes back
+ * holding a THIRD figure stops the write, as a short page does.
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyMotorCorrections } from './motor-corrections.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'motors.json');
@@ -139,8 +147,18 @@ export async function main({ outPath = OUT, fetchImpl = fetch, log } = {}) {
     console.error(`${err.message}\nNothing was written; ${outPath} is as it was.`);
     return 1;
   }
-  writeFileSync(outPath, JSON.stringify(catalogueDocument(motors, new Date().toISOString().slice(0, 10))));
-  console.log(`\nWrote ${motors.length} motors to ${outPath}`);
+  const corrected = applyMotorCorrections(motors);
+  if (corrected.unexpected.length) {
+    console.error('A row motor-corrections.mjs corrects came back holding neither its known-bad figure nor the '
+      + `corrected one:\n  ${corrected.unexpected.join('\n  ')}\nRe-read the entry's sources and update or retire `
+      + `it. Nothing was written; ${outPath} is as it was.`);
+    return 1;
+  }
+  for (const s of corrected.applied) console.log(`corrected ${s} (motor-corrections.mjs)`);
+  for (const s of corrected.already) console.log(`thrustcurve.org now gives ${s} itself: retire that entry from motor-corrections.mjs`);
+  for (const s of corrected.missing) console.log(`no longer catalogued: ${s}: retire its entry from motor-corrections.mjs`);
+  writeFileSync(outPath, JSON.stringify(catalogueDocument(corrected.motors, new Date().toISOString().slice(0, 10))));
+  console.log(`\nWrote ${corrected.motors.length} motors to ${outPath}`);
   return 0;
 }
 
