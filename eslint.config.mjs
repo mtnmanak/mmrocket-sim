@@ -19,7 +19,9 @@
 //   - the type-aware typescript-eslint CONFIGS (recommendedTypeChecked and up):
 //     twelve type-aware RULES are on, in their own block below, each at 0 hits
 //     in shipped source when it went on; recommendedTypeCheckedOnly would add
-//     17 more, not all of them measured here
+//     13 more, not all of them measured here. Both figures are recounted from
+//     the installed typescript-eslint by
+//     packages/app/scripts/eslint-config.guards.test.mjs
 //   - @typescript-eslint/no-non-null-assertion: 4,433 hits (631 outside tests) on
 //     2026-09-23, up from 2,902 / 576 on 2026-09-08 as the suites grew; load-bearing
 //     under the base tsconfig's noUncheckedIndexedAccess. The figure read "~284"

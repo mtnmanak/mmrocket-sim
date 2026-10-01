@@ -26,7 +26,9 @@
  * It also pins that the type-aware rules (no-floating-promises and friends)
  * still resolve for shipped source, its tests and the engine, and that a lint
  * run from the repo root reaches the files CI's does: what .gitignore keeps
- * out of the repo is kept out of the lint (audit 2026-09-30).
+ * out of the repo is kept out of the lint (audit 2026-09-30). And it recounts
+ * the two figures the config's header gives for the type-aware rules: how many
+ * are on, and how many typescript-eslint's recommendedTypeCheckedOnly would add.
  *
  * Each rule is read from the config ESLint actually resolves for a real file,
  * then run on a probe with the typescript-eslint parser alone, so no type
@@ -300,5 +302,48 @@ describe('eslint.config.mjs — a lint from the repo root reaches what CI’s do
     // reaches it and not the build.
     const { scripts } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
     expect(scripts.lint).toBe('npm run build -w @online-openrocket/engine && eslint .');
+  });
+});
+
+describe('eslint.config.mjs — its header counts what is on', () => {
+  it('states how many type-aware rules are on and how many recommendedTypeCheckedOnly would add', async () => {
+    // The header sizes the move to typescript-eslint's type-aware presets, and
+    // its "would add" figure was wrong twice: "22 more" with six type-aware
+    // rules on, where 18 was right, then "17 more" with twelve, where 13 is
+    // (ten of the twelve are in the preset's 23; switch-exhaustiveness-check
+    // and no-meaningless-void-operator are not). Both figures are counted here
+    // from the installed typescript-eslint and the rules ESLint resolves for
+    // shipped source, so a rule turned on in the type-aware block, or a
+    // typescript-eslint bump that changes the preset, fails until the header
+    // says so. A figure may be written in digits or as a word.
+    const WORDS = ('zero one two three four five six seven eight nine ten eleven twelve thirteen '
+      + 'fourteen fifteen sixteen seventeen eighteen nineteen twenty').split(' ');
+    const text = readFileSync(new URL('../../../eslint.config.mjs', import.meta.url), 'utf8');
+    const header = text.slice(0, text.indexOf('\nimport ')).replace(/^\s*\/\/ ?/gm, '').replace(/\s+/g, ' ');
+    const stated = (re) => {
+      const m = header.match(re);
+      if (!m) return `no "${re.source}" in the header`;
+      return /^\d+$/.test(m[1]) ? Number(m[1]) : WORDS.indexOf(m[1].toLowerCase());
+    };
+    const { rules } = await eslint.calculateConfigForFile('packages/app/src/App.tsx');
+    const isOn = (entry) => ![undefined, 0, 'off'].includes(severity(entry));
+    const PREFIX = '@typescript-eslint/';
+    const needsTypes = (name) => name.startsWith(PREFIX)
+      && tseslint.plugin.rules[name.slice(PREFIX.length)]?.meta.docs?.requiresTypeChecking === true;
+    // The preset's own block. Its array also carries typescript-eslint's
+    // eslint-recommended block (no-var, prefer-const, prefer-rest-params,
+    // prefer-spread), which tseslint.configs.recommended already brings in
+    // here, prefer-const switched off on purpose: counted too, it reads 14.
+    const preset = tseslint.configs.recommendedTypeCheckedOnly
+      .find((c) => c.name === 'typescript-eslint/recommended-type-checked-only')?.rules ?? {};
+    const presetOn = Object.keys(preset).filter((name) => isOn(preset[name]));
+    expect(presetOn.length, 'rules typescript-eslint/recommended-type-checked-only turns on').toBeGreaterThan(0);
+    expect({
+      on: stated(/(\w+) type-aware RULES are on/),
+      adds: stated(/recommendedTypeCheckedOnly would add (\w+) more/),
+    }).toEqual({
+      on: Object.keys(rules).filter((name) => isOn(rules[name]) && needsTypes(name)).length,
+      adds: presetOn.filter((name) => !isOn(rules[name])).length,
+    });
   });
 });
