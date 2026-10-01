@@ -206,14 +206,24 @@ export function outerProfile(
   foreR: number, aftR: number, steps = 32, extraX?: readonly number[],
   clipped?: boolean,
 ): [number, number][] {
-  const p = Math.min(Math.max(param ?? shapeParamDefault(shape), 0), shapeParamMax(shape));
-  const pts: [number, number][] = [];
-  const xs = sampleXs(length, steps, extraX);
+  const radiusAt = profileRadius(shape, param, length, foreR, aftR, clipped);
+  return sampleXs(length, steps, extraX).map((x) => [x, radiusAt(x)]);
+}
 
-  if (foreR === aftR || length <= 0) {
-    for (const x of xs) pts.push([x, foreR]);
-    return pts;
-  }
+/**
+ * The same profile as a FUNCTION of x (m from the fore end): what
+ * `Transition.getRadius(x)` returns, clamped the same way — the fore radius
+ * forward of the part, the aft radius aft of it. `outerProfile` samples it;
+ * a fin set reads its mount's surface through it (tree/finRoot.ts), which
+ * needs the radius at stations of its own rather than on the sample ladder.
+ */
+export function profileRadius(
+  shape: string, param: number | undefined, length: number,
+  foreR: number, aftR: number, clipped?: boolean,
+): (x: number) => number {
+  const p = Math.min(Math.max(param ?? shapeParamDefault(shape), 0), shapeParamMax(shape));
+
+  if (foreR === aftR || length <= 0) return () => foreR;
 
   // Transition.getRadius() normalizes to the small end first: r1 < r2,
   // x measured from the small end, flipped back afterwards.
@@ -232,8 +242,5 @@ export function outerProfile(
     return r1 + shapeRadius(shape, x, r2 - r1, length, p);
   };
 
-  for (const x of xs) {
-    pts.push([x, radiusAt(flipped ? length - x : x)]);
-  }
-  return pts;
+  return (x) => radiusAt(flipped ? length - x : x);
 }

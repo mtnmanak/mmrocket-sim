@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { buildPieces } from './pieces.js';
+import { outerProfile } from './shapeProfile.js';
 
 /**
  * `buildPieces` is the app's ONE 3D geometry — the 3D tab, File > Save STL,
@@ -164,6 +165,83 @@ describe('an inner tube honours radialPosition / radialDirection', () => {
     // Their mean y is the radial offset: the cluster pattern is centred on it.
     const meanY = inners.reduce((a, p) => a + p.position![1], 0) / inners.length;
     expect(meanY).toBeCloseTo(0.03, 9);
+  });
+});
+
+/**
+ * A fin on a transition sits ON the transition (audit 2026-09-30). The kernel
+ * attaches a fin at its parent's radius AT THE FIN'S LEADING EDGE
+ * (FinSet.getFinFront), puts both root corners on the body (getFinPoints) and
+ * closes the planform along the body's own profile (getRootPoints). This view
+ * drew the root at max(fore, aft) radius along the whole chord, so a fin on a
+ * 54 -> 38 mm boat tail floated off the surface, the gap growing aft — in the
+ * 3D tab and in every display-shell STL, OBJ and glTF.
+ */
+describe('a freeform fin on a transition sits on the transition', () => {
+  const RF = 0.027, RA = 0.019, TL = 0.08;
+  const boatTail = (shape: string, points: number[][]): RocketTree => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: RF },
+        { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: RF },
+        { id: 't1', type: 'transition', shape, length: TL, foreRadius: RF, aftRadius: RA,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            points, position: { method: 'bottom', offset: 0 } }] },
+      ],
+    }],
+  } as unknown as RocketTree);
+  /** The transition's own radius at `x` m from its fore end. */
+  const surface = (shape: string, x: number): number =>
+    outerProfile(shape, undefined, TL, RF, RA, 1, [x]).find((p) => Math.abs(p[0] - x) < 1e-12)![1];
+  /** One fin at rotation 0 lies in the x-y plane: the lowest vertex at each x is its root. */
+  const rootOf = (tree: RocketTree): Map<number, number> => {
+    const fin = buildPieces(tree).pieces.find((p) => p.key.startsWith('fin'))!;
+    const pos = fin.geometry.getAttribute('position');
+    const low = new Map<number, number>();
+    for (let i = 0; i < pos.count; i++) {
+      const x = Math.round(pos.getX(i) * 1e6) / 1e6;
+      low.set(x, Math.min(low.get(x) ?? Infinity, pos.getY(i)));
+    }
+    return low;
+  };
+  // Nose 0.1 + tube 0.3: the transition starts at 0.4. A 60 mm root, bottom-
+  // anchored, starts 20 mm into the 80 mm boat tail.
+  const FIN = [[0, 0], [0.02, 0.04], [0.05, 0.04], [0.06, 0]];
+  const LE = 0.02, TE = 0.08;
+
+  it('the leading root corner is at the boat tail\'s radius at the leading edge', () => {
+    const root = rootOf(boatTail('conical', FIN));
+    // 25.0 mm, where the old drawing put it at the 27.0 mm fore radius.
+    expect(root.get(0.42)!).toBeCloseTo(surface('conical', LE), 6);
+  });
+
+  it('the trailing root corner is at the boat tail\'s radius at the trailing edge', () => {
+    const root = rootOf(boatTail('conical', FIN));
+    // 19.0 mm. The old drawing put it at 27.0 mm, 8 mm off the surface.
+    expect(root.get(0.48)!).toBeCloseTo(surface('conical', TE), 6);
+  });
+
+  it('on a curved boat tail the root follows the profile between the corners', () => {
+    const root = rootOf(boatTail('ogive', FIN));
+    const onSurface = [...root].filter(([x, y]) =>
+      x > 0.42 + 1e-6 && x < 0.48 - 1e-6 && Math.abs(y - surface('ogive', x - 0.4)) < 1e-6);
+    // FinSet.getMountPoints walks a non-conical parent in 2.5 mm steps; the
+    // 3D cap is 20 divisions, so 19 interior stations on a 60 mm root.
+    expect(onSurface.length).toBeGreaterThanOrEqual(10);
+    expect(root.get(0.42)!).toBeCloseTo(surface('ogive', LE), 6);
+    expect(root.get(0.48)!).toBeCloseTo(surface('ogive', TE), 6);
+  });
+
+  it('a fin on a body tube is unchanged: its root stays at the tube radius', () => {
+    const tree = withChildren([{
+      id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+      points: FIN, position: { method: 'bottom', offset: 0 },
+    } as unknown as ComponentNode]);
+    const root = rootOf(tree);
+    expect(root.get(0.34)!).toBeCloseTo(BODY_R, 6);
+    expect(root.get(0.4)!).toBeCloseTo(BODY_R, 6);
   });
 });
 

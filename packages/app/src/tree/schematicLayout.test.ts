@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { layoutSchematic, schematicFrame, type SchematicFrameOptions } from './schematicLayout.js';
+import { outerProfile } from './shapeProfile.js';
 import { updateNode } from './treeModel.js';
 
 /**
@@ -105,6 +106,89 @@ describe('keys are identities', () => {
     ]);
     const keys = lay(twin).l.shapes.map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+/**
+ * A fin on a transition is drawn ON the transition (audit 2026-09-30): rooted
+ * at the profile's radius at its leading edge (FinSet.getFinFront), with both
+ * root corners on the body and the root following the profile between them —
+ * not at max(fore, aft) radius along the whole chord.
+ */
+describe('a freeform fin on a transition sits on the transition', () => {
+  const RF = 0.027, RA = 0.019, TL = 0.08;
+  const boatTail = (shape: string): RocketTree => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: RF },
+        { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: RF },
+        { id: 't1', type: 'transition', shape, length: TL, foreRadius: RF, aftRadius: RA,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            points: [[0, 0], [0.02, 0.04], [0.05, 0.04], [0.06, 0]],
+            position: { method: 'bottom', offset: 0 } }] },
+      ],
+    }],
+  } as unknown as RocketTree);
+  const surface = (shape: string, x: number): number =>
+    outerProfile(shape, undefined, TL, RF, RA, 1, [x]).find((p) => Math.abs(p[0] - x) < 1e-12)![1];
+  /** The fin's polygon at rest, as [x, y] in layout px; and the frame it was laid out in. */
+  const finAt = (shape: string) => {
+    const { f, l } = lay(boatTail(shape));
+    const fin = l.shapes.find((s) => s.key === 'ff:fin0')!;
+    const pts = String(fin.attrs['points']).split(' ').map((p) => p.split(',').map(Number) as [number, number]);
+    return { f, pts };
+  };
+  /** The innermost drawn point at layout x (the root), as a radius in metres. */
+  const rootRadius = (f: ReturnType<typeof finAt>['f'], pts: [number, number][], xM: number): number => {
+    const px = f.x0 + xM * f.scale;
+    const ys = pts.filter(([x]) => Math.abs(x - px) < 1e-6).map(([, y]) => y);
+    expect(ys.length).toBeGreaterThan(0);
+    return (f.cy - Math.max(...ys)) / f.scale;
+  };
+
+  it('both root corners sit on the boat tail, at its radius at each edge', () => {
+    const { f, pts } = finAt('conical');
+    // Leading edge 0.42 m from the tip, 20 mm into the boat tail: 25.0 mm.
+    // The old drawing put the whole root at the 27.0 mm fore radius.
+    expect(rootRadius(f, pts, 0.42)).toBeCloseTo(surface('conical', 0.02), 9);
+    expect(rootRadius(f, pts, 0.48)).toBeCloseTo(surface('conical', 0.08), 9);
+  });
+
+  it('on a curved boat tail the root follows the profile between the corners', () => {
+    const { f, pts } = finAt('ogive');
+    expect(rootRadius(f, pts, 0.42)).toBeCloseTo(surface('ogive', 0.02), 9);
+    expect(rootRadius(f, pts, 0.48)).toBeCloseTo(surface('ogive', 0.08), 9);
+    const onProfile = pts.filter(([x, y]) => {
+      const xm = (x - f.x0) / f.scale;
+      return xm > 0.42 + 1e-9 && xm < 0.48 - 1e-9
+        && Math.abs((f.cy - y) / f.scale - surface('ogive', xm - 0.4)) < 1e-9;
+    });
+    expect(onProfile.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('on a flare, a lower fin that clears the thin end is still drawn', () => {
+    // 12.5 -> 25 mm. The two lower fins of a three-fin set project their tips
+    // to (12.5 + 30) * 0.5 = 21.25 mm: inside the 25 mm aft end, outside the
+    // body under the tip (18.0 mm at 35 mm aft). Measured against the
+    // largest radius under the fin alone, both vanished.
+    const flare = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.0125 },
+          { id: 't1', type: 'transition', shape: 'conical', length: TL, foreRadius: 0.0125, aftRadius: 0.025,
+            children: [{ id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+              points: [[0, 0], [0.035, 0.03], [0.07, 0.03], [0.075, 0]],
+              position: { method: 'top', offset: 0 } }] },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.025 },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const fins = lay(flare).l.shapes.filter((s) => s.key.startsWith('ff:fin'));
+    expect(fins.map((s) => s.key).sort()).toEqual(['ff:fin0', 'ff:fin1', 'ff:fin2']);
   });
 });
 

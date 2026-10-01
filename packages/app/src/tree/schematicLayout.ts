@@ -1,6 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, axialStart } from './position.js';
 import { finTabFront } from './finTab.js';
+import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
 import { clusterOffsets } from './cluster.js';
 import { tubeFinRadius } from './tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
@@ -644,23 +645,27 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
    */
   const noteHoverFins = (
     n: ComponentNode, x0: number, x1: number, baseY: number, reach: number,
-    pRadius: number, projections: FinInstance[],
+    rootR: number, wallR: number, projections: FinInstance[],
   ) => {
     if (!projections.length) return;
     // Tip AND the airframe edge the fin emerges from. A far fin's projected
-    // root is clipped away, so the wash would over-reach into the tube; a near
-    // fin is drawn whole, so its own root is the honest edge. Taking both
-    // keeps the box on the drawing, and gives a ONE-fin set a box with height
-    // (tip-to-tip alone would be a zero-height rect).
+    // root is clipped away at the wall, so the wash would over-reach into the
+    // tube; a near fin is drawn whole, so its own root — the lowest point of
+    // it, `rootR` — is the honest edge. Taking both keeps the box on the
+    // drawing, and gives a ONE-fin set a box with height (tip-to-tip alone
+    // would be a zero-height rect). On a body tube the two radii are one.
     const ys = projections.flatMap(({ p, near }) => [
       baseY - reach * p * ctx.scale,
-      baseY - pRadius * (near || wire ? p : Math.sign(p)) * ctx.scale,
+      baseY - (near || wire ? rootR * p : wallR * Math.sign(p)) * ctx.scale,
     ]);
     noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
   };
 
+  // `mount` is the parent's outer surface, which a fin's root sits on (see
+  // tree/finRoot.ts); every other child is placed by the one radius `pRadius`.
   const renderChildren = (
     parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number, scope: string,
+    mount: MountSurface = flatMount(pRadius, pLen),
   ) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
@@ -686,12 +691,17 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // Through-the-wall fin tab: dashed rect from the body surface inward,
       // foreshortened with the fin instance it belongs to.
       const renderTab = (finStart: number, finLen: number, p: number, i: number) => {
-        const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
         const tabLen = num(child, 'tabLength', 0);
-        if (tabH <= 0 || tabLen <= 0) return;
         const front = finStart + finTabFront(child, finLen);
-        const yInner = baseY - (pRadius - tabH) * p * ctx.scale;
-        const ySurface = baseY - pRadius * p * ctx.scale;
+        // The body under the tab: the smaller of its radii at the tab's two
+        // ends, which is where the kernel puts the tab's floor and the deepest
+        // it lets the tab reach (FinSet.getTabPoints, getMaxTabHeight). On a
+        // body tube that is the tube radius.
+        const surf = Math.min(mount.radiusAt(front - pStart), mount.radiusAt(front + tabLen - pStart));
+        const tabH = Math.min(num(child, 'tabHeight', 0), surf);
+        if (tabH <= 0 || tabLen <= 0) return;
+        const yInner = baseY - (surf - tabH) * p * ctx.scale;
+        const ySurface = baseY - surf * p * ctx.scale;
         // A tab lies inside the airframe by definition, so while the figure is
         // a wireframe it loses its wash and becomes an outline like everything
         // else — and goes over the body rather than under it. No size floors
@@ -728,15 +738,36 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           const chord = Math.max(...raw.map((p) => p[0]));
           const tabChord = Math.max(0, raw[raw.length - 1]![0]);
           const start = axialStart(child, axialLength(child), pStart, pLen);
-          const ymax = Math.max(0, ...raw.map((p) => p[1]));
-          const reach = pRadius + ymax;
+          // On its mount the way the kernel attaches it (tree/finRoot.ts): y = 0
+          // at the body's radius at the LEADING edge, both root corners on the
+          // body, the root following the profile between them. It was drawn at
+          // max(fore, aft) along the whole chord, so a fin on a boat tail
+          // floated off it (audit 2026-09-30). A body tube's fin is unchanged.
+          const xFront = start - pStart;
+          const { r0, outline, root } = finOnMount(raw, xFront, mount);
+          // The body under the fin: its highest point is the wall a far fin is
+          // cut at (the clip is a band, so on a sloping body it hides a little
+          // of a far fin near the thin end rather than ever drawing one over
+          // the body), its lowest a near fin's lowest root. One radius on a
+          // body tube.
+          const rootRs = root.map(([, y]) => r0 + y);
+          const wallR = Math.max(...rootRs);
+          const rootR = Math.min(...rootRs);
+          const ymax = Math.max(0, ...outline.map((p) => p[1]));
+          const reach = r0 + ymax;
+          // Whether any corner of the projected outline clears the body AT ITS
+          // OWN STATION. On a body tube that is the tip against the tube radius,
+          // the test this branch always made; on a transition the body is
+          // thinner at one end, and a fin can show there and nowhere else.
+          const clears = (p: number): boolean =>
+            outline.some(([x, y]) => (r0 + y) * Math.abs(p) > mount.radiusAt(xFront + x));
           const projections = finFactors(child);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
-            baseY, reach, pRadius, projections);
-          const clip = airframeClip(baseY, pRadius);
+            baseY, reach, rootR, wallR, projections);
+          const clip = airframeClip(baseY, wallR);
           for (const { p, near, i } of projections) {
-            const ptsStr = raw
-              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
+            const ptsStr = outline
+              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (r0 + py) * p * ctx.scale}`)
               .join(' ');
             // Rolled: an outline, unclipped, over the body. Every instance is
             // drawn — including one lying flat inside the airframe, which is
@@ -750,7 +781,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             // silhouette is inside the airframe outline has nothing to draw,
             // and a NEAR one at that angle is edge-on — drawing it unclipped
             // would put a bar down the centreline of the fin can.
-            if (reach * Math.abs(p) > pRadius) {
+            if (clears(p)) {
               (near ? overlay : shapes).push({
                 key: `${key}:fin${i}`, layer: near ? 'overlay' : 'base', tag: 'polygon', part, sel: true,
                 attrs: {
@@ -768,14 +799,18 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
         const height = num(child, 'height', 0.03);
         const start = axialStart(child, root, pStart, pLen);
-        const reach = pRadius + height;
+        // Rooted at the body's radius at the leading edge (FinSet.getFinFront),
+        // as the freeform branch above is. The kernel refuses these two types
+        // anywhere but a body tube, where that is simply the tube radius.
+        const r0 = mount.radiusAt(start - pStart);
+        const reach = r0 + height;
         const projections = finFactors(child);
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
-          baseY, reach, pRadius, projections);
-        const finClip = airframeClip(baseY, pRadius);
+          baseY, reach, r0, r0, projections);
+        const finClip = airframeClip(baseY, r0);
         for (const { p, near, i } of projections) {
-          const y0 = baseY - pRadius * p * ctx.scale;
+          const y0 = baseY - r0 * p * ctx.scale;
           const yh = baseY - reach * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
           // A TRUE half-ellipse, by arc. It used to be a quadratic with the
@@ -800,7 +835,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             renderTab(start, root, p, i);
             continue;
           }
-          if (reach * Math.abs(p) > pRadius) {
+          if (reach * Math.abs(p) > r0) {
             (near ? overlay : shapes).push({
               key: `${key}:fin${i}`, layer: near ? 'overlay' : 'base', tag, part, sel: true,
               attrs: {
@@ -1171,7 +1206,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           attrs: { d: profilePath(ctx, n, cx, len, 0, r, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
         shoulderRect(`${key}:shoulder`, cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY, scope);
+        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, 0, r));
         cx += len;
       } else if (n.type === 'bodytube') {
         const r = num(n, 'outerRadius', 0.012);
@@ -1205,7 +1240,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const fsl = num(n, 'foreShoulderLength', 0);
         shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY);
         shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope);
+        // A fin roots on the drawn profile, not at the larger end's radius.
+        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra));
         cx += len;
       }
     }
@@ -1227,6 +1263,22 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   return { shapes: all, clips, extents, grips };
 }
 
+/** A nose cone's or transition's profile shape, with each type's kernel default. */
+const profileShape = (n: ComponentNode): string => (typeof n['shape'] === 'string' ? (n['shape'] as string)
+  : n.type === 'transition' ? 'conical' : 'ogive');
+
+/**
+ * node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
+ * transition draws the way it simulates; absent = kernel default (clipped).
+ */
+const clippedOf = (n: ComponentNode): boolean | undefined =>
+  (typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
+
+/** The surface `profilePath` draws, as the mount a fin's root sits on (tree/finRoot.ts). */
+function profileMountOf(n: ComponentNode, len: number, foreR: number, aftR: number): MountSurface {
+  return profileMount(profileShape(n), numOpt(n, 'shapeParameter'), len, foreR, aftR, clippedOf(n));
+}
+
 /**
  * Closed side-view outline of a nose cone (foreR = 0) or transition, sampled
  * from the kernel-exact profile: top edge fore→aft, aft edge down, bottom
@@ -1236,12 +1288,8 @@ function profilePath(
   ctx: { scale: number; x0: number }, n: ComponentNode, x: number, len: number,
   foreR: number, aftR: number, baseY: number,
 ): string {
-  const shape = typeof n['shape'] === 'string' ? (n['shape'] as string)
-    : n.type === 'transition' ? 'conical' : 'ogive';
-  // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
-  // transition draws the way it simulates; absent = kernel default (clipped).
-  const pts = outerProfile(shape, numOpt(n, 'shapeParameter'), len, foreR, aftR, 24, undefined,
-    typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
+  const pts = outerProfile(profileShape(n), numOpt(n, 'shapeParameter'), len, foreR, aftR, 24, undefined,
+    clippedOf(n));
   const px = (xi: number) => ctx.x0 + (x + xi) * ctx.scale;
   const top = pts.map(([xi, r]) => `${px(xi)} ${baseY - r * ctx.scale}`);
   const bottom = pts.slice().reverse().map(([xi, r]) => `${px(xi)} ${baseY + r * ctx.scale}`);

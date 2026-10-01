@@ -6,6 +6,7 @@ import {
 } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
 import { finOutlineProblem } from './finOutline.js';
+import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
 import { num, numOpt } from './nodeNum.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
 import { tubeFinRadius } from './tubefins.js';
@@ -115,7 +116,9 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     pieces.push({ key, geometry: g, color, ...flags });
   };
 
-  const addFins = (child: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
+  const addFins = (
+    child: ComponentNode, pStart: number, pLen: number, mount: MountSurface, xform?: THREE.Matrix4,
+  ) => {
     // finCountOf, not the raw count: never more fins than the kernel flies
     // (audit 2026-09-22 — see counts.ts).
     const count = finCountOf(child);
@@ -166,7 +169,13 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // `ninja_4in_54mm-MMT.ork`. For the other two fin types the two are the
     // same number.
     const start = axialStart(child, axialLength(child), pStart, pLen);
-    maxR = Math.max(maxR, pRadius + height);
+    // The fin's y = 0 is the mount's radius at the LEADING EDGE, and a
+    // freeform root follows the mount's surface (finRoot.ts) — on a transition
+    // that is not the one radius it was drawn at, the larger end's (audit
+    // 2026-09-30). On a body tube it is the tube radius, as before.
+    const mounted = child.type === 'freeformfinset' ? finOnMount(ffPoints, start - pStart, mount) : null;
+    const r0 = mounted ? mounted.r0 : mount.radiusAt(start - pStart);
+    maxR = Math.max(maxR, r0 + height);
 
     // A self-intersecting planform is refused, not extruded. three's earcut
     // silently DELETES vertices it cannot triangulate, so the caps come out
@@ -178,13 +187,16 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     if (child.type === 'freeformfinset' && finOutlineProblem(ffPoints) !== null) return;
 
     const shape = new THREE.Shape();
-    if (child.type === 'freeformfinset') {
+    if (mounted) {
       // ffPoints, not a re-read with a default: the >= 3 guard at the top of
       // this function is what makes raw[0] safe, and reading the key twice is
-      // how the two fell out of step in the first place.
-      shape.moveTo(ffPoints[0]![0], ffPoints[0]![1]);
-      for (let i = 1; i < ffPoints.length; i++) {
-        shape.lineTo(ffPoints[i]![0], ffPoints[i]![1]);
+      // how the two fell out of step in the first place. `mounted.outline` is
+      // those points with the root corners on the body and, on a transition,
+      // the root walked along it — the same points on a body tube.
+      const outline = mounted.outline;
+      shape.moveTo(outline[0]![0], outline[0]![1]);
+      for (let i = 1; i < outline.length; i++) {
+        shape.lineTo(outline[i]![0], outline[i]![1]);
       }
     } else if (child.type === 'ellipticalfinset') {
       // A TRUE half-ellipse: x as cos and y as sin over the SAME parameter.
@@ -233,7 +245,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
       // Fin lies in the XY plane, root on the surface (+Y), then rotate about X.
       const g = geo.clone();
-      g.translate(start, pRadius, 0);
+      g.translate(start, r0, 0);
       g.applyMatrix4(new THREE.Matrix4().makeRotationX(angle));
       if (xform) g.applyMatrix4(xform); // off-axis pod instance
       pieces.push({ key: `fin${k++}`, geometry: g, color: nodeColor(child, MAT.fin) });
@@ -241,10 +253,15 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     geo.dispose();
   };
 
-  const addChildren = (parent: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4) => {
+  // `mount` is the parent's outer surface, which a fin's root sits on; every
+  // other child is placed by the one radius `pRadius`.
+  const addChildren = (
+    parent: ComponentNode, pStart: number, pLen: number, pRadius: number, xform?: THREE.Matrix4,
+    mount: MountSurface = flatMount(pRadius, pLen),
+  ) => {
     for (const child of parent.children ?? []) {
       if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset' || child.type === 'freeformfinset') {
-        addFins(child, pStart, pLen, pRadius, xform);
+        addFins(child, pStart, pLen, mount, xform);
       } else if (child.type === 'tubefinset') {
         // Ring of open tubes around the body, each tangent to the surface.
         const count = finCountOf(child);
@@ -428,7 +445,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         maxR = Math.max(maxR, R);
-        addChildren(n, x, len, R, xform);
+        addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, 0, R));
         x += len;
       } else if (n.type === 'bodytube') {
         const R = num(n, 'outerRadius', 0.012);
@@ -453,12 +470,14 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // rotation.z = -π/2 the lathe's +Y axis points along +X (aft).
         // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
         // file draws the way it simulates.
-        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra,
-          typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
+        const clipped = typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined;
+        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped);
         place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         maxR = Math.max(maxR, rf, ra);
-        addChildren(n, x, len, Math.max(rf, ra), xform);
+        // A fin roots on the profile it is drawn on, not at the larger end.
+        addChildren(n, x, len, Math.max(rf, ra), xform,
+          profileMount(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped));
         x += len;
       }
     }
