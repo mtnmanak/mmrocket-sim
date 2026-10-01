@@ -748,7 +748,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // num()'s trailing-token parse made that the 12 mm fallback, so a
         // 6-inch airframe imported as a pencil and carried ~3x the drag.
         n['outerRadius'] = autoDim(el, 'radius', 0.012, autoRadii.bodyTube);
-        n['thickness'] = num(el, 'thickness', 0.0005);
+        // A SOLID tube is <thickness>filled</thickness>, as a nose cone or
+        // transition is (format audit row 27). num() read that word as NaN and
+        // kept the 0.5 mm fallback: a dowel flew, and saved, as a thin shell.
+        if (text(el, ':scope > thickness') === 'filled') {
+          n['filled'] = true;
+        } else {
+          n['thickness'] = num(el, 'thickness', 0.0005);
+        }
         readMotor(el, n);
         const mml = num(el, 'maxmotorlength', -1);
         if (mml >= 0) n['maxMotorLength'] = mml;
@@ -2392,7 +2399,7 @@ export function exportOrk({
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${axialLength(node)}</length>`);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
+        thicknessXml(depth + 1, node, 0.0005); // `filled` for a solid tube
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
         // Extension tag (desktop warns-and-ignores): sub-minimum flag.
         if (node['caseAirframe'] === true) {

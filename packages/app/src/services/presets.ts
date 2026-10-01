@@ -191,6 +191,10 @@ export function presetPatch(
       set('length', n(p, 'length'));
       set('outerRadius', half(out));
       if (out !== undefined && inn !== undefined) set('thickness', (out - inn) / 2);
+      // A body tube can be solid (KB3). Owned for the nose cone's reason
+      // below: a hollow row is a hollow part, so it clears a solid tube's
+      // flag, as desktop's SymmetricComponent.loadFromPreset does.
+      if (type === 'bodytube') own('filled', p['filled'] === true);
       break;
     case 'nosecone':
       set('length', n(p, 'length'));
@@ -621,7 +625,7 @@ export function applyPresetLinks(
      * Read as `filled: false` for both the fill and the conflict marker. (The
      * RockSim reader now writes the `false` itself; this covers every reader.)
      */
-    const statesHollow = (node.type === 'nosecone' || node.type === 'transition')
+    const statesHollow = (node.type === 'nosecone' || node.type === 'transition' || node.type === 'bodytube')
       && node['filled'] === undefined && numOpt(node, 'thickness') !== undefined;
     const stated = (key: string): unknown => (key === 'filled' && statesHollow ? false : node[key]);
     /**

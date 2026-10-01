@@ -664,7 +664,9 @@ export function componentLoop(
       const wall = kernelNum(node, 'thickness');
       const L = axialLength(node);
       const label = node.type === 'bodytube' ? 'Body tube' : node.type === 'innertube' ? 'Inner tube' : 'Launch lug';
-      return { loop: ringLoop(R, R - wall, L), label, bodySpan: [0, L], wall };
+      // A solid body tube (KB3) prints as the rod it flies as.
+      const bore = node.type === 'bodytube' && node['filled'] === true ? 0 : R - wall;
+      return { loop: ringLoop(R, bore, L), label, bodySpan: [0, L], wall };
     }
     case 'tubecoupler':
     case 'engineblock': {

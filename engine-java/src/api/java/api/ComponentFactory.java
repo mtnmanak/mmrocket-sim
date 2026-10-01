@@ -1094,6 +1094,16 @@ final class ComponentFactory {
                     ((NoseCone) c).setFlipped(true, false);
                 }
                 break;
+            case "bodytube":
+                // A SOLID tube (a dowel, a spike; .ork <thickness>filled</thickness>).
+                // The nose cone and transition cases have always called
+                // setFilled; this one never did, so a solid tube flew as a shell
+                // of whatever wall the node carried. After the constructor's
+                // wall on purpose: SymmetricComponent.setThickness clears filled.
+                if (bool(node, "filled", false)) {
+                    ((BodyTube) c).setFilled(true);
+                }
+                break;
             default:
                 break;
         }

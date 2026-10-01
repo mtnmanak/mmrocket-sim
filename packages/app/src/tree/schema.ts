@@ -822,6 +822,9 @@ export const FIELDS = lookupTable<FieldDef[]>({
     lenMM('length', 'Length', 1, 1000),
     radMM('outerRadius', 'Outer radius', 0.5, 80),
     lenMM('thickness', 'Wall thickness', 0.1, 10),
+    // A solid rod — a dowel, a spike — as desktop's "Filled" box and .ork
+    // <thickness>filled</thickness> make one (KB3, 2026-10-01).
+    { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
     // Min-diameter rockets: the motor loads directly in the body tube (no
     // inner mount tube) — same kernel path as the desktop's body-tube mount.
     { key: 'motorMount', label: 'Motor mount (motor loads in this tube)', unit: 'none', bool: true },

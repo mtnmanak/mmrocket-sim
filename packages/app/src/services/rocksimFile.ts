@@ -2752,7 +2752,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         emit('<BodyTube>');
         common(node, parent, 'Body tube');
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
-        emit(`<ID>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
+        // A SOLID tube is RockSim's <ID>0</ID> (the importer reads it back as a
+        // wall as thick as the radius, which is the same solid rod).
+        emit(`<ID>${node['filled'] === true ? 0
+          : (nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
         emit(`<Len>${axialLength(node) * LEN}</Len>`);
         // Min-diameter: RockSim's BodyTube carries the same mount flag.
         emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);

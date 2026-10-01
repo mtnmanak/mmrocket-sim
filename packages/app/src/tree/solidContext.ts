@@ -137,7 +137,10 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
     }
     default: {
       // Body tube, inner tube, and any other parent stating an outer radius:
-      // unchanged from the rule this replaced, 0.5 mm floor included.
+      // unchanged from the rule this replaced, 0.5 mm floor included. A SOLID
+      // body tube has no bore at all (BodyTube.getInnerRadius is 0 when
+      // filled), so a part inside it has nothing to size itself to.
+      if (host.type === 'bodytube' && host['filled'] === true) return undefined;
       const outer = numOpt(host, 'outerRadius');
       if (outer === undefined) return undefined;
       return Math.max(0.0005, outer - num(host, 'thickness', 0.001));

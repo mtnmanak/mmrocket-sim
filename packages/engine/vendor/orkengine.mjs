@@ -43802,6 +43802,11 @@ a_ComponentFactory_applyTypeExtras = ($c, $node) => {
                     break a;
                 var$4 = 3;
                 break a;
+            case 1703614246:
+                if (!jl_String_equals(var$3, $rt_s(1573)))
+                    break a;
+                var$4 = 4;
+                break a;
             case 1790934061:
                 if (!jl_String_equals(var$3, $rt_s(1575)))
                     break a;
@@ -43821,20 +43826,27 @@ a_ComponentFactory_applyTypeExtras = ($c, $node) => {
         }
     }
     b: {
-        switch (var$4) {
-            case 0:
-            case 1:
-            case 2:
-                break;
-            case 3:
-                if (!a_JsonLite_bool($node, $rt_s(1699), 0))
+        c: {
+            switch (var$4) {
+                case 0:
+                case 1:
+                case 2:
+                    break;
+                case 3:
+                    break c;
+                case 4:
+                    if (!a_JsonLite_bool($node, $rt_s(1584), 0))
+                        break b;
+                    $c.$setFilled(1);
                     break b;
-                $c.$setFlipped(1, 0);
-                break b;
-            default:
-                break b;
+                default:
+                    break b;
+            }
+            a_ComponentFactory_applyPackedSize($c, $node);
+            break b;
         }
-        a_ComponentFactory_applyPackedSize($c, $node);
+        if (a_JsonLite_bool($node, $rt_s(1699), 0))
+            $c.$setFlipped(1, 0);
     }
 },
 a_ComponentFactory_applyPackedSize = ($m, $node) => {
