@@ -531,14 +531,14 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
 });
 
 /**
- * THE AUTO DELAY BOX GOES ON THE PRIMARY'S CARD (audit 2026-09-22, row 356).
- * flightRunner writes the rounded optimum onto the primary mount alone, so the
- * working "auto (optimal)" box is that card's; any other card whose motor
- * carries the flag gets a box saying it applies to the top motor only, so it
- * can be unticked (treeModel.autoDelayBox, tested in primaryMount.test.ts).
- * It used to show "auto (optimal)" on every sustainer-stage card, over a pod
- * that flew its spec delay. primaryMount.test.ts held App's call as a string
- * match.
+ * THE AUTO DELAY BOX IS ON EVERY MOUNT'S CARD (v0.144). Each mount's Auto
+ * delay is its own carrier branch's (autoDelaySolver), so every loaded mount's
+ * card shows the working "auto (optimal)" box (treeModel.autoDelayBox, tested
+ * in primaryMount.test.ts). From audit 2026-09-22 row 356 until then,
+ * flightRunner wrote the rounded optimum onto the primary mount alone, so the
+ * working box was that card's, and any other card whose motor carried the flag
+ * got a box saying it applied to the top motor only. primaryMount.test.ts held
+ * App's call as a string match.
  */
 describe('the Auto delay box on a motor card', () => {
   it('is "auto (optimal)" on the core\'s card and "auto (optimal)" on the pods\'', async () => {

@@ -3961,7 +3961,7 @@ export function App() {
               const count = mountMotorCount(tree, m.id!);
               const countNote = mountCountNote(tree, m.id!);
               // Every loaded mount has its own Auto policy and flown evidence.
-              const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
+              const autoBox = autoDelayBox(tree, m.id!);
               // The fallback — an earlier flight's Auto delay on this mount — is
               // THIS design's alone. The run list is global and mount ids are
               // counter values every load mints afresh, so a match on the id put

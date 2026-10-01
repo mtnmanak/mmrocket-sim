@@ -260,10 +260,12 @@ export function padMassOntoRankedPrimary<T extends { padMassKg?: number; padMass
   };
 }
 
-/** Every loaded mount offers the same per-carrier Auto policy. */
-export function autoDelayBox(
-  tree: RocketTree, mountId: string, _primaryMountId: string | null, _ticked: boolean,
-): 'optimal' | null {
+/**
+ * Every loaded mount offers the same per-carrier Auto policy, so the box
+ * depends on nothing but the mount being in the tree: not on which mount is
+ * primary, nor on whether it is ticked (both inputs until v0.144).
+ */
+export function autoDelayBox(tree: RocketTree, mountId: string): 'optimal' | null {
   return findNode(tree, mountId) ? 'optimal' : null;
 }
 
