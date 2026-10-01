@@ -33,11 +33,20 @@ const CHUTE: Preset = {
 };
 /** A shroud-line count over the app's own ceiling (schema.ts MAX_SHROUD_LINES, 256). */
 const OVERLINED: Preset = { ...CHUTE, partNo: 'TC-OVER', lineCount: 300 };
+/**
+ * The same canopy rated with NO vent — the shape of 188 of the 473 shipped
+ * canopy rows (a rated Cd, no spill hole), whose pick leaves the vent blank.
+ */
+const UNVENTED: Preset = {
+  kind: 'Parachute', manufacturer: 'Test Chutes', partNo: 'TC-36U', description: '36 in, no vent',
+  diameter: 0.9144, dragCoefficient: 1.5, lineCount: 12, lineLength: 0.9144,
+  material: { name: 'Ripstop nylon', type: 'SURFACE', density: 0.067 },
+};
 const COUPLER: Preset = {
   kind: 'TubeCoupler', manufacturer: 'Test Tubes', partNo: 'TC-98', description: '',
   length: 0.2, outsideDiameter: 0.0985, insideDiameter: 0.0955,
 };
-const CATALOGUE = [CHUTE, OVERLINED, COUPLER];
+const CATALOGUE = [CHUTE, OVERLINED, UNVENTED, COUPLER];
 
 /** A canopy picked from `row` — the link and every catalogue value — then edited. */
 const linkedChute = (over: Record<string, unknown> = {}, row: Preset = CHUTE): ComponentNode => ({
@@ -161,6 +170,25 @@ describe('the conflict marker in the property panel — tier (b), the ≠ chip',
     expect(patches[0]!['cd']).toBe(1.5);
     expect(patches[0]!['spillHoleDiameter']).toBe(0.0762);
     expect(useButtons()).toHaveLength(0);
+  });
+
+  it('a vent cut in a canopy rated without one is marked, and its use takes the pair', async () => {
+    // The row's Cd is rated for an unvented canopy, so a 100 mm hole typed on
+    // it differs by the table's own measure (RECOVERY: 1 %, 2 mm floor). The
+    // row's figure is "no vent" — the field's own "0 = none" — and the edit
+    // that takes it leaves the vent blank, which is no box value at all.
+    await show(linkedChute({ spillHoleDiameter: 0.1 }, UNVENTED));
+    expect(useButtons()).toHaveLength(1);
+    const vent = byLabel('Use catalogue value 0 mm for Spill hole ⌀')!;
+    expect(vent, 'the spill hole differs and carries no use button').toBeTruthy();
+    expect(vent.textContent).toBe('use 0 mm');
+    expect(vent.title).toMatch(/Cd 1\.5 with no spill hole/);
+    expect(vent.title).toMatch(/with a 100 mm spill hole/);
+    click(vent);
+    // The typed path's "0" (one edit, held to the limits), with the rated Cd.
+    expect(patches).toEqual([{ cd: 1.5, spillHoleDiameter: 0 }]);
+    expect(useButtons()).toHaveLength(0);
+    expect(host.textContent).not.toContain('≠');
   });
 
   it('an automatic Cd against a rated canopy is marked, and says what it flies', async () => {

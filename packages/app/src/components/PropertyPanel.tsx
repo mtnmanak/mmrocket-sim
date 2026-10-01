@@ -849,8 +849,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
     const shownFigure = (si: number): string => (f.unit === 'count'
       ? String(si)
       : `${fmtFieldValue(toDisplay(si))}${symbol ? ` ${symbol}` : plainSuffix ? ` ${plainSuffix}` : ''}`);
-    // The figure "use" writes is the edit's own value for this field.
-    const want = diff ? numOpt(diff.patch, f.key) : undefined;
+    // The figure "use" writes: the row's, as this field flies it. Not the edit's
+    // own value for the field, which is blank where the row's figure is the
+    // field's blank — an unvented row's spill hole, the shape of 188 shipped
+    // canopy rows — and a blank there drew no chip at all for a difference
+    // catalogueDifferences had found. Typed, that figure is "0 = none".
+    const want = diff ? markerNumber(diff.want) : undefined;
     const catalogueChip = diff && want !== undefined && (() => {
       const figure = shownFigure(want);
       const haveNum = markerNumber(diff.have);
