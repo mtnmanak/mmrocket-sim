@@ -4,7 +4,7 @@ import {
 import type { MountMotor } from '../model/design.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from '../tree/mountAngle.js';
 import { explainBuildFailure } from '../tree/sanitize.js';
-import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
+import { engineTree, flownRecoveryDevices, shroudKernelName } from '../tree/treeModel.js';
 import { writeMountMotor, type FlightHandle } from './flightRunner.js';
 import { flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { FlownRecoveryDevice } from './simReport.js';
@@ -178,17 +178,22 @@ export function buildDesign<R extends BuildHandle>(
     }
     // Camera shrouds lower to deliberately thick strake "fins" — the
     // kernel's THICK_FIN warning is expected there and only alarms users.
+    // Matched on the QUOTED name, as the kernel writes a source
+    // (`[Warning.THICK_FIN]:  "Fins"`), under the name the shroud was lowered
+    // with: the bare name matched anywhere, so a shroud with a cleared Name
+    // field (the empty string is in every warning) or one named "Fin" (in
+    // "Fins") took the real fins' thick-fin warning with it (audit 2026-09-30).
     const fairingNames = new Set<string>();
     const scanF = (nodes: ComponentNode[]) => {
       for (const nd of nodes) {
-        if (nd.type === 'fairing') fairingNames.add(nd.name ?? 'Camera shroud');
+        if (nd.type === 'fairing') fairingNames.add(shroudKernelName(nd));
         scanF(nd.children ?? []);
       }
     };
     scanF(tree.components);
     if (fairingNames.size > 0) {
       info.warningTexts = info.warningTexts.filter((wtext) =>
-        !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(fn))));
+        !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(`"${fn}"`))));
     }
     // Interference around the rail (v0.088). An APP-side check, appended to
     // the same strip. It is a build problem, not a physics one: a fin on the

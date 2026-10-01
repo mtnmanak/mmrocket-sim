@@ -148,13 +148,15 @@ describe('buildDesign — the order of the calls it makes', () => {
  * sentence.
  */
 describe('buildDesign — the warning strip', () => {
-  const camTree = (name: string): RocketTree => normalizeTree({
+  /** A camera shroud named `name` ahead of a fin set "Fins" — `finThickness` thick, when given. */
+  const camTree = (name: string, finThickness?: number): RocketTree => normalizeTree({
     name: 'T', components: [{ type: 'stage', id: 's1', children: [
       { type: 'nosecone', id: 'nc', length: 0.15, aftRadius: 0.027 },
       { type: 'bodytube', id: 'b1', length: 0.7, outerRadius: 0.027, thickness: 0.001, children: [
         { type: 'fairing', id: 'cam', name, length: 0.08, width: 0.025, height: 0.02, angleOffset: 0,
           position: { method: 'top', offset: 0.30 } },
         { type: 'trapezoidfinset', id: 'f1', name: 'Fins', finCount: 3, rootChord: 0.10, height: 0.055,
+          ...(finThickness !== undefined ? { thickness: finThickness } : {}),
           position: { method: 'bottom', offset: 0 } },
       ] },
     ] }],
@@ -182,6 +184,26 @@ describe('buildDesign — the warning strip', () => {
     if ('error' in built) throw new Error(built.error);
     expect(built.info.warningTexts.filter((w) => w.includes('"THICK_FIN cam" at 0° sits 220 mm ahead')))
       .toHaveLength(1);
+  }, 60_000);
+
+  /**
+   * WHICH THICK-FIN WARNING IS THE SHROUD'S (audit 2026-09-30). The filter
+   * looked for each shroud's name ANYWHERE in a warning: a shroud whose Name
+   * field had been cleared matched every warning there is (the empty string is
+   * in all of them), and one named "Fin" matched the fin set "Fins" — so the
+   * real fins' thick-fin accuracy warning went with the shroud's. The kernel
+   * quotes each source's name (Message.addSourcesToMessageText), and names a
+   * blank-named component after its own type, "[FreeformFinSet.FreeformFinSet]",
+   * which nothing here could match.
+   */
+  it.each([
+    ['a shroud whose Name field was cleared', ''],
+    ['a shroud named like the start of the fins’ name', 'Fin'],
+  ])('keeps the real fins’ thick-fin warning beside %s, and drops the shroud’s (real kernel)', (_what, name) => {
+    const built = buildDesign(noMotors(camTree(name, 0.04)), KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    expect(built.info.warningTexts.filter((w) => w.includes('THICK_FIN')))
+      .toEqual(['[Warning.THICK_FIN]:  "Fins"']);
   }, 60_000);
 });
 
