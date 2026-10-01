@@ -17,8 +17,8 @@ import {
 import { XLSX_MIME } from '../services/xlsx.js';
 import { DEFAULT_TIME_STEP_S, TimeStepCaution, timeStepCostFactor, type LaunchConditions } from './LaunchPanel.js';
 import {
-  isWeighedCandidate, mixedComboCount, runBatchSweep, type BatchModel, type BatchMountOption, type BatchRow,
-  type BatchWeighed,
+  batchSolverFlights, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
+  type BatchModel, type BatchMountOption, type BatchRow, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { useCatalogue } from './useCatalogue.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -211,24 +211,43 @@ const group = (n: number) => n.toLocaleString('en-US');
  * WHAT ONE BATCH FLIGHT COSTS, in seconds at the 0.05 s default step — measured,
  * so the Simulate button can say how long a sweep will take (board Tier 1 row 7:
  * a combination sweep's count was fixed in v0.105, but nothing said how long
- * one would run, and nothing stopped one).
+ * one would run, and nothing stopped one). Two prices, because the delay
+ * solver's probe flights are most of the cost: `optimalDelay` for a flight that
+ * searches for its optimum delay, `fixedDelay` for one flown at a set delay.
+ * Which flights search is COUNTED (batchSweep's batchSolverFlights), not read
+ * off the checkbox: unticking "optimal delay per motor" still leaves every
+ * flight of motors sold plugged only searching on a design whose recovery waits
+ * for the charge — 64 of the 420 in-production candidates on a 38 mm mount,
+ * 158 of 600 on 54 mm — and those were priced at a fixed delay until the
+ * review of 2026-10-01.
  *
  * Measured 2026-10-01 through runBatchSweep itself — catalogue curves, nozzle
  * table, the delay solver and the Mach probe, everything a sweep does — on the
- * shipped kernel under Node 24 on the project laptop: 29 in-production motors
- * spanning a 38 mm mount's impulse range in a 50 mm airframe (apogees to
- * 3.2 km), and 36 flights of a 24 mm 4-ring cluster with "mixed 2+2".
+ * shipped kernel under Node 24 on the project laptop:
  *
- *   "optimal delay per motor" on (the default): 1.80-1.88 s a flight on every
- *   aero model, 2.0 s for the cluster's combinations
- *   off: 0.47 s (Rogers) to 0.60 s (Auto)
+ *   searching: 1.80-1.88 s a flight on every aero model, for 29 in-production
+ *   motors spanning a 38 mm mount in a 50 mm airframe (apogees to 3.2 km);
+ *   2.0 s for 36 flights of a 24 mm 4-ring cluster with "mixed 2+2"
+ *   fixed: 0.47 s (Rogers) to 0.60 s (Auto), for the same 29
  *
- * The delay solver is most of the cost — it flies each candidate more than
- * once — so it is the one setting the estimate follows; the aero model moved the
- * figure by under 0.1 s. A faster or slower machine moves all of it, which is
- * why the button says "about".
+ * These price an ESTIMATE, and the design moves them more than anything else
+ * (re-measured in review, same day): 24 mm motors in a 42 mm airframe searched
+ * at 0.94 s a flight, so the button read about twice the real time; four
+ * plugged-only 38 mm motors flown at their optimum in a 50 mm airframe (J1026,
+ * I426, H248, G8) took 3.8 s a flight on average, about twice the searching
+ * price, so a sweep heavy in them runs longer than it says. The aero model
+ * moved the figure by under 0.1 s; a faster or slower machine moves all of it.
+ * Hence "about" on the button.
  */
 export const BATCH_FLIGHT_S = { optimalDelay: 2, fixedDelay: 0.6 } as const;
+
+/** A sweep as the estimate reads it: its flights, how many of them search for their delay, and the step. */
+export interface BatchPace {
+  flights: number;
+  /** batchSweep's batchSolverFlights for this sweep — all of them with "optimal delay per motor" ticked. */
+  solverFlights: number;
+  timeStepS?: number | null;
+}
 
 /**
  * Above this many flights the button says how long the sweep will take beside
@@ -331,18 +350,17 @@ export function batchMaxCandidates(groups: readonly number[]): number {
 }
 
 /**
- * Roughly how long a sweep of `flights` takes, in seconds: the measured pace
- * (BATCH_FLIGHT_S) for the delay setting, times the time-step caution's own
- * factor when the step is finer than the default, since a fine step's cost is
- * per flight. A coarser step keeps the measured pace: the factor was fitted on
- * finer steps only, and an estimate should not shrink on a guess.
+ * Roughly how long a sweep takes, in seconds: its searching flights at the
+ * searching price (BATCH_FLIGHT_S) and the rest at the fixed one, times the
+ * time-step caution's own factor when the step is finer than the default,
+ * since a fine step's cost is per flight. A coarser step keeps the measured
+ * pace: the factor was fitted on finer steps only, and an estimate should not
+ * shrink on a guess.
  */
-export function batchSweepSeconds(
-  { flights, optimalDelay, timeStepS }: { flights: number; optimalDelay: boolean; timeStepS?: number | null },
-): number {
-  const perFlight = optimalDelay ? BATCH_FLIGHT_S.optimalDelay : BATCH_FLIGHT_S.fixedDelay;
+export function batchSweepSeconds({ flights, solverFlights, timeStepS }: BatchPace): number {
+  const perSweep = solverFlights * BATCH_FLIGHT_S.optimalDelay + (flights - solverFlights) * BATCH_FLIGHT_S.fixedDelay;
   const step = timeStepS != null && timeStepS < DEFAULT_TIME_STEP_S ? timeStepCostFactor(timeStepS) : 1;
-  return flights * perFlight * step;
+  return perSweep * step;
 }
 
 /**
@@ -364,9 +382,7 @@ export function batchDurationText(seconds: number): string {
 }
 
 /** What the button says after the count: how long the sweep takes, or null for one too short to need it. */
-export function batchEstimate(
-  pace: { flights: number; optimalDelay: boolean; timeStepS?: number | null },
-): string | null {
+export function batchEstimate(pace: BatchPace): string | null {
   return pace.flights > BATCH_ESTIMATE_ABOVE_FLIGHTS ? batchDurationText(batchSweepSeconds(pace)) : null;
 }
 
@@ -380,23 +396,27 @@ export function batchEstimate(
  * "mixed 3+3" alone leaves the 4+2 / 2+2+2 split, the one that explodes. Named:
  * each box whose unticking is enough by itself (else every box together), the
  * candidate count that fits with the boxes still ticked, and unticking include
- * OOP when that alone gets there. Null when the sweep fits.
+ * OOP when that alone gets there. The time it quotes for the cap is at this
+ * sweep's own mix of searching and fixed flights. Null when the sweep fits.
  */
-export function batchRefusal({ candidates, withoutOOP, modes, optimalDelay, timeStepS }: {
+export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, timeStepS }: {
   /** How many candidates the filters leave. */
   candidates: number;
   /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
   withoutOOP: number | null;
   /** The ticked combination modes: the words on each box, and its split's group count. */
   modes: readonly { name: string; groups: number }[];
-  optimalDelay: boolean;
+  /** How many of this sweep's flights search for their delay (BatchPace). */
+  solverFlights: number;
   timeStepS?: number | null;
 }): string | null {
   const groupsOf = (ms: readonly { groups: number }[]) => ms.map((m) => m.groups);
   const fits = (n: number, ms: readonly { groups: number }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
   const flights = batchFlightCount(candidates, groupsOf(modes));
   if (flights <= BATCH_MAX_FLIGHTS) return null;
-  const atCap = batchDurationText(batchSweepSeconds({ flights: BATCH_MAX_FLIGHTS, optimalDelay, timeStepS }));
+  const atCap = batchDurationText(batchSweepSeconds({
+    flights: BATCH_MAX_FLIGHTS, solverFlights: BATCH_MAX_FLIGHTS * (solverFlights / flights), timeStepS,
+  }));
   const alone = modes.filter((m) => fits(candidates, modes.filter((o) => o !== m)));
   const untick = alone.length > 0 ? `Untick ${alone.map((m) => m.name).join(' or ')}`
     : modes.length > 1 && fits(candidates, [])
@@ -542,6 +562,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // it would describe a difference that does not exist.
   const nozzleStages = useMemo(
     () => (batchModel === 'eb' ? [] : stagesWithNozzle(tree)), [tree, batchModel]);
+  // Whether the recovery waits for the motor's charge — what decides if a
+  // plugged-only candidate searches for its delay, so what the estimate counts.
+  const deploysOnCharge = useMemo(() => deploysOnEjectionCharge(tree), [tree]);
   // The motor whose weight is still inside the swept stage's own mass override
   // — a RASAero import that named a motor the catalogue does not have, whose
   // user has not loaded it yet (services/statedLaunchWeight.ts). The design
@@ -778,14 +801,21 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     ...(pairMode && pairSplit ? [{ name: PAIRS_NAME, groups: pairSplit.mountIds.length }] : []),
   ];
   const totalFlights = batchFlightCount(candidates.length, ticked.map((t) => t.groups));
+  // How many of them search for their delay, by the sweep's own rule — with
+  // the box unticked, still those of plugged-only motors on a design whose
+  // recovery waits for the charge, and every flight while another mount's
+  // motor is on Auto. The estimate prices them apart from the rest.
+  const solverFlights = batchSolverFlights({
+    candidates, groups: ticked.map((t) => t.groups), autoDelay: criteria.autoDelay, deploysOnCharge,
+    othersAuto: Object.keys(assignedMotors).some((id) => id !== sel.id && assignedAutoDelays?.[id] === true),
+  });
   // How long that takes, and whether it is more than one sweep will fly. Past
   // BATCH_MAX_FLIGHTS the button is disabled and says why — refused, never
   // trimmed to fit.
-  const pace = { flights: totalFlights, optimalDelay: criteria.autoDelay, timeStepS: launch.timeStepS };
+  const pace: BatchPace = { flights: totalFlights, solverFlights, timeStepS: launch.timeStepS };
   const estimate = batchEstimate(pace);
   const refusal = batchRefusal({
-    candidates: candidates.length, withoutOOP, modes: ticked,
-    optimalDelay: criteria.autoDelay, timeStepS: launch.timeStepS,
+    candidates: candidates.length, withoutOOP, modes: ticked, solverFlights, timeStepS: launch.timeStepS,
   });
 
   // Disarm the second-ask whenever the sweep's size changes: unticking a
