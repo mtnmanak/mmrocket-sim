@@ -402,6 +402,10 @@ const RKT_NAME = 'FooBar Test';
  * simulations, stamped with the design it flew — where selecting it shows what
  * changed since — so a Launch press never vanishes.
  *
+ * The Rail button row is the one change that moves the airframe ALONE: every
+ * other path here moves the motors or the conditions as well, so without it a
+ * Launch that compared only those two would pass the whole table.
+ *
  * `cost`: whether the time-step caution prices a flight in seconds afterwards.
  * Where the design and its motors are still the ones that flew (a wind typed),
  * the stored run answers for it in place of the dropped write (storedSimCost).
@@ -427,6 +431,18 @@ describe('what a Launch computed lands only on the design it flew', () => {
     }, false],
     ['⏏ Unload', async (host) => {
       await act(async () => { button(host, '⏏ Unload').click(); });
+    }, false],
+    ['a Rail button added on Design: the same motors and conditions, another airframe', async (host) => {
+      await openTab(host, 'Design');
+      const tube = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+        .find((r) => r.querySelector('.tree-label')?.textContent === 'Body tube')!;
+      await act(async () => { tube.click(); });
+      await act(async () => { button(host, '+ Add to Body tube').click(); });
+      const item = [...host.querySelectorAll<HTMLButtonElement>('.add-menu-item')]
+        .find((b) => b.textContent?.includes('Rail button'))!;
+      await act(async () => { item.click(); });
+      await waitFor(() => [...host.querySelectorAll('[role="treeitem"] .tree-label')]
+        .some((l) => l.textContent?.includes('Rail button')), 'the Rail button to be added');
     }, false],
     ['a wind typed on Motors & Launch', async (host) => {
       await openTab(host, 'Motors & Launch');
