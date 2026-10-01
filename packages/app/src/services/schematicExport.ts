@@ -207,7 +207,12 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, f
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = headerH + glCanvas.height;
-  const c = canvas.getContext('2d')!;
+  // Null when the browser refuses the canvas — the 7680 px width is the case —
+  // named as svgToImage names it. The `!` this replaced surfaced as "Cannot set
+  // properties of null (setting 'fillStyle')" (audit 2026-09-30). A rejection,
+  // not a throw: the failures after this point all arrive through the promise.
+  const c = canvas.getContext('2d');
+  if (!c) return Promise.reject(new Error(`the browser refused a ${canvas.width} x ${canvas.height} px canvas`));
   c.fillStyle = '#ffffff';
   c.fillRect(0, 0, canvas.width, canvas.height);
   c.fillStyle = '#20242c';
