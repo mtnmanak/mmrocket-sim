@@ -2333,12 +2333,13 @@ export function App() {
 
   // DELIBERATELY does not clear the unsaved-changes mark, and neither does
   // onSaveCdx1 below. Both formats are LOSSY relative to the design in the app:
-  // the RockSim export carries name, tree, motors and per-component mass/CG but
-  // no launch conditions, no flight configurations and no measured mass/CG; the
-  // RASAero export keeps launch but drops configurations, measured and flight
-  // data. Treating either as "saved" would let the next Open discard the parts
-  // the file does not hold - which is the defect this guard exists for. Only
-  // the .ork round-trips everything, so only .ork marks.
+  // the RockSim export carries name, tree, motors and per-component mass/CG,
+  // and measured mass/CG only as a one-stage rocket's known mass, but no launch
+  // conditions and no flight configurations; the RASAero export keeps launch
+  // but drops configurations, measured and flight data. Treating either as
+  // "saved" would let the next Open discard the parts the file does not hold -
+  // which is the defect this guard exists for. Only the .ork round-trips
+  // everything, so only .ork marks.
   const onSaveRkt = async () => {
     try {
       // Computed mass, CG and position for EVERY part — rktComponentInfo says
@@ -2346,7 +2347,7 @@ export function App() {
       const compInfo = built ? rktComponentInfo(tree, (id) => built.rocket.componentInfo(id)) : {};
       const losses: string[] = [];
       const xml = exportRkt({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,
+        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, measured, notes: losses,
       });
       losses.push(...windProfileSaveNotes(launch, '.rkt'), ...motorLengthLossNotes(tree, '.rkt'));
       await download(xml, 'rkt', '', losses);

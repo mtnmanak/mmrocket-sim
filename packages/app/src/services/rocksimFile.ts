@@ -15,7 +15,8 @@ import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import {
-  autoDelaySaveNote, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
+  autoDelaySaveNote, type MeasuredFigures, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
+  type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor } from './motorDb.js';
@@ -287,6 +288,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
 
   const name = text(design, ':scope > Name') ?? 'Imported RockSim rocket';
   const stageCount = Math.max(1, Math.min(3, num(design, 'StageCount', 1)));
+  /** The name the stage built from RockSim's slot `i` (0 = Stage3Parts, the sustainer) takes. */
+  const stageName = (i: number): string => (i === 0 ? 'Sustainer' : stageCount === 2 || i === 1 ? 'Booster' : `Booster ${i}`);
 
   /**
    * The design-level weighed mass and balance point (issues-2026-08-23b #1).
@@ -320,28 +323,34 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
   const statedMassG = num(design, 'Stage3Mass', 0);
   const statedCgMm = num(design, 'Stage3CG', 0);
   let measured: { massKg: number | null; cgM: number | null } | undefined;
-  if (stageMassFlag && statedMassG > 0) {
-    const massKg = statedMassG / MASS;
-    const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
-    if (stageCount > 1) {
-      // A per-stage weight has no single meaning in a whole-rocket box, and
-      // exactly one corpus file is multi-stage. Report it rather than guess.
+  if (stageMassFlag && stageCount > 1) {
+    // A per-stage weight has no single meaning in a whole-rocket box, and
+    // two corpus files are multi-stage (USR_Two_The_Limit.rkt and a tester's
+    // 2,4-D.rkt). Report it rather than guess — every real stage's, top-down
+    // as the slots are: this read only <Stage3Mass>, so a file stating a
+    // booster's alone said nothing, and that is a file this app's own writer
+    // makes (exportRkt, `stageKnown`).
+    const stated = ['Stage3Mass', 'Stage2Mass', 'Stage1Mass'].slice(0, stageCount)
+      .map((tag, i) => ({ stage: stageName(i), g: num(design, tag, 0) }))
+      .filter((s) => s.g > 0);
+    if (stated.length) {
       notes.push(
         `This ${stageCount}-stage file states a measured mass per stage `
-        + `(sustainer ${statedMassG} g). Measured mass & CG on the Design tab `
+        + `(${stated.map((s) => `“${s.stage}” ${s.g} g`).join(', ')}). Measured mass & CG on the Design tab `
         + 'covers the whole rocket, so nothing was filled in — enter what you '
         + 'weighed there if you want it applied.');
-    } else {
-      measured = { massKg, cgM };
-      notes.push(
-        `This file states a measured mass of ${statedMassG} g`
-        + (cgM !== null ? ` balancing ${statedCgMm} mm from the nose tip` : '')
-        + '. It is filled into Measured mass & CG on the Design tab, which '
-        + 'reports the gap against your parts and can add it as ballast — '
-        + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
-        + 'pins the whole stage to it instead, which stops the individual part '
-        + 'masses counting.)');
     }
+  } else if (stageMassFlag && statedMassG > 0) {
+    const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
+    measured = { massKg: statedMassG / MASS, cgM };
+    notes.push(
+      `This file states a measured mass of ${statedMassG} g`
+      + (cgM !== null ? ` balancing ${statedCgMm} mm from the nose tip` : '')
+      + '. It is filled into Measured mass & CG on the Design tab, which '
+      + 'reports the gap against your parts and can add it as ballast — '
+      + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
+      + 'pins the whole stage to it instead, which stops the individual part '
+      + 'masses counting.)');
   }
 
   const readCommon = (el: Element, node: ComponentNode) => {
@@ -992,7 +1001,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     const stage: ComponentNode = {
       type: 'stage',
       id: freshId(),
-      name: i === 0 ? 'Sustainer' : stageCount === 2 || i === 1 ? 'Booster' : `Booster ${i}`,
+      name: stageName(i),
       children: [],
     };
     const slotEl = design.querySelector(`:scope > ${slot}`);
@@ -2131,6 +2140,13 @@ export interface RktExportInput {
    */
   compInfo?: Record<string, RktPartInfo>;
   /**
+   * The Design tab's Measured mass & CG — the airframe weighed, motor out.
+   * RockSim's known mass for a one-stage rocket is the same quantity, and the
+   * one importRkt fills that box from, so it goes out there when no stage
+   * override already holds it (exportRkt, `stageKnown`).
+   */
+  measured?: MeasuredFigures;
+  /**
    * Filled with what the file cannot say — one sentence each, for the Save
    * note. A .rkt is lossy by design (App's onSaveRkt never marks the design
    * saved), but a loss that changes how the rocket FLIES when the file is
@@ -2189,8 +2205,8 @@ export function rktComponentInfo(
  * re-opened at 227.1 g, its rocket's dry CG 20.7 mm further aft
  * (rocksimFile.test.ts). No encoding keeps it, so the save says so: one sentence
  * per part, and only where there is something inside to count again. A
- * stage's own override is another gap — the writer drops it altogether
- * (format audit row 21).
+ * STAGE's own override has one — RockSim's design-level known mass, which
+ * stands in for the whole stage — and goes out there (exportRkt, `stageKnown`).
  */
 function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   const out: string[] = [];
@@ -2212,7 +2228,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo, measured, notes }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
@@ -2385,6 +2401,44 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
       mx += s.mx;
     }
     return m > 0 ? mx / m - front : undefined;
+  };
+
+  /**
+   * A STAGE'S KNOWN MASS, as RockSim keeps it (format audit row 21): grams for
+   * <StageNMass> and the balance point beside it in mm, from the stage's own
+   * front (the nose tip, for the sustainer) — or undefined when the stage's own
+   * override changes nothing the kernel flies. RockSim flies that mass for the
+   * stage in place of its parts', and desktop OpenRocket's reader pins the
+   * stage to it (RockSimHandler.java:219-265) from what its writer puts there
+   * (StageDTO.java:42-75). This wrote none of it, so a stage pinned to a
+   * weighed mass — App's Pin stage to measured, every RASAero import — reached
+   * RockSim as the sum of its parts.
+   *
+   * The figures are the ones the kernel flies for the stage (structureOf), not
+   * the override as typed: an override that does not cover the parts sits on
+   * top of them, and desktop's StageDTO, writing it alone, leaves every part
+   * out. The balance point goes out only where the override moves it — the
+   * one case structureOf's moment is read, and there the CG override places
+   * the stage's mass — else 0, RockSim's own "none stated" (4 of the 67 corpus
+   * files that state a mass), which leaves RockSim, desktop and this app's
+   * reader computing it. With no kernel figures the override itself goes out,
+   * desktop's value — exact for one that covers the parts, the shape every pin
+   * in the app writes.
+   */
+  const stageKnown = (stage: ComponentNode): { massG: number; cgMm: number } | undefined => {
+    const massOv = numOpt(stage, 'overrideMass');
+    const cgOv = numOpt(stage, 'overrideCGX');
+    // A stage has no mass of its own, so its CG override moves only its mass
+    // override and, when it covers them, its parts (calculateStructure).
+    const cgMoves = cgOv !== undefined && (massOv !== undefined || stage['overrideSubcomponentsCG'] === true);
+    if (massOv === undefined && !cgMoves) return undefined;
+    const s = structureOf(stage);
+    const front = stage.id ? compInfo?.[stage.id]?.positionX : undefined;
+    if (s && front !== undefined && s.m > 0) {
+      return { massG: s.m * MASS, cgMm: cgMoves ? (s.mx / s.m - front) * LEN : 0 };
+    }
+    if (massOv === undefined || !(massOv > 0)) return undefined;
+    return { massG: massOv * MASS, cgMm: cgMoves && cgOv !== undefined ? cgOv * LEN : 0 };
   };
 
   const common = (
@@ -2901,6 +2955,46 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
   emit('<RocketDesign>');
   emit(`<Name>${esc(name)}</Name>`);
   emit(`<StageCount>${stagesIn.length}</StageCount>`);
+  // Each stage's known mass, top-down like the parts: index 0, the sustainer,
+  // is <Stage3Mass>. A one-stage rocket's Measured mass & CG box is the same
+  // quantity, and the one importRkt fills from it, so it goes out there when
+  // no stage override holds the slot; RockSim's is a mass, so a balance point
+  // alone has nowhere to go. More stages than one and the box, which is the
+  // whole rocket's, has no slot either.
+  const known = stagesIn.map(stageKnown);
+  const boxMass = measured?.massKg;
+  const boxCg = measured?.cgM;
+  if (stagesIn.length === 1 && !known[0] && typeof boxMass === 'number' && Number.isFinite(boxMass) && boxMass > 0) {
+    known[0] = {
+      massG: boxMass * MASS,
+      cgMm: typeof boxCg === 'number' && Number.isFinite(boxCg) && boxCg > 0 ? boxCg * LEN : 0,
+    };
+  }
+  if (known.some((k) => k !== undefined)) {
+    // RockSim's own order, and BEFORE <Stage3Parts>: desktop's reader is SAX
+    // and builds each stage, override and all, when its parts open.
+    for (const i of [0, 1, 2]) emit(`<Stage${3 - i}Mass>${known[i]?.massG ?? 0}</Stage${3 - i}Mass>`);
+    emit(`<Stage3CG>${known[0]?.cgMm ?? 0}</Stage3CG>`);
+    emit(`<Stage2CGAlone>${known[1]?.cgMm ?? 0}</Stage2CGAlone>`);
+    emit(`<Stage1CGAlone>${known[2]?.cgMm ?? 0}</Stage1CGAlone>`);
+    emit('<UseKnownMass>1</UseKnownMass>');
+  }
+  // What a stage override becomes on the way back in here: importRkt reads
+  // a known mass into Measured mass & CG, or for more stages than one into
+  // a note, and never pins the stage (ruling 2026-08-23), so the design it
+  // re-opens flies the parts.
+  stagesIn.forEach((s, i) => {
+    if (!known[i] || (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined)) return;
+    const mass = numOpt(s, 'overrideMass') !== undefined;
+    const both = mass && numOpt(s, 'overrideCGX') !== undefined;
+    notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
+      + " out as RockSim's known mass for the stage, which RockSim and desktop OpenRocket fly in place of its parts. "
+      + (stagesIn.length === 1
+        ? 'This app opens that into Measured mass & CG on the Design tab instead of pinning the stage, so the design '
+          + 're-opened here flies its parts until you apply it there.'
+        : "This app opens a multi-stage rocket's stage masses as a note only, so the design re-opened here flies its parts.")
+      + ` Save a .ork file to keep ${both ? 'them' : 'it'}.`);
+  });
   // Slots are top-down: our stage 0 (sustainer) = Stage3Parts.
   const slots = ['Stage3Parts', 'Stage2Parts', 'Stage1Parts'];
   for (let i = 0; i < 3; i++) {
