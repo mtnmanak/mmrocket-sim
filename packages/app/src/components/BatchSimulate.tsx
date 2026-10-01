@@ -10,7 +10,7 @@ import {
   classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import type { SimRun } from '../services/simReport.js';
+import { runStoppedEarly, type SimRun } from '../services/simReport.js';
 import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from '../services/simStore.js';
@@ -81,8 +81,9 @@ export function gradeBatchRun(run: SimRun, criteria: Criteria): string[] {
   // An aborted flight can never be "accepted": the kernel stopped it early,
   // so its apogee is whatever height the rocket had reached when it gave up.
   // Before this, a tumbling design's 140 m truncated flight could sail past
-  // an apogee criterion and be graded ✓ in green.
-  if (run.simWarnings?.some((w) => w.key === 'SIM_ABORT')) {
+  // an apogee criterion and be graded ✓ in green. The same predicate as the
+  // Saved simulations Safe column (runStoppedEarly), so the two cannot differ.
+  if (runStoppedEarly(run)) {
     failed.push('flight stopped early');
   }
   if (criteria.minRodExit !== null

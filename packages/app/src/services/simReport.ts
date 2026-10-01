@@ -276,6 +276,23 @@ export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' |
   return states.includes(null) ? null : true;
 }
 
+/**
+ * Did the kernel stop this flight before it finished — on the main flight or
+ * any booster's branch? buildSimRun folds each SIM_ABORT into `simWarnings`
+ * (abortWarnings, below), because the kernel returns a normal, truncated result
+ * rather than raising one. The numbers are wherever the rocket had got to when
+ * the kernel gave up, so no grade built on them may read safe or accepted.
+ *
+ * ONE test for every grader of a stored run (audit 2026-09-30): the batch's
+ * acceptance grade (BatchSimulate's gradeBatchRun) refused an aborted flight
+ * while the Saved simulations Safe column, which never looked, graded the same
+ * run ✓ — for a rocket that never left the pad, every verdict it reads is blank.
+ * A run stored before warnings were recorded cannot say, and reads false.
+ */
+export function runStoppedEarly(run: Pick<SimRun, 'simWarnings'>): boolean {
+  return run.simWarnings?.some((w) => w.key === 'SIM_ABORT') ?? false;
+}
+
 /** One recovery-device deployment (dual deploy: drogue + main = two rows). */
 export interface DeploymentReport {
   /** Device name from the design tree (e.g. "Drogue", "Main Parachute"). */
