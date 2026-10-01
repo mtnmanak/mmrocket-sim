@@ -52,6 +52,21 @@ function podTree(): { tree: RocketTree; core: string } {
   return { tree, core: motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id! };
 }
 
+/**
+ * The starter rocket with a second motor mount, `mmt-b`, beside its own in the
+ * body tube: a cluster built as separate mounts. Same stage, same rank, so
+ * primaryMountOf takes whichever of the two it is handed first.
+ */
+function tieTree(): { tree: RocketTree; starter: string } {
+  const t = defaultTree();
+  const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+  const tree = addChild(t, body.id!, {
+    type: 'innertube', id: 'mmt-b', name: 'Second MMT', motorMount: true,
+    length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+  } as ComponentNode);
+  return { tree, starter: motorMounts(tree).find((m) => m.id !== 'mmt-b')!.id! };
+}
+
 const ref = (over: Partial<OrkMotorRef> = {}): OrkMotorRef => ({
   designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6, ...over,
 });
@@ -133,7 +148,7 @@ describe('orkMotorSet', () => {
     const records = { [core]: motor({ meta: { autoDelay: true } }) };
     const flown = { A: { [core]: 7 }, B: { [core]: 9 } };
     const delayIn = (configKey: string) =>
-      orkMotorSet({ records, tree, flown, configKey, exLibrary: noLibrary })[core]!.delay;
+      orkMotorSet({ records, tree, flown, configKey, exLibrary: noLibrary, first: 'refs' })[core]!.delay;
     expect([delayIn('A'), delayIn('B')]).toEqual([7, 9]);
     // No entry for the configuration: the provisional delay. A file-sourced id
     // that names something every object inherits finds nothing either.
@@ -142,7 +157,7 @@ describe('orkMotorSet', () => {
     // through the prototype, "constructor" is Object, whose `length` is 1.
     const inherited = orkMotorSet({
       records: { length: motor({ meta: { autoDelay: true } }) }, tree, flown: {}, configKey: 'constructor',
-      exLibrary: noLibrary,
+      exLibrary: noLibrary, first: 'refs',
     });
     expect(inherited.length!.delay).toBe(5);
   });
@@ -152,45 +167,90 @@ describe('orkMotorSet', () => {
     const records = { [core]: motor({ meta: { autoDelay: true } }) };
     for (const bad of ['7', -1, NaN, Infinity, null]) {
       const flown = { '': { [core]: bad } } as unknown as Record<string, Record<string, number>>;
-      expect(orkMotorSet({ records, tree, flown, configKey: '', exLibrary: noLibrary })[core]!.delay, String(bad))
-        .toBe(5);
+      const out = orkMotorSet({ records, tree, flown, configKey: '', exLibrary: noLibrary, first: 'records' });
+      expect(out[core]!.delay, String(bad)).toBe(5);
     }
   });
 
-  it('keeps the weighed pad mass on the primary mount alone', () => {
-    const { tree, core } = podTree();
-    const out = orkMotorSet({
-      records: {
-        'pod-mmt': motor({ padMassKg: 0.3 }), [core]: motor({ padMassKg: 0.25 }),
-        // A record for a mount the tree no longer has can neither win nor keep one.
-        gone: motor({ padMassKg: 0.4 }),
-      },
-      tree, configKey: '', exLibrary: noLibrary,
+  // The rank decides these, whichever order a caller hands the set in.
+  for (const first of ['records', 'refs'] as const) {
+    it(`keeps the weighed pad mass on the primary mount alone (${first} first)`, () => {
+      const { tree, core } = podTree();
+      const out = orkMotorSet({
+        records: {
+          'pod-mmt': motor({ padMassKg: 0.3 }), [core]: motor({ padMassKg: 0.25 }),
+          // A record for a mount the tree no longer has can neither win nor keep one.
+          gone: motor({ padMassKg: 0.4 }),
+        },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(out[core]!.padMassKg).toBe(0.25);
+      expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
+      expect(out.gone).not.toHaveProperty('padMassKg');
     });
-    expect(out[core]!.padMassKg).toBe(0.25);
-    expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
-    expect(out.gone).not.toHaveProperty('padMassKg');
+
+    it(`writes a reference only on a mount the tree has, with nothing loaded on it (${first} first)`, () => {
+      const { tree, core } = podTree();
+      const out = orkMotorSet({
+        records: { [core]: motor() },
+        refs: { [core]: ref({ designation: 'LOSES' }), 'pod-mmt': ref(), gone: ref({ designation: 'GONE' }) },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(Object.fromEntries(Object.entries(out).map(([id, m]) => [id, m.designation])))
+        .toEqual({ [core]: 'C6', 'pod-mmt': 'ZQ9999X' });
+    });
+
+    it(`keeps a reference’s pad mass when the reference is the primary (${first} first)`, () => {
+      const { tree, core } = podTree();
+      const out = orkMotorSet({
+        records: { 'pod-mmt': motor({ padMassKg: 0.3 }) },
+        refs: { [core]: ref({ padMassKg: 0.5 }) },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(out[core]!.padMassKg).toBe(0.5);
+      expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
+    });
+  }
+});
+
+/**
+ * TWO MOUNTS IN THE SAME STAGE AND RANK (verifier's review of audit 2026-09-30,
+ * item 23). primaryMountOf ranks a tie by the order it is handed, so whether a
+ * set's loaded motors or its references come first decides which mount keeps
+ * the weighed pad mass. App's two writers always built their sets in different
+ * orders, and the first copy of this module wrote both loaded motors first: a
+ * stored configuration whose pad mass the file put on a reference it named first
+ * was saved without it.
+ */
+describe('orkMotorSet — a tie for the pad mass', () => {
+  it('references first (a stored configuration): the reference keeps it', () => {
+    const { tree, starter } = tieTree();
+    const out = orkMotorSet({
+      records: { 'mmt-b': motor() }, refs: { [starter]: ref({ padMassKg: 0.5 }) },
+      tree, configKey: 'X', exLibrary: noLibrary, first: 'refs',
+    });
+    expect(out[starter]!.padMassKg).toBe(0.5);
+    expect(out['mmt-b']).not.toHaveProperty('padMassKg');
   });
 
-  it('writes a reference only on a mount the tree has, with nothing loaded on it', () => {
-    const { tree, core } = podTree();
+  it('references first: a mount with both writes its loaded motor, in its reference’s place', () => {
+    const { tree, starter } = tieTree();
     const out = orkMotorSet({
-      records: { [core]: motor() },
-      refs: { [core]: ref({ designation: 'LOSES' }), 'pod-mmt': ref(), gone: ref({ designation: 'GONE' }) },
-      tree, configKey: '', exLibrary: noLibrary,
+      records: { 'mmt-b': motor({ padMassKg: 0.42 }) },
+      refs: { 'mmt-b': ref({ designation: 'LOSES' }), [starter]: ref({ padMassKg: 0.5 }) },
+      tree, configKey: 'X', exLibrary: noLibrary, first: 'refs',
     });
-    expect(Object.fromEntries(Object.entries(out).map(([id, m]) => [id, m.designation])))
-      .toEqual({ [core]: 'C6', 'pod-mmt': 'ZQ9999X' });
+    expect(out['mmt-b']).toMatchObject({ designation: 'C6', padMassKg: 0.42 });
+    expect(out[starter]).not.toHaveProperty('padMassKg');
   });
 
-  it('keeps a reference’s pad mass when the reference is the primary', () => {
-    const { tree, core } = podTree();
+  it('loaded motors first (the working set): the loaded motor keeps it, where its card shows the field', () => {
+    const { tree, starter } = tieTree();
     const out = orkMotorSet({
-      records: { 'pod-mmt': motor({ padMassKg: 0.3 }) },
-      refs: { [core]: ref({ padMassKg: 0.5 }) },
-      tree, configKey: '', exLibrary: noLibrary,
+      records: { 'mmt-b': motor({ padMassKg: 0.42 }) }, refs: { [starter]: ref() },
+      tree, configKey: '', exLibrary: noLibrary, first: 'records',
     });
-    expect(out[core]!.padMassKg).toBe(0.5);
-    expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
+    expect(out['mmt-b']!.padMassKg).toBe(0.42);
+    expect(out[starter]).not.toHaveProperty('padMassKg');
   });
 });

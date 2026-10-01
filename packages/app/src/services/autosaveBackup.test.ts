@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { defaultTree, motorMounts } from '../tree/treeModel.js';
+import { addChild, defaultTree, motorMounts } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { importOrk } from './orkFile.js';
@@ -113,6 +113,40 @@ describe('autosavedDesignFile', () => {
     const backMount = motorMounts(back.tree)[0]!.id!;
     expect(back.motors[backMount]?.designation).toBe('K1100T');
     expect(back.motors[backMount]?.delay).toBe(Infinity);
+  });
+
+  /**
+   * TWO MOUNTS IN THE SAME STAGE AND RANK (verifier's review of audit
+   * 2026-09-30, item 23), one with a motor no catalogue has: which of them keeps
+   * the weighed pad mass goes by the order a set comes in, and this file writes
+   * each set in the order a Save does. The working set's loaded motor first, so
+   * the value under its card is the one kept; a stored configuration's
+   * references first, so the value the file put on the motor it could not load
+   * is kept.
+   */
+  it('keeps each configuration’s pad mass where a Save keeps it, on two mounts of one stage', () => {
+    const base = defaultTree();
+    const body = base.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    const tree = addChild(base, body.id!, {
+      type: 'innertube', id: 'mmt-b', name: 'Second MMT', motorMount: true,
+      length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+    } as ComponentNode);
+    const starter = motorMounts(tree).find((m) => m.id !== 'mmt-b')!.id!;
+    const zq = { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 };
+    const working = { 'mmt-b': { ...c6(), padMassKg: 0.42 } };
+    saveSessionDebounced({
+      tree, mountMotors: working, launch: DEFAULT_CONDITIONS, activeConfigId: 'W', unmatchedRefs: { [starter]: zq },
+      savedConfigs: [
+        { id: 'W', name: null, isDefault: true, motors: working, unmatchedRefs: { [starter]: zq } },
+        {
+          id: 'X', name: 'Other', isDefault: false, motors: { 'mmt-b': c6() },
+          unmatchedRefs: { [starter]: { ...zq, padMassKg: 0.5 } },
+        },
+      ],
+    });
+    vi.runAllTimers();
+    const back = importOrk(autosavedDesignFile()!.data);
+    expect(Object.fromEntries(back.configs.map((c) => [c.id, c.padMassKg]))).toEqual({ W: 0.42, X: 0.5 });
   });
 
   /**

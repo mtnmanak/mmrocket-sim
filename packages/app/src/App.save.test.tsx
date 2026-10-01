@@ -10,8 +10,9 @@ import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { MountMotor } from './model/design.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
-import { exportOrk } from './services/orkFile.js';
+import { exportOrk, importOrk } from './services/orkFile.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
@@ -536,6 +537,55 @@ describe('what a Save .ork hands the writer for each motor', () => {
     ]);
     // And the file says what the Auto mount was saved at.
     expect(document.body.textContent).toContain('it is saved at its provisional 5 s');
+  }, 30000);
+});
+
+/**
+ * A PAD MASS ON ONE OF TWO MOUNTS IN THE SAME STAGE (verifier's review of audit
+ * 2026-09-30, item 23). A cluster built as separate mounts, one holding a motor
+ * no catalogue has: primaryMountOf ranks the two by the order it is handed
+ * them, so the order a set is built in decides which keeps the weighed pad
+ * mass. The working set has always gone loaded motors first, and a stored
+ * configuration references first. The shared mapping's first copy wrote both
+ * loaded-first, and a stored configuration's pad mass, which the file had put
+ * on the motor it could not load, was dropped from the saved file.
+ */
+describe('a pad mass on one of two mounts in the same stage', () => {
+  it('is saved for every configuration, and the crash file keeps the same', async () => {
+    const base = defaultTree();
+    const body = base.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    const tree = addChild(base, body.id!, {
+      type: 'innertube', id: 'mmt-b', name: 'Second MMT', motorMount: true,
+      length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+    } as ComponentNode);
+    const starter = motorMounts(tree).find((m) => m.id !== 'mmt-b')!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const zq = { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 };
+    // Weighed under the second mount's card: in the working set the loaded
+    // motor ranks ahead of the reference, so that is where the field is.
+    const working = { 'mmt-b': { ...c6, padMassKg: 0.42, padMassWeighedWith: 'weighed' } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: working, unmatchedRefs: { [starter]: zq },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(), activeConfigId: 'W',
+      savedConfigs: [
+        { id: 'W', name: null, isDefault: true, motors: working, unmatchedRefs: { [starter]: zq } },
+        // As importApply attaches a file's <measuredpadmass configid="X">: to the
+        // first of the file's motors for X, here the one no catalogue has.
+        {
+          id: 'X', name: 'Other', isDefault: false, motors: { 'mmt-b': c6 },
+          unmatchedRefs: { [starter]: { ...zq, padMassKg: 0.5 } },
+        },
+      ],
+    }));
+    const host = await mountApp();
+    await settle(50);
+    await saveAs(host, 'Save .ork');
+    await settle(0);
+
+    const padMasses = (xml: string) => Object.fromEntries(importOrk(xml).configs.map((c) => [c.id, c.padMassKg]));
+    expect(padMasses(vi.mocked(exportOrk).mock.results.at(-1)!.value as string)).toEqual({ W: 0.42, X: 0.5 });
+    // The crash-recovery file, from the session App stored, keeps the same.
+    expect(padMasses(autosavedDesignFile()!.data)).toEqual({ W: 0.42, X: 0.5 });
   }, 30000);
 });
 

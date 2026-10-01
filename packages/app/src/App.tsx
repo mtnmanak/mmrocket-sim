@@ -2028,11 +2028,13 @@ export function App() {
    * shared with the crash-recovery download. `flown`: each Auto mount's
    * rounded delay from the newest complete qualifying flight
    * (flownAutoDelaysNow); with none, an Auto mount keeps its provisional delay
-   * and the Save says so (autoDelaySaveNote).
+   * and the Save says so (autoDelaySaveNote). Loaded motors first, as
+   * filePrimaryMountId ranks them, so the pad mass kept on a tie is the one
+   * under the field the card shows.
    */
   const exportMotorsMap = (flown: FlownAutoDelays = {}): Record<string, OrkExportMotor> => orkMotorSet({
     records: Object.fromEntries(assigned), refs: unmatchedRefs, tree, flown,
-    configKey: activeConfigId ?? '', exLibrary: loadExMotors,
+    configKey: activeConfigId ?? '', exLibrary: loadExMotors, first: 'records',
   });
 
   /**
@@ -2153,9 +2155,12 @@ export function App() {
     // verbatim for any mount this configuration could not match, so a preset
     // the user has never applied does not quietly lose its motors on the way
     // out — and the same primary gate, so each configuration writes ONE pad
-    // mass, its primary's.
+    // mass, its primary's. References first, as this has always built a
+    // stored configuration: on a same-stage tie that decides which mount's
+    // pad mass is kept (orkExportMotors' `first`).
     motors: orkMotorSet({
       records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotors,
+      first: 'refs',
     }),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),

@@ -1,7 +1,7 @@
 import type { MountMotor } from '../model/design.js';
 import { loadExMotors } from './exMotors.js';
 import { safeName } from './fileName.js';
-import { orkMotorSet } from './orkExportMotors.js';
+import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
 import { exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
 
@@ -44,16 +44,19 @@ export interface AutosaveFile {
  * goes out at the delay it flew — what a Save writes — from the copy App keeps
  * with the autosave (SessionState.flownAutoDelays), since the runs that say
  * are judged against a build this path does not have; with none it keeps its
- * provisional delay.
+ * provisional delay. `first` is the order a Save builds the same set in, which
+ * decides a same-stage tie for the pad mass: the working set's loaded motors
+ * first, a stored configuration's references first.
  */
 function motorSet(
   s: SessionState,
   configKey: string,
   motors: Record<string, MountMotor> | undefined,
   refs: Record<string, OrkMotorRef> | undefined,
+  first: OrkMotorSetInput['first'],
 ): Record<string, OrkExportMotor> {
   return orkMotorSet({
-    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotors,
+    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotors, first,
   });
 }
 
@@ -69,11 +72,11 @@ export function autosaveToOrk(s: SessionState): string {
     // 2026-09-22): a design with no configurations keeps them nowhere else,
     // and its recovery file lost the motor. A matched record still wins its
     // mount (orkMotorSet).
-    motors: motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs),
+    motors: motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs, 'records'),
     launch: s.launch,
     configs: s.savedConfigs?.map((c) => ({
       id: c.id, name: c.name, isDefault: c.isDefault,
-      motors: motorSet(s, c.id, c.motors, c.unmatchedRefs),
+      motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
       ...(c.deployments ? { deployments: c.deployments } : {}),
       ...(c.separations ? { separations: c.separations } : {}),
     })),

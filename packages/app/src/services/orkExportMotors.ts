@@ -148,6 +148,21 @@ export interface OrkMotorSetInput {
   /** This set's configuration: its id, or '' for a design with none active. */
   configKey: string;
   exLibrary: ExLibrary;
+  /**
+   * Which come first in the set, the loaded motors or the references. It
+   * decides one thing: which of two mounts in the same stage and rank keeps
+   * the weighed pad mass, because primaryMountOf ranks such a tie by the order
+   * it is handed. Each caller keeps the order App has always built its set in,
+   * so no Save changes (verifier's review of audit 2026-09-30, item 23):
+   * - 'records' for the working set, as App.filePrimaryMountId ranks it, so
+   *   the value written is the one under the card that shows the field;
+   * - 'refs' for a stored configuration, as exportConfigs spread it; a mount
+   *   with both writes its loaded motor, in the reference's place.
+   * Neither is the file's own order, which importApply attaches a file's pad
+   * mass by, so on such a tie either can drop the value the file was opened
+   * with: a known limit of both, which this mapping does not change.
+   */
+  first: 'records' | 'refs';
 }
 
 /**
@@ -156,21 +171,26 @@ export interface OrkMotorSetInput {
  * on the primary mount alone.
  */
 export function orkMotorSet(input: OrkMotorSetInput): Record<string, OrkExportMotor> {
-  const { records, refs, tree, flown, configKey, exLibrary } = input;
+  const { records, refs, tree, flown, configKey, exLibrary, first } = input;
   const motors: Record<string, OrkExportMotor> = {};
-  for (const [id, mm] of Object.entries(records)) {
-    motors[id] = toOrkMotor(mm, flownDelay(flown, configKey, id), exLibrary);
-  }
   // Motors the import could not resolve ride back out VERBATIM on any mount
   // that still has nothing on it. Without this the file the user saved came
   // out with that mount empty: opening it again in desktop OpenRocket showed
   // a configuration with no motor, and the original reference — the
   // manufacturer, the diameter and length, and the <digest> that is
   // desktop's silent-match tier — was gone from their only copy. A mount
-  // that HAS a matched motor is not a candidate: the user's choice wins.
+  // that HAS a matched motor writes that motor: the user's choice wins (with
+  // the references first, it replaces its mount's reference, in its place).
   const mountIds = new Set(motorMounts(tree).map((m) => m.id));
-  for (const [id, ref] of Object.entries(refs ?? {})) {
-    if (!Object.hasOwn(motors, id) && mountIds.has(id)) motors[id] = refToExportMotor(ref);
+  const addRefs = (): void => {
+    for (const [id, ref] of Object.entries(refs ?? {})) {
+      if (!Object.hasOwn(motors, id) && mountIds.has(id)) motors[id] = refToExportMotor(ref);
+    }
+  };
+  if (first === 'refs') addRefs();
+  for (const [id, mm] of Object.entries(records)) {
+    motors[id] = toOrkMotor(mm, flownDelay(flown, configKey, id), exLibrary);
   }
+  if (first !== 'refs') addRefs();
   return padMassOnPrimaryOnly(motors, tree);
 }
