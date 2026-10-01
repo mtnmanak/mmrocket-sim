@@ -78,7 +78,7 @@ import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
-import { flyLaunch, reflyRun } from './services/flightRunner.js';
+import { flyLaunch, installedMounts, reflyRun } from './services/flightRunner.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotors } from './services/exMotors.js';
 import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
@@ -1151,6 +1151,13 @@ export function App() {
   // now, so a failed build stops re-rendering the notice stack forever.
   const motorFailures = useMemo(() => built?.motorFailures ?? [], [built]);
   /**
+   * The mounts the build refused. Launch leaves them off the handle and stores
+   * the delay vector of the mounts it flew, so every re-fly — and the check
+   * that offers one — leaves out the same ones (flightRunner.installedMounts),
+   * or the stored vector can never match (audit 2026-09-30).
+   */
+  const refusedMountIds = useMemo(() => motorFailures.map((f) => f.mountId), [motorFailures]);
+  /**
    * The hardware this build carries (kg), 0 when none: a provenance term
    * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
@@ -1720,7 +1727,7 @@ export function App() {
         const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
           assigned,
           mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? m.id!])),
-          refusedMountIds: built.motorFailures.map((m) => m.mountId),
+          refusedMountIds,
           hardware: built.hardware,
           primaryMountId,
           simOptions: kernelSimOptions(launch),
@@ -1872,9 +1879,11 @@ export function App() {
   const canShowCharts = useCallback((run: SimRun): boolean => {
     if (!currentMatchKey || !built || !primaryMountId) return false;
     if (reflightCache.has(run.id)) return false;
+    // The mounts the run FLEW, as reflyRun will see them — a refused motor
+    // was never in its delay vector (flightRunner.installedMounts).
     return runMatchesDesign(run, currentMatchKey)
-      && canReplayDelays(run.delayResolution, assigned, primaryMountId, run.delayS);
-  }, [currentMatchKey, built, primaryMountId, reflightCache, assigned]);
+      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), primaryMountId, run.delayS);
+  }, [currentMatchKey, built, primaryMountId, reflightCache, assigned, refusedMountIds]);
 
   /**
    * The newest stored run this design could still reproduce — what the
@@ -1912,7 +1921,7 @@ export function App() {
       // would otherwise be silently one model behind.
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf };
       const res = reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         simOptions: kernelSimOptions(launch),
         fly: current,
@@ -1925,7 +1934,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
+  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1959,7 +1968,7 @@ export function App() {
       // two can differ — and a CSV that re-flew on today's model would be a
       // different flight from the plots it sits under, under the same name.
       return reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         simOptions: { ...kernelSimOptions(launch), series: 'full' },
@@ -1971,7 +1980,7 @@ export function App() {
     } finally {
       fullSeriesHolds.current -= 1;
     }
-  }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
+  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
