@@ -173,6 +173,71 @@ describe('the filter chips', () => {
   });
 });
 
+describe('a maker chosen where this mount does not offer it', () => {
+  /**
+   * The criteria persist across sessions and mounts, and the maker chips draw
+   * only what THIS mount offers. The batch filtered by the stored list as it
+   * stood, so Loki chosen on a 54 mm mount — Loki makes nothing under 38 mm —
+   * left a 24 mm batch at "0 candidate motors", Simulate disabled, no chip
+   * pressed and nothing on screen to say why; an out-of-production-only maker
+   * did the same once "include OOP" was unticked (audit 2026-09-30). The
+   * motor browser intersects the stored list with the chips it draws, and the
+   * diameter classes here always did; the makers now do too. The stored list
+   * is left alone, so the choice comes back on a mount that offers it.
+   */
+  const store = (criteria: Record<string, unknown>) =>
+    localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify(criteria));
+  const pressedMakers = () => [...host.querySelectorAll('[aria-label="Manufacturers"] button[aria-pressed="true"]')]
+    .map((b) => (b.textContent ?? '').replace(/^✓/, '').trim().split(' ')[0]);
+  const allButton = () => [...host.querySelectorAll('[aria-label="Manufacturers"] button')]
+    .find((b) => b.textContent === 'all');
+  /** The dialog's own candidate count with no maker stored — read from a fresh mount. */
+  const unfiltered = () => {
+    mount();
+    const n = candidateCount();
+    act(() => root.unmount());
+    root = createRoot(host);
+    return n;
+  };
+
+  it('a stored maker this mount does not offer filters nothing', async () => {
+    const all = unfiltered();
+    expect(all).toBeGreaterThan(0);
+    store({ manufacturers: ['Loki'] });
+    mount();
+    expect(candidateCount()).toBe(all);
+    expect(pressedMakers()).toEqual([]);
+    // Nothing applies, so there is nothing for "all" to clear.
+    expect(allButton()).toBeUndefined();
+    expect(primary().disabled).toBe(false);
+    sweep.mockResolvedValue({ rows: [], stopped: false });
+    await start();
+    expect(sweep.mock.calls[0]![0].candidates).toHaveLength(all);
+    // Kept for a mount that offers it.
+    expect(JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!).manufacturers).toEqual(['Loki']);
+  });
+
+  it('nor does a maker whose motors here are all out of production, with "include OOP" unticked', () => {
+    const all = unfiltered();
+    // Ellis's 24 mm motors are all out of production in the shipped catalogue.
+    expect(MOTOR_DB.some((m) => m.manufacturerAbbrev === 'Ellis' && m.diameter === 24)).toBe(true);
+    expect(MOTOR_DB.some((m) => m.manufacturerAbbrev === 'Ellis' && m.diameter === 24 && isAvailable(m))).toBe(false);
+    store({ manufacturers: ['Ellis'], includeOOP: false });
+    mount();
+    expect(candidateCount()).toBe(all);
+  });
+
+  it('a stored maker the mount DOES offer still applies beside one it does not', () => {
+    const klima = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Klima' && m.diameter <= 24 && isAvailable(m)).length;
+    expect(klima).toBeGreaterThan(0);
+    store({ manufacturers: ['Loki', 'Klima'] });
+    mount();
+    expect(candidateCount()).toBe(klima);
+    expect(pressedMakers()).toEqual(['Klima']);
+    expect(allButton()).toBeDefined();
+  });
+});
+
 describe('the criteria boxes', () => {
   /**
    * A <label> with no `for` names its FIRST labelable descendant, which in the

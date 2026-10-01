@@ -391,12 +391,26 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     () => manufacturersForMount(mountDiameterMm, criteria.includeOOP, allMotors),
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
+  /**
+   * The maker chips that APPLY: the stored selection intersected with the
+   * makers this mount offers as chips — the rule the diameter classes below
+   * always followed, and the motor browser's. The criteria persist across
+   * sessions and mounts, so Loki chosen on a 54 mm mount (it makes nothing under
+   * 38 mm), or an out-of-production-only maker once "include OOP" was unticked,
+   * went on filtering with no chip on screen: "0 candidate motors", Simulate
+   * disabled, nothing to say why (audit 2026-09-30). The stored list is left as
+   * it is, so the choice comes back on a mount that offers it.
+   */
+  const appliedMakers = useMemo(() => {
+    const offered = new Set(manufacturers.map((m) => m.abbrev));
+    return criteria.manufacturers.filter((m) => offered.has(m));
+  }, [criteria.manufacturers, manufacturers]);
 
   // Motors longer than the selected mount's max motor length are EXCLUDED here (not
   // just flagged): in a batch there's no point flying motors that don't fit.
   const { candidates, tooLongCount } = useMemo(() => {
     const filtered = filterMotors({
-      manufacturers: new Set(criteria.manufacturers),
+      manufacturers: new Set(appliedMakers),
       classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
       boreMm: mountDiameterMm,
       includeOOP: criteria.includeOOP,
@@ -409,7 +423,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       candidates: sortMotors(fitting, 'totImpulseNs', -1),
       tooLongCount: filtered.length - fitting.length,
     };
-  }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
+  }, [criteria, appliedMakers, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
 
   /**
    * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
@@ -613,7 +627,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 </button>
               );
             })}
-            {criteria.manufacturers.length > 0 && (
+            {appliedMakers.length > 0 && (
               <button className="file-btn" onClick={() => setCriteria({ ...criteria, manufacturers: [] })}>all</button>
             )}
           </div>
