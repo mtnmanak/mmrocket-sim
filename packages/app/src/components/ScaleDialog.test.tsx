@@ -175,6 +175,31 @@ describe('ScaleDialog', () => {
     expect(text()).toContain('no longer fit');
   });
 
+  it('a SOLID mount says it has no bore, and sends no one to pick another motor', async () => {
+    // Solid (filled): no bore before the scale or after it. The line read
+    // "0.0 → 0.0 mm — not a motor size you can buy; nearest is 6 mm. The 24 mm
+    // motor loaded in it will no longer fit.", with a warning to pick a new
+    // motor on Motors & Launch, whose browser lists none for a 0 mm bore.
+    const rod: RocketTree = {
+      name: 'rod',
+      components: [{
+        type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.03 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b', name: 'Mount', length: 0.8, outerRadius: 0.03, thickness: 0.001,
+            motorMount: true, filled: true,
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    };
+    await render({ b: 0.024 }, rod);
+    expect(text()).toContain('Mount: 0.0 → 0.0 mm — solid (filled), so it has no bore and no motor fits it,'
+      + ' scaled or not. Untick Solid (filled) on it to make it a tube.');
+    expect(text()).not.toContain('nearest is 6');
+    expect(text()).not.toContain('will no longer fit');
+    expect(text()).not.toContain('A loaded motor will not fit the scaled mount');
+  });
+
   it('applies the factor that is on screen', async () => {
     await render();
     const [factor] = numberInputs();

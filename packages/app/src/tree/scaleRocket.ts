@@ -366,8 +366,13 @@ export interface MountPreview {
    * the notes that it simply was not a standard size. One discriminant, three
    * consumers, so the next change to what counts as snapped cannot make the
    * dialog promise one outcome and the note report another.
+   *
+   * `solid` is a mount ticked Solid (filled): no bore at any size, so nothing
+   * to size and no motor to lose. As `off-class` it offered "nearest is 6 mm"
+   * for 0 mm, and the motor checks called a motor that never fitted it lost
+   * and sent the reader to a motor browser that lists none for it.
    */
-  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized';
+  verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized' | 'solid';
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
@@ -494,11 +499,14 @@ export function previewMounts(
     // a null target. Found by the test, not by inspection.
     const chosenExplicitly = targetBoreMm !== null
       && choice !== undefined && choice !== 'scaled' && choice !== 'nearest';
-    const verdict: MountPreview['verdict'] = chosenExplicitly ? 'resized'
-      : onStandardClass && targetBoreMm === null ? 'on-class'
-        : targetBoreMm !== null ? 'snapped'
-          : snapMounts && isAirframe ? 'airframe-left'
-            : 'off-class';
+    // A SOLID mount comes first: it is the airframe, so nothing resizes it, and
+    // with no bore there is no class to be on, near or off.
+    const verdict: MountPreview['verdict'] = isSolidTube(m) ? 'solid'
+      : chosenExplicitly ? 'resized'
+        : onStandardClass && targetBoreMm === null ? 'on-class'
+          : targetBoreMm !== null ? 'snapped'
+            : snapMounts && isAirframe ? 'airframe-left'
+              : 'off-class';
     const fits = (boreMm2: number) => motorMm === null
       || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
     // The room inside the scaled tube around it, less this mount's own walls —
@@ -731,7 +739,10 @@ export function scaleRocket(
     const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
-    if (m.verdict === 'resized') {
+    if (m.verdict === 'solid') {
+      mountNotes.push(`${m.name}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
+        + ' Untick Solid (filled) on it to make it a tube.');
+    } else if (m.verdict === 'resized') {
       const target = m.targetBoreMm!;
       const standard = Math.abs(target - nearestCommonClass(target)) < CLASS_TOLERANCE_MM;
       mountNotes.push(`${head} — resized to the ${standard
@@ -750,7 +761,9 @@ export function scaleRocket(
       mountNotes.push(`${head}, which is not a standard motor size `
         + `(nearest is ${cls}) — pick the mount you can actually build.`);
     }
-    if (m.motorMm !== null && !m.motorStillFits) {
+    // Not on a SOLID mount, whose line above already says no motor fits it:
+    // the scale lost nothing there, and another motor is no remedy.
+    if (m.motorMm !== null && !m.motorStillFits && m.verdict !== 'solid') {
       // Name the bore that actually rejected it — the FINAL one, which is the
       // snapped bore when snapping applied. Naming the scaled bore there sent
       // the user to look at a number that was not the problem.
@@ -849,10 +862,11 @@ export function scaleRocket(
   // replaces (`!onStandardClass && !(snapMounts && snappable)`), stated in the
   // same vocabulary as the list and the notes.
   // A 'resized' mount is what the user asked for, so it is not a complaint.
+  // A 'solid' one is, motor or none: its note asks for the tick box to be cleared.
   // A dropped stated launch weight joins them: the stage's mass just changed by
   // whatever the file stated, and that note has to be on screen rather than
   // folded into a collapsed bar.
   const needsAttention = statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
-    || m.verdict === 'airframe-left' || m.verdict === 'off-class');
+    || m.verdict === 'airframe-left' || m.verdict === 'off-class' || m.verdict === 'solid');
   return { tree: next, notes, needsAttention };
 }

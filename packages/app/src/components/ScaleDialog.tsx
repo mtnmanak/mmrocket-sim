@@ -212,7 +212,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     [tree, factor, assignedMotorDiameters, snapMounts, choices],
   );
   const snappable = mounts.filter((m) => m.snappable);
-  const lostMotors = mounts.filter((m) => !m.motorStillFits);
+  // Not a SOLID mount's motor: no motor fits it, scaled or not, and its own
+  // line says so — the scale lost nothing, and a new motor is no remedy.
+  const lostMotors = mounts.filter((m) => !m.motorStillFits && m.verdict !== 'solid');
 
   // `places` is what each line showed in mm; `sig` keeps a metre or foot figure
   // from collapsing under it — at a fixed one decimal a 98 mm airframe read
@@ -407,7 +409,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                           onStandardClass/snappable/isAirframe is what let this
                           list and the post-apply note disagree about an
                           off-class airframe mount with the snap unticked. */}
-                      {m.verdict === 'resized'
+                      {m.verdict === 'solid'
+                        ? <> — solid (filled), so it has no bore and no motor fits it, scaled or
+                          not. Untick Solid (filled) on it to make it a tube.</>
+                        : m.verdict === 'resized'
                         ? <> — the {m.targetBoreMm!.toFixed(1)} mm mount you chose.</>
                         : m.verdict === 'on-class'
                         ? <> — a standard {classLabel(m.nearestMm)} mm.</>
@@ -421,7 +426,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                               airframe, so it is left for you to resize.</>
                             : <> — not a motor size you can buy; nearest is{' '}
                               {classLabel(m.nearestMm)} mm.</>}
-                      {!m.motorStillFits && m.motorMm !== null && (
+                      {!m.motorStillFits && m.motorMm !== null && m.verdict !== 'solid' && (
                         <> <strong>The {m.motorMm.toFixed(0)} mm motor loaded in it will no longer
                           fit.</strong>
                           {m.verdict === 'snapped' && m.motorFitsUnsnapped && (

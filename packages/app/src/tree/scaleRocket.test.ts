@@ -598,6 +598,38 @@ describe('scaleRocket — motor mounts', () => {
     expect(h!.inSolidTube).toBe(false);
   });
 
+  it('a SOLID mount says it has no bore, not "nearest is 6 mm" or a lost motor', () => {
+    // mountBore is 0 for a tube ticked Solid (filled). The mount then read
+    // "0.0 mm bore becomes 0.0 mm, which is not a standard motor size (nearest
+    // is 6 mm)" and, with a 24 mm motor loaded, "no longer fits the 0.0 mm
+    // bore. Choose another motor on Motors & Launch": a motor that never fitted
+    // it, sent to a browser that lists none for it. The remedy is the tick box.
+    const rod = (filled: boolean): RocketTree => ({
+      name: 'rod', components: [{
+        type: 'stage', id: 's', children: [
+          { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.03 } as ComponentNode,
+          {
+            type: 'bodytube', id: 'b', name: 'Mount', length: 0.8, outerRadius: 0.03, thickness: 0.001,
+            motorMount: true, ...(filled ? { filled: true } : {}),
+          } as ComponentNode,
+        ],
+      } as ComponentNode],
+    });
+    const motor = { assignedMotorDiameters: { b: 0.024 } };
+    expect(previewMounts(rod(true), 1.5, motor)[0]!.verdict).toBe('solid');
+    const res = scaleRocket(rod(true), 1.5, motor);
+    const notes = res.notes.join(' ');
+    expect(notes).toContain('Mount: solid (filled), so it has no bore and no motor fits it, scaled or not.'
+      + ' Untick Solid (filled) on it to make it a tube.');
+    expect(notes).not.toContain('nearest is 6 mm');
+    expect(notes).not.toContain('Choose another motor');
+    expect(res.needsAttention).toBe(true);
+    // With nothing loaded in it, it still wants the reader's attention.
+    expect(scaleRocket(rod(true), 1.5).needsAttention).toBe(true);
+    // Hollow, what it always was: a 58 mm bore scaled to 87 mm, off-class.
+    expect(previewMounts(rod(false), 1.5, motor)[0]!.verdict).toBe('off-class');
+  });
+
   it('snapping keeps the wall and puts the bore exactly on the standard size', () => {
     const t = withMount(0.018);
     const out = scaleRocket(t, 2.27, { snapMounts: true }).tree;
