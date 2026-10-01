@@ -114,8 +114,14 @@ function enumFinding(node: ComponentNode, label: string, raw: string, limit: Enu
   };
 }
 
-/** A position's offset: signed, and no part of a real rocket sits a kilometre away. */
-const POSITION: FieldLimit = { kind: 'length', hmin: -MAX_DIMENSION_M, hmax: MAX_DIMENSION_M, label: 'position' };
+/**
+ * A position's offset: signed, and no part of a real rocket sits a kilometre
+ * away. The property panel's typed Offset is held to it too, so the panel never
+ * stores a position this pass would repair on the next load.
+ */
+export const POSITION_LIMIT: FieldLimit = {
+  kind: 'length', hmin: -MAX_DIMENSION_M, hmax: MAX_DIMENSION_M, label: 'position',
+};
 
 /** The labels an enum field reads under in a note — the panel's are phrased as prompts. */
 const ENUM_LABEL: Record<string, string> = {
@@ -143,10 +149,10 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   const pos = n.position;
   // eslint-disable-next-line no-restricted-syntax -- the load clamp, as the field loop above: it clamps a number, it does not read one (audit row 522)
   if (pos && typeof pos.offset === 'number') {
-    const fixed = applyFieldLimit(POSITION, pos.offset);
+    const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
     if (fixed !== pos.offset) {
       edit().position = { ...pos, offset: fixed };
-      found.push(limitFinding(n, 'position', POSITION, pos.offset, fixed));
+      found.push(limitFinding(n, 'position', POSITION_LIMIT, pos.offset, fixed));
     }
   }
   for (const [key, limit] of Object.entries(ENUM_LIMITS[n.type] ?? {})) {
@@ -198,6 +204,8 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
  * apply-preset-corrections.mjs) stored a -10.668 mm wall,
  * and a CSV canopy of 1,000,000 lines a 540 kg parachute — values a restored
  * session then repaired silently, even though the current build wrote them.
+ * The panel's CG-override box, which sits outside the schema fields' commit,
+ * goes through it too, with no note (audit 2026-09-30).
  *
  * Numeric keys only: a preset writes no position and none of ENUM_LIMITS'
  * fields. The note names the part as it will be after the patch, so a pick

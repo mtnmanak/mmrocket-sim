@@ -180,6 +180,47 @@ describe('PropertyPanel — fin count stops at the kernel\'s 8', () => {
   });
 });
 
+/**
+ * The CG override and the position Offset are typed into boxes of their own,
+ * outside the schema fields' commit, and went straight to the design (audit
+ * 2026-09-30, `PropertyPanel.tsx:1377`, `:1492`). Typed 5000 m, they stored and
+ * flew 5000 m, and the next reload's sanitize pass cut them to 1000 m with a
+ * note — moving the numbers after the fact. The limit is the load boundary's:
+ * no part of a real rocket sits, or balances, a kilometre away.
+ */
+describe('PropertyPanel — the CG override and the Offset keep to the ±1 km limit', () => {
+  const mountTube = () => mount(onBody({ id: 'i1', type: 'innertube', name: 'Mount', length: 0.07,
+    outerRadius: 0.009, thickness: 0.0005, position: { method: 'top', offset: 0.01 } }));
+
+  it('a typed Offset of ±5 km is stored as ±1000 m; an ordinary one is untouched', () => {
+    mountTube();
+    type(box('Position offset'), '5000000'); // mm
+    type(box('Position offset'), '-5000000');
+    type(box('Position offset'), '120');
+    expect(patches).toEqual([
+      { position: { method: 'top', offset: 1000 } },
+      { position: { method: 'top', offset: -1000 } },
+      { position: { method: 'top', offset: 0.12 } },
+    ]);
+  });
+
+  it('a typed CG override of ±5 km is stored as ±1000 m; an ordinary one is untouched', () => {
+    mountTube();
+    type(box('CG override, from component top'), '5000000');
+    type(box('CG override, from component top'), '-5000000');
+    type(box('CG override, from component top'), '35');
+    expect(patches).toEqual([{ overrideCGX: 1000 }, { overrideCGX: -1000 }, { overrideCGX: 0.035 }]);
+  });
+
+  it('holds the limit in SI whatever the display unit: 50,000 in is 1270 m, stored as 1000', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+    mountTube();
+    type(box('Position offset'), '50000');
+    type(box('CG override, from component top'), '50000');
+    expect(patches).toEqual([{ position: { method: 'top', offset: 1000 } }, { overrideCGX: 1000 }]);
+  });
+});
+
 describe('PropertyPanel — a value the kernel cannot build is never stored', () => {
   it('a tube-fin length of 0 is stored as the 0.1 mm minimum', () => {
     mount(onBody({ id: 't1', type: 'tubefinset', name: 'Tubes', finCount: 6, length: 0.1, thickness: 0.0005 }));

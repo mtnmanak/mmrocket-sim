@@ -43,7 +43,7 @@ import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
-import { limitPatch } from '../tree/sanitize.js';
+import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
@@ -1374,9 +1374,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
               autoValue={info ? lenToUi(info.cgX) : undefined}
+              // Through the limits table, as a schema field's commit is: typed
+              // 5000 m it stored and flew 5000 m until a reload's sanitize pass
+              // cut it to 1 km (audit 2026-09-30).
               onCommit={(v) => onPatch(v === null
                 ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined, ...statedLaunchMark }
-                : { overrideCGX: lenFromUi(v), ...statedLaunchMark })}
+                : { ...limitPatch(node, { overrideCGX: lenFromUi(v) }), ...statedLaunchMark })}
             />
             <SubcomponentsToggle
               tree={tree}
@@ -1506,7 +1509,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
                 allowNegative
                 onCommit={(v) => {
-                  if (v !== null) onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                  // The load boundary's ±1 km, as the CG override above.
+                  if (v !== null) onPatch({ position: { ...pos, offset: applyFieldLimit(POSITION_LIMIT, lenFromUi(v)) } });
                 }}
               />
               <ValueSlider
