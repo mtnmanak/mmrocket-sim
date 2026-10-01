@@ -2,6 +2,7 @@ import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
+import { blankValue } from '../tree/schema.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
@@ -516,17 +517,346 @@ export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset
   });
 }
 
-/** Plain words for the import note — a user reads "drag coefficient", not "cd". */
-const FIELD_WORDS: Record<string, string> = {
-  cd: 'drag coefficient', spillHoleDiameter: 'spill hole',
-  diameter: 'diameter', lineCount: 'line count', lineLength: 'line length',
-  surfaceDensity: 'canopy material', surfaceMaterialName: 'canopy material',
-  lineDensity: 'line material', lineMaterialName: 'line material',
-  density: 'material', materialName: 'material', length: 'length', outerRadius: 'outer radius',
-  aftRadius: 'base radius', foreRadius: 'fore radius', thickness: 'wall thickness', shape: 'shape',
-  shapeParameter: 'shape parameter', filled: 'solid', shoulderRadius: 'shoulder radius',
-  shoulderLength: 'shoulder length', stripLength: 'strip length', stripWidth: 'strip width',
-};
+// ---------------------------------------------------------------------------
+// The conflict marker (approved 2026-09-07)
+// ---------------------------------------------------------------------------
+
+/**
+ * How far apart a part's figure and its catalogue row's must be before the
+ * difference could matter. Two numbers differ when |a − b| exceeds the larger
+ * of `abs` (SI) and `rel` × the larger of the two; text and flags differ when
+ * they are not the same (text trimmed and case-blind).
+ */
+export interface CatalogueTolerance {
+  abs?: number;
+  rel?: number;
+}
+
+/** One field as the conflict marker reads it. */
+export interface CatalogueField {
+  /** Plain words — the import note's, and the Catalogue line's: "line count", never "lineCount". */
+  words: string;
+  /** How a difference is judged, or null where the field is never compared (the reason is on its row). */
+  differs: CatalogueTolerance | null;
+}
+
+/**
+ * Along the part — a length, a shoulder's length: half a millimetre. The
+ * design's own example of a difference not worth flagging is "a 0.1 mm
+ * rounding difference in a shoulder length", and lengths are commonly
+ * published to a sixty-fourth of an inch (0.40 mm; the .orc files have an
+ * in/64 unit for it), so a typed or converted copy of the same figure can be
+ * that far off; past it the part is a different length.
+ */
+const ALONG: CatalogueTolerance = { abs: 0.0005 };
+/**
+ * Across the part — a radius, a wall: a tenth of a millimetre. Parts are
+ * fitted to each other by these, and catalogues commonly state them to a
+ * thousandth of an inch (0.025 mm): a typed copy rounds well inside 0.1 mm,
+ * and 0.2 mm on a diameter is already the difference between a coupler that
+ * slides in and one that does not.
+ */
+const ACROSS: CatalogueTolerance = { abs: 0.0001 };
+/**
+ * Recovery hardware — a canopy, its vent, its lines, a streamer: 1 %, and
+ * never less than 2 mm. They are sold in whole or half inches and measured
+ * with a tape; 1 % of a 36 in canopy is 9 mm, wider than any rounding of a
+ * typed figure and narrower than the step to the next size (a 34 in canopy is
+ * 5.6 % smaller), and a sixteenth of an inch (1.6 mm) on a vent is not a
+ * different vent.
+ */
+const RECOVERY: CatalogueTolerance = { abs: 0.002, rel: 0.01 };
+/**
+ * A material's density: 1 %. Densities are published to three significant
+ * figures; a real change of material is far outside it — cardboard against
+ * phenolic is 39 %. Compared only while the density decides the part's weight
+ * (`weighsByDensity`).
+ */
+const DENSITY: CatalogueTolerance = { rel: 0.01 };
+/** Text and flags: the same or not. */
+const SAME: CatalogueTolerance = {};
+
+const NEVER = null;
+
+/**
+ * THE CONFLICT MARKER'S ONE TABLE — every field a catalogue pick can write
+ * (`presetPatch`), in words, with how a difference in it is judged. The three
+ * tiers of the approved design (docs/testing/response-2026-09-03b.md §3,
+ * approved 2026-09-07) all read it: the import note (`applyPresetLinks`), and
+ * the property panel's ≠ chip and Catalogue line (`catalogueDifferences`) — so
+ * the note at open and the markers afterwards cannot disagree about what
+ * counts as a difference. The design's refinement, verbatim: "only flag a
+ * difference that could matter — a Cd, a diameter, a mass, a line count. Not
+ * a 0.1 mm rounding difference in a shoulder length. Set the threshold per
+ * field rather than one global epsilon." Tier (a) shipped (v0.115) with one
+ * 0.5 % epsilon for every number and a word list that missed a transition's
+ * four shoulder keys, which reached a user raw ("foreShoulderRadius") in the
+ * import note for 2,4-D.rkt; services/presets.test.ts now requires every key
+ * a pick can write to be named here.
+ *
+ * NOT COMPARED, and why — a row with `differs: NEVER`:
+ *  - the part's name: the user's; the catalogue's is only a pick's default;
+ *  - the link itself (manufacturer, part number);
+ *  - a material's NAME: a label — the density beside it is the physics, and is
+ *    compared on its own row, so the same figure under another name is not a
+ *    difference that could matter;
+ *  - a shape parameter, a transition's clipping and the "everything inside"
+ *    mass flag: a pick only ever resets these to the default, so the catalogue
+ *    states no figure to hold a part to.
+ * A lookupTable: the keys it is asked about come off nodes a file wrote.
+ */
+const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueField>({
+  name: { words: 'name', differs: NEVER },
+  presetManufacturer: { words: 'manufacturer', differs: NEVER },
+  presetPartNo: { words: 'part number', differs: NEVER },
+  materialName: { words: 'material', differs: NEVER },
+  surfaceMaterialName: { words: 'canopy material', differs: NEVER },
+  lineMaterialName: { words: 'line material', differs: NEVER },
+  shapeParameter: { words: 'shape parameter', differs: NEVER },
+  clipped: { words: 'clipping', differs: NEVER },
+  overrideSubcomponentsMass: { words: 'mass of everything inside', differs: NEVER },
+
+  length: { words: 'length', differs: ALONG },
+  shoulderLength: { words: 'shoulder length', differs: ALONG },
+  foreShoulderLength: { words: 'fore shoulder length', differs: ALONG },
+  aftShoulderLength: { words: 'aft shoulder length', differs: ALONG },
+  outerRadius: { words: 'outer radius', differs: ACROSS },
+  aftRadius: { words: 'base radius', differs: ACROSS },
+  foreRadius: { words: 'fore radius', differs: ACROSS },
+  thickness: { words: 'wall thickness', differs: ACROSS },
+  shoulderRadius: { words: 'shoulder radius', differs: ACROSS },
+  foreShoulderRadius: { words: 'fore shoulder radius', differs: ACROSS },
+  aftShoulderRadius: { words: 'aft shoulder radius', differs: ACROSS },
+  shape: { words: 'shape', differs: SAME },
+  filled: { words: 'solid', differs: SAME },
+  density: { words: 'material', differs: DENSITY },
+  /**
+   * A stated part mass. Catalogue masses are commonly published to 0.1 g or
+   * to 0.01 oz (0.28 g) and converted: half a gram or 2 %, whichever is
+   * larger, is the same part on a different scale. Only a mass the part STATES is compared
+   * (`catalogueDifferences` has the rule) — never the computed one, and never
+   * a weight on everything inside.
+   */
+  overrideMass: { words: 'mass', differs: { abs: 0.0005, rel: 0.02 } },
+
+  diameter: { words: 'diameter', differs: RECOVERY },
+  /**
+   * Two published decimals (0.75, 1.5, 2.2): within half the last one it is
+   * the same rated figure. A canopy's Cd is one fact with its spill hole and
+   * is compared as a pair (`catalogueDifferences`, `applyPresetLinks`).
+   */
+  cd: { words: 'drag coefficient', differs: { abs: 0.005 } },
+  spillHoleDiameter: { words: 'spill hole', differs: RECOVERY },
+  /** A count has no rounding: one line either way is a different canopy. */
+  lineCount: { words: 'line count', differs: { abs: 0.5 } },
+  lineLength: { words: 'line length', differs: RECOVERY },
+  surfaceDensity: { words: 'canopy material', differs: DENSITY },
+  lineDensity: { words: 'line material', differs: DENSITY },
+  stripLength: { words: 'strip length', differs: RECOVERY },
+  stripWidth: { words: 'strip width', differs: RECOVERY },
+});
+
+/**
+ * A TUBE CUT TO LENGTH IS NOT A DIFFERENCE. Desktop's own rule: a body tube
+ * and a launch lug keep their preset when their length changes (24.12
+ * BodyComponent.setLength and LaunchLug.setLength never call clearPreset, and
+ * BodyComponent says why: "BodyTube allows changing length without resetting
+ * the preset"), because tubes are sold long and cut. An inner tube takes the
+ * same body-tube catalogue (KIND_FOR_TYPE), so the same stock length. Measured
+ * on the tester files on hand (2026-10-01) under tier (a)'s old single
+ * epsilon: all 14 linked body and inner tubes among them (vb38-dragstudy02.rkt
+ * and Level 3 Rocket 5.5) were reported as disagreeing on their length. A
+ * coupler's length, a ring's thickness and a nose's length ARE the part, and
+ * desktop clears the link on them.
+ */
+const CATALOGUE_FIELDS_BY_TYPE: Record<string, Record<string, CatalogueField>> = lookupTable<Record<string, CatalogueField>>({
+  bodytube: { length: { words: 'length', differs: NEVER } },
+  innertube: { length: { words: 'length', differs: NEVER } },
+  launchlug: { length: { words: 'length', differs: NEVER } },
+  // A transition's aft radius is not a base; the panel calls it "Aft radius".
+  transition: { aftRadius: { words: 'aft radius', differs: ACROSS } },
+});
+
+/** How the conflict marker reads `key` on a part of `type`, or undefined for a key it does not know. */
+export function catalogueField(type: string, key: string): CatalogueField | undefined {
+  const byType = CATALOGUE_FIELDS_BY_TYPE[type];
+  if (byType && Object.hasOwn(byType, key)) return byType[key];
+  return CATALOGUE_FIELDS[key];
+}
+
+/** Whether a part's `have` and its catalogue row's `want` differ by more than `tol` allows. */
+export function differsFromCatalogue(tol: CatalogueTolerance, have: unknown, want: unknown): boolean {
+  if (typeof have === 'number' && typeof want === 'number') {
+    const allowed = Math.max(tol.abs ?? 0, (tol.rel ?? 0) * Math.max(Math.abs(have), Math.abs(want)));
+    return Math.abs(have - want) > allowed;
+  }
+  if (typeof have === 'string' && typeof want === 'string') {
+    return have.trim().toLowerCase() !== want.trim().toLowerCase();
+  }
+  if (typeof have === 'boolean' && typeof want === 'boolean') return have !== want;
+  return false;
+}
+
+/** Plain words for a field, for a note — the key itself only for one the table does not know. */
+const wordsFor = (type: string, key: string): string => catalogueField(type, key)?.words ?? key;
+
+/** Each material density, and the name that travels with it. */
+const MATERIAL_NAME_KEY: ReadonlyMap<string, string> = new Map([
+  ['density', 'materialName'], ['surfaceDensity', 'surfaceMaterialName'], ['lineDensity', 'lineMaterialName'],
+]);
+const DENSITY_KEYS: ReadonlySet<string> = new Set(MATERIAL_NAME_KEY.keys());
+
+/**
+ * A MATERIAL'S DENSITY MATTERS ONLY WHILE IT DECIDES THE WEIGHT. A part that
+ * states its own mass flies that mass whatever its material, and a row that
+ * states one is weighed by it (`presetPatch` writes it as the override), so on
+ * either side the mass is the figure — compared on its own row — and the
+ * density beside it changes nothing that flies. Measured on the corpus:
+ * goblin-256.ork's Rocketarium nose states 145.6 kg/m³ against the row's HIPS
+ * 950, because desktop derives a catalogued part's density from its mass
+ * (ComponentPresetFactory: mass ÷ volume) where this catalogue keeps the
+ * material and carries the mass — the same 76 g part, which "use 950" would
+ * have made 6.5 times heavier; and a weighed canopy's fabric (4in WM Extreme.rkt,
+ * 2,4-D.rkt) was flagged against a row whose canopy weighs what the file's does.
+ */
+const weighsByDensity = (node: ComponentNode, patch: Record<string, unknown>): boolean =>
+  patch['overrideMass'] === undefined && numOpt(node, 'overrideMass') === undefined;
+
+/** One difference between a linked part and its catalogue row. */
+export interface CatalogueDifference {
+  /** The field the marker sits on. */
+  key: string;
+  /** Plain words for it (catalogueField). */
+  words: string;
+  /** What the part flies: its own value, or a blank's. `undefined` is an automatic Cd. */
+  have: number | string | boolean | undefined;
+  /** The catalogue row's figure. */
+  want: number | string | boolean;
+  /**
+   * The edit that takes the catalogue's figure — the field alone, or with the
+   * other half of its fact: a canopy's Cd and spill hole, a material's density
+   * and name, a shape and its default parameter.
+   */
+  patch: Partial<ComponentNode>;
+}
+
+/**
+ * What a field flies when the part leaves it blank, where that is one known
+ * value — the kernel's default shape and solidity, and schema.ts `blankValue`
+ * (a canopy's 6 lines, no vent, an empty shoulder) — or undefined.
+ */
+function flown(node: ComponentNode, key: string): number | string | boolean | undefined {
+  const v = node[key];
+  if (typeof v === 'string' || typeof v === 'boolean') return v;
+  const n = numOpt(node, key);
+  if (n !== undefined) return n;
+  if (key === 'filled') return false;
+  // ComponentFactory's own: str(node, "shape", "ogive") / "conical".
+  if (key === 'shape') return node.type === 'transition' ? 'conical' : 'ogive';
+  return blankValue(node.type, key);
+}
+
+/**
+ * Every field where a part linked to the catalogue now differs from its row —
+ * by enough to matter, under the one table above — for the property panel's ≠
+ * chips (tier b) and its Catalogue line (tier c). Live: it reads what the part
+ * flies now, so a field the user cleared is held against the catalogue too,
+ * where the import note (tier a) compares only what a file stated.
+ *
+ * Three facts are compared whole, never by halves:
+ *  - A CANOPY'S Cd AND ITS SPILL HOLE (the standing Fruity Chutes ruling: the
+ *    maker's Cd is referenced to the vented area). Either half off the row's
+ *    is a difference, and taking either takes both. A row with no rated Cd
+ *    states no pair, so neither half is compared. A part flying the automatic
+ *    Cd against a rated one differs (`have` undefined).
+ *  - A MATERIAL: compared by density while the density decides the weight
+ *    (`weighsByDensity`), and taken with its name.
+ *  - A SHAPE: taken with its default parameter, as a pick does.
+ *
+ * A MASS only where the part states one for itself (`overrideMass`, without
+ * "everything inside"): the computed mass is the geometry's, and the
+ * catalogue's stock mass is a different claim about a different number.
+ */
+export function catalogueDifferences(node: ComponentNode, row: Preset): CatalogueDifference[] {
+  const patch = presetPatch(node.type, row) as Record<string, unknown>;
+  const out: CatalogueDifference[] = [];
+  const isCanopy = node.type === 'parachute';
+  const byDensity = weighsByDensity(node, patch);
+  for (const [key, want] of Object.entries(patch)) {
+    if (!(typeof want === 'number' || typeof want === 'string' || typeof want === 'boolean')) continue;
+    const field = catalogueField(node.type, key);
+    if (!field?.differs) continue;
+    if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')) continue; // the pair, below
+    if (DENSITY_KEYS.has(key) && !byDensity) continue;
+    let have = flown(node, key);
+    if (key === 'overrideMass') {
+      if (node['overrideSubcomponentsMass'] === true) continue;
+      have = numOpt(node, 'overrideMass');
+      if (have === undefined) continue;
+    }
+    // A blank Cd is the AUTOMATIC one, which a rated figure is meant to replace.
+    const autoCd = key === 'cd' && have === undefined;
+    if (!autoCd && (have === undefined || !differsFromCatalogue(field.differs, have, want))) continue;
+    const take: Record<string, unknown> = { [key]: want };
+    // A material is taken whole, its name with its density …
+    const nameKey = MATERIAL_NAME_KEY.get(key);
+    if (nameKey) take[nameKey] = patch[nameKey];
+    // … and a shape with its default parameter (and a transition's clipping),
+    // exactly as a pick takes it.
+    if (key === 'shape') {
+      take['shapeParameter'] = undefined;
+      if ('clipped' in patch) take['clipped'] = undefined;
+    }
+    out.push({ key, words: field.words, have, want, patch: take as Partial<ComponentNode> });
+  }
+  const cd = numOpt(patch, 'cd');
+  if (isCanopy && cd !== undefined) {
+    // No vent on the row is a whole fact — an unvented canopy — and flies as none.
+    const vent = numOpt(patch, 'spillHoleDiameter') ?? 0;
+    const both: Partial<ComponentNode> = { cd, spillHoleDiameter: patch['spillHoleDiameter'] };
+    const haveCd = numOpt(node, 'cd');
+    const haveVent = numOpt(node, 'spillHoleDiameter') ?? 0;
+    if (haveCd === undefined || differsFromCatalogue(catalogueField('parachute', 'cd')!.differs!, haveCd, cd)) {
+      out.push({ key: 'cd', words: wordsFor('parachute', 'cd'), have: haveCd, want: cd, patch: both });
+    }
+    if (differsFromCatalogue(catalogueField('parachute', 'spillHoleDiameter')!.differs!, haveVent, vent)) {
+      out.push({ key: 'spillHoleDiameter', words: wordsFor('parachute', 'spillHoleDiameter'), have: haveVent, want: vent, patch: both });
+    }
+  }
+  return out;
+}
+
+/** Every part number a row answers to: its own, and those of the duplicates it absorbed. */
+const partNumbersOf = (p: Preset): unknown[] =>
+  [p.partNo, ...(Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [])];
+
+/**
+ * The catalogue row a part is linked to, or undefined: no link, or a row this
+ * browser does not have (a user's CSV preset from another browser, a row since
+ * curated away). Matched the way `applyPresetLinks` matches a file's part —
+ * the alias table, part-number normalisation, absorbed part numbers — and the
+ * first row to answer wins, as there.
+ */
+export function linkedPreset(node: ComponentNode, presets: readonly Preset[]): Preset | undefined {
+  const kind = KIND_FOR_TYPE[node.type];
+  if (!kind || typeof node['presetPartNo'] !== 'string') return undefined;
+  const want = linkKey(kind, node['presetManufacturer'], node['presetPartNo']);
+  return presets.find((p) => p.kind === kind
+    && partNumbersOf(p).some((pn) => linkKey(kind, p.manufacturer, pn) === want));
+}
+
+/** Every key that makes up a part's catalogue link — Detach clears these, and nothing else. */
+export const CATALOGUE_LINK_KEYS: readonly string[] = ['presetManufacturer', 'presetPartNo'];
+
+/**
+ * Tier (c)'s Detach as an edit: the link goes, and the markers with it, and
+ * every value on the part stays exactly as it is — desktop's own "editing a
+ * dimension clears the preset", done on purpose. An ordinary tree edit, so
+ * undo puts the link back; nothing records that it happened.
+ */
+export function detachPatch(): Partial<ComponentNode> {
+  return Object.fromEntries(CATALOGUE_LINK_KEYS.map((k) => [k, undefined]));
+}
 
 /**
  * Link imported parts to the catalogue. The owner's ruling (2026-09-03): "if a
@@ -639,27 +969,26 @@ export function applyPresetLinks(
      * just filled in. The canopy pair is compared only when the file states
      * BOTH halves: half a pair against a whole one is not a disagreement about
      * the same fact.
+     *
+     * WHAT counts as a disagreement, and the words for it, are the conflict
+     * marker's one table (catalogueField), which the property panel's ≠ chips
+     * read too — so the note at open and the markers afterwards agree. A mass
+     * is compared where the file states one for the part itself; it is still
+     * never TAKEN (the fill loop below).
      */
     const conflicts: string[] = [];
+    const byDensity = weighsByDensity(node, patch);
     for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined || key === 'name' || key === 'overrideMass') continue;
-      if (key === 'presetManufacturer' || key === 'presetPartNo') continue;
+      if (value === undefined) continue;
+      const field = catalogueField(node.type, key);
+      if (!field?.differs) continue;
       const have = stated(key);
       if (have === undefined) continue;
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')
         && !PAIR.every((k) => node[k] !== undefined)) continue;
-      if (typeof value === 'number' && typeof have === 'number') {
-        // A tolerance, not equality: a .rkt stores 25.4 mm as 25.4000 and a
-        // catalogue row as 0.0254 m, which round-trips to the same number only
-        // to ~1e-12. 0.5 % is well inside any real disagreement and outside
-        // any unit conversion.
-        const scale = Math.max(Math.abs(value), Math.abs(have), 1e-9);
-        if (Math.abs(value - have) / scale > 0.005) conflicts.push(FIELD_WORDS[key] ?? key);
-      } else if (typeof value === 'string' && typeof have === 'string') {
-        if (value.trim().toLowerCase() !== have.trim().toLowerCase()) conflicts.push(FIELD_WORDS[key] ?? key);
-      } else if (typeof value === 'boolean' && typeof have === 'boolean') {
-        if (value !== have) conflicts.push(FIELD_WORDS[key] ?? key);
-      }
+      if (key === 'overrideMass' && node['overrideSubcomponentsMass'] === true) continue;
+      if (DENSITY_KEYS.has(key) && !byDensity) continue;
+      if (differsFromCatalogue(field.differs, have, value)) conflicts.push(field.words);
     }
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined || key === 'name' || key === 'overrideMass') continue;
@@ -670,7 +999,7 @@ export function applyPresetLinks(
       if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')) {
         if (!takePair) continue;
         node[key] = value;
-        filled.add(FIELD_WORDS[key] ?? key);
+        filled.add(wordsFor(node.type, key));
         continue;
       }
       // A hollow row's `filled: false` is the default an unset node already
@@ -679,7 +1008,7 @@ export function applyPresetLinks(
       if (key === 'filled' && value === false) continue;
       if (stated(key) === undefined) {
         node[key] = value;
-        filled.add(FIELD_WORDS[key] ?? key);
+        filled.add(wordsFor(node.type, key));
       }
     }
     linked += 1;

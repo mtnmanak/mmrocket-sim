@@ -1,6 +1,6 @@
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
-import { Fragment, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -39,10 +39,13 @@ import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtFieldValue, fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
-import { KIND_FOR_TYPE } from '../services/presets.js';
+import {
+  catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
+  type CatalogueDifference, type Preset,
+} from '../services/presets.js';
 import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
@@ -165,6 +168,48 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
 }
 
 /**
+ * THE CONFLICT MARKER, tier (b) — the design Eric approved on 2026-09-07
+ * (docs/testing/response-2026-09-03b.md §3): "a small ≠ chip next to the
+ * value, its tooltip naming the catalogue's figure, and a one-click 'use 12'
+ * beside it. It sits there indefinitely without demanding anything." Not an
+ * alert, so nothing to dismiss and nothing stored: the chip goes when the
+ * value matches the catalogue again (this button, or typing it) or when the
+ * part is detached — real edits, which persist like any other.
+ *
+ * The button is the accessible part — a real <button> in the tab order whose
+ * name says what it does ("Use catalogue value 12 for Line count"); the ≠ is
+ * its visual twin and is hidden from screen readers so the figure is not read
+ * twice. `onUse` is the caller's: each field takes the figure through the same
+ * commit a typed or picked value takes, so the limits table applies and one
+ * undo takes it back.
+ */
+function CatalogueChip({ figure, label, tip, onUse }: {
+  /** The catalogue's figure as this field shows values: "12", "914.4 mm", "Ripstop nylon". */
+  figure: string;
+  /** The field's own label, for the button's accessible name. */
+  label: string;
+  /** Names the row, its figure and the part's, for the mouse. */
+  tip: string;
+  onUse: () => void;
+}) {
+  return (
+    <span className="catalogue-diff">
+      <span className="catalogue-diff-mark" title={tip} aria-hidden="true">≠</span>
+      <button type="button" className="finish-all-btn" title={tip}
+        aria-label={`Use catalogue value ${figure} for ${label}`} onClick={onUse}>
+        use {figure}
+      </button>
+    </span>
+  );
+}
+
+/** A field label as a running name: "Drag coefficient (blank = auto)" → "Drag coefficient". */
+const plainLabel = (label: string): string => label.replace(/\s*\([^)]*\)\s*$/, '');
+
+/** A marker's figure as a number, where it is one (catalogueDifferences carries finite ones only). */
+const markerNumber = (v: CatalogueDifference['have']): number | undefined => numOpt({ v }, 'v');
+
+/**
  * Named-material dropdown (desktop material database). Picking one writes the
  * name + density into the node; "Custom" clears the name and keeps whatever
  * density is set. Densities: bulk kg/m³, surface kg/m², line kg/m.
@@ -184,7 +229,7 @@ function ValueSlider({ value, min, max, step, onChange, ariaLabel }: {
  *
  * "Custom" now means what it says: no name at all.
  */
-function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch }: {
+function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch, catalogue }: {
   label: string;
   list: MaterialDef[];
   nameKey: string;
@@ -192,6 +237,8 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   densityUnit: string;
   node: ComponentNode;
   onPatch: (patch: Partial<ComponentNode>) => void;
+  /** The conflict marker for this material, when the part's catalogue row names another. */
+  catalogue?: { diff: CatalogueDifference; row: string; onUse: () => void };
 }) {
   const current = node[nameKey];
   const named = typeof current === 'string' && current !== '' ? current : null;
@@ -230,6 +277,16 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
           <option key={m.name} value={m.name}>{m.name} ({m.density} {densityUnit})</option>
         ))}
       </select>
+      {catalogue && (() => {
+        const { diff, row, onUse } = catalogue;
+        const name = diff.patch[nameKey];
+        const figure = `${typeof name === 'string' && name ? `${name}, ` : ''}${String(diff.want)} ${densityUnit}`;
+        const mine = `${typeof current === 'string' && current ? `${current}, ` : ''}${String(diff.have)} ${densityUnit}`;
+        return (
+          <CatalogueChip figure={figure} label={label} onUse={onUse}
+            tip={`${row} in the catalogue: ${figure}. This part: ${mine}.`} />
+        );
+      })()}
     </div>
   );
 }
@@ -384,7 +441,102 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
     onPatch(limitPatch(node, patch, notes));
     setPresetNoteFor(notes.length > 0 ? { id: node.id, text: notes.join(' ') } : null);
   };
+
+  /*
+   * THE CONFLICT MARKER, tiers (b) and (c) (approved 2026-09-07; tier (a), the
+   * import note, shipped in v0.115). A part linked to the parts catalogue — by
+   * a pick, or by a file that named it — is held against its row, field by
+   * field, under the one table in services/presets.ts (`catalogueDifferences`);
+   * a field that differs by enough to matter gets a ≠ chip with a one-click
+   * "use", and the part gets a Catalogue line naming the row, with Detach.
+   * Nothing is stored about any of it. The catalogue (~1.3 MB, lazy) is fetched
+   * only for a part that is linked, so a design with no links never loads it.
+   */
+  const linkPartNo = typeof node['presetPartNo'] === 'string' && node['presetPartNo'] !== ''
+    ? node['presetPartNo'] : null;
+  const linkMfr = typeof node['presetManufacturer'] === 'string' ? node['presetManufacturer'] : '';
+  const linked = linkPartNo !== null && KIND_FOR_TYPE[node.type] !== undefined;
+  const [catalogue, setCatalogue] = useState<readonly Preset[] | null>(null);
+  useEffect(() => {
+    if (!linked || catalogue !== null) return;
+    // The `live` flag of every lazy catalogue load (PresetPicker, the recovery
+    // panel): this panel is keyed by the part, and a selection can move on
+    // before the bundle arrives.
+    let live = true;
+    // A failed load leaves the line naming the link with no markers on it —
+    // nothing here claims the part matches.
+    loadPresets().then((p) => { if (live) setCatalogue(p); }, () => {});
+    return () => { live = false; };
+  }, [linked, catalogue]);
+  const row = useMemo(
+    () => (linked && catalogue ? linkedPreset(node, catalogue) ?? null : null),
+    [linked, catalogue, node],
+  );
+  const diffs = useMemo(() => (row ? catalogueDifferences(node, row) : []), [row, node]);
+  const diffFor = (key: string): CatalogueDifference | undefined => diffs.find((d) => d.key === key);
+  const rowName = row ? `${row.manufacturer} ${row.partNo}` : `${linkMfr} ${linkPartNo ?? ''}`.trim();
+  // What Detach did, for WHICH part — scoped like the preset note above.
+  const [detachNoteFor, setDetachNoteFor] = useState<{ id: string | undefined; text: string } | null>(null);
+  const detachNote = detachNoteFor !== null && detachNoteFor.id === node.id ? detachNoteFor.text : null;
+  /**
+   * Tier (c)'s Detach: the link goes, through one ordinary tree edit (so one
+   * undo puts it back), every value on the part stays, and the panel says so —
+   * the markers vanish with the link, and a vanished marker should never be
+   * mistaken for a part that now matches.
+   */
+  const detach = () => {
+    onPatch(detachPatch());
+    setDetachNoteFor({
+      id: node.id,
+      text: `Detached from ${rowName}. This part keeps every value it has; it is no longer compared `
+        + 'with the catalogue, and a file saved from here no longer names that part. Undo puts the link back.',
+    });
+  };
+  /**
+   * The other half of a catalogue fact (a canopy's spill hole beside its Cd, a
+   * material's name beside its density), or a figure with no box of its own,
+   * held to the limits table a typed value meets — and a vent to its canopy,
+   * the ceiling the spill-hole box applies (tree/canopyVent.ts).
+   */
+  const limitCatalogue = (patch: Partial<ComponentNode>): Partial<ComponentNode> => {
+    const out = limitPatch(node, patch);
+    const vent = out['spillHoleDiameter'];
+    const cap = typeof vent === 'number' && node.type === 'parachute' ? ventLimit(node)?.maxHole : undefined;
+    return cap !== undefined && (vent as number) > cap ? { ...out, spillHoleDiameter: cap } : out;
+  };
+  /** A canopy's or a line's material marker: the select's own edit, name and density together. */
+  const materialMarker = (key: string) => {
+    const d = diffFor(key);
+    return d ? { diff: d, row: rowName, onUse: () => onPatch(limitCatalogue(d.patch)) } : undefined;
+  };
+  /** A length as the length boxes show one. */
+  const lengthFigure = (si: number): string => `${fmtFieldValue(siToUi('length', prefs.units.length, si))} ${prefs.units.length}`;
+  /**
+   * The tooltip for a marker. A canopy's Cd and spill hole are one figure (the
+   * maker's Cd is measured against the vented canopy), so either half's marker
+   * names both and its "use" sets both.
+   */
+  const catalogueTip = (d: CatalogueDifference, figure: string, have: string): string => {
+    if (node.type === 'parachute' && (d.key === 'cd' || d.key === 'spillHoleDiameter')) {
+      const vent = (v: number | undefined) => (v !== undefined && v > 0 ? `a ${lengthFigure(v)} spill hole` : 'no spill hole');
+      const cdNow = numOpt(node, 'cd');
+      return `${rowName} in the catalogue: Cd ${fmtFieldValue(d.patch['cd'] as number)} with `
+        + `${vent(numOpt(d.patch, 'spillHoleDiameter'))}. This part flies `
+        + `${cdNow === undefined ? 'the automatic Cd' : `Cd ${fmtFieldValue(cdNow)}`} with `
+        + `${vent(numOpt(node, 'spillHoleDiameter'))}. The maker measures the Cd against the vented `
+        + 'canopy, so the two are one figure: “use” sets both.';
+    }
+    return `${rowName} in the catalogue: ${figure}. This part: ${have}.`;
+  };
   const fields = FIELDS[node.type] ?? [];
+  /**
+   * The fields this panel draws a box for, where a conflict marker sits beside
+   * the value; a difference anywhere else (a coupler's outside diameter, a
+   * lug's material) is marked on the Catalogue line instead.
+   */
+  const placed = new Set<string>([...fields.map((f) => f.key), 'overrideMass']);
+  if (node.type === 'parachute' || node.type === 'streamer') placed.add('surfaceDensity');
+  if (node.type === 'parachute' || node.type === 'shockcord') placed.add('lineDensity');
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
   // Where the kernel flies it: a part with no position is NOT at Top, 0.
@@ -664,10 +816,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
     // hole; with 'in' the step was 25.4 mm, with 'ft' 305 mm.
     const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step || 1));
 
-    const commit = (ui: number) => {
-      let next = f.unit === 'count'
-        ? Math.max(f.smin ?? 1, Math.round(ui))
-        : fromDisplay(ui);
+    /**
+     * One value for this field, in SI, held to every limit a typed value meets.
+     * `partner` is the rest of a catalogue fact the conflict marker's "use"
+     * takes with it (a canopy's spill hole with its Cd, a material's name with
+     * its density) — empty for typing, the slider and the one-shot buttons.
+     */
+    const commitSi = (si: number, partner: Partial<ComponentNode> = {}) => {
+      let next = f.unit === 'count' ? Math.max(f.smin ?? 1, Math.round(si)) : si;
       if (f.unit === 'count' && maxCount !== undefined) next = Math.min(next, maxCount);
       if (f.unit !== 'count' && maxSi !== undefined) next = Math.min(next, maxSi);
       // Last, so it wins over the cross-field caps above: a tube-fin count the
@@ -680,11 +836,37 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
       // NumField's validate check also flags the refused draft (register:
       // "Typed one key at a time, an overflowing density...").
       if (!Number.isFinite(next)) return;
-      const patch: Partial<ComponentNode> = { [f.key]: next };
+      const patch: Partial<ComponentNode> = { ...limitCatalogue(partner), [f.key]: next };
       // A hand-typed density is no longer the named material's density.
-      if (f.key === 'density') patch['materialName'] = undefined;
+      if (f.key === 'density' && !('materialName' in partner)) patch['materialName'] = undefined;
       onPatch(patch);
     };
+    // A count's display value IS its SI value (no unit, never a radius).
+    const commit = (ui: number) => commitSi(f.unit === 'count' ? ui : fromDisplay(ui));
+
+    // The conflict marker on this field (tier b), when its catalogue row says otherwise.
+    const diff = diffFor(f.key);
+    const shownFigure = (si: number): string => (f.unit === 'count'
+      ? String(si)
+      : `${fmtFieldValue(toDisplay(si))}${symbol ? ` ${symbol}` : plainSuffix ? ` ${plainSuffix}` : ''}`);
+    // The figure "use" writes is the edit's own value for this field.
+    const want = diff ? numOpt(diff.patch, f.key) : undefined;
+    const catalogueChip = diff && want !== undefined && (() => {
+      const figure = shownFigure(want);
+      const haveNum = markerNumber(diff.have);
+      const have = diff.have === undefined ? 'the automatic value'
+        : haveNum !== undefined ? shownFigure(haveNum) : String(diff.have);
+      // A material density is named with its material, which "use" takes too.
+      const named = (n: unknown, v: string) => (typeof n === 'string' && n ? `${n}, ${v}` : v);
+      const tip = f.key === 'density'
+        ? catalogueTip(diff, named(diff.patch['materialName'], figure), named(node['materialName'], have))
+        : catalogueTip(diff, figure, have);
+      const partner = Object.fromEntries(Object.entries(diff.patch).filter(([k]) => k !== f.key));
+      return (
+        <CatalogueChip figure={figure} label={plainLabel(label)} tip={tip}
+          onUse={() => commitSi(want, partner)} />
+      );
+    })();
 
     // Negative input is valid only where the schema's slider dips below zero
     // (sweep, cant angle) — dimensions and counts reject a typed minus sign.
@@ -751,6 +933,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
             else commit(v);
           }}
         />
+        {catalogueChip}
         {f.help && <p className="hint" id={idFor(`${f.key}-hint`)}>{f.help}</p>}
         {emptyShoulder && (
           <p className="hint" id={idFor(`${f.key}-hint`)}>
@@ -806,6 +989,52 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           onClick={() => setShowPresets(true)}>
           📦 Choose from preset database…
         </button>
+      )}
+      {(linked || detachNote) && (
+        <>
+          {/* Tier (c): the row this part is linked to, with Detach — and the
+              marker for any figure that has no box of its own in this panel
+              (a coupler's outside diameter, a lug's material). */}
+          {linked && (
+            <div className="catalogue-line">
+              <span>
+                Catalogue: <strong>{rowName}</strong>
+                {catalogue && !row && ' — not in this browser’s catalogue, so nothing here is compared with it'}
+              </span>
+              <button type="button" className="finish-all-btn" onClick={detach}
+                aria-label={`Detach from the catalogue: ${rowName}`}
+                title="Unlink this part from its catalogue row. Every value stays as it is; the part is no longer compared with the catalogue.">
+                Detach
+              </button>
+              {diffs.filter((d) => !placed.has(d.key)).map((d) => {
+                const radius = /Radius$/.test(d.key);
+                const asDia = radius && prefs.radiusMode === 'diameter';
+                const words = asDia ? d.words.replace(/radius/g, 'diameter') : d.words;
+                const fig = (v: unknown): string => {
+                  if (typeof v !== 'number') return String(v);
+                  if (d.key === 'density') {
+                    return `${fmtFieldValue(siToUi('density', prefs.units.density, v))} ${prefs.units.density}`;
+                  }
+                  return /Radius$|^length$|Length$|^thickness$/.test(d.key) ? lengthFigure(asDia ? v * 2 : v) : fmtFieldValue(v);
+                };
+                const figure = fig(d.want);
+                return (
+                  <span key={d.key} className="catalogue-diff-item">
+                    {words}:{' '}
+                    <CatalogueChip figure={figure} label={words}
+                      tip={catalogueTip(d, figure, d.have === undefined ? 'nothing stated' : fig(d.have))}
+                      onUse={() => onPatch(limitCatalogue(d.patch))} />
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {/* Mounted while the part is linked, so Detach's sentence lands in a
+              live region that already exists (PresetPicker's note, for why). */}
+          <div role="status">
+            {detachNote && <p className="print-note">{detachNote}</p>}
+          </div>
+        </>
       )}
       {presetNote && (
         <p className="print-note print-note-warn" role="status">{presetNote}</p>
@@ -980,6 +1209,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           if (f.bool) {
             // Sub-minimum only makes sense on a tube that already IS a mount.
             if (f.key === 'caseAirframe' && node['motorMount'] !== true) return null;
+            const bdiff = diffFor(f.key);
             return (
               <div className="field" key={f.key} style={{ justifyContent: 'flex-end' }}>
                 <label title={f.key === 'caseAirframe'
@@ -997,11 +1227,23 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                   />
                   {f.label}
                 </label>
+                {/* Beside the label, never inside it: a button inside a label
+                    is that label's control (see `uid`). */}
+                {bdiff && typeof bdiff.want === 'boolean' && (() => {
+                  const want = bdiff.want;
+                  const word = (v: unknown) => (f.key === 'filled' ? (v ? 'solid' : 'hollow') : v ? 'on' : 'off');
+                  return (
+                    <CatalogueChip figure={word(want)} label={plainLabel(f.label)}
+                      tip={catalogueTip(bdiff, word(want), word(bdiff.have))}
+                      onUse={() => onPatch({ [f.key]: want })} />
+                  );
+                })()}
               </div>
             );
           }
           if (f.options) {
             const selectLabel = <label htmlFor={idFor(f.key)}>{f.label}</label>;
+            const sdiff = diffFor(f.key);
             return (
               <div className="field" key={f.key}>
                 {/* "→ all" sits BESIDE the label. Inside it, the button was the
@@ -1042,6 +1284,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                     <option key={v} value={v}>{l}</option>
                   ))}
                 </select>
+                {sdiff && typeof sdiff.want === 'string' && (() => {
+                  // A catalogue shape comes with its default parameter, as a
+                  // pick does: its "use" sets both (catalogueDifferences).
+                  const named = (v: unknown) => f.options!.find(([o]) => o === v)?.[1] ?? String(v);
+                  const figure = named(sdiff.want);
+                  return (
+                    <CatalogueChip figure={figure} label={plainLabel(f.label)}
+                      tip={catalogueTip(sdiff, figure, named(sdiff.have))}
+                      onUse={() => onPatch(limitCatalogue(sdiff.patch))} />
+                  );
+                })()}
               </div>
             );
           }
@@ -1097,13 +1350,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         {(node.type === 'parachute' || node.type === 'streamer') && (
           <MaterialSelect label="Canopy material" list={SURFACE_MATERIALS}
             nameKey="surfaceMaterialName" densityKey="surfaceDensity" densityUnit="kg/m²"
-            node={node} onPatch={onPatch} />
+            node={node} onPatch={onPatch} catalogue={materialMarker('surfaceDensity')} />
         )}
         {(node.type === 'parachute' || node.type === 'shockcord') && (
           <MaterialSelect label={node.type === 'parachute' ? 'Line material' : 'Cord material'}
             list={LINE_MATERIALS}
             nameKey="lineMaterialName" densityKey="lineDensity" densityUnit="kg/m"
-            node={node} onPatch={onPatch} />
+            node={node} onPatch={onPatch} catalogue={materialMarker('lineDensity')} />
         )}
       </div>
       {/* Say what the coefficient IS. The two streamlined classes are not
@@ -1359,6 +1612,20 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 ? { overrideMass: undefined, overrideSubcomponentsMass: undefined, ...statedLaunchMark }
                 : { overrideMass: uiToSi('mass', massSym, v), ...statedLaunchMark })}
             />
+            {(() => {
+              // A mass this part states against the one its catalogue row
+              // publishes (never the computed mass — catalogueDifferences).
+              const md = diffFor('overrideMass');
+              const want = md ? numOpt(md.patch, 'overrideMass') : undefined;
+              if (!md || want === undefined) return null;
+              const fig = (v: number) => `${fmtFieldValue(siToUi('mass', massSym, v))} ${massSym}`;
+              const have = markerNumber(md.have);
+              return (
+                <CatalogueChip figure={fig(want)} label="Mass"
+                  tip={catalogueTip(md, fig(want), have !== undefined ? fig(have) : String(md.have))}
+                  onUse={() => onPatch({ ...limitCatalogue({ overrideMass: want }), ...statedLaunchMark })} />
+              );
+            })()}
             <SubcomponentsToggle
               tree={tree}
               node={node}

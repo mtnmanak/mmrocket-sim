@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { applyPresetLinks, csvToPresets, holdsCatalogueMass, KIND_FOR_TYPE, presetPatch, presetsToCsv, type Preset } from './presets.js';
+import {
+  applyPresetLinks, CATALOGUE_LINK_KEYS, catalogueDifferences, catalogueField, csvToPresets, detachPatch,
+  differsFromCatalogue, holdsCatalogueMass, KIND_FOR_TYPE, linkedPreset, presetPatch, presetsToCsv, type Preset,
+} from './presets.js';
 import presetsJson from '../data/presets.json';
 import { numOpt } from '../tree/nodeNum.js';
 
@@ -942,5 +945,243 @@ describe('applyPresetLinks never makes a hollow part solid', () => {
     applyPresetLinks([{ node, manufacturer: hollow.manufacturer, partNo: hollow.partNo }], db, notes);
     expect('filled' in node).toBe(false);
     expect(notes[0]).not.toMatch(/solid/);
+  });
+});
+
+/**
+ * THE CONFLICT MARKER, tiers (b) and (c) (approved 2026-09-07; design in
+ * docs/testing/response-2026-09-03b.md §3). `catalogueDifferences` is what the
+ * property panel's ≠ chips and Catalogue line are drawn from, and the one
+ * table under it (`catalogueField`) is the one tier (a)'s import note reads, so
+ * the note and the chips cannot disagree about what counts as a difference.
+ */
+describe('the conflict marker — one table, per-field thresholds', () => {
+  /** A synthetic vented canopy, so every threshold below is measured against known figures. */
+  const CHUTE: Preset = {
+    kind: 'Parachute', manufacturer: 'Test Chutes', partNo: 'TC-36', description: '36 in',
+    diameter: 0.9144, dragCoefficient: 1.5, spillHoleDiameter: 0.0762, lineCount: 12, lineLength: 0.9144,
+    material: { name: 'Ripstop nylon', type: 'SURFACE', density: 0.067 },
+    lineMaterial: { name: 'Nylon line', type: 'LINE', density: 0.002 },
+  };
+  /** The same canopy with a catalogued weight, which a pick writes as the mass override. */
+  const WEIGHED: Preset = { ...CHUTE, partNo: 'TC-36W', mass: 0.1 };
+  /** The node a pick of `row` leaves — then edited per test. */
+  const picked = (over: Record<string, unknown> = {}, row: Preset = CHUTE): ComponentNode => ({
+    type: 'parachute', id: 'p', name: 'Main',
+    ...(presetPatch('parachute', row) as Record<string, unknown>), ...over,
+  }) as ComponentNode;
+  const keys = (node: ComponentNode, row: Preset = CHUTE) => catalogueDifferences(node, row).map((d) => d.key);
+
+  it('names every field a pick can write, so no raw key ever reaches a sentence', () => {
+    // The mechanism behind the plain words. Tier (a) shipped a FIELD_WORDS list
+    // that lacked a transition's four shoulder keys, and the import note for
+    // the corpus file 2,4-D.rkt printed "foreShoulderRadius, foreShoulderLength,
+    // aftShoulderRadius, aftShoulderLength" to a user. Every key presetPatch
+    // writes, for every catalogue row and every type that consumes its kind,
+    // must have words and a stated rule (compared, or deliberately not).
+    const typesFor = new Map<string, string[]>();
+    for (const [type, kind] of Object.entries(KIND_FOR_TYPE)) {
+      if (kind) typesFor.set(kind, [...(typesFor.get(kind) ?? []), type]);
+    }
+    const unnamed = new Set<string>();
+    for (const row of db) {
+      for (const type of typesFor.get(row.kind) ?? []) {
+        for (const key of Object.keys(presetPatch(type as ComponentNode['type'], row))) {
+          if (!catalogueField(type, key)) unnamed.add(`${type}.${key}`);
+        }
+      }
+    }
+    expect([...unnamed]).toEqual([]);
+  });
+
+  it('a part that matches its row has nothing to show', () => {
+    expect(catalogueDifferences(picked(), CHUTE)).toEqual([]);
+  });
+
+  it('a line count differs by one line; a count has no rounding', () => {
+    const d = catalogueDifferences(picked({ lineCount: 6 }), CHUTE);
+    expect(d.map((x) => x.key)).toEqual(['lineCount']);
+    expect(d[0]!.have).toBe(6);
+    expect(d[0]!.want).toBe(12);
+    expect(d[0]!.patch).toEqual({ lineCount: 12 });
+    expect(d[0]!.words).toBe('line count');
+    expect(keys(picked({ lineCount: 11 }))).toEqual(['lineCount']);
+  });
+
+  it('a Cd inside the catalogue’s own two published decimals is the same figure', () => {
+    expect(keys(picked({ cd: 1.504 }))).toEqual([]);
+    expect(keys(picked({ cd: 1.55 }))).toContain('cd');
+  });
+
+  it('a canopy typed in whole millimetres is the same 36 in canopy; a 34 in one is not', () => {
+    expect(keys(picked({ diameter: 0.914 }))).toEqual([]);
+    expect(keys(picked({ diameter: 0.8636 }))).toEqual(['diameter']);
+  });
+
+  it('a 0.1 mm rounding in a shoulder length is not a difference; a millimetre is', () => {
+    // The design's own example (response-2026-09-03b §3).
+    const NOSE: Preset = {
+      kind: 'NoseCone', manufacturer: 'Test Cones', partNo: 'NC-1', description: '',
+      length: 0.2, outsideDiameter: 0.066, shoulderDiameter: 0.0635, shoulderLength: 0.05, shape: 'OGIVE',
+      thickness: 0.002, material: { name: 'Polystyrene PS', type: 'BULK', density: 1050 },
+    };
+    const nose = (over: Record<string, unknown> = {}) => ({
+      type: 'nosecone', id: 'n', ...(presetPatch('nosecone', NOSE) as Record<string, unknown>), ...over,
+    }) as ComponentNode;
+    expect(keys(nose(), NOSE)).toEqual([]);
+    expect(keys(nose({ shoulderLength: 0.0501 }), NOSE)).toEqual([]);
+    expect(keys(nose({ shoulderLength: 0.051 }), NOSE)).toEqual(['shoulderLength']);
+    // Across a part a tenth of a millimetre is past any typed rounding of a
+    // diameter stated to a thousandth of an inch.
+    expect(keys(nose({ aftRadius: 0.03305 }), NOSE)).toEqual([]);
+    expect(keys(nose({ aftRadius: 0.0332 }), NOSE)).toEqual(['aftRadius']);
+    // Shape and solidity are facts, not figures.
+    const shape = catalogueDifferences(nose({ shape: 'conical' }), NOSE);
+    expect(shape.map((x) => x.key)).toEqual(['shape']);
+    // Taking the catalogue's shape takes its default parameter with it, as a
+    // pick does — strictly: the `undefined` IS the reset.
+    expect(shape[0]!.patch).toStrictEqual({ shape: 'ogive', shapeParameter: undefined });
+    expect(keys(nose({ filled: true }), NOSE)).toEqual(['filled']);
+    // A material is its density: the same figure under another name does not matter.
+    expect(keys(nose({ materialName: 'Styrene' }), NOSE)).toEqual([]);
+    const mat = catalogueDifferences(nose({ density: 1250, materialName: 'PETG' }), NOSE);
+    expect(mat.map((x) => x.key)).toEqual(['density']);
+    expect(mat[0]!.patch).toEqual({ density: 1050, materialName: 'Polystyrene PS' });
+  });
+
+  it('a body tube cut to length is not a disagreement — desktop’s own rule', () => {
+    // BodyTube and LaunchLug keep their preset when their length changes
+    // (desktop 24.12 BodyComponent.setLength, LaunchLug.setLength: no
+    // clearPreset) because tubes are sold long and cut; an inner tube takes the
+    // same body-tube catalogue. A coupler's length IS the part.
+    const TUBE: Preset = {
+      kind: 'BodyTube', manufacturer: 'Test Tubes', partNo: 'BT-98', description: '',
+      length: 1.2192, outsideDiameter: 0.1024, insideDiameter: 0.0986,
+      material: { name: 'Kraft phenolic', type: 'BULK', density: 943 },
+    };
+    for (const type of ['bodytube', 'innertube'] as const) {
+      const cut = { type, id: 't', ...(presetPatch(type, TUBE) as Record<string, unknown>), length: 0.3 } as ComponentNode;
+      expect(keys(cut, TUBE), type).toEqual([]);
+      expect(keys({ ...cut, outerRadius: 0.052 } as ComponentNode, TUBE), type).toEqual(['outerRadius']);
+    }
+    expect(catalogueField('bodytube', 'length')!.differs).toBeNull();
+    expect(catalogueField('tubecoupler', 'length')!.differs).not.toBeNull();
+    expect(catalogueField('launchlug', 'length')!.differs).toBeNull();
+  });
+
+  it('the canopy pair is one fact: either half differing offers both halves', () => {
+    // The desktop-file case (LEM-IV.ork, ninja_4in_*.ork): desktop states a Cd
+    // and has no vent at all, so the import's pairing rule left the maker's
+    // pair out. The part flies Cd 1.55 on the full canopy; the maker's figure
+    // is 1.5 on the vented one.
+    const desk = picked({ cd: 1.55, spillHoleDiameter: undefined });
+    const d = catalogueDifferences(desk, CHUTE);
+    expect(d.map((x) => x.key)).toEqual(['cd', 'spillHoleDiameter']);
+    for (const x of d) expect(x.patch).toEqual({ cd: 1.5, spillHoleDiameter: 0.0762 });
+    expect(d[1]!.have).toBe(0); // no vent flies as none
+    // A vent alone off the maker's is still the pair.
+    const vent = catalogueDifferences(picked({ spillHoleDiameter: 0.05 }), CHUTE);
+    expect(vent.map((x) => x.key)).toEqual(['spillHoleDiameter']);
+    expect(vent[0]!.patch).toEqual({ cd: 1.5, spillHoleDiameter: 0.0762 });
+  });
+
+  it('an automatic Cd against a rated one is a difference, and says so', () => {
+    const d = catalogueDifferences(picked({ cd: undefined }), CHUTE);
+    expect(d.map((x) => x.key)).toEqual(['cd']);
+    expect(d[0]!.have).toBeUndefined();
+    // A row with no rated Cd states no pair, so it has nothing to say about either half.
+    const unrated: Preset = { ...CHUTE, dragCoefficient: undefined };
+    expect(keys(picked({ cd: undefined, spillHoleDiameter: 0.05 }), unrated)).toEqual([]);
+  });
+
+  it('a stated part mass is compared; a computed one and an assembly’s are not', () => {
+    // Masses are published to 0.1 g or 0.01 oz: half a gram or 2 % is the same part.
+    const weighed = (over: Record<string, unknown>) => keys(picked(over, WEIGHED), WEIGHED);
+    expect(weighed({})).toEqual([]);
+    expect(weighed({ overrideMass: 0.1004 })).toEqual([]);
+    expect(weighed({ overrideMass: 0.13 })).toEqual(['overrideMass']);
+    expect(catalogueDifferences(picked({ overrideMass: 0.13 }, WEIGHED), WEIGHED)[0]!.patch)
+      .toEqual({ overrideMass: 0.1 });
+    expect(weighed({ overrideMass: undefined })).toEqual([]);
+    expect(weighed({ overrideMass: 0.5, overrideSubcomponentsMass: true })).toEqual([]);
+  });
+
+  it('materials are compared by density and taken whole, name and density together', () => {
+    const d = catalogueDifferences(picked({ surfaceDensity: 0.04, surfaceMaterialName: 'Thin nylon' }), CHUTE);
+    expect(d.map((x) => x.key)).toEqual(['surfaceDensity']);
+    expect(d[0]!.patch).toEqual({ surfaceDensity: 0.067, surfaceMaterialName: 'Ripstop nylon' });
+    expect(keys(picked({ lineDensity: 0.002015 }))).toEqual([]); // 0.75 %: the same line
+  });
+
+  it('a density is compared only while it decides the weight', () => {
+    // goblin-256.ork: desktop derives a catalogued nose's density from its
+    // mass (145.6 kg/m³ for the same 76 g part this catalogue carries as HIPS
+    // 950 plus the mass), so the figure differs and the part does not.
+    const thin = { surfaceDensity: 0.04 };
+    expect(keys(picked(thin))).toEqual(['surfaceDensity']);                 // both by density
+    expect(keys(picked({ ...thin, overrideMass: 0.1 }))).toEqual([]);        // the part states its mass
+    expect(keys(picked({ ...thin, overrideMass: undefined }, WEIGHED), WEIGHED)).toEqual([]); // the row does
+  });
+
+  it('differsFromCatalogue: numbers by the field’s tolerance, words and flags exactly', () => {
+    const tol = catalogueField('parachute', 'lineLength')!.differs!;
+    expect(differsFromCatalogue(tol, 0.9144, 0.9144)).toBe(false);
+    expect(differsFromCatalogue(tol, 0.9, 0.9144)).toBe(true);
+    const text = catalogueField('nosecone', 'shape')!.differs!;
+    expect(differsFromCatalogue(text, ' Ogive ', 'ogive')).toBe(false);
+    expect(differsFromCatalogue(text, 'haack', 'ogive')).toBe(true);
+    expect(differsFromCatalogue(catalogueField('nosecone', 'filled')!.differs!, false, true)).toBe(true);
+  });
+
+  it('linkedPreset finds the row through the alias table and a dropped duplicate’s part number', () => {
+    const node = { type: 'parachute', id: 'p', presetManufacturer: 'FRUITY-CHUTES', presetPartNo: '29185' } as ComponentNode;
+    expect(linkedPreset(node, db)?.partNo).toBe('IFC-096-N');
+    expect(linkedPreset({ type: 'parachute', id: 'q' } as ComponentNode, db)).toBeUndefined();
+    expect(linkedPreset({ ...node, presetPartNo: 'NO-SUCH-PART' } as ComponentNode, db)).toBeUndefined();
+  });
+
+  it('Detach clears the link and nothing else — every value on the part stays', () => {
+    const node = picked({ lineCount: 6 });
+    const after = { ...node, ...detachPatch() } as ComponentNode;
+    for (const key of CATALOGUE_LINK_KEYS) expect(after[key], key).toBeUndefined();
+    expect(after['lineCount']).toBe(6);
+    expect(after['cd']).toBe(1.5);
+    expect(linkedPreset(after, [CHUTE])).toBeUndefined();
+  });
+});
+
+/**
+ * Tier (a) reads the same table as the chips, so the import note says the
+ * same thing the panel shows: plain words for every field, and no line for a
+ * difference the design said not to flag.
+ */
+describe('tier (a): the import note reads the conflict marker’s table', () => {
+  it('names a transition’s shoulders in words, never as raw keys', () => {
+    const REDUCER: Preset = {
+      kind: 'Transition', manufacturer: 'Test Reducers', partNo: 'TR-1', description: '',
+      length: 0.08, foreOutsideDiameter: 0.066, aftOutsideDiameter: 0.1024,
+      foreShoulderDiameter: 0.0635, foreShoulderLength: 0.03, aftShoulderDiameter: 0.0986, aftShoulderLength: 0.04,
+      shape: 'CONICAL',
+    };
+    const node = {
+      type: 'transition', id: 't', name: 'Transition', length: 0.08, foreRadius: 0.033, aftRadius: 0.0512,
+      foreShoulderRadius: 0.031, foreShoulderLength: 0.025, aftShoulderRadius: 0.0493, aftShoulderLength: 0.04,
+    } as ComponentNode;
+    const notes: string[] = [];
+    applyPresetLinks([{ node, manufacturer: 'Test Reducers', partNo: 'TR-1' }], [REDUCER], notes);
+    expect(notes[1]).toMatch(/Transition: fore shoulder radius, fore shoulder length\./);
+    expect(notes.join(' ')).not.toMatch(/[a-z]+Shoulder[A-Z]/);
+  });
+
+  it('a body tube the file cut to length is not reported as disagreeing', () => {
+    const TUBE: Preset = {
+      kind: 'BodyTube', manufacturer: 'Test Tubes', partNo: 'BT-98', description: '',
+      length: 1.2192, outsideDiameter: 0.1024, insideDiameter: 0.0986,
+    };
+    const node = { type: 'bodytube', id: 'b', name: 'Booster', length: 0.4, outerRadius: 0.0512, thickness: 0.0019 } as ComponentNode;
+    const notes: string[] = [];
+    expect(applyPresetLinks([{ node, manufacturer: 'Test Tubes', partNo: 'BT-98' }], [TUBE], notes)).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).not.toMatch(/disagrees/);
   });
 });

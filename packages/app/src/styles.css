@@ -2780,6 +2780,54 @@ html {
   color: var(--text-primary);
 }
 
+/* The conflict marker (approved 2026-09-07): a quiet ≠ beside a value its
+   catalogue row disagrees with, a one-click "use" on the 24 px button above,
+   and the Catalogue line naming the row with Detach. Quiet on purpose — it is
+   a state, not an alert — so muted ink and a dashed rim; tokens only, so every
+   theme, Daylight and high contrast included, gets it with no override. */
+.catalogue-diff {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.catalogue-diff-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: help;
+}
+
+.catalogue-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.catalogue-line strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.catalogue-diff-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* --- Batch simulate --- */
 .batch-progress {
   height: 6px;
