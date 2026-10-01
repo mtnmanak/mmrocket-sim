@@ -1,17 +1,23 @@
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
-import type { MotorRoom } from '../tree/motorRoom.js';
+import type { MotorRoom, NoBore } from '../tree/motorRoom.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
 /** One field contract for both mount cards and the Design property panel. */
-export function MotorLengthField({ mountName, value, onCommit, room }: {
+export function MotorLengthField({ mountName, value, onCommit, room, noBore }: {
   mountName: string;
   value: number | null;
   onCommit: (value: number | undefined) => void;
   /** Omitted in Design; null on a card with no positive estimate. */
   room?: MotorRoom | null;
+  /**
+   * Why the mount has no bore, when it has none (`noBoreReason`) — the cause
+   * of a null `room` the hint then names, in place of the length, position
+   * and overhang it otherwise suspects.
+   */
+  noBore?: NoBore | null;
 }) {
   const id = useId();
   const { prefs } = usePrefs();
@@ -35,7 +41,11 @@ export function MotorLengthField({ mountName, value, onCommit, room }: {
     </p>
     {room !== undefined && <p className="comp-stats" style={{ margin: '3px 0 0' }}>
       {room ? <>Room for {fmtSi('motorDimensions', unit, room.lengthM)} {unit} to {room.limitedBy}.</>
-        : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
+        : noBore === 'solid'
+          ? 'No motor fits this mount: it is ticked Solid (filled), so it has no bore. Untick Solid (filled) on it to make it a tube.'
+          : noBore === 'wall'
+            ? 'No motor fits this mount: its wall is as thick as its radius, so it has no bore.'
+            : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
     </p>}
   </div>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RocketTree } from '@online-openrocket/engine';
-import { estimateMotorRoom, estimateMotorRoomForMounts } from './motorRoom.js';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { estimateMotorRoom, estimateMotorRoomForMounts, noBoreReason } from './motorRoom.js';
 
 /**
  * The "how long a motor fits" estimate (owner, 2026-08-30). Measured forward
@@ -711,6 +711,20 @@ describe('a solid mount has no room for a motor', () => {
 
   it('solid, there is none', () => {
     expect(estimateMotorRoom(rocket(true), 'mm')).toBeNull();
+  });
+
+  it('and the field is told why: Solid (filled), or a wall that fills the tube', () => {
+    // Both give no room, and the Max motor length field blamed the mount's
+    // length, position and overhang for it.
+    const mount = (extra: Record<string, unknown>) => ({
+      id: 'mm', type: 'bodytube', length: 0.3, outerRadius: 0.015, thickness: 0.001, motorMount: true, ...extra,
+    } as ComponentNode);
+    expect(noBoreReason(mount({}))).toBeNull();
+    expect(noBoreReason(mount({ filled: true }))).toBe('solid');
+    expect(noBoreReason(mount({ thickness: 0.015 }))).toBe('wall');
+    expect(noBoreReason({ ...mount({ thickness: 0.016 }), type: 'innertube' } as ComponentNode)).toBe('wall');
+    // A case airframe's bore is its outside, whatever else it says.
+    expect(noBoreReason(mount({ filled: true, caseAirframe: true }))).toBeNull();
   });
 });
 

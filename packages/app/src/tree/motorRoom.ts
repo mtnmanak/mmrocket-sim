@@ -96,6 +96,21 @@ export interface MotorRoom {
   limitedBy: string;
 }
 
+/** Why a mount has no bore: ticked Solid (filled), or a wall at least as thick as its radius. */
+export type NoBore = 'solid' | 'wall';
+
+/**
+ * Why this mount has no bore (`mountBore` 0), or null when it has one. A mount
+ * with none holds no motor and `estimateMotorRoom` answers null for it, as it
+ * does for a mount it cannot place — and the Max motor length field, told only
+ * that, blamed the mount's length, position and overhang. A case airframe's
+ * bore is its outside, so it always has one.
+ */
+export function noBoreReason(mount: ComponentNode): NoBore | null {
+  if (mountBore(mount) > 0) return null;
+  return mount.type === 'bodytube' && mount['filled'] === true ? 'solid' : 'wall';
+}
+
 
 /**
  * Components a motor case cannot pass through.
