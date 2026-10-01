@@ -2165,6 +2165,9 @@ export function App() {
       savedConfigs,
       activeConfigId,
       assigned,
+      // The working set's refusals: Launch flew without them, so its delay
+      // vector names none of them (orkFlightData.describedMotors).
+      refusedMountIds,
       mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
       // The design and conditions terms of the ONE key a run is stamped with.
       // The motor set is not taken from it: a non-active configuration is
@@ -2185,7 +2188,7 @@ export function App() {
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
-  }), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
+  }), [runs, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**

@@ -310,9 +310,9 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
   /**
    * podTree with the core's Estes C6-5 on Auto delay and the pods' C6 on a
    * curve the kernel refuses (its last mass below zero), mounted and flown
-   * once. Returns the core's mount id and its stored delay record.
+   * once. Returns the delay the core's Auto flew, from the stored run.
    */
-  async function flownWithRefusedPodMotor(): Promise<{ host: HTMLElement; core: string; flownS: number }> {
+  async function flownWithRefusedPodMotor(): Promise<{ host: HTMLElement; flownS: number }> {
     const tree = podTree(defaultTree());
     const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
     const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
@@ -332,7 +332,7 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
     // The case itself: a vector of the core alone, its Auto delay settled.
     const [run] = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
     expect(run!.delayResolution!.mounts.map((m) => [m.mountId, m.mode])).toEqual([[core, 'auto']]);
-    return { host, core, flownS: run!.delayResolution!.mounts[0]!.flownDelay as number };
+    return { host, flownS: run!.delayResolution!.mounts[0]!.flownDelay as number };
   }
 
   it('its card says the flight just flown is current, not a previous one', async () => {
@@ -341,6 +341,28 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
     const card = [...host.querySelectorAll('.mount-card p.field-hint')]
       .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
     expect(card).toMatch(new RegExp(`^Auto flew ${flownS} s · ballistic optimum`));
+  }, 30000);
+
+  /**
+   * A Save writes the delay Auto flew, not the motor's provisional 5 s, and so
+   * does not ask for the Launch that has just happened. A .rkt and a share
+   * link read the same delays (orkFlightData.flownAutoDelays).
+   */
+  it('Save .ork keeps the delay its Auto flew, and asks for no other Launch', async () => {
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    try {
+      const { host, flownS } = await flownWithRefusedPodMotor();
+      await act(async () => { button(host, 'Save As / Export').click(); });
+      await act(async () => { button(host.querySelector('.file-menu')!, 'Save .ork').click(); });
+      await waitFor(() => (document.body.textContent ?? '').includes('is on Auto (optimal) delay'), 'the save line');
+      const said = document.body.textContent ?? '';
+      expect(said).toContain(`it is saved at ${flownS} s, the rounded optimum it flies on Auto`);
+      expect(said).not.toContain('Launch, then save');
+    } finally {
+      created.mockRestore();
+      revoked.mockRestore();
+    }
   }, 30000);
 });
 

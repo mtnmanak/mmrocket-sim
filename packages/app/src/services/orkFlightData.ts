@@ -1,5 +1,6 @@
 import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
+import { installedMounts } from './flightRunner.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
@@ -46,6 +47,12 @@ export interface FlightDataForExportInput {
   activeConfigId: string | null;
   /** The live working set, used for the ACTIVE configuration. */
   assigned: readonly [string, MountMotor][];
+  /**
+   * The build's refusals: mounts of the working set Launch left off the
+   * rocket (App's `refusedMountIds`). Known for the ACTIVE configuration only,
+   * because App builds no other.
+   */
+  refusedMountIds?: readonly string[];
   /** Ids of the mounts that exist right now. */
   mountIds: readonly string[];
   /** `shortHash(physicsKey)` — the design as the runs stamped it. */
@@ -78,6 +85,23 @@ export interface FlightDataForExportInput {
   primaryMountOf: (mountIds: readonly string[]) => string | null;
 }
 
+/** What a stored run says about the configuration it names. */
+interface DescribedMotors {
+  /** Every motor of the configuration: what its key covers and the file names. */
+  motors: [string, MountMotor][];
+  /**
+   * The ones a Launch of it flies, which its delay vector names
+   * (flightRunner.installedMounts). A refused motor is in no vector, so a
+   * vector checked against `motors` was a mount short and never matched
+   * (verifier's review of audit 2026-09-30). The build's refusals count for
+   * the ACTIVE configuration only, the one App built; a kernel refusal in
+   * another configuration is unknown, so a run of it is not read, the safe
+   * direction. An ignition event the kernel does not know is left out in
+   * every configuration: the motor set names it (motorSetKeyOf).
+   */
+  flown: readonly (readonly [string, MountMotor])[];
+}
+
 /**
  * The motors a stored run flew, read from the configuration it names — when
  * the run still describes that configuration as it stands in every way but
@@ -86,7 +110,7 @@ export interface FlightDataForExportInput {
  * describes the working set of a design that has none (`activeConfigId`
  * null); `flightDataForExport` writes no such run, `flownAutoDelays` reads one.
  */
-function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, MountMotor][] | null {
+function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedMotors | null {
   const {
     savedConfigs, activeConfigId, assigned, mountIds, designKey, conditionsKey, model, hasNozzle,
     motorSetKeyOf, hardwareDeltaKg,
@@ -124,7 +148,7 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): [string, M
   // hardware, and refusal is the safe direction for numbers written into a
   // file — the same rule the model check above applies to UNKNOWN.
   if (r.motorSetKey !== motorSetKeyOf(cfgMotors, active ? hardwareDeltaKg : 0)) return null;
-  return cfgMotors;
+  return { motors: cfgMotors, flown: installedMounts(cfgMotors, active ? input.refusedMountIds : undefined) };
 }
 
 /** One complete qualifying run supplies every Auto delay in a configuration. */
@@ -133,8 +157,8 @@ export function flownAutoDelays(input: FlightDataForExportInput): Record<string,
   for (const r of input.runs) {
     const key = r.flightConfigId ?? '';
     if (key in out) continue;
-    const motors = describedMotors(r, input);
-    if (!motors || !resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
+    const described = describedMotors(r, input);
+    if (!described || !resolutionMatches(r.delayResolution, delayMountsOf(described.flown))) continue;
     const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
     if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
   }
@@ -146,9 +170,14 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
   const out = lookupTable<OrkExportFlightData>({});
   for (const r of input.runs) {
     if (!r.flightConfigId || out[r.flightConfigId]) continue;
-    const motors = describedMotors(r, input);
+    const motors = describedMotors(r, input)?.motors;
     if (!motors) continue;
     if (r.delayResolution !== undefined) {
+      // Against EVERY motor, not the ones that flew: the file names a refused
+      // motor too, and desktop OpenRocket would show a flight without it as the
+      // result of a configuration with it. So for a configuration with a
+      // refused motor the file names the delays its Auto flew (flownAutoDelays)
+      // and carries no flight data.
       if (!resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
       if (!motors.every(([id, mm]) => {
         const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;

@@ -148,7 +148,8 @@ export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware, 
  * So a two-mount design whose second motor was refused launched and stored its
  * run, but "Show charts" was hidden for every run of it and the flight-data
  * download refused with "Saved mount delays are incomplete", which no Launch
- * could clear. Launch, the re-fly and App's `canShowCharts` all read this.
+ * could clear. Launch, the re-fly, App's `canShowCharts` and Auto-delay card,
+ * and the Auto delays a Save writes (orkFlightData) all read this.
  */
 export function installedMounts(
   assigned: AssignedMotors['assigned'], refusedMountIds?: readonly string[],
