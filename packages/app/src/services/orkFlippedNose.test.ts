@@ -212,4 +212,27 @@ describe('exporters with no flipped nose cone', () => {
     t.components.push({ type: 'stage', id: 's2', name: 'Booster', children: [{ ...booster, id: 'bb' }] } as ComponentNode);
     expect(() => exportCdx1({ name: 'Two', tree: t })).toThrow(/“Pod tail” in pod set “Side pods”/);
   });
+
+  it('RASAero: refuses a tail cone in a strap-on as in a pod set, naming the strap-on', () => {
+    // A strap-on (parallel stage) is never written to a .CDX1 — RASAero has no
+    // parallel staging — so a tail cone in one vanished with it, without a
+    // word, where one in a pod set was refused. desktop ignores either with a
+    // warning ("Unsupported component ..., ignoring").
+    const strapped = (tail: Record<string, unknown>): RocketTree => {
+      const t = tree();
+      const sustainer = t.components[0]!;
+      sustainer.children = sustainer.children!.filter((c) => c.id !== 't');
+      sustainer.children.find((c) => c.id === 'b')!.children = [{
+        type: 'parallelstage', id: 'ps', name: 'Side boosters', instanceCount: 2, children: [
+          { type: 'bodytube', id: 'sb', name: 'Strap tube', length: 0.2, outerRadius: 0.012, thickness: 0.0005 },
+          { type: 'nosecone', id: 'st', name: 'Strap tail', length: 0.05, aftRadius: 0.012, shape: 'conical', ...tail },
+        ],
+      } as unknown as ComponentNode];
+      return t;
+    };
+    expect(() => exportCdx1({ name: 'Strap', tree: strapped({ flipped: true }) }))
+      .toThrow(/RASAero has no tail cone — “Strap tail” in strap-on “Side boosters” is flipped to point aft/);
+    // An unflipped nose cone in a strap-on is not refused, as in a pod set.
+    expect(() => exportCdx1({ name: 'Strap', tree: strapped({}) })).not.toThrow();
+  });
 });
