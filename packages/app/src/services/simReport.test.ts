@@ -1342,6 +1342,16 @@ describe('storedSimCost', () => {
     expect(storedSimCost([stored('Alpha', 12000, 0.01, other)], design, 'Alpha')).toBeNull();
   });
 
+  it('nor another airframe that carries the same motor set: the motor key alone cannot tell them apart', () => {
+    // The motor-set key names each motor by its MOUNT ID, and mount ids are
+    // counter values that start again at every page load — so a design opened
+    // after a reload can put the same motor on the same id as a stored run of
+    // another design, and the two keys are then equal. The design key is what
+    // still tells the airframes apart.
+    const sameMotors = { designKey: 'design-B', motorSetKey: design.motorSetKey };
+    expect(storedSimCost([stored('Alpha', 12000, 0.01, sameMotors)], design, 'Alpha')).toBeNull();
+  });
+
   it('matches a run stored before the provenance keys existed by its rocket name, as before', () => {
     const legacy: Partial<SimRun> = stored('Alpha', 900, undefined, {});
     delete legacy.conditionsKey;
