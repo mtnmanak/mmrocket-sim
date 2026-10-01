@@ -1,0 +1,13 @@
+{
+  // The tests, typechecked and never emitted: vitest transpiles them without
+  // checking, so this is what refuses a type error in one (the `build` script runs
+  // it, and `npm run typecheck`, `npm test` and CI all run that). The modules they
+  // import are checked again in this program. orkengine-module.d.ts is named
+  // because nothing imports it: it types the vendored kernel the tests reach
+  // through orkEngine.ts, and windLevels.test.ts imports directly.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.test.ts", "src/orkengine-module.d.ts"]
+}

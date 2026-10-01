@@ -24,8 +24,9 @@
     // rather than assume: in packages/app, `npx tsc -p tsconfig.app.json --noEmit
     // --<flag>` and the same for tsconfig.test.json (packages/app/tsconfig.json
     // is a solution file with no files of its own since 2026-09-22, so `-p` on it
-    // checks nothing), and `npx tsc -p tsconfig.json --noEmit --<flag>` in
-    // packages/engine.
+    // checks nothing), and in packages/engine the same for tsconfig.build.json and
+    // tsconfig.test.json (its tsconfig.json has been one too since the 2026-09-30
+    // audit's Step 8).
     //
     // noImplicitReturns is the load-bearing one for THIS app: a branch that
     // silently returns undefined where a number is expected is how a wrong
