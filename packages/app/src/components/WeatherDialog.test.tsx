@@ -102,6 +102,8 @@ function choose(el: HTMLSelectElement | null, value: string) {
 }
 const row = (key: string) => q(`tr[data-row="${key}"]`);
 const GERLACH_PLACE: WeatherPlace = { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' };
+const RENO: WeatherPlace = { label: 'Reno, Nevada, US', latitudeDeg: 39.52963, longitudeDeg: -119.8138,
+  method: 'search', timezone: 'America/Los_Angeles' };
 
 const LEM_SITE = { ...DEFAULT_CONDITIONS, latitudeDeg: 26.380273, longitudeDeg: 80.126879, launchAltitudeM: 3.048 };
 // Synthetic terrain/zone evidence from the research, not measured Open-Meteo heights.
@@ -599,8 +601,6 @@ describe('the weather dialog', () => {
   // and Reno's air sat under "Forecast for Gerlach" with Gerlach's
   // coordinates, one Apply away from the launch conditions.
   it('never shows, or applies, one place’s weather under a place picked while it was out', async () => {
-    const RENO: WeatherPlace = { label: 'Reno, Nevada, US', latitudeDeg: 39.52963, longitudeDeg: -119.8138,
-      method: 'search', timezone: 'America/Los_Angeles' };
     // Reno's air, unmistakable: 31.7 °C every hour.
     const renoAir = (fixture('forecast-gerlach-0-1202m.json') as { hourly: { temperature_2m: number[] } }[])
       .map((v) => ({ ...v, hourly: { ...v.hourly, temperature_2m: v.hourly.temperature_2m.map(() => 31.7) } }));
@@ -653,6 +653,46 @@ describe('the weather dialog', () => {
     await settle();
     expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
     expect(host.textContent).not.toContain('Located to within');
+  });
+
+  // A DATE TYPED WHILE A PLACE IS STILL COMING STAYS (review of the audit
+  // fixes, 2026-10-01). The place a location fix or a search's one answer
+  // brings lands through the render that STARTED the request, whose date had
+  // not been touched yet, so it put the Date box back on today — and Fetch
+  // then asked for today's weather, not the launch day typed into the box.
+  it('keeps a date typed while the browser was still locating', async () => {
+    let answer: PositionCallback | undefined;
+    render({ initialPlace: RENO, geolocation: { getCurrentPosition: (ok) => { answer = ok; } } });
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-22');
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    // The permission prompt is still up when the user types Saturday.
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await act(async () => { answer!({ coords: { latitude: 40.869712, longitude: -119.061288, accuracy: 30 } } as GeolocationPosition); });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('40.870° N, 119.060° W');
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
+  });
+
+  it('keeps a date typed while a search was still out', async () => {
+    const held: Array<(v: { body: unknown }) => void> = [];
+    const gerlachOnly = fixture('geocode-gerlach.json') as { results: unknown[] };
+    render({ initialPlace: RENO, route: (u) => (u.includes('geocoding-api')
+      ? new Promise((resolve) => { held.push(resolve); })
+      : GERLACH(u)) });
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    expect(held).toHaveLength(1);
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    // One place found, so it is chosen without a list.
+    held[0]!({ body: { ...gerlachOnly, results: gerlachOnly.results.slice(0, 1) } });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
   });
 
   it('can cancel a location request the browser never answers', async () => {

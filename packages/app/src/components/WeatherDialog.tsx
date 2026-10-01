@@ -203,7 +203,12 @@ export function WeatherDialog({
     : ymdInZone(now(), initialPlace?.timezone)));
   // Fetch again's date is the applied weather's, chosen as surely as a typed
   // one: picking another place keeps it rather than jumping to today.
-  const [dateTouched, setDateTouched] = useState(!!initialHour);
+  // A REF, not state: a location fix or a search's one answer chooses its
+  // place through the render that STARTED the request, and a state value read
+  // there was that render's — so a date typed while the request was out was
+  // put back on today when the place landed (review of the audit fixes,
+  // 2026-10-01). Nothing renders it; choosePlace reads it when the place lands.
+  const dateTouched = useRef(!!initialHour);
   const [dateNote, setDateNote] = useState<string | null>(null);
   const [answer, setAnswer] = useState<WeatherAnswer | null>(null);
   const [hourUnix, setHourUnix] = useState<number | null>(null);
@@ -233,8 +238,7 @@ export function WeatherDialog({
     setBusy(null);
   };
 
-  const choosePlace = (p: WeatherPlace, fromDesign = false,
-      nextDate = dateTouched ? date : ymdInZone(now(), p.timezone)) => {
+  const choosePlace = (p: WeatherPlace, fromDesign = false, nextDate?: string) => {
     // A new place ends whatever is still out for the old one, as a new date
     // does (audit 2026-09-30). The result list stays live while a fetch or a
     // location request runs, and a pick there cancelled nothing: the old
@@ -251,7 +255,10 @@ export function WeatherDialog({
     setNote(null);
     setDateNote(null);
     // "Today" follows the site unless a chosen or reviewed date is preserved.
-    setDate(nextDate);
+    // A chosen one is left alone rather than written back: `date` here may be
+    // the starting render's, older than the box.
+    if (nextDate !== undefined) setDate(nextDate);
+    else if (!dateTouched.current) setDate(ymdInZone(now(), p.timezone));
   };
 
   const runSearch = async () => {
@@ -459,7 +466,7 @@ export function WeatherDialog({
                 // cancelled, and Fetch asks again for the new date.
                 if (busy === 'fetch') cancel();
                 setDate(e.target.value);
-                setDateTouched(true);
+                dateTouched.current = true;
                 setDateNote(null);
                 setAnswer(null);
               }} />
