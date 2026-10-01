@@ -1297,9 +1297,10 @@ const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
  * its default — tree/kernelDefaults.ts), a transition's two ends as stated or,
  * when automatic, the drawing's own placeholders, which no kernel constant
  * replaces. The frame (schematicFrame) is sized from the same number, so a
- * cleared radius cannot leave it measuring a part it does not draw.
+ * cleared radius cannot leave it measuring a part it does not draw. The aft
+ * view draws its hulls at it too (components/AftView.tsx).
  */
-function drawnRadius(n: ComponentNode): number {
+export function drawnRadius(n: ComponentNode): number {
   if (n.type === 'nosecone') return kernelNum(n, 'aftRadius');
   if (n.type === 'bodytube') return kernelNum(n, 'outerRadius');
   return Math.max(num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009));
@@ -1316,8 +1317,11 @@ const profileShape = (n: ComponentNode): string => (typeof n['shape'] === 'strin
 const clippedOf = (n: ComponentNode): boolean | undefined =>
   (typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
 
-/** The surface `profilePath` draws, as the mount a fin's root sits on (tree/finRoot.ts). */
-function profileMountOf(n: ComponentNode, len: number, foreR: number, aftR: number): MountSurface {
+/**
+ * The surface `profilePath` draws, as the mount a fin's root sits on
+ * (tree/finRoot.ts) — here and in the aft view (components/AftView.tsx).
+ */
+export function profileMountOf(n: ComponentNode, len: number, foreR: number, aftR: number): MountSurface {
   return profileMount(profileShape(n), numOpt(n, 'shapeParameter'), len, foreR, aftR, clippedOf(n));
 }
 
