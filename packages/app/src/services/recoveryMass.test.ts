@@ -10,8 +10,9 @@ import {
 } from '../tree/treeModel.js';
 import { importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
+import { catalogueMotorMass } from './hardwareMass.js';
 import {
-  motorBurnoutMass, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
+  motorBurnoutMass, motorLoadedMass, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
   recoveryMassTitle, sustainerScope,
 } from './recoveryMass.js';
 
@@ -512,6 +513,42 @@ describe('recovery weight — degenerate motor curves', () => {
   it('a non-finite mass sample is not allowed to poison the answer', () => {
     expect(motorPropellantMass({ masses: [NaN, 0.009] })).toBe(0);
     expect(motorBurnoutMass({ masses: [0.021, Infinity] })).toBeNull();
+  });
+
+  it('a loaded mass is the first sample only when that is a weight — one reader for pad and recovery', () => {
+    // Audit 2026-09-30: hardwareMass.ts carried its own copy of this reader,
+    // unclamped, beside this one clamped at zero, so the pad-mass hardware and
+    // the recovery weight could read one motor two ways. A first sample below
+    // zero is a malformed curve the engine refuses at setMotorById
+    // (assertFiniteCurve), so no mount App hands either caller has one; handed
+    // one anyway, both answer "unknown". Zero would lighten what comes down —
+    // the unsafe way for a canopy — and the raw figure hands the motor's
+    // weight to the pad-mass hardware.
+    expect(motorLoadedMass(C6())).toBe(0.021);
+    expect(motorLoadedMass({ masses: [] })).toBeNull();
+    expect(motorLoadedMass({ masses: [NaN, 0.009] })).toBeNull();
+    expect(motorLoadedMass({ masses: [0, 0.009] })).toBe(0); // what the kernel would fly
+    const negative: MotorSpec = { ...C6(), masses: [-0.021, -0.009] };
+    expect(motorLoadedMass(negative)).toBeNull();
+
+    // Both callers, the same motors: a sustainer on Never with a booster.
+    const tree = twoStage();
+    const sustainer = (spec: MotorSpec) => {
+      const r = recoveryMassByStage({
+        tree, info: { mass: 0.2, massEmpty: 0.15 }, sectionMass: () => 0.05,
+        motors: [['m1', { spec, ignition: { event: 'never' } }], ['m2', { spec: C6() }]],
+      });
+      return r.state === 'ok' ? r.groups.find((g) => g.isSustainer)!.mass : r;
+    };
+    // A sound curve: what the recovery weight adds for the motor that never
+    // lights is exactly what the pad-mass sum subtracts for it.
+    const sound = sustainer(C6());
+    expect(sound.state).toBe('ok');
+    if (sound.state !== 'ok') return;
+    expect(sound.mass - (0.15 - 0.05)).toBeCloseTo(catalogueMotorMass(tree, [['m1', { spec: C6() }]])!, 12);
+    // A negative one: unknown on both sides.
+    expect(catalogueMotorMass(tree, [['m1', { spec: negative }]])).toBeNull();
+    expect(sustainer(negative)).toEqual({ state: 'unavailable', reason: 'the sustainer motor carries no mass curve' });
   });
 
   it('refuses when componentInfo cannot answer for a booster stage', () => {

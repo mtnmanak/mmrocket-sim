@@ -1,5 +1,6 @@
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { mountMotorCount } from '../tree/treeModel.js';
+import { motorLoadedMass } from './recoveryMass.js';
 
 /**
  * WEIGHED PAD MASS → the motor hardware the catalogue weight leaves out.
@@ -301,22 +302,13 @@ export function rekeyUnmatched(key: string, mountId: string, identity: string): 
 }
 
 /**
- * The catalogue's LOADED motor mass (kg): the first sample of the mass curve
- * (cf. motorPropellantMass, recoveryMass.ts:66-73). Null when the curve has
- * no mass column, which a published file can lack.
- */
-export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null {
-  const m = spec.masses;
-  if (!Array.isArray(m) || m.length === 0) return null;
-  const first = m[0]!;
-  return Number.isFinite(first) ? first : null;
-}
-
-/**
  * Σ catalogue loaded mass × cluster count over every mount given (kg), or
- * null when any motor carries no mass curve — one unknown makes the total
- * unknown, and a partial sum would attribute the missing motor to hardware.
- * Exported so App can build the pad field's placeholder (dry + this).
+ * null when any motor's loaded mass is unknown (`motorLoadedMass`, in
+ * recoveryMass.ts beside the other mass-curve readers: no mass column, which
+ * a published file can lack, or a first sample that is no weight) — one
+ * unknown makes the total unknown, and a partial sum would attribute the
+ * missing motor to hardware. Exported so App can build the pad field's
+ * placeholder (dry + this).
  */
 export function catalogueMotorMass(
   tree: RocketTree,
