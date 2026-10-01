@@ -114,6 +114,15 @@ function windowBound(raw: string): number | null {
 }
 
 /**
+ * Whether the Delay select offers `delay` for this motor: Auto, Custom and
+ * Plugged always are (the select adds Plugged to every motor), a number of
+ * seconds only when the motor lists it.
+ */
+function delayOffered(motor: MotorDbEntry, delay: number | 'auto' | 'custom'): boolean {
+  return typeof delay !== 'number' || delay === Infinity || delayOptions(motor).includes(delay);
+}
+
+/**
  * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
  * on-state was a CSS class alone — outside the Daylight theme a border and text
  * shade, no fill — so a screen reader heard no state and a low-vision user saw
@@ -397,7 +406,23 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (problems.length) setError(problems.join(' '));
   };
 
+  /**
+   * The motor the Delay was last set for. The pick is re-resolved whenever the
+   * catalogue changes (below), and a repeat check re-reads the stored result
+   * as fresh rows, so the same motor arrives as a new row with nothing changed;
+   * re-running the default for it put a delay the user had chosen back to the
+   * motor's longest, and Load loaded C6-9 with C6-3 on screen a moment before
+   * (review of the audit 2026-09-30 fix). The same motor keeps its delay while
+   * its row still offers it; a different motor starts from the default.
+   */
+  const delayFor = useRef<string | null>(null);
   useEffect(() => {
+    const sameMotor = picked !== null && picked.motorId === delayFor.current;
+    delayFor.current = picked?.motorId ?? null;
+    if (sameMotor) {
+      setDelay((d) => (delayOffered(picked, d) ? d : defaultDelay(picked) ?? 'auto'));
+      return;
+    }
     // Default to the longest PRESCRIBED delay; plugged (Infinity) only when
     // it's the motor's sole option — nobody should get a chute-less flight
     // by default. A motor that lists no delay at all (KBA's "S,M,L", an EX
@@ -413,9 +438,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
    * the fetched changes included — so one motorId flew two ways, the discarded
    * data in this load and the shipped row everywhere else, the split
    * useCatalogue exists to prevent. Re-resolved by id: still in the catalogue,
-   * the pick becomes its row there (a changed row re-runs the delay default
-   * above, since its delays may differ); gone, the pick is cleared. An imported
-   * EX motor is never in the catalogue, so a check leaves it alone.
+   * the pick becomes its row there (keeping its delay while that row offers
+   * it, above); gone, the pick is cleared. An imported EX motor is never in
+   * the catalogue, so a check leaves it alone.
    */
   useEffect(() => {
     setPicked((p) => (p === null || p.motorId.startsWith('ex:')

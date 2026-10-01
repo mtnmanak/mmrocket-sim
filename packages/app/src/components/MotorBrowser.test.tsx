@@ -345,6 +345,44 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(getCatalogueOverlay()).toBeNull();
   });
 
+  const C6_ID = '5f4294d20002310000000015';
+  /**
+   * thrustcurve.org as the whole shipped catalogue, with Estes C6 given a 9 s
+   * delay and one motor added — and, when `drop` names one, that motor gone.
+   */
+  const stubWithChanges = async ({ drop }: { drop?: string } = {}) => {
+    const { MOTOR_DB } = await import('../services/motorDb.js');
+    const c6 = MOTOR_DB.find((m) => m.motorId === C6_ID)!;
+    expect(c6.delays, 'the shipped C6 this test changes').toBe('0,3,5,7');
+    const d12 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'D12')!;
+    const live = [
+      ...MOTOR_DB.filter((m) => m.motorId !== C6_ID && m.motorId !== drop),
+      { ...c6, delays: '0,3,5,7,9' },
+      { ...d12, motorId: 'overlay-only-e99', designation: 'E99', commonName: 'E99', availability: 'regular' },
+    ];
+    const makers = [...new Set(live.map((m) => m.manufacturerAbbrev))];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = new URL(url);
+      const body = u.pathname.endsWith('/metadata.json')
+        ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
+        : { results: live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+      return { ok: true, status: 200, json: async () => body } as unknown as Response;
+    }));
+  };
+  /** Presses `button` (the Check button by default) and waits for the result it reports. */
+  const check = async (h: Harness, button: Element = checkButton(h)) => {
+    click(button);
+    for (let i = 0; i < 100 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
+    expect(h.host.querySelector('.motor-check-status .file-note')!.textContent).toMatch(/1 new, 1 changed/);
+  };
+  const discard = (h: Harness) => click(Array.from(h.host.querySelectorAll('button'))
+    .find((b) => b.textContent?.includes('Discard fetched changes'))!);
+  const loadRow = (h: Harness) => h.host.querySelector('.motor-load-row')!.textContent ?? '';
+  const loadAndWait = async (h: Harness) => {
+    click(loadButton(h)!);
+    for (let i = 0; i < 50 && h.selected.length === 0; i++) await settle(10);
+  };
+
   /**
    * DISCARD TAKES THE PICK WITH IT (audit 2026-09-30). "Discard fetched
    * changes" put the shipped catalogue back, but the row already picked was the
@@ -355,40 +393,6 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
    * is still in it; cleared when it existed only in the overlay.
    */
   describe('Discard fetched changes', () => {
-    const C6_ID = '5f4294d20002310000000015';
-    /** thrustcurve.org as the whole shipped catalogue, with Estes C6 given a 9 s delay and one motor added. */
-    const stubWithChanges = async () => {
-      const { MOTOR_DB } = await import('../services/motorDb.js');
-      const c6 = MOTOR_DB.find((m) => m.motorId === C6_ID)!;
-      expect(c6.delays, 'the shipped C6 this test changes').toBe('0,3,5,7');
-      const d12 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'D12')!;
-      const live = [
-        ...MOTOR_DB.filter((m) => m.motorId !== C6_ID),
-        { ...c6, delays: '0,3,5,7,9' },
-        { ...d12, motorId: 'overlay-only-e99', designation: 'E99', commonName: 'E99', availability: 'regular' },
-      ];
-      const makers = [...new Set(live.map((m) => m.manufacturerAbbrev))];
-      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-        const u = new URL(url);
-        const body = u.pathname.endsWith('/metadata.json')
-          ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
-          : { results: live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
-        return { ok: true, status: 200, json: async () => body } as unknown as Response;
-      }));
-    };
-    const check = async (h: Harness) => {
-      click(checkButton(h));
-      for (let i = 0; i < 100 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
-      expect(h.host.querySelector('.motor-check-status .file-note')!.textContent).toMatch(/1 new, 1 changed/);
-    };
-    const discard = (h: Harness) => click(Array.from(h.host.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Discard fetched changes'))!);
-    const loadRow = (h: Harness) => h.host.querySelector('.motor-load-row')!.textContent ?? '';
-    const loadAndWait = async (h: Harness) => {
-      click(loadButton(h)!);
-      for (let i = 0; i < 50 && h.selected.length === 0; i++) await settle(10);
-    };
-
     it('a motor that existed only in the fetched changes is no longer picked, so it cannot be loaded', async () => {
       await stubWithChanges();
       h = openBrowser({ mountDiameterMm: 24 });
@@ -429,6 +433,75 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       expect(loadRow(h)).toMatch(/EX K550W/);
       await loadAndWait(h);
       expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
+    });
+  });
+
+  /**
+   * A RE-RESOLVED PICK KEEPS THE DELAY CHOSEN FOR IT (review of the fix above,
+   * 2026-10-01). Following the catalogue swaps the picked row for the
+   * catalogue's own, and every swap re-ran the delay default — but a repeat
+   * check re-reads the stored overlay as fresh rows, and "Check again anyway"
+   * pulls fresh ones, so a delay the user had chosen snapped back to the
+   * motor's longest and Load loaded C6-9 where C6-3 was on screen a moment
+   * before. The delay starts again only for a different motor, or when the
+   * motor's new row no longer offers it (the discard above).
+   */
+  describe('a pick the catalogue re-resolves keeps the delay chosen for it', () => {
+    const chooseDelay = (h: Harness, value: string) => act(() => {
+      const sel = delaySelect(h)!;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, value);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const checkAgainAnyway = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
+      .find((b) => b.textContent === 'Check again anyway')!;
+
+    it('through a repeat check inside six hours, which reads the stored result back', async () => {
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 18 });
+      await check(h);
+      search(h, 'C6');
+      click(rowFor(h, 'Estes', 'C6')!);
+      chooseDelay(h, '3');
+      await check(h);
+      expect(h.host.querySelector('.motor-check-status')!.textContent).toMatch(/Checked less than six hours ago/);
+      expect(delaySelect(h)!.value).toBe('3');
+      await loadAndWait(h);
+      expect(h.selected).toEqual([{ label: 'C6-3', ejectionDelay: 3 }]);
+    });
+
+    it('through a check that changes the motor itself, while its new row still offers that delay', async () => {
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 18 });
+      search(h, 'C6');
+      click(rowFor(h, 'Estes', 'C6')!);
+      chooseDelay(h, '3');
+      // The check gives C6 a 9 s delay: the pick becomes the fetched row, and
+      // 3 s is still one of its delays.
+      await check(h);
+      expect(Array.from(delaySelect(h)!.options).map((o) => o.value)).toContain('9');
+      expect(delaySelect(h)!.value).toBe('3');
+      // And back: the shipped row offers 3 s too.
+      discard(h);
+      expect(delaySelect(h)!.value).toBe('3');
+      await loadAndWait(h);
+      expect(h.selected).toEqual([{ label: 'C6-3', ejectionDelay: 3 }]);
+    });
+
+    it('for a motor the check marks no longer listed, through a repeat check and "Check again anyway"', async () => {
+      const B6_ID = '5f4294d20002310000000010';
+      await stubWithChanges({ drop: B6_ID });
+      h = openBrowser({ mountDiameterMm: 18, filters: { includeOOP: true } });
+      await check(h);
+      search(h, 'B6');
+      click(rowFor(h, 'Estes', 'B6')!);
+      expect(delaySelect(h)!.value).toBe('6');
+      chooseDelay(h, '2');
+      await check(h);
+      expect(delaySelect(h)!.value).toBe('2');
+      await check(h, checkAgainAnyway(h));
+      expect(delaySelect(h)!.value).toBe('2');
+      await loadAndWait(h);
+      expect(h.selected).toEqual([{ label: 'B6-2', ejectionDelay: 2 }]);
     });
   });
 });
