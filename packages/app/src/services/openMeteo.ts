@@ -810,7 +810,11 @@ export function distanceM(lat1: number, lon1: number, lat2: number, lon2: number
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-/** "NNW" for 331° — a compass point for the wind-from context line. */
+/**
+ * "NNW" for 331° — one of 16 compass points, for the wind-from context line and
+ * the wind profile. The landing bearing names 8 on purpose (SimResults.tsx's
+ * compassPoint8 says why).
+ */
 export function compassPoint(deg: number): string {
   const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   return points[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]!;

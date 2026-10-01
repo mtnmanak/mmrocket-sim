@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
+import { compassPoint } from '../services/openMeteo.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
@@ -151,6 +152,24 @@ describe('SimRunDetails — the Motors row (audit 2026-09-22, row 351)', () => {
     expect(motorsCell()).toBe('3 firing together');
     render(<SimRunDetails run={{ ...run(), motorCount: 1 }} />);
     expect(motorsCell()).toBe('1');
+  });
+});
+
+describe('SimRunDetails — the landing bearing (audit 2026-09-30)', () => {
+  it('names 331° NW, where the weather dialog names the same bearing NNW, on purpose', () => {
+    // Two compass helpers: a landing bearing is a direction to walk out to,
+    // named to the nearest 45° (SimResults' compassPoint8), and a wind
+    // direction is named to the nearest 22.5° (openMeteo's compassPoint), as
+    // weather sources name it. Folding one into the other changes what a user
+    // reads on one of the two screens, so it fails here first.
+    render(<SimRunDetails run={{ ...run(), landingDistanceM: 120, landingBearingDeg: 331, windAvg: 0 }} />);
+    const btn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Show all details')!;
+    act(() => { btn.click(); });
+    const bearing = Array.from(host.querySelectorAll('tr'))
+      .find((tr) => tr.querySelector('.simdet-label')?.textContent === 'Landing bearing')
+      ?.querySelectorAll('td')[1]?.textContent;
+    expect(bearing).toBe('331° (NW)');
+    expect(compassPoint(331)).toBe('NNW');
   });
 });
 

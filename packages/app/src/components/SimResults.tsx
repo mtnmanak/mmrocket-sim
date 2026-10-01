@@ -92,8 +92,14 @@ function verdict(v: DeploymentVerdict): { text: string; bad: boolean; warn?: boo
     : { text: '⚠ NO', bad: true };
 }
 
-/** 8-point compass name for a bearing (° clockwise from north). */
-function compassPoint(deg: number): string {
+/**
+ * 8-point compass name for a bearing (° clockwise from north), for the landing
+ * bearing. Not openMeteo.ts's 16-point compassPoint on purpose: a landing
+ * bearing is a direction to walk out to, given to the nearest 45°, where the
+ * weather dialog names a wind direction to the nearest 22.5°, as weather
+ * sources do. So 331° reads "NW" here and "NNW" there (SimResults.test.tsx).
+ */
+function compassPoint8(deg: number): string {
   const pts = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   return pts[Math.round(((deg % 360) + 360) % 360 / 45) % 8]!;
 }
@@ -408,7 +414,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 // east wind (the rocket drifts toward 270°), so a windy
                 // flight's drift reads "downwind" when it lands on that side.
                 <Row label="Landing bearing"
-                  value={`${Math.round(run.landingBearingDeg)}° (${compassPoint(run.landingBearingDeg)}${
+                  value={`${Math.round(run.landingBearingDeg)}° (${compassPoint8(run.landingBearingDeg)}${
                     run.windAvg > 0
                       && Math.abs(((run.landingBearingDeg - WIND_BLOWS_TOWARD_DEG) % 360 + 540) % 360 - 180) <= 45
                       ? ', downwind' : ''})`} />
