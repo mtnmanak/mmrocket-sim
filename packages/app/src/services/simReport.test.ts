@@ -1145,6 +1145,48 @@ describe('the launch stability rows all come from one instant', () => {
     expect(run.launchCP).toBe(info.cp);
     expect(run.launchStaticMarginCal).toBe(info.stabilityCalibers);
   });
+
+  /**
+   * THE FALLBACK IS THE FIGURE THE DESIGN PAGE SHOWS (audit 2026-09-30). With
+   * no CP sample at all — the rocket never cleared the guide (NO_LIFTOFF) — the
+   * design's static analysis stands in, and it stood in as the single plane at
+   * theta = 0. On a one-fin rocket clocked 90 degrees that plane reads +1.696
+   * cal where every design view shows the roll-swept -5.346 (both measured in
+   * degenerateCp.test.ts): the stored run, its CSV and its verdict called an
+   * under-stable rocket stable. And with no normal force at any roll angle the
+   * CP and margin are artefacts — the design page says "no lift yet".
+   */
+  const neverCleared = (): FlightResult => {
+    const r = fakeResult();
+    const nulls = r.series.time.map(() => null as unknown as number);
+    r.series.cpLocation = nulls; r.series.stability = nulls;
+    return r;
+  };
+  const buildWith = (over: Partial<StaticInfo>) => buildSimRun({
+    result: neverCleared(), info: { ...info, ...over }, motor, meta: { label: 'C6-5' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Fixture', execMs: 1,
+  });
+
+  it('with no rod-clear sample, falls back to the roll-swept CP and margin, not the theta = 0 plane', () => {
+    const cpWorst = info.cg - 5.346 * info.refDiameter;
+    const run = buildWith({
+      cp: info.cg + 1.696 * info.refDiameter, stabilityCalibers: 1.696,
+      cpWorst, cnaWorst: 2, stabilityCalibersWorst: -5.346,
+    });
+    expect(run.launchCG).toBe(info.cg);
+    expect(run.launchCP).toBe(cpWorst);
+    expect(run.launchStaticMarginCal).toBe(-5.346);
+    expect(run.comments).toContain('Static margin -5.35 cal — under-stable.');
+  });
+
+  it('and to no CP or margin at all when no roll angle gives the design a normal force', () => {
+    const run = buildWith({ cp: 0, cna: 0, stabilityCalibers: -5.449, cpWorst: 0, cnaWorst: 0, stabilityCalibersWorst: -5.449 });
+    expect(run.launchCG).toBe(info.cg);
+    expect(run.launchCP).toBeNull();
+    expect(run.launchStaticMarginCal).toBeNull();
+    expect(run.launchStaticMarginPct).toBeNull();
+    expect(run.comments).not.toContain('Static margin');
+  });
 });
 
 /**

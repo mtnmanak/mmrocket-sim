@@ -1798,10 +1798,20 @@ export function buildSimRun(input: {
   const rodExitAoa = guideLength === 0
     ? (tRod !== null ? at(series.time, series.aoa, tRod) : null)
     : sampleAt(series.aoa, iRodClear);
+  // With no rod-clear sample at all (the rocket never cleared the guide:
+  // NO_LIFTOFF), the design's static analysis stands in — as the forward,
+  // roll-swept CP and margin every design view shows (shownCp, shownStability),
+  // not the single plane at theta = 0: on a one-fin rocket clocked 90 degrees
+  // that plane reads +1.696 cal where the design page shows -5.346, and the run
+  // called an under-stable rocket stable. With no normal force at any roll
+  // angle (hasAerodynamicForce) a CP and a margin are artefacts, so there are
+  // none — the design page says "no lift yet" (audit 2026-09-30; the schematic
+  // export's header had the same fix, row 396 of 2026-09-22).
+  const staticLift = hasAerodynamicForce(info);
   const launchCG = sampleAt(series.cgLocation, iRodClear) ?? info.cg ?? null;
-  const launchCP = sampleAt(series.cpLocation, iRodClear) ?? info.cp ?? null;
+  const launchCP = sampleAt(series.cpLocation, iRodClear) ?? (staticLift ? shownCp(info) : null);
   const launchStaticMarginCal = sampleAt(series.stability, iRodClear)
-    ?? info.stabilityCalibers ?? null;
+    ?? (staticLift ? shownStability(info) : null);
   // The flight-series margin (calibers, at launch) rescaled onto the same
   // denominator the design views use, so the Results tab can honour the
   // stability-unit preference without re-deriving anything.
