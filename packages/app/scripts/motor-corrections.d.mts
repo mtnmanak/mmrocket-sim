@@ -11,6 +11,12 @@ export interface MotorCorrectionSource {
   url: string;
   /** The figure as that document prints it. */
   says: string;
+  /**
+   * The corrected figures this document states, by field, as it prints them
+   * ("375" for the K62N's 374.25 mm): two documents must state each one.
+   * Absent on a source that only bounds a figure or explains it.
+   */
+  states?: Readonly<Record<string, string>>;
   /** ISO date the source was read. */
   read: string;
 }
