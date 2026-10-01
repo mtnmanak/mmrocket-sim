@@ -571,6 +571,41 @@ describe('a stop counts only where it is in this motor’s way', () => {
     }
   });
 
+  /**
+   * A BULKHEAD WITH A HOLE (format audit row 26). A `.rkt` bulkhead the file
+   * gives a hole — an eyebolt's, a baffle's — opens as a centering ring with
+   * that bore, so it weighs what RockSim weighs, and carries `holedBulkhead`
+   * (rocksimFile.ts). It is still the wall it was: read as a plain ring, LifeProof
+   * Rocket Upward.rkt's aft e-bay bulkhead, with a 6.35 mm eyebolt hole, let
+   * the estimate run on to the nose cone, 2.397 m of room where 0.994 m is true.
+   * Its hole counts as an engine block's does, so one wide enough for a motor
+   * does not stop that motor.
+   */
+  it('a holed bulkhead stops the motors its hole is too small for, and only those', () => {
+    const holed = (innerRadius: number, extra: Record<string, unknown> = { holedBulkhead: true }) => ({
+      id: 'hb', type: 'centeringring', name: 'Aft e-bay bulkhead', length: 0.005, outerRadius: 0.048, innerRadius,
+      position: { method: 'top', offset: 0.1 }, ...extra,
+    });
+    // An eyebolt's 6.35 mm hole: both 28 mm motors hit the plate.
+    const eyebolt = coreAndOutboard({ airframe: [holed(0.003175)] });
+    for (const id of ['core', 'ob']) {
+      const r = estimateMotorRoom(eyebolt, id)!;
+      expect(r.lengthM, `${id}: a bulkhead with an eyebolt hole let the motor through`).toBeCloseTo(0.495, 9);
+      expect(r.limitedBy, id).toBe('Aft e-bay bulkhead');
+    }
+    // A 40 mm hole: the core motor (14 mm, on the axis) passes through it; the
+    // outboard one reaches 30 + 14 = 44 mm off the axis and hits the plate.
+    const wide = coreAndOutboard({ airframe: [holed(0.02)] });
+    const core = estimateMotorRoom(wide, 'core')!;
+    expect(core.lengthM, 'a motor that fits through the hole was stopped by it').toBeCloseTo(0.60, 9);
+    expect(core.limitedBy).toBe('the front of the airframe');
+    expect(estimateMotorRoom(wide, 'ob')!.lengthM).toBeCloseTo(0.495, 9);
+    // A centering ring that never was a bulkhead is still not a stop, however
+    // small its bore (owner ruling 2026-09-01b; motorRoom.ts).
+    const ring = coreAndOutboard({ airframe: [holed(0.003175, {})] });
+    for (const id of ['core', 'ob']) expect(estimateMotorRoom(ring, id)!.lengthM, id).toBeCloseTo(0.60, 9);
+  });
+
   it('a block inside a tube IN LINE ahead of the mount still stops it — the section decides, not the parent', () => {
     // A second tube on the axis, ahead of the core mount: the core's motor
     // leaves its own tube at 0.30 and runs on into this one, whose block has

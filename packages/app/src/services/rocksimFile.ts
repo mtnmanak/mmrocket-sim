@@ -655,11 +655,17 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
         // (Bulkhead.setInnerRadius is a no-op), so the ID was dropped and the
         // part flew solid: 177.1 g. Desktop does the same; correctness over
         // desktop parity outside the physics models (owner, 2026-08-23).
+        // It is still a wall, so it says so (`holedBulkhead`): the motor-room
+        // estimate stops at it unless the hole fits the motor (motorRoom.ts),
+        // and a .rkt or .ork save keeps it one.
         const holed = usage === 1 && id > 0;
         const type = usage === 1 && !holed ? 'bulkhead' : usage === 2 ? 'engineblock'
           : usage === 4 ? 'tubecoupler' : 'centeringring';
         const n = mk(type);
-        if (holed) holedBulkheads.push({ name: n.name ?? 'Bulkhead', idMm: id });
+        if (holed) {
+          n['holedBulkhead'] = true;
+          holedBulkheads.push({ name: n.name ?? 'Bulkhead', idMm: id });
+        }
         n['length'] = num(el, 'Len', 2) / LEN;
         const od = num(el, 'OD', 0);
         // Every ring kind takes the OD the FILE states, not the kernel's automatic
@@ -1506,23 +1512,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
       + 'the extension, so the added tube carries none of its own.');
   }
   if (holedBulkheads.length) {
-    // The motor-room estimate stops at a bulkhead and never at a centering
-    // ring (motorRoom.ts, BLOCKING), so a converted e-bay bulkhead or baffle
-    // no longer limits it. Said here rather than changed there: the two ring
-    // rules tried (a stated bore smaller than the motor; a ring no inner tube
-    // passes through) moved 223 and 104 corpus mounts, where RockSim places
-    // and sizes rings loosely.
+    // What RockSim does with the hole, not a promise of what this app weighs:
+    // the kernel can still fly one solid. US Rockets 2.25 V2.rkt's baffle has
+    // a 25.4 mm hole, the size of the mount tube ending at its face, and flies
+    // 5.569 g against RockSim's 4.402 g: RadiusRingComponent.setInnerRadius
+    // returns early on a value equal to the automatic one the ring holds, so
+    // the bore stays automatic (a fix for the engine bridge, ComponentFactory).
+    // Each part still stops the motor-room estimate unless its hole fits the
+    // motor (`holedBulkhead`, motorRoom.ts).
     const n = holedBulkheads.length;
     const one = holedBulkheads[0]!;
     notes.push((n === 1
-      ? `Bulkhead “${one.name}” has a ${one.idMm} mm hole through it, and a bulkhead here is a solid disc, so it `
-        + 'was imported as a centering ring with that bore: it weighs what RockSim weighs it, where desktop '
-        + 'OpenRocket imports it solid.'
-      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${b.idMm} mm`).join(', ')}), `
-        + 'and a bulkhead here is a solid disc, so they were imported as centering rings with those bores: they '
-        + 'weigh what RockSim weighs them, where desktop OpenRocket imports them solid.')
-      + ' The ⌾ Estimate of Max motor length does not stop at a centering ring, so it no longer stops at '
-      + `${n === 1 ? 'this part' : 'these parts'}.`);
+      ? `Bulkhead “${one.name}” has a ${one.idMm} mm hole through it. RockSim weighs the part with that hole, and a `
+        + 'bulkhead here is a solid disc, so it was imported as a centering ring with that bore; desktop OpenRocket '
+        + 'imports it solid. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough '
+        + 'for the motor.'
+      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${b.idMm} mm`).join(', ')}). `
+        + 'RockSim weighs each part with its hole, and a bulkhead here is a solid disc, so they were imported as '
+        + 'centering rings with those bores; desktop OpenRocket imports them solid. The ⌾ Estimate of Max motor '
+        + 'length still stops at each unless its hole is wide enough for the motor.'));
   }
   if (airfoilPinned.size) {
     const n = airfoilPinned.size;
@@ -2758,8 +2766,11 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         break;
       }
       case 'centeringring': case 'bulkhead': case 'engineblock': case 'tubecoupler': {
-        const usage = node.type === 'bulkhead' ? 1 : node.type === 'engineblock' ? 2
-          : node.type === 'tubecoupler' ? 4 : 0;
+        // A bulkhead with a hole (importRkt, `holedBulkhead`) goes back as
+        // RockSim's own bulkhead with that <ID>, which RockSim weighs with the
+        // hole and this reader turns into the same ring, still a wall.
+        const usage = node.type === 'bulkhead' || (node.type === 'centeringring' && node['holedBulkhead'] === true) ? 1
+          : node.type === 'engineblock' ? 2 : node.type === 'tubecoupler' ? 4 : 0;
         emit('<Ring>');
         common(node, parent, 'Ring');
         // A radius the node leaves AUTOMATIC goes out at the size the kernel

@@ -12,6 +12,7 @@ import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
 import { clusterOffsets } from '../tree/cluster.js';
+import { estimateMotorRoom } from '../tree/motorRoom.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -3115,11 +3116,43 @@ describe('RockSim bulkhead with a hole', () => {
     expect(p.type, 'a holed bulkhead imported solid').toBe('centeringring');
     expect(p['innerRadius']).toBeCloseTo(0.0254, 12);
     expect(p['outerRadius']).toBeCloseTo(0.0682625, 12);
-    // And that the motor-length estimate, which stops at a bulkhead and never
-    // at a centering ring, no longer stops at it.
+    expect(p['holedBulkhead']).toBe(true);
+    // What RockSim does with the hole, not what this app weighs: the kernel's
+    // own bore can differ (US Rockets 2.25 V2.rkt's baffle still flies solid,
+    // RadiusRingComponent.setInnerRadius), and the estimate still stops at it.
     expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
-      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm hole through it, .*centering ring with that bore: .*imports it solid\. .*Max motor length .*no longer stops at this part\.$/),
+      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm hole through it\. RockSim weighs the part with that hole, .*centering ring with that bore; desktop OpenRocket imports it solid\. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough for the motor\.$/),
     ]);
+  });
+
+  /**
+   * …and it is still the wall it was. The motor-length estimate stops at a
+   * bulkhead and never at a centering ring, so read as a plain ring, LifeProof
+   * Rocket Upward.rkt's "Aft e-bay Bulkhead", with a 6.35 mm eyebolt hole, let
+   * ⌾ Estimate and the Room for line run on to the nose cone: 2.397 m where
+   * 0.994 m is true, and the motor browser's fit filter with them. The part
+   * carries `holedBulkhead`, which motorRoom.ts reads, through a .rkt save (as
+   * RockSim's own bulkhead, <UsageCode>1 with its <ID>) and a .ork one.
+   */
+  it('still stops the motor-length estimate where its hole is too small for the motor, through a .rkt and a .ork save', () => {
+    const withMount = (rings: string) => doc(`<BodyTube><Name>Mount</Name><OD>57.404</OD><ID>54.102</ID><Len>300</Len>
+      <IsMotorMount>1</IsMotorMount><LocationMode>2</LocationMode><Xb>0</Xb></BodyTube>${rings}`);
+    const room = (r: ReturnType<typeof importRkt>) => estimateMotorRoom(r.tree, part(r, 'Mount').id!)!;
+    const opened = importRkt(withMount(ring('Aft e-bay Bulkhead', 6.35)));
+    expect(room(opened).limitedBy, 'an eyebolt hole let the motor through the e-bay').toBe('Aft e-bay Bulkhead');
+    expect(room(opened).lengthM).toBeCloseTo(0.6 - 0.10635, 9);
+    const rkt = exportRkt({ name: 'H', tree: opened.tree });
+    const out = rkt.match(/<Ring>[\s\S]*?<\/Ring>/g)!.find((b) => b.includes('<Name>Aft e-bay Bulkhead</Name>'))!;
+    expect(out, 'saved as a plain centering ring').toMatch(/<UsageCode>1<\/UsageCode>/);
+    expect(Number(/<ID>([^<]*)<\/ID>/.exec(out)![1])).toBeCloseTo(6.35, 9);
+    for (const [via, back] of [['.rkt', importRkt(rkt)], ['.ork', importOrk(exportOrk({ name: 'H', tree: opened.tree }))]] as const) {
+      expect(part(back, 'Aft e-bay Bulkhead')['holedBulkhead'], via).toBe(true);
+      expect(part(back, 'Aft e-bay Bulkhead')['innerRadius'], via).toBeCloseTo(0.003175, 12);
+      expect(room(back).limitedBy, `re-opened from ${via}`).toBe('Aft e-bay Bulkhead');
+    }
+    // A hole wide enough for the motor lets it through (Glencoe Jupiter C's
+    // base plate: a 19.1 mm hole over an 18 mm mount).
+    expect(room(importRkt(withMount(ring('Aft base plate', 60)))).limitedBy).toBe('the front of the airframe');
   });
 
   it('weighs what RockSim weighs it: its own CalcMass', async () => {
