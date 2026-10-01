@@ -456,18 +456,32 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
     ? node['presetPartNo'] : null;
   const linkMfr = typeof node['presetManufacturer'] === 'string' ? node['presetManufacturer'] : '';
   const linked = linkPartNo !== null && KIND_FOR_TYPE[node.type] !== undefined;
-  const [catalogue, setCatalogue] = useState<readonly Preset[] | null>(null);
+  /**
+   * The catalogue is read again each time the preset picker closes: its CSV
+   * import is the one place this browser's catalogue grows while the panel is
+   * open, and a pick closes it too (wave 3 verifier: read once, the row the
+   * user had just imported and picked was "not in this browser's catalogue",
+   * with no markers, until the part was selected again). Only the first read
+   * fetches the bundle; after it a read is the user's own presets, from
+   * localStorage.
+   */
+  const [pickerCloses, setPickerCloses] = useState(0);
+  const [read, setRead] = useState<{ after: number; presets: readonly Preset[] } | null>(null);
   useEffect(() => {
-    if (!linked || catalogue !== null) return;
+    if (!linked || read?.after === pickerCloses) return;
     // The `live` flag of every lazy catalogue load (PresetPicker, the recovery
     // panel): this panel is keyed by the part, and a selection can move on
     // before the bundle arrives.
     let live = true;
     // A failed load leaves the line naming the link with no markers on it —
     // nothing here claims the part matches.
-    loadPresets().then((p) => { if (live) setCatalogue(p); }, () => {});
+    loadPresets().then((p) => { if (live) setRead({ after: pickerCloses, presets: p }); }, () => {});
     return () => { live = false; };
-  }, [linked, catalogue]);
+  }, [linked, pickerCloses, read]);
+  // The last read stands until the next arrives, so the markers do not blink;
+  // but only a read made since the picker last closed may say a row is missing.
+  const catalogue = read?.presets ?? null;
+  const catalogueIsCurrent = read !== null && read.after === pickerCloses;
   const row = useMemo(
     () => (linked && catalogue ? linkedPreset(node, catalogue) ?? null : null),
     [linked, catalogue, node],
@@ -1003,7 +1017,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
             <div className="catalogue-line">
               <span>
                 Catalogue: <strong>{rowName}</strong>
-                {catalogue && !row && ' — not in this browser’s catalogue, so nothing here is compared with it'}
+                {catalogueIsCurrent && !row && ' — not in this browser’s catalogue, so nothing here is compared with it'}
               </span>
               <button type="button" className="finish-all-btn" onClick={detach}
                 aria-label={`Detach from the catalogue: ${rowName}`}
@@ -1173,7 +1187,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         );
       })()}
       {showPresets && (
-        <PresetPicker type={node.type} node={node} onApply={applyPreset} onClose={() => setShowPresets(false)} />
+        <PresetPicker type={node.type} node={node} onApply={applyPreset} onClose={() => {
+          setShowPresets(false);
+          // Its CSV import may have added the very row this part names.
+          setPickerCloses((n) => n + 1);
+        }} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
         <label htmlFor={idFor('color')}>Color (2D/3D display)</label>

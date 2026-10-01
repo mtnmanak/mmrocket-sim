@@ -250,6 +250,67 @@ describe('the conflict marker in the property panel — tier (c), the Catalogue 
   });
 });
 
+/**
+ * THE CATALOGUE THE PANEL COMPARES WITH IS THE CURRENT ONE (wave 3 verifier).
+ * The preset picker's CSV import adds rows to this browser's catalogue while
+ * the panel is open; the panel had read the catalogue once, for the part's
+ * first link, and kept it — so the row the user had just imported and picked
+ * was "not in this browser's catalogue", with no markers, until the part was
+ * selected again.
+ */
+describe('the conflict marker in the property panel — a row added while the part is shown', () => {
+  /** A canopy the user's own CSV adds (PresetPicker's import stores it; loadPresets returns it). */
+  const MINE: Preset = {
+    kind: 'Parachute', manufacturer: 'My Shop', partNo: 'CSV-1', description: 'my canopy',
+    diameter: 0.6, dragCoefficient: 1.2, lineCount: 8, lineLength: 0.6,
+  };
+  const openPicker = async () => {
+    click(buttons().find((b) => /Choose from preset database/.test(b.textContent ?? ''))!);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  };
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const line = () => host.querySelector('.catalogue-line')?.textContent ?? '';
+
+  it('is found once picked: the line names it as a catalogue row, and compares with it', async () => {
+    await show(linkedChute());
+    loadPresets.mockResolvedValue([...CATALOGUE, MINE]);
+    await openPicker();
+    const mine = [...host.querySelectorAll('tr')].find((tr) => tr.textContent?.includes('CSV-1'));
+    expect(mine, 'the picker does not list the imported row').toBeTruthy();
+    click(mine!);
+    // Not even for the moment before the catalogue is read again: the read
+    // made before the import is no evidence that the row is missing.
+    expect(line()).toContain('My Shop CSV-1');
+    expect(line()).not.toMatch(/not in this browser/);
+    await settle();
+    expect(current['presetPartNo']).toBe('CSV-1');
+    expect(line()).toContain('My Shop CSV-1');
+    expect(line()).not.toMatch(/not in this browser/);
+    // Compared with it: a line count typed away from the row's 8 is marked.
+    const lines = host.querySelector<HTMLInputElement>('input[type="text"][aria-label="Line count"]')!;
+    act(() => { lines.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); });
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(lines, '6');
+      lines.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => { lines.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(current['lineCount']).toBe(6);
+    expect(byLabel('Use catalogue value 8 for Line count')).toBeTruthy();
+  });
+
+  it('is found once the picker closes, for a link the browser lacked until the import', async () => {
+    // Linked by a file to the user's own row, which this browser did not have.
+    await show(linkedChute({ presetManufacturer: 'My Shop', presetPartNo: 'CSV-1' }));
+    expect(line()).toMatch(/not in this browser/);
+    loadPresets.mockResolvedValue([...CATALOGUE, MINE]);
+    await openPicker();
+    click(byLabel('Close presets')!);
+    await settle();
+    expect(line()).toContain('My Shop CSV-1');
+    expect(line()).not.toMatch(/not in this browser/);
+  });
+});
+
 describe('a design with no catalogue links', () => {
   it('renders as it always has: no catalogue load, no line, no marker', async () => {
     await show({ type: 'parachute', id: 'p1', name: 'Main', diameter: 0.9, lineCount: 6 } as ComponentNode);
