@@ -39,6 +39,12 @@ export interface SolidContext {
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
+  /**
+   * a fin set's deepest through-the-wall tab (m): the parent body's radius at
+   * the tab, the smaller of its two ends (FinSet.getMaxTabHeight), resolved by
+   * tree/solidContext.ts — the depth finTab.finTabSpan clamps the cut tab to
+   */
+  tabMaxDepth?: number;
 }
 
 const EPS = 1e-9;
@@ -377,8 +383,11 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  * correctly, while an outline overlapping a separate tab box cuts a slot
  * through the root. finTemplate.ts's finOutline() is the unmerged variant —
  * the SVG draws the tab as its own stroke, which is fine on paper.
+ *
+ * `ctx` carries the body radius at the tab (`tabMaxDepth`), which the tab's
+ * depth is clamped to; both exporters pass solidContextFor's.
  */
-export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
+export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
   if (node.type === 'trapezoidfinset') {
     const root = num(node, 'rootChord', 0.05);
@@ -448,7 +457,7 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
   // ear clipper 4 cap triangles where 6 are needed, i.e. a non-watertight STL
   // and a DXF path that doubled back on itself. It also placed the tab at a
   // different station than the physics uses.
-  const tab = finTabSpan(node, finRootChord(node));
+  const tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
   if (tab) {
     const first = pts[0]!;
     const lastP = pts[pts.length - 1]!;
@@ -680,7 +689,7 @@ export async function componentSolid(
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {
-      const outline = finCutOutline(node);
+      const outline = finCutOutline(node, ctx);
       if (!outline) return null;
       const mesh = await extrudePolygon(outline, num(node, 'thickness', 0.003));
       // extrudePolygon returns EMPTY rather than an open shell when the

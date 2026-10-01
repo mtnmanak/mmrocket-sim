@@ -812,7 +812,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           title="True-scale SVG cut template — print at 100% or send to a laser cutter; includes the through-the-wall tab and a 50 mm calibration ruler"
           onClick={() => {
-            const svg = finTemplateSvg(node, tree.name ?? 'Rocket');
+            // The exporters' context, so the paper tab is clamped to the body
+            // radius exactly as the ✂ and 🖨 files clamp theirs.
+            const svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node));
             downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
               `${safeName(node.name ?? 'fin', 'fin')}-template.svg`, 'SVG cut template');
           }}>

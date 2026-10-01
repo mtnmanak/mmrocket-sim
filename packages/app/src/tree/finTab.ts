@@ -72,11 +72,20 @@ export function finTabFront(n: ComponentNode, finLen: number): number {
  * (solidMesh.finCutOutline); the paper template drew the tab unclamped until
  * the 2026-09-22 audit, so a tab hanging off the leading edge printed longer
  * than the part the cut files made.
+ *
+ * The DEPTH is clamped to `maxDepth`, the body's radius at the tab
+ * (solidContext.ts resolves it as `FinSet.getMaxTabHeight` does; the kernel's
+ * `setTabHeight` clamps to it and the side view clamps its drawn tab to the
+ * body radius too). Every cut output read the raw depth until the 2026-09-30
+ * audit, so a tab deeper than the body — the field allows 50 mm, and a `.rkt`
+ * on a minimum-diameter airframe brings one — printed, cut and templated past
+ * the centreline. REQUIRED, so a new caller has to decide: `undefined` only
+ * where nothing can say what the tab sits in, and the tab is then as stated.
  */
 export function finTabSpan(
-  node: ComponentNode, rootLen: number,
+  node: ComponentNode, rootLen: number, maxDepth: number | undefined,
 ): { x0: number; x1: number; depth: number } | null {
-  const depth = num(node, 'tabHeight', 0);
+  const depth = Math.min(num(node, 'tabHeight', 0), maxDepth ?? Infinity);
   const len = num(node, 'tabLength', 0);
   if (!(depth > EPS && len > EPS && rootLen > EPS)) return null;
   const front = finTabFront(node, rootLen);

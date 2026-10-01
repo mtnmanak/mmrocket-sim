@@ -1,6 +1,7 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { num, numOpt } from '../tree/nodeNum.js';
+import type { SolidContext } from '../tree/solidMesh.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -59,13 +60,20 @@ export function finOutline(node: ComponentNode): Pt[] {
 
 /**
  * Tab rectangle in meters (below the root line), or null — clamped into the
- * root chord exactly as the STL and DXF cut it (tree/finTab.ts finTabSpan).
+ * root chord, and its depth to the body radius at the tab, exactly as the STL
+ * and DXF cut it (tree/finTab.ts finTabSpan).
  */
-export function tabOutline(node: ComponentNode, rootLen: number): { x0: number; x1: number; depth: number } | null {
-  return finTabSpan(node, rootLen);
+export function tabOutline(
+  node: ComponentNode, rootLen: number, maxDepth?: number,
+): { x0: number; x1: number; depth: number } | null {
+  return finTabSpan(node, rootLen, maxDepth);
 }
 
-export function finTemplateSvg(node: ComponentNode, rocketName: string): string {
+/**
+ * `ctx` is the exporters' own context (tree/solidContext.ts) — the template
+ * reads its `tabMaxDepth`, so the paper tab is no deeper than the cut ones.
+ */
+export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: SolidContext = {}): string {
   const outline = finOutline(node);
   if (outline.length < 3) throw new Error('This fin set has no usable outline.');
   const mm = (m: number) => m * 1000;
@@ -81,7 +89,7 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string): string 
   // files put it, until the 2026-09-22 audit. It sets the tab station below,
   // the dashed root line, and the printed "root NN.N mm" caption.
   const rootLenM = finRootChord(node);
-  const tab = tabOutline(node, rootLenM);
+  const tab = tabOutline(node, rootLenM, ctx.tabMaxDepth);
   const tabDepthMm = tab ? mm(tab.depth) : 0;
 
   // The tab needs no share of the page width: it is clamped into [0, root

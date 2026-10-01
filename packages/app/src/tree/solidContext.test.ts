@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentDxf } from '../services/dxfExport.js';
+import { finTemplateSvg } from '../services/finTemplate.js';
 import { solidContextFor } from './solidContext.js';
-import { componentLoop, componentSolid, solidVolume } from './solidMesh.js';
+import { componentLoop, componentSolid, finCutOutline, solidVolume } from './solidMesh.js';
 
 /**
  * The bore a printed or cut ring-type part is sized to (audit 2026-09-22).
@@ -237,6 +238,65 @@ describe('an automatic centering ring is bored to the inner tubes it overlaps', 
       ring('both', 0.12),
     );
     expect(solidContextFor(t, find(t, 'both')).mountOuterRadius).toBe(0.012);
+  });
+});
+
+/**
+ * A FIN TAB NO DEEPER THAN THE BODY (audit 2026-09-30). The kernel clamps a
+ * tab's depth to the parent's radius at the tab — the smaller of its two ends
+ * (`FinSet.getMaxTabHeight`) — and the side view clamps its drawn tab; the
+ * STL, the DXF and the paper template cut the raw depth. A `.rkt` tab on a
+ * minimum-diameter airframe is the way in: a 30 mm tab on a 38 mm tube.
+ */
+describe('a fin tab is cut no deeper than the body at the tab', () => {
+  /** A 38 mm minimum-diameter airframe; 100 mm root, 60 mm tab centred on it, 30 mm deep. */
+  const minDiameter = () => tree({
+    id: 'b1', type: 'bodytube', outerRadius: 0.0195, thickness: 0.0005, length: 0.6,
+    children: [{
+      id: 'fins', type: 'trapezoidfinset', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.05,
+      height: 0.06, thickness: 0.003, tabHeight: 0.03, tabLength: 0.06,
+      position: { method: 'bottom', offset: 0 },
+    }],
+  });
+
+  it('the context carries the body radius at the tab', () => {
+    const t = minDiameter();
+    expect(solidContextFor(t, find(t, 'fins')).tabMaxDepth).toBe(0.0195);
+  });
+
+  it('on a transition it is the SMALLER radius of the tab’s two ends', () => {
+    // Conical 30 → 20 mm over 100 mm. A 60 mm freeform root, aft-flush, starts
+    // at 40 mm; its 20 mm tab 10 mm from the fin's front spans 50–70 mm, where
+    // the radius is 25 → 23 mm.
+    const t = tree({
+      id: 't1', type: 'transition', shape: 'conical', length: 0.1, foreRadius: 0.03, aftRadius: 0.02, thickness: 0.002,
+      children: [{
+        id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+        points: [[0, 0], [0.02, 0.03], [0.05, 0.03], [0.06, 0]],
+        tabHeight: 0.03, tabLength: 0.02, tabOffset: 0.01, tabOffsetMethod: 'top',
+        position: { method: 'bottom', offset: 0 },
+      }],
+    });
+    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeCloseTo(0.023, 12);
+    // A transition radius left automatic is not resolved here, so the tab is
+    // left as stated rather than clamped to a guess.
+    delete (find(t, 't1') as Record<string, unknown>)['foreRadius'];
+    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeUndefined();
+  });
+
+  it('the printed prism, the DXF and the paper template all cut the clamped 19.5 mm', async () => {
+    const t = minDiameter();
+    const node = find(t, 'fins');
+    const ctx = solidContextFor(t, node);
+    // The prism's outline reaches 19.5 mm below the root line, not 30.
+    expect(Math.min(...finCutOutline(node, ctx)!.map(([, y]) => y))).toBeCloseTo(-0.0195, 12);
+    const solid = await componentSolid(node, ctx);
+    expect(solid!.mesh.positions.length).toBeGreaterThan(0);
+    let lowest = Infinity;
+    for (let i = 1; i < solid!.mesh.positions.length; i += 3) lowest = Math.min(lowest, solid!.mesh.positions[i]!);
+    expect(lowest).toBeCloseTo(-0.0195, 12);
+    expect(componentDxf(node, ctx, 'T')!.text).toContain('TTW tab 19.5 mm deep');
+    expect(finTemplateSvg(node, 'T', ctx)).toContain('tab 19.5 mm deep');
   });
 });
 

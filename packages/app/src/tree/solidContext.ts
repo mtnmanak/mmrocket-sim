@@ -1,4 +1,5 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import { finRootChord, finTabFront } from './finTab.js';
 import { num, numOpt } from './nodeNum.js';
 import { axialLength, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
@@ -8,9 +9,10 @@ import type { SolidContext } from './solidMesh.js';
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
  * of ONE component: rings, bulkheads, couplers and engine blocks size to the
  * bore they sit in, a centering ring's own bore comes from the inner tubes it
- * overlaps (`overlappingTubeRadius`), and a tube-fin set sizes to its body.
- * Both exporters read this SAME context, or the printed and the machined
- * version of one part would come out different sizes.
+ * overlaps (`overlappingTubeRadius`), a tube-fin set sizes to its body, and a
+ * fin's tab is cut no deeper than the body at the tab (`tabMaxDepth`). Both
+ * exporters and the paper fin template read this SAME context, or the printed
+ * and the machined version of one part would come out different sizes.
  *
  * THE BORE IS RESOLVED THE WAY THE KERNEL RESOLVES AN AUTOMATIC RADIUS
  * (audit 2026-09-22). This used to live in PropertyPanel.tsx and set the bore
@@ -46,6 +48,10 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
   if (pOuter !== undefined) ctx.bodyRadius = pOuter;
   const mountOuter = overlappingTubeRadius(parent, node);
   if (mountOuter !== undefined) ctx.mountOuterRadius = mountOuter;
+  if (TABBED_FINS.has(node.type)) {
+    const depth = tabMaxDepth(parent, node);
+    if (depth !== undefined) ctx.tabMaxDepth = depth;
+  }
   return ctx;
 }
 
@@ -106,34 +112,18 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
   switch (host.type) {
     case 'nosecone':
     case 'transition': {
-      // A field the node omits reads the kernel bridge's own default
-      // (ComponentFactory: nose 70 mm long, 12 mm aft radius, ogive; transition
-      // 50 mm, conical; 2 mm wall), or "the way the kernel resolves it" is not
-      // true of a hand-built or share-link tree. A transition radius it omits is
-      // AUTOMATIC there — taken from the neighbouring part — and is not read as
-      // 0 here: that came out 17.2 mm where the kernel flies 18.0, unflagged.
-      // Unresolved, the part is labelled "(assumed size)" instead.
-      const nose = host.type === 'nosecone';
-      const L = num(host, 'length', nose ? 0.07 : 0.05);
-      const foreR = nose ? 0 : numOpt(host, 'foreRadius');
-      const aftR = nose ? num(host, 'aftRadius', 0.012) : numOpt(host, 'aftRadius');
-      if (foreR === undefined || aftR === undefined) return undefined;
-      const wall = Math.max(num(host, 'thickness', 0.002), 0);
+      // The profile's radius at both ends of the part (`profileRadiiAt`, the
+      // kernel bridge's defaults), less the wall (2 mm by default). A
+      // transition radius it omits is AUTOMATIC there — taken from the
+      // neighbouring part — and is not read as 0 here: that came out 17.2 mm
+      // where the kernel flies 18.0, unflagged. Unresolved, the part is
+      // labelled "(assumed size)" instead.
       const len = axialLength(child);
       const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-      const x0 = Math.min(Math.max(startFromPosition(pos, len, L), 0), L);
-      const x1 = Math.min(Math.max(startFromPosition(pos, len, L) + len, 0), L);
-      const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
-      const param = numOpt(host, 'shapeParameter');
-      const clipped = typeof host['clipped'] === 'boolean' ? (host['clipped'] as boolean) : undefined;
-      // Exact samples AT the two ends (outerProfile's extraX), not the nearest
-      // of the curve's regular steps.
-      const prof = outerProfile(shape, param, L, foreR, aftR, 1, [x0, x1], clipped);
-      const rAt = (x: number) => prof.find(([px]) => Math.abs(px - x) <= 1e-9)?.[1];
-      const r0 = rAt(x0);
-      const r1 = rAt(x1);
-      if (r0 === undefined || r1 === undefined) return undefined;
-      const r = Math.min(r0, r1) - wall;
+      const start = startFromPosition(pos, len, axialLength(host));
+      const radii = profileRadiiAt(host, [start, start + len]);
+      if (!radii) return undefined;
+      const r = Math.min(...radii) - Math.max(num(host, 'thickness', 0.002), 0);
       return Number.isFinite(r) && r > 0 ? r : undefined;
     }
     case 'tubecoupler': {
@@ -152,4 +142,58 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       return Math.max(0.0005, outer - num(host, 'thickness', 0.001));
     }
   }
+}
+
+/**
+ * A nose cone's or transition's OUTER radius at stations `xs` (m from its
+ * front), each clamped into its length as `Transition.getRadius` clamps it —
+ * or undefined for any other part, or when a transition radius it omits is
+ * AUTOMATIC (taken from the neighbouring part, which this does not resolve).
+ * A field the node omits reads the kernel bridge's own default
+ * (ComponentFactory: nose 70 mm long, 12 mm aft radius, ogive; transition
+ * 50 mm, conical), or "the way the kernel resolves it" is not true of a
+ * hand-built or share-link tree.
+ */
+function profileRadiiAt(host: ComponentNode, xs: readonly number[]): number[] | undefined {
+  if (host.type !== 'nosecone' && host.type !== 'transition') return undefined;
+  const nose = host.type === 'nosecone';
+  const L = axialLength(host);
+  const foreR = nose ? 0 : numOpt(host, 'foreRadius');
+  const aftR = nose ? num(host, 'aftRadius', 0.012) : numOpt(host, 'aftRadius');
+  if (foreR === undefined || aftR === undefined) return undefined;
+  const at = xs.map((x) => Math.min(Math.max(x, 0), L));
+  const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
+  const param = numOpt(host, 'shapeParameter');
+  const clipped = typeof host['clipped'] === 'boolean' ? (host['clipped'] as boolean) : undefined;
+  // Exact samples AT the stations (outerProfile's extraX), not the nearest of
+  // the curve's regular steps.
+  const prof = outerProfile(shape, param, L, foreR, aftR, 1, at, clipped);
+  const radii: number[] = [];
+  for (const x of at) {
+    const r = prof.find(([px]) => Math.abs(px - x) <= 1e-9)?.[1];
+    if (r === undefined) return undefined;
+    radii.push(r);
+  }
+  return radii;
+}
+
+/** The fin types that carry a through-the-wall tab (schema.ts FIN_TABS). */
+const TABBED_FINS = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset']);
+
+/**
+ * The deepest a fin's through-the-wall tab can reach: the parent body's
+ * radius at the tab's front and trailing edges, the smaller of the two —
+ * `FinSet.getMaxTabHeight`, which the kernel's `setTabHeight` clamps the tab
+ * to (audit 2026-09-30). A body tube has one radius (`BodyTube.getRadius`);
+ * a nose cone or transition is read along its profile at the tab, placed as
+ * the kernel places it (the fin's front plus `finTabFront` along its root
+ * chord). Undefined when that radius cannot be resolved, and the tab is then
+ * cut as stated.
+ */
+function tabMaxDepth(parent: ComponentNode, fin: ComponentNode): number | undefined {
+  if (parent.type === 'bodytube') return num(parent, 'outerRadius', 0.012);
+  const pos = (fin.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  const front = startFromPosition(pos, axialLength(fin), axialLength(parent)) + finTabFront(fin, finRootChord(fin));
+  const radii = profileRadiiAt(parent, [front, front + num(fin, 'tabLength', 0)]);
+  return radii ? Math.min(...radii) : undefined;
 }

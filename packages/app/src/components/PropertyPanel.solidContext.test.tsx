@@ -27,8 +27,8 @@ const mount = (tree: RocketTree, node: ComponentNode) => act(() => root.render(
   </PrefsProvider>,
 ));
 
-/** Click the ✂ DXF button and return the file text it hands to the browser. */
-async function dxfText(): Promise<string> {
+/** Click the button whose text starts with `glyph` and return the file text it hands to the browser. */
+async function downloadText(glyph: string): Promise<string> {
   const blobs: Blob[] = [];
   vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
     blobs.push(b as Blob);
@@ -38,7 +38,7 @@ async function dxfText(): Promise<string> {
   const orig = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function click() {};
   try {
-    const btn = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith('✂'))!;
+    const btn = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith(glyph))!;
     await act(async () => { btn.click(); });
   } finally {
     HTMLAnchorElement.prototype.click = orig;
@@ -46,6 +46,9 @@ async function dxfText(): Promise<string> {
   expect(blobs.length).toBe(1);
   return blobs[0]!.text();
 }
+
+/** Click the ✂ DXF button and return the file text it hands to the browser. */
+const dxfText = (): Promise<string> => downloadText('✂');
 
 /** Every CIRCLE radius in a DXF, in mm (group 40 follows the centre). */
 const circleRadii = (dxf: string): number[] => {
@@ -137,5 +140,29 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     // The DXF's ring-bore clause: the ring's own stated ID comes first too.
     const dxfTitle = titles.find((t) => t.includes('DXF'))!;
     expect(dxfTitle).toContain("a centering ring's bore from its own stated ID, else the motor mount");
+  });
+});
+
+describe('PropertyPanel — a fin tab cuts no deeper than the body', () => {
+  // A 30 mm tab on a 38 mm minimum-diameter airframe (audit 2026-09-30): the
+  // kernel and the side view clamp it to the 19.5 mm body radius, and so must
+  // both files these buttons hand over — the 📐 template took no context at all.
+  const fins = {
+    id: 'fins', type: 'trapezoidfinset', name: 'Fins', finCount: 3, rootChord: 0.1, tipChord: 0.05,
+    sweep: 0.05, height: 0.06, thickness: 0.003, tabHeight: 0.03, tabLength: 0.06,
+    position: { method: 'bottom', offset: 0 },
+  } as unknown as ComponentNode;
+  const tree = {
+    name: 'Rocket',
+    components: [{ id: 's1', type: 'stage', children: [{
+      id: 'b1', type: 'bodytube', outerRadius: 0.0195, thickness: 0.0005, length: 0.6, children: [fins],
+    }] }],
+  } as unknown as RocketTree;
+
+  it('the 📐 template and the ✂ DXF both cut the clamped 19.5 mm tab', async () => {
+    mount(tree, fins);
+    expect(await downloadText('📐')).toContain('tab 19.5 mm deep');
+    vi.restoreAllMocks();
+    expect(await dxfText()).toContain('TTW tab 19.5 mm deep');
   });
 });

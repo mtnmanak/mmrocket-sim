@@ -237,7 +237,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // 360 / LightBurn read the profile as an error or as unclosed. The
       // < 3 guard is re-checked AFTER the collapse, since collapsing is what
       // can drop a contour below three distinct corners.
-      const raw = finCutOutline(node);
+      const raw = finCutOutline(node, ctx);
       if (!raw) return null;
       const outline = collapseLoop(raw);
       if (outline.length < 3) return null;

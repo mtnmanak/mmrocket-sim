@@ -68,15 +68,35 @@ describe('finRootChord — the chord, never the drawn extent', () => {
 describe('finTabSpan — the tab as it is cut', () => {
   it('clamps into [0, root] and drops a tab with nothing left', () => {
     const t = (tabOffset: number, tabOffsetMethod: string) =>
-      finTabSpan(fin({ tabHeight: 0.008, tabLength: 0.02, tabOffset, tabOffsetMethod }), 0.05);
+      finTabSpan(fin({ tabHeight: 0.008, tabLength: 0.02, tabOffset, tabOffsetMethod }), 0.05, undefined);
     expect(t(-0.01, 'top')).toEqual({ x0: 0, x1: expect.closeTo(0.01, 12), depth: 0.008 });
     expect(t(0.02, 'middle')).toEqual({ x0: expect.closeTo(0.035, 12), x1: 0.05, depth: 0.008 });
     expect(t(0.2, 'top')).toBeNull();
   });
 
   it('is null with no tab height, no tab length or no root', () => {
-    expect(finTabSpan(fin({ tabLength: 0.02 }), 0.05)).toBeNull();
-    expect(finTabSpan(fin({ tabHeight: 0.01 }), 0.05)).toBeNull();
-    expect(finTabSpan(fin({ tabHeight: 0.01, tabLength: 0.02 }), 0)).toBeNull();
+    expect(finTabSpan(fin({ tabLength: 0.02 }), 0.05, undefined)).toBeNull();
+    expect(finTabSpan(fin({ tabHeight: 0.01 }), 0.05, undefined)).toBeNull();
+    expect(finTabSpan(fin({ tabHeight: 0.01, tabLength: 0.02 }), 0, undefined)).toBeNull();
+  });
+
+  /**
+   * The kernel clamps the depth to the body's radius at the tab
+   * (`FinSet.setTabHeight` → `getMaxTabHeight`), and the side view clamps its
+   * drawn tab the same way. The cut outputs read the raw depth (audit
+   * 2026-09-30), so a tab deeper than the body — the UI allows 50 mm, and a
+   * `.rkt` on a minimum-diameter airframe brings one — printed, cut and
+   * templated past the airframe's centreline.
+   */
+  it('clamps the depth to the body radius at the tab, as the kernel does', () => {
+    const deep = fin({ tabHeight: 0.05, tabLength: 0.02 });
+    expect(finTabSpan(deep, 0.05, 0.0195))
+      .toEqual({ x0: expect.closeTo(0.015, 12), x1: expect.closeTo(0.035, 12), depth: 0.0195 });
+    // A tab shallower than the body is untouched…
+    expect(finTabSpan(fin({ tabHeight: 0.008, tabLength: 0.02 }), 0.05, 0.0195)!.depth).toBe(0.008);
+    // …a body with no radius at the tab leaves no tab, as the kernel's 0 clamp
+    // does, and with no radius to clamp to the tab is as stated.
+    expect(finTabSpan(deep, 0.05, 0)).toBeNull();
+    expect(finTabSpan(deep, 0.05, undefined)!.depth).toBe(0.05);
   });
 });
