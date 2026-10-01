@@ -581,6 +581,23 @@ describe('scaleRocket — motor mounts', () => {
     expect(previewMounts(md, 2)[0]!.maxBoreMm).toBeNull();
   });
 
+  it('a mount inside a SOLID tube has no room at all, never a negative one', () => {
+    // A tube ticked Solid (filled) has no bore (mountBore 0), so the room
+    // around a mount listed inside it is none. It came out as 0 less the
+    // mount's two scaled walls, -3.2 mm here: the dialog printed "at most
+    // -3.2 mm", seeded Custom… with -4 mm, and Apply wrote the mount a
+    // NEGATIVE outer radius.
+    const t = withMount(0.018);
+    t.components[0]!.children![0]!['filled'] = true;
+    const [p] = previewMounts(t, 2);
+    expect(p!.maxBoreMm).toBe(0);
+    expect(p!.inSolidTube).toBe(true);
+    // Hollow, the room it always had.
+    const [h] = previewMounts(withMount(0.018), 2);
+    expect(h!.maxBoreMm).toBeCloseTo((57 - 1.6) * 2, 9);
+    expect(h!.inSolidTube).toBe(false);
+  });
+
   it('snapping keeps the wall and puts the bore exactly on the standard size', () => {
     const t = withMount(0.018);
     const out = scaleRocket(t, 2.27, { snapMounts: true }).tree;

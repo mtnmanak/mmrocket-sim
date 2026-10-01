@@ -150,9 +150,14 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
 
   const onChooseMount = (m: MountPreview, value: string) => {
     // Custom… starts from today's bore to the millimetre — rounded DOWN when
-    // rounding up would no longer fit the tube around it (`fitsRoom`).
-    const seed = fitsRoom(m, Math.round(m.finalBoreMm)) || m.maxBoreMm === null
-      ? Math.round(m.finalBoreMm) : Math.floor(m.maxBoreMm);
+    // rounding up would no longer fit the tube around it (`fitsRoom`). Where
+    // not even 1 mm fits (a SOLID tube around it has no room at all) it starts
+    // from today's bore, marked invalid, and resizes nothing: a choice is only
+    // ever a bore that fits (`goodBore`). Rounded down there, the seed was a
+    // bore of 0 or less, chosen with Apply on, and applied.
+    const today = Math.round(m.finalBoreMm);
+    const seed = m.maxBoreMm === null || fitsRoom(m, today) || m.maxBoreMm < 1
+      ? today : Math.floor(m.maxBoreMm);
     setCustom((prev) => {
       const next = { ...prev };
       if (value === 'custom') next[m.id] = String(seed);
@@ -161,7 +166,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     });
     setChoices((prev) => {
       const next = { ...prev };
-      if (value === 'custom') next[m.id] = { boreMm: seed };
+      if (value === 'custom') { if (goodBore(m, seed)) next[m.id] = { boreMm: seed }; }
       else if (value.startsWith('c')) next[m.id] = { boreMm: Number(value.slice(1)) };
       else next[m.id] = value as MountChoice;
       return next;
@@ -179,13 +184,16 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     m.maxBoreMm === null || boreMm <= m.maxBoreMm + 1e-6;
   /** A size someone CHOSE, or the snap picked, that does not fit. */
   const overflows = (m: MountPreview) => m.targetBoreMm !== null && !fitsRoom(m, m.targetBoreMm);
+  /** A bore that can be chosen for this mount: a real, positive one that fits. */
+  const goodBore = (m: MountPreview, mm: number) => Number.isFinite(mm) && mm > 0 && fitsRoom(m, mm);
   /** The Custom box holds something that cannot be applied (it is not). */
   const customBad = (m: MountPreview) => {
     const raw = custom[m.id];
     if (raw === undefined || raw.trim() === '') return false;
-    const mm = Number(raw);
-    return !(Number.isFinite(mm) && mm > 0 && fitsRoom(m, mm));
+    return !goodBore(m, Number(raw));
   };
+  /** Why NO size fits, where none does (`maxBoreMm` 0) — not "at most 0.0 mm". */
+  const noRoomWhy = (m: MountPreview) => (m.inSolidTube ? 'is solid (filled)' : 'has no room left inside it');
 
   const onCustomBore = (m: MountPreview, raw: string) => {
     setCustom((prev) => ({ ...prev, [m.id]: raw }));
@@ -193,7 +201,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     // An empty, nonsense or oversized box must not resize anything; hold the
     // last good value rather than snapping the preview back to the scaled size
     // mid-type. The box is marked invalid instead (`customBad`).
-    if (Number.isFinite(mm) && mm > 0 && fitsRoom(m, mm)) {
+    if (goodBore(m, mm)) {
       setChoices((prev) => ({ ...prev, [m.id]: { boreMm: mm } }));
     }
   };
@@ -423,8 +431,11 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                       )}
                       {/* Why Apply is off: the size chosen (or snapped to) no
                           longer fits the tube around it — `usable`. */}
-                      {overflows(m) && (
-                        <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
+                      {overflows(m) && (m.maxBoreMm === 0
+                        ? <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
+                          tube around it once scaled — that tube {noRoomWhy(m)}, so no size does.</strong>
+                          {' '}Choose the scaled size.</>
+                        : <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
                           tube around it once scaled — at most {m.maxBoreMm!.toFixed(1)} mm does.</strong>
                           {' '}Choose the scaled size or a smaller one.</>
                       )}
@@ -474,8 +485,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                                 onChange={(e) => onCustomBore(m, e.target.value)}
                               />
                               {' mm'}
-                              {m.maxBoreMm !== null && (
-                                <> — at most {m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
+                              {m.maxBoreMm !== null && (m.maxBoreMm === 0
+                                ? <> — no size fits inside the tube around it, which {noRoomWhy(m)}</>
+                                : <> — at most {m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
                               )}
                             </>
                           )}

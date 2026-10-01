@@ -463,6 +463,41 @@ describe('ScaleDialog', () => {
       expect(applyButton().disabled).toBe(false);
     });
 
+    it('inside a SOLID tube no size fits, and Custom… resizes nothing', async () => {
+      // A tube ticked Solid (filled) has no bore, so there is no room around
+      // the mount. It read 0 less the mount's two walls, -3.2 mm at ×2: the
+      // box said "at most -3.2 mm", Custom… seeded a -4 mm bore with Apply on,
+      // and Apply wrote the mount a NEGATIVE outer radius (-0.4 mm).
+      const solid = tree();
+      solid.components[0]!.children![1]!['filled'] = true;
+      await render({}, solid);
+      const opt = (v: string) => [...mountSelect().options].find((o) => o.value === v)!;
+      for (const v of ['nearest', 'c6', 'c24', 'c54']) expect(opt(v).disabled, v).toBe(true);
+      expect(opt('scaled').disabled).toBe(false);
+      pick(mountSelect(), 'custom');
+      // Today's bore, 54.8 mm to the millimetre — marked invalid, chosen for nothing.
+      expect(customBore().value).toBe('55');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+      expect(text()).toContain('no size fits inside the tube around it, which is solid (filled)');
+      expect(text()).not.toContain('mount you chose');
+      expect(text()).not.toMatch(/-\d[\d.]* mm/);
+      act(() => { applyButton().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      // The mount keeps its scaled size: the design's own geometry.
+      expect(mountOf(applied!)['outerRadius'] as number).toBeCloseTo(0.0145 * 2, 9);
+    });
+
+    it('inside a SOLID tube a snap is refused, and the refusal says why', async () => {
+      const solid = tree();
+      solid.components[0]!.children![1]!['filled'] = true;
+      await render({}, solid);
+      act(() => { host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+      expect(applyButton().disabled).toBe(true);
+      expect(text()).toContain('that tube is solid (filled), so no size does. Choose the scaled size.');
+      expect(text()).not.toMatch(/-\d[\d.]* mm/);
+      pick(mountSelect(), 'scaled');
+      expect(applyButton().disabled).toBe(false);
+    });
+
     it('refuses a typed target diameter past the factor box’s own 100×', async () => {
       await render();
       const [, target] = numberInputs();

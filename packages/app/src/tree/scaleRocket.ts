@@ -275,6 +275,13 @@ const mountWall = (n: ComponentNode): number =>
   num(n, 'thickness') ?? kernelDefault(n.type as string, 'thickness') ?? 0.0005;
 
 /**
+ * A SOLID body tube (Solid (filled)), which has no bore at any size. A case
+ * airframe is not one: its bore is its outside, which no wall moves.
+ */
+const isSolidTube = (n: ComponentNode): boolean =>
+  n['caseAirframe'] !== true && n.type === 'bodytube' && n['filled'] === true;
+
+/**
  * A motor mount's bore (m): outer radius less wall, or the outer radius for a
  * case airframe — and none for a SOLID body tube (Solid (filled)), whatever wall
  * it states: BodyTube.getInnerRadius, and so getMotorMountDiameter, is 0 when
@@ -288,7 +295,7 @@ export function mountBore(n: ComponentNode): number {
   // so it keeps the inner tube's placeholder, as it always has.
   const or = num(n, 'outerRadius') ?? kernelDefault(n.type as string, 'outerRadius') ?? 0.0095;
   if (n['caseAirframe'] === true) return or * 2;
-  if (n.type === 'bodytube' && n['filled'] === true) return 0;
+  if (isSolidTube(n)) return 0;
   return (or - mountWall(n)) * 2;
 }
 
@@ -402,8 +409,18 @@ export interface MountPreview {
    *
    * A necessary condition, not a sufficient one: a clustered or off-axis mount
    * can pass it and still hit the wall, which the 2D view shows.
+   *
+   * 0, never less, where that tube has no room for one: a SOLID tube has no
+   * bore at all. The room came out as minus the mount's two walls there, and
+   * the dialog printed "at most -3.2 mm" and seeded Custom… with -4 mm, which
+   * Apply wrote as a negative outer radius.
    */
   maxBoreMm: number | null;
+  /**
+   * The tube around this mount is SOLID (Solid (filled)) — why `maxBoreMm` is
+   * 0, which the dialog says in words.
+   */
+  inSolidTube: boolean;
 }
 
 /** The parents whose bore a motor mount sits in (`mountBore` reads them as tubes). */
@@ -490,8 +507,9 @@ export function previewMounts(
     const parent = choosable && m.id ? findParent(tree, m.id) : null;
     const maxBoreMm = parent && parent !== 'stage' && TUBE_PARENTS.has(parent.type)
       && parent['caseAirframe'] !== true
-      ? (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000
+      ? Math.max(0, (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000)
       : null;
+    const inSolidTube = !!parent && parent !== 'stage' && isSolidTube(parent);
     return {
       id: m.id ?? '',
       name: m.name ?? 'Motor mount',
@@ -509,6 +527,7 @@ export function previewMounts(
       motorStillFits: fits(finalBoreMm),
       motorFitsUnsnapped: fits(scaledBoreMm),
       maxBoreMm,
+      inSolidTube,
     };
   });
 }
