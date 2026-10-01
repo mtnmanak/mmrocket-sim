@@ -310,7 +310,7 @@ describe('Fit shoulder to tube ⌀', () => {
 
   it('refuses a solid tube and says why: it has no bore to fit', () => {
     // The rail-button idiom: the button stays, greyed, with the reason. It
-    // fitted the shoulder to the wall the solid tube states (26 mm here).
+    // fitted the shoulder to the wall the solid tube states (52 mm diameter here).
     const refused = {
       title: 'The adjacent tube is solid (filled), so it has no bore for a shoulder to fit into.',
       disabled: true, patch: null,

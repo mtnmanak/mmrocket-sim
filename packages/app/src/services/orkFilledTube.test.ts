@@ -168,7 +168,7 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     // MassObject.getAutoRadius does: from the parent's inner radius, which is 0
     // in a filled tube — and 0 is no answer there, so the device keeps its own
     // radius, the kernel's 12.5 mm. Read through the word `filled` as a wall of
-    // none, the chute took the rod's full 30 mm.
+    // none, the chute took the rod's full 30 mm radius.
     const ork = (thickness: string) => `<openrocket version="1.5" creator="OpenRocket 15.03"><rocket>
       <name>Rod</name><subcomponents><stage><name>S</name><subcomponents>
         <nosecone><name>Nose</name><length>0.1</length><thickness>0.002</thickness>

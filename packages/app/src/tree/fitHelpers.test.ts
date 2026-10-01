@@ -178,8 +178,8 @@ describe('shoulderFit', () => {
 
   it('marks a SOLID tube: its bore is 0, and the panel refuses the fit', () => {
     // BodyTube.getInnerRadius is 0 when filled. Read through the wall it states,
-    // a solid 30 mm rod with a 1 mm wall fitted a 29 mm shoulder; the .ork
-    // reader's solid tube, which states no wall, fitted the full 30 mm.
+    // a solid rod of 30 mm radius with a 1 mm wall fitted a shoulder of 29 mm
+    // radius; the .ork reader's solid tube, which states no wall, the full 30 mm.
     const refused = { innerR: 0, patch: { shoulderRadius: 0 }, solid: true };
     const rod = { id: 'b1', type: 'bodytube', outerRadius: 0.03, thickness: 0.001 };
     expect(fit([NOSE, node({ ...rod, filled: true })])).toEqual(refused);
