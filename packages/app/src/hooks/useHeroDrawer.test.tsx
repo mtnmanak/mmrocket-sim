@@ -168,6 +168,32 @@ describe('useHeroDrawer — the breakpoint', () => {
     // The layout still follows the window; only the drawer's state is theirs.
     expect(h.current.wide).toBe(true);
   });
+
+  /**
+   * The whole matrix the board's Tier 1 row 22 asked for (2026-09-18: "the
+   * 981 px check runs ONCE, in a useState initializer"). It has not since
+   * v0.136: the hook listens to the query and re-applies the SAME default —
+   * open from 981 px, shut below — until the user opens or closes the drawer
+   * themselves, and from then their choice holds until a reload. From either
+   * side, with no press, a press open and a press shut, across and back.
+   */
+  it.each([
+    { start: 1200, press: undefined, across: false, back: true },
+    { start: 800, press: undefined, across: true, back: false },
+    { start: 1200, press: false, across: false, back: false },
+    { start: 1200, press: true, across: true, back: true },
+    { start: 800, press: true, across: true, back: true },
+    { start: 800, press: false, across: false, back: false },
+  ])('from $start px with press $press: open $across across the breakpoint, $back back', ({ start, press, across, back }) => {
+    width = start;
+    const h = mount();
+    if (press !== undefined) act(() => h.current.setByUser(press));
+    const other = start >= 981 ? 800 : 1200;
+    dragTo(other);
+    expect([h.current.wide, h.current.open]).toEqual([other >= 981, across]);
+    dragTo(start);
+    expect([h.current.wide, h.current.open]).toEqual([start >= 981, back]);
+  });
 });
 
 describe('useHeroDrawer — the drawer lifts the drawing clear of itself', () => {
