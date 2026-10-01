@@ -1473,8 +1473,24 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 id={idFor('positionMethod')}
                 aria-label="Position relative to"
                 value={pos.method}
-                onChange={(e) =>
-                  onPatch({ position: { ...pos, method: e.target.value as ComponentPosition['method'] } })}
+                onChange={(e) => {
+                  // A new way of MEASURING the same station: the offset is
+                  // recomputed so the part stays put, as desktop's
+                  // setAxialMethod does (RocketComponent.java:1384-1387). It
+                  // used to keep the offset, so a fin set at Top +0.25 m on a
+                  // 0.30 m tube became Bottom +0.25 m, its trailing edge 0.25 m
+                  // past the tube's end (audit 2026-09-30). Both lengths are the
+                  // kernel's — axialLength is what 'middle' and 'bottom' measure
+                  // against when it builds, which `parentLenSi` is not for a
+                  // tube saved with no length. ('absolute' never gets here:
+                  // normalizeTree rewrites it at every load boundary.)
+                  const next = e.target.value as ComponentPosition['method'];
+                  if (next === pos.method || !parent) return;
+                  const cLen = axialLength(node);
+                  const pLen = axialLength(parent);
+                  const start = startFromPosition(pos, cLen, pLen);
+                  onPatch({ position: { method: next, offset: offsetForStart(next, start, cLen, pLen) } });
+                }}
               >
                 <option value="top">Top of parent</option>
                 <option value="middle">Middle of parent</option>
