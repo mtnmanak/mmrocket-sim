@@ -41,6 +41,12 @@ export interface TcSample {
 
 /** One simulator file as thrustcurve.org's download.json returns it. */
 export interface TcSimFile {
+  /**
+   * thrustcurve.org's id for this data file, the same in every answer and
+   * every refresh (the bundle stores it for every file). pickSampleFile's last
+   * word between otherwise-equal files, in place of their position in a list.
+   */
+  simfileId?: string;
   format?: string;
   source?: string;
   samples?: TcSample[];
@@ -516,17 +522,58 @@ export function pickSampleFile(files: readonly TcSimFile[], motor?: TcMotor): Tc
   // thrustcurve.org's own provenance flag: "cert" is the certification body's
   // data, everything else was uploaded by a user or a manufacturer.
   const cert = ({ file }: { file: TcSimFile }): number => (file.source === 'cert' ? 1 : 0);
+  // Between files equal on all of that, the masses each would FLY — its own
+  // header pair, else the catalogue's (samplesToMotorSpec) — against the
+  // catalogue row: the closer wins. Quantised to a part in 10^9, so float
+  // noise in a stated mass (87.00000000000001 g against 87) decides nothing.
+  // Neutral when the catalogue states no usable pair.
+  const catalogue = motor && isHeaderMasses({ totalWeightG: motor.totalWeightG, propWeightG: motor.propWeightG })
+    ? { totalWeightG: motor.totalWeightG, propWeightG: motor.propWeightG } : null;
+  const massGap = (file: TcSimFile): number => {
+    if (!catalogue) return 0;
+    const m = headerMasses(file) ?? catalogue;
+    return Math.round((Math.abs(m.totalWeightG / catalogue.totalWeightG - 1)
+      + Math.abs(m.propWeightG / catalogue.propWeightG - 1)) * 1e9);
+  };
+  // And last, the FILE — never its place in the list. Position was the last
+  // word until 2026-10-01: v0.143's refresh changed the Hypertek
+  // 2800CCRGLFX-L625FX's loaded mass from 5,706.2 g to 5,116.2 g (-10.3 %)
+  // only because thrustcurve.org listed the same two files the other way
+  // round. Its data-file id is the same in every answer and every refresh; a
+  // file without one is known by a hash of what it holds, after every id.
+  const identity = (file: TcSimFile): string =>
+    typeof file.simfileId === 'string' && file.simfileId !== '' ? file.simfileId : `~${contentHash(file)}`;
+  const keyed = usable.map((u) => ({ ...u, massGap: massGap(u.file), identity: identity(u.file) }));
 
-  usable.sort((a, b) =>
+  keyed.sort((a, b) =>
     sound(b) - sound(a)
     || agrees(b) - agrees(a)
     || impulseAgrees(b) - impulseAgrees(a)
     || cert(b) - cert(a)
     || b.file.samples!.length - a.file.samples!.length
     || (b.file.format === 'RASP' ? 1 : 0) - (a.file.format === 'RASP' ? 1 : 0)
+    || a.massGap - b.massGap
+    || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0)
+    // Only two files holding exactly the same thing get this far, and either
+    // flies the same; it keeps the order total.
     || a.index - b.index);
 
-  return usable[0]!.file;
+  return keyed[0]!.file;
+}
+
+/**
+ * A short, stable hash of what a file holds — its samples, format, source and
+ * the masses it would fly — for pickSampleFile's last word on a file with no
+ * thrustcurve.org id. FNV-1a, 32 bits: two files only need telling apart.
+ */
+function contentHash(file: TcSimFile): string {
+  const text = JSON.stringify([file.format ?? '', file.source ?? '', file.samples ?? [], headerMasses(file)]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 // ------------------------------------------------------------ bundled curves
@@ -613,6 +660,9 @@ export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
 async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
   const curves = await loadBundledCurves();
   return (curves[motorId] ?? []).map((f) => ({
+    // Carried so the picker can tell two files apart by what they are, not by
+    // where the bundle happens to list them (pickSampleFile).
+    ...(f.simfileId ? { simfileId: f.simfileId } : {}),
     format: f.format,
     source: f.source,
     samples: f.samples.map(([time, thrust]) => ({ time, thrust })),
@@ -795,11 +845,11 @@ export function samplesToMotorSpec(
  * used to crash the build. Bumping the prefix retires those entries rather
  * than leaving a poisoned cache no code path ever invalidates.
  *
- * Bumping made them UNREACHABLE; it never freed them. Six generations have
- * shipped or are shipping — `tc:samples:` through v0.060, `tc:samples:v2:` in
- * v0.061-v0.064, `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in
- * v0.111-v0.115, `tc:samples:v5:` from v0.116 to 2026-10-01, `tc:samples:v6:`
- * after it (below) — and the
+ * Bumping made them UNREACHABLE; it never freed them. The generations —
+ * `tc:samples:` through v0.060, `tc:samples:v2:` in v0.061-v0.064,
+ * `tc:samples:v3:` in v0.065-v0.110, `tc:samples:v4:` in v0.111-v0.115,
+ * `tc:samples:v5:` from v0.116 to 2026-10-01, then `tc:samples:v6:` and
+ * `tc:samples:v7:`, both 2026-10-01 (below; v6 may never have shipped) — and the
  * beta invite went out 2026-08-22, so day-one testers hold dead generations
  * that can never be read and, until sweepDeadGenerations() below, could never
  * be freed either. Whoever bumps this next: change only the version segment,
@@ -831,9 +881,15 @@ export function samplesToMotorSpec(
  * 2026-09-30 bundle to a different file: 5 to a different flown curve (the
  * AeroTech I65W by -4.46 % of impulse), 5 to the same curve with different
  * masses, 6 to the same curve and masses. Same rule, so v5 is dead too.
+ *
+ * v7 (2026-10-01): the last word between otherwise-equal files is the file
+ * itself — masses closer to the catalogue's, then thrustcurve.org's id —
+ * never its position in the list, which moves 7 motors of the 2026-09-30
+ * bundle (the Hypertek 2800CCRGLFX-L625FX back to 5,706.2 g loaded). Same
+ * rule, so v6 is dead too.
  */
 const CACHE_ROOT = 'tc:samples:';
-const CACHE_PREFIX = `${CACHE_ROOT}v6:`;
+const CACHE_PREFIX = `${CACHE_ROOT}v7:`;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.

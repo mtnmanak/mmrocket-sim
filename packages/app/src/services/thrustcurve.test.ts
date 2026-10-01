@@ -386,6 +386,81 @@ describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
   });
 });
 
+/**
+ * The 1 October curve research (§8 item 1): the picker's last word was a
+ * file's POSITION in the list it was given, so v0.143's refresh changed the
+ * Hypertek 2800CCRGLFX-L625FX's loaded mass from 5,706.2 g to 5,116.2 g only
+ * because thrustcurve.org returned the same two files in the other order. A
+ * flight must not depend on the order a server lists files in.
+ */
+describe('pickSampleFile — the last word is the file, never its place in the list', () => {
+  const MOTOR = { motorId: 'm', designation: 'M100', totImpulseNs: 100, burnTimeS: 2,
+    totalWeightG: 200, propWeightG: 100 } as TcMotor;
+  const curve = [{ time: 0, thrust: 0 }, { time: 1, thrust: 100 }, { time: 2, thrust: 0 }];
+  const file = (over: object) => ({ format: 'RASP', source: 'cert', samples: curve, ...over });
+
+  it('prefers, between otherwise-equal files, the one whose masses agree with the catalogue', () => {
+    const off = file({ simfileId: 'a', bundledMasses: { totalWeightG: 180, propWeightG: 100 } });
+    const on = file({ simfileId: 'b', bundledMasses: { totalWeightG: 200, propWeightG: 100 } });
+    expect(pickSampleFile([off, on], MOTOR)).toBe(on);
+    expect(pickSampleFile([on, off], MOTOR)).toBe(on);
+    // A file stating no masses flies the catalogue's, which agree by definition.
+    const none = file({ simfileId: 'c' });
+    expect(pickSampleFile([off, none], MOTOR)).toBe(none);
+    // Float noise in a stated mass is not a disagreement: the id decides.
+    const noisy = file({ simfileId: 'd', bundledMasses: { totalWeightG: 200.00000000000003, propWeightG: 100 } });
+    const exact = file({ simfileId: 'e', bundledMasses: { totalWeightG: 200, propWeightG: 100 } });
+    expect(pickSampleFile([exact, noisy], MOTOR)).toBe(noisy);
+  });
+
+  it('then takes the lower thrustcurve.org id, whichever order the files come in', () => {
+    const a = file({ simfileId: '5f4294d20002e900000000cb' });
+    const b = file({ simfileId: '5f4294d20002e900000000f3' });
+    expect(pickSampleFile([a, b], MOTOR)).toBe(a);
+    expect(pickSampleFile([b, a], MOTOR)).toBe(a);
+    // A file with no id comes after every file that has one…
+    const anon = file({});
+    expect(pickSampleFile([anon, b], MOTOR)).toBe(b);
+    // …and two with none are told apart by what they hold, not where they sit.
+    const p = file({ samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 100 }, { time: 2, thrust: 0 }] });
+    const q = file({ samples: [{ time: 0, thrust: 0 }, { time: 0.9, thrust: 101 }, { time: 2, thrust: 0 }] });
+    expect(pickSampleFile([p, q], MOTOR)).toBe(pickSampleFile([q, p], MOTOR));
+  });
+
+  it('never changes its pick when a motor’s files are shuffled — every bundled motor, seeded', async () => {
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { bundledSimFiles } = await import('./thrustcurve.js');
+    // mulberry32: a fixed seed, so a failure names a motor and reproduces.
+    let seed = 0x2026_1001;
+    const random = (): number => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const shuffled = <T,>(list: readonly T[]): T[] => {
+      const out = [...list];
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [out[i], out[j]] = [out[j]!, out[i]!];
+      }
+      return out;
+    };
+    let withChoice = 0;
+    for (const m of MOTOR_DB) {
+      const files = await bundledSimFiles(m.motorId);
+      if (files.length < 2) continue;
+      withChoice++;
+      const pick = pickSampleFile(files, m);
+      expect(pickSampleFile([...files].reverse(), m), `${m.manufacturerAbbrev} ${m.designation}`).toBe(pick);
+      for (let k = 0; k < 6; k++) {
+        expect(pickSampleFile(shuffled(files), m), `${m.manufacturerAbbrev} ${m.designation}`).toBe(pick);
+      }
+    }
+    expect(withChoice).toBeGreaterThan(700); // 810 motors have two or more files in the 2026-09-30 bundle
+  });
+});
+
 describe('samplesToMotorSpec — end to end on the damaged curve', () => {
   const L1115: TcMotor = {
     ...QUEST_C6,
@@ -548,6 +623,17 @@ J1026 38 625.5 P 0.616 1.172 Loki
     expect(fileImpulseNs({ samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })) }))
       .toBeCloseTo(630.51, 1);
     expect(spec.masses[0]).toBeCloseTo(0.7761, 6); // that file's loaded mass, 776.1 g
+  });
+
+  it('Hypertek 2800CCRGLFX-L625FX: flies its catalogue loaded mass, 5,706.2 g, whatever order its files arrive in', async () => {
+    // Two cert RASP files with the same curve; one states 5,706.18 g loaded
+    // (the catalogue's figure), the other 5,116.16 g. v0.143's refresh listed
+    // them the other way round and the app flew the light one (-10.3 %).
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const l625 = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'Hypertek' && x.designation === '2800CCRGLFX-L625FX')!;
+    const spec = await fetchMotorSpec(l625, Infinity);
+    expect(spec.masses[0]).toBeCloseTo(5.70618, 6);
   });
 
   it('Estes 1/2A6 — no catalogue weight, good bundled file — now loads from the shipped data', async () => {

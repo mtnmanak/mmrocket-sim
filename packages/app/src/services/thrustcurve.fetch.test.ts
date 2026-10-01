@@ -42,7 +42,7 @@ const GOOD_SAMPLES: TcSample[] = [
   { time: 2.5, thrust: 0 },
 ];
 
-const CACHE_KEY = `tc:samples:v6:${QUEST_C6.motorId}`;
+const CACHE_KEY = `tc:samples:v7:${QUEST_C6.motorId}`;
 
 /**
  * A fresh copy of the module for every test. thrustcurve.ts remembers, per
@@ -400,23 +400,25 @@ describe('the download has a deadline, and honours a caller cancelling it', () =
 });
 
 describe('the curve cache is bounded and sweeps its retired generations', () => {
-  it('frees the v1 to v5 keys a prefix bump left unreachable, and nothing else',
+  it('frees the v1 to v6 keys a prefix bump left unreachable, and nothing else',
     async () => {
       const tc = await freshModule();
-      // The generations that shipped: `tc:samples:` (through v0.060),
+      // The generations: `tc:samples:` (through v0.060),
       // `tc:samples:v2:` (v0.061-v0.064), `tc:samples:v3:` (v0.065-v0.110),
       // `tc:samples:v4:` (v0.111-v0.115, the first pickSampleFile bump — a v3
       // entry holds the file the PRE-v0.107 chooser picked, which is the whole
       // reason v3 is dead rather than merely old), `tc:samples:v5:` (v0.116 to
       // 2026-10-01, the impulse-agreement term — same rule, so v4 is dead too),
-      // and `tc:samples:v6:` (that term measured on the curve flown, audit
-      // 2026-09-30 — so v5 is dead too).
+      // `tc:samples:v6:` (that term measured on the curve flown, audit
+      // 2026-09-30 — so v5 is dead too) and `tc:samples:v7:` (the last word
+      // is the file, never its place in the list — so v6 is dead too).
       localStorage.setItem('tc:samples:deadv1', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v2:deadv2', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v3:deadv3', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v4:deadv4', JSON.stringify({ samples: GOOD_SAMPLES }));
       localStorage.setItem('tc:samples:v5:deadv5', JSON.stringify({ samples: GOOD_SAMPLES }));
-      localStorage.setItem('tc:samples:v6:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v6:deadv6', JSON.stringify({ samples: GOOD_SAMPLES }));
+      localStorage.setItem('tc:samples:v7:keepme', JSON.stringify({ samples: GOOD_SAMPLES }));
       // Neighbours in the same ~5 MB pool. The prefix match must not touch them.
       localStorage.setItem('online-openrocket.session', '{"tree":{}}');
       localStorage.setItem('tc:othersfeature:1', 'x');
@@ -429,27 +431,32 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       expect(localStorage.getItem('tc:samples:v3:deadv3')).toBeNull();
       expect(localStorage.getItem('tc:samples:v4:deadv4')).toBeNull();
       expect(localStorage.getItem('tc:samples:v5:deadv5')).toBeNull();
-      expect(localStorage.getItem('tc:samples:v6:keepme')).not.toBeNull();
+      expect(localStorage.getItem('tc:samples:v6:deadv6')).toBeNull();
+      expect(localStorage.getItem('tc:samples:v7:keepme')).not.toBeNull();
       expect(localStorage.getItem('online-openrocket.session')).toBe('{"tree":{}}');
       expect(localStorage.getItem('tc:othersfeature:1')).toBe('x');
     });
 
-  it('never flies a v5 entry: the pick a cached curve holds was made by the raw-impulse gate', async () => {
-    // A v5 entry for this motor would outrank the network for as long as it
-    // lived (the cache is keyed by motor, not by the rule that chose it).
-    const tc = await freshModule();
-    const STALE: TcSample[] = [{ time: 0, thrust: 0 }, { time: 1, thrust: 30 }, { time: 2, thrust: 0 }];
-    localStorage.setItem(`tc:samples:v5:${QUEST_C6.motorId}`, JSON.stringify({ samples: STALE, masses: null }));
-    const spy = stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
-    const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
-    expect(spy).toHaveBeenCalledOnce();
-    expect(spec.thrusts).toEqual(GOOD_SAMPLES.map((s) => s.thrust));
+  it('never flies an entry an older picker chose: a v5 or v6 entry is not read', async () => {
+    // Either would outrank the network for as long as it lived (the cache is
+    // keyed by motor, not by the rule that chose it).
+    for (const generation of ['v5', 'v6']) {
+      const tc = await freshModule();
+      const STALE: TcSample[] = [{ time: 0, thrust: 0 }, { time: 1, thrust: 30 }, { time: 2, thrust: 0 }];
+      localStorage.setItem(`tc:samples:${generation}:${QUEST_C6.motorId}`,
+        JSON.stringify({ samples: STALE, masses: null }));
+      const spy = stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+      const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+      expect(spy, generation).toHaveBeenCalledOnce();
+      expect(spec.thrusts, generation).toEqual(GOOD_SAMPLES.map((s) => s.thrust));
+      localStorage.clear();
+    }
   });
 
   const liveCount = (): number => {
     let n = 0;
     for (let i = 0; i < localStorage.length; i++) {
-      if (localStorage.key(i)?.startsWith('tc:samples:v6:')) n++;
+      if (localStorage.key(i)?.startsWith('tc:samples:v7:')) n++;
     }
     return n;
   };
@@ -458,7 +465,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
     const tc = await freshModule();
     // One over the 300 cap. Stamps ascend with the index, so entry 0 is oldest.
     for (let i = 0; i < 301; i++) {
-      localStorage.setItem(`tc:samples:v6:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -466,17 +473,17 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
 
     // Pruned back to the 240 low-water mark, plus the entry just written.
     expect(liveCount()).toBe(241);
-    expect(localStorage.getItem('tc:samples:v6:seed0')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v6:seed60')).toBeNull();
-    expect(localStorage.getItem('tc:samples:v6:seed61')).not.toBeNull();
-    expect(localStorage.getItem('tc:samples:v6:seed300')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed0')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed60')).toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed61')).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v7:seed300')).not.toBeNull();
     expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
   });
 
   it('leaves the cache alone while it is under the cap', async () => {
     const tc = await freshModule();
     for (let i = 0; i < 50; i++) {
-      localStorage.setItem(`tc:samples:v6:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
@@ -517,7 +524,7 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
       clear: (): void => map.clear(),
     });
     for (let i = 0; i < 200; i++) {
-      localStorage.setItem(`tc:samples:v6:seed${i}`,
+      localStorage.setItem(`tc:samples:v7:seed${i}`,
         JSON.stringify({ samples: GOOD_SAMPLES, masses: null, t: 1_000 + i }));
     }
 
