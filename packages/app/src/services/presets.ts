@@ -417,7 +417,12 @@ export function csvToPresets(csv: string): Preset[] {
     if (row['materialName'] || row['materialDensity']) {
       p.material = {
         name: row['materialName'] ?? '',
-        type: row['materialType'] || (SURFACE_KINDS.has(p.kind) ? 'SURFACE' : 'BULK'),
+        // Trimmed and upper-cased to the catalogue's own spelling, as `kind` is
+        // above (audit 2026-09-30). presetPatch tests `=== 'SURFACE'` and
+        // `=== 'BULK'`, so a typed `surface` passed rowIsSound and then wrote no
+        // fabric weight, and a lone space was not blank. Blank takes the kind's.
+        type: (row['materialType'] ?? '').trim().toUpperCase()
+          || (SURFACE_KINDS.has(p.kind) ? 'SURFACE' : 'BULK'),
         density: Number(row['materialDensity']),
       };
     }
@@ -441,8 +446,15 @@ export function csvToPresets(csv: string): Preset[] {
       const v = parseDecimal(raw);
       if (raw !== '' && Number.isFinite(v)) p[c] = v;
     }
-    if (row['shape']) p['shape'] = row['shape'];
-    if (row['filled'] === 'true') p['filled'] = true;
+    // The shape and the solid flag the same way (audit 2026-09-30). A
+    // spreadsheet saves a `true` cell back as `TRUE` (Excel does), and an exact
+    // match read every solid nose cone and balsa transition in an edited export
+    // as a hollow shell. A padded shape reached the kernel as a name it does
+    // not know, which it flies as an ogive, and a lone space overwrote the
+    // part's shape on a pick where a blank cell leaves it alone.
+    const shape = (row['shape'] ?? '').trim();
+    if (shape) p['shape'] = shape.toUpperCase();
+    if (/^\s*true\s*$/i.test(row['filled'] ?? '')) p['filled'] = true;
     out.push(p);
   }
   return out;
