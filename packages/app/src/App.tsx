@@ -78,7 +78,7 @@ import { refToExportMotor } from './services/motorMatch.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
-import { flyLaunch, reflyRun } from './services/flightRunner.js';
+import { flyLaunch, installedMounts, reflyRun } from './services/flightRunner.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotors } from './services/exMotors.js';
 import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
@@ -1151,6 +1151,22 @@ export function App() {
   // now, so a failed build stops re-rendering the notice stack forever.
   const motorFailures = useMemo(() => built?.motorFailures ?? [], [built]);
   /**
+   * The mounts the build refused. Launch leaves them off the handle and stores
+   * the delay vector of the mounts it flew, so every re-fly — and the check
+   * that offers one — leaves out the same ones (flightRunner.installedMounts),
+   * or the stored vector can never match (audit 2026-09-30).
+   */
+  const refusedMountIds = useMemo(() => motorFailures.map((f) => f.mountId), [motorFailures]);
+  /**
+   * The same mounts in a stored delay vector's terms: what the Auto-delay card
+   * checks a run's vector against. It was checked against every ASSIGNED mount,
+   * so on a design with a refused motor the card called the flight just flown
+   * a "Previous flight", and no Launch could change that (verifier, audit
+   * 2026-09-30).
+   */
+  const flownDelayMounts = useMemo(
+    () => delayMountsOf(installedMounts(assigned, refusedMountIds)), [assigned, refusedMountIds]);
+  /**
    * The hardware this build carries (kg), 0 when none: a provenance term
    * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
@@ -1307,6 +1323,20 @@ export function App() {
     // see the whole closure — the lint ceiling is 0, so a genuinely missing
     // dep added here later cannot hide behind this one.
   }, [physicsKey, mountMotors, launch, reflightCache]);
+  /**
+   * The design on screen, in the three terms the effect above resets on — what
+   * onLaunch compares the design it flew against before anything it computed
+   * lands (audit 2026-09-30). A Launch awaits a paint and, on auto delay,
+   * yields between up to eight probes, and the whole UI stays live meanwhile:
+   * Open…, a share link, ✕ New, ⏏ Unload, every field on Design and Motors &
+   * Launch. Each of those moves one of these terms; the effect clears the shown
+   * flight, the Auto aero upgrade and the error for the design now on screen,
+   * and a write landing after it put them back on a design that never flew.
+   * Mirrored on every render, not counted by the effect: a click handler reads
+   * it, and must not depend on when an effect last ran.
+   */
+  const designNow = useRef({ physicsKey, mountMotors, launch });
+  designNow.current = { physicsKey, mountMotors, launch };
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -1319,15 +1349,6 @@ export function App() {
   useEffect(() => {
     setLastSimCost(null);
   }, [physicsKey, mountMotors]);
-
-  // What the time-step caution scales from: this session's own measurement
-  // when there has been a flight, else the newest STORED run of this same
-  // design — stored runs carry execMs and the step it was measured at
-  // (SimRun.timeStepS) precisely so the seconds estimate survives a reload
-  // instead of degrading to the bare multiplier.
-  const simCostRef = useMemo(
-    () => lastSimCost ?? storedSimCost(runs, tree.name ?? 'Rocket'),
-    [lastSimCost, runs, tree.name]);
 
   /**
    * Power-off total Cd at a fixed subsonic Mach, for the Design tab's stats.
@@ -1706,6 +1727,17 @@ export function App() {
     if (!built || !primaryMountId || simulating || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     const primary = mountMotors[primaryMountId]!;
+    // The design this flight flies: this render's, the one `built` was built
+    // from. Everything it computed lands after an await, and only while that
+    // design still stands (`designNow`, audit 2026-09-30) — an Open, a ✕ New,
+    // an ⏏ Unload or an edit made meanwhile has had the reset effect clear the
+    // screen for the design that replaced it. An edit to this same design
+    // counts: the flight does not describe the edited one, and a Save .ork
+    // would not write it into the file as the edited one's. The RUN is kept
+    // either way (below), stamped with the design it flew.
+    const flown = { physicsKey, mountMotors, launch };
+    const stillFlown = () => designNow.current.physicsKey === flown.physicsKey
+      && designNow.current.mountMotors === flown.mountMotors && designNow.current.launch === flown.launch;
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there, focus
     // included: on the Results <main>, before the flight blocks the thread,
@@ -1720,7 +1752,7 @@ export function App() {
         const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
           assigned,
           mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? m.id!])),
-          refusedMountIds: built.motorFailures.map((m) => m.mountId),
+          refusedMountIds,
           hardware: built.hardware,
           primaryMountId,
           simOptions: kernelSimOptions(launch),
@@ -1728,8 +1760,10 @@ export function App() {
           supersonic: effectiveSupersonic,
           isOnLaunchStage: (id) => isOnLaunchStage(tree, id),
           // Rebuilds the engine handle with the flag on after this callback
-          // finishes, so the design's displayed statics follow the flight.
-          onSupersonicUpgrade: () => setAutoSupersonic(true),
+          // finishes, so the design's displayed statics follow the flight. The
+          // runner calls it after its last await: on a design opened meanwhile
+          // it put "M+" on the strip and flew every later flight supersonic.
+          onSupersonicUpgrade: () => { if (stillFlown()) setAutoSupersonic(true); },
         });
         // Per-stage motor info so booster branches can be safety-checked
         // (a chuteless booster above the high-power line must warn). The branch
@@ -1788,12 +1822,16 @@ export function App() {
           // the two model stamps above, which is the rest of that gate.
           nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
         });
+        // Saved simulations keeps the flight whatever is on screen now: it is
+        // stamped with the design it flew, and selecting it says what changed
+        // since — a Launch press never simply vanishes.
+        recordRuns(addRun(run));
+        if (!stillFlown()) return;
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.
         setResult({ runId: run.id, value: res });
         setLastRun(run);
         setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
-        recordRuns(addRun(run));
         // A flight is work even though it does not touch the design, and the
         // owner asked for it to count. Hooked HERE, at the one place a run is
         // recorded - NOT inside recordRuns, which is also SimResults' delete-one
@@ -1807,7 +1845,8 @@ export function App() {
             + ` ${prefs.units.distance}.`,
         }));
       } catch (e) {
-        setSimError(e instanceof Error ? e.message : String(e));
+        // The error is the launched design's, and dies with it like the rest.
+        if (stillFlown()) setSimError(e instanceof Error ? e.message : String(e));
       } finally {
         setSimulating(false);
       }
@@ -1859,6 +1898,16 @@ export function App() {
     [built, primaryMountId, provenanceKey],
   );
 
+  // What the time-step caution scales from: this session's own measurement
+  // when there has been a flight, else the newest STORED run of this design
+  // under these motors (storedSimCost, matched on `provenanceKey` — so it sits
+  // after it) — stored runs carry execMs and the step it was measured at
+  // (SimRun.timeStepS) precisely so the seconds estimate survives a reload
+  // instead of degrading to the bare multiplier.
+  const simCostRef = useMemo(
+    () => lastSimCost ?? storedSimCost(runs, provenanceKey, tree.name ?? 'Rocket'),
+    [lastSimCost, runs, provenanceKey, tree.name]);
+
   /**
    * Whether a stored run's charts can be recovered by re-flying it here.
    *
@@ -1872,9 +1921,11 @@ export function App() {
   const canShowCharts = useCallback((run: SimRun): boolean => {
     if (!currentMatchKey || !built || !primaryMountId) return false;
     if (reflightCache.has(run.id)) return false;
+    // The mounts the run FLEW, as reflyRun will see them — a refused motor
+    // was never in its delay vector (flightRunner.installedMounts).
     return runMatchesDesign(run, currentMatchKey)
-      && canReplayDelays(run.delayResolution, assigned, primaryMountId, run.delayS);
-  }, [currentMatchKey, built, primaryMountId, reflightCache, assigned]);
+      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), primaryMountId, run.delayS);
+  }, [currentMatchKey, built, primaryMountId, reflightCache, assigned, refusedMountIds]);
 
   /**
    * The newest stored run this design could still reproduce — what the
@@ -1899,7 +1950,13 @@ export function App() {
    * `reflyRun` owns that and the rest of the handle protocol.
    */
   const showChartsFor = useCallback(async (run: SimRun): Promise<void> => {
-    if (!built || !primaryMountId || !canShowCharts(run)) return;
+    // Not while a flight holds this handle. A Launch yields between its
+    // auto-delay probes, and a re-fly in one of those yields handed the handle
+    // back on the CURRENT model: on an Auto design the probe had upgraded, the
+    // rest of the Launch flew Classic under an auto-supersonic stamp (audit
+    // 2026-09-30). Every button that calls this waits while one runs; this is
+    // the gate behind them.
+    if (!built || !primaryMountId || flightHoldsHandle.current || !canShowCharts(run)) return;
     setReflying(run.id);
     setLastRun(run);
     // Let the busy state paint before the synchronous simulation blocks.
@@ -1912,7 +1969,7 @@ export function App() {
       // would otherwise be silently one model behind.
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf };
       const res = reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         simOptions: kernelSimOptions(launch),
         fly: current,
@@ -1925,7 +1982,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
+  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1936,6 +1993,9 @@ export function App() {
    * handle and kernelSimOptions — no second sim-setup.
    */
   const fetchFullSeriesResult = useCallback(async (): Promise<FlightResult> => {
+    // Not while a flight holds this handle — see showChartsFor. The download
+    // buttons wait while one runs; this is the gate behind them.
+    if (flightHoldsHandle.current) throw new Error('a flight is running — download once it has finished.');
     if (!built || !primaryMountId || !lastRun) {
       throw new Error('no flight in memory — press Launch first');
     }
@@ -1959,7 +2019,7 @@ export function App() {
       // two can differ — and a CSV that re-flew on today's model would be a
       // different flight from the plots it sits under, under the same name.
       return reflyRun(built.rocket, {
-        assigned, hardware: built.hardware, primaryMountId,
+        assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         simOptions: { ...kernelSimOptions(launch), series: 'full' },
@@ -1971,7 +2031,7 @@ export function App() {
     } finally {
       fullSeriesHolds.current -= 1;
     }
-  }, [built, primaryMountId, lastRun, assigned, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
+  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
@@ -2105,6 +2165,9 @@ export function App() {
       savedConfigs,
       activeConfigId,
       assigned,
+      // The working set's refusals: Launch flew without them, so its delay
+      // vector names none of them (orkFlightData.describedMotors).
+      refusedMountIds,
       mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
       // The design and conditions terms of the ONE key a run is stamped with.
       // The motor set is not taken from it: a non-active configuration is
@@ -2125,7 +2188,7 @@ export function App() {
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
-  }), [runs, savedConfigs, activeConfigId, assigned, mounts, provenanceKey,
+  }), [runs, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
@@ -3957,12 +4020,18 @@ export function App() {
               const countNote = mountCountNote(tree, m.id!);
               // Every loaded mount has its own Auto policy and flown evidence.
               const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
+              // The fallback — an earlier flight's Auto delay on this mount — is
+              // THIS design's alone. The run list is global and mount ids are
+              // counter values every load mints afresh, so a match on the id put
+              // another design's "Previous flight" under this motor (audit
+              // 2026-09-30).
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
-                && resolutionMatches(r.delayResolution, delayMountsOf(assigned)))
-                ?? runs.find((r) => validDelayResolution(r.delayResolution)
+                && resolutionMatches(r.delayResolution, flownDelayMounts))
+                ?? runs.find((r) => r.designKey === provenanceKey.designKey
+                  && validDelayResolution(r.delayResolution)
                   && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
-                && resolutionMatches(delayRun.delayResolution, delayMountsOf(assigned));
+                && resolutionMatches(delayRun.delayResolution, flownDelayMounts);
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -4339,7 +4408,10 @@ export function App() {
                      runs, so a model switch is a labelling matter, not a
                      different rocket. */
                   staleReason={changedSinceNonModel.length > 0
-                    ? listAnd(changedSinceNonModel) : null} />
+                    ? listAnd(changedSinceNonModel) : null}
+                  /* And they wait while a Launch flies the same handle (see
+                     showChartsFor). */
+                  flightRunning={simulating} />
               </PanelBoundary>
             </>
           ) : lastRun ? (
@@ -4367,7 +4439,7 @@ export function App() {
                     : ' This run no longer matches the design, so its plots cannot be redrawn for it.'}
                 </p>
                 {canShowCharts(lastRun) && (
-                  <button className="file-btn file-btn-primary" disabled={reflying !== null}
+                  <button className="file-btn file-btn-primary" disabled={reflying !== null || simulating}
                     title="Re-fly this design at this run's conditions to redraw its plots. Does not add a row to the run history."
                     onClick={() => { void showChartsFor(lastRun); }}>
                     {reflying === lastRun.id ? '⏳ Re-flying…' : '📈 Show charts'}
@@ -4385,7 +4457,7 @@ export function App() {
                 {chartableRun && ' Its previous flights are saved below — the report and the plots for any of them can be brought back without flying a new one.'}
               </p>
               {chartableRun && (
-                <button className="file-btn file-btn-primary" disabled={reflying !== null}
+                <button className="file-btn file-btn-primary" disabled={reflying !== null || simulating}
                   title="Re-fly this design at that run's conditions to redraw its report and plots. Does not add a row to the run history."
                   onClick={() => { void showChartsFor(chartableRun); }}>
                   {reflying === chartableRun.id ? '⏳ Re-flying…' : '📈 Show the last saved flight'}
@@ -4428,6 +4500,7 @@ export function App() {
               canShowCharts={canShowCharts}
               onShowCharts={(r) => { void showChartsFor(r); }}
               reflyingId={reflying}
+              flightRunning={simulating}
               hasChartsFor={(r) => (result?.runId === r.id) || reflightCache.has(r.id)}
               designName={tree.name}
             />

@@ -304,4 +304,44 @@ describe('flownAutoDelays - complete settled vectors', () => {
     expect(flownAutoDelays(input({ activeConfigId: null, savedConfigs: [], runs: [{ ...run(), flightConfigId: undefined }] })))
       .toEqual({ '': { m1: 7, side: 4 } });
   });
+
+  /**
+   * BESIDE A MOTOR THE BUILD REFUSED (verifier's review of audit 2026-09-30).
+   * Launch leaves a refused motor off the rocket and stores the vector of the
+   * mounts it flew (flightRunner.installedMounts). That vector was checked
+   * against every motor of the configuration, one mount more than it holds,
+   * so the Auto delay a Save, a .rkt or a share link wrote stayed provisional,
+   * under a note to "Launch, then save" that no Launch could satisfy.
+   */
+  describe('beside a motor the build refused', () => {
+    const withPod: [string, MountMotor][] = [...assigned, ['pod', MOTOR]];
+    const refused = (over: Partial<FlightDataForExportInput> = {}) => input({
+      assigned: withPod, mountIds: ['m1', 'side', 'pod'], refusedMountIds: ['pod'], ...over,
+    });
+    it('reads the run of the mounts that flew', () => {
+      expect(flownAutoDelays(refused())).toEqual({ c1: { m1: 7, side: 4 } });
+      // A design with no configurations: the working set, which App built, likewise.
+      expect(flownAutoDelays(refused({ activeConfigId: null, savedConfigs: [], runs: [{ ...run(), flightConfigId: undefined }] })))
+        .toEqual({ '': { m1: 7, side: 4 } });
+      // Only the refusal leaves a mount out: without it the vector is a mount short.
+      expect(flownAutoDelays(refused({ refusedMountIds: [] }))).toEqual({});
+    });
+    it('but writes no flight data for it: the file names the refused motor, and that flight did not carry it', () => {
+      // Desktop OpenRocket would show that flight as the result of a
+      // configuration with the motor in it. An absent number is the honest one.
+      expect(flightDataForExport(refused())).toEqual({});
+    });
+    it('knows the refusals of the ACTIVE configuration only, the one App built', () => {
+      // Another configuration's motors were never built here, so a kernel
+      // refusal among them is not known: its run stays unread, the safe direction.
+      const saved = { ...CONFIG, motors: Object.fromEntries(withPod) };
+      expect(flownAutoDelays(refused({ assigned: [], activeConfigId: 'other', savedConfigs: [saved] }))).toEqual({});
+    });
+    it('and leaves out an ignition event the kernel does not know in any configuration: the motor set names it', () => {
+      const unknown = { ...MOTOR, ignition: { event: 'sideways', delay: 0 } } as unknown as MountMotor;
+      const saved = { ...CONFIG, motors: Object.fromEntries([...assigned, ['pod', unknown]]) };
+      expect(flownAutoDelays(refused({ assigned: [], activeConfigId: 'other', savedConfigs: [saved], refusedMountIds: [] })))
+        .toEqual({ c1: { m1: 7, side: 4 } });
+    });
+  });
 });

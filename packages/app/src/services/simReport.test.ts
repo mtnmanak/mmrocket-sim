@@ -1145,6 +1145,48 @@ describe('the launch stability rows all come from one instant', () => {
     expect(run.launchCP).toBe(info.cp);
     expect(run.launchStaticMarginCal).toBe(info.stabilityCalibers);
   });
+
+  /**
+   * THE FALLBACK IS THE FIGURE THE DESIGN PAGE SHOWS (audit 2026-09-30). With
+   * no CP sample at all — the rocket never cleared the guide (NO_LIFTOFF) — the
+   * design's static analysis stands in, and it stood in as the single plane at
+   * theta = 0. On a one-fin rocket clocked 90 degrees that plane reads +1.696
+   * cal where every design view shows the roll-swept -5.346 (both measured in
+   * degenerateCp.test.ts): the stored run, its CSV and its verdict called an
+   * under-stable rocket stable. And with no normal force at any roll angle the
+   * CP and margin are artefacts — the design page says "no lift yet".
+   */
+  const neverCleared = (): FlightResult => {
+    const r = fakeResult();
+    const nulls = r.series.time.map(() => null as unknown as number);
+    r.series.cpLocation = nulls; r.series.stability = nulls;
+    return r;
+  };
+  const buildWith = (over: Partial<StaticInfo>) => buildSimRun({
+    result: neverCleared(), info: { ...info, ...over }, motor, meta: { label: 'C6-5' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'Fixture', execMs: 1,
+  });
+
+  it('with no rod-clear sample, falls back to the roll-swept CP and margin, not the theta = 0 plane', () => {
+    const cpWorst = info.cg - 5.346 * info.refDiameter;
+    const run = buildWith({
+      cp: info.cg + 1.696 * info.refDiameter, stabilityCalibers: 1.696,
+      cpWorst, cnaWorst: 2, stabilityCalibersWorst: -5.346,
+    });
+    expect(run.launchCG).toBe(info.cg);
+    expect(run.launchCP).toBe(cpWorst);
+    expect(run.launchStaticMarginCal).toBe(-5.346);
+    expect(run.comments).toContain('Static margin -5.35 cal — under-stable.');
+  });
+
+  it('and to no CP or margin at all when no roll angle gives the design a normal force', () => {
+    const run = buildWith({ cp: 0, cna: 0, stabilityCalibers: -5.449, cpWorst: 0, cnaWorst: 0, stabilityCalibersWorst: -5.449 });
+    expect(run.launchCG).toBe(info.cg);
+    expect(run.launchCP).toBeNull();
+    expect(run.launchStaticMarginCal).toBeNull();
+    expect(run.launchStaticMarginPct).toBeNull();
+    expect(run.comments).not.toContain('Static margin');
+  });
 });
 
 /**
@@ -1262,38 +1304,77 @@ describe('SIM_ABORT surfacing', () => {
  * measured flight time from pricing another's.
  */
 describe('storedSimCost', () => {
-  const stored = (rocket: string, execMs: number, timeStepS?: number) => buildSimRun({
+  /** The design on screen and its motors, as App's provenance key names them. */
+  const design = { designKey: 'design-A', motorSetKey: 'motors-1' };
+  const stored = (
+    rocket: string, execMs: number, timeStepS?: number,
+    keys: { designKey?: string; motorSetKey?: string } = design,
+  ) => buildSimRun({
     result: fakeResult(), info, motor, meta: { label: 'C6-5' },
     launch: { ...DEFAULT_CONDITIONS, ...(timeStepS !== undefined ? { timeStepS } : {}) },
-    rocketName: rocket, execMs,
+    rocketName: rocket, execMs, ...keys,
   });
 
-  it('reads the newest run of THIS design, with the step it was measured at', () => {
+  it('reads the newest run of THIS design and motors, with the step it was measured at', () => {
     // Newest first, the order simStore keeps. timeStepS must ride along:
     // without it the caution scales a 0.01 s measurement as if it were made
     // at the default and quotes ~4-5x the real cost.
     const runs = [stored('Alpha', 2100, 0.01), stored('Alpha', 8000, 0.01)];
-    expect(storedSimCost(runs, 'Alpha')).toEqual({ ms: 2100, timeStepS: 0.01 });
+    expect(storedSimCost(runs, design, 'Alpha')).toEqual({ ms: 2100, timeStepS: 0.01 });
   });
 
-  it("never prices one rocket's flight with another's", () => {
+  it("never prices one design's flight with another's — not even one of the same name", () => {
     // The reported shape: fly Mach2.trf.ork (~12 s), open a small sport
     // model, and the caution quoted "roughly 64 s per flight" for a rocket
     // that flies in two.
-    expect(storedSimCost([stored('Mach2', 12000, 0.01)], 'Sport Model')).toBeNull();
-    expect(storedSimCost([], 'Sport Model')).toBeNull();
+    const mach2 = { designKey: 'mach2', motorSetKey: 'mach2-motors' };
+    expect(storedSimCost([stored('Mach2', 12000, 0.01, mach2)], design, 'Sport Model')).toBeNull();
+    expect(storedSimCost([], design, 'Sport Model')).toBeNull();
+    // And the same with one name for both (audit 2026-09-30): ✕ New names every
+    // design "New Rocket", so the name told the big one from the small one not
+    // at all.
+    expect(storedSimCost([stored('New Rocket', 12000, 0.01, mach2)], design, 'New Rocket')).toBeNull();
+  });
+
+  it('nor the same airframe under another motor: the cost is this design under this motor’s burn', () => {
+    // The rule the in-session cost already follows — it is cleared with the motors.
+    const other = { ...design, motorSetKey: 'motors-2' };
+    expect(storedSimCost([stored('Alpha', 12000, 0.01, other)], design, 'Alpha')).toBeNull();
+  });
+
+  it('nor another airframe that carries the same motor set: the motor key alone cannot tell them apart', () => {
+    // The motor-set key names each motor by its MOUNT ID, and mount ids are
+    // counter values that start again at every page load — so a design opened
+    // after a reload can put the same motor on the same id as a stored run of
+    // another design, and the two keys are then equal. The design key is what
+    // still tells the airframes apart.
+    const sameMotors = { designKey: 'design-B', motorSetKey: design.motorSetKey };
+    expect(storedSimCost([stored('Alpha', 12000, 0.01, sameMotors)], design, 'Alpha')).toBeNull();
+  });
+
+  it('matches a run stored before the provenance keys existed by its rocket name, as before', () => {
+    const legacy: Partial<SimRun> = stored('Alpha', 900, undefined, {});
+    delete legacy.conditionsKey;
+    expect(storedSimCost([legacy as SimRun], design, 'Alpha')).toEqual({ ms: 900 });
+    expect(storedSimCost([legacy as SimRun], design, 'Beta')).toBeNull();
+  });
+
+  it('but never a batch row: it carries the conditions, and nothing that names its design or motor', () => {
+    const batch = stored('Alpha', 900, undefined, {});
+    expect(batch.conditionsKey).toBeDefined();
+    expect(storedSimCost([batch], design, 'Alpha')).toBeNull();
   });
 
   it('leaves timeStepS absent for a run flown at the engine default', () => {
-    const cost = storedSimCost([stored('Alpha', 900)], 'Alpha')!;
+    const cost = storedSimCost([stored('Alpha', 900)], design, 'Alpha')!;
     expect(cost.ms).toBe(900);
     expect('timeStepS' in cost).toBe(false);
   });
 
   it('skips an unusable measurement and keeps looking', () => {
     const zero = stored('Alpha', 0);
-    expect(storedSimCost([zero], 'Alpha')).toBeNull();
-    expect(storedSimCost([zero, stored('Alpha', 1500)], 'Alpha')).toEqual({ ms: 1500 });
+    expect(storedSimCost([zero], design, 'Alpha')).toBeNull();
+    expect(storedSimCost([zero, stored('Alpha', 1500)], design, 'Alpha')).toEqual({ ms: 1500 });
   });
 });
 

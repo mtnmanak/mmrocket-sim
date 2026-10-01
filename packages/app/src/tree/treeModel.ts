@@ -1267,6 +1267,17 @@ export function fairingDeliveredCd(tree: RocketTree, node: ComponentNode): numbe
 }
 
 /**
+ * The name a camera shroud carries into the kernel — so into every warning the
+ * kernel writes about it — and the name buildDesign's THICK_FIN filter matches
+ * on (audit 2026-09-30). A blank one is the shroud's default: clearing the Name
+ * field stores '', and the kernel's setName replaces a blank name with its own
+ * type's, "[FreeformFinSet.FreeformFinSet]", which nothing here could match.
+ */
+export function shroudKernelName(node: ComponentNode): string {
+  return typeof node.name === 'string' && node.name.trim() !== '' ? node.name : 'Camera shroud';
+}
+
+/**
  * What a protuberance adds to the rocket's CD AT PROTUBERANCE_REF_MACH: frontal
  * area × Cd, referenced to the rocket's own reference area — exactly the scalar
  * `overrideCD` handed to the kernel.
@@ -1461,7 +1472,7 @@ export function engineTree(tree: RocketTree): RocketTree {
       return {
         type: 'freeformfinset',
         id: n.id,
-        name: n.name ?? 'Camera shroud',
+        name: shroudKernelName(n),
         finCount: 1,
         thickness: W,
         crossSection: 'rounded',

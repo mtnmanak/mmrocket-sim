@@ -136,6 +136,28 @@ export function applyAssignedMotors(rocket: FlightHandle, { assigned, hardware, 
   }
 }
 
+/**
+ * The mounts a flight really carries: `assigned` without the build's refusals,
+ * and without a mount whose ignition event the kernel does not know —
+ * writeMountMotor refuses that one before the motor goes on, so it is absent
+ * from the handle whether or not a caller passed its id.
+ *
+ * ONE filter for flying and replaying (audit 2026-09-30). Launch solves and
+ * stores the delay vector for these mounts alone, and a replay used to check
+ * that vector against every ASSIGNED mount — a length that could never match.
+ * So a two-mount design whose second motor was refused launched and stored its
+ * run, but "Show charts" was hidden for every run of it and the flight-data
+ * download refused with "Saved mount delays are incomplete", which no Launch
+ * could clear. Launch, the re-fly, App's `canShowCharts` and Auto-delay card,
+ * and the Auto delays a Save writes (orkFlightData) all read this.
+ */
+export function installedMounts(
+  assigned: AssignedMotors['assigned'], refusedMountIds?: readonly string[],
+): AssignedMotors['assigned'] {
+  return assigned.filter(([id, mm]) => !refusedMountIds?.includes(id)
+    && knownIgnitionEvent(mm.ignition.event) !== null);
+}
+
 /** One mount's FLOWN spec (hardware included) at a given ejection delay. */
 function writeMountDelay(
   rocket: FlightHandle, motors: AssignedMotors, primaryMountId: string, delayS: number,
@@ -184,13 +206,13 @@ export interface LaunchFlight {
  * Launch: fly the design as it stands, and say what flew.
  */
 export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promise<LaunchFlight> {
-  const absent = input.assigned.filter(([id, mm]) => input.refusedMountIds?.includes(id)
-    || knownIgnitionEvent(mm.ignition.event) === null);
+  const installed = installedMounts(input.assigned, input.refusedMountIds);
+  const absent = input.assigned.filter(([id]) => !installed.some(([kept]) => kept === id));
   const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay);
   if (unresolved.length) {
     throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => input.mountNames?.[id] ?? id).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
   }
-  const installedInput = { ...input, assigned: input.assigned.filter(([id]) => !absent.some(([missing]) => missing === id)) };
+  const installedInput = { ...input, assigned: installed };
   const primary = installedInput.assigned.find(([id]) => id === input.primaryMountId)?.[1];
   if (!primary) throw new Error('no motor on the primary mount — assign one first');
   const now = input.now ?? (() => performance.now());
@@ -300,19 +322,22 @@ export interface ReflyInput extends AssignedMotors {
  */
 export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult {
   const { primaryMountId, delayS, simOptions, fly, restore } = input;
-  if (!input.assigned.some(([id]) => id === primaryMountId)) {
+  // The mounts the stored flight flew: Launch's own filter, or the delay
+  // vector it stored can never match (installedMounts).
+  const installed = { ...input, assigned: installedMounts(input.assigned, input.refusedMountIds) };
+  if (!installed.assigned.some(([id]) => id === primaryMountId)) {
     throw new Error('no motor on the primary mount — assign one first');
   }
   applyAssignedMotors(rocket, input);
   try {
-    if (!canReplayDelays(input.delayResolution, input.assigned, primaryMountId, delayS)) {
+    if (!canReplayDelays(input.delayResolution, installed.assigned, primaryMountId, delayS)) {
       throw new Error('Saved mount delays are incomplete or no longer match. Launch again.');
     }
     if (input.delayResolution !== undefined) {
-      for (const m of input.delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
+      for (const m of input.delayResolution.mounts) writeMountDelay(rocket, installed, m.mountId, readDelay(m.flownDelay));
     } else {
       // Old Launch optimized only the primary. All other delays remained in the design.
-      writeMountDelay(rocket, input, primaryMountId, delayS);
+      writeMountDelay(rocket, installed, primaryMountId, delayS);
     }
     rocket.setSupersonicAero(fly.supersonic);
     rocket.setRogersModifiedBarrowman(fly.kbf);

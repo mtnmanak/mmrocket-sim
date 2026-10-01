@@ -173,6 +173,34 @@ describe('complete per-mount Launch protocol', () => {
     expect(f.delayResolution.mounts.some((m) => m.mountId === 'manual')).toBe(false);
     await expect(flyLaunch(handle, { ...input, refusedMountIds: ['b'] })).rejects.toThrow(/Booster MMT.*refused at build/);
   });
+
+  /**
+   * A REFUSED MOUNT IS LEFT OUT OF THE REPLAY THE WAY IT WAS LEFT OUT OF THE
+   * LAUNCH (audit 2026-09-30). Launch stores the delay vector for the mounts it
+   * flew, and a replay checked it against EVERY assigned mount, so the lengths
+   * never matched: "Show charts" hid itself for every run of the design, and the
+   * flight-data download refused with "Saved mount delays are incomplete" —
+   * which no Launch could clear. Both refusals the build reports: a curve the
+   * kernel refused (App passes those ids), and an ignition event the kernel does
+   * not know, which writeMountMotor refuses whether or not anyone passes it.
+   */
+  it.each([
+    ['a mount the build refused', (input: LaunchInput): LaunchInput => ({ ...input, refusedMountIds: ['manual'] })],
+    ['a mount whose ignition the kernel does not know', (input: LaunchInput): LaunchInput => ({
+      ...input,
+      assigned: input.assigned.map(([id, m]) => [id, id === 'manual'
+        ? { ...m, ignition: { event: 'bogus' as IgnitionEvent, delay: 0 } } : m] as const),
+    })],
+  ])('re-flies a run launched without %s on the mounts that flew', async (_what, refuse) => {
+    const { handle, input, snapshots } = setup();
+    const launched = refuse(input);
+    const f = await flyLaunch(handle, launched);
+    const flown = snapshots.at(-1)!;
+    expect(flown).toMatchObject({ probe: false, delays: [10, 7, Infinity] });
+    reflyRun(handle, { ...launched, delayS: f.flownDelayS, delayResolution: f.delayResolution,
+      fly: { kbf: false, supersonic: false }, restore: { kbf: false, supersonic: false } });
+    expect(snapshots.at(-1)).toEqual(flown);
+  });
 });
 
 describe('flight runner — every motor write keeps its ignition', () => {
