@@ -28,6 +28,14 @@ import {
  * 0.147 m west of its flat-Earth twin; the 2 km J flight 1.99 m west in still
  * air and 1.93 m apart off a 5° rod in 4 m/s, with apogees 0.6 mm and 14.7 mm
  * apart; WGS84 is within 2.2e-7 m of spherical on the ground.
+ *
+ * That last figure is THIS flight's, not a bound for WGS84. The two models share
+ * every formula, but each places the rocket at its own latitude, which the
+ * Coriolis term and the gravity model read, and a flight can amplify that minute
+ * difference: a tester's desktop file (ninja_4in_54mm-MMT.ork, to 2.2 km),
+ * opened and flown through the app, parts by 1.4 cm at apogee and 1.1 cm on the
+ * ground in still air, and by 3 mm and 6.3 cm in its own wind with the gusts
+ * off. Gusts are not what parts them.
  */
 
 /** The reference C6 and "Chuted" rocket the app's kernel tests fly (simReport.kernel.test.ts). */
