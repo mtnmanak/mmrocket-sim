@@ -498,6 +498,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   /** `designation|value` pairs already named in a note (resolveRef below). */
   const unknownIgnitions = new Set<string>();
+  /** `designation|text` pairs whose missing or unreadable delay is already named (resolveRef). */
+  const unreadDelays = new Set<string>();
   /** Each plugged motor's note: where it sits in `notes`, and how many mounts carry it. */
   const pluggedNotes = new Map<string, { at: number; mounts: number }>();
   const readMotor = (el: Element, node: ComponentNode) => {
@@ -537,13 +539,31 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         notes.push(`Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
           + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
       }
+      // The delay as desktop's MotorHandler reads it: `none` is plugged, a
+      // number is that many seconds, and ANYTHING ELSE — no <delay>, a blank
+      // one, or text Double.parseDouble refuses — is plugged as well, with
+      // "Motor delay not specified, assuming no ejection charge." This read 0 s
+      // until the 2026-09-30 audit: the charge fired at burnout, near peak
+      // velocity, on a flight desktop flies with no charge at all, and nothing
+      // said so. Named once per motor and text, whichever configuration carries
+      // it, for the reason the ignition note above is: no later step says it.
+      // The plugged note for the opened configuration follows as for `none`.
+      const delayValue = delayText === null || delayText === 'none' ? NaN : parseDecimal(delayText);
+      if (delayText !== 'none' && Number.isNaN(delayValue) && !unreadDelays.has(`${designation}|${delayText}`)) {
+        unreadDelays.add(`${designation}|${delayText}`);
+        notes.push(`Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
+          : `the file's ejection delay “${delayText}” is not a number`}, so it is read as plugged (no`
+          + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Launch.');
+      }
       return {
         designation,
         matchContext: { source: 'ork' },
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
         diameter: num(motorEl, 'diameter', 0.018),
         length: num(motorEl, 'length', 0.07),
-        delay: delayText === 'none' ? Infinity : num(motorEl, 'delay', 0),
+        // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
+        // parseDouble makes it.
+        delay: Number.isNaN(delayValue) ? Infinity : delayValue,
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
