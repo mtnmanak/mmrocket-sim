@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  assemblyBoundingRadius, assemblyChainLength, isAssembly, resolveAssemblyRadius,
+  assemblyBoundingRadius, isAssembly, resolveAssemblyRadius,
   ringInstanceOffsets,
 } from './assembly.js';
 
@@ -15,9 +15,10 @@ import {
  * `<RadialAngle>` for every `<ExternalPod>`. (That writer's own round-trip is
  * pinned in `services/rocksimFile.test.ts`; what is pinned HERE is the geometry
  * contract underneath it, so a sign flip or a gap-vs-centreline mix-up fails at
- * its source rather than in one consumer.) `assemblyChainLength` also feeds
- * `position.axialLength`, so it decides where a pod sits axially and where its
- * snap anchors land.
+ * its source rather than in one consumer.) A pod's AXIAL length is
+ * `position.axialLength` (pinned in position.test.ts) — this module's own copy,
+ * `assemblyChainLength`, read a cleared length as 0 and is gone (audit
+ * 2026-09-30).
  *
  * All SI: metres and radians.
  */
@@ -33,33 +34,6 @@ const pod = (extra: Record<string, unknown> = {}): ComponentNode => node('podset
     node('transition', { length: 0.04, foreRadius: 0.015, aftRadius: 0.008 }),
   ],
   ...extra,
-});
-
-describe('assemblyChainLength', () => {
-  it('sums the assembly\'s own nose→body→transition chain', () => {
-    expect(assemblyChainLength(pod())).toBeCloseTo(0.30, 12);
-  });
-
-  it('counts ONLY chain members — an internal part is not axial length', () => {
-    // A chute, a fin set and a mass component all sit INSIDE or ON the chain,
-    // so their own length must not extend it. Adding them to CHAIN_TYPES would
-    // lengthen every pod by whatever it carries.
-    const loaded = node('podset', {
-      children: [
-        node('bodytube', { length: 0.2, outerRadius: 0.015 }),
-        node('parachute', { length: 0.05, diameter: 0.3 }),
-        node('trapezoidfinset', { rootChord: 0.05, height: 0.04 }),
-        node('masscomponent', { length: 0.03, mass: 0.02 }),
-      ],
-    });
-    expect(assemblyChainLength(loaded)).toBeCloseTo(0.2, 12);
-  });
-
-  it('reads a missing or non-numeric length as 0, and an empty pod as 0', () => {
-    expect(assemblyChainLength(node('podset', { children: [node('bodytube')] }))).toBe(0);
-    expect(assemblyChainLength(node('podset', { children: [] }))).toBe(0);
-    expect(assemblyChainLength(node('podset'))).toBe(0);
-  });
 });
 
 describe('assemblyBoundingRadius', () => {
@@ -80,6 +54,23 @@ describe('assemblyBoundingRadius', () => {
   it('is 0 for an empty assembly, so an empty pod does not push itself off the body', () => {
     expect(assemblyBoundingRadius(node('podset', { children: [] }))).toBe(0);
     expect(assemblyBoundingRadius(node('podset'))).toBe(0);
+  });
+
+  it('reads a nose or tube with no radius at the 12 mm it flies', () => {
+    // ComponentAssembly.getBoundingRadius takes each tube's and transition's
+    // (a nose cone is one) radius as the kernel builds it, and a tube or nose
+    // with none is the bridge's 12 mm. Read as 0, a RELATIVE pod whose tube
+    // states no radius was drawn, and written to a .rkt's <RadialLoc>, 12 mm
+    // closer to the core than it flies (audit 2026-09-30, the class of G9).
+    const bare = node('podset', { children: [node('nosecone', { length: 0.06 }), node('bodytube', { length: 0.2 })] });
+    const stated = node('podset', { children: [
+      node('nosecone', { length: 0.06, aftRadius: 0.012 }), node('bodytube', { length: 0.2, outerRadius: 0.012 }),
+    ] });
+    expect(assemblyBoundingRadius(bare)).toBeCloseTo(0.012, 12);
+    expect(resolveAssemblyRadius(bare, 0.05)).toBeCloseTo(resolveAssemblyRadius(stated, 0.05), 12);
+    // An automatic transition radius has no constant: its neighbours carry it.
+    const auto = node('podset', { children: [node('bodytube', { outerRadius: 0.02 }), node('transition', {})] });
+    expect(assemblyBoundingRadius(auto)).toBeCloseTo(0.02, 12);
   });
 });
 

@@ -3,7 +3,9 @@ import {
   centeringRingBore, collapseLoop, finCutOutline, ringOuterRadius, type SolidContext,
 } from '../tree/solidMesh.js';
 import { asciiOnly } from './textFold.js';
+import { kernelNum } from '../tree/kernelDefaults.js';
 import { num } from '../tree/nodeNum.js';
+import { axialLength } from '../tree/position.js';
 
 /**
  * DXF export — the 2D CNC/laser boundary. Everything offered here is a FLAT
@@ -268,7 +270,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const tabDepth = below.length > 0 ? -Math.min(...below.map((p) => p.y)) : 0;
       const tabX0 = below.length > 0 ? Math.min(...below.map((p) => p.x)) : 0;
       const tabX1 = below.length > 0 ? Math.max(...below.map((p) => p.x)) : 0;
-      const thickness = num(node, 'thickness', 0.003);
+      const thickness = kernelNum(node, 'thickness');
       const cross = typeof node['crossSection'] === 'string' ? (node['crossSection'] as string) : 'square';
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
         : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
@@ -307,8 +309,9 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const why = found
         ? `motor mount ⌀ ${dim(raw * 2)} mm does not fit this ring's ${dim(R * 2)} mm OD`
         : 'no motor mount passes through this ring';
+      // The ring's length is its stock: componentLoop's, the kernel's when absent.
       const dims = `OD ${dim(R * 2)} mm | bore ${dim(bore * 2)} mm`
-        + ` | stock thickness ${dim(num(node, 'length', 0.003))} mm`
+        + ` | stock thickness ${dim(axialLength(node))} mm`
         + (assumed ? OD_ASSUMED : '')
         + (known ? '' : ` | BORE ASSUMED: ${why} — set to half the OD`);
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
@@ -318,7 +321,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const { r: R, assumed } = ringOuterRadius(node, ctx);
       const label = assumed ? 'Bulkhead (assumed size)' : 'Bulkhead';
       const geom = discEnts(R, null);
-      const dims = `OD ${dim(R * 2)} mm | stock thickness ${dim(num(node, 'length', 0.003))} mm`
+      const dims = `OD ${dim(R * 2)} mm | stock thickness ${dim(axialLength(node))} mm`
         + ' | centre marked on REFERENCE for the eyebolt'
         + (assumed ? OD_ASSUMED : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
@@ -337,12 +340,12 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // printed version to a solid rod for exactly the same input, so the cut
       // profile agreeing with it is the whole point. Reading the bore back
       // through acceptedBore() keeps OD/ID/wall describing the circles below.
-      const bore = acceptedBore(R, R - num(node, 'thickness', 0.001));
+      const bore = acceptedBore(R, R - kernelNum(node, 'thickness'));
       const geom = discEnts(R, bore > 0 ? bore : null);
       const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
         + (assumed ? ' (assumed size)' : '');
       const dims = `OD ${dim(R * 2)} mm | ID ${dim(bore * 2)} mm`
-        + ` | wall ${dim(R - bore)} mm | ${dim(num(node, 'length', 0.05))} mm long`
+        + ` | wall ${dim(R - bore)} mm | ${dim(axialLength(node))} mm long`
         + ' (this is the ring SECTION, not a developed tube)'
         + (assumed ? OD_ASSUMED : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };

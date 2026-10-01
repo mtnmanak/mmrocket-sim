@@ -3017,8 +3017,12 @@ describe('.rkt export positions (audit 2026-09-22)', () => {
     const back = importRkt(exportRkt(d));
     const pods = flatten(back.tree.components).filter((c) => c.type === 'podset');
     expect(pods).toHaveLength(2);
-    // The pod set has no axial length, so "middle" is the parent's midpoint.
-    for (const p of pods) expect(p.position?.offset).toBeCloseTo(0.2, 9);
+    // A pod set's length is its own chain's — 0.1 m here (ComponentAssembly.
+    // updateBounds; position.axialLength) — so "middle" puts its front at
+    // (0.4 − 0.1) / 2 = 0.15 m, where the kernel flies it. The writer read a
+    // pod set as having no length (until audit 2026-09-30) and sent it to the
+    // parent's midpoint, 0.2 m: 50 mm aft of where it flew, on every round trip.
+    for (const p of pods) expect(p.position?.offset).toBeCloseTo(0.15, 9);
   });
 });
 

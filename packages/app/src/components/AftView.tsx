@@ -6,6 +6,10 @@ import { assemblyInstanceCount, finCountOf, lineInstanceCount } from '../tree/co
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from '../tree/assembly.js';
 import { isConformal, shroudHalfWidth } from '../tree/shroud.js';
+import { finOnMount, flatMount, type MountSurface } from '../tree/finRoot.js';
+import { kernelNum } from '../tree/kernelDefaults.js';
+import { axialLength, axialStart } from '../tree/position.js';
+import { drawnRadius, profileMountOf } from '../tree/schematicLayout.js';
 import { num } from '../tree/nodeNum.js';
 import { RollControl } from './RollControl.js';
 
@@ -99,40 +103,65 @@ export function aftLayout(
     return k === 0 ? base : `${base}#${k}`;
   };
 
-  const finSpan = (n: ComponentNode): number => {
+  /**
+   * A fin set's bar end-on, radially [from, to], or null for a freeform set
+   * too broken to draw. A fin roots on its mount AT ITS LEADING EDGE
+   * (FinSet.getFinFront), as the 3D and side views root it (tree/finRoot.ts),
+   * and its bar runs from that radius plus the planform's lowest point — on a
+   * boat tail, the aft root corner — to its tip, as desktop's back view runs it
+   * (FinSetShapes.uncantedShapesBack). Every fin was rooted at its parent's
+   * LARGEST radius, so on a 54 -> 38 mm boat tail one 40 mm tall drew its tip
+   * at 67 mm where it flies at 65 (audit 2026-09-30, on review).
+   */
+  const finBar = (n: ComponentNode, pStart: number, pLen: number, mount: MountSurface): [number, number] | null => {
+    const xFront = axialStart(n, axialLength(n), pStart, pLen) - pStart;
     if (n.type === 'freeformfinset') {
-      const pts = n['points'];
-      if (Array.isArray(pts) && pts.length > 0) {
-        return Math.max(0, ...pts.map((p) => (Array.isArray(p) ? Number(p[1]) || 0 : 0)));
-      }
+      // Rows validated as the 3D pieces validate them, and fewer than three
+      // draws nothing, as in every other view: an empty outline was a 30 mm bar.
+      const raw = n['points'];
+      if (!Array.isArray(raw) || raw.length < 3 || !raw.every((r) => Array.isArray(r) && r.length >= 2
+        && Number.isFinite(r[0]) && Number.isFinite(r[1]))) return null;
+      const { r0, outline } = finOnMount(raw as [number, number][], xFront, mount);
+      const ys = outline.map(([, y]) => y);
+      return [r0 + Math.min(...ys), r0 + Math.max(...ys)];
     }
-    return num(n, 'height', 0.03);
+    const r0 = mount.radiusAt(xFront);
+    return [r0, r0 + kernelNum(n, 'height')];
   };
 
-  const walkChildren = (parent: ComponentNode, pRadius: number, cy: number, cz: number) => {
+  // `mount` is the parent's outer surface, which a fin's root sits on; every
+  // other child is placed by the one radius `pRadius`. `pStart` and `pLen`
+  // place the children along the parent, as the 3D and side views place them.
+  const walkChildren = (
+    parent: ComponentNode, pRadius: number, cy: number, cz: number, pStart: number, pLen: number,
+    mount: MountSurface = flatMount(pRadius, pLen),
+  ) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
       if (isAssembly(t)) {
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const count = assemblyInstanceCount(child);
+        const podStart = axialStart(child, axialLength(child), pStart, pLen);
         for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
-          walkChain(child.children ?? [], cy + off.y, cz + off.z);
+          walkChain(child.children ?? [], cy + off.y, cz + off.z, podStart);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset' || t === 'freeformfinset') {
+        const bar = finBar(child, pStart, pLen, mount);
+        if (!bar) continue;
+        const [from, to] = bar;
         const count = finCountOf(child);
-        const span = finSpan(child);
         const thick = num(child, 'thickness', 0.003);
         for (let i = 0; i < count; i++) {
           // Angle 0 is +y — the kernel's own placement — and +y draws UP, so
           // an unrotated first fin still points straight up.
           const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
           outer.push({
-            key: keyFor(child), kind: 'fin', y: cy, z: cz, angle, from: pRadius, to: pRadius + span,
+            key: keyFor(child), kind: 'fin', y: cy, z: cz, angle, from, to,
             thick, fill: colorOf(child, '#b9b7b0'), stroke: '#7a786f',
             title: `${child.name ?? 'Fins'} ×${count}`,
           });
         }
-        reach(cy, cz, pRadius + span);
+        reach(cy, cz, to);
       } else if (t === 'tubefinset') {
         const count = finCountOf(child);
         const rt = tubeFinRadius(child, pRadius);
@@ -249,7 +278,8 @@ export function aftLayout(
           }
           reach(cy + oy + off.y, cz + oz + off.z, r);
         }
-        walkChildren(child, r, cy + oy, cz + oz);
+        const len = axialLength(child);
+        walkChildren(child, r, cy + oy, cz + oz, axialStart(child, len, pStart, pLen), len);
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
         const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
         inner.push({
@@ -262,32 +292,58 @@ export function aftLayout(
     }
   };
 
-  const walkChain = (nodes: ComponentNode[], cy: number, cz: number) => {
+  /**
+   * A chain member's hull radius and the surface its fins root on: the radius
+   * and profile the side view draws it with (schematicLayout's drawnRadius and
+   * profileMountOf), so a fin roots on one body in all three views. A tube or
+   * nose with no radius is the 12 mm it flies; read as 0, neither it nor
+   * anything on it was drawn.
+   */
+  const chainSurface = (n: ComponentNode, len: number): { r: number; mount: MountSurface } => {
+    if (n.type === 'nosecone') {
+      const r = drawnRadius(n);
+      return { r, mount: profileMountOf(n, len, 0, r) };
+    }
+    if (n.type === 'transition') {
+      return { r: drawnRadius(n), mount: profileMountOf(n, len, num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009)) };
+    }
+    const r = n.type === 'bodytube' ? drawnRadius(n)
+      : Math.max(num(n, 'outerRadius', 0), num(n, 'aftRadius', 0), num(n, 'foreRadius', 0));
+    return { r, mount: flatMount(r, len) };
+  };
+
+  /** Walks a nose-to-tail chain from station `x0` (m); returns where it ends. */
+  const walkChain = (nodes: ComponentNode[], cy: number, cz: number, x0 = 0): number => {
+    let x = x0;
     for (const n of nodes) {
       if (n.type === 'stage') {
-        walkChain(n.children ?? [], cy, cz);
+        x = walkChain(n.children ?? [], cy, cz, x);
         continue;
       }
-      const r = Math.max(num(n, 'outerRadius', 0), num(n, 'aftRadius', 0), num(n, 'foreRadius', 0));
-      if (r <= 0) continue;
-      hulls.push({
-        key: keyFor(n), kind: 'circle', y: cy, z: cz, r,
-        fill: colorOf(n, '#e7e5e0'), stroke: '#7a786f', title: n.name ?? n.type,
-      });
-      reach(cy, cz, r);
-      // Body-tube mounts (minimum/sub-minimum builds) draw their motor too —
-      // previously only inner tubes did.
-      if (n.type === 'bodytube' && n['motorMount'] === true) {
-        const motor = n.id ? motors?.[n.id] : undefined;
-        if (motor) {
-          inner.push({
-            key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
-            fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
-          });
+      const len = axialLength(n);
+      const { r, mount } = chainSurface(n, len);
+      if (r > 0) {
+        hulls.push({
+          key: keyFor(n), kind: 'circle', y: cy, z: cz, r,
+          fill: colorOf(n, '#e7e5e0'), stroke: '#7a786f', title: n.name ?? n.type,
+        });
+        reach(cy, cz, r);
+        // Body-tube mounts (minimum/sub-minimum builds) draw their motor too —
+        // previously only inner tubes did.
+        if (n.type === 'bodytube' && n['motorMount'] === true) {
+          const motor = n.id ? motors?.[n.id] : undefined;
+          if (motor) {
+            inner.push({
+              key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
+              fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
+            });
+          }
         }
+        walkChildren(n, r, cy, cz, x, len, mount);
       }
-      walkChildren(n, r, cy, cz);
+      x += len;
     }
+    return x;
   };
 
   walkChain(tree.components, 0, 0);

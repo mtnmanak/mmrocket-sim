@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
+import { kernelNum } from '../tree/kernelDefaults.js';
 import { num, numOpt } from '../tree/nodeNum.js';
 import type { SolidContext } from '../tree/solidMesh.js';
 import { escapeXml as esc } from './xmlUtil.js';
@@ -24,13 +25,16 @@ interface Pt { x: number; y: number }
 
 /** Fin outline in meters, root chord on y=0, nose-side at x=0. */
 export function finOutline(node: ComponentNode): Pt[] {
-  const n = (k: string, fb: number) => num(node, k, fb);
+  // An absent dimension is the kernel's (tree/kernelDefaults.ts), the table
+  // finCutOutline reads too, so the template and the cut files cannot draw two
+  // fins (the STL and DXF tip was 25 mm where this printed 30, audit 2026-09-30).
+  const n = (k: string) => kernelNum(node, k);
   switch (node.type) {
     case 'trapezoidfinset': {
-      const root = n('rootChord', 0.05);
-      const tip = n('tipChord', 0.03);
-      const sweep = n('sweep', 0.02);
-      const height = n('height', 0.03);
+      const root = n('rootChord');
+      const tip = n('tipChord');
+      const sweep = n('sweep');
+      const height = n('height');
       return [
         { x: 0, y: 0 },
         { x: sweep, y: height },
@@ -39,8 +43,8 @@ export function finOutline(node: ComponentNode): Pt[] {
       ];
     }
     case 'ellipticalfinset': {
-      const root = n('rootChord', 0.05);
-      const height = n('height', 0.03);
+      const root = n('rootChord');
+      const height = n('height');
       const pts: Pt[] = [];
       const STEPS = 64;
       for (let i = 0; i <= STEPS; i++) {

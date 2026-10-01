@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { defaultParams, FIELDS, finCountDefault, interleaveRotation, POSITIONABLE } from './schema.js';
+import {
+  allowedChildren, defaultParams, DISPLAY_NAME, FIELDS, finCountDefault, interleaveRotation, POSITIONABLE,
+  type EditorComponentType,
+} from './schema.js';
 import { shroudEnds } from './shroud.js';
 import { protuberanceClass } from './treeModel.js';
 import { clusterCount } from './cluster.js';
@@ -8,6 +11,35 @@ import { tabOutline } from '../services/finTemplate.js';
 
 const field = (type: string, key: string) =>
   (FIELDS[type as keyof typeof FIELDS] ?? []).find((f) => f.key === key);
+
+/**
+ * A NODE'S TYPE IS FILE TEXT (audit 2026-09-30). A restored session or a
+ * hand-edited file can carry any string, and these three tables were plain
+ * object literals: `FIELDS['constructor']` was Object's constructor function,
+ * which `?.` and `?? []` both let through, so "Apply to all", the property
+ * panel and the Add menu threw on such a node instead of skipping it. They
+ * are prototype-free now (xmlUtil.lookupTable), so a name off
+ * Object.prototype is simply not a type.
+ */
+describe('a type named after Object.prototype is no type at all', () => {
+  const NAMES = ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__'];
+
+  it('FIELDS, DISPLAY_NAME and allowedChildren know nothing of it', () => {
+    for (const name of NAMES) {
+      const t = name as EditorComponentType;
+      expect(FIELDS[t], `FIELDS.${name}`).toBeUndefined();
+      expect(DISPLAY_NAME[t], `DISPLAY_NAME.${name}`).toBeUndefined();
+      expect(allowedChildren(t), `allowedChildren(${name})`).toEqual([]);
+    }
+  });
+
+  it('and every real type still reads as before', () => {
+    expect(FIELDS.bodytube.some((f) => f.key === 'length')).toBe(true);
+    expect(DISPLAY_NAME.bodytube).toBe('Body tube');
+    expect(allowedChildren('transition')).toContain('freeformfinset');
+    expect(Object.keys(FIELDS)).toContain('nosecone');
+  });
+});
 
 /**
  * Slider stops that carry physics.

@@ -1,6 +1,6 @@
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
-import { parseDecimal } from './xmlUtil.js';
+import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
@@ -25,7 +25,7 @@ export interface Preset {
 }
 
 /** .orc kind → editor component type. */
-export const KIND_FOR_TYPE: Partial<Record<ComponentType, string>> = {
+export const KIND_FOR_TYPE = lookupTable<string>({
   bodytube: 'BodyTube',
   // Inner tubes consume the BODY TUBE catalogue — desktop's own rule
   // (InnerTube.getPresetType() returns Type.BODY_TUBE; there is no InnerTube
@@ -43,7 +43,7 @@ export const KIND_FOR_TYPE: Partial<Record<ComponentType, string>> = {
   launchlug: 'LaunchLug',
   parachute: 'Parachute',
   streamer: 'Streamer',
-};
+} satisfies Partial<Record<ComponentType, string>>) as Partial<Record<ComponentType, string>>;
 
 let bundled: Preset[] | null = null;
 

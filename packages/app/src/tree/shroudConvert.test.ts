@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem } from './finOutline.js';
+import { absoluteStations } from './position.js';
 import { convertShrouds, findShroudCandidates, shroudToFairing } from './shroudConvert.js';
 import { findNode } from './treeModel.js';
 
@@ -53,6 +54,26 @@ describe('shroud → fairing conversion', () => {
     expect(f['fairingAftShape']).toBe('box');
     expect(f['conformal']).toBe(true);
     expect(f.position).toEqual({ method: 'middle', offset: 0 });
+  });
+
+  /**
+   * WHERE IT FLIES DOES NOT MOVE (audit 2026-09-30). A fin set is stationed by
+   * its ROOT CHORD — the last point's x (position.axialLength), as the kernel
+   * stations it — and the fairing by its own length, which is the outline's
+   * furthest-aft x. The position was copied unchanged, so a 'bottom' shroud
+   * whose aft corner overhangs its root moved forward by the overhang on
+   * conversion (half that on 'middle'), and the kernel, which flies the
+   * fairing as a fin of root chord = length, flew it there.
+   */
+  it.each(['bottom', 'middle', 'top'] as const)('a %s-anchored shroud overhanging its root converts in place', (method) => {
+    const points: [number, number][] = [[0, 0], [0.02, 0.02], [0.085, 0.02], [0.08, 0]];
+    const t = wrap([freeform({ id: 'c1', name: 'Camera Shroud', points, position: { method, offset: 0.01 } })]);
+    const before = absoluteStations(t).get('c1')!;
+    const after = absoluteStations(convertShrouds(t, ['c1']).tree).get('c1')!;
+    expect(after.node.type).toBe('fairing');
+    expect(after.start).toBeCloseTo(before.start, 12);
+    // …and it covers the outline it replaces, out to the overhanging corner.
+    expect(after.end).toBeCloseTo(before.end, 12);
   });
 
   it('a set with no position converts where it flew: the bottom of the tube, offset 0', () => {

@@ -1,17 +1,20 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, axialStart } from './position.js';
 import { finTabFront } from './finTab.js';
+import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
 import { tubeFinRadius } from './tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
 import { DISPLAY_NAME } from './schema.js';
 import {
-  assemblyBoundingRadius, assemblyChainLength, isAssembly,
+  assemblyBoundingRadius, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
 import { shroudEnds } from './shroud.js';
 import { num, numOpt } from './nodeNum.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
 /**
  * THE 2D SIDE VIEW'S LAYOUT — pure, and apart from the component that draws it
@@ -181,8 +184,13 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
   let maxR = 0.001;
   for (const n of chain) {
     if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') {
-      totalLen += num(n, 'length', 0);
-      maxR = Math.max(maxR, num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0));
+      // `axialLength`: the kernel's length, a cleared one included (its type's
+      // default) — not 0, which drew a zero-length tube and everything behind
+      // it that much too far forward (audit 2026-09-30, row 373 regressed).
+      totalLen += axialLength(n);
+      // The radius it is DRAWN at (renderChain) — a cleared one is the
+      // kernel's, not 0, or the frame is sized for a part it does not draw.
+      maxR = Math.max(maxR, drawnRadius(n));
     }
   }
   // A fin set's vertical span: freeform fins carry no 'height' key — their
@@ -198,12 +206,11 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
     }
     // Tube fins reach one tube diameter above the body surface.
     if (n.type === 'tubefinset') return 2 * tubeFinRadius(n, maxR);
-    return num(n, 'height', 0.03);
+    // The kernel's height when absent; a freeform set with no points has none.
+    return num(n, 'height', kernelDefault(n.type, 'height') ?? 0.03);
   };
   const protuberanceSpan = (n: ComponentNode): number =>
-    (n.type === 'fairing' ? num(n, 'height', 0.02)
-      : (n.type as string) === 'protuberance' ? num(n, 'height', 0.01)
-        : 0);
+    (n.type === 'fairing' || (n.type as string) === 'protuberance' ? kernelNum(n, 'height') : 0);
   const finH = Math.max(
     0,
     ...collect(tree.components, finSpan),
@@ -213,20 +220,29 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
 
   // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
   // reach (its centerline radius + its own body + its fins) so pods don't clip.
+  // `centre` is how far the axis of the chain being scanned sits from the
+  // CORE axis: 0 for the core, the pod's own offset inside a pod, and the two
+  // offsets summed inside a pod on a pod — the renderer draws a nested set at
+  // its outer pod's offset plus its own, and this measured it from the outer
+  // pod's axis alone, so nested pods were clipped (audit 2026-09-30). The
+  // sum bounds the drawing at every roll angle, which is the frame's job: it
+  // must not rescale as the view rolls.
   let vHalf = maxR + finH;
-  const scanRadial = (nodes: ComponentNode[], parentR: number) => {
+  const scanRadial = (nodes: ComponentNode[], parentR: number, centre: number) => {
     for (const n of nodes) {
       if (isAssembly(n.type)) {
         const podFin = Math.max(0, ...collect(n.children ?? [], finSpan));
-        vHalf = Math.max(vHalf, resolveAssemblyRadius(n, parentR) + assemblyBoundingRadius(n) + podFin);
-        scanRadial(n.children ?? [], assemblyBoundingRadius(n));
+        const podCentre = centre + resolveAssemblyRadius(n, parentR);
+        vHalf = Math.max(vHalf, podCentre + assemblyBoundingRadius(n) + podFin);
+        scanRadial(n.children ?? [], assemblyBoundingRadius(n), podCentre);
       } else {
-        const r = Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0)) || parentR;
-        scanRadial(n.children ?? [], r);
+        const r = (CHAIN.has(n.type) ? drawnRadius(n)
+          : Math.max(num(n, 'aftRadius', 0), num(n, 'outerRadius', 0), num(n, 'foreRadius', 0))) || parentR;
+        scanRadial(n.children ?? [], r, centre);
       }
     }
   };
-  scanRadial(chain, maxR);
+  scanRadial(chain, maxR, 0);
 
   // Vertical mode swaps the container roles BEFORE layout: all layout math
   // stays horizontal (length along x) and the finished drawing rotates
@@ -401,7 +417,7 @@ interface FinInstance {
 }
 
 /** Internal parts' ink and tag (issue 2026-08-05a #21). */
-const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
+const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = lookupTable({
   parachute: { stroke: '#b06a35', tag: 'chute' },
   streamer: { stroke: '#a08c2e', tag: 'strmr' },
   shockcord: { stroke: '#8f7a8d', tag: 'cord' },
@@ -409,7 +425,7 @@ const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
   centeringring: { stroke: '#6f8a5c', tag: 'CR' },
   bulkhead: { stroke: '#66748c', tag: 'BH' },
   engineblock: { stroke: '#7d7050', tag: 'EB' },
-};
+});
 
 /** Every shape of the side view, as data. See the module note. */
 export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): SchematicLayout {
@@ -644,23 +660,27 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
    */
   const noteHoverFins = (
     n: ComponentNode, x0: number, x1: number, baseY: number, reach: number,
-    pRadius: number, projections: FinInstance[],
+    rootR: number, wallR: number, projections: FinInstance[],
   ) => {
     if (!projections.length) return;
     // Tip AND the airframe edge the fin emerges from. A far fin's projected
-    // root is clipped away, so the wash would over-reach into the tube; a near
-    // fin is drawn whole, so its own root is the honest edge. Taking both
-    // keeps the box on the drawing, and gives a ONE-fin set a box with height
-    // (tip-to-tip alone would be a zero-height rect).
+    // root is clipped away at the wall, so the wash would over-reach into the
+    // tube; a near fin is drawn whole, so its own root — the lowest point of
+    // it, `rootR` — is the honest edge. Taking both keeps the box on the
+    // drawing, and gives a ONE-fin set a box with height (tip-to-tip alone
+    // would be a zero-height rect). On a body tube the two radii are one.
     const ys = projections.flatMap(({ p, near }) => [
       baseY - reach * p * ctx.scale,
-      baseY - pRadius * (near || wire ? p : Math.sign(p)) * ctx.scale,
+      baseY - (near || wire ? rootR * p : wallR * Math.sign(p)) * ctx.scale,
     ]);
     noteHover(n, x0, Math.min(...ys), x1, Math.max(...ys));
   };
 
+  // `mount` is the parent's outer surface, which a fin's root sits on (see
+  // tree/finRoot.ts); every other child is placed by the one radius `pRadius`.
   const renderChildren = (
     parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number, scope: string,
+    mount: MountSurface = flatMount(pRadius, pLen),
   ) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
@@ -668,7 +688,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // instance's projected baseline (side view projects y, ignores depth z).
       if (isAssembly(t)) {
         const podChain = child.children ?? [];
-        const podLen = assemblyChainLength(child);
+        const podLen = axialLength(child);
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = assemblyInstanceCount(child);
@@ -686,12 +706,17 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // Through-the-wall fin tab: dashed rect from the body surface inward,
       // foreshortened with the fin instance it belongs to.
       const renderTab = (finStart: number, finLen: number, p: number, i: number) => {
-        const tabH = Math.min(num(child, 'tabHeight', 0), pRadius);
         const tabLen = num(child, 'tabLength', 0);
-        if (tabH <= 0 || tabLen <= 0) return;
         const front = finStart + finTabFront(child, finLen);
-        const yInner = baseY - (pRadius - tabH) * p * ctx.scale;
-        const ySurface = baseY - pRadius * p * ctx.scale;
+        // The body under the tab: the smaller of its radii at the tab's two
+        // ends, which is where the kernel puts the tab's floor and the deepest
+        // it lets the tab reach (FinSet.getTabPoints, getMaxTabHeight). On a
+        // body tube that is the tube radius.
+        const surf = Math.min(mount.radiusAt(front - pStart), mount.radiusAt(front + tabLen - pStart));
+        const tabH = Math.min(num(child, 'tabHeight', 0), surf);
+        if (tabH <= 0 || tabLen <= 0) return;
+        const yInner = baseY - (surf - tabH) * p * ctx.scale;
+        const ySurface = baseY - surf * p * ctx.scale;
         // A tab lies inside the airframe by definition, so while the figure is
         // a wireframe it loses its wash and becomes an outline like everything
         // else — and goes over the body rather than under it. No size floors
@@ -728,15 +753,36 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           const chord = Math.max(...raw.map((p) => p[0]));
           const tabChord = Math.max(0, raw[raw.length - 1]![0]);
           const start = axialStart(child, axialLength(child), pStart, pLen);
-          const ymax = Math.max(0, ...raw.map((p) => p[1]));
-          const reach = pRadius + ymax;
+          // On its mount the way the kernel attaches it (tree/finRoot.ts): y = 0
+          // at the body's radius at the LEADING edge, both root corners on the
+          // body, the root following the profile between them. It was drawn at
+          // max(fore, aft) along the whole chord, so a fin on a boat tail
+          // floated off it (audit 2026-09-30). A body tube's fin is unchanged.
+          const xFront = start - pStart;
+          const { r0, outline, root } = finOnMount(raw, xFront, mount);
+          // The body under the fin: its highest point is the wall a far fin is
+          // cut at (the clip is a band, so on a sloping body it hides a little
+          // of a far fin near the thin end rather than ever drawing one over
+          // the body), its lowest a near fin's lowest root. One radius on a
+          // body tube.
+          const rootRs = root.map(([, y]) => r0 + y);
+          const wallR = Math.max(...rootRs);
+          const rootR = Math.min(...rootRs);
+          const ymax = Math.max(0, ...outline.map((p) => p[1]));
+          const reach = r0 + ymax;
+          // Whether any corner of the projected outline clears the body AT ITS
+          // OWN STATION. On a body tube that is the tip against the tube radius,
+          // the test this branch always made; on a transition the body is
+          // thinner at one end, and a fin can show there and nowhere else.
+          const clears = (p: number): boolean =>
+            outline.some(([x, y]) => (r0 + y) * Math.abs(p) > mount.radiusAt(xFront + x));
           const projections = finFactors(child);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
-            baseY, reach, pRadius, projections);
-          const clip = airframeClip(baseY, pRadius);
+            baseY, reach, rootR, wallR, projections);
+          const clip = airframeClip(baseY, wallR);
           for (const { p, near, i } of projections) {
-            const ptsStr = raw
-              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (pRadius + py) * p * ctx.scale}`)
+            const ptsStr = outline
+              .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (r0 + py) * p * ctx.scale}`)
               .join(' ');
             // Rolled: an outline, unclipped, over the body. Every instance is
             // drawn — including one lying flat inside the airframe, which is
@@ -750,7 +796,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             // silhouette is inside the airframe outline has nothing to draw,
             // and a NEAR one at that angle is edge-on — drawing it unclipped
             // would put a bar down the centreline of the fin can.
-            if (reach * Math.abs(p) > pRadius) {
+            if (clears(p)) {
               (near ? overlay : shapes).push({
                 key: `${key}:fin${i}`, layer: near ? 'overlay' : 'base', tag: 'polygon', part, sel: true,
                 attrs: {
@@ -763,19 +809,26 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           }
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset') {
-        const root = num(child, 'rootChord', 0.05);
-        const tip = t === 'trapezoidfinset' ? num(child, 'tipChord', root * 0.6) : 0;
-        const sweep = t === 'trapezoidfinset' ? num(child, 'sweep', 0.02) : root / 2;
-        const height = num(child, 'height', 0.03);
+        // An absent dimension is the kernel's (tree/kernelDefaults.ts): an
+        // absent tip drew at 0.6 x the root here, where the kernel, the 3D view
+        // and the printed part all have 30 mm (audit 2026-09-30).
+        const root = kernelNum(child, 'rootChord');
+        const tip = t === 'trapezoidfinset' ? kernelNum(child, 'tipChord') : 0;
+        const sweep = t === 'trapezoidfinset' ? kernelNum(child, 'sweep') : root / 2;
+        const height = kernelNum(child, 'height');
         const start = axialStart(child, root, pStart, pLen);
-        const reach = pRadius + height;
+        // Rooted at the body's radius at the leading edge (FinSet.getFinFront),
+        // as the freeform branch above is. The kernel refuses these two types
+        // anywhere but a body tube, where that is simply the tube radius.
+        const r0 = mount.radiusAt(start - pStart);
+        const reach = r0 + height;
         const projections = finFactors(child);
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
-          baseY, reach, pRadius, projections);
-        const finClip = airframeClip(baseY, pRadius);
+          baseY, reach, r0, r0, projections);
+        const finClip = airframeClip(baseY, r0);
         for (const { p, near, i } of projections) {
-          const y0 = baseY - pRadius * p * ctx.scale;
+          const y0 = baseY - r0 * p * ctx.scale;
           const yh = baseY - reach * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
           // A TRUE half-ellipse, by arc. It used to be a quadratic with the
@@ -800,7 +853,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             renderTab(start, root, p, i);
             continue;
           }
-          if (reach * Math.abs(p) > pRadius) {
+          if (reach * Math.abs(p) > r0) {
             (near ? overlay : shapes).push({
               key: `${key}:fin${i}`, layer: near ? 'overlay' : 'base', tag, part, sel: true,
               attrs: {
@@ -819,7 +872,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // inside the airframe are hidden behind it and dropped; that is the
         // honest form of the old "side tubes project onto the body — omitted"
         // shortcut, which drew exactly two tubes whatever the count.
-        const len = num(child, 'length', 0.1);
+        const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
         const start = axialStart(child, len, pStart, pLen);
         const X = ctx.x0 + start * ctx.scale;
@@ -863,8 +916,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // External shroud: SOLID, at its own mounting angle (v0.087), turned
         // from there by the view roll. It stays solid EVEN WHILE ROLLED — see
         // `solidWhileRolled`.
-        const len = num(child, 'length', 0.08);
-        const hgt = num(child, 'height', 0.02);
+        const len = axialLength(child);
+        const hgt = kernelNum(child, 'height');
         const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
         const { p: sp, near: snear } = surfaceAt(child);
@@ -924,8 +977,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // ramp for an inclined flat plate, a faired nose with a blunt back for
         // "with base drag", faired both ends for "no base drag". Sits at its
         // own mounting angle (v0.087) and stays solid while rolled.
-        const len = num(child, 'length', 0.06);
-        const hgt = num(child, 'height', 0.01);
+        const len = axialLength(child);
+        const hgt = kernelNum(child, 'height');
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
         const { p: pp, near: pnear } = surfaceAt(child);
@@ -960,7 +1013,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // drag and the snap ladder resolve it with — so a lug with no length
         // of its own draws where it flies, 50 mm, not 10 (audit 2026-09-22).
         const len = t === 'railbutton' ? btnDia : axialLength(child);
-        const r = t === 'railbutton' ? btnDia / 2 : num(child, 'outerRadius', 0.002);
+        const r = t === 'railbutton' ? btnDia / 2 : kernelNum(child, 'outerRadius');
         const btnH = t === 'railbutton' ? num(child, 'totalHeight', 0.0097) : 2 * r;
         // A BUTTON IS CENTRED ON ITS STATION; a lug starts at it (v0.105).
         // `axialLength` is 0 for a rail button and the lug's own length for a
@@ -1013,9 +1066,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // grabbed (audit 2026-09-22; it used to fall back to 25 mm here and
         // there alike, where the kernel builds a 70 mm inner tube).
         const len = axialLength(child);
+        // A stated radius, else the kernel's (an inner tube's 9.5 mm, a mass
+        // component's 5 mm — what its cluster offsets below are spaced by),
+        // else a share of the body for a part sized by what it sits in.
         const r = Math.min(
           pRadius * 0.85,
-          num(child, 'outerRadius', num(child, 'radius', num(child, 'packedRadius', pRadius * 0.7))),
+          num(child, 'outerRadius', kernelDefault(child.type, 'outerRadius')
+            ?? num(child, 'radius', kernelDefault(child.type, 'radius')
+              ?? num(child, 'packedRadius', pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
@@ -1023,7 +1081,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           // kernel turns a pattern by MINUS its rotation (cluster.ts).
           ? clusterOffsets(
             child['cluster'] as string | undefined,
-            num(child, 'outerRadius', 0.0095),
+            kernelNum(child, 'outerRadius'),
             num(child, 'clusterScale', 1),
             num(child, 'clusterRotation', 0),
             { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
@@ -1159,22 +1217,24 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   const renderChain = (nodes: ComponentNode[], xStart: number, baseY: number, scope: string) => {
     let cx = xStart;
     for (const n of nodes) {
-      const len = num(n, 'length', 0);
+      // The kernel's length, as the frame above reads it and every child's
+      // drag resolves against (Grip.pLen) — never 0 for a cleared one.
+      const len = axialLength(n);
       const key = n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition'
         ? partKey(n, scope) : '';
       const part = partOf(n, false);
       if (n.type === 'nosecone') {
-        const r = num(n, 'aftRadius', 0.012);
+        const r = drawnRadius(n);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:nose`, layer: 'base', tag: 'path', part, sel: true,
           attrs: { d: profilePath(ctx, n, cx, len, 0, r, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
         shoulderRect(`${key}:shoulder`, cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY, scope);
+        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, 0, r));
         cx += len;
       } else if (n.type === 'bodytube') {
-        const r = num(n, 'outerRadius', 0.012);
+        const r = drawnRadius(n);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:body`, layer: 'base', tag: 'rect', part, sel: true,
@@ -1205,7 +1265,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const fsl = num(n, 'foreShoulderLength', 0);
         shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY);
         shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope);
+        // A fin roots on the drawn profile, not at the larger end's radius.
+        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra));
         cx += len;
       }
     }
@@ -1227,6 +1288,43 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   return { shapes: all, clips, extents, grips };
 }
 
+/** The members of a nose-to-tail chain. */
+const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
+
+/**
+ * The largest radius the side view draws a chain member at: a nose cone's aft
+ * radius and a body tube's outer radius as the kernel flies them (stated, else
+ * its default — tree/kernelDefaults.ts), a transition's two ends as stated or,
+ * when automatic, the drawing's own placeholders, which no kernel constant
+ * replaces. The frame (schematicFrame) is sized from the same number, so a
+ * cleared radius cannot leave it measuring a part it does not draw. The aft
+ * view draws its hulls at it too (components/AftView.tsx).
+ */
+export function drawnRadius(n: ComponentNode): number {
+  if (n.type === 'nosecone') return kernelNum(n, 'aftRadius');
+  if (n.type === 'bodytube') return kernelNum(n, 'outerRadius');
+  return Math.max(num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009));
+}
+
+/** A nose cone's or transition's profile shape, with each type's kernel default. */
+const profileShape = (n: ComponentNode): string => (typeof n['shape'] === 'string' ? (n['shape'] as string)
+  : n.type === 'transition' ? 'conical' : 'ogive');
+
+/**
+ * node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
+ * transition draws the way it simulates; absent = kernel default (clipped).
+ */
+const clippedOf = (n: ComponentNode): boolean | undefined =>
+  (typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
+
+/**
+ * The surface `profilePath` draws, as the mount a fin's root sits on
+ * (tree/finRoot.ts) — here and in the aft view (components/AftView.tsx).
+ */
+export function profileMountOf(n: ComponentNode, len: number, foreR: number, aftR: number): MountSurface {
+  return profileMount(profileShape(n), numOpt(n, 'shapeParameter'), len, foreR, aftR, clippedOf(n));
+}
+
 /**
  * Closed side-view outline of a nose cone (foreR = 0) or transition, sampled
  * from the kernel-exact profile: top edge fore→aft, aft edge down, bottom
@@ -1236,12 +1334,8 @@ function profilePath(
   ctx: { scale: number; x0: number }, n: ComponentNode, x: number, len: number,
   foreR: number, aftR: number, baseY: number,
 ): string {
-  const shape = typeof n['shape'] === 'string' ? (n['shape'] as string)
-    : n.type === 'transition' ? 'conical' : 'ogive';
-  // node['clipped'] (.ork <shapeclipped>) rides along so an unclipped
-  // transition draws the way it simulates; absent = kernel default (clipped).
-  const pts = outerProfile(shape, numOpt(n, 'shapeParameter'), len, foreR, aftR, 24, undefined,
-    typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined);
+  const pts = outerProfile(profileShape(n), numOpt(n, 'shapeParameter'), len, foreR, aftR, 24, undefined,
+    clippedOf(n));
   const px = (xi: number) => ctx.x0 + (x + xi) * ctx.scale;
   const top = pts.map(([xi, r]) => `${px(xi)} ${baseY - r * ctx.scale}`);
   const bottom = pts.slice().reverse().map(([xi, r]) => `${px(xi)} ${baseY + r * ctx.scale}`);

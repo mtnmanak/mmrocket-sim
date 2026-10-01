@@ -3,8 +3,10 @@ import {
   classLabel, classesFittingMount, diameterClass, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
-import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { findParent, motorMounts } from './treeModel.js';
+import { axialLength } from './position.js';
+import { lookupTable } from '../services/xmlUtil.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -32,12 +34,18 @@ import { numOrNull as num } from './nodeNum.js';
  *    declared `unit: 'm'` and is an altitude AGL; scaling it moves the
  *    deployment of every altimeter-triggered chute.
  *
- * So the lists below are explicit, per type, and a key is scaled only when it
- * is ALREADY PRESENT as a number. That last rule matters: absence is a value
- * in this tree — an absent transition radius means AUTOMATIC, an absent ring
- * radius means "size yourself off the parent", an absent tube-fin radius means
- * the touching-circle formula. Writing `k × (value ?? default)` would turn
- * every one of those into a frozen explicit number and change the design.
+ * So the lists below are explicit, per type, and a key is scaled when it is
+ * PRESENT as a number, or when it is absent and the kernel flies a CONSTANT for
+ * it (tree/kernelDefaults.ts) — a tube with no length is 300 mm, and scaling
+ * it means writing 300·k. The distinction matters: absence is a value in this
+ * tree where it means AUTOMATIC — an absent transition radius copies the
+ * neighbour, an absent ring radius sizes itself off the parent, an absent
+ * tube-fin radius is the touching-circle formula. Those have no constant, so
+ * they stay absent; writing `k × (value ?? placeholder)` would freeze each into
+ * an explicit number and change the design. Scaling present keys ONLY was the
+ * opposite error: a nose, tube and transition with no length came out of a 2x
+ * scale 420 mm long, as they went in, under a dialog promising 840 (audit
+ * 2026-09-30, on review).
  *
  * WHAT DOES NOT SCALE, AND WHY (Eric, issues-2026-08-31c)
  * ------------------------------------------------------
@@ -61,25 +69,28 @@ import { numOrNull as num } from './nodeNum.js';
  * goes as k³ — measured exactly on the app's default rocket, nose/tube/fins/
  * mount all land on 8.000x at k = 2. A parachute does not: its canopy is a
  * SURFACE density and its lines a LINE density, so the canopy goes as k² and
- * the lines as k (7.976 g -> 22.184 g at k = 2, not 63.8 g).
+ * the lines as k (7.976 g -> 25.424 g at k = 2, not 63.8 g). Until 2026-10-01
+ * the lines of a chute with no stated line length stayed 0.3 m long through a
+ * scale (22.184 g here), which is every chute the Add menu makes.
  *
  * That is correct for a real build — nobody buys thicker ripstop for a bigger
  * rocket — but it means a design carrying recovery gear is NOT exactly
- * similar, and its stability in calibers shifts a little (2.408 -> 2.264 cal
+ * similar, and its stability in calibers shifts a little (2.409 -> 2.276 cal
  * on that same rocket). `scaleRocket.test.ts` pins both halves: exact
  * similarity for a structure-only design, and the recovery exception.
  */
 
 /**
- * Length-valued keys per component type. Present-only, multiplied by k.
+ * Length-valued keys per component type, multiplied by k: a present value, or
+ * an absent one's kernel constant (see above).
  *
  * Keys NOT in a list are deliberate, and the ones a reader will ask about are
  * commented where they are omitted.
  */
-const LENGTH_KEYS: Record<string, readonly string[]> = {
+const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly string[]>({
   nosecone: ['length', 'aftRadius', 'thickness',
     'shoulderRadius', 'shoulderLength', 'shoulderThickness'],
-  // foreRadius/aftRadius absent = AUTOMATIC; present-only keeps it that way.
+  // foreRadius/aftRadius absent = AUTOMATIC: no kernel constant, so they stay absent.
   transition: ['length', 'foreRadius', 'aftRadius', 'thickness',
     'foreShoulderRadius', 'foreShoulderLength', 'foreShoulderThickness',
     'aftShoulderRadius', 'aftShoulderLength', 'aftShoulderThickness'],
@@ -124,7 +135,7 @@ const LENGTH_KEYS: Record<string, readonly string[]> = {
   parallelstage: ['radiusOffset'],
   // nozzleExitDiameter is the MOTOR's nozzle, used for power-on base drag.
   stage: [],
-};
+});
 
 /** Types whose own geometry is fixed hardware — they move, they do not grow. */
 const FIXED_SIZE = new Set(['fairing', 'railbutton']);
@@ -147,11 +158,11 @@ const MASS_KEYS = ['mass', 'overrideMass'] as const;
  * instead of 340 g, while the summary printed beside it said recovery gear does
  * not go as the cube.
  */
-const MASS_EXPONENT: Record<string, number> = {
+const MASS_EXPONENT: Record<string, number> = lookupTable({
   parachute: 2,
   streamer: 2,
   shockcord: 1,
-};
+});
 
 export interface ScaleResult {
   tree: RocketTree;
@@ -208,8 +219,11 @@ export function maxBodyDiameter(tree: RocketTree): number {
   const walk = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       const t = n.type as string;
-      if (t === 'bodytube') r = Math.max(r, num(n, 'outerRadius') ?? 0);
-      else if (t === 'nosecone') r = Math.max(r, num(n, 'aftRadius') ?? 0);
+      // The radius each flies: a tube or nose with none is the kernel's 12 mm,
+      // not 0. A transition's absent radius is AUTOMATIC — its neighbour's,
+      // which this walk reads where it is stated.
+      if (t === 'bodytube') r = Math.max(r, kernelNum(n, 'outerRadius'));
+      else if (t === 'nosecone') r = Math.max(r, kernelNum(n, 'aftRadius'));
       else if (t === 'transition') {
         r = Math.max(r, num(n, 'foreRadius') ?? 0, num(n, 'aftRadius') ?? 0);
       }
@@ -236,7 +250,8 @@ export function rocketLength(tree: RocketTree): number {
     for (const n of nodes) {
       const t = n.type as string;
       if (OFF_AXIS.has(t)) continue;
-      if (CHAIN.has(t)) total += num(n, 'length') ?? 0;
+      // The kernel's length: a cleared one is its type's default, not 0.
+      if (CHAIN.has(t)) total += axialLength(n);
       walk(n.children ?? []);
     }
   };
@@ -249,12 +264,19 @@ export function rocketLength(tree: RocketTree): number {
  * snap writer disagreeing about what an absent thickness means put the snapped
  * tube 1 mm off the class it reported: the reader assumed the kernel's 0.5 mm
  * default and the writer assumed none.
+ *
+ * An absent one is the kernel's for the mount's own type — an inner tube's
+ * 0.5 mm, a min-diameter body tube's 0.3 mm (with its 12 mm radius below, not
+ * the inner tube's 9.5) — and the inner tube's for a parent that has none.
  */
-const mountWall = (n: ComponentNode): number => num(n, 'thickness') ?? 0.0005;
+const mountWall = (n: ComponentNode): number =>
+  num(n, 'thickness') ?? kernelDefault(n.type as string, 'thickness') ?? 0.0005;
 
 /** A motor mount's bore (m): outer radius less wall, or the outer radius for a case airframe. */
 export function mountBore(n: ComponentNode): number {
-  const or = num(n, 'outerRadius') ?? 0.0095;
+  // A coupler's absent radius is automatic (the bore it sits in): no constant,
+  // so it keeps the inner tube's placeholder, as it always has.
+  const or = num(n, 'outerRadius') ?? kernelDefault(n.type as string, 'outerRadius') ?? 0.0095;
   if (n['caseAirframe'] === true) return or * 2;
   return (or - mountWall(n)) * 2;
 }
@@ -388,13 +410,12 @@ export function previewMounts(
   const choices = opts.mountChoices ?? {};
   return motorMounts(tree).map((m) => {
     const boreMm = mountBore(m) * 1000;
-    // NOT boreMm * factor. `scaleNode` multiplies a thickness key only when it
-    // is PRESENT — an absent wall stays absent, and the kernel keeps applying
-    // its own 0.5 mm default to the scaled tube. Multiplying the whole bore by
-    // k assumes the default wall scales too, so on a mount with a blanked
-    // thickness the preview and the applied tree disagreed by 2·0.0005·(k−1):
-    // "28.0 → 56.0 mm" against a real 57.0 mm at k = 2. This is the same
-    // reader/writer split `mountWall` closed on the snap path, still open here.
+    // NOT boreMm * factor. Whether a key scales is `scaleNode`'s decision, and
+    // the preview must not take one of its own: when an absent wall stayed
+    // absent through a scale (it now scales from the kernel's constant), the
+    // product disagreed with the applied tree by 2·0.0005·(k−1) — "28.0 →
+    // 56.0 mm" against a real 57.0 mm at k = 2. The same reader/writer split
+    // `mountWall` closed on the snap path.
     //
     // It runs the REAL `scaleNode`, not a hand-kept twin of it. The twin had
     // to track LENGTH_KEYS by hand and omitted `scaleNode`'s round(), so the
@@ -490,20 +511,20 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   const fixed = FIXED_SIZE.has(type);
   const out: ComponentNode = { ...n };
 
+  // A key the part leaves to the kernel scales from the constant the kernel
+  // flies for it; one with no constant is AUTOMATIC and stays absent (see the
+  // header). A PARACHUTE WITH NO DIAMETER, the first case found, flies 0.3 m —
+  // it does not size itself. Left alone it stayed 0.3 m while its spill hole
+  // was scaled, so the vent ratio the comment on LENGTH_KEYS relies on broke
+  // (Cd 1.5 with a 0.1 m hole flew 1.33 before a 2x scale and 0.83 after), and
+  // a canopy that does not grow with the rocket breaks the Scale dialog's
+  // "descent goes as roughly the square root of the factor" (review of board
+  // Tier 1 row 31, 2026-09-24). A tube, nose or transition with no length, a
+  // tube with no radius, a fin with no chord were the same case, missed until
+  // the audit of 2026-09-30.
   for (const key of LENGTH_KEYS[type] ?? []) {
-    const v = num(n, key);
+    const v = num(n, key) ?? kernelDefault(type, key) ?? null;
     if (v !== null) out[key] = round(v * k);
-  }
-  // A PARACHUTE WITH NO DIAMETER FLIES 0.3 m, it does not size itself — absent
-  // here is not "automatic", as it is for the keys the loop above skips. Left
-  // alone it stayed 0.3 m while its spill hole was scaled, so the vent ratio the
-  // comment on LENGTH_KEYS relies on broke (Cd 1.5 with a 0.1 m hole flew 1.33
-  // before a 2x scale and 0.83 after), and a canopy that does not grow with the
-  // rocket breaks the Scale dialog's "descent goes as roughly the square root
-  // of the factor". Scale the diameter it flies (review of board Tier 1 row 31,
-  // 2026-09-24).
-  if (type === 'parachute' && num(n, 'diameter') === null) {
-    out['diameter'] = round(CANOPY_DIAMETER_FALLBACK * k);
   }
 
   // A freeform fin's planform lives entirely in `points` — [x along the body,
@@ -528,7 +549,9 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   if (!fixed) {
     const exp = MASS_EXPONENT[type] ?? 3;
     for (const key of MASS_KEYS) {
-      const v = num(n, key);
+      // A mass component with no mass flies the kernel's 10 g; an absent
+      // override is no override, and has no constant.
+      const v = num(n, key) ?? kernelDefault(type, key) ?? null;
       if (v !== null) out[key] = round(v * k ** exp, 15);
     }
     // An override CG is a station measured from the component's own front — a
@@ -765,11 +788,11 @@ export function scaleRocket(
   // MEASURED, not assumed: on the app's own default rocket a 2x scale takes the
   // structure to exactly 8x (nose 34.133 -> 273.064 g, tube 50.928 -> 407.422,
   // fins 58.752 -> 470.016, mount 11.066 -> 88.528) while the parachute goes
-  // 7.976 -> 22.184 g, because a canopy is fabric of a fixed thickness and its
+  // 7.976 -> 25.424 g, because a canopy is fabric of a fixed thickness and its
   // shroud lines are line. That is the RIGHT answer for a real build — you do
   // not buy thicker ripstop for a bigger rocket — but it means a scaled design
   // carrying recovery gear is not exactly similar, and its stability in
-  // calibers moves a little (2.41 -> 2.26 cal on that rocket).
+  // calibers moves a little (2.41 -> 2.28 cal on that rocket).
   if (recovery) {
     notes.push('Recovery gear is fabric and line, so it does NOT go as the cube: a canopy scales'
       + ' with its area and shroud lines with their length, because that is what you would really'

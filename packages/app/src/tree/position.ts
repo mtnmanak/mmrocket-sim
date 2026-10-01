@@ -1,5 +1,6 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { isAssembly } from './assembly.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { num } from './nodeNum.js';
 
 /**
@@ -14,8 +15,8 @@ import { num } from './nodeNum.js';
  * as the kernel reads it when it resolves a station
  * (`RocketComponent.java:1618`, `AxialMethod.java:74/94`: 'middle' and
  * 'bottom' both subtract this from the parent's length). It is the ANCHORING
- * question only; "how far aft does the drawn shape reach" is `drawnExtent`
- * below, and the two differ for exactly one shape.
+ * question only; "how far does the drawn shape reach" is `drawnSpan` below,
+ * and the two differ for a fin whose outline runs past its root.
  *
  * FREEFORM FIN: the ROOT CHORD — the last point's x (`FreeformFinSet.java:448`,
  * re-asserted at `:494` and `:546`), NOT the furthest-aft point of the outline.
@@ -40,9 +41,15 @@ import { num } from './nodeNum.js';
  * member at ITS length here — `ComponentAssembly.updateBounds` sums the
  * lengths of the children positioned AFTER one another.
  *
- * A CLEARED LENGTH is the kernel's default for the type (`LENGTH_DEFAULTS`
- * below). This fell back to one generic 25 mm, which the kernel uses only for
- * a packed recovery device (audit 2026-09-22, row 373).
+ * A CLEARED LENGTH is the kernel's default for the type (the bridge's table,
+ * tree/kernelDefaults.ts — this module's LENGTH_DEFAULTS until it was extended
+ * to every dimension, audit 2026-09-30). This fell back to one generic 25 mm,
+ * which the kernel uses only for a packed recovery device (audit 2026-09-22,
+ * row 373): measured 25 mm off for a launch lug, 45 mm for an inner tube,
+ * 55 mm for a camera shroud, 75 mm for a tube-fin set and 275 mm for
+ * everything behind a body tube. A parachute, streamer or shock cord has no
+ * entry ON PURPOSE: the bridge never sets their length, so the kernel keeps
+ * `MassObject`'s packed 25 mm — which the fallback here already is.
  */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
@@ -50,67 +57,50 @@ export function axialLength(n: ComponentNode): number {
     return pts.length ? pts[pts.length - 1]![0] : 0.05;
   }
   if (n.type === 'trapezoidfinset' || n.type === 'ellipticalfinset') {
-    return num(n, 'rootChord', 0.05);
+    return kernelNum(n, 'rootChord');
   }
   if (n.type === 'railbutton') return 0;
   if (isAssembly(n.type)) {
     return (n.children ?? []).filter((c) => CHAIN_TYPES.has(c.type)).reduce((s, c) => s + axialLength(c), 0);
   }
-  return num(n, 'length', num(n, 'packedLength', LENGTH_DEFAULTS[n.type as string] ?? 0.025));
+  return num(n, 'length', num(n, 'packedLength', kernelDefault(n.type as string, 'length') ?? 0.025));
 }
 
 /** The members of a nose-to-tail chain: what stacks AFTER the one before it. */
 const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
 
-/**
- * The length the KERNEL builds when a node carries no `length` — the bridge's
- * own `dbl(node, "length", …)` default in `ComponentFactory.create`, or what
- * `engineTree` lowers an app-only part to. One table (audit 2026-09-22, row
- * 373): the generic 25 mm fallback put a cleared-length part 'bottom'- or
- * 'middle'-anchored away from where it flies — measured 25 mm for a launch
- * lug, 45 mm for an inner tube, 55 mm for a camera shroud and 75 mm for a
- * tube-fin set, and 275 mm for everything behind a body tube.
- *
- * Parachutes, streamers and shock cords are absent ON PURPOSE: the bridge
- * never sets their length, so the kernel keeps `MassObject`'s packed 25 mm —
- * which the fallback already is. A protuberance is lowered to a zero-length
- * carrier anchored at the bump's centre (treeModel `engineTree`), so its
- * entry is the length the views draw it with, which that centre is taken from.
- */
-const LENGTH_DEFAULTS: Record<string, number> = Object.assign(Object.create(null) as Record<string, number>, {
-  nosecone: 0.07,
-  bodytube: 0.3,
-  transition: 0.05,
-  innertube: 0.07,
-  tubecoupler: 0.05,
-  centeringring: 0.002,
-  bulkhead: 0.002,
-  engineblock: 0.005,
-  launchlug: 0.05,
-  tubefinset: 0.1,
-  masscomponent: 0.02,
-  // engineTree lowers a shroud to a one-fin strake whose root chord is its
-  // length, `nnum(n, 'length', 0.08)`.
-  fairing: 0.08,
-  protuberance: 0.06,
-});
 
 /**
- * How far aft of its OWN leading edge a component's drawn shape reaches — the
- * EXTENT question, for the silhouette's hover box, the fin-overlap tests that
- * auto-rotate a second fin set (finAlign.ts, rocksimFile.ts) and the trailing
- * edge `absoluteStations` reports. Only a freeform fin answers differently
- * from `axialLength`: its outline may overhang its root, and the overhang is
- * real geometry that another fin can collide with even though the kernel's
- * length stops at the root trailing corner. Never use this to resolve a
- * station — that is `axialLength`, and the split is the whole point.
+ * How far a component's drawn shape reaches FORE and AFT of its own station —
+ * `[fore, aft]`, metres from the leading edge the kernel places it at, with
+ * `fore` negative when the shape reaches forward of it. The EXTENT question,
+ * for the fin-overlap tests that auto-rotate a second fin set (finAlign.ts,
+ * rocksimFile.ts) and the trailing edge `absoluteStations` reports.
+ *
+ * A FIN can reach past its root both ways, and the reach is real geometry that
+ * another fin collides with even though the kernel's length stops at the root:
+ * a freeform outline spans its points' x, and a trapezoid its four corners' —
+ * a tip overhanging the root (sweep + tip > root, the shape finTab.ts warns
+ * about) aft, a negative sweep forward. Only the freeform overhang was counted
+ * until audit 2026-09-30, so a swept trapezoid and a set beside its tips "did
+ * not overlap" and kept their fins on the same clock lines. Everything else
+ * spans `[0, axialLength]`. Never use this to resolve a station — that is
+ * `axialLength`, and the split is the whole point.
  */
-export function drawnExtent(n: ComponentNode): number {
+export function drawnSpan(n: ComponentNode): [number, number] {
   if (n.type === 'freeformfinset') {
     const pts = (n['points'] as [number, number][] | undefined) ?? [];
-    return pts.length ? Math.max(...pts.map((p) => p[0])) : 0.05;
+    if (!pts.length) return [0, 0.05];
+    const xs = pts.map((p) => p[0]);
+    return [Math.min(...xs), Math.max(...xs)];
   }
-  return axialLength(n);
+  if (n.type === 'trapezoidfinset') {
+    // The kernel bridge's defaults for absent keys (tree/kernelDefaults.ts).
+    const sweep = kernelNum(n, 'sweep');
+    const xs = [0, sweep, sweep + kernelNum(n, 'tipChord'), kernelNum(n, 'rootChord')];
+    return [Math.min(...xs), Math.max(...xs)];
+  }
+  return [0, axialLength(n)];
 }
 
 /**
@@ -285,11 +275,12 @@ export interface AbsoluteStation {
   /** Leading edge, metres aft of the nose tip of the assembled stack. */
   start: number;
   /**
-   * Trailing edge — `start + drawnExtent(node)`. The START is the kernel's
-   * station (anchored by `axialLength`); the END is where the drawn shape
-   * stops, which for an overhanging freeform fin is further aft than the
-   * root chord the kernel calls its length. One record, two lengths, on
-   * purpose: a wake arrives at the leading edge, a collision reaches the tip.
+   * Trailing edge — `start` plus the aft reach of `drawnSpan(node)`. The START
+   * is the kernel's station (anchored by `axialLength`); the END is where the
+   * drawn shape stops, which for a fin whose tip overhangs its root is further
+   * aft than the root chord the kernel calls its length. One record, two
+   * lengths, on purpose: a wake arrives at the leading edge, a collision
+   * reaches the tip.
    */
   end: number;
   node: ComponentNode;
@@ -340,7 +331,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
     // `len` anchors (and is the parent length its own children are placed
     // against — the kernel's getLength() either way); the END is the extent.
     for (const { node: child, start, len } of placeChildren(parent, pStart, pLen)) {
-      if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child, parent });
+      if (child.id) out.set(child.id, { start, end: start + drawnSpan(child)[1], node: child, parent });
       descend(child, start, len);
     }
   };
@@ -380,7 +371,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
  * the kernel's tab offset is measured from.
  */
 export function anchorStarts(parent: ComponentNode, child: ComponentNode): number[] {
-  const pLen = num(parent, 'length', 0.2);
+  const pLen = axialLength(parent);
   const cLen = axialLength(child);
   const anchors = new Set<number>([0, pLen - cLen, (pLen - cLen) / 2]);
   for (const sib of parent.children ?? []) {

@@ -11,6 +11,7 @@ import { assemblyInstanceCount, finCountOf } from './counts.js';
 // by treeModel.ts's own note) and nothing at all in the bundle, which already
 // holds the kernel in its eager entry chunk.
 import { mountRadiusOf } from './treeModel.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
 /**
  * Clock angles around the airframe: where a surface-mounted part can SNAP to,
@@ -242,13 +243,13 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
   // app shows anywhere (DISPLAY_NAME calls it "Pod set"). Kept local rather
   // than imported from schema.ts so this module stays free of the editor
   // tables, which is why WAKE_SOURCE_NAME is local too.
-  const SURFACE_NAME: Record<string, string> = {
+  const SURFACE_NAME: Record<string, string> = lookupTable({
     launchlug: 'Launch lug',
     fairing: 'Camera shroud',
     protuberance: 'Protuberance',
     podset: 'Pod set',
     parallelstage: 'Booster',
-  };
+  });
 
   const checkFrame = (roots: ComponentNode[]) => {
     // The SAME frame walker the snap buttons use — see collectFrame.
@@ -338,10 +339,10 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
 const WAKE_SOURCES = new Set(['fairing', 'protuberance']);
 
 /** Fallback names, so an unnamed part still reads as a thing in the sentence. */
-const WAKE_SOURCE_NAME: Record<string, string> = {
+const WAKE_SOURCE_NAME: Record<string, string> = lookupTable({
   fairing: 'Camera shroud',
   protuberance: 'Protuberance',
-};
+});
 
 /**
  * How far downstream a bump is still treated as sitting in front of a fin,

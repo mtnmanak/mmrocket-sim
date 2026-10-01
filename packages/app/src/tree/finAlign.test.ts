@@ -86,13 +86,39 @@ describe('autoAlignFinSets — a freeform fin with an overhanging tip', () => {
     expect(findNode(res.tree, 'b')!['rotation'] as number).toBeCloseTo(Math.PI / 4, 6);
   });
 
+  it('a swept trapezoid collides out to its tip too (audit 2026-09-30)', () => {
+    // Root 100, sweep 80, tip 50 mm: the tips run to 130 mm. A set at 110 mm
+    // overlaps them in the 110-130 mm band; over the root chord alone the two
+    // "did not overlap" and stayed on the same clock lines, fins colliding.
+    const res = autoAlignFinSets(tree([
+      straight({ id: 'a', finCount: 4, rootChord: 0.1, sweep: 0.08, tipChord: 0.05, position: { method: 'top', offset: 0 } }),
+      straight({ id: 'b', finCount: 4, position: { method: 'top', offset: 0.11 } }),
+    ]));
+    expect(res.changes.length).toBe(1);
+    expect(findNode(res.tree, 'b')!['rotation'] as number).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it('a set swept FORWARD collides with the set ahead of its station', () => {
+    // Sweep -30 mm at 100 mm: the tips reach forward to 70 mm, into a set
+    // that ends at 90 mm.
+    const res = autoAlignFinSets(tree([
+      straight({ id: 'a', finCount: 4, rootChord: 0.05, position: { method: 'top', offset: 0.04 } }),
+      straight({ id: 'b', finCount: 4, rootChord: 0.06, sweep: -0.03, tipChord: 0.05, position: { method: 'top', offset: 0.1 } }),
+    ]));
+    expect(res.changes.length).toBe(1);
+    expect(findNode(res.tree, 'b')!['rotation'] as number).toBeCloseTo(Math.PI / 4, 6);
+  });
+
   it('starts where the kernel puts it, not where the old max-x drawing did', () => {
     // 'bottom' on a 300 mm tube: the kernel's start is 300 − 90 = 210 mm; the
     // max-x frame said 300 − 120 = 180 mm. A 15 mm set at 190–205 mm overlaps
-    // the old start and clears the real one, so nothing must rotate.
+    // the old start and clears the real one, so nothing must rotate. Its sweep
+    // and tip are stated: the kernel's defaults (20 and 30 mm) would put its
+    // tip 35 mm past a 15 mm root, and the set out to 240 mm.
     const res = autoAlignFinSets(tree([
       overhang({ position: { method: 'bottom', offset: 0 } }),
-      straight({ id: 'b', finCount: 4, rootChord: 0.015, position: { method: 'top', offset: 0.19 } }),
+      straight({ id: 'b', finCount: 4, rootChord: 0.015, sweep: 0.005, tipChord: 0.005,
+        position: { method: 'top', offset: 0.19 } }),
     ]));
     expect(res.changes.length).toBe(0);
     expect(findNode(res.tree, 'b')!['rotation']).toBeUndefined();
@@ -128,6 +154,35 @@ describe('finSetSpan / spansOverlap', () => {
     const [a, b] = finSetSpan({ type: 'trapezoidfinset', rootChord: 0.06 } as ComponentNode, 0.3);
     expect(a).toBeCloseTo(0.24, 12);
     expect(b).toBeCloseTo(0.30, 12);
+  });
+
+  /**
+   * The drawn span of a TRAPEZOID, and of any fin reaching forward of its
+   * station (audit 2026-09-30). Only a freeform fin was allowed to overhang its
+   * root, so a swept trapezoid whose tip runs past the root — finTab.ts says
+   * that shape exists — and a set with a negative sweep or an outline point at
+   * x < 0 were checked for collisions over the root chord alone.
+   */
+  it('a swept trapezoid reaches its tip: root 100, sweep 80, tip 50 mm spans 0-130 mm', () => {
+    const swept = straight({ rootChord: 0.1, sweep: 0.08, tipChord: 0.05, position: { method: 'top', offset: 0 } });
+    const [a, b] = finSetSpan(swept, 0.3);
+    expect(a).toBeCloseTo(0, 12);
+    expect(b).toBeCloseTo(0.13, 12);
+  });
+
+  it('a negative sweep reaches FORWARD of the station', () => {
+    const forward = straight({ rootChord: 0.06, sweep: -0.03, tipChord: 0.05, position: { method: 'top', offset: 0.1 } });
+    const [a, b] = finSetSpan(forward, 0.3);
+    expect(a).toBeCloseTo(0.07, 12);
+    expect(b).toBeCloseTo(0.16, 12);
+    // A freeform outline with a point forward of the leading root corner.
+    const raked = {
+      type: 'freeformfinset', id: 'ff', points: [[0, 0], [-0.02, 0.04], [0.03, 0.04], [0.05, 0]],
+      position: { method: 'top', offset: 0.1 },
+    } as unknown as ComponentNode;
+    const [c, d] = finSetSpan(raked, 0.3);
+    expect(c).toBeCloseTo(0.08, 12);
+    expect(d).toBeCloseTo(0.15, 12);
   });
 
   it('counts an overlap, and not two spans that only touch', () => {

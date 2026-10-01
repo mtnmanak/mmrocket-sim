@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { layoutSchematic, schematicFrame, type SchematicFrameOptions } from './schematicLayout.js';
+import { outerProfile, profileRadius } from './shapeProfile.js';
 import { updateNode } from './treeModel.js';
 
 /**
@@ -108,10 +109,158 @@ describe('keys are identities', () => {
   });
 });
 
+/**
+ * A fin on a transition is drawn ON the transition (audit 2026-09-30): rooted
+ * at the profile's radius at its leading edge (FinSet.getFinFront), with both
+ * root corners on the body and the root following the profile between them —
+ * not at max(fore, aft) radius along the whole chord.
+ */
+describe('a freeform fin on a transition sits on the transition', () => {
+  const RF = 0.027, RA = 0.019, TL = 0.08;
+  const boatTail = (shape: string): RocketTree => ({
+    name: 'Rocket',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [
+        { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: RF },
+        { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: RF },
+        { id: 't1', type: 'transition', shape, length: TL, foreRadius: RF, aftRadius: RA,
+          children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+            points: [[0, 0], [0.02, 0.04], [0.05, 0.04], [0.06, 0]],
+            position: { method: 'bottom', offset: 0 } }] },
+      ],
+    }],
+  } as unknown as RocketTree);
+  const surface = (shape: string, x: number): number =>
+    outerProfile(shape, undefined, TL, RF, RA, 1, [x]).find((p) => Math.abs(p[0] - x) < 1e-12)![1];
+  /** The fin's polygon at rest, as [x, y] in layout px; and the frame it was laid out in. */
+  const finAt = (shape: string) => {
+    const { f, l } = lay(boatTail(shape));
+    const fin = l.shapes.find((s) => s.key === 'ff:fin0')!;
+    const pts = String(fin.attrs['points']).split(' ').map((p) => p.split(',').map(Number) as [number, number]);
+    return { f, pts };
+  };
+  /** The innermost drawn point at layout x (the root), as a radius in metres. */
+  const rootRadius = (f: ReturnType<typeof finAt>['f'], pts: [number, number][], xM: number): number => {
+    const px = f.x0 + xM * f.scale;
+    const ys = pts.filter(([x]) => Math.abs(x - px) < 1e-6).map(([, y]) => y);
+    expect(ys.length).toBeGreaterThan(0);
+    return (f.cy - Math.max(...ys)) / f.scale;
+  };
+
+  it('both root corners sit on the boat tail, at its radius at each edge', () => {
+    const { f, pts } = finAt('conical');
+    // Leading edge 0.42 m from the tip, 20 mm into the boat tail: 25.0 mm.
+    // The old drawing put the whole root at the 27.0 mm fore radius.
+    expect(rootRadius(f, pts, 0.42)).toBeCloseTo(surface('conical', 0.02), 9);
+    expect(rootRadius(f, pts, 0.48)).toBeCloseTo(surface('conical', 0.08), 9);
+  });
+
+  it('on a curved boat tail the root follows the profile between the corners', () => {
+    const { f, pts } = finAt('ogive');
+    expect(rootRadius(f, pts, 0.42)).toBeCloseTo(surface('ogive', 0.02), 9);
+    expect(rootRadius(f, pts, 0.48)).toBeCloseTo(surface('ogive', 0.08), 9);
+    const onProfile = pts.filter(([x, y]) => {
+      const xm = (x - f.x0) / f.scale;
+      return xm > 0.42 + 1e-9 && xm < 0.48 - 1e-9
+        && Math.abs((f.cy - y) / f.scale - surface('ogive', xm - 0.4)) < 1e-9;
+    });
+    expect(onProfile.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('on a flare, a lower fin that clears the thin end is still drawn', () => {
+    // 12.5 -> 25 mm. The two lower fins of a three-fin set project their tips
+    // to (12.5 + 30) * 0.5 = 21.25 mm: inside the 25 mm aft end, outside the
+    // body under the tip (18.0 mm at 35 mm aft). Measured against the
+    // largest radius under the fin alone, both vanished.
+    const flare = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.0125 },
+          { id: 't1', type: 'transition', shape: 'conical', length: TL, foreRadius: 0.0125, aftRadius: 0.025,
+            children: [{ id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+              points: [[0, 0], [0.035, 0.03], [0.07, 0.03], [0.075, 0]],
+              position: { method: 'top', offset: 0 } }] },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.025 },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const fins = lay(flare).l.shapes.filter((s) => s.key.startsWith('ff:fin'));
+    expect(fins.map((s) => s.key).sort()).toEqual(['ff:fin0', 'ff:fin1', 'ff:fin2']);
+  });
+
+  it('on a flare, a point the planform keeps inside the body is drawn on its surface', () => {
+    // 12.5 -> 25 mm. The third point keeps 4 mm off the root 60 mm in, where
+    // the flare has climbed 9.4 mm: the kernel raises it to the surface
+    // (FreeformFinSet.clampInteriorPoint). Drawn where it was stored, the near
+    // fin dipped into the body there.
+    const FORE = 0.0125, AFT = 0.025;
+    const flare = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: FORE },
+          { id: 't1', type: 'transition', shape: 'conical', length: TL, foreRadius: FORE, aftRadius: AFT,
+            children: [{ id: 'ff', type: 'freeformfinset', finCount: 1, thickness: 0.003,
+              points: [[0, 0], [0.02, 0.03], [0.06, 0.004], [0.075, 0]],
+              position: { method: 'top', offset: 0 } }] },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: AFT },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const { f, l } = lay(flare);
+    const fin = l.shapes.find((s) => s.key === 'ff:fin0')!;
+    const pts = String(fin.attrs['points']).split(' ').map((p) => p.split(',').map(Number) as [number, number]);
+    const flareR = profileRadius('conical', undefined, TL, FORE, AFT);
+    const below = pts.map(([x, y]) => flareR((x - f.x0) / f.scale - 0.1) - (f.cy - y) / f.scale);
+    // The low point sat 5.4 mm inside the flare.
+    expect(Math.max(...below)).toBeLessThan(1e-9);
+    expect(pts.some(([x, y]) => Math.abs((x - f.x0) / f.scale - 0.16) < 1e-9
+      && Math.abs((f.cy - y) / f.scale - flareR(0.06)) < 1e-9)).toBe(true);
+  });
+});
+
 describe('the frame reads sizes, never positions', () => {
   it('a moved part leaves the frame exactly as it was', () => {
     const moved = updateNode(busy, 'rb', { position: { method: 'top', offset: 0.22 } });
     expect(schematicFrame(moved, FRAME)).toEqual(schematicFrame(busy, FRAME));
+  });
+
+  /**
+   * PODS ON PODS (allowed: a pod's body tube takes a pod set like any other).
+   * The renderer draws a nested set at its outer pod's offset PLUS its own;
+   * the frame measured it from the outer pod's axis alone, so its vertical
+   * fit was short and the nested pods were clipped or drawn over the CG/CP
+   * callout lanes (audit 2026-09-30).
+   */
+  it('measures a nested pod set from the core axis, as it is drawn', () => {
+    // Core 20 mm. Outer pod: 10 mm tube touching the core, centre at 30 mm.
+    // Nested pod: 5 mm tube touching the outer pod, centre 15 mm further out,
+    // so its tube reaches 30 + 15 + 5 = 50 mm from the core axis.
+    const nested = {
+      name: 'Rocket',
+      components: [{
+        id: 's1', type: 'stage',
+        children: [
+          { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.02 },
+          { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.02, children: [
+            { id: 'p1', type: 'podset', instanceCount: 1, radiusOffset: 0, position: { method: 'top', offset: 0 },
+              children: [{ id: 'pb', type: 'bodytube', length: 0.2, outerRadius: 0.01, children: [
+                { id: 'p2', type: 'podset', instanceCount: 1, radiusOffset: 0, position: { method: 'top', offset: 0 },
+                  children: [{ id: 'qb', type: 'bodytube', length: 0.1, outerRadius: 0.005 }] },
+              ] }] },
+          ] },
+        ],
+      }],
+    } as unknown as RocketTree;
+    const { f, l } = lay(nested);
+    expect(f.vHalf).toBeCloseTo(0.05, 12);
+    // …and the nested tube, drawn straight up at rest, lies inside the frame.
+    const tube = l.shapes.find((s) => s.key === 'p1#0/p2#0/qb:body')!;
+    expect(Number(tube.attrs['y'])).toBeGreaterThanOrEqual(f.cy - f.vHalf * f.scale - 1e-9);
   });
 });
 

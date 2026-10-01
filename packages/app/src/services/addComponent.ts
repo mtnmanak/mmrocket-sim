@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
-import { num } from '../tree/nodeNum.js';
+import { axialLength } from '../tree/position.js';
 import { interleaveRotation } from '../tree/schema.js';
 import { addChild, findNode, inheritDefaults, makeNode, stages } from '../tree/treeModel.js';
 import { newRailButtonPair, railButtonPlacement, type NewPairRule } from './railButtonPlacement.js';
@@ -57,8 +57,9 @@ export function addNewComponent(
   }
   let railButtonRule: NewPairRule | undefined;
   if (type === 'railbutton' && parent && parent !== 'stage') {
-    // The tube's length as the property panel reads it (its `parentLenSi`).
-    const parentLength = num(parent, 'length', 0.2);
+    // The tube's length as the property panel reads it (its `parentLenSi`):
+    // the kernel's, a cleared one included.
+    const parentLength = axialLength(parent);
     const press = measure ? (b: ComponentNode) => {
       const m = measure(addChild(tree, parentId, b));
       const positionX = m ? m.stationOf(b.id!) : undefined;

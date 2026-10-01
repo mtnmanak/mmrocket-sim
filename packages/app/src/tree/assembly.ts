@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { kernelNum } from './kernelDefaults.js';
 import { num } from './nodeNum.js';
 
 /**
@@ -11,22 +12,27 @@ import { num } from './nodeNum.js';
  */
 
 
-/** The assembly's own axial chain members (a mini nose→body→transition stack). */
-const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
+/*
+ * An assembly's AXIAL length — its own nose→body→transition chain, summed — is
+ * `position.axialLength(pod)`, which reads each member at the kernel's length.
+ * `assemblyChainLength` here was a second copy that read a cleared length as 0
+ * (audit 2026-09-30, ledger row 373 regressed), so a pod with a cleared tube
+ * was drawn and placed short in the 3D and side views while it flew long.
+ */
 
-/** Total axial length of the assembly's own body chain (m). */
-export function assemblyChainLength(pod: ComponentNode): number {
-  return (pod.children ?? [])
-    .filter((c) => CHAIN_TYPES.has(c.type))
-    .reduce((s, c) => s + num(c, 'length', 0), 0);
-}
-
-/** Largest outer radius among the assembly's own body chain (m). */
+/**
+ * Largest outer radius among the assembly's own body chain (m), each member at
+ * the radius it flies — ComponentAssembly.getBoundingRadius. A nose cone or
+ * tube with none is the kernel's 12 mm (tree/kernelDefaults.ts); read as 0, a
+ * RELATIVE pod whose tube stated no radius was drawn, and exported, 12 mm
+ * closer to the core than it flies (audit 2026-09-30). A transition's absent
+ * radius is automatic, its neighbour's, which this reads where it is stated.
+ */
 export function assemblyBoundingRadius(pod: ComponentNode): number {
   let r = 0;
   for (const c of pod.children ?? []) {
-    if (c.type === 'nosecone') r = Math.max(r, num(c, 'aftRadius', 0));
-    else if (c.type === 'bodytube') r = Math.max(r, num(c, 'outerRadius', 0));
+    if (c.type === 'nosecone') r = Math.max(r, kernelNum(c, 'aftRadius'));
+    else if (c.type === 'bodytube') r = Math.max(r, kernelNum(c, 'outerRadius'));
     else if (c.type === 'transition') r = Math.max(r, num(c, 'foreRadius', 0), num(c, 'aftRadius', 0));
   }
   return r;

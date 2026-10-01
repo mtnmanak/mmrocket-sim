@@ -282,6 +282,28 @@ describe('PropertyPanel — the export note belongs to one component', () => {
   });
 });
 
+/**
+ * A node's type is file text (audit 2026-09-30): `FIELDS[node.type] ?? []`
+ * read Object's constructor FUNCTION for a node typed `constructor` — `??`
+ * lets a function through — and the panel threw on `.filter` the moment a
+ * corrupt or hand-edited autosave's part was selected.
+ */
+describe('PropertyPanel — a part of a type the app does not know', () => {
+  const inputs = () => [...host.querySelectorAll('.numfield input')].map((i) => i.getAttribute('aria-label'));
+  it('shows what any unknown part shows rather than throwing — even typed after Object.prototype', () => {
+    // An ordinary unknown type: no schema fields, the generic overrides only.
+    const plain = { id: 'x', type: 'not-a-part', name: 'Odd part' } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [plain] })), plain);
+    const generic = inputs();
+    expect(generic.length).toBeGreaterThan(0);
+    for (const type of ['constructor', 'toString', '__proto__']) {
+      const odd = { id: 'x', type, name: 'Odd part' } as unknown as ComponentNode;
+      expect(() => show(treeOf(tube('A', { children: [odd] })), odd), type).not.toThrow();
+      expect(inputs(), type).toEqual(generic);
+    }
+  });
+});
+
 describe('PropertyPanel — sliders', () => {
   const sliderNamed = (name: string): HTMLInputElement =>
     host.querySelector<HTMLInputElement>(`input[type="range"][aria-label="${name}"]`)!;
@@ -292,6 +314,21 @@ describe('PropertyPanel — sliders', () => {
   const slideTo = (el: HTMLInputElement, v: number) => act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, String(v));
     el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  /**
+   * Audit 2026-09-30 (ledger row 373, regressed): a tube saved with no
+   * `length` flies at the kernel's 300 mm, and the Position slider read it as
+   * 200 mm — its range, its snap window and the offset a drag resolves to.
+   */
+  it('the Position slider spans a no-length tube at the kernel\'s 300 mm', () => {
+    const fins = { id: 'f', type: 'trapezoidfinset', name: 'f', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03, position: { method: 'bottom', offset: 0 } } as unknown as ComponentNode;
+    const bare = tube('A', { children: [fins] });
+    delete bare['length'];
+    show(treeOf(bare), fins);
+    expect(Number(sliderNamed('Position offset').max)).toBeCloseTo(300, 9);
+    expect(Number(sliderNamed('Position offset').min)).toBeCloseTo(-300, 9);
   });
 
   /**

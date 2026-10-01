@@ -5,7 +5,7 @@ import {
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
-import { positionOf } from '../tree/position.js';
+import { axialLength, positionOf } from '../tree/position.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1761,7 +1761,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     // Convert any position method to a bottom-referenced offset (of the fin's
     // trailing edge vs the tube's aft end) — silently zeroing top/middle
     // offsets used to shift the fins to the tube bottom.
-    const tubeLen = nnum(parent, 'length', 0);
+    const tubeLen = axialLength(parent);
     const bottomOffset = pos.method === 'bottom' ? pos.offset
       : pos.method === 'top' ? pos.offset + plan.root - tubeLen
       : pos.method === 'middle' ? pos.offset + (plan.root - tubeLen) / 2
@@ -1857,7 +1857,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     else if (shape === 'haack') rasShape = !Number.isNaN(param) && Math.abs(param - 0.33) < 0.01 ? 'LV-Haack' : 'Von Karman Ogive';
     else if (shape === 'power') { rasShape = 'Power Law'; powerLaw = Number.isNaN(param) ? 0.5 : param; }
     else throw new Error(`RASAero has no "${shape}" nose shape — use conical/ogive/ellipsoid/haack/power, or export as .ork/.rkt.`);
-    const len = nnum(node, 'length', 0.07);
+    const len = axialLength(node);
     emit('<NoseCone>');
     emit('<PartType>NoseCone</PartType>');
     emit(`<Length>${fmt(len * IN)}</Length>`);
@@ -1907,8 +1907,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         // can's front measured from it — negative, and exactly −<Length> when
         // the can is flush, which is what the three corpus fin cans all carry
         // (MESOS −8/8, Complex −6/6, Show-off −2.34/2.34).
-        const canLen = nnum(canTube, 'length', 0.15);
-        const chainLen = canLen + (shoulder ? nnum(shoulder, 'length', 0) : 0);
+        const canLen = axialLength(canTube);
+        const chainLen = canLen + (shoulder ? axialLength(shoulder) : 0);
         // Any axial method → the can's aft end relative to the host's aft end.
         const bottomOff = pos.method === 'bottom' ? pos.offset
           : pos.method === 'top' ? pos.offset + chainLen - hostLen
@@ -1927,7 +1927,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         emit('<RailGuideHeight>0</RailGuideHeight>');
         emit('<LaunchShoeArea>0</LaunchShoeArea>');
         emit(`<Location>${fmt((locM + hostLen) * IN)}</Location>`);
-        emit(`<ShoulderLength>${fmt((shoulder ? nnum(shoulder, 'length', 0) : 0) * IN)}</ShoulderLength>`);
+        emit(`<ShoulderLength>${fmt((shoulder ? axialLength(shoulder) : 0) * IN)}</ShoulderLength>`);
         emit(`<Offset>${fmt((bottomOff - canLen) * IN)}</Offset>`);
         emit('<Color>Black</Color>');
         // No <Protuberance> here: no RASAero-written fin can in the 54-design
@@ -1943,15 +1943,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         // <Location> is the host tube's aft station — the same station the
         // <Booster> below it claims, which is exactly the overlap.
         const topOff = pos.method === 'top' ? pos.offset
-          : pos.method === 'bottom' ? pos.offset + hostLen - nnum(bt, 'length', 0.04)
-            : pos.method === 'middle' ? pos.offset + (hostLen - nnum(bt, 'length', 0.04)) / 2
+          : pos.method === 'bottom' ? pos.offset + hostLen - axialLength(bt)
+            : pos.method === 'middle' ? pos.offset + (hostLen - axialLength(bt)) / 2
               : 0;
         if (String(bt['shape'] ?? 'conical') !== 'conical') {
           throw new Error('RASAero boat tails must be conical — change the shape or export as .ork/.rkt.');
         }
         emit('<BoatTail>');
         emit('<PartType>BoatTail</PartType>');
-        emit(`<Length>${fmt(nnum(bt, 'length', 0.04) * IN)}</Length>`);
+        emit(`<Length>${fmt(axialLength(bt) * IN)}</Length>`);
         emit(`<Diameter>${fmt(nnum(bt, 'foreRadius', 0.012) * 2 * IN)}</Diameter>`);
         emit(`<RearDiameter>${fmt(nnum(bt, 'aftRadius', 0.009) * 2 * IN)}</RearDiameter>`);
         emit(`<Location>${fmt((locM + topOff) * IN)}</Location>`);
@@ -1967,7 +1967,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   };
 
   const tubeXml = (node: ComponentNode) => {
-    const len = nnum(node, 'length', 0.2);
+    const len = axialLength(node);
     emit('<BodyTube>');
     emit('<PartType>BodyTube</PartType>');
     emit(`<Length>${fmt(len * IN)}</Length>`);
@@ -1995,7 +1995,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (String(node['shape'] ?? 'conical') !== 'conical') {
       throw new Error('RASAero transitions must be conical — change the shape or export as .ork/.rkt.');
     }
-    const len = nnum(node, 'length', 0.04);
+    const len = axialLength(node);
     emit('<Transition>');
     emit('<PartType>Transition</PartType>');
     emit(`<Length>${fmt(len * IN)}</Length>`);
@@ -2030,7 +2030,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (tubes.length === 0) {
       throw new Error(`Stage "${st.name}" has no body tube — RASAero boosters need one.`);
     }
-    const bodyLen = tubes.reduce((s, t) => s + nnum(t, 'length', 0.1), 0);
+    const bodyLen = tubes.reduce((s, t) => s + axialLength(t), 0);
     const externals = kids.filter((c) => c.type === 'bodytube' || c.type === 'transition');
     const first = externals[0];
     const shoulder = first && first.type === 'transition'
@@ -2042,8 +2042,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (extraTrans.length > 0) {
       throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage "${st.name}" has other transitions; export as .ork/.rkt.`);
     }
-    const shoulderLen = shoulder ? nnum(shoulder, 'length', 0) : 0;
-    const btLen = boattail ? nnum(boattail, 'length', 0) : 0;
+    const shoulderLen = shoulder ? axialLength(shoulder) : 0;
+    const btLen = boattail ? axialLength(boattail) : 0;
     const finParents = kids.filter((c) => (c.children ?? []).some((k) => k.type.endsWith('finset')));
     if (finParents.length > 1) {
       throw new Error(`RASAero allows ONE fin set per booster — stage "${st.name}" has several; export as .ork/.rkt.`);
@@ -2072,7 +2072,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     // first of two tubes moved aft by the second tube's length.
     const aftOfFins = finParent
       ? kids.slice(kids.indexOf(finParent) + 1).filter((c) => c.type === 'bodytube')
-        .reduce((s, t) => s + nnum(t, 'length', 0.1), 0)
+        .reduce((s, t) => s + axialLength(t), 0)
       : 0;
     emit('<Booster>');
     emit('<PartType>Booster</PartType>');

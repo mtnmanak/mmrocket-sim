@@ -9,7 +9,7 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
 import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
-import { positionOf } from '../tree/position.js';
+import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
@@ -952,7 +952,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // inside its parent; pin the CG on the point.
         const rawLen = num(el, 'Len', 20) / LEN;
         n['rocksimLen'] = rawLen;
-        const parentLen = parent ? nnum(parent, 'length', 0) : 0;
+        const parentLen = parent ? axialLength(parent) : 0;
         n['length'] = parentLen > 0 ? Math.min(rawLen, parentLen) : rawLen;
         // Its KnownMass became this component's real mass one line above, so the
         // override readCommon set from the SAME element is a duplicate and would
@@ -1396,7 +1396,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const kids = parentNode.children ?? [];
       const finSets = kids.filter((k) => k.type.endsWith('finset'));
       if (finSets.length >= 2) {
-        const pLen = nnum(parentNode, 'length', 0.2);
+        const pLen = axialLength(parentNode);
         // finAlign's span (kernel station, drawn extent), so an overhanging
         // freeform tip still counts as overlap here exactly as it does there.
         const range = (k: ComponentNode) => finSetSpan(k, pLen);
@@ -2346,7 +2346,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       const massOv = numOpt(b, 'overrideMass');
       if (massOv !== undefined && massOv !== 0) continue;
       if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
-      baseExtOf.set(a.id, nnum(b, 'length', 0));
+      baseExtOf.set(a.id, axialLength(b));
       folded.add(b);
     }
   };
@@ -2377,10 +2377,14 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
     const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
     let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
     // RockSim has no "middle" mode — convert to front-referenced, mirroring
-    // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2.
+    // the desktop's BasePartDTO: xb = offset + (parentLen - componentLen)/2,
+    // both the kernel's lengths (getLength(); `axialLength`). The part's read
+    // `length`, else `rootChord`, else 0, so a freeform fin — which carries
+    // neither — went out half its root chord aft of where it flies, and a pod
+    // set (its length is its chain's) half its chain; a cleared tube length
+    // read as 0 (audit 2026-09-30).
     if (pos.method === 'middle' && parent) {
-      const compLen = nnum(node, 'length', nnum(node, 'rootChord', 0));
-      xb = pos.offset + (nnum(parent, 'length', 0) - compLen) / 2;
+      xb = pos.offset + (axialLength(parent) - axialLength(node)) / 2;
     }
     return { mode, xb };
   };
@@ -2682,7 +2686,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       case 'nosecone': {
         emit('<NoseCone>');
         common(node, parent, 'Nose cone');
-        emit(`<Len>${nnum(node, 'length', 0.07) * LEN}</Len>`);
+        emit(`<Len>${axialLength(node) * LEN}</Len>`);
         emit(`<BaseDia>${nnum(node, 'aftRadius', 0.012) * RAD}</BaseDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'ogive')] ?? 1}</ShapeCode>`);
@@ -2713,7 +2717,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
             + ' (solid shoulders on a filled part) and cannot keep their end caps. Use .ork to preserve them.');
         }
         common(node, parent, 'Transition');
-        emit(`<Len>${nnum(node, 'length', 0.04) * LEN}</Len>`);
+        emit(`<Len>${axialLength(node) * LEN}</Len>`);
         emit(`<FrontDia>${nnum(node, 'foreRadius', 0.012) * RAD}</FrontDia>`);
         emit(`<RearDia>${nnum(node, 'aftRadius', 0.009) * RAD}</RearDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
@@ -2738,7 +2742,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         common(node, parent, 'Body tube');
         emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
         emit(`<ID>${(nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
-        emit(`<Len>${nnum(node, 'length', 0.2) * LEN}</Len>`);
+        emit(`<Len>${axialLength(node) * LEN}</Len>`);
         // Min-diameter: RockSim's BodyTube carries the same mount flag.
         emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
         if (node['motorMount'] === true) {
