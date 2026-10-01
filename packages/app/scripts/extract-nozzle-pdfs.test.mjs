@@ -54,6 +54,12 @@ doc.save(sys.argv[1])
  * instruction sheet carrying a LIST OF MATERIAL: the two facts the builder's
  * SHEET_CATALOGUE_JOINS and INSTRUCTION_SHEET_NOZZLES check their entries
  * against (board Tier 1 row 13, 2026-10-01). Synthetic, one line per text run.
+ *
+ * And a reload kit's assembly drawing in each form its title block takes, with
+ * the notes every real one carries, "NOTES: 1. MOTOR ASSEMBLY SHOWN WITH ...":
+ * the first title pattern read "1." out of that line on all 324 of them, and
+ * "WITH" out of the "BEFORE PROCEEDING WITH MOTOR ASSEMBLY!" two sheets carry, so
+ * a join resting on a reload kit's title block could never have held.
  */
 const MAKE_SHEETS = `
 import sys, os, pymupdf
@@ -65,9 +71,18 @@ def page_with(path, lines):
     for y, text in lines:
         page.insert_text((72, y), text, fontname="helv", fontsize=9)
     doc.save(path)
+NOTES = 'NOTES: 1. MOTOR ASSEMBLY SHOWN WITH SPECIFIED MOTOR HARDWARE & RELOAD KIT.'
+def reload_kit(case, file, title):
+    page_with(os.path.join(root, 'Motor Assembly Drawings', case, file), [(72, NOTES), (100, title)])
+reload_kit('RMS-54-1706 High Power', 'K9999T-L Assembly.pdf', 'HP 54/1706 MOTOR WITH K9999T-L RMS-PLUS RELOAD KIT ASSY DWG')
+reload_kit('RMS-29-40-120', 'G999-5FJ Assembly.pdf', 'RMS-29/40-120 MOTOR WITH 2-GRAIN G999-5FJ RELOAD KIT ASSY DWG')
+reload_kit('RMS-29-40-120', 'HP-G998T-14A Assembly.pdf', 'RMS-29/40-120 MOTOR WITH HP-G998T-14A RELOAD KIT ASSY DWG')
+reload_kit('RMS-18-20', 'C9.9-PT Assembly.pdf', 'RMS-18/20 MOTOR WITH C9.9-PT RELOAD KIT ASSY DWG')
+reload_kit('RMS & LMS 54-2800 High Power', 'K998W-P LMS Assembly.pdf', 'HP 54MM S/U K998W-P LOADABLE MOTOR SYSTEM ASSY DWG')
 page_with(os.path.join(root, 'DMS Motor Designs', '38mm', 'H998T-14A.pdf'),
           [(72, 'H999T-14A DMS MOTOR ASSEMBLY 099914'), (100, 'QTY PART NUMBER DESCRIPTION ITEM'),
-           (120, '1 01500-5 NOZZLE (F60/G80) DRILLED .228" 2')])
+           (120, '1 01500-5 NOZZLE (F60/G80) DRILLED .228" 2'),
+           (140, 'BEFORE PROCEEDING WITH MOTOR ASSEMBLY!')])
 page_with(os.path.join(root, 'Instructions', '75mm Kits', 'L9999M-PS.pdf'),
           [(72, 'L9999M-PS Assembly Drawing and Instructions'), (100, 'QTY PART NUMBER DESCRIPTION ITEM'),
            (120, '1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3')])
@@ -84,9 +99,16 @@ describe.runIf(hasPyMuPDF)('extract-nozzle-pdfs.py, the facts the builder checks
         '75mm Kits/L9999M-PS.pdf', '75mm Kits/missing.pdf'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
       expect(run.status, run.stderr).toBe(0);
       const out = JSON.parse(run.stdout);
-      // The title block, not the file name: "H998T" is only the file's.
-      expect(out.assemblies.map((a) => [a.file, a.designationFromFile, a.titleBlockDesignations]))
-        .toEqual([['38mm/H998T-14A.pdf', 'H998T-14A', ['H999T-14A']]]);
+      // The title block, not the file name: "H998T" is only the file's. One title on every
+      // sheet, in both families, and never a word out of the notes.
+      expect(out.assemblies.map((a) => [a.file, a.designationFromFile, a.titleBlockDesignations])).toEqual([
+        ['RMS & LMS 54-2800 High Power/K998W-P LMS Assembly.pdf', 'K998W-P', ['K998W-P']],
+        ['RMS-18-20/C9.9-PT Assembly.pdf', 'C9.9-PT', ['C9.9-PT']],
+        ['RMS-29-40-120/G999-5FJ Assembly.pdf', 'G999-5FJ', ['G999-5FJ']],
+        ['RMS-29-40-120/HP-G998T-14A Assembly.pdf', 'HP-G998T-14A', ['HP-G998T-14A']],
+        ['RMS-54-1706 High Power/K9999T-L Assembly.pdf', 'K9999T-L', ['K9999T-L']],
+        ['38mm/H998T-14A.pdf', 'H998T-14A', ['H999T-14A']],
+      ]);
       // The named sheet is read row by row; a named sheet that is not there is said so; the unnamed one is not read.
       expect(out.instructionSheets).toEqual([
         { file: '75mm Kits/L9999M-PS.pdf', found: true, pages: [{ page: 1, rows: [

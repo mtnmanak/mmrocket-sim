@@ -191,13 +191,49 @@ REVISION = re.compile(
 # Which revisions are ABOUT the nozzle — the word in the revision's own text.
 REV_NOZZLE = re.compile(r'NOZZLE', re.I)
 
-# The motor a sheet's own TITLE BLOCK names: "H219T-14A DMS™ MOTOR ASSEMBLY",
-# "K1100T-L MOTOR ASSEMBLY". Added 2026-10-01, because a FILE NAME is not the
-# sheet: DMS Motor Designs/38mm/H218T-14A.pdf is titled H219T-14A. Read on all
-# 375 sheets that day, it finds exactly one on each. Reported, never trusted on
-# its own: 29mm/I205W-14A.pdf is titled I205NT-14A while its grains and length
-# are the I205W's, so the builder uses this only to check an entry that quotes it.
-TITLE_BLOCK = re.compile(r'([A-Z0-9][A-Z0-9.\-/]*)\s+(?:DMS\S*\s+)?MOTOR\s+ASSEMBLY')
+# The motor a sheet's own TITLE BLOCK names. Added 2026-10-01, because a FILE
+# NAME is not the sheet: DMS Motor Designs/38mm/H218T-14A.pdf is titled
+# H219T-14A. The two families title a sheet differently, so each form has its
+# own pattern:
+#
+#   DMS          "H219T-14A DMS™ MOTOR ASSEMBLY"
+#   reload kit   "HP 54/1706 MOTOR WITH K1100T-L RMS-PLUS™ RELOAD KIT ASSY DWG",
+#                "RMS-29/40-120 MOTOR WITH 2-GRAIN G53-5FJ RELOAD KIT ASSY DWG"
+#   LMS          "HP 54MM S/U K250W-P LOADABLE MOTOR SYSTEM ASSY DWG"
+#
+# On these sheets "MOTOR WITH" and "S/U" appear in the title block and nowhere
+# else. "MOTOR ASSEMBLY" does not: every reload-kit sheet's notes open "NOTES:
+# 1. MOTOR ASSEMBLY SHOWN WITH ...", and two sheets, one in each family, add
+# "BEFORE PROCEEDING WITH MOTOR ASSEMBLY!". So THE DESIGNATION MUST LOOK LIKE
+# ONE: an impulse letter, then the thrust. The first pattern took any word
+# before "MOTOR ASSEMBLY" and read "1." on all 324 reload-kit sheets and "WITH"
+# on those two, while this comment said it found exactly one title on each
+# sheet. Only the two DMS joins read it, so no row moved, but a join resting on
+# a reload kit's title block could never have held.
+#
+# Read on all 375 sheets on 2026-10-01, these find exactly one title on each.
+# It is not the file's designation on 43. On 38 reload-kit sheets only the delay
+# or plug tag differs (H165R for H165R-L, K1800ST-P for K1800ST-PS). On five the
+# rest differs too, as the sheets print it: H218T-14A.pdf is titled H219T-14A,
+# I205W-14A.pdf I205NT-14A, M1340W-PS.pdf M1340W-PS-PS, K1000T-P K1000W-P and
+# M1075DM-PS M1075M-PS. Reported, never trusted on its own: the I205W sheet's
+# grains and length are the I205W's whatever its title says, so the builder uses
+# this only to check an entry that quotes it.
+
+# A designation as a title block prints one: "K1100T-L", "C3.4-PT",
+# "HP-G138T-14A", "M1340W-PS-PS".
+DESIGNATION = r'((?:HP-)?[A-O]\d+(?:\.\d+)?[A-Z]*(?:-[A-Z0-9]+)*)'
+TITLE_BLOCKS = (
+    re.compile(DESIGNATION + r'\s+(?:DMS\S*\s+)?MOTOR\s+ASSEMBLY'),
+    re.compile(r'MOTOR\s+WITH\s+(?:\d+-GRAIN\s+)?' + DESIGNATION),
+    re.compile(r'S/U\s+' + DESIGNATION),
+)
+
+
+def title_block_designations(text):
+    """The motors the sheet's title block names, in the order its text gives them."""
+    found = sorted((m.start(1), m.group(1)) for pattern in TITLE_BLOCKS for m in pattern.finditer(text))
+    return [name for _, name in found]
 
 
 def revisions(text):
@@ -297,7 +333,7 @@ def main(root, instruction_files=()):
                 'foundLomHeader': found_header,
                 'designationOnSheet': squash(designation) in squash(text),
                 'designationStemOnSheet': squash(stem) in squash(text),
-                'titleBlockDesignations': TITLE_BLOCK.findall(text),
+                'titleBlockDesignations': title_block_designations(text),
                 'revisions': revisions(text),
                 'lomRows': rows,
             })
