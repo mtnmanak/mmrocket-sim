@@ -15,7 +15,7 @@ import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
 import { positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
-import { unzipMember } from './zipMember.js';
+import { gunzipCapped, unzipMember } from './zipMember.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
 import {
@@ -269,6 +269,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // byte of XML was read, and an out-of-memory tab cannot be caught by the
       // try/catch around this call. See zipMember.ts.
       bytes = unzipMember(bytes, '.ork', '.ork');
+    } else if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      // GZIP, which older OpenRocket releases saved and desktop 24.12 still
+      // opens: under the same cap, as a stream (zipMember.ts gunzipCapped).
+      bytes = gunzipCapped(bytes, '.ork');
     }
     ({ xml, note: encodingNote } = decodeXml(bytes));
   }

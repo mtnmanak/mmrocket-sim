@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import { strToU8, zipSync } from 'fflate';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -154,6 +157,44 @@ describe('.ork zip reading is bounded', () => {
     dv.setUint32(76, 0x06054b50, true); // classic end record
     dv.setUint16(84, 1, true);
     expect(() => importOrk(buf(bomb))).toThrow(/lists 4,294,967,295 entries/);
+  });
+});
+
+/**
+ * Audit 2026-09-30: a GZIP-compressed .ork — magic 1f 8b, the form older
+ * OpenRocket releases saved — had no read path. Only ZIP ("PK") was detected,
+ * so the gzip bytes went to the XML parser and the user was told "Not a valid
+ * .ork file (XML parse error)" about a file desktop 24.12 still opens
+ * (GeneralRocketLoader.loadStep1). The bound on the stream is pinned in
+ * zipMember.test.ts; these pin that the importer routes to it.
+ */
+describe('.ork GZIP reading (the format older OpenRocket releases saved)', () => {
+  const golden = (name: string): Uint8Array => readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', name));
+  /** An import with every minted id blanked, so two reads of one design compare equal. */
+  const withoutIds = (r: ReturnType<typeof importOrk>): unknown => JSON.parse(JSON.stringify(
+    { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes, ignored: r.ignored },
+    (k, v: unknown) => (k === 'id' || k === 'mountId' ? '' : v)));
+
+  it('opens a GZIP-compressed .ork', () => {
+    expect(importOrk(buf(gzipSync(strToU8(orkXml(BODY_TUBE))))).name).toBe('Test');
+  });
+
+  it('reads a real 24.12 document compressed exactly as it reads it zipped', () => {
+    // kitchensink.ork is GeneralRocketSaver output: every component type, a
+    // motor and its configuration. Gzip its rocket.ork and the two reads match.
+    const zipped = golden('kitchensink.ork');
+    const member = unzipSync(zipped)['rocket.ork']!;
+    const viaZip = importOrk(buf(zipped));
+    const viaGzip = importOrk(buf(gzipSync(member)));
+    expect(flatten(viaGzip.tree.components).length).toBeGreaterThan(5);
+    expect(withoutIds(viaGzip)).toEqual(withoutIds(viaZip));
+  });
+
+  it('says a damaged one is damaged, not that it is not XML', () => {
+    const gz = gzipSync(strToU8(orkXml(BODY_TUBE)));
+    expect(() => importOrk(buf(gz.subarray(0, gz.length - 20))))
+      .toThrow(/^Not a readable compressed \.ork file — it is damaged/);
   });
 });
 
