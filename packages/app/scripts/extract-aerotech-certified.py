@@ -19,8 +19,8 @@ reads the 43 letters in the form TMT has used since 2019 (dated 2019 to 2025),
 one labelled row per figure with SI beside imperial ("Manufacturer's Designation
 ... TMT Nomenclature ... Total Impulse ... Max Impulse ... Average Impulse ...
 Number of Motors Tested"). It is the only form with a "Manufacturer's
-Designation" row; the 1995-2016 letters, tables and charts say "Motor
-Designation" and are a different job (the research note's section 1(b)).
+Designation" row; the 1995-2016 letters, tables and charts have none, and are
+a different job (the research note's section 1(b)).
 
   - 30 have a text layer, read by WORD COORDINATES (`lines`, `text_rows`).
   - 13 are scans with no text layer, and this machine has no OCR. They were
@@ -645,9 +645,9 @@ def read_all(source):
                 continue
             else:
                 rows, plain = text_rows(doc, rel)
-                # The row only this form has: the older ones say "Motor Designation". A
-                # page that has it and lacks another row stops the run in `interpret`,
-                # rather than dropping out of the table unremarked.
+                # The row only this form has. A page that has it and lacks another
+                # row stops the run in `interpret`, rather than dropping out of the
+                # table unremarked.
                 if "Manufacturer's Designation" not in rows:
                     older_text += 1
                     continue

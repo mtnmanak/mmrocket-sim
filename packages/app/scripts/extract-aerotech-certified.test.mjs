@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from 'vitest';
  * figure's SI cell from its imperial one by UNIT, never by its place in the row.
  * CLAUDE.md, "NEVER READ A TABLE FROM FLATTENED TEXT": in flattened text an empty
  * cell is simply not there and the next column slides into its place, which is
- * how five of Loki's throat figures and the L930/M1882 nozzles came to be swapped.
+ * how five of Loki's commercial throat figures came out wrong and the L930's and
+ * M1882's nozzles swapped.
  * Checked here on synthetic letters laid out as TMT's are — the label at 72 pt,
  * the imperial figure at 288, the SI figure at 432 — with a cell left empty.
  *

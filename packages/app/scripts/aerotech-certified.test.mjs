@@ -126,9 +126,12 @@ const candidates = (letter) => {
   const as = READ_AS[letter.file];
   return as ? rows.filter((m) => m.designation === as.designation) : byKey.get(motorKey(letter.designation)) ?? [];
 };
+// Letters with exactly one row. Any other count is the first test's to report, not a crash in the ones after it.
 const matched = certified.rows
   .filter((letter) => !(letter.file in ABSENT))
-  .map((letter) => ({ letter, row: candidates(letter)[0] }));
+  .map((letter) => ({ letter, found: candidates(letter) }))
+  .filter(({ found }) => found.length === 1)
+  .map(({ letter, found: [row] }) => ({ letter, row }));
 const off = (letter, row, f) => row[f] / letter[f] - 1;
 const disagreements = ({ letter, row }) => FIGURES
   .filter((f) => !(Math.abs(off(letter, row, f)) <= TOLERANCE))
