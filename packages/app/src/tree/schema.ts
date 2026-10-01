@@ -781,6 +781,10 @@ export const FIELDS = lookupTable<FieldDef[]>({
     // Optional: blank is the shape's kernel default, printed as the placeholder.
     { key: 'shapeParameter', label: 'Shape parameter', unit: 'none', step: 0.05, smin: 0, smax: 1, optional: true },
     { key: 'filled', label: 'Solid (filled)', unit: 'none', bool: true },
+    // Desktop's own words for it. A tail cone: base forward, point aft, the
+    // shoulder at the front (tree/tailCone.ts); the base radius and shoulder
+    // fields keep their meaning whichever way the cone points.
+    { key: 'flipped', label: 'Flip to tail cone', unit: 'none', bool: true },
     radMM('shoulderRadius', 'Shoulder radius', 0.5, 80),
     lenMM('shoulderLength', 'Shoulder length', 1, 150),
     lenMM('shoulderThickness', 'Shoulder thickness', 0.1, 10),

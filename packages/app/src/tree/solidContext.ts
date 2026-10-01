@@ -4,6 +4,7 @@ import { num, numOpt } from './nodeNum.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
+import { noseEnds } from './tailCone.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -158,8 +159,10 @@ function profileRadiiAt(host: ComponentNode, xs: readonly number[]): number[] | 
   if (host.type !== 'nosecone' && host.type !== 'transition') return undefined;
   const nose = host.type === 'nosecone';
   const L = axialLength(host);
-  const foreR = nose ? 0 : numOpt(host, 'foreRadius');
-  const aftR = nose ? num(host, 'aftRadius', 0.012) : numOpt(host, 'aftRadius');
+  // A nose cone's base is its aft end — or, flipped into a tail cone, its fore end.
+  const ends = nose ? noseEnds(host, num(host, 'aftRadius', 0.012)) : null;
+  const foreR = ends ? ends.fore : numOpt(host, 'foreRadius');
+  const aftR = ends ? ends.aft : numOpt(host, 'aftRadius');
   if (foreR === undefined || aftR === undefined) return undefined;
   const at = xs.map((x) => Math.min(Math.max(x, 0), L));
   const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';

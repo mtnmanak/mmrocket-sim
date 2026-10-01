@@ -15,6 +15,7 @@ import { tubeFinRadius } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
+import { noseEnds } from './tailCone.js';
 import { axialLength, axialStart } from './position.js';
 
 /**
@@ -483,12 +484,14 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       const len = axialLength(n);
       if (n.type === 'nosecone') {
         const R = kernelNum(n, 'aftRadius');
+        // A tail cone (flipped) points aft: base forward (tailCone.ts).
+        const { fore, aft } = noseEnds(n, R);
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
-        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, 0, R);
+        const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft);
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
         reach(R);
-        addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, 0, R));
+        addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft));
         x += len;
       } else if (n.type === 'bodytube') {
         const R = kernelNum(n, 'outerRadius');

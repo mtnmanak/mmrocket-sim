@@ -1079,6 +1079,21 @@ final class ComponentFactory {
             case "shockcord":
                 applyPackedSize((info.openrocket.core.rocketcomponent.MassObject) c, node);
                 break;
+            case "nosecone":
+                // A TAIL CONE (desktop's "Flip to tail cone", .ork <isflipped>).
+                // The node keeps the file's convention - aftRadius is the BASE
+                // and the shoulder keys are the base's shoulder, as
+                // NoseConeSaver writes them - and setFlipped moves both to the
+                // fore side, exactly as desktop's loader does when it meets
+                // <isflipped> after them (DocumentConfig "NoseCone:isflipped",
+                // sanityCheck false). Never called until KB2 (2026-10-01): a
+                // tail cone flew point-forward, a diameter step against the tube
+                // ahead and its mass at the wrong end. Absent or false is the
+                // constructor's own unflipped cone, untouched.
+                if (bool(node, "flipped", false)) {
+                    ((NoseCone) c).setFlipped(true, false);
+                }
+                break;
             default:
                 break;
         }

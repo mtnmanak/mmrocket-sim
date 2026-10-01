@@ -6,6 +6,7 @@ import { num, numOpt, numOrNull } from './nodeNum.js';
 import { absoluteStations, axialLength, type AbsoluteStation } from './position.js';
 import { mountBore } from './scaleRocket.js';
 import { solidContextFor } from './solidContext.js';
+import { isTailCone } from './tailCone.js';
 import { ancestorsOf, findNode } from './treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
@@ -165,13 +166,14 @@ function chainAround(tree: RocketTree, id: string): ComponentNode[] {
  * of the member in front, `getRearAutoRadius` of the one behind: a tube's
  * outer radius, a nose cone's base, a transition's own facing radius. Null when
  * that face is itself automatic (two transitions sharing a blank face — the
- * kernel has no number for it either) or is a nose cone's point.
+ * kernel has no number for it either) or is a nose cone's point — the aft
+ * end of a tail cone, which faces its base forward (tailCone.ts).
  */
 function faceRadius(m: ComponentNode, face: 'aft' | 'fore'): number | null {
   // The nose and tube fallbacks are ComponentFactory's own (0.012 m), so an
   // absent radius reads as the radius the kernel builds.
   if (m.type === 'bodytube') return num(m, 'outerRadius', 0.012);
-  if (m.type === 'nosecone') return face === 'aft' ? num(m, 'aftRadius', 0.012) : null;
+  if (m.type === 'nosecone') return (isTailCone(m) ? 'fore' : 'aft') === face ? num(m, 'aftRadius', 0.012) : null;
   return numOrNull(m, face === 'aft' ? 'aftRadius' : 'foreRadius');
 }
 

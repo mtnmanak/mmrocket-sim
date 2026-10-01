@@ -14,6 +14,7 @@ import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, dec
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
+import { isTailCone, tailConeAsTransition } from '../tree/tailCone.js';
 import {
   autoDelaySaveNote, type MeasuredFigures, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
   type OrkMotorRef,
@@ -2331,6 +2332,9 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       const a = chain[i]!;
       const b = chain[i + 1];
       if (a.type !== 'nosecone' || !a.id) continue; // no id = no map key; leave the tube alone
+      // A tail cone goes out as a <Transition>, which has no <BaseExtensionLen>
+      // to fold the tube into — and its base faces the OTHER way anyway.
+      if (isTailCone(a)) continue;
       if (!b || b.type !== 'bodytube' || b['rktBaseExtension'] !== true) continue;
       // Fold only a tube the user has not turned into something else — the element
       // carries a LENGTH and nothing more, so any other edit would die in the fold.
@@ -2684,6 +2688,13 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
     // every call, never held in a variable the children re-set (see rocksimXb).
     switch (node.type) {
       case 'nosecone': {
+        // A TAIL CONE has no RockSim form of its own: it goes out as the
+        // transition it is (base forward, point aft, shoulder at the front),
+        // exactly as desktop's exporter writes it (StageDTO.toNoseConeDTO).
+        if (isTailCone(node)) {
+          emitPart(tailConeAsTransition(node), parent);
+          break;
+        }
         emit('<NoseCone>');
         common(node, parent, 'Nose cone');
         emit(`<Len>${axialLength(node) * LEN}</Len>`);

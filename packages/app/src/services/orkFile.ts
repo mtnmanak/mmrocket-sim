@@ -12,6 +12,7 @@ import {
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
+import { isTailCone } from '../tree/tailCone.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
@@ -667,9 +668,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'nosecone': {
         const n = base('nosecone', false);
         n['length'] = num(el, 'length', 0.07);
+        // A TAIL CONE: desktop's "Flip to tail cone" (format audit row 30). It
+        // still writes the BASE radius and the base's shoulder as <aftradius>
+        // and <aftshoulder*> (NoseConeSaver), so they are read as for any nose
+        // cone; the kernel and every reader turn the cone round (tailCone.ts).
+        const flipped = text(el, ':scope > isflipped') === 'true';
+        if (flipped) n['flipped'] = true;
         // A nose cone's <aftradius> is its BASE radius, and OpenRocket 15.03
-        // could write it as a bare `auto` (Wildman Mach 2 this one.ork).
-        n['aftRadius'] = autoDim(el, 'aftradius', 0.012, autoRadii.aft);
+        // could write it as a bare `auto` (Wildman Mach 2 this one.ork) — taken
+        // from the part behind it, or, on a tail cone, from the part ahead.
+        n['aftRadius'] = autoDim(el, 'aftradius', 0.012, flipped ? autoRadii.fore : autoRadii.aft);
         // Desktop writes <thickness>filled</thickness> for solid components.
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
@@ -2334,7 +2342,9 @@ export function exportOrk({
         emit(depth + 1, `<aftshoulderlength>${n(node, 'shoulderLength', 0)}</aftshoulderlength>`);
         emit(depth + 1, `<aftshoulderthickness>${n(node, 'shoulderThickness', 0)}</aftshoulderthickness>`);
         emit(depth + 1, `<aftshouldercapped>${node['shoulderCapped'] === true}</aftshouldercapped>`);
-        emit(depth + 1, '<isflipped>false</isflipped>');
+        // LAST, as NoseConeSaver writes it: desktop's loader flips the cone when
+        // it meets this, moving the base and shoulder above to the fore side.
+        emit(depth + 1, `<isflipped>${isTailCone(node)}</isflipped>`);
         close('nosecone');
         break;
       }
@@ -3245,16 +3255,29 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     return r;
   };
 
+  /**
+   * A TAIL CONE (`<isflipped>true`): its <aftradius> is still its BASE, but the
+   * base faces FORWARD and the point aft (NoseCone.setFlipped).
+   */
+  const flippedNose = (el: Element): boolean =>
+    el.tagName === 'nosecone' && text(el, ':scope > isflipped') === 'true';
+
   /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
   const front = (el: Element, seen: Set<Element>): number => walk(el, seen, frontMemo, prevOf,
     // A body tube states its radius or defers to the one ahead (null: keep
-    // walking); anything else answers with its aft face, stated or not.
-    (e) => e.tagName === 'bodytube' ? stated(e, 'radius') : stated(e, 'aftradius') ?? UNRESOLVED);
+    // walking); anything else answers with its aft face, stated or not — a
+    // tail cone's being its POINT, no face to take a radius from (the answer
+    // rearFace gives for an ordinary nose cone's point, below).
+    (e) => e.tagName === 'bodytube' ? stated(e, 'radius')
+      : flippedNose(e) ? UNRESOLVED
+        : stated(e, 'aftradius') ?? UNRESOLVED);
 
   /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
   const rear = (el: Element, seen: Set<Element>): number => walk(el, seen, rearMemo, nextOf, rearFace);
   function rearFace(el: Element): number | null {
     if (el.tagName === 'bodytube') return stated(el, 'radius');
+    // A tail cone shows the part ahead of it its BASE.
+    if (flippedNose(el)) return stated(el, 'aftradius') ?? UNRESOLVED;
     // A DELIBERATE DEVIATION from 24.12, not a mirror of it. An un-flipped
     // nose cone's fore radius is 0 and NOT automatic (`NoseCone
     // .resetForeRadius`, NoseCone.java:276-278), so `Transition
@@ -3263,9 +3286,6 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     // nose cone silently ends up with a ZERO radius. We answer UNRESOLVED,
     // which becomes the 25 mm DEFAULT_AUTO_RADIUS plus the "no neighbour"
     // note: a degenerate design the user is told about beats one they are not.
-    // (`<isflipped>` is ignored on read and hard-coded `false` on save, so a
-    // flipped cone's genuine fore face is a separate gap, not one this walk
-    // attempts to close.)
     if (el.tagName === 'nosecone') return UNRESOLVED;
     return stated(el, 'foreradius') ?? UNRESOLVED;
   }
@@ -3297,7 +3317,8 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
       r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
     switch (owner.tagName) {
       case 'nosecone':
-        return resolved(stated(owner, 'aftradius'), () => aft(owner));
+        // The base: from the part behind, or on a tail cone the part ahead.
+        return resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
       case 'transition': {
         const f = resolved(stated(owner, 'foreradius'), () => fore(owner));
         const a = resolved(stated(owner, 'aftradius'), () => aft(owner));

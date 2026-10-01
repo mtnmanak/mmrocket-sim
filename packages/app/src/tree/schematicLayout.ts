@@ -13,6 +13,7 @@ import {
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
 import { shroudEnds } from './shroud.js';
+import { isTailCone, noseEnds } from './tailCone.js';
 import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
@@ -1226,13 +1227,16 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       const part = partOf(n, false);
       if (n.type === 'nosecone') {
         const r = drawnRadius(n);
+        // A tail cone (flipped) points aft: its base and shoulder face forward.
+        const { fore, aft } = noseEnds(n, r);
+        const shL = num(n, 'shoulderLength', 0);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:nose`, layer: 'base', tag: 'path', part, sel: true,
-          attrs: { d: profilePath(ctx, n, cx, len, 0, r, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
+          attrs: { d: profilePath(ctx, n, cx, len, fore, aft, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
-        shoulderRect(`${key}:shoulder`, cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, 0, r));
+        shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY);
+        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft));
         cx += len;
       } else if (n.type === 'bodytube') {
         const r = drawnRadius(n);

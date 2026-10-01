@@ -17,6 +17,7 @@ import { signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
+import { isTailCone, noseEnds } from './tailCone.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -619,11 +620,17 @@ export function componentLoop(
       const wall = kernelNum(node, 'thickness');
       const { shape, param } = shapeOf(node);
       // No `clipped` argument on purpose: NoseCone.isClipped() is always false
-      // in the kernel, and foreR = 0 makes outerProfile's clip branch
-      // unreachable anyway (it needs r1 > 0). Only the transition below can clip.
-      const outer = outerProfile(shape, param, L, 0, R, PROFILE_STEPS, extraX);
-      const loop = bodyLoop(outer, wall, node['filled'] === true, null, shoulderOf(node, '', wall));
-      return { loop, label: 'Nose cone', bodySpan: [0, L], wall };
+      // in the kernel, and a zero radius at either end makes outerProfile's
+      // clip branch unreachable anyway (it needs r1 > 0). Only the transition
+      // below can clip. A TAIL CONE (flipped) prints base forward with its
+      // shoulder at the front, the cone NoseCone.setFlipped flies.
+      const tailCone = isTailCone(node);
+      const { fore, aft } = noseEnds(node, R);
+      const outer = outerProfile(shape, param, L, fore, aft, PROFILE_STEPS, extraX);
+      const shoulder = shoulderOf(node, '', wall);
+      const loop = bodyLoop(outer, wall, node['filled'] === true,
+        tailCone ? shoulder : null, tailCone ? null : shoulder);
+      return { loop, label: tailCone ? 'Tail cone' : 'Nose cone', bodySpan: [0, L], wall };
     }
     case 'transition': {
       const L = axialLength(node);

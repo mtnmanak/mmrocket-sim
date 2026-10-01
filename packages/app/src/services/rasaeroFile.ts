@@ -6,6 +6,7 @@ import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
+import { isTailCone } from '../tree/tailCone.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1846,7 +1847,18 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('</Protuberance>');
   };
 
+  // RASAero's nose cone points forward, and it has no tail cone to stand in
+  // for a flipped one; desktop refuses the export too (BasePartDTO). In a
+  // booster, where nose cones are not written at all, it would vanish instead.
+  const refuseTailCone = (node: ComponentNode): void => {
+    if (isTailCone(node)) {
+      throw new Error(`RASAero has no tail cone — “${node.name ?? 'Nose cone'}” is flipped to point aft. `
+        + 'Export as .ork or .rkt, or make it a transition.');
+    }
+  };
+
   const noseXml = (node: ComponentNode) => {
+    refuseTailCone(node);
     const shape = String(node['shape'] ?? 'ogive');
     const param = nnum(node, 'shapeParameter', NaN);
     let rasShape: string;
@@ -2026,6 +2038,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   for (let i = 1; i < stagesIn.length; i++) {
     const st = stagesIn[i]!;
     const kids = st.children ?? [];
+    kids.forEach(refuseTailCone);
     const tubes = kids.filter((c) => c.type === 'bodytube');
     if (tubes.length === 0) {
       throw new Error(`Stage "${st.name}" has no body tube — RASAero boosters need one.`);
