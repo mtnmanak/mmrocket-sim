@@ -10,7 +10,8 @@
  *     node: import with a warning nobody reads. And the .d.mts is the only type
  *     surface the app sees, so the two must declare the same exports.
  *  2. EVERY FIGURE IS SOURCED from the manufacturer or a certifying body, quoted,
- *     with its URL — never from thrustcurve.org, where the error is.
+ *     with its URL — never from thrustcurve.org, where the error is — and by
+ *     two documents, never one: a letter can be the one that is wrong.
  *  3. THE SHIPPED FILE AGREES WITH THE TABLE: motors.json holds every corrected
  *     figure, so the table can never describe a correction nobody applied.
  */
@@ -59,7 +60,7 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
       expect(Number.isFinite(bad) && Number.isFinite(good) && bad !== good).toBe(true);
     }
     expect(c.why.length).toBeGreaterThan(40);
-    expect(c.sources.length).toBeGreaterThan(0);
+    expect(c.sources.length, 'one document is not enough to correct a row: a second has to agree with it').toBeGreaterThan(1);
     for (const s of c.sources) {
       expect(s.url).toMatch(/^https?:\/\//);
       expect(s.url, 'thrustcurve.org is where the error is, so it cannot source its own correction')

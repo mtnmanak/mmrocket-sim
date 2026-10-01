@@ -292,14 +292,16 @@ async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry
   // apply (checkForCatalogueUpdates), so a shipped row thrustcurve.org still
   // lists unchanged is neither "refused" nor mistaken for "removed".
   //
-  // And CORRECTED the way the shipped catalogue is (board Tier 1 row 6): the
-  // refresh writes motor-corrections.mjs's sourced figures over two rows
-  // thrustcurve.org still serves with impossible ones (a 9,122 mm Contrail
-  // J234-BG, a Cesaroni 25E75-17A with 104 g of propellant in 52 g). Compared
-  // raw, each would read as a change on every check, fail the screen, and be
-  // reported "refused" — for rows the user never touched. Only the known-bad
-  // figure is replaced; any other value thrustcurve.org moves to still arrives
-  // as a change, screened like every other.
+  // And CORRECTED the way the shipped catalogue is (board Tier 1 rows 6 and
+  // 37): the refresh writes motor-corrections.mjs's sourced figures over rows
+  // thrustcurve.org still serves wrong (a 9,122 mm Contrail J234-BG, a Cesaroni
+  // 25E75-17A with 104 g of propellant in 52 g, a 274 mm AeroTech K62N whose
+  // case alone is 358 mm). Compared raw, each would read as a change on every
+  // check: the first two refused by the screen and reported, for rows the user
+  // never touched, and the K62N, which the screen passes, applied, undoing the
+  // correction. Only the known-bad figure is replaced; any other value
+  // thrustcurve.org moves to still arrives as a change, screened like every
+  // other.
   return [...byId.values()]
     .map((raw) => correctMotorRow(
       Object.fromEntries(CATALOGUE_FIELDS.map((f) => [f, raw[f]])) as unknown as MotorDbEntry));

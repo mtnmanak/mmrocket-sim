@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
  * The SHIPPED motor catalogue against AeroTech's certification letters: every
  * Tripoli Motor Testing letter in aerotech-certified.json that certifies a
  * catalogued motor must agree with that row on total impulse, peak thrust and
- * average thrust. Runs in `npm test`, so it gates the deploy and the weekly
+ * average thrust, and on the motor's length, loaded mass and propellant mass.
+ * Runs in `npm test`, so it gates the deploy and the weekly
  * catalogue refresh (.github/workflows/motors-refresh.yml gates its pull request
  * on `npm test`), the way preset-density.test.mjs gates presets.json.
  *
@@ -21,6 +22,14 @@ import { describe, expect, it } from 'vitest';
  * reference from outside thrustcurve.org, read from the PDFs by
  * extract-aerotech-certified.py. That needs the local-only docs/RCS Schematics,
  * so the JSON is a committed artifact, the way nozzles.json is.
+ *
+ * AND THE MOTOR ITSELF (board Tier 1 row 37, 2026-10-01). The letters measure
+ * the motor too, and a screen of its thrust alone passed the K62N at 274 mm
+ * long, where its letter says 374.25 mm and AeroTech's own drawing makes the
+ * case alone 358 mm: the app put its CG 50 mm aft of where it is, and the
+ * mount-length filter offered it to mounts it does not fit. Nor could any
+ * plausibility screen see it; 274 mm is a length a motor can have, just not
+ * this one.
  *
  * A ROW THAT FAILS HERE IS A QUESTION, NOT AN ANSWER, because a letter can be
  * the one that is wrong: the F52C's and H13ST's are undated drafts from one test
@@ -35,8 +44,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const certified = JSON.parse(readFileSync(join(here, 'aerotech-certified.json'), 'utf8'));
 const catalogue = JSON.parse(readFileSync(join(here, '..', 'src', 'data', 'motors.json'), 'utf8')).motors;
 
-/** The three figures the screen compares, by the catalogue's own field names. */
-const FIGURES = ['totImpulseNs', 'maxThrustN', 'avgThrustN'];
+/** The three figures each letter certifies, by the catalogue's own field names. */
+const CERTIFIED = ['totImpulseNs', 'maxThrustN', 'avgThrustN'];
+
+/**
+ * And the motor as the letter measured it: its overall length, loaded mass and
+ * propellant mass. Three letters print a placeholder for the propellant ("*",
+ * "?": the I175WS, K455NW and L1256WS), so theirs is null and not compared.
+ */
+const MEASURED = ['length', 'totalWeightG', 'propWeightG'];
+
+/** Every figure the screen compares, and so every figure KNOWN holds. */
+const FIGURES = [...CERTIFIED, ...MEASURED];
 
 /**
  * 0.5 %. Where the catalogue carries a motor these letters certify, its figure
@@ -53,8 +72,31 @@ const FIGURES = ['totImpulseNs', 'maxThrustN', 'avgThrustN'];
  * for a motor whose peak is 19 % over. So the band is five times the widest
  * rounding, and under the smallest real disagreement in these letters, the
  * N2700W-PS's 0.89 % on average thrust.
+ * The length and masses are copied the same way: as served, 39 of the 41 rows
+ * agree on length to 0.31 % (the F67C's 112 mm for the letter's 112.35), 39 on
+ * loaded mass to 0.23 % (the H14ST's 230 g for 229.47), and 37 of the 38 whose
+ * letter gives a propellant mass to 0.30 % (the G75M's 67 g for 66.8). The rest
+ * are the J99N and the B6W's loaded mass, both in KNOWN, and the K62N's length,
+ * which motor-corrections.mjs corrects.
  */
 const TOLERANCE = 0.005;
+
+/**
+ * Half a millimetre or half a gram: how far the catalogue's rounding alone puts
+ * a faithful copy of a letter's length or mass. thrustcurve.org keeps both to
+ * one decimal at most and often to the unit (the K62N's 1,277 g for the letter's
+ * 1,276.9; the E35W's 113 mm for 112.77), where the letters print a decimal or
+ * two, or from 2025 the unit (the F115SN's 123 mm, copied exactly). On a small
+ * motor half a unit is more than TOLERANCE — 0.63 % of the B6W's 79.15 mm, 2.4 %
+ * of the C18W's 20.92 g — so a length or mass agrees within TOLERANCE or
+ * HALF_UNIT, whichever is wider. Neither alone would do: no row needs HALF_UNIT
+ * today, every agreeing figure being inside TOLERANCE, but two masses are
+ * inside only TOLERANCE (the H14ST's 230 g for 229.47; the M6000ST's 8,029.6 g
+ * for 8,028.58, a gram off in eight kilograms). The smallest real
+ * disagreement, the B6W's 1.01 g, is twice HALF_UNIT. A thrust figure gets no
+ * such allowance: half a newton-second is 10 % of the B6W's impulse.
+ */
+const HALF_UNIT = 0.5;
 
 /** The makers these letters certify for: AeroTech, and its Q-Jet line, which thrustcurve.org files under Quest. */
 const MAKERS = new Set(['AeroTech', 'Quest']);
@@ -112,7 +154,7 @@ const ABSENT = {
 const KNOWN = {
   '5f5e57811e865c0004c955d8': {
     designation: 'F52C',
-    holds: { totImpulseNs: 66.2, maxThrustN: 64.33, avgThrustN: 52.65 },
+    holds: { totImpulseNs: 66.2, maxThrustN: 64.33, avgThrustN: 52.65, length: 111.4, totalWeightG: 81.4, propWeightG: 30 },
     why: 'every figure is the letter\'s divided by 1.159 (76.73 N·s, 74.57 N, 61.04 N), the same factor as the H13ST '
       + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
       + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
@@ -141,7 +183,7 @@ const KNOWN = {
   },
   '5f5e58171e865c0004c955f8': {
     designation: 'H13ST',
-    holds: { totImpulseNs: 211.19, maxThrustN: 43.51, avgThrustN: 13.89 },
+    holds: { totImpulseNs: 211.19, maxThrustN: 43.51, avgThrustN: 13.89, length: 213.4, totalWeightG: 203.4, propWeightG: 116.4 },
     why: 'every figure is the letter\'s divided by 1.159 (244.76 N·s, 50.42 N, 16.10 N), the same factor as the F52C '
       + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
       + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
@@ -162,18 +204,52 @@ const KNOWN = {
   },
   '5f4294d20002310000000309': {
     designation: 'J99N',
-    holds: { totImpulseNs: 945.2, maxThrustN: 151.95, avgThrustN: 92.4 },
+    holds: { totImpulseNs: 945.2, maxThrustN: 151.95, avgThrustN: 92.4, length: 231, totalWeightG: 899, propWeightG: 556 },
     why: 'the letter certifies the REDESIGNED J99N-P reload, tested 14 August 2020: 935.24 N·s, 127.24 N peak, 86.94 N '
-      + 'average, 479.7 g of propellant, 10.773 s. The row\'s 556 g of propellant, 10.2 s burn and 19 % higher peak '
-      + 'are not the redesign\'s; correcting it means taking the redesign\'s figures for every field, which is a '
-      + 'ruling, not a transcription fix',
+      + 'average, 479.7 g of propellant in 893.51 g loaded, 240.46 mm long, 10.773 s. The row\'s 556 g of propellant, '
+      + '899 g loaded, 231 mm, 10.2 s burn and 19 % higher peak are not the redesign\'s; correcting it means taking the '
+      + 'redesign\'s figures for every field, which is a ruling, not a transcription fix. The NAR\'s combined list '
+      + 'carries the row\'s impulse and propellant, and a third length',
+    sources: [
+      {
+        by: 'NAR Standards & Testing, "Combined CAR/NAR/TRA Certified Rocket Motors List", page 14 of 28 (printed '
+          + 'August 12, 2026), the PDF https://www.nar.org/CertifiedMotorListing links, read by word position',
+        url: 'https://www.nar.org/docs.ashx?id=1468138',
+        says: 'R | J99N-P | AeroTech | Dimensions (mm) 54 x 244 | Impulse (N-sec) 945.2 | Propellant Mass (g) 556 | '
+          + 'Tested By TRA',
+        read: '2026-10-01',
+      },
+    ],
   },
   '6623cf91f873440002ac6a28': {
     designation: 'N2700W-PS',
-    holds: { totImpulseNs: 10637, maxThrustN: 5553.5, avgThrustN: 2692.6 },
+    holds: { totImpulseNs: 10637, maxThrustN: 5553.5, avgThrustN: 2692.6, length: 1232.5, totalWeightG: 9058.2, propWeightG: 5275 },
     why: 'the letter fired two motors and certifies their average, printed in brackets: 10,322 N·s, 4,624.6 N peak, '
       + '2,716.9 N average (its TMT nomenclature, "10,322 N2717", is built from it). The row carries the FIRST motor\'s '
       + 'own figures, 10,637 / 5,553.5 / 2,692.6: 3.1 % over on impulse and 20 % on peak',
+  },
+  '60ac76068dc4640004c24d93': {
+    designation: 'B6W',
+    holds: { totImpulseNs: 4.87, maxThrustN: 9.13, avgThrustN: 4.22, length: 79.2, totalWeightG: 19.3, propWeightG: 2.8 },
+    why: 'loaded mass 19.3 g against the letter\'s 18.29 g (0.0403 lb): 5.5 % over, which no rounding of 18.29 gives, '
+      + 'where every other figure is the letter\'s, rounded. The letter is dated and signed (May 10, 2021), but '
+      + 'AeroTech\'s own pages say 19 grams, the row\'s 19.3 rounded and not the letter\'s 18.29, so the two disagree; '
+      + 'the NAR\'s combined list prints no loaded mass. What the row reaches: the app flies a data file\'s own masses '
+      + 'over the catalogue\'s, and both bundled B6W files state 18.3 g, so no flight flies a 19.3 g B6W; 19.3 g is '
+      + 'what the motor browser shows, and what a RASAero import takes out of a stage\'s stated weight before the '
+      + 'motor\'s own 18.3 g goes back in',
+    sources: [
+      {
+        by: 'AeroTech (RCS Rocket Motor Components), product pages "Quest Q-Jet™ B6-4W White Lightning Complete 2-Motor '
+          + 'Launch Pack - Q6123", "... B6-6W ... - Q6124" (product_82ecf9a3-8256-460b-2be2-3cea2dd7a6d8) and "... B6-4W '
+          + 'White Lightning Rocket Motors Value 25-Pack - Q6418" (product_e85bdce0-465b-8123-0ae7-06bef4f9b20b), alike',
+        url: 'https://aerotech-rocketry.com/products/product_8c4592e4-0080-de66-b83f-c7d806b6b954',
+        says: 'Motor Diameter: 0.71 inches (18mm); Casing Length: 2.75 inches (70mm); Total Impulse: 4.9 N-sec; Average '
+          + 'Thrust: 4.2 newtons; Peak Thrust: 8.9 N-sec; Thrust Duration: 1.2 seconds; Propellant Weight: 2.8 grams; '
+          + 'Motor Weight: 19 grams',
+        read: '2026-10-01',
+      },
+    ],
   },
 };
 
@@ -194,9 +270,19 @@ const matched = certified.rows
   .filter(({ found }) => found.length === 1)
   .map(({ letter, found: [row] }) => ({ letter, row }));
 const off = (letter, row, f) => row[f] / letter[f] - 1;
+/** Within TOLERANCE, or for a length or mass within HALF_UNIT. A figure the row lacks (NaN) never agrees. */
+const agrees = (letter, row, f) => Math.abs(off(letter, row, f)) <= TOLERANCE
+  || (MEASURED.includes(f) && Math.abs(row[f] - letter[f]) <= HALF_UNIT);
 const disagreements = ({ letter, row }) => FIGURES
-  .filter((f) => !(Math.abs(off(letter, row, f)) <= TOLERANCE))
+  .filter((f) => letter[f] !== null && !agrees(letter, row, f))
   .map((f) => `${f} ${row[f]} against the letter's ${letter[f]} (${(100 * off(letter, row, f)).toFixed(2)} %)`);
+/**
+ * A row's screened figures to twelve significant figures, as KNOWN holds them:
+ * the shipped JSON carries float noise (the N2700W-PS's 9,058.199999999999 g),
+ * which is a serialisation, not a change.
+ */
+const figuresOf = (row) => Object.fromEntries(FIGURES.map((f) => [f,
+  typeof row[f] === 'number' ? Number(row[f].toPrecision(12)) : row[f]]));
 
 describe('the shipped motor catalogue against AeroTech\'s certification letters', () => {
   it('finds each letter\'s motor exactly once, or knows the catalogue does not carry it', () => {
@@ -224,7 +310,7 @@ describe('the shipped motor catalogue against AeroTech\'s certification letters'
     }
   });
 
-  it('agrees with every letter on total impulse, peak and average thrust, within TOLERANCE', () => {
+  it('agrees with every letter on its thrust within TOLERANCE, and on its length and masses within TOLERANCE or HALF_UNIT', () => {
     const offenders = matched
       .filter(({ row }) => !(row.motorId in KNOWN))
       .flatMap((pair) => disagreements(pair).map((d) => `${pair.row.manufacturerAbbrev} ${pair.row.designation} `
@@ -239,11 +325,23 @@ describe('the shipped motor catalogue against AeroTech\'s certification letters'
       const pair = byId.get(id);
       expect(pair, `KNOWN ${k.designation} (${id}) matches no letter: retire the entry`).toBeDefined();
       expect(pair.row.designation).toBe(k.designation);
-      expect(Object.fromEntries(FIGURES.map((f) => [f, pair.row[f]])),
+      expect(figuresOf(pair.row),
         `${k.designation} no longer holds the figures KNOWN records: if it now agrees with its letter, retire the entry; `
         + 'if not, look again').toEqual(k.holds);
       expect(disagreements(pair).length, `${k.designation} agrees with its letter: retire the entry`).toBeGreaterThan(0);
     }
+  });
+
+  it('takes a length or mass rounded to the unit as agreeing, however small the motor, and a thrust figure never', () => {
+    // A small motor's figures, and a row with its length and loaded mass rounded to the unit (0.57 % and 2.2 % off)
+    // and a propellant mass the letter does not give.
+    const letter = { totImpulseNs: 4.6, maxThrustN: 9.13, avgThrustN: 4.22, length: 70.4, totalWeightG: 18.6, propWeightG: null };
+    const row = { ...letter, length: 70, totalWeightG: 19, propWeightG: 3.5 };
+    expect(disagreements({ letter, row })).toEqual([]);
+    // Not the B6W's 1.01 g, which no rounding explains, nor 0.3 N·s of impulse, 6.5 % of it.
+    expect(disagreements({ letter: { ...letter, totalWeightG: 18.29 }, row: { ...row, totalWeightG: 19.3 } }))
+      .toEqual(["totalWeightG 19.3 against the letter's 18.29 (5.52 %)"]);
+    expect(disagreements({ letter, row: { ...row, totImpulseNs: 4.9 } })).toEqual(["totImpulseNs 4.9 against the letter's 4.6 (6.52 %)"]);
   });
 
   it('screens a real number of rows, so a pass is not an empty match passing', () => {
@@ -268,7 +366,11 @@ describe('aerotech-certified.json reads its letters right', () => {
       expect(l.letterDate).toMatch(/\d{4}$/);
       expect(l.testedOn).toMatch(/\d{4}$/);
       expect(['text', 'image']).toContain(l.read);
-      for (const f of FIGURES) expect(Number.isFinite(l[f]) && l[f] > 0, `${l.file} ${f}`).toBe(true);
+      for (const f of CERTIFIED) expect(Number.isFinite(l[f]) && l[f] > 0, `${l.file} ${f}`).toBe(true);
+      // The screen compares these too, and skips only a propellant mass the letter leaves as "*" or "?".
+      for (const f of MEASURED) {
+        expect((Number.isFinite(l[f]) && l[f] > 0) || (f === 'propWeightG' && l[f] === null), `${l.file} ${f}`).toBe(true);
+      }
     }
   });
 
