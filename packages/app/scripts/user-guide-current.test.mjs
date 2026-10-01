@@ -26,7 +26,10 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { DATA, GuideError, OUT, SRC, compileGuide } from '../../../scripts/build-user-guide.mjs';
+import {
+  DATA, GuideError, OUT, SRC, compileGuide, motorCorrectionsSentence,
+} from '../../../scripts/build-user-guide.mjs';
+import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
@@ -228,5 +231,49 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
 
   it('compiles the shipped file unchanged, so each refusal above is the edit and not the copy', () => {
     expect(compileGuide({ dataDir: rebuilt(() => {}) }).ts).toBe(compileGuide().ts);
+  });
+});
+
+/**
+ * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 row 6). The guide says the
+ * app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01 two rows
+ * are not: motor-corrections.mjs replaces figures no motor can have. The sentence
+ * that says so is phrased FROM that table, so retiring an entry there retires
+ * its words here, and a correction to a field the guide has no wording for stops
+ * the build rather than going unmentioned.
+ */
+describe('the motor-catalogue corrections the guide states', () => {
+  const motors = JSON.parse(readFileSync(join(DATA, 'motors.json'), 'utf8')).motors;
+  const n = (v) => v.toLocaleString('en-US');
+
+  it('names every corrected figure, and the figure thrustcurve.org gives, in the shipped guide', () => {
+    expect(readFileSync(SRC, 'utf8')).toContain('{{MOTOR_CORRECTIONS}}');
+    const html = allHtml(compileGuide().ts);
+    for (const c of MOTOR_CORRECTIONS) {
+      for (const { bad, good } of Object.values(c.fields)) {
+        expect(html).toMatch(new RegExp(`${c.manufacturer} ${c.designation}[^;.]*\\b${n(good).replace('.', '\\.')} [^;]*thrustcurve\\.org lists ${n(bad)}\\b`));
+      }
+    }
+  });
+
+  it('is phrased from the table, field by field, and refuses a field it has no words for', () => {
+    const [c] = MOTOR_CORRECTIONS;
+    expect(motorCorrectionsSentence([c], motors)).toMatch(new RegExp(`^the ${c.manufacturer} ${c.designation} `));
+    const unworded = { ...c, fields: { avgThrustN: { bad: 1, good: 2 } } };
+    expect(() => motorCorrectionsSentence([unworded], motors)).toThrow(/no wording for .*avgThrustN/);
+    expect(motorCorrectionsSentence([], motors)).toBe('');
+  });
+
+  it('joins several corrections with semicolons, since each carries its own comma', () => {
+    const one = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(0, 1), motors);
+    const both = motorCorrectionsSentence(MOTOR_CORRECTIONS, motors);
+    expect(MOTOR_CORRECTIONS.length).toBeGreaterThan(1);
+    expect(both.startsWith(`${one}; and `)).toBe(true);
+  });
+
+  it('refuses to print the sentence once the table has nothing in it', () => {
+    const doc = '<a id="s"></a>\n## S\n\nCorrected: {{MOTOR_CORRECTIONS}}.';
+    expect(() => compileGuide({ markdown: doc })).not.toThrow();
+    expect(() => compileGuide({ markdown: doc, corrections: [] })).toThrow(/\{\{MOTOR_CORRECTIONS\}\} renders nothing/);
   });
 });

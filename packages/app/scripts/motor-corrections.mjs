@@ -9,7 +9,7 @@
  * src/services/catalogueOverlay.ts), and motor-catalogue-screen.test.mjs now
  * keeps any other from shipping. Board Tier 1 row 6.
  *
- * ONE TABLE, THREE READERS — the rule apply-preset-corrections.mjs set for the
+ * ONE TABLE, FOUR READERS — the rule apply-preset-corrections.mjs set for the
  * parts catalogue, "one list, not two":
  *  - fetch-motor-db.mjs applies it to every refresh before it writes, so
  *    `npm run motors:refresh` and the weekly workflow keep the corrections;
@@ -19,7 +19,9 @@
  *    report on every check;
  *  - scripts/check-upstream.mjs reads it to watch thrustcurve.org, so the day a
  *    row is fixed there the entry is flagged for retirement (Eric, 2026-08-31:
- *    "maintain vigilance on anything we rely on from third party sources").
+ *    "maintain vigilance on anything we rely on from third party sources");
+ *  - scripts/build-user-guide.mjs phrases the guide's sentence on corrected rows
+ *    from it ({{MOTOR_CORRECTIONS}}), so a retired entry leaves the guide too.
  *
  * BROWSER-SAFE, because catalogueOverlay.ts puts it in the app bundle: no
  * imports of any kind (motor-corrections.test.mjs and an ESLint rule hold that),

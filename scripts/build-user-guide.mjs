@@ -27,9 +27,10 @@
  * (exit 1, with the offending line) on anything outside the known set, so an
  * unsupported edit to the markdown breaks the build instead of the dialog.
  *
- * Output is a pure function of its inputs (the markdown, and the three shipped
- * data files its {{TOKENS}} come from: motors.json, motorCurves.json and
- * nozzles.json) — byte-identical on re-run — and
+ * Output is a pure function of its inputs (the markdown, the three shipped data
+ * files its {{TOKENS}} come from — motors.json, motorCurves.json and
+ * nozzles.json — and the motor-catalogue corrections table) — byte-identical on
+ * re-run — and
  * its data strings are pure ASCII (non-ASCII escaped as \uXXXX) so the
  * content survives any editor/codepage mishap on the way through a Windows
  * checkout.
@@ -37,6 +38,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Lives beside the app that consumes it — the guide is a
@@ -261,9 +263,35 @@ const TOKEN_KIND = {
   // coverage PHRASE is refused instead, whatever its numbers (see checkBareFigures).
   NOZZLE_LOKI_WITH_EXIT: 'coverage',
   NOZZLE_LOKI_IN_PRODUCTION: 'coverage',
+  MOTOR_CORRECTIONS: 'text',
 };
 
-function guideTokens(data) {
+/**
+ * THE CATALOGUE ROWS THE APP CORRECTS, as one clause each (board Tier 1 row 6,
+ * 2026-10-01). The guide says the bundled motors are thrustcurve.org's "as
+ * pulled", and the rows packages/app/scripts/motor-corrections.mjs corrects are
+ * not, so the guide says which and how — phrased from that table, the same one
+ * the refresh applies, so retiring an entry there retires its words here. A
+ * field with no wording below stops the build: a correction must not go
+ * unmentioned just because nobody wrote a phrase for it.
+ */
+export function motorCorrectionsSentence(corrections, motors) {
+  const n = (v) => Number(v).toLocaleString('en-US');
+  const byId = new Map(motors.map((m) => [m.motorId, m]));
+  const clauses = corrections.flatMap((c) => Object.entries(c.fields).map(([field, { bad, good }]) => {
+    const name = `the ${c.manufacturer} ${c.designation}`;
+    if (field === 'length') return `${name} is ${n(good)} mm long, where thrustcurve.org lists ${n(bad)} mm`;
+    if (field === 'propWeightG') {
+      const loaded = byId.get(c.motorId)?.totalWeightG;
+      return `${name} carries ${n(good)} g of propellant, where thrustcurve.org lists ${n(bad)} g`
+        + (Number.isFinite(loaded) ? ` in a ${n(loaded)} g motor` : '');
+    }
+    return fail(`motor-corrections.mjs corrects ${c.designation} ${field}, and the guide has no wording for ${field} — add one in motorCorrectionsSentence()`);
+  }));
+  return clauses.length > 1 ? `${clauses.slice(0, -1).join('; ')}; and ${clauses.at(-1)}` : (clauses[0] ?? '');
+}
+
+function guideTokens(data, corrections) {
   const motors = JSON.parse(readFileSync(join(data, 'motors.json'), 'utf8'));
   const curves = JSON.parse(readFileSync(join(data, 'motorCurves.json'), 'utf8'));
   const total = motors.count ?? motors.motors.length;
@@ -323,6 +351,7 @@ function guideTokens(data) {
     CURVE_SHARE_CERT: share('cert'),
     CURVE_SHARE_USER: share('user'),
     CURVE_SHARE_MFR: share('mfr'),
+    MOTOR_CORRECTIONS: motorCorrectionsSentence(corrections, motors.motors),
   };
 }
 
@@ -540,11 +569,13 @@ const field = (k, v) => `    ${JSON.stringify(k)}: ${ascii(JSON.stringify(v))}`;
  * Compile the guide: markdown in, the text of userGuide.ts out. Pure — it
  * writes nothing — so user-guide-current.test.mjs can hold the committed file
  * to it. `dataDir` is where motors.json, motorCurves.json and nozzles.json are
- * read from.
+ * read from; `corrections` is the motor-catalogue corrections table.
  */
-export function compileGuide({ markdown = readFileSync(SRC, 'utf8'), dataDir = DATA } = {}) {
+export function compileGuide({
+  markdown = readFileSync(SRC, 'utf8'), dataDir = DATA, corrections = MOTOR_CORRECTIONS,
+} = {}) {
   const nozzles = nozzleFacts(dataDir);
-  const TOKENS = { ...guideTokens(dataDir), ...nozzles.tokens };
+  const TOKENS = { ...guideTokens(dataDir, corrections), ...nozzles.tokens };
   for (const key of Object.keys(TOKENS)) {
     if (!(key in TOKEN_KIND)) fail(`guide token {{${key}}} has no entry in TOKEN_KIND`);
   }
@@ -558,6 +589,9 @@ export function compileGuide({ markdown = readFileSync(SRC, 'utf8'), dataDir = D
       if (!(key in TOKENS)) {
         fail(`unknown guide token {{${key}}} — known: ${Object.keys(TOKENS).join(', ')}`);
       }
+      // A sentence built round a token must not print with a hole in it — the
+      // corrections sentence once the last correction is retired, say.
+      if (TOKENS[key] === '') fail(`{{${key}}} renders nothing from the data it is built on — remove or reword the sentence that uses it`);
       return TOKENS[key];
     })
     .split('\n');
