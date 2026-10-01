@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TcMotor, TcSample, TcSimFile } from './thrustcurve.js';
 
@@ -291,6 +294,26 @@ describe('"no curve exists" is said only when thrustcurve.org says so', () => {
     expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
     expect(err.message).toMatch(/^thrustcurve\.org could not be reached for C6 — are you offline\?/);
     expect(err.cause).toBeInstanceOf(TypeError);
+  });
+
+  it('the guide says what each of them says for a motor with no bundled curve', async () => {
+    // The offline section of user-guide.md tells a user what picking one of
+    // the motors shipped without a curve does. Offline it said the pick "fails
+    // as any request does with no network": the browser's bare "Failed to
+    // fetch", which this error no longer is. A phrase each, shared by the
+    // message and the guide.
+    const tc = await freshModule();
+    stubDownload([]);
+    const online = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const offline = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    const paragraph = guide.split('\n').find((l) => l.includes('with no bundled curve are the one gap')) ?? '';
+    expect(paragraph).not.toBe('');
+    for (const [message, words] of [[online, 'no sample data'], [offline, 'thrustcurve.org could not be reached']] as const) {
+      expect(message.toLowerCase(), message).toContain(words);
+      expect(paragraph, words).toContain(words);
+    }
   });
 
   it('an HTTP error or an answer with no results list is not that either', async () => {
