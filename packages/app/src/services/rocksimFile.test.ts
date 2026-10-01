@@ -2810,6 +2810,85 @@ describe('.rkt export positions (audit 2026-09-22)', () => {
 });
 
 /**
+ * An AUTOMATIC ring goes out at the size the kernel flies (2026-09-30 review).
+ * Every centering ring the Add menu makes is one. The writer took a centering
+ * ring's ID as OD minus twice a 2 mm default "thickness", so a 3" ring around a
+ * 29 mm mount left as a 2 mm annulus. It took a ring's OD from its parent's own
+ * stated `outerRadius`, which a nose cone never has, so a bulkhead an .ork puts
+ * in a nose cone went out 20 mm across on any airframe. RockSim, desktop OR and
+ * this app's own reader then built those sizes. (A coupler's children are not
+ * written at all: format sub-register row 111.)
+ */
+describe('.rkt export sizes an automatic ring as the kernel flies it', () => {
+  // A 3" rocket: a conical nose holding a bulkhead at its base, as an .ork
+  // brings one, then a 0.8 m airframe with a 29 mm mount at the aft end, an
+  // 18 mm payload tube forward and Add-menu rings (no radii of their own).
+  const design = () => ({
+    name: 'R',
+    tree: { name: 'R', components: [{ type: 'stage', id: 's', children: [
+      { type: 'nosecone', id: 'n', name: 'Nose', shape: 'conical', length: 0.2, aftRadius: 0.0381, thickness: 0.002,
+        density: 680,
+        children: [{ type: 'bulkhead', id: 'bh', name: 'Bulkhead', length: 0.003, density: 680,
+          position: { method: 'bottom', offset: 0 } }] },
+      { type: 'bodytube', id: 'b', name: 'Airframe', length: 0.8, outerRadius: 0.0381, thickness: 0.001, density: 680,
+        children: [
+          { type: 'innertube', id: 'mm', name: 'Mount', length: 0.3, outerRadius: 0.0153, thickness: 0.0005,
+            motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type: 'innertube', id: 'pl', name: 'Payload', length: 0.2, outerRadius: 0.0095, thickness: 0.0005,
+            position: { method: 'top', offset: 0.1 } },
+          { type: 'centeringring', id: 'aft', name: 'Aft ring', length: 0.003, density: 680,
+            position: { method: 'bottom', offset: -0.01 } },
+          { type: 'centeringring', id: 'fwd', name: 'Payload ring', length: 0.003, density: 680,
+            position: { method: 'top', offset: 0.15 } },
+          { type: 'centeringring', id: 'gap', name: 'Gap ring', length: 0.003, density: 680,
+            position: { method: 'top', offset: 0.4 } },
+        ] },
+    ] }] as ComponentNode[] },
+  });
+  const ring = (xml: string, name: string) => (xml.match(/<Ring>[\s\S]*?<\/Ring>/g) ?? [])
+    .find((b) => b.includes(`<Name>${name}</Name>`))!;
+  const mm = (block: string, tag: string) => Number(new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(block)![1]);
+
+  it('writes a centering ring\'s ID from the inner tube it overlaps, as CenteringRing.getInnerRadius does', () => {
+    const xml = exportRkt(design());
+    // Airframe bore 74.2 mm; the aft ring around the 30.6 mm mount.
+    expect(mm(ring(xml, 'Aft ring'), 'OD')).toBeCloseTo(74.2, 9);
+    expect(mm(ring(xml, 'Aft ring'), 'ID'), 'an automatic ring left as a 2 mm annulus').toBeCloseTo(30.6, 9);
+    // The forward ring around the 19.0 mm payload tube, not the mount.
+    expect(mm(ring(xml, 'Payload ring'), 'ID')).toBeCloseTo(19.0, 9);
+    // No tube overlaps it: the kernel flies a solid disc, and so does the file.
+    expect(mm(ring(xml, 'Gap ring'), 'ID')).toBe(0);
+  });
+
+  it('writes a ring\'s OD from the bore it sits in, a nose cone\'s included', () => {
+    // The cone's radius 3 mm from its base is 38.1 x 197/200 = 37.53 mm; less
+    // the 2 mm wall, the bulkhead is 71.06 mm across, as the kernel sizes it.
+    expect(mm(ring(exportRkt(design()), 'Bulkhead'), 'OD'), 'a bulkhead in a nose cone went out 20 mm across')
+      .toBeCloseTo(2 * (0.0381 * 0.197 / 0.2 - 0.002) * 1000, 6);
+  });
+
+  it('round-trips every ring at the mass the kernel gave it', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const massByName = (components: ComponentNode[]) => {
+      resetEngine();
+      const rocket = OrkRocket.buildTree(engineTree({ name: 'R', components }));
+      return Object.fromEntries(flatten(components)
+        .filter((c) => c.type === 'centeringring' || c.type === 'bulkhead')
+        .map((c) => [c.name!, rocket.componentInfo(c.id!).mass]));
+    };
+    const d = design();
+    const before = massByName(d.tree.components);
+    const after = massByName(importRkt(exportRkt(d)).tree.components);
+    expect(Object.keys(after).sort()).toEqual(['Aft ring', 'Bulkhead', 'Gap ring', 'Payload ring']);
+    for (const name of Object.keys(before)) {
+      expect(before[name]!, name).toBeGreaterThan(0);
+      expect(after[name]! / before[name]!, name).toBeCloseTo(1, 6);
+    }
+  });
+});
+
+/**
  * Audit 2026-09-22 row 395 — where the motors go. Every RockSim-written file in
  * the 939-file corpus that carries a motor (676 of the 843 readable ones) keeps
  * its <EngineSet>s inside RockSimDocument > SimulationResultsList >

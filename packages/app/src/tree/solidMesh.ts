@@ -31,12 +31,20 @@ export interface SolidContext {
    */
   parentInnerRadius?: number;
   /**
-   * outer radius of the motor-mount inner tube (m) — the bore of a centering
-   * ring that states none of its own (centeringRingBore)
+   * the largest outer radius (m) among the inner tubes beside the part that
+   * overlap it axially, resolved by tree/solidContext.ts as the kernel's
+   * CenteringRing.getInnerRadius does — the bore of a centering ring that
+   * states none of its own (centeringRingBore); unset when no tube overlaps
    */
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
+  /**
+   * a fin set's deepest through-the-wall tab (m): the parent body's radius at
+   * the tab, the smaller of its two ends (FinSet.getMaxTabHeight), resolved by
+   * tree/solidContext.ts — the depth finTab.finTabSpan clamps the cut tab to
+   */
+  tabMaxDepth?: number;
 }
 
 const EPS = 1e-9;
@@ -375,8 +383,11 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
  * correctly, while an outline overlapping a separate tab box cuts a slot
  * through the root. finTemplate.ts's finOutline() is the unmerged variant —
  * the SVG draws the tab as its own stroke, which is fine on paper.
+ *
+ * `ctx` carries the body radius at the tab (`tabMaxDepth`), which the tab's
+ * depth is clamped to; both exporters pass solidContextFor's.
  */
-export function finCutOutline(node: ComponentNode): Array<[number, number]> | null {
+export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
   if (node.type === 'trapezoidfinset') {
     const root = num(node, 'rootChord', 0.05);
@@ -446,7 +457,7 @@ export function finCutOutline(node: ComponentNode): Array<[number, number]> | nu
   // ear clipper 4 cap triangles where 6 are needed, i.e. a non-watertight STL
   // and a DXF path that doubled back on itself. It also placed the tab at a
   // different station than the physics uses.
-  const tab = finTabSpan(node, finRootChord(node));
+  const tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
   if (tab) {
     const first = pts[0]!;
     const lastP = pts[pts.length - 1]!;
@@ -488,6 +499,15 @@ export interface PrintableLoop {
    * warning under the 🖨 button.
    */
   sizeAssumed?: boolean;
+  /**
+   * A centering ring's HOLE is a placeholder: no stated bore and no inner tube
+   * overlapping the ring gives one that fits (centeringRingBore), so it is cut
+   * at half the OD. The label says "(assumed bore)" and printOffer says so
+   * under the 🖨 button too — the label alone sits inside the file, where an
+   * automatic ring aft of its motor tube printed a hole the motor cannot pass
+   * with nothing on screen (audit 2026-09-30 review).
+   */
+  boreAssumed?: boolean;
 }
 
 /**
@@ -520,8 +540,9 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
  *
  * The same order as ringOuterRadius, and the kernel's: the ring's OWN stated
  * inner radius first — every .ork and .rkt ring that states an ID carries one,
- * and CenteringRing.getInnerRadius flies it, consulting the sibling motor mount
- * only when the radius is automatic — then the mount's OD. The exports read the
+ * and CenteringRing.getInnerRadius flies it, consulting the sibling inner tubes
+ * only when the radius is automatic — then the OD of the widest inner tube that
+ * overlaps the ring (`ctx.mountOuterRadius`). The exports read the
  * mount alone until the 2026-09-22 audit's review, so an imported ring of OD 40
  * / ID 29 mm in a tube with no inner tube printed and cut with a made-up 20 mm
  * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
@@ -619,7 +640,7 @@ export function componentLoop(
       return {
         loop: ringLoop(R, R * 0.5, L),
         label: assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)',
-        bodySpan: [0, L], wall: R * 0.5, ...size,
+        bodySpan: [0, L], wall: R * 0.5, boreAssumed: true, ...size,
       };
     }
     case 'bulkhead': {
@@ -677,7 +698,7 @@ export async function componentSolid(
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {
-      const outline = finCutOutline(node);
+      const outline = finCutOutline(node, ctx);
       if (!outline) return null;
       const mesh = await extrudePolygon(outline, num(node, 'thickness', 0.003));
       // extrudePolygon returns EMPTY rather than an open shell when the

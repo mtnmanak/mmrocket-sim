@@ -237,7 +237,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // 360 / LightBurn read the profile as an error or as unclosed. The
       // < 3 guard is re-checked AFTER the collapse, since collapsing is what
       // can drop a contour below three distinct corners.
-      const raw = finCutOutline(node);
+      const raw = finCutOutline(node, ctx);
       if (!raw) return null;
       const outline = collapseLoop(raw);
       if (outline.length < 3) return null;
@@ -301,9 +301,12 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
         ? `Centering ring${assumed ? ' (assumed size)' : ''}`
         : assumed ? 'Centering ring (assumed size and bore)' : 'Centering ring (assumed bore)';
       const geom = discEnts(R, bore);
+      // Not "no motor mount found": the bore is the widest inner tube that
+      // OVERLAPS this ring (solidContextFor), so a ring forward of a mount
+      // that is there has none, and the builder must not go looking for one.
       const why = found
         ? `motor mount ⌀ ${dim(raw * 2)} mm does not fit this ring's ${dim(R * 2)} mm OD`
-        : 'no motor mount found';
+        : 'no motor mount passes through this ring';
       const dims = `OD ${dim(R * 2)} mm | bore ${dim(bore * 2)} mm`
         + ` | stock thickness ${dim(num(node, 'length', 0.003))} mm`
         + (assumed ? OD_ASSUMED : '')

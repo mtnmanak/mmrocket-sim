@@ -27,8 +27,8 @@ const mount = (tree: RocketTree, node: ComponentNode) => act(() => root.render(
   </PrefsProvider>,
 ));
 
-/** Click the ✂ DXF button and return the file text it hands to the browser. */
-async function dxfText(): Promise<string> {
+/** Click the button whose text starts with `glyph` and return the file text it hands to the browser. */
+async function downloadText(glyph: string): Promise<string> {
   const blobs: Blob[] = [];
   vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
     blobs.push(b as Blob);
@@ -38,7 +38,7 @@ async function dxfText(): Promise<string> {
   const orig = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function click() {};
   try {
-    const btn = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith('✂'))!;
+    const btn = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith(glyph))!;
     await act(async () => { btn.click(); });
   } finally {
     HTMLAnchorElement.prototype.click = orig;
@@ -46,6 +46,9 @@ async function dxfText(): Promise<string> {
   expect(blobs.length).toBe(1);
   return blobs[0]!.text();
 }
+
+/** Click the ✂ DXF button and return the file text it hands to the browser. */
+const dxfText = (): Promise<string> => downloadText('✂');
 
 /** Every CIRCLE radius in a DXF, in mm (group 40 follows the centre). */
 const circleRadii = (dxf: string): number[] => {
@@ -118,6 +121,36 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     expect(dxf).toContain('OD ASSUMED: no tube found to size this part from');
   });
 
+  it('a centering ring no inner tube passes through says its bore is assumed, under the button too', async () => {
+    // LEM-IV's "Retainer Plate" (a tester's file): a 99.1 mm ring with an
+    // automatic bore, 41 mm aft of the 80.3 mm motor tube. No tube overlaps
+    // it, so the bore is the half-OD placeholder (the kernel flies a solid
+    // disc), and until the 2026-09-30 review only the label INSIDE the STL and
+    // the DXF's own note said so.
+    const plate = {
+      id: 'rp', type: 'centeringring', name: 'Retainer Plate', length: 0.0032, outerRadius: 0.04953,
+      position: { method: 'top', offset: 0.8033 },
+    } as unknown as ComponentNode;
+    const tree = {
+      name: 'Rocket',
+      components: [{ id: 's1', type: 'stage', children: [{
+        id: 'b1', type: 'bodytube', outerRadius: 0.051054, thickness: 0.0015, length: 0.7779,
+        children: [
+          { id: 'mmt', type: 'innertube', outerRadius: 0.0401574, thickness: 0.001, length: 0.6858,
+            position: { method: 'top', offset: 0.0762 }, motorMount: true },
+          plate,
+        ],
+      }] }],
+    } as unknown as RocketTree;
+    mount(tree, plate);
+    expect(note()!.textContent).toBe('Bore assumed: 49.5 mm is a placeholder — no motor mount passes '
+      + 'through this ring. Measure what goes through it before you print or cut it.');
+    expect(note()!.className).toContain('print-note-warn');
+    const dxf = await dxfText();
+    expect(dxf).toContain('OD 99.1 mm | bore 49.5 mm');
+    expect(dxf).toContain('BORE ASSUMED: no motor mount passes through this ring');
+  });
+
   it('the two buttons describe the sizing they do, not "from the parent tube"', () => {
     // A part's OWN stated diameter comes first, and the bore may be a
     // coupler's, a nose cone's or a transition's (audit 2026-09-22).
@@ -137,5 +170,30 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     // The DXF's ring-bore clause: the ring's own stated ID comes first too.
     const dxfTitle = titles.find((t) => t.includes('DXF'))!;
     expect(dxfTitle).toContain("a centering ring's bore from its own stated ID, else the motor mount");
+  });
+});
+
+describe('PropertyPanel — a fin tab cuts no deeper than the body', () => {
+  // A 30 mm tab on a 38 mm minimum-diameter airframe, 39.0 mm across with a
+  // 38.0 mm bore (audit 2026-09-30): the kernel and the side view clamp it to
+  // the 19.5 mm body radius, and so must both files these buttons hand over —
+  // the 📐 template took no context at all.
+  const fins = {
+    id: 'fins', type: 'trapezoidfinset', name: 'Fins', finCount: 3, rootChord: 0.1, tipChord: 0.05,
+    sweep: 0.05, height: 0.06, thickness: 0.003, tabHeight: 0.03, tabLength: 0.06,
+    position: { method: 'bottom', offset: 0 },
+  } as unknown as ComponentNode;
+  const tree = {
+    name: 'Rocket',
+    components: [{ id: 's1', type: 'stage', children: [{
+      id: 'b1', type: 'bodytube', outerRadius: 0.0195, thickness: 0.0005, length: 0.6, children: [fins],
+    }] }],
+  } as unknown as RocketTree;
+
+  it('the 📐 template and the ✂ DXF both cut the clamped 19.5 mm tab', async () => {
+    mount(tree, fins);
+    expect(await downloadText('📐')).toContain('tab 19.5 mm deep');
+    vi.restoreAllMocks();
+    expect(await dxfText()).toContain('TTW tab 19.5 mm deep');
   });
 });

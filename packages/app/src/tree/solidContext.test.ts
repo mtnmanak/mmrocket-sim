@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { componentDxf } from '../services/dxfExport.js';
+import { finTemplateSvg } from '../services/finTemplate.js';
 import { solidContextFor } from './solidContext.js';
-import { componentLoop, componentSolid, solidVolume } from './solidMesh.js';
+import { componentLoop, componentSolid, finCutOutline, solidVolume } from './solidMesh.js';
 
 /**
  * The bore a printed or cut ring-type part is sized to (audit 2026-09-22).
@@ -163,6 +165,153 @@ describe('solidContextFor — the bore a part sits in', () => {
     // A node outside the tree, or with no id, gets an empty context.
     expect(solidContextFor(t, { type: 'bulkhead' } as ComponentNode)).toEqual({});
     expect(solidContextFor(t, { id: 'nope', type: 'bulkhead' } as ComponentNode)).toEqual({});
+  });
+});
+
+/**
+ * AN AUTOMATIC CENTERING RING'S BORE (audit 2026-09-30). The kernel's
+ * `CenteringRing.getInnerRadius` takes the largest outer radius among the
+ * inner tubes beside the ring that overlap it axially — touching at an end
+ * counts — and 0 when none does. The export context took the FIRST inner tube
+ * in the parent wherever it sat, so a forward ring around an 18 mm payload
+ * tube printed and DXF-cut with the 29 mm motor mount's bore, listed first.
+ * `.ork` writes `auto` for every automatic ring, so that is the common case.
+ */
+describe('an automatic centering ring is bored to the inner tubes it overlaps', () => {
+  /**
+   * A 3" airframe 0.8 m long: a 29 mm mount at the aft end (listed first,
+   * 0.50–0.80 m) and an 18 mm payload tube forward (0.10–0.25 m).
+   */
+  const twoTubes = (...rings: Record<string, unknown>[]) => tree({
+    id: 'b1', type: 'bodytube', outerRadius: 0.0381, thickness: 0.001, length: 0.8,
+    children: [
+      { id: 'mmt', type: 'innertube', outerRadius: 0.0153, thickness: 0.0005, length: 0.3,
+        position: { method: 'bottom', offset: 0 } },
+      { id: 'pay', type: 'innertube', outerRadius: 0.0095, thickness: 0.0005, length: 0.15,
+        position: { method: 'top', offset: 0.1 } },
+      ...rings,
+    ],
+  });
+  /** A 3 mm automatic ring whose fore face is `at` metres down the airframe. */
+  const ring = (id: string, at: number) =>
+    ({ id, type: 'centeringring', length: 0.003, position: { method: 'top', offset: at } });
+
+  it('a forward ring around the payload tube takes the payload tube, not the first tube listed', () => {
+    const t = twoTubes(ring('fwd', 0.12));
+    const node = find(t, 'fwd');
+    const ctx = solidContextFor(t, node);
+    expect(ctx.mountOuterRadius, 'the forward ring took the 29 mm mount listed first').toBe(0.0095);
+    // …and the printed part has that bore: its inner face sits at 9.5 mm…
+    const loop = componentLoop(node, ctx)!;
+    expect(loop.label).toBe('Centering ring');
+    expect(Math.min(...loop.loop.map(([, r]) => r))).toBeCloseTo(0.0095, 12);
+    // …and so does the cut file (OD: the 74.2 mm airframe bore).
+    expect(componentDxf(node, ctx, 'T')!.text).toContain('OD 74.2 mm | bore 19.0 mm');
+  });
+
+  it('a ring around the motor mount still takes the motor mount', () => {
+    const t = twoTubes({ id: 'aft', type: 'centeringring', length: 0.003, position: { method: 'bottom', offset: 0 } });
+    expect(solidContextFor(t, find(t, 'aft')).mountOuterRadius).toBe(0.0153);
+  });
+
+  it('a ring that no inner tube passes through has no bore to take', () => {
+    // 0.35 m is between the two tubes. The kernel flies it as a solid disc
+    // (inner radius 0); the export says its bore is assumed, as it does with
+    // no inner tube in the airframe at all.
+    const t = twoTubes(ring('gap', 0.35));
+    const node = find(t, 'gap');
+    const ctx = solidContextFor(t, node);
+    expect(ctx.mountOuterRadius, 'a ring nowhere near a tube was bored to one').toBeUndefined();
+    expect(componentLoop(node, ctx)!.label).toBe('Centering ring (assumed bore)');
+    // The cut file says why without sending the builder to look for a mount
+    // that is there, 0.15 m aft of this ring.
+    const text = componentDxf(node, ctx, 'T')!.text;
+    expect(text).toContain('no motor mount passes through this ring');
+    expect(text).not.toContain('no motor mount found');
+  });
+
+  it('touching a tube at either end counts, as the kernel’s overlap test does', () => {
+    // The payload tube spans 0.10–0.25 m. A ring ending exactly at its fore
+    // end, and one starting exactly at its aft end, both count
+    // (`pos2 < 0 || pos1 > length` is the kernel's skip); one a tenth of a
+    // millimetre clear of either end does not.
+    const t = twoTubes(ring('foreTouch', 0.097), ring('aftTouch', 0.25), ring('foreClear', 0.0969), ring('aftClear', 0.2501));
+    expect(solidContextFor(t, find(t, 'foreTouch')).mountOuterRadius).toBe(0.0095);
+    expect(solidContextFor(t, find(t, 'aftTouch')).mountOuterRadius).toBe(0.0095);
+    expect(solidContextFor(t, find(t, 'foreClear')).mountOuterRadius).toBeUndefined();
+    expect(solidContextFor(t, find(t, 'aftClear')).mountOuterRadius).toBeUndefined();
+  });
+
+  it('a ring two tubes pass through takes the larger, as the kernel does', () => {
+    const t = twoTubes(
+      { id: 'pay2', type: 'innertube', outerRadius: 0.012, thickness: 0.0005, length: 0.15,
+        position: { method: 'top', offset: 0.1 }, radialPosition: 0.02 },
+      ring('both', 0.12),
+    );
+    expect(solidContextFor(t, find(t, 'both')).mountOuterRadius).toBe(0.012);
+  });
+});
+
+/**
+ * A FIN TAB NO DEEPER THAN THE BODY (audit 2026-09-30). The kernel clamps a
+ * tab's depth to the parent's radius at the tab — the smaller of its two ends
+ * (`FinSet.getMaxTabHeight`) — and the side view clamps its drawn tab; the
+ * STL, the DXF and the paper template cut the raw depth. A `.rkt` tab on a
+ * minimum-diameter airframe is the way in: a 30 mm tab on a tube 39.0 mm
+ * across (radius 19.5 mm; its 38.0 mm bore takes a 38 mm motor).
+ */
+describe('a fin tab is cut no deeper than the body at the tab', () => {
+  /**
+   * A 38 mm minimum-diameter airframe: 39.0 mm OD (radius 19.5 mm), 38.0 mm
+   * bore. 100 mm root, 60 mm tab centred on it, 30 mm deep.
+   */
+  const minDiameter = () => tree({
+    id: 'b1', type: 'bodytube', outerRadius: 0.0195, thickness: 0.0005, length: 0.6,
+    children: [{
+      id: 'fins', type: 'trapezoidfinset', finCount: 3, rootChord: 0.1, tipChord: 0.05, sweep: 0.05,
+      height: 0.06, thickness: 0.003, tabHeight: 0.03, tabLength: 0.06,
+      position: { method: 'bottom', offset: 0 },
+    }],
+  });
+
+  it('the context carries the body radius at the tab', () => {
+    const t = minDiameter();
+    expect(solidContextFor(t, find(t, 'fins')).tabMaxDepth).toBe(0.0195);
+  });
+
+  it('on a transition it is the SMALLER radius of the tab’s two ends', () => {
+    // Conical 30 → 20 mm over 100 mm. A 60 mm freeform root, aft-flush, starts
+    // at 40 mm; its 20 mm tab 10 mm from the fin's front spans 50–70 mm, where
+    // the radius is 25 → 23 mm.
+    const t = tree({
+      id: 't1', type: 'transition', shape: 'conical', length: 0.1, foreRadius: 0.03, aftRadius: 0.02, thickness: 0.002,
+      children: [{
+        id: 'ff', type: 'freeformfinset', finCount: 3, thickness: 0.003,
+        points: [[0, 0], [0.02, 0.03], [0.05, 0.03], [0.06, 0]],
+        tabHeight: 0.03, tabLength: 0.02, tabOffset: 0.01, tabOffsetMethod: 'top',
+        position: { method: 'bottom', offset: 0 },
+      }],
+    });
+    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeCloseTo(0.023, 12);
+    // A transition radius left automatic is not resolved here, so the tab is
+    // left as stated rather than clamped to a guess.
+    delete (find(t, 't1') as Record<string, unknown>)['foreRadius'];
+    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeUndefined();
+  });
+
+  it('the printed prism, the DXF and the paper template all cut the clamped 19.5 mm', async () => {
+    const t = minDiameter();
+    const node = find(t, 'fins');
+    const ctx = solidContextFor(t, node);
+    // The prism's outline reaches 19.5 mm below the root line, not 30.
+    expect(Math.min(...finCutOutline(node, ctx)!.map(([, y]) => y))).toBeCloseTo(-0.0195, 12);
+    const solid = await componentSolid(node, ctx);
+    expect(solid!.mesh.positions.length).toBeGreaterThan(0);
+    let lowest = Infinity;
+    for (let i = 1; i < solid!.mesh.positions.length; i += 3) lowest = Math.min(lowest, solid!.mesh.positions[i]!);
+    expect(lowest).toBeCloseTo(-0.0195, 12);
+    expect(componentDxf(node, ctx, 'T')!.text).toContain('TTW tab 19.5 mm deep');
+    expect(finTemplateSvg(node, 'T', ctx)).toContain('tab 19.5 mm deep');
   });
 });
 

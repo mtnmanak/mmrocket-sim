@@ -174,7 +174,12 @@ describe('Fit tab to motor tube', () => {
   const tube = (children: Record<string, unknown>[], extra: Record<string, unknown> = {}) => stageOf([
     { id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.0508, thickness: 0.0015, children, ...extra },
   ]);
-  const MMT = { id: 'mmt', type: 'innertube', length: 0.3, outerRadius: 0.0286, thickness: 0.001 };
+  // At the aft end, alongside the fins: the fit reaches only a tube whose span
+  // overlaps the fins' root (audit 2026-09-30 review).
+  const MMT = {
+    id: 'mmt', type: 'innertube', length: 0.3, outerRadius: 0.0286, thickness: 0.001,
+    position: { method: 'bottom', offset: 0 },
+  };
   const fit = (tree: RocketTree) => {
     render(tree, find(tree, 'f1'));
     return press(/Fit tab to motor tube/);
@@ -205,9 +210,21 @@ describe('Fit tab to motor tube', () => {
     expect(got!.patch).toEqual({ tabHeight: 0.0508 - 0.0286 });
   });
 
-  it('takes the first inner tube that states a radius', () => {
+  it('takes an inner tube alongside the fins that states a radius', () => {
     const got = fit(tube([{ ...MMT, id: 'x', outerRadius: undefined }, { ...MMT, outerRadius: 0.019 }, FIN]));
     expect(got!.patch!['tabHeight']).toBeCloseTo(0.0508 - 0.019, 15);
+  });
+
+  it('reaches the motor tube beside the fins, not a forward tube listed first', () => {
+    // A payload tube at the front of the airframe, listed before the mount: the
+    // fit took it (41.3 mm, through the mount) until the 2026-09-30 review.
+    const payload = {
+      id: 'pl', type: 'innertube', length: 0.1, outerRadius: 0.0095, thickness: 0.0005,
+      position: { method: 'top', offset: 0 },
+    };
+    const got = fit(tube([payload, MMT, FIN]));
+    expect(got!.title).toBe('Set tab depth to reach the motor tube (22.2 mm)');
+    expect(got!.patch!['tabHeight']).toBeCloseTo(0.0508 - 0.0286, 15);
   });
 
   it('is not offered where there is no depth to fill, or no tube to fill it in', () => {
