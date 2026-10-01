@@ -90,9 +90,12 @@ export interface NozzleEntry {
 interface RawMotor {
   /**
    * OPTIONAL, because the DATA says so (2026-09-14, from review). This was declared
-   * `motorId: string` while ten shipped rows carry none — ten AeroTech MOTOR rows (not
-   * parts) whose designation matches no thrustcurve.org catalogue entry: nine with an exit,
-   * and J33N-P with neither an id nor an exit. `nozzles.json` reaches this file through
+   * `motorId: string` while shipped rows carry none — AeroTech MOTOR rows (not parts) whose
+   * designation matches no thrustcurve.org catalogue entry. Ten did that day, nine with an
+   * exit and J33N-P with neither an id nor an exit; eight do on 2026-10-01, every one with
+   * an exit, since the H219T and J1265T sheets were joined to their motors and part 01600's
+   * store page gave J33N-P its exit. The file's row count less its
+   * `counts.motorsMatchedToCatalogue` is the figure today. `nozzles.json` reaches this file through
    * `as unknown as RawDb`, which casts straight past the real shape, so the declaration was
    * simply a lie the compiler could not see: the runtime guard below reads as dead code, and
    * any future `map.set(m.motorId, …)` or `m.motorId.startsWith(…)` would typecheck clean and
@@ -158,11 +161,12 @@ async function db(): Promise<Map<string, NozzleEntry>> {
     const map = new Map<string, NozzleEntry>();
     for (const m of raw.motors ?? []) {
       // A ROW WITH NO motorId CANNOT BE LOOKED UP, so it must not be inserted.
-      // Nine shipped rows have a drawing and an exit but matched no catalogue
-      // motor, and `map.set(undefined, e)` put every one of them on the same
-      // unreachable key — harmless only because `nozzleForMotorId` returns
-      // early on a falsy id, which is a second guard standing in for a missing
-      // first one (2026-09-13, from review).
+      // Shipped rows have a drawing and an exit but matched no catalogue motor
+      // (nine on 2026-09-13, eight on 2026-10-01: `counts.motorsWithExit` less
+      // `counts.motorsLoadableWithExit`), and `map.set(undefined, e)` put every
+      // one of them on the same unreachable key — harmless only because
+      // `nozzleForMotorId` returns early on a falsy id, which is a second guard
+      // standing in for a missing first one (2026-09-13, from review).
       if (typeof m.motorId !== 'string' || !m.motorId) continue;
       const e = toEntry(m);
       if (e) map.set(e.motorId, e);
