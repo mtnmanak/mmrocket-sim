@@ -17,8 +17,9 @@
 //
 // Deliberately NOT enabled, with the measured reason:
 //   - the type-aware typescript-eslint CONFIGS (recommendedTypeChecked and up):
-//     six type-aware RULES are on, in their own block below, each at 0 hits;
-//     recommendedTypeCheckedOnly would add 22 more, none of them measured here
+//     twelve type-aware RULES are on, in their own block below, each at 0 hits
+//     in shipped source when it went on; recommendedTypeCheckedOnly would add
+//     17 more, not all of them measured here
 //   - @typescript-eslint/no-non-null-assertion: 4,433 hits (631 outside tests) on
 //     2026-09-23, up from 2,902 / 576 on 2026-09-08 as the suites grew; load-bearing
 //     under the base tsconfig's noUncheckedIndexedAccess. The figure read "~284"
@@ -54,6 +55,7 @@
 // The file extension is .mjs because the root package.json has no "type": "module".
 
 import js from '@eslint/js';
+import { includeIgnoreFile } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
@@ -132,6 +134,17 @@ export default tseslint.config(
       '**/*.d.mts', // else triple-slash/no-undef noise on src/vite-env.d.ts and scripts/manufacturers.d.mts
     ],
   },
+  // Everything .gitignore keeps out of the repo, read from .gitignore itself.
+  // Flat config does not read that file, and the folders it lists are where the
+  // local-only work lives (docs/, .claude/, .playwright-mcp/, .gemini-inputs/),
+  // so a lint from the root reached 51 local-only scripts on the laptop and the
+  // pre-push `npm run lint -- --max-warnings 0` failed with 239 errors that CI,
+  // a fresh clone, never sees (audit 2026-09-30). Read rather than copied here,
+  // so a folder added to .gitignore later is out of the lint the same day
+  // (packages/app/scripts/eslint-config.guards.test.mjs probes every one). It
+  // drops nothing CI lints: no tracked file matches .gitignore, which
+  // `git ls-files -ci --exclude-standard` shows by printing nothing.
+  includeIgnoreFile(fileURLToPath(new URL('.gitignore', import.meta.url))),
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -432,6 +445,25 @@ export default tseslint.config(
       'no-throw-literal': 'off',
       '@typescript-eslint/restrict-plus-operands': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: true }],
+      // Six more (audit 2026-09-30, Step A), each measured at 0 hits in both
+      // packages' shipped source the same day, so each only refuses the next
+      // one: `delete` on an array element (a hole, length unchanged); for-in
+      // over an array (string keys, inherited ones included); a promise
+      // rejected with a non-Error (no stack, no `cause`); `void` on an
+      // expression that is already void; a union or intersection naming the
+      // same type twice; and an `async` function with no `await`, which turns
+      // a synchronous throw into a rejection somebody has to catch.
+      // require-await had 289 hits in tests, nearly all an async signature kept
+      // on purpose: 175 `act(async () => …)` calls, whose async form is what
+      // makes act flush, and stubs standing in for an async dependency (a
+      // fetch, a curve or nozzle lookup), which must return a promise. Only 18
+      // were test or hook callbacks. So the tests block turns that one off.
+      '@typescript-eslint/no-array-delete': 'error',
+      '@typescript-eslint/no-for-in-array': 'error',
+      '@typescript-eslint/prefer-promise-reject-errors': 'error',
+      '@typescript-eslint/no-meaningless-void-operator': 'error',
+      '@typescript-eslint/no-duplicate-type-constituents': 'error',
+      '@typescript-eslint/require-await': 'error',
     },
   },
 
@@ -492,9 +524,11 @@ export default tseslint.config(
     // no-console is off here rather than suppressed line by line.
     // no-restricted-globals is off because the tests run under Node, and 11 sites
     // read `process` on purpose (unhandledRejection hooks, and process.cwd() to
-    // find the repo's fixtures).
+    // find the repo's fixtures). require-await is off for the 289 async
+    // signatures tests keep on purpose: act(async …) and async stubs
+    // (type-aware block above).
     files: ['**/*.test.{ts,tsx,mts,mjs,js}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
-    rules: { 'no-console': 'off', 'no-restricted-globals': 'off' },
+    rules: { 'no-console': 'off', 'no-restricted-globals': 'off', '@typescript-eslint/require-await': 'off' },
   },
 );

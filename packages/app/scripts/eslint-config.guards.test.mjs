@@ -24,7 +24,9 @@
  *     action no test drives is invisible to every behavioural test (row 477).
  *
  * It also pins that the type-aware rules (no-floating-promises and friends)
- * still resolve for shipped source, its tests and the engine.
+ * still resolve for shipped source, its tests and the engine, and that a lint
+ * run from the repo root reaches the files CI's does: what .gitignore keeps
+ * out of the repo is kept out of the lint (audit 2026-09-30).
  *
  * Each rule is read from the config ESLint actually resolves for a real file,
  * then run on a probe with the typescript-eslint parser alone, so no type
@@ -35,10 +37,13 @@
 import { describe, expect, it } from 'vitest';
 import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const eslint = new ESLint({ cwd: ROOT });
+/** A resolved rule's severity: 2 error, 1 warn, 0 off; 'off' when no block names it. */
+const severity = (entry) => (Array.isArray(entry) ? entry[0] : entry);
 
 /** The listed rules exactly as the repo config resolves them for `rel`. */
 async function rulesFor(rel, names) {
@@ -173,6 +178,25 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('turns the six zero-hit type-aware rules on for shipped source, require-await off in tests (audit Step A)', async () => {
+    // Each measured at 0 hits in packages/app/src and packages/engine/src on
+    // 2026-09-30, so each refuses the next instance at no cost. require-await
+    // had 289 hits in tests, which is why the tests block turns it off.
+    const STEP_A = ['@typescript-eslint/no-array-delete', '@typescript-eslint/no-for-in-array',
+      '@typescript-eslint/prefer-promise-reject-errors', '@typescript-eslint/no-meaningless-void-operator',
+      '@typescript-eslint/no-duplicate-type-constituents', '@typescript-eslint/require-await'];
+    // A test helper that is not itself a *.test.* file is shipped-source rules.
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/autoDelay.testSupport.ts',
+      'packages/engine/src/index.ts']) {
+      const rules = await rulesFor(rel, STEP_A);
+      expect(STEP_A.map((r) => severity(rules[r])), rel).toEqual([2, 2, 2, 2, 2, 2]);
+    }
+    for (const rel of ['packages/app/src/App.session.test.tsx', 'packages/engine/src/orkEngine.test.ts']) {
+      const rules = await rulesFor(rel, STEP_A);
+      expect(STEP_A.map((r) => severity(rules[r])), rel).toEqual([2, 2, 2, 2, 2, 0]);
+    }
+  });
+
   it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
     // an operand of && / || beside a bound or Number.isFinite has a partner
@@ -236,5 +260,34 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
       'no-restricted-syntax@2', 'no-restricted-syntax@3', 'no-restricted-syntax@4',
       'no-restricted-syntax@5', 'no-restricted-syntax@6',
     ]);
+  });
+});
+
+describe('eslint.config.mjs — a lint from the repo root reaches what CI’s does', () => {
+  it('keeps every folder .gitignore keeps out of the repo out of the lint, and nothing tracked', async () => {
+    // Flat config does not read .gitignore. On 2026-09-30 docs/, .claude/ and
+    // .playwright-mcp/ held 51 local-only scripts, and the pre-push
+    // `npm run lint -- --max-warnings 0` exited 1 with 239 errors in them while
+    // CI, a fresh clone without them, passed — so the local gate always failed.
+    // Every directory entry is probed, so a folder added to .gitignore later is
+    // covered the day it is added. An entry with no slash but its last matches
+    // at any depth, as git reads it: `vitest --coverage` run in packages/app
+    // writes packages/app/coverage/, which a root-anchored 'coverage/**' lints.
+    const dirs = readFileSync(new URL('../../../.gitignore', import.meta.url), 'utf8')
+      .split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l.endsWith('/') && !l.startsWith('#') && !l.startsWith('!'));
+    expect(dirs).toEqual(expect.arrayContaining(['docs/', '.claude/', '.playwright-mcp/', '.gemini-inputs/']));
+    for (const dir of dirs) {
+      const bases = dir.slice(0, -1).includes('/') ? [''] : ['', 'packages/app/'];
+      for (const probe of bases.flatMap((b) => [`${b}${dir}probe.mjs`, `${b}${dir}nested/probe.ts`])) {
+        expect(await eslint.isPathIgnored(probe), probe).toBe(true);
+      }
+    }
+    // The tracked source the gate exists for is still linted.
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/shareLink.test.ts',
+      'packages/engine/src/index.ts', 'packages/app/scripts/manufacturers.mjs', 'scripts/build-user-guide.mjs',
+      'eslint.config.mjs', 'packages/app/vite.config.ts']) {
+      expect(await eslint.isPathIgnored(rel), rel).toBe(false);
+    }
   });
 });
