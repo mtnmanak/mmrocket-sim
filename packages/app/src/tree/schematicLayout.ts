@@ -14,6 +14,7 @@ import {
 import { outerProfile } from './shapeProfile.js';
 import { shroudEnds } from './shroud.js';
 import { num, numOpt } from './nodeNum.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
 /**
  * THE 2D SIDE VIEW'S LAYOUT — pure, and apart from the component that draws it
@@ -416,7 +417,7 @@ interface FinInstance {
 }
 
 /** Internal parts' ink and tag (issue 2026-08-05a #21). */
-const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
+const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = lookupTable({
   parachute: { stroke: '#b06a35', tag: 'chute' },
   streamer: { stroke: '#a08c2e', tag: 'strmr' },
   shockcord: { stroke: '#8f7a8d', tag: 'cord' },
@@ -424,7 +425,7 @@ const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = {
   centeringring: { stroke: '#6f8a5c', tag: 'CR' },
   bulkhead: { stroke: '#66748c', tag: 'BH' },
   engineblock: { stroke: '#7d7050', tag: 'EB' },
-};
+});
 
 /** Every shape of the side view, as data. See the module note. */
 export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): SchematicLayout {

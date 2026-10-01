@@ -282,6 +282,28 @@ describe('PropertyPanel — the export note belongs to one component', () => {
   });
 });
 
+/**
+ * A node's type is file text (audit 2026-09-30): `FIELDS[node.type] ?? []`
+ * read Object's constructor FUNCTION for a node typed `constructor` — `??`
+ * lets a function through — and the panel threw on `.filter` the moment a
+ * corrupt or hand-edited autosave's part was selected.
+ */
+describe('PropertyPanel — a part of a type the app does not know', () => {
+  const inputs = () => [...host.querySelectorAll('.numfield input')].map((i) => i.getAttribute('aria-label'));
+  it('shows what any unknown part shows rather than throwing — even typed after Object.prototype', () => {
+    // An ordinary unknown type: no schema fields, the generic overrides only.
+    const plain = { id: 'x', type: 'not-a-part', name: 'Odd part' } as unknown as ComponentNode;
+    show(treeOf(tube('A', { children: [plain] })), plain);
+    const generic = inputs();
+    expect(generic.length).toBeGreaterThan(0);
+    for (const type of ['constructor', 'toString', '__proto__']) {
+      const odd = { id: 'x', type, name: 'Odd part' } as unknown as ComponentNode;
+      expect(() => show(treeOf(tube('A', { children: [odd] })), odd), type).not.toThrow();
+      expect(inputs(), type).toEqual(generic);
+    }
+  });
+});
+
 describe('PropertyPanel — sliders', () => {
   const sliderNamed = (name: string): HTMLInputElement =>
     host.querySelector<HTMLInputElement>(`input[type="range"][aria-label="${name}"]`)!;

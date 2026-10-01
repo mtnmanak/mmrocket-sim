@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle } from './treeModel.js';
+import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, updateAllNodes } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -2227,5 +2227,60 @@ describe('duplicating a stage names it for where it lands', () => {
     t = addStage(t).tree;
     t = addStage(t).tree;
     expect(namesOf(t)).toEqual(['Sustainer', 'Booster', 'Booster 2']);
+  });
+});
+
+/**
+ * "APPLY TO ALL" (App.tsx, the property panel's onPatchAll) had no test of any
+ * kind until audit 2026-09-30, which found it throwing on a node typed
+ * `constructor`: FIELDS was a plain object literal, so `FIELDS['constructor']`
+ * was Object's constructor FUNCTION — `?.` does not guard a function — and
+ * `.some` threw out of the click handler instead of skipping the node. A
+ * corrupt or hand-edited autosave restores such a node (the bridge refuses to
+ * build it, but the design and its panel stay up).
+ */
+describe('updateAllNodes — "Apply to all"', () => {
+  const tree = (extra: ComponentNode[] = []): RocketTree => ({
+    name: 'R',
+    components: [{ id: 's1', type: 'stage', children: [
+      { id: 'n', type: 'nosecone', length: 0.1, aftRadius: 0.02, finish: 'normal' },
+      { id: 'b', type: 'bodytube', length: 0.3, outerRadius: 0.02, finish: 'normal', children: [
+        { id: 'p', type: 'parachute', diameter: 0.5 },
+        ...extra,
+      ] },
+    ] }],
+  } as unknown as RocketTree);
+  const hasField = (type: string, key: string) => FIELDS[type as keyof typeof FIELDS]?.some((f) => f.key === key);
+
+  it('patches every part whose type has every patched field, and leaves the rest', () => {
+    const before = tree();
+    const after = updateAllNodes(before, { finish: 'polished' } as Partial<ComponentNode>);
+    for (const id of ['n', 'b', 'p']) {
+      const node = findNode(after, id)!;
+      expect(node['finish'], id).toBe(hasField(node.type, 'finish') ? 'polished' : findNode(before, id)!['finish']);
+    }
+    // The parachute has no finish field: it is not given one.
+    expect(hasField('parachute', 'finish')).toBe(false);
+    expect(findNode(after, 'p')!['finish']).toBeUndefined();
+    // Pure: the tree it was handed is untouched.
+    expect(findNode(before, 'n')!['finish']).toBe('normal');
+  });
+
+  it('skips a node whose type the schema does not know — even one named after Object.prototype', () => {
+    for (const type of ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'not-a-part']) {
+      const odd = { id: 'x', type, finish: 'normal' } as unknown as ComponentNode;
+      let after: RocketTree | undefined;
+      expect(() => { after = updateAllNodes(tree([odd]), { finish: 'polished' } as Partial<ComponentNode>); }, type)
+        .not.toThrow();
+      expect(findNode(after!, 'x')!['finish'], type).toBe('normal');
+      expect(findNode(after!, 'n')!['finish'], type).toBe('polished');
+    }
+  });
+
+  it('inheritDefaults reads the same table, and a part it does not know inherits nothing', () => {
+    const src = { id: 's', type: 'bodytube', density: 1200, materialName: 'G10', finish: 'smooth' } as unknown as ComponentNode;
+    const odd = { id: 'x', type: 'constructor' } as unknown as ComponentNode;
+    expect(() => inheritDefaults(odd, null, src)).not.toThrow();
+    expect(inheritDefaults(odd, null, src)).toEqual(odd);
   });
 });

@@ -6,6 +6,7 @@ import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { findParent, motorMounts } from './treeModel.js';
 import { axialLength } from './position.js';
+import { lookupTable } from '../services/xmlUtil.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -77,7 +78,7 @@ import { numOrNull as num } from './nodeNum.js';
  * Keys NOT in a list are deliberate, and the ones a reader will ask about are
  * commented where they are omitted.
  */
-const LENGTH_KEYS: Record<string, readonly string[]> = {
+const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly string[]>({
   nosecone: ['length', 'aftRadius', 'thickness',
     'shoulderRadius', 'shoulderLength', 'shoulderThickness'],
   // foreRadius/aftRadius absent = AUTOMATIC; present-only keeps it that way.
@@ -125,7 +126,7 @@ const LENGTH_KEYS: Record<string, readonly string[]> = {
   parallelstage: ['radiusOffset'],
   // nozzleExitDiameter is the MOTOR's nozzle, used for power-on base drag.
   stage: [],
-};
+});
 
 /** Types whose own geometry is fixed hardware — they move, they do not grow. */
 const FIXED_SIZE = new Set(['fairing', 'railbutton']);
@@ -148,11 +149,11 @@ const MASS_KEYS = ['mass', 'overrideMass'] as const;
  * instead of 340 g, while the summary printed beside it said recovery gear does
  * not go as the cube.
  */
-const MASS_EXPONENT: Record<string, number> = {
+const MASS_EXPONENT: Record<string, number> = lookupTable({
   parachute: 2,
   streamer: 2,
   shockcord: 1,
-};
+});
 
 export interface ScaleResult {
   tree: RocketTree;

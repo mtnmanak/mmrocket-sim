@@ -7,6 +7,7 @@ import { absoluteStations, axialLength, type AbsoluteStation } from './position.
 import { mountBore } from './scaleRocket.js';
 import { solidContextFor } from './solidContext.js';
 import { ancestorsOf, findNode } from './treeModel.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
 /**
  * How long a motor this mount has room for — the estimate behind the
@@ -100,12 +101,12 @@ export interface MotorRoom {
  */
 const BLOCKING = new Set(['engineblock', 'bulkhead']);
 
-const DISPLAY: Record<string, string> = {
+const DISPLAY: Record<string, string> = lookupTable({
   engineblock: 'engine block',
   bulkhead: 'bulkhead',
   nosecone: 'the nose cone',
   transition: 'the transition',
-};
+});
 
 /** Chain members stack nose-to-tail; everything else sits inside its parent. */
 const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);

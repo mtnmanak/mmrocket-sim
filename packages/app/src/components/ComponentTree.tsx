@@ -5,8 +5,9 @@ import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocke
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 import { Icon } from './Icon.js';
 import { findParent, stageIndexOf } from '../tree/treeModel.js';
+import { lookupTable } from '../services/xmlUtil.js';
 
-const TYPE_ICON: Partial<Record<ComponentType, string>> = {
+const TYPE_ICON = lookupTable<string>({
   stage: '▤',
   nosecone: '▲', transition: '◣', bodytube: '▭',
   trapezoidfinset: '◢', ellipticalfinset: '◠', freeformfinset: '⟁', tubefinset: '◎',
@@ -14,7 +15,7 @@ const TYPE_ICON: Partial<Record<ComponentType, string>> = {
   launchlug: '⌐', railbutton: '•',
   parachute: '☂', streamer: '≋', shockcord: '〜', masscomponent: '◆',
   fairing: '⌂',
-};
+} satisfies Partial<Record<ComponentType, string>>) as Partial<Record<ComponentType, string>>;
 
 function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
   node: ComponentNode;

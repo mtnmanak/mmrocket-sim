@@ -457,3 +457,36 @@ describe('the Add and Paste targets follow the selection and the containment rul
     expect(host.textContent).toContain('Clipboard: ☂ Parachute');
   });
 });
+
+/**
+ * A node's type is file text (audit 2026-09-30). The tree's per-type tables —
+ * its icons, the display names, the Add menu's containment — were plain object
+ * literals, so a node typed `constructor` (a corrupt or hand-edited autosave)
+ * read Object's constructor function from each: the Add menu called `.map` on
+ * it and threw. A part the app does not know is still listed, with the
+ * neutral icon, and offers nothing to add.
+ */
+describe('a part of a type the app does not know', () => {
+  it('is listed, selectable and inert — even typed after Object.prototype', () => {
+    for (const type of ['constructor', 'toString', '__proto__']) {
+      const tree = {
+        name: 'Zephyr',
+        components: [{ id: 's1', type: 'stage', name: 'Sustainer', children: [
+          { id: 'b1', type: 'bodytube', name: 'Airframe', length: 0.3, outerRadius: 0.012, children: [
+            { id: 'x', type, name: 'Odd part' },
+          ] },
+        ] }],
+      } as unknown as RocketTree;
+      expect(() => act(() => root.render(
+        <ComponentTree
+          tree={tree} selectedId="x" onSelect={() => {}} onMove={() => {}} onDelete={() => {}}
+          onDuplicate={() => {}} onAdd={() => {}} onAddStage={() => {}} clipboard={null}
+          onCopy={() => {}} onCut={() => {}} onPaste={() => {}}
+        />,
+      )), type).not.toThrow();
+      const row = [...host.querySelectorAll('.tree-row')].find((r) => (r.textContent ?? '').includes('Odd part'))!;
+      expect(row, type).toBeTruthy();
+      expect(row.querySelector('.tree-icon')!.textContent, type).toBe('·');
+    }
+  });
+});

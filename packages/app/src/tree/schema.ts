@@ -31,7 +31,15 @@ export type EditorComponentType = ComponentType | 'protuberance';
 /** The app-level types, cast for the tables typed in engine terms. */
 const APP_ONLY = (t: EditorComponentType): ComponentType => t as ComponentType;
 
-export const DISPLAY_NAME: Record<EditorComponentType, string> = {
+/*
+ * DISPLAY_NAME, CONTAINMENT and FIELDS are lookupTables — no prototype — because
+ * the key they are read with is a node's `type`, which is file and autosave
+ * text (audit 2026-09-30). As plain literals, `FIELDS['constructor']` was
+ * Object's constructor FUNCTION, which `?.` and `?? []` both let through:
+ * "Apply to all", the property panel and the Add menu threw on such a node
+ * instead of skipping it. `satisfies` keeps each table's key list exhaustive.
+ */
+export const DISPLAY_NAME = lookupTable<string>({
   // Engine-supported since Release B; editor UI arrives with Release C.
   stage: 'Stage',
   nosecone: 'Nose cone',
@@ -56,7 +64,7 @@ export const DISPLAY_NAME: Record<EditorComponentType, string> = {
   protuberance: 'Protuberance (drag bump)',
   podset: 'Pod set',
   parallelstage: 'Booster (parallel stage)',
-};
+} satisfies Record<EditorComponentType, string>) as Record<EditorComponentType, string>;
 
 /** Which children each AXIAL/container type accepts (subset of OpenRocket's rules). */
 const STAGE_CHILDREN: ComponentType[] = ['nosecone', 'bodytube', 'transition'];
@@ -71,7 +79,7 @@ const BODY_CHILDREN: ComponentType[] = [
 // axial chain (nose/body/transition), exactly like a mini-rocket.
 const ASSEMBLIES: ComponentType[] = ['podset', 'parallelstage'];
 
-const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]>> = {
+const CONTAINMENT = lookupTable<ComponentType[]>({
   stage: STAGE_CHILDREN,
   bodytube: [...BODY_CHILDREN, ...ASSEMBLIES],
   // NO assemblies on a nose cone or a transition: Transition.isCompatible
@@ -90,7 +98,7 @@ const CONTAINMENT: Partial<Record<EditorComponentType | 'stage', ComponentType[]
   tubecoupler: ['bulkhead', 'centeringring', ...INTERNAL],
   podset: STAGE_CHILDREN,
   parallelstage: STAGE_CHILDREN,
-};
+} satisfies Partial<Record<EditorComponentType | 'stage', ComponentType[]>>) as Partial<Record<EditorComponentType | 'stage', ComponentType[]>>;
 
 export function allowedChildren(parentType: EditorComponentType | 'stage'): ComponentType[] {
   return CONTAINMENT[parentType] ?? [];
@@ -727,7 +735,7 @@ const PROTUBERANCE_CLASSES: [string, string][] = [
   ['plate', 'Inclined flat plate (fin bracket, anchor) — Cd = 1.17·sin²θ'],
 ];
 
-export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
+export const FIELDS = lookupTable<FieldDef[]>({
   // Separation applies to lower stages (the booster separates FROM the stack
   // above); the top stage ignores it — same as the desktop.
   stage: [
@@ -1036,7 +1044,7 @@ export const FIELDS: Record<EditorComponentType, FieldDef[]> = {
     { key: 'separationEvent', label: 'Separate at', unit: 'none', options: SEPARATION_EVENTS },
     { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
   ],
-};
+} satisfies Record<EditorComponentType, FieldDef[]>) as Record<EditorComponentType, FieldDef[]>;
 
 /** Types that sit INSIDE their parent and use axial positioning. */
 export const POSITIONABLE: Set<EditorComponentType> = new Set([

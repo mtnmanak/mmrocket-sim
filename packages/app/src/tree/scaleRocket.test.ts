@@ -184,6 +184,32 @@ function numericLeaves(tree: RocketTree): Map<string, number> {
   return out;
 }
 
+/**
+ * A node's type is file text (audit 2026-09-30): the per-type tables here were
+ * plain object literals, so a node typed `constructor` read Object's
+ * constructor function as its list of length keys and `for…of` threw — the
+ * Scale dialog died on a corrupt or hand-edited autosave instead of leaving
+ * the part it does not know alone, as it leaves any other unknown type.
+ */
+describe('scaleRocket — a part of an unknown type is left alone, whatever its name', () => {
+  it('a node typed after Object.prototype scales like any unknown part', () => {
+    for (const type of ['constructor', 'toString', '__proto__', 'not-a-part']) {
+      const tree = {
+        name: 'R',
+        components: [{ id: 's1', type: 'stage', children: [
+          { id: 'b', type: 'bodytube', length: 0.3, outerRadius: 0.02, children: [
+            { id: 'x', type, length: 0.05 },
+          ] },
+        ] }],
+      } as unknown as RocketTree;
+      let out: RocketTree | undefined;
+      expect(() => { out = scaleRocket(tree, 2).tree; }, type).not.toThrow();
+      expect(findNode(out!, 'x')!['length'], type).toBe(0.05);
+      expect(findNode(out!, 'b')!['length'], type).toBeCloseTo(0.6, 12);
+    }
+  });
+});
+
 describe('scaleRocket — the completeness guard', () => {
   const before = numericLeaves(kitchenSink());
   const after = numericLeaves(scaleRocket(kitchenSink(), K).tree);
