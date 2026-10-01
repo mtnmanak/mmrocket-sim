@@ -180,16 +180,27 @@ export function batchUnavailableReason(
  * file."* He was right — the progress bar and its "simulating 173/226" line
  * simply vanished and the Stop button turned back into Simulate. A disappearing
  * progress bar is not an announcement.
+ *
+ * `total` is what this run flew (fewer than `planned` when it was stopped);
+ * `candidates` and `planned` are the sweep it started — its candidate count and
+ * the flights the button named. It counts in the button's noun
+ * (batchButtonLabel): motors while every flight is one candidate, FLIGHTS once
+ * a combination mode makes the two differ. It said "motors" whatever the sweep
+ * was, so 20 candidates with "mixed 2+2" finished as "simulated 210 motors"
+ * beside a meta line that said 20 (audit 2026-09-30).
  */
 export function batchSummary(
-  { total, stopped, accepted, errors, downloadable }:
-  { total: number; stopped: boolean; accepted: number; errors: number; downloadable: boolean },
+  { total, candidates, planned, stopped, accepted, errors, downloadable }: {
+    total: number; candidates: number; planned: number;
+    stopped: boolean; accepted: number; errors: number; downloadable: boolean;
+  },
 ): string {
   const head = stopped ? 'Stopped early' : 'Finished';
-  const motors = `${total} ${total === 1 ? 'motor' : 'motors'}`;
-  const errs = errors > 0 ? `, ${errors} could not be flown` : '';
+  const noun = planned === candidates ? 'motor' : 'flight';
+  const flown = `${group(total)} ${noun}${total === 1 ? '' : 's'}`;
+  const errs = errors > 0 ? `, ${group(errors)} could not be flown` : '';
   const tail = downloadable ? '. Download the results as CSV or XLSX above.' : '.';
-  return `${head} — simulated ${motors}; ${accepted} met your criteria${errs}${tail}`;
+  return `${head} — simulated ${flown}; ${group(accepted)} met your criteria${errs}${tail}`;
 }
 
 /** Thousands separators, pinned to en-US so these labels are deterministic. */
@@ -356,8 +367,14 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
   const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
-  /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
-  const [finished, setFinished] = useState<{ total: number; stopped: boolean; evicted: number; unsaved: number } | null>(null);
+  /**
+   * Set when a run ends, cleared when the next one starts — the "it's done"
+   * signal. `candidates` and `planned` are the sweep as it STARTED, so the line
+   * keeps describing that run while the filters above it change.
+   */
+  const [finished, setFinished] = useState<{
+    total: number; candidates: number; planned: number; stopped: boolean; evicted: number; unsaved: number;
+  } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
   // Stop, and unmount: the ONE cancel signal. It reaches every download, so
@@ -489,8 +506,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       // used to happen in silence (audit 2026-09-22) — and a sweep that accepts
       // more than 500 does not fit at all. The line below says both, apart.
       const stored = accepted.length > 0 ? addRuns(accepted) : null;
-      setFinished({ total: out.length, stopped, evicted: stored ? runsEvictedByLastWrite() : 0,
-        unsaved: stored ? runsUnsavedByLastWrite() : 0 });
+      setFinished({ total: out.length, candidates: candidates.length, planned: totalFlights, stopped,
+        evicted: stored ? runsEvictedByLastWrite() : 0, unsaved: stored ? runsUnsavedByLastWrite() : 0 });
       if (stored) onRunsChange(stored);
     } catch (e) {
       if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
@@ -853,6 +870,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <p className="comp-stats batch-finished" role="status" style={{ margin: '6px 0 0' }}>
             {batchSummary({
               total: finished.total,
+              candidates: finished.candidates,
+              planned: finished.planned,
               stopped: finished.stopped,
               accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
               errors: sorted.filter((r) => r.error).length,

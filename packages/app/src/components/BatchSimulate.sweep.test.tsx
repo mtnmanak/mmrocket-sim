@@ -9,7 +9,7 @@ import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../se
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
 import {
-  runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
+  mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
@@ -89,11 +89,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS }: { strict?: boolean; launch?: LaunchConditions } = {}) {
+/** A 4-ring cluster on the same mount — the shape that offers "mixed 2+2". */
+const CLUSTER_TREE: RocketTree = {
+  name: 'Sweep bird',
+  components: [{
+    type: 'stage', id: 'st0', name: 'Sustainer',
+    children: [{
+      type: 'bodytube', id: 'bt', length: 0.6,
+      children: [{ type: 'innertube', id: 'mount', cluster: '4-ring', length: 0.07 }],
+    }],
+  }],
+};
+const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
+
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS }: {
+  strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[];
+} = {}) {
   const dialog = (
     <PrefsProvider>
       <BatchSimulate
-        tree={TREE} info={{} as never} mounts={MOUNTS} initialMountId="mount"
+        tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
         assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={launch} rocketName="Sweep bird"
         onRunsChange={(runs) => { saved.push(runs); }}
@@ -298,6 +313,40 @@ describe('Stop', () => {
     expect(stopBtn()).toBeDefined();
     await act(async () => { stopBtn()!.click(); });
     expect(host.querySelector('.batch-finished')?.textContent).toMatch(/^Stopped early/);
+  });
+});
+
+describe('the finished line', () => {
+  /**
+   * It counted every sweep in MOTORS (audit 2026-09-30): with "mixed 2+2"
+   * ticked the button said "Simulate 28 flights" and the end of the run
+   * "simulated 28 motors", beside "7 candidate motors" in the meta line.
+   */
+  it('counts flights, as the button did, when a combination mode is ticked', async () => {
+    // Klima's seven 24 mm motors: 7 + C(7,2) = 28 flights.
+    localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
+    mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+    const n = candidateCount();
+    expect(n).toBeGreaterThan(1);
+    const flights = n + mixedComboCount(n, 2);
+    const box = [...host.querySelectorAll('label')].find((l) => (l.textContent ?? '').includes('mixed 2+2'))!
+      .querySelector('input')!;
+    act(() => { box.click(); });
+    expect((primary().textContent ?? '').trim()).toMatch(new RegExp(`^Simulate ${flights} flights`));
+    sweep.mockResolvedValue({
+      rows: Array.from({ length: flights }, (_, i) => row(`k${i}`, `Acme E${i}`, 300)), stopped: false,
+    });
+    await start();
+    const done = host.querySelector('.batch-finished')?.textContent ?? '';
+    expect(done).toContain(`simulated ${flights} flights;`);
+    expect(done).not.toContain('motors');
+  });
+
+  it('still counts motors on a sweep that flies only motors', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300), row('b', 'Acme E22', 310)], stopped: false });
+    mount();
+    await start();
+    expect(host.querySelector('.batch-finished')?.textContent).toContain('simulated 2 motors;');
   });
 });
 

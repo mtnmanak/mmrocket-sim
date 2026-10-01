@@ -429,7 +429,7 @@ describe('batchUnavailableReason', () => {
  * A disappearing progress bar is not an announcement.
  */
 describe('batchSummary', () => {
-  const base = { total: 226, stopped: false, accepted: 41, errors: 0, downloadable: true };
+  const base = { total: 226, candidates: 226, planned: 226, stopped: false, accepted: 41, errors: 0, downloadable: true };
 
   it('says the run finished, how many flew, and how many passed', () => {
     expect(batchSummary(base)).toBe(
@@ -456,6 +456,36 @@ describe('batchSummary', () => {
     expect(batchSummary({ ...base, total: 1, accepted: 1 })).toContain('simulated 1 motor;');
   });
 
+  /**
+   * It counted every sweep in MOTORS (audit 2026-09-30). 20 candidates with
+   * "mixed 2+2" fly 210 flights: the button said "Simulate 210 flights" and
+   * the finish line "simulated 210 motors", beside a meta line that said "20
+   * candidate motors". It now counts in the noun the button used for the sweep.
+   */
+  it('counts FLIGHTS when a combination mode made the sweep more than its candidates', () => {
+    const s = batchSummary({ ...base, total: 210, candidates: 20, planned: 210 });
+    expect(s).toBe('Finished — simulated 210 flights; 41 met your criteria. '
+      + 'Download the results as CSV or XLSX above.');
+    expect(s).not.toContain('motors');
+    expect(batchSummary({ ...base, total: 1, candidates: 20, planned: 210, stopped: true }))
+      .toContain('simulated 1 flight;');
+  });
+
+  it('takes the noun from the sweep, not from how far a stopped one got', () => {
+    // A single-motor sweep stopped at 5 is still 5 motors…
+    expect(batchSummary({ ...base, total: 5, stopped: true })).toContain('simulated 5 motors;');
+    // …and a combination sweep stopped inside its single-motor pass is still
+    // 5 flights, the noun its button used.
+    expect(batchSummary({ ...base, total: 5, candidates: 20, planned: 210, stopped: true }))
+      .toContain('simulated 5 flights;');
+  });
+
+  it('groups thousands the way the button does', () => {
+    expect(batchSummary({ ...base, total: 8515, candidates: 130, planned: 8515, accepted: 1203, errors: 1040 }))
+      .toBe('Finished — simulated 8,515 flights; 1,203 met your criteria, 1,040 could not be flown. '
+        + 'Download the results as CSV or XLSX above.');
+  });
+
   it('is honest when nothing met the criteria', () => {
     // The case where a user most needs to be told the run is OVER: an empty
     // result table looks exactly like a run that has not started.
@@ -475,8 +505,9 @@ describe('the completion signal is actually wired up', () => {
 
   it('raises the signal when the run ends', () => {
     // With the count of old runs the 500-run cap removed saving them (audit
-    // 2026-09-22), which the finished line now reports as well.
-    expect(src).toContain('setFinished({ total: out.length, stopped, evicted:');
+    // 2026-09-22), which the finished line now reports as well — and the sweep
+    // as it started, whose noun the line counts in (audit 2026-09-30).
+    expect(src).toContain('setFinished({ total: out.length, candidates: candidates.length, planned: totalFlights, stopped,');
   });
 
   it('clears it when the next run starts, so it cannot go stale', () => {
