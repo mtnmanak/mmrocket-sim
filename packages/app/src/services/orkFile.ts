@@ -3423,6 +3423,11 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
         return Math.max(f, a) > 0 ? Math.max(f, a) : UNRESOLVED;
       }
       case 'bodytube':
+        // A SOLID tube (<thickness>filled</thickness>) has no cavity:
+        // BodyTube.getInnerRadius is 0, which MassObject.getAutoRadius takes
+        // as no answer and keeps the device's own radius — what autoDim does
+        // with a 0. The word `filled` read as no wall gave the full radius.
+        if (text(owner, ':scope > thickness') === 'filled') return 0;
         return inner(resolved(stated(owner, 'radius'), () => bodyTube(owner)));
       case 'innertube':
       case 'tubecoupler':

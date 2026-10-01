@@ -125,6 +125,30 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
     expect(motorDia({})).toBeCloseTo(24, 9);
   });
 
+  it('.ork: a bare automatic packed radius inside it takes the device’s own size, and says so', () => {
+    // OpenRocket 15.03 wrote a bare `auto`, resolved here as desktop's
+    // MassObject.getAutoRadius does: from the parent's inner radius, which is 0
+    // in a filled tube — and 0 is no answer there, so the device keeps its own
+    // radius, the kernel's 12.5 mm. Read through the word `filled` as a wall of
+    // none, the chute took the rod's full 30 mm.
+    const ork = (thickness: string) => `<openrocket version="1.5" creator="OpenRocket 15.03"><rocket>
+      <name>Rod</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>Nose</name><length>0.1</length><thickness>0.002</thickness>
+          <shape>ogive</shape><aftradius>0.03</aftradius></nosecone>
+        <bodytube><name>Bay</name><length>0.4</length><thickness>${thickness}</thickness><radius>0.03</radius>
+          <subcomponents><parachute><name>Main</name><packedlength>0.05</packedlength>
+            <packedradius>auto</packedradius><diameter>0.6</diameter></parachute></subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const unresolved = (notes: string[]) => notes.some((n) => /no neighbour to take one from/.test(n) && /Main/.test(n));
+    const solid = importOrk(ork('filled'));
+    expect(find(solid.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.0125, 12);
+    expect(unresolved(solid.notes)).toBe(true);
+    // Hollow, the cavity is the bore, as before.
+    const hollow = importOrk(ork('0.001'));
+    expect(find(hollow.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.029, 12);
+    expect(unresolved(hollow.notes)).toBe(false);
+  });
+
   it('leaves a part inside it no bore to size itself to, as the kernel does (BodyTube.getInnerRadius)', () => {
     const bh = { type: 'bulkhead', id: 'bh', length: 0.003, position: { method: 'top', offset: 0 } } as ComponentNode;
     const tree = (t: ComponentNode) => ({ name: 'R', components: [{ type: 'stage', id: 's', children: [{ ...t, children: [bh] }] }] });
