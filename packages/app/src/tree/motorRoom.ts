@@ -1,8 +1,11 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { isAssembly } from './assembly.js';
+import { clusterOffsets } from './cluster.js';
 import { frameContaining } from './mountAngle.js';
-import { num, numOrNull } from './nodeNum.js';
+import { num, numOpt, numOrNull } from './nodeNum.js';
 import { absoluteStations, axialLength, type AbsoluteStation } from './position.js';
+import { mountBore } from './scaleRocket.js';
+import { solidContextFor } from './solidContext.js';
 import { ancestorsOf, findNode } from './treeModel.js';
 
 /**
@@ -23,9 +26,12 @@ import { ancestorsOf, findNode } from './treeModel.js';
  * So the search walks forward out of the mount and on up the stage, and it
  * stops at the first thing a motor case cannot pass:
  *
- * - an **engine block** or **bulkhead** ANYWHERE forward in the same stage
- *   and the same airframe, inside the mount or not — the two components that
- *   exist to stop a motor, and the ebay's aft bulkhead is the one he means;
+ * - an **engine block** or **bulkhead** forward in the same stage and the
+ *   same airframe that is IN THIS MOTOR'S WAY — the two components that exist
+ *   to stop a motor, and the ebay's aft bulkhead is the one he means. One
+ *   inside the mount always is; anywhere else its section has to cover part
+ *   of the motor's (`inTheWay`), so a thrust ring in an outboard tube BESIDE
+ *   the mount stops only the outboard motor;
  * - the aft end of a **nose cone**, which a motor cannot enter;
  * - the aft end of a **transition that narrows going forward**, which closes
  *   down below the tube the motor is travelling up — an AUTOMATIC (absent)
@@ -175,6 +181,78 @@ function narrowsForward(tree: RocketTree, n: ComponentNode): boolean {
   return fore == null || aft == null || fore < aft;
 }
 
+/** A point in an airframe's cross-section, metres; angle 0 is +y, as in every view. */
+interface SectionPoint { y: number; z: number }
+
+/**
+ * Where a part's axis crosses its airframe's cross-section, one point per
+ * instance, in its own frame (the core's, or the pod's or strap-on's). A chain
+ * member is on that frame's axis. An inner tube moves what it holds by
+ * `radialPosition` along `radialDirection` and spreads it by its cluster
+ * pattern — the kernel's `InnerTube.getClusterPoints`, which `clusterOffsets`
+ * mirrors for the aft and 3D views. Every other part is coaxial with what it
+ * sits in: the bridge gives a ring, block or bulkhead no radial offset.
+ */
+function axisCentres(tree: RocketTree, node: ComponentNode): SectionPoint[] {
+  const outward = [node, ...ancestorsOf(tree, node.id ?? '')];
+  const root = outward.findIndex((n) => CHAIN.has(n.type) || isAssembly(n.type) || n.type === 'stage');
+  let points: SectionPoint[] = [{ y: 0, z: 0 }];
+  for (const n of outward.slice(0, root < 0 ? outward.length : root).reverse()) {
+    if (n.type !== 'innertube') continue;
+    const rp = num(n, 'radialPosition', 0);
+    const rd = num(n, 'radialDirection', 0);
+    const pattern = clusterOffsets(n['cluster'] as string | undefined, num(n, 'outerRadius', 0.0095),
+      num(n, 'clusterScale', 1), num(n, 'clusterRotation', 0), { radialDirection: rd });
+    points = points.flatMap((p) => pattern.map((o) => ({
+      y: p.y + rp * Math.cos(rd) + o.y,
+      z: p.z + rp * Math.sin(rd) + o.z,
+    })));
+  }
+  return points;
+}
+
+/**
+ * Whether an engine block or bulkhead is in this mount's motor's way: whether
+ * its solid section — a full disc for a bulkhead, a ring for an engine block —
+ * covers any part of the motor's (audit 2026-09-30).
+ *
+ * One INSIDE the mount always is: it is there to stop this motor. This used to
+ * be the rule for every stop in the mount's airframe, so a thrust ring inside
+ * a shorter OUTBOARD tube beside a core mount stopped the core motor too —
+ * 0.175 m "to engine block" on a 0.6 m airframe whose core has 0.6 m, which
+ * hid motors that fit from the browser's fit filter and from Batch. A part
+ * inside a tube is confined to that tube's bore, and a tube beside the mount
+ * never overlaps the motor; a tube IN LINE ahead of it does, and the motor
+ * runs on into it, so a block there still counts. That is why this compares
+ * sections rather than asking which tube a part is listed under.
+ *
+ * The same test settles an engine block hung on the AIRFRAME: the kernel
+ * sizes it to the airframe's bore and makes it a ring `thickness` deep
+ * (`ThicknessRingComponent.getInnerRadius`), so a thin ring at the wall lets a
+ * motor through its hole and one deep enough to reach the motor's section
+ * stops it. (No view draws that hole — the side view boxes the block at full
+ * height — which is why `limitedBy` names the stop that did count.) A part
+ * with an automatic radius that cannot be sized is counted, as an unsized
+ * transition is.
+ */
+function inTheWay(
+  tree: RocketTree, mount: ComponentNode, stop: ComponentNode,
+  motor: { centres: SectionPoint[]; r: number },
+): boolean {
+  if (ancestorsOf(tree, stop.id ?? '').some((a) => a.id === mount.id)) return true;
+  // An explicit radius as the kernel bridge takes it, else the automatic one:
+  // the bore it sits in, resolved as the STL and DXF exports size this part.
+  const outer = numOpt(stop, 'outerRadius') ?? solidContextFor(tree, stop).parentInnerRadius;
+  if (outer === undefined) return true;
+  const inner = stop.type === 'engineblock'
+    ? Math.max(outer - num(stop, 'thickness', 0.00095), 0) // the bridge's default wall
+    : 0;
+  return axisCentres(tree, stop).some((s) => motor.centres.some((m) => {
+    const d = Math.hypot(m.y - s.y, m.z - s.z);
+    return d - motor.r < outer && d + motor.r > inner;
+  }));
+}
+
 export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom | null {
   const mount = findNode(tree, mountId);
   if (!mount) return null;
@@ -215,9 +293,14 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
   let limit = assembly?.id ? stations.get(assembly.id)?.start ?? 0 : 0;
   let limitedBy: string | null = null;
 
+  // The motor's own section, for `inTheWay`: as wide as the mount's bore —
+  // `mountBore`, the reading the motor browser's fit filter uses — at every
+  // place the mount's tubes sit.
+  const motor = { centres: axisCentres(tree, mount), r: mountBore(mount) / 2 };
+
   for (const { end, node } of stations.values()) {
     if (node.id === mountId || !frame.has(node.id)) continue;
-    const blocks = BLOCKING.has(node.type)
+    const blocks = (BLOCKING.has(node.type) && inTheWay(tree, mount, node, motor))
       || node.type === 'nosecone'
       || (node.type === 'transition' && narrowsForward(tree, node));
     if (!blocks) continue;

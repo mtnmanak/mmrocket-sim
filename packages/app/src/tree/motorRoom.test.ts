@@ -461,6 +461,133 @@ describe('a pod set or strap-on is its own airframe', () => {
 });
 
 /**
+ * A STOP HAS TO BE IN THIS MOTOR'S WAY (audit 2026-09-30). The search counted
+ * every engine block in the mount's airframe, so a thrust ring inside a SHORTER
+ * outboard tube beside the core mount stopped the core motor too: 0.175 m "to
+ * engine block" on a 0.6 m airframe whose core has 0.6 m. That figure is the
+ * core's Room for, what ⌾ Estimate writes into Max motor length, and what the
+ * motor browser's "only motors that fit" filter and Batch read — so it hid
+ * motors that fit, on a common high-power layout.
+ *
+ * A part inside a tube is confined to that tube's bore; a block or bulkhead
+ * stops this motor only where its section covers part of the motor's.
+ */
+describe('a stop counts only where it is in this motor’s way', () => {
+  /**
+   * A 0.6 m airframe (48 mm bore) with a 0.30 m core mount on the axis and a
+   * 0.18 m outboard mount 30 mm off it, both aft-flush. Each mount's bore is
+   * 14 mm in radius, and the two tubes do not touch (30 mm apart, 29 mm of
+   * tube between their centres).
+   */
+  const coreAndOutboard = (parts: {
+    core?: Record<string, unknown>[];
+    outboard?: Record<string, unknown>[];
+    airframe?: Record<string, unknown>[];
+  } = {}) => ({
+    name: 'Core and outboard',
+    components: [{
+      id: 's1', type: 'stage',
+      children: [{
+        id: 'af', type: 'bodytube', name: 'Airframe', length: 0.6, outerRadius: 0.05, thickness: 0.002,
+        children: [
+          {
+            id: 'core', type: 'innertube', name: 'Core MMT', length: 0.30, outerRadius: 0.0145, thickness: 0.0005,
+            position: { method: 'bottom', offset: 0 }, children: parts.core ?? [],
+          },
+          {
+            id: 'ob', type: 'innertube', name: 'Outboard MMT', length: 0.18, outerRadius: 0.0145, thickness: 0.0005,
+            radialPosition: 0.03, radialDirection: 0,
+            position: { method: 'bottom', offset: 0 }, children: parts.outboard ?? [],
+          },
+          ...(parts.airframe ?? []),
+        ],
+      }],
+    }],
+  } as unknown as RocketTree);
+
+  /** A 5 mm engine block `offset` down from the front of whatever it sits in. */
+  const block = (id: string, name: string, offset: number, thickness = 0.003) => ({
+    id, type: 'engineblock', name, length: 0.005, thickness, position: { method: 'top', offset },
+  });
+
+  it('an engine block in the OUTBOARD mount does not stop the core motor — the audit case', () => {
+    // The outboard block's aft face is at 0.42 + 0.005 = 0.425. The core's
+    // motor never enters the outboard tube, so it runs the whole airframe.
+    const tree = coreAndOutboard({ outboard: [block('obeb', 'Outboard thrust ring', 0)] });
+    const core = estimateMotorRoom(tree, 'core')!;
+    expect(core.lengthM, 'the outboard tube’s block stopped the core motor').toBeCloseTo(0.60, 9);
+    expect(core.limitedBy).toBe('the front of the airframe');
+    // …and the block still stops the motor it belongs to.
+    const outboard = estimateMotorRoom(tree, 'ob')!;
+    expect(outboard.lengthM).toBeCloseTo(0.175, 9);
+    expect(outboard.limitedBy).toBe('Outboard thrust ring');
+  });
+
+  it('an engine block in the core mount still stops the core motor, and only that one', () => {
+    // Its aft face is at 0.30 + 0.05 + 0.005 = 0.355: 0.245 m of room.
+    const tree = coreAndOutboard({ core: [block('ceb', 'Core thrust ring', 0.05)] });
+    const core = estimateMotorRoom(tree, 'core')!;
+    expect(core.lengthM).toBeCloseTo(0.245, 9);
+    expect(core.limitedBy).toBe('Core thrust ring');
+    const outboard = estimateMotorRoom(tree, 'ob')!;
+    expect(outboard.lengthM, 'the core tube’s block stopped the outboard motor').toBeCloseTo(0.60, 9);
+    expect(outboard.limitedBy).toBe('the front of the airframe');
+  });
+
+  it('a ring on the airframe stops only the motors its section reaches', () => {
+    // Hung on the airframe, the kernel sizes a block to the airframe's 48 mm
+    // bore and makes it a ring `thickness` deep — here 12 mm, so its hole is
+    // 36 mm in radius. The core motor (14 mm, on the axis) passes through it;
+    // the outboard motor reaches 30 + 14 = 44 mm off the axis and hits it.
+    // Its aft face is at 0.105.
+    const tree = coreAndOutboard({ airframe: [block('ring', 'Forward ring', 0.1, 0.012)] });
+    const core = estimateMotorRoom(tree, 'core')!;
+    expect(core.lengthM, 'a motor that fits through the ring’s hole was stopped by it').toBeCloseTo(0.60, 9);
+    expect(core.limitedBy).toBe('the front of the airframe');
+    const outboard = estimateMotorRoom(tree, 'ob')!;
+    expect(outboard.lengthM).toBeCloseTo(0.495, 9);
+    expect(outboard.limitedBy).toBe('Forward ring');
+  });
+
+  it('a block on the airframe deep enough to cover the axis stops the core motor', () => {
+    const tree = coreAndOutboard({ airframe: [block('plate', 'Thrust plate', 0.1, 0.048)] });
+    const core = estimateMotorRoom(tree, 'core')!;
+    expect(core.lengthM).toBeCloseTo(0.495, 9);
+    expect(core.limitedBy).toBe('Thrust plate');
+  });
+
+  it('a bulkhead on the airframe still stops every motor in it', () => {
+    const tree = coreAndOutboard({
+      airframe: [{ id: 'bh', type: 'bulkhead', name: 'Ebay floor', length: 0.005, position: { method: 'top', offset: 0.1 } }],
+    });
+    for (const id of ['core', 'ob']) {
+      const r = estimateMotorRoom(tree, id)!;
+      expect(r.lengthM, id).toBeCloseTo(0.495, 9);
+      expect(r.limitedBy, id).toBe('Ebay floor');
+    }
+  });
+
+  it('a block inside a tube IN LINE ahead of the mount still stops it — the section decides, not the parent', () => {
+    // A second tube on the axis, ahead of the core mount: the core's motor
+    // leaves its own tube at 0.30 and runs on into this one, whose block has
+    // its aft face at 0.155 — 0.445 m of room. Counting only the mount's own
+    // blocks would have run the motor straight through it.
+    const tree = coreAndOutboard({
+      airframe: [{
+        id: 'ext', type: 'innertube', name: 'Extension', length: 0.10, outerRadius: 0.0145, thickness: 0.0005,
+        position: { method: 'top', offset: 0.15 },
+        children: [{ id: 'exteb', type: 'engineblock', name: 'Extension block', length: 0.005, position: { method: 'top', offset: 0 } }],
+      }],
+    });
+    const core = estimateMotorRoom(tree, 'core')!;
+    expect(core.lengthM).toBeCloseTo(0.445, 9);
+    expect(core.limitedBy).toBe('Extension block');
+    // The outboard tube is beside both, so neither block is in its way.
+    expect(estimateMotorRoom(tree, 'ob')!.lengthM).toBeCloseTo(0.60, 9);
+  });
+});
+
+/**
  * AN AUTOMATIC TRANSITION RADIUS (audit 2026-09-22, row 371). A transition's
  * absent radius is AUTOMATIC in the kernel: the fore end takes the previous
  * chain member's aft radius and the aft end the next member's fore radius
