@@ -802,9 +802,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     launch = {};
     // Each value is clamped into the Launch panel's own bounds, with a note in
     // the file's units (audit 2026-09-22) — the rule the .ork reader follows.
-    // Nothing downstream re-checks these, so a <RodAngle>80</RodAngle> used to
-    // fly an 80° rail, and the <Altitude> reached the atmosphere unclamped
-    // (150,000 ft once made an import note read "about NaN mbar").
+    // Nothing downstream re-checks a rod or wind value (kernelSimOptions passes
+    // them as stored), so a <RodAngle>80</RodAngle> used to fly an 80° rail,
+    // and the <Altitude> reached the atmosphere unclamped (150,000 ft once made
+    // an import note read "about NaN mbar").
     const ft = (m: number): string => `${Number((m * FT).toPrecision(6))} ft`;
     const alt = num(site, 'Altitude', NaN);
     if (!Number.isNaN(alt)) {

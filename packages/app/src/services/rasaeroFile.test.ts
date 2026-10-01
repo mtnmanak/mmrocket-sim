@@ -2291,9 +2291,10 @@ describe('RASAero import — the pad pressure note', () => {
 
 /**
  * THE REST OF THE LAUNCH SITE (audit 2026-09-22). <RodAngle>, <RodLength>,
- * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks
- * them, so a file could fly an 80° rail or a negative rail. Each is now clamped
- * into the Launch panel's own range, with a note in the file's units.
+ * <WindSpeed> and <Altitude> were taken raw, and nothing downstream re-checks a
+ * rod or wind value, so a file could fly an 80° rail or a negative rail. Each is
+ * now clamped into the Launch panel's own range, with a note in the file's
+ * units.
  */
 describe('RASAero import — the launch site is held to the panel’s own bounds', () => {
   const site = (inner: string): string =>
