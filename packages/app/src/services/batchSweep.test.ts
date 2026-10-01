@@ -16,8 +16,8 @@ import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../model/design.js';
 import { configOntoTree } from './importApply.js';
 import {
-  batchMotorIds, batchMotorNames, batchRowKey, deploysOnEjectionCharge, listsNoDelay, provisionalDelay,
-  runBatchSweep, type BatchMountOption, type BatchSweepDeps, type BatchSweepInput,
+  batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, deploysOnEjectionCharge, listsNoDelay,
+  provisionalDelay, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepDeps, type BatchSweepInput,
 } from './batchSweep.js';
 
 /**
@@ -60,7 +60,7 @@ function rocket(opts: {
 }
 
 /** An 80 mm airframe around a 24 mm cluster mount — the shape the combination passes serve. */
-function clusterRocket(cluster: '4-ring' | '6-ring'): RocketTree {
+function clusterRocket(cluster: '4-ring' | '6-ring', deployEvent?: string): RocketTree {
   return {
     name: 'Cluster bird',
     components: [{
@@ -72,7 +72,7 @@ function clusterRocket(cluster: '4-ring' | '6-ring'): RocketTree {
           children: [
             { type: 'trapezoidfinset', id: 'fins', finCount: 4, rootChord: 0.15, tipChord: 0.07, sweep: 0.08, height: 0.1, thickness: 0.004 },
             { type: 'innertube', id: 'mount', length: 0.2, outerRadius: 0.0125, thickness: 0.0005, motorMount: true, cluster },
-            { type: 'parachute', id: 'chute', name: 'Main', diameter: 0.8 } as ComponentNode,
+            { type: 'parachute', id: 'chute', name: 'Main', diameter: 0.8, ...(deployEvent ? { deployEvent } : {}) } as ComponentNode,
           ],
         } as ComponentNode,
       ],
@@ -204,6 +204,59 @@ describe('per-mount policy plumbing', () => {
     }, { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}), yieldToUi: noYield });
     expect(rows.rows[0]!.error).toMatch(/Motor mount.*telemetry/);
     expect(rows.rows[0]!.run).toBeUndefined(); expect(rows.rows[1]!.run).toBeDefined();
+  });
+
+  /**
+   * WHICH FLIGHTS SEARCH FOR THEIR DELAY (review of the batch cap,
+   * 2026-10-01). The dialog's estimate prices a flight that runs the delay
+   * solver at several times one at a fixed delay, and "optimal delay per
+   * motor" unticked does not mean that no flight searches. batchSolverFlights
+   * counts them by rule; these fly the sweep and count them from each run's
+   * own delay record.
+   */
+  describe('batchSolverFlights', () => {
+    // One motor that lists no delay, two sold plugged only and one with a
+    // delay: every case, alone and in each of the six 2+2 pairs.
+    const cands = [
+      entry('nd', 'Acme', 'E20', ''), entry('p1', 'Acme', 'E21', 'P'), entry('p2', 'Acme', 'E22', 'P'),
+      entry('f', 'Acme', 'E23', '5'),
+    ];
+    const specs = { nd: curve('E20'), p1: curve('E21'), p2: curve('E22'), f: curve('E23') };
+    const searched = (rows: readonly BatchRow[]) =>
+      rows.filter((r) => r.run!.delayResolution!.mounts.some((m) => m.mode === 'auto')).length;
+
+    it.each([
+      ['waits for the motor’s charge', 'ejection', 7],
+      ['deploys at apogee', 'apogee', 4],
+    ])('counts the flights an unticked sweep searches, when the recovery %s', async (_, deployEvent, expected) => {
+      fakeTelemetry();
+      const t = clusterRocket('4-ring', deployEvent); const split = splitClusterTree(t, 'mount')!;
+      const { rows } = await sweep(input(t, { candidates: cands, splits: [split], autoDelay: false }),
+        { fetchSpec: fetchFrom(specs), nozzleFor: nozzles({}) });
+      expect(rows.every((r) => r.run)).toBe(true);
+      expect(rows).toHaveLength(4 + 6);
+      expect(searched(rows)).toBe(expected);
+      expect(batchSolverFlights({
+        candidates: cands, groups: [split.mountIds.length], autoDelay: false,
+        deploysOnCharge: deploysOnEjectionCharge(t), othersAuto: false,
+      })).toBe(expected);
+    });
+
+    it('counts every flight when the box is ticked, or another mount’s motor is on Auto', async () => {
+      fakeTelemetry();
+      const t = rocket({ sideMount: true });
+      const base = input(t, { candidates: cands, mounts: [MOUNT, { ...MOUNT, id: 'side', label: 'Side' }] });
+      const deps = { fetchSpec: fetchFrom(specs), nozzleFor: nozzles({}) };
+      const ticked = await sweep(base, deps);
+      expect(searched(ticked.rows)).toBe(4);
+      expect(batchSolverFlights({ candidates: cands, groups: [], autoDelay: true, deploysOnCharge: true, othersAuto: false }))
+        .toBe(4);
+      const beside = await sweep({ ...base, autoDelay: false,
+        assignedMotors: { side: { ...curve('background'), ejectionDelay: 0 } }, assignedAutoDelays: { side: true } }, deps);
+      expect(searched(beside.rows)).toBe(4);
+      expect(batchSolverFlights({ candidates: cands, groups: [], autoDelay: false, deploysOnCharge: true, othersAuto: true }))
+        .toBe(4);
+    });
   });
 });
 

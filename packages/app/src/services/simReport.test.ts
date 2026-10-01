@@ -6,7 +6,7 @@ import {
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
-  ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, SAFETY, stabilityPercent, storedSimCost,
+  ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, runStoppedEarly, SAFETY, stabilityPercent, storedSimCost,
   type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
@@ -1277,6 +1277,32 @@ describe('SIM_ABORT surfacing', () => {
     expect(w, 'a booster-only abort must still surface').toBeTruthy();
     expect(w.message).toMatch(/Booster stage/);
     expect(w.message).toMatch(/T\+0\.60 s/);
+  });
+
+  /**
+   * runStoppedEarly is the ONE test every grader of a stored run uses (audit
+   * 2026-09-30): the batch's acceptance grade refused an aborted flight while
+   * the Saved simulations Safe column, which never looked, graded it ✓.
+   */
+  it('runStoppedEarly reads the abort on the main flight and on a booster, and nothing else', () => {
+    const fly = (result: FlightResult) => buildSimRun({
+      result, info, motor, meta: { label: 'C6-5' }, launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+    });
+    const base = fakeResult();
+    expect(runStoppedEarly(fly({ ...base, warnings: [] }))).toBe(false);
+    expect(runStoppedEarly(fly({ ...base, warnings: [], events: abortedAt(1.14, 'TUMBLE_UNDER_THRUST') }))).toBe(true);
+    expect(runStoppedEarly(fly({
+      ...base, warnings: [],
+      branches: [
+        { name: 'Sustainer', events: base.events, series: base.series },
+        { name: 'Booster', events: abortedAt(0.6, 'ACTIVE_MASS_ZERO', []), series: base.series },
+      ],
+    }))).toBe(true);
+    // A HIGH warning that is not an abort is not one.
+    expect(runStoppedEarly({ simWarnings: [{ key: 'RECOVERY_HIGH_SPEED', priority: 'HIGH', message: 'x' }] }))
+      .toBe(false);
+    // A run stored before warnings were recorded cannot say, and is not called aborted.
+    expect(runStoppedEarly({})).toBe(false);
   });
 
   it('reports both branches when the whole flight and a booster each abort', () => {

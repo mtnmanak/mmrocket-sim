@@ -9,7 +9,7 @@ import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../se
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
 import {
-  runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
+  mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
@@ -89,11 +89,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS }: { strict?: boolean; launch?: LaunchConditions } = {}) {
+/** A 4-ring cluster on the same mount — the shape that offers "mixed 2+2". */
+const CLUSTER_TREE: RocketTree = {
+  name: 'Sweep bird',
+  components: [{
+    type: 'stage', id: 'st0', name: 'Sustainer',
+    children: [{
+      type: 'bodytube', id: 'bt', length: 0.6,
+      children: [{ type: 'innertube', id: 'mount', cluster: '4-ring', length: 0.07 }],
+    }],
+  }],
+};
+const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
+
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS }: {
+  strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[];
+} = {}) {
   const dialog = (
     <PrefsProvider>
       <BatchSimulate
-        tree={TREE} info={{} as never} mounts={MOUNTS} initialMountId="mount"
+        tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
         assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={launch} rocketName="Sweep bird"
         onRunsChange={(runs) => { saved.push(runs); }}
@@ -173,6 +188,71 @@ describe('the filter chips', () => {
   });
 });
 
+describe('a maker chosen where this mount does not offer it', () => {
+  /**
+   * The criteria persist across sessions and mounts, and the maker chips draw
+   * only what THIS mount offers. The batch filtered by the stored list as it
+   * stood, so Loki chosen on a 54 mm mount — Loki makes nothing under 38 mm —
+   * left a 24 mm batch at "0 candidate motors", Simulate disabled, no chip
+   * pressed and nothing on screen to say why; an out-of-production-only maker
+   * did the same once "include OOP" was unticked (audit 2026-09-30). The
+   * motor browser intersects the stored list with the chips it draws, and the
+   * diameter classes here always did; the makers now do too. The stored list
+   * is left alone, so the choice comes back on a mount that offers it.
+   */
+  const store = (criteria: Record<string, unknown>) =>
+    localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify(criteria));
+  const pressedMakers = () => [...host.querySelectorAll('[aria-label="Manufacturers"] button[aria-pressed="true"]')]
+    .map((b) => (b.textContent ?? '').replace(/^✓/, '').trim().split(' ')[0]);
+  const allButton = () => [...host.querySelectorAll('[aria-label="Manufacturers"] button')]
+    .find((b) => b.textContent === 'all');
+  /** The dialog's own candidate count with no maker stored — read from a fresh mount. */
+  const unfiltered = () => {
+    mount();
+    const n = candidateCount();
+    act(() => root.unmount());
+    root = createRoot(host);
+    return n;
+  };
+
+  it('a stored maker this mount does not offer filters nothing', async () => {
+    const all = unfiltered();
+    expect(all).toBeGreaterThan(0);
+    store({ manufacturers: ['Loki'] });
+    mount();
+    expect(candidateCount()).toBe(all);
+    expect(pressedMakers()).toEqual([]);
+    // Nothing applies, so there is nothing for "all" to clear.
+    expect(allButton()).toBeUndefined();
+    expect(primary().disabled).toBe(false);
+    sweep.mockResolvedValue({ rows: [], stopped: false });
+    await start();
+    expect(sweep.mock.calls[0]![0].candidates).toHaveLength(all);
+    // Kept for a mount that offers it.
+    expect(JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!).manufacturers).toEqual(['Loki']);
+  });
+
+  it('nor does a maker whose motors here are all out of production, with "include OOP" unticked', () => {
+    const all = unfiltered();
+    // Ellis's 24 mm motors are all out of production in the shipped catalogue.
+    expect(MOTOR_DB.some((m) => m.manufacturerAbbrev === 'Ellis' && m.diameter === 24)).toBe(true);
+    expect(MOTOR_DB.some((m) => m.manufacturerAbbrev === 'Ellis' && m.diameter === 24 && isAvailable(m))).toBe(false);
+    store({ manufacturers: ['Ellis'], includeOOP: false });
+    mount();
+    expect(candidateCount()).toBe(all);
+  });
+
+  it('a stored maker the mount DOES offer still applies beside one it does not', () => {
+    const klima = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Klima' && m.diameter <= 24 && isAvailable(m)).length;
+    expect(klima).toBeGreaterThan(0);
+    store({ manufacturers: ['Loki', 'Klima'] });
+    mount();
+    expect(candidateCount()).toBe(klima);
+    expect(pressedMakers()).toEqual(['Klima']);
+    expect(allButton()).toBeDefined();
+  });
+});
+
 describe('the criteria boxes', () => {
   /**
    * A <label> with no `for` names its FIRST labelable descendant, which in the
@@ -233,6 +313,80 @@ describe('Stop', () => {
     expect(stopBtn()).toBeDefined();
     await act(async () => { stopBtn()!.click(); });
     expect(host.querySelector('.batch-finished')?.textContent).toMatch(/^Stopped early/);
+  });
+});
+
+describe('the finished line', () => {
+  /**
+   * It counted every sweep in MOTORS (audit 2026-09-30): with "mixed 2+2"
+   * ticked the button said "Simulate 28 flights" and the end of the run
+   * "simulated 28 motors", beside "7 candidate motors" in the meta line.
+   */
+  it('counts flights, as the button did, when a combination mode is ticked', async () => {
+    // Klima's seven 24 mm motors: 7 + C(7,2) = 28 flights.
+    localStorage.setItem('online-openrocket.batch-criteria.v1', JSON.stringify({ manufacturers: ['Klima'] }));
+    mount({ tree: CLUSTER_TREE, mounts: CLUSTER_MOUNTS });
+    const n = candidateCount();
+    expect(n).toBeGreaterThan(1);
+    const flights = n + mixedComboCount(n, 2);
+    const box = [...host.querySelectorAll('label')].find((l) => (l.textContent ?? '').includes('mixed 2+2'))!
+      .querySelector('input')!;
+    act(() => { box.click(); });
+    expect((primary().textContent ?? '').trim()).toMatch(new RegExp(`^Simulate ${flights} flights`));
+    sweep.mockResolvedValue({
+      rows: Array.from({ length: flights }, (_, i) => row(`k${i}`, `Acme E${i}`, 300)), stopped: false,
+    });
+    await start();
+    const done = host.querySelector('.batch-finished')?.textContent ?? '';
+    expect(done).toContain(`simulated ${flights} flights;`);
+    expect(done).not.toContain('motors');
+  });
+
+  it('still counts motors on a sweep that flies only motors', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300), row('b', 'Acme E22', 310)], stopped: false });
+    mount();
+    await start();
+    expect(host.querySelector('.batch-finished')?.textContent).toContain('simulated 2 motors;');
+  });
+});
+
+describe('the finished line reaches a screen reader (audit 2026-09-30)', () => {
+  /**
+   * It was a role="status" paragraph MOUNTED with its text already in it — the
+   * pattern this dialog's own progress region says is announced unreliably —
+   * and it is the announcement a screen-reader user waits a multi-minute sweep
+   * for; the progress region speaks only each tenth. The region is now always
+   * mounted, and the line is rendered into it.
+   */
+  it('lands in a status region that was there, empty, before the sweep started', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    mount();
+    const region = host.querySelector('.batch-status');
+    expect(region?.getAttribute('role')).toBe('status');
+    expect(region!.textContent).toBe('');
+    await start();
+    // The same node, not a fresh one inserted with the text in place.
+    expect(host.querySelector('.batch-status')).toBe(region);
+    expect(region!.textContent).toMatch(/^Finished — simulated 1 motor;/);
+    // One live region, not one nested inside another.
+    expect(region!.querySelectorAll('[role="status"]')).toHaveLength(0);
+  });
+
+  it('empties when the next sweep starts, so that sweep’s ending is new text again', async () => {
+    sweep.mockResolvedValue({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    mount();
+    await start();
+    const region = host.querySelector('.batch-status')!;
+    expect(region.textContent).not.toBe('');
+    let finish!: () => void;
+    sweep.mockImplementation(() => new Promise((resolve) => {
+      finish = () => resolve({ rows: [row('a', 'Acme E20', 300)], stopped: false });
+    }));
+    await start();
+    expect(region.textContent).toBe('');
+    await act(async () => { finish(); });
+    expect(host.querySelector('.batch-status')).toBe(region);
+    expect(region.textContent).toMatch(/^Finished/);
   });
 });
 

@@ -7,18 +7,18 @@ import {
 } from '../tree/treeModel.js';
 import { sheetsToXlsx, type Sheet } from '../services/xlsx.js';
 import {
-  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors,
+  classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import type { SimRun } from '../services/simReport.js';
+import { runStoppedEarly, type SimRun } from '../services/simReport.js';
 import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
-import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
+import { DEFAULT_TIME_STEP_S, TimeStepCaution, timeStepCostFactor, type LaunchConditions } from './LaunchPanel.js';
 import {
-  isWeighedCandidate, mixedComboCount, runBatchSweep, type BatchModel, type BatchMountOption, type BatchRow,
-  type BatchWeighed,
+  batchSolverFlights, deploysOnEjectionCharge, isWeighedCandidate, mixedComboCount, runBatchSweep,
+  type BatchModel, type BatchMountOption, type BatchRow, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { useCatalogue } from './useCatalogue.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -81,8 +81,9 @@ export function gradeBatchRun(run: SimRun, criteria: Criteria): string[] {
   // An aborted flight can never be "accepted": the kernel stopped it early,
   // so its apogee is whatever height the rocket had reached when it gave up.
   // Before this, a tumbling design's 140 m truncated flight could sail past
-  // an apogee criterion and be graded ✓ in green.
-  if (run.simWarnings?.some((w) => w.key === 'SIM_ABORT')) {
+  // an apogee criterion and be graded ✓ in green. The same predicate as the
+  // Saved simulations Safe column (runStoppedEarly), so the two cannot differ.
+  if (runStoppedEarly(run)) {
     failed.push('flight stopped early');
   }
   if (criteria.minRodExit !== null
@@ -180,33 +181,254 @@ export function batchUnavailableReason(
  * file."* He was right — the progress bar and its "simulating 173/226" line
  * simply vanished and the Stop button turned back into Simulate. A disappearing
  * progress bar is not an announcement.
+ *
+ * `total` is what this run flew (fewer than `planned` when it was stopped);
+ * `candidates` and `planned` are the sweep it started — its candidate count and
+ * the flights the button named. It counts in the button's noun
+ * (batchButtonLabel): motors while every flight is one candidate, FLIGHTS once
+ * a combination mode makes the two differ. It said "motors" whatever the sweep
+ * was, so 20 candidates with "mixed 2+2" finished as "simulated 210 motors"
+ * beside a meta line that said 20 (audit 2026-09-30).
  */
 export function batchSummary(
-  { total, stopped, accepted, errors, downloadable }:
-  { total: number; stopped: boolean; accepted: number; errors: number; downloadable: boolean },
+  { total, candidates, planned, stopped, accepted, errors, downloadable }: {
+    total: number; candidates: number; planned: number;
+    stopped: boolean; accepted: number; errors: number; downloadable: boolean;
+  },
 ): string {
   const head = stopped ? 'Stopped early' : 'Finished';
-  const motors = `${total} ${total === 1 ? 'motor' : 'motors'}`;
-  const errs = errors > 0 ? `, ${errors} could not be flown` : '';
+  const noun = planned === candidates ? 'motor' : 'flight';
+  const flown = `${group(total)} ${noun}${total === 1 ? '' : 's'}`;
+  const errs = errors > 0 ? `, ${group(errors)} could not be flown` : '';
   const tail = downloadable ? '. Download the results as CSV or XLSX above.' : '.';
-  return `${head} — simulated ${motors}; ${accepted} met your criteria${errs}${tail}`;
+  return `${head} — simulated ${flown}; ${group(accepted)} met your criteria${errs}${tail}`;
 }
 
 /** Thousands separators, pinned to en-US so these labels are deterministic. */
 const group = (n: number) => n.toLocaleString('en-US');
 
 /**
+ * WHAT ONE BATCH FLIGHT COSTS, in seconds at the 0.05 s default step — measured,
+ * so the Simulate button can say how long a sweep will take (board Tier 1 row 7:
+ * a combination sweep's count was fixed in v0.105, but nothing said how long
+ * one would run, and nothing stopped one). Two prices, because the delay
+ * solver's probe flights are most of the cost: `optimalDelay` for a flight that
+ * searches for its optimum delay, `fixedDelay` for one flown at a set delay.
+ * Which flights search is COUNTED (batchSweep's batchSolverFlights), not read
+ * off the checkbox: unticking "optimal delay per motor" still leaves every
+ * flight of motors sold plugged only searching on a design whose recovery waits
+ * for the charge — 64 of the 420 in-production candidates on a 38 mm mount,
+ * 158 of 600 on 54 mm — and those were priced at a fixed delay until the
+ * review of 2026-10-01.
+ *
+ * Measured 2026-10-01 through runBatchSweep itself — catalogue curves, nozzle
+ * table, the delay solver and the Mach probe, everything a sweep does — on the
+ * shipped kernel under Node 24 on the project laptop:
+ *
+ *   searching: 1.80-1.88 s a flight on every aero model, for 29 in-production
+ *   motors spanning a 38 mm mount in a 50 mm airframe (apogees to 3.2 km);
+ *   2.0 s for 36 flights of a 24 mm 4-ring cluster with "mixed 2+2"
+ *   fixed: 0.47 s (Rogers) to 0.60 s (Auto), for the same 29
+ *
+ * These price an ESTIMATE, and the design moves them more than anything else
+ * (re-measured in review, same day): 24 mm motors in a 42 mm airframe searched
+ * at 0.94 s a flight, so the button read about twice the real time; four
+ * plugged-only 38 mm motors flown at their optimum in a 50 mm airframe (J1026,
+ * I426, H248, G8) took 3.8 s a flight on average, about twice the searching
+ * price, so a sweep heavy in them runs longer than it says. The aero model
+ * moved the figure by under 0.1 s; a faster or slower machine moves all of it.
+ * Hence "about" on the button.
+ */
+export const BATCH_FLIGHT_S = { optimalDelay: 2, fixedDelay: 0.6 } as const;
+
+/** A sweep as the estimate reads it: its flights, how many of them search for their delay, and the step. */
+export interface BatchPace {
+  flights: number;
+  /** batchSweep's batchSolverFlights for this sweep — all of them with "optimal delay per motor" ticked. */
+  solverFlights: number;
+  timeStepS?: number | null;
+}
+
+/**
+ * Above this many flights the button says how long the sweep will take beside
+ * how many flights it is. 100 flights is about three minutes at the default
+ * pace (BATCH_FLIGHT_S): a shorter sweep is over while the user watches, and a
+ * longer one — the owner's 226-motor sweep is about eight minutes — is worth
+ * knowing the length of before it starts.
+ */
+export const BATCH_ESTIMATE_ABOVE_FLIGHTS = 100;
+
+/**
  * Above this many flights the Simulate button asks a second time.
  *
- * The threshold is an ORDER of magnitude, not a budget: the owner's real
- * 226-motor sweep took several minutes, so one flight is of order a second and
- * 5,000 of them is over an hour of a page that cannot respond between flights.
- * The number that made a gate necessary is 1,949,476 — his 226 candidates with
- * "mixed 4+2 / 2+2+2" ticked, i.e. mixedComboCount(226, 3) + 226 — which is
- * about three weeks at that rate, and it was one click away behind a button
- * that said "Simulate 226 motors".
+ * The threshold is an ORDER of magnitude, not a budget: at the measured pace
+ * (BATCH_FLIGHT_S) 5,000 flights is close to three hours of a page that cannot
+ * respond between flights.
  */
 export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
+
+/**
+ * The most flights one sweep will fly. Past it the sweep is REFUSED — the
+ * button disabled, and a sentence saying how to bring it under (batchRefusal) —
+ * never silently cut short.
+ *
+ * Chosen from two measurements (2026-10-01, the project laptop):
+ *  - TIME: 20,000 flights at the default pace (BATCH_FLIGHT_S) is about 11
+ *    hours — an overnight run, the longest a page that cannot respond while a
+ *    flight runs should be asked to stay in front.
+ *  - THE TABLE: the dialog holds every row a sweep flies (it draws the best
+ *    BATCH_TABLE_ROWS) and re-sorts them all after each flight. An update took
+ *    ~21 ms at 10,000 rows, ~51 ms at 25,000 and ~78 ms at 50,000 — 1-4 % of a
+ *    2 s flight — at ~3.4 KiB a row, ~70 MB at the cap; the CSV of 10,000 runs
+ *    took 0.15 s (8.6 MB) and the XLSX 0.8 s. Below ~50,000 the table is not
+ *    what binds; time is.
+ * The sweep that made a cap necessary, 226 candidates with "mixed 4+2 /
+ * 2+2+2" ticked (1,949,476 flights), would run about 45 days and hold ~6.5 GB
+ * of rows — more than a browser tab can hold at all. Before the cap it was
+ * one click and one confirmation away.
+ */
+export const BATCH_MAX_FLIGHTS = 20_000;
+
+/** The pair-split box's words — on the box, and in the refusal that says to untick it. */
+const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
+
+/**
+ * The motors a sweep of this mount flies, highest impulse first; how many the
+ * mount's max motor length left out (EXCLUDED, not just flagged: in a batch
+ * there's no point flying motors that don't fit); and the maker chips that
+ * applied. One function for the list on screen and for the refusal's question
+ * of what unticking "include OOP" would leave (batchRefusal), so the two cannot
+ * filter differently.
+ *
+ * The maker chips that APPLY are the stored selection intersected with the
+ * makers this mount offers as chips — the rule the diameter classes always
+ * followed, and the motor browser's. The criteria persist across sessions and
+ * mounts, so Loki chosen on a 54 mm mount (it makes nothing under 38 mm), or an
+ * out-of-production-only maker once "include OOP" was unticked, went on
+ * filtering with no chip on screen: "0 candidate motors", Simulate disabled,
+ * nothing to say why (audit 2026-09-30). The stored list is left as it is, so
+ * the choice comes back on a mount that offers it.
+ */
+export function batchCandidates(
+  criteria: Pick<Criteria, 'manufacturers' | 'classes' | 'includeOOP'>,
+  mount: { diameterMm: number; maxMotorLengthM: number | null },
+  motors: MotorDbEntry[],
+): { candidates: MotorDbEntry[]; tooLongCount: number; appliedMakers: string[] } {
+  const offered = new Set(manufacturersForMount(mount.diameterMm, criteria.includeOOP, motors).map((m) => m.abbrev));
+  const appliedMakers = criteria.manufacturers.filter((m) => offered.has(m));
+  const fittingClasses = classesFittingMount(mount.diameterMm, motors);
+  const filtered = filterMotors({
+    manufacturers: new Set(appliedMakers),
+    classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
+    boreMm: mount.diameterMm,
+    includeOOP: criteria.includeOOP,
+    text: '',
+  }, motors);
+  const room = mount.maxMotorLengthM;
+  const fitting = room === null ? filtered : filtered.filter((m) => m.length / 1000 <= room);
+  return {
+    candidates: sortMotors(fitting, 'totImpulseNs', -1),
+    tooLongCount: filtered.length - fitting.length,
+    appliedMakers,
+  };
+}
+
+/**
+ * How many flights a sweep of `n` candidates flies with these combination
+ * splits ticked (each split's group count): every candidate alone, plus each
+ * split's mixed combinations — the total runBatchSweep counts its progress to.
+ */
+export function batchFlightCount(n: number, groups: readonly number[]): number {
+  return n + groups.reduce((sum, g) => sum + mixedComboCount(n, g), 0);
+}
+
+/** The most candidates whose sweep stays within BATCH_MAX_FLIGHTS with these splits still ticked. */
+export function batchMaxCandidates(groups: readonly number[]): number {
+  let n = 0;
+  while (batchFlightCount(n + 1, groups) <= BATCH_MAX_FLIGHTS) n++;
+  return n;
+}
+
+/**
+ * Roughly how long a sweep takes, in seconds: its searching flights at the
+ * searching price (BATCH_FLIGHT_S) and the rest at the fixed one, times the
+ * time-step caution's own factor when the step is finer than the default,
+ * since a fine step's cost is per flight. A coarser step keeps the measured
+ * pace: the factor was fitted on finer steps only, and an estimate should not
+ * shrink on a guess.
+ */
+export function batchSweepSeconds({ flights, solverFlights, timeStepS }: BatchPace): number {
+  const perSweep = solverFlights * BATCH_FLIGHT_S.optimalDelay + (flights - solverFlights) * BATCH_FLIGHT_S.fixedDelay;
+  const step = timeStepS != null && timeStepS < DEFAULT_TIME_STEP_S ? timeStepCostFactor(timeStepS) : 1;
+  return perSweep * step;
+}
+
+/**
+ * A duration as an estimate can honestly claim it: minutes under the hour,
+ * quarter hours under ten, whole hours under two days, then days.
+ */
+export function batchDurationText(seconds: number): string {
+  if (seconds < 60) return 'under a minute';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `about ${minutes} min`;
+  if (seconds < 10 * 3600) {
+    const quarters = Math.round(seconds / 900);
+    const h = Math.floor(quarters / 4);
+    const m = (quarters % 4) * 15;
+    return m > 0 ? `about ${h} h ${m} min` : `about ${h} h`;
+  }
+  if (seconds < 48 * 3600) return `about ${Math.round(seconds / 3600)} h`;
+  return `about ${Math.round(seconds / 86400)} days`;
+}
+
+/** What the button says after the count: how long the sweep takes, or null for one too short to need it. */
+export function batchEstimate(pace: BatchPace): string | null {
+  return pace.flights > BATCH_ESTIMATE_ABOVE_FLIGHTS ? batchDurationText(batchSweepSeconds(pace)) : null;
+}
+
+/**
+ * Why a sweep past BATCH_MAX_FLIGHTS will not start, and the ways to bring it
+ * under — only the ways that do, each checked by counting the flights it would
+ * leave (review of the cap, 2026-10-01). It used to offer unticking "include
+ * OOP" whenever out-of-production motors were in, and either combination box
+ * when both were ticked: a 29 mm 4-ring with "mixed 2+2" is 314 candidates and
+ * 49,455 flights with them in, and still 232 and 27,028 without, and unticking
+ * "mixed 3+3" alone leaves the 4+2 / 2+2+2 split, the one that explodes. Named:
+ * each box whose unticking is enough by itself (else every box together), the
+ * candidate count that fits with the boxes still ticked, and unticking include
+ * OOP when that alone gets there. The time it quotes for the cap is at this
+ * sweep's own mix of searching and fixed flights. Null when the sweep fits.
+ */
+export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, timeStepS }: {
+  /** How many candidates the filters leave. */
+  candidates: number;
+  /** How many unticking "include OOP" would leave (batchCandidates); null while it is unticked. */
+  withoutOOP: number | null;
+  /** The ticked combination modes: the words on each box, and its split's group count. */
+  modes: readonly { name: string; groups: number }[];
+  /** How many of this sweep's flights search for their delay (BatchPace). */
+  solverFlights: number;
+  timeStepS?: number | null;
+}): string | null {
+  const groupsOf = (ms: readonly { groups: number }[]) => ms.map((m) => m.groups);
+  const fits = (n: number, ms: readonly { groups: number }[]) => batchFlightCount(n, groupsOf(ms)) <= BATCH_MAX_FLIGHTS;
+  const flights = batchFlightCount(candidates, groupsOf(modes));
+  if (flights <= BATCH_MAX_FLIGHTS) return null;
+  const atCap = batchDurationText(batchSweepSeconds({
+    flights: BATCH_MAX_FLIGHTS, solverFlights: BATCH_MAX_FLIGHTS * (solverFlights / flights), timeStepS,
+  }));
+  const alone = modes.filter((m) => fits(candidates, modes.filter((o) => o !== m)));
+  const untick = alone.length > 0 ? `Untick ${alone.map((m) => m.name).join(' or ')}`
+    : modes.length > 1 && fits(candidates, [])
+      ? `Untick ${modes.length === 2 ? 'both ' : ''}${modes.map((m) => m.name).join(' and ')}`
+      : null;
+  const oop = withoutOOP !== null && fits(withoutOOP, modes) ? ', or by unticking include OOP' : '';
+  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groupsOf(modes)))} or fewer with the `
+    + `maker and diameter chips${oop}`;
+  const how = untick ? `${untick}, or ${narrow}` : narrow[0]!.toUpperCase() + narrow.slice(1);
+  return `${group(flights)} flights is more than one batch will fly: the most is ${group(BATCH_MAX_FLIGHTS)}, `
+    + `${atCap} at the measured pace. ${how}.`;
+}
 
 /**
  * The primary button's label.
@@ -216,23 +438,25 @@ export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
  * combination mode ticked those two differ by up to four orders of magnitude,
  * so the button contradicted the meta line beside it, and the button is what
  * gets clicked. It counts FLIGHTS, and says so, as soon as the two differ: a
- * mixed-cluster combination is not a motor.
+ * mixed-cluster combination is not a motor. Past BATCH_ESTIMATE_ABOVE_FLIGHTS
+ * it says how long they will take as well (batchEstimate).
  */
 export function batchButtonLabel(
-  { candidates, totalFlights, confirming }:
-  { candidates: number; totalFlights: number; confirming: boolean },
+  { candidates, totalFlights, confirming, estimate = null }:
+  { candidates: number; totalFlights: number; confirming: boolean; estimate?: string | null },
 ): string {
-  if (confirming) return `Yes — fly ${group(totalFlights)} flights`;
+  const time = estimate ? ` · ${estimate}` : '';
+  if (confirming) return `Yes — fly ${group(totalFlights)} flights${time}`;
   if (totalFlights === candidates) {
-    return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}`;
+    return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}${time}`;
   }
-  return `Simulate ${group(totalFlights)} flights`;
+  return `Simulate ${group(totalFlights)} flights${time}`;
 }
 
 /** The second-ask copy for a sweep past {@link BATCH_CONFIRM_ABOVE_FLIGHTS}. */
-export function batchConfirmWarning(totalFlights: number): string {
-  return `${group(totalFlights)} flights is a very long run. The page cannot respond `
-    + 'while a flight runs, and Stop only takes effect between them. Press the button '
+export function batchConfirmWarning(totalFlights: number, estimate: string | null): string {
+  return `${group(totalFlights)} flights is a very long run${estimate ? ` — ${estimate}` : ''}. The page `
+    + 'cannot respond while a flight runs, and Stop only takes effect between them. Press the button '
     + 'again to start, or untick a combination mode to shrink it.';
 }
 
@@ -338,6 +562,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // it would describe a difference that does not exist.
   const nozzleStages = useMemo(
     () => (batchModel === 'eb' ? [] : stagesWithNozzle(tree)), [tree, batchModel]);
+  // Whether the recovery waits for the motor's charge — what decides if a
+  // plugged-only candidate searches for its delay, so what the estimate counts.
+  const deploysOnCharge = useMemo(() => deploysOnEjectionCharge(tree), [tree]);
   // The motor whose weight is still inside the swept stage's own mass override
   // — a RASAero import that named a motor the catalogue does not have, whose
   // user has not loaded it yet (services/statedLaunchWeight.ts). The design
@@ -351,13 +578,21 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
   const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
+  /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
+  const halvesName = clusterSplit ? `mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize}` : '';
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
   const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
-  /** Set when a run ends, cleared when the next one starts — the "it's done" signal. */
-  const [finished, setFinished] = useState<{ total: number; stopped: boolean; evicted: number; unsaved: number } | null>(null);
+  /**
+   * Set when a run ends, cleared when the next one starts — the "it's done"
+   * signal. `candidates` and `planned` are the sweep as it STARTED, so the line
+   * keeps describing that run while the filters above it change.
+   */
+  const [finished, setFinished] = useState<{
+    total: number; candidates: number; planned: number; stopped: boolean; evicted: number; unsaved: number;
+  } | null>(null);
   /** Why a sweep ended without finishing — something threw outside any one flight. */
   const [failure, setFailure] = useState<string | null>(null);
   // Stop, and unmount: the ONE cancel signal. It reaches every download, so
@@ -391,25 +626,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     () => manufacturersForMount(mountDiameterMm, criteria.includeOOP, allMotors),
     [mountDiameterMm, criteria.includeOOP, allMotors],
   );
-
-  // Motors longer than the selected mount's max motor length are EXCLUDED here (not
-  // just flagged): in a batch there's no point flying motors that don't fit.
-  const { candidates, tooLongCount } = useMemo(() => {
-    const filtered = filterMotors({
-      manufacturers: new Set(criteria.manufacturers),
-      classes: new Set(criteria.classes.filter((c) => fittingClasses.includes(c))),
-      boreMm: mountDiameterMm,
-      includeOOP: criteria.includeOOP,
-      text: '',
-    }, allMotors);
-    const fitting = maxMotorLengthM === null
-      ? filtered
-      : filtered.filter((m) => m.length / 1000 <= maxMotorLengthM);
-    return {
-      candidates: sortMotors(fitting, 'totImpulseNs', -1),
-      tooLongCount: filtered.length - fitting.length,
-    };
-  }, [criteria, mountDiameterMm, maxMotorLengthM, fittingClasses, allMotors]);
+  // The candidates, through the maker chips that apply here (batchCandidates).
+  const { candidates, tooLongCount, appliedMakers } = useMemo(
+    () => batchCandidates(criteria, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors),
+    [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
+  // What unticking "include OOP" would leave — the same filters, run again —
+  // so the refusal offers it only when it is enough.
+  const withoutOOP = useMemo(() => (criteria.includeOOP
+    ? batchCandidates({ ...criteria, includeOOP: false }, { diameterMm: mountDiameterMm, maxMotorLengthM }, allMotors)
+      .candidates.length
+    : null), [criteria, mountDiameterMm, maxMotorLengthM, allMotors]);
 
   /**
    * Separate from the abort signal, which the Stop BUTTON also fires. Both stop
@@ -475,8 +701,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
       // used to happen in silence (audit 2026-09-22) — and a sweep that accepts
       // more than 500 does not fit at all. The line below says both, apart.
       const stored = accepted.length > 0 ? addRuns(accepted) : null;
-      setFinished({ total: out.length, stopped, evicted: stored ? runsEvictedByLastWrite() : 0,
-        unsaved: stored ? runsUnsavedByLastWrite() : 0 });
+      setFinished({ total: out.length, candidates: candidates.length, planned: totalFlights, stopped,
+        evicted: stored ? runsEvictedByLastWrite() : 0, unsaved: stored ? runsUnsavedByLastWrite() : 0 });
       if (stored) onRunsChange(stored);
     } catch (e) {
       if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
@@ -570,14 +796,33 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // The time-step caution multiplies by this: a fine step's cost is per
   // flight, and the launch panel's per-flight caution says nothing about a
   // candidate list turning 15 s of freeze into 20 minutes of it.
-  const totalFlights = candidates.length
-    + (comboMode && clusterSplit ? mixedComboCount(candidates.length, clusterSplit.mountIds.length) : 0)
-    + (pairMode && pairSplit ? mixedComboCount(candidates.length, pairSplit.mountIds.length) : 0);
+  const ticked = [
+    ...(comboMode && clusterSplit ? [{ name: halvesName, groups: clusterSplit.mountIds.length }] : []),
+    ...(pairMode && pairSplit ? [{ name: PAIRS_NAME, groups: pairSplit.mountIds.length }] : []),
+  ];
+  const totalFlights = batchFlightCount(candidates.length, ticked.map((t) => t.groups));
+  // How many of them search for their delay, by the sweep's own rule — with
+  // the box unticked, still those of plugged-only motors on a design whose
+  // recovery waits for the charge, and every flight while another mount's
+  // motor is on Auto. The estimate prices them apart from the rest.
+  const solverFlights = batchSolverFlights({
+    candidates, groups: ticked.map((t) => t.groups), autoDelay: criteria.autoDelay, deploysOnCharge,
+    othersAuto: Object.keys(assignedMotors).some((id) => id !== sel.id && assignedAutoDelays?.[id] === true),
+  });
+  // How long that takes, and whether it is more than one sweep will fly. Past
+  // BATCH_MAX_FLIGHTS the button is disabled and says why — refused, never
+  // trimmed to fit.
+  const pace: BatchPace = { flights: totalFlights, solverFlights, timeStepS: launch.timeStepS };
+  const estimate = batchEstimate(pace);
+  const refusal = batchRefusal({
+    candidates: candidates.length, withoutOOP, modes: ticked, solverFlights, timeStepS: launch.timeStepS,
+  });
 
   // Disarm the second-ask whenever the sweep's size changes: unticking a
   // combination mode or narrowing the filters must not leave a confirmation
-  // armed for a count that no longer exists.
+  // armed for a count that no longer exists. A refused sweep is never armed.
   useEffect(() => { setConfirming(false); }, [totalFlights]);
+  const armed = confirming && refusal === null;
 
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
@@ -613,7 +858,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 </button>
               );
             })}
-            {criteria.manufacturers.length > 0 && (
+            {appliedMakers.length > 0 && (
               <button className="file-btn" onClick={() => setCriteria({ ...criteria, manufacturers: [] })}>all</button>
             )}
           </div>
@@ -689,7 +934,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize}). Off = one motor type in every tube (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>
                 <input type="checkbox" checked={comboMode} style={{ width: 'auto' }}
                   onChange={(e) => setComboMode(e.target.checked)} />
-                mixed {clusterSplit.groupSize}+{clusterSplit.groupSize}
+                {halvesName}
               </label>
             )}
             {pairSplit && (
@@ -697,7 +942,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 title="Also fly the 6-motor cluster as THREE opposite-tube pairs with up to three motor types — 4+2 and 2+2+2 configurations (every pair is thrust-balanced, so all of them are symmetric). Adds every candidate multiset of size 3 — this grows FAST: n candidates add n(n+1)(n+2)/6 − n flights.">
                 <input type="checkbox" checked={pairMode} style={{ width: 'auto' }}
                   onChange={(e) => setPairMode(e.target.checked)} />
-                mixed 4+2 / 2+2+2
+                {PAIRS_NAME}
               </label>
             )}
             <label className="motor-inline-label">
@@ -717,9 +962,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
         )}
 
-        {confirming && !running && (
+        {armed && !running && (
           <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>
-            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights)}
+            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights, estimate)}
+          </p>
+        )}
+        {/* On screen, not in a tooltip on the disabled button: a disabled
+            button shows nothing when it is clicked (the 2026-09-01b report). */}
+        {refusal && !running && (
+          <p className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
+            <Icon name="zap" size={13} /> {refusal}
           </p>
         )}
 
@@ -727,9 +979,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
             {comboMode && clusterSplit
-              && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
+              && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} ${halvesName} combinations`}
             {pairMode && pairSplit
-              && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} mixed 4+2 / 2+2+2 combinations`}
+              && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} ${PAIRS_NAME} combinations`}
             {tooLongCount > 0 && ` · ${tooLongCount} excluded — over this mount’s max motor length`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
@@ -749,6 +1001,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           ) : (
             <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
               onClick={() => {
+                // Past the cap there is nothing to start or to confirm.
+                if (refusal) return;
                 // A sweep this big is not something anyone clicks on purpose
                 // by accident — the second ask names the flight count.
                 if (!confirming && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS) {
@@ -758,9 +1012,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 setConfirming(false);
                 void start();
               }}
-              disabled={candidates.length === 0}>
+              disabled={candidates.length === 0 || refusal !== null}>
               <Icon name="rocket" /> {batchButtonLabel({
-                candidates: candidates.length, totalFlights, confirming,
+                candidates: candidates.length, totalFlights, confirming: armed, estimate,
               })}
             </button>
           )}
@@ -834,21 +1088,30 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
         {/* The run is over and the results are ready to download. Says it in
             words, with the counts, because the progress bar vanishing is not an
-            announcement. `role="status"` so a screen reader hears it too. */}
-        {finished && !running && (
-          <p className="comp-stats batch-finished" role="status" style={{ margin: '6px 0 0' }}>
-            {batchSummary({
-              total: finished.total,
-              stopped: finished.stopped,
-              accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
-              errors: sorted.filter((r) => r.error).length,
-              downloadable: sorted.some((r) => r.run),
-            })}
-            {(finished.evicted > 0 || finished.unsaved > 0)
-              && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
-            {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
-          </p>
-        )}
+            announcement. `role="status"` so a screen reader hears it too — on
+            a region ALWAYS MOUNTED, the line rendered into it (audit
+            2026-09-30). It was a paragraph inserted with its text already in
+            place, the pattern the progress region above says is announced
+            unreliably, and this is the line a screen-reader user waits out a
+            multi-minute sweep for. */}
+        <div className="batch-status" role="status">
+          {finished && !running && (
+            <p className="comp-stats batch-finished" style={{ margin: '6px 0 0' }}>
+              {batchSummary({
+                total: finished.total,
+                candidates: finished.candidates,
+                planned: finished.planned,
+                stopped: finished.stopped,
+                accepted: sorted.filter((r) => r.run && r.failed.length === 0).length,
+                errors: sorted.filter((r) => r.error).length,
+                downloadable: sorted.some((r) => r.run),
+              })}
+              {(finished.evicted > 0 || finished.unsaved > 0)
+                && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
+              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
+            </p>
+          )}
+        </div>
         {failure && !running && (
           <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
             {`The batch stopped before it finished: ${failure}`}

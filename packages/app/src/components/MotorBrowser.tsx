@@ -114,6 +114,15 @@ function windowBound(raw: string): number | null {
 }
 
 /**
+ * Whether the Delay select offers `delay` for this motor: Auto, Custom and
+ * Plugged always are (the select adds Plugged to every motor), a number of
+ * seconds only when the motor lists it.
+ */
+function delayOffered(motor: MotorDbEntry, delay: number | 'auto' | 'custom'): boolean {
+  return typeof delay !== 'number' || delay === Infinity || delayOptions(motor).includes(delay);
+}
+
+/**
  * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
  * on-state was a CSS class alone — outside the Daylight theme a border and text
  * shade, no fill — so a screen reader heard no state and a low-vision user saw
@@ -397,7 +406,23 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (problems.length) setError(problems.join(' '));
   };
 
+  /**
+   * The motor the Delay was last set for. The pick is re-resolved whenever the
+   * catalogue changes (below), and a repeat check re-reads the stored result
+   * as fresh rows, so the same motor arrives as a new row with nothing changed;
+   * re-running the default for it put a delay the user had chosen back to the
+   * motor's longest, and Load loaded C6-9 with C6-3 on screen a moment before
+   * (review of the audit 2026-09-30 fix). The same motor keeps its delay while
+   * its row still offers it; a different motor starts from the default.
+   */
+  const delayFor = useRef<string | null>(null);
   useEffect(() => {
+    const sameMotor = picked !== null && picked.motorId === delayFor.current;
+    delayFor.current = picked?.motorId ?? null;
+    if (sameMotor) {
+      setDelay((d) => (delayOffered(picked, d) ? d : defaultDelay(picked) ?? 'auto'));
+      return;
+    }
     // Default to the longest PRESCRIBED delay; plugged (Infinity) only when
     // it's the motor's sole option — nobody should get a chute-less flight
     // by default. A motor that lists no delay at all (KBA's "S,M,L", an EX
@@ -405,6 +430,23 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     // catalogue never said (audit 2026-09-22).
     if (picked) setDelay(defaultDelay(picked) ?? 'auto');
   }, [picked]);
+
+  /**
+   * The pick follows the catalogue (audit 2026-09-30). It is held as a ROW, and
+   * a check or "Discard fetched changes" swaps the rows underneath it: after a
+   * discard, Load still loaded the discarded row — a motor that existed only in
+   * the fetched changes included — so one motorId flew two ways, the discarded
+   * data in this load and the shipped row everywhere else, the split
+   * useCatalogue exists to prevent. Re-resolved by id: still in the catalogue,
+   * the pick becomes its row there (keeping its delay while that row offers
+   * it, above); gone, the pick is cleared. An imported EX motor is never in
+   * the catalogue, so a check leaves it alone.
+   */
+  useEffect(() => {
+    setPicked((p) => (p === null || p.motorId.startsWith('ex:')
+      ? p
+      : catalogue.find((m) => m.motorId === p.motorId) ?? null));
+  }, [catalogue]);
 
   const tooLong = (m: MotorDbEntry) =>
     maxMotorLengthM !== null && m.length / 1000 > maxMotorLengthM;
@@ -555,25 +597,32 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
         {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
-        {checkNote && (
-          <div className="file-note" role="status" style={{ marginTop: 6 }}>
-            {checkWasRecent && (
-              <p style={{ margin: '0 0 4px' }}>
-                Checked less than six hours ago — this is that result.{' '}
-                <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
-              </p>
-            )}
-            {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
-            {overlay && (
-              <p style={{ margin: '4px 0 0' }}>
-                <button className="file-btn" onClick={() => { discardCatalogueOverlay(); setCheckNote(null); }}
-                  title="Forget the fetched changes and go back to the catalogue this app shipped with">
-                  Discard fetched changes
-                </button>
-              </p>
-            )}
-          </div>
-        )}
+        {/* ALWAYS MOUNTED, the result rendered into it (audit 2026-09-30): it
+            was a role="status" box inserted with its text already in place,
+            which is announced unreliably (the live regions at the foot of this
+            dialog say why), so pressing Check could answer a screen-reader
+            user with silence. */}
+        <div className="motor-check-status" role="status">
+          {checkNote && (
+            <div className="file-note" style={{ marginTop: 6 }}>
+              {checkWasRecent && (
+                <p style={{ margin: '0 0 4px' }}>
+                  Checked less than six hours ago — this is that result.{' '}
+                  <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
+                </p>
+              )}
+              {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
+              {overlay && (
+                <p style={{ margin: '4px 0 0' }}>
+                  <button className="file-btn" onClick={() => { discardCatalogueOverlay(); setCheckNote(null); }}
+                    title="Forget the fetched changes and go back to the catalogue this app shipped with">
+                    Discard fetched changes
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="motor-filter-block">
           <div className="motor-chip-row" role="group" aria-label="Manufacturers">

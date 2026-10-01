@@ -6,9 +6,10 @@ import { SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
-import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse,
+import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
 } from '../services/simReport.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
+import { gradeBatchRun, type Criteria } from './BatchSimulate.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
 
 /**
@@ -554,6 +555,64 @@ describe('K16 rendered opening tiers', () => {
     expect(cell.textContent).toContain('fast opening');
     expect(cell.textContent).toContain('landing too fast');
     expect(cell.className).toBe('stability-bad');
+  });
+});
+
+/**
+ * A FLIGHT THE KERNEL STOPPED EARLY IS NEVER "SAFE" (audit 2026-09-30). The
+ * Saved simulations Safe column read only the stored verdicts, so an aborted
+ * run whose verdicts all passed — or were all blank, as for a rocket that never
+ * left the pad — showed a green ✓, while the batch's own grade (gradeBatchRun)
+ * refused the same run as "flight stopped early". Both now ask the one
+ * predicate, simReport's runStoppedEarly.
+ */
+describe('SimHistory — a flight the kernel stopped early', () => {
+  /** The batch's grade with no criteria set: only an abort can fail it. */
+  const NO_CRITERIA: Criteria = {
+    minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
+    autoDelay: true, includeOOP: false, manufacturers: [], classes: [],
+  };
+  const flown = (result: FlightResult, id: string): SimRun => ({ ...buildSimRun({
+    result, info,
+    motor: { designation: 'C6', ejectionDelay: 5, diameter: 0.018, length: 0.07 } as never,
+    meta: { label: 'C6-5' }, launch: DEFAULT_CONDITIONS, rocketName: 'Big Dog 4in', execMs: 100,
+  }), id });
+  const clean = flown({ ...fakeResult(), warnings: [] }, 'clean');
+  // Stopped at T+1.14 s, with every stored verdict still passing.
+  const passing = flown({
+    ...fakeResult(), warnings: [],
+    events: [...fakeResult().events, { type: 'SIM_ABORT', time: 1.14, cause: 'TUMBLE_UNDER_THRUST' }],
+  } as FlightResult, 'aborted-passing');
+  // Never left the pad: no verdict could be formed at all.
+  const blank: SimRun = {
+    ...flown({
+      ...fakeResult(), warnings: [],
+      events: [{ type: 'LAUNCH', time: 0 }, { type: 'SIM_ABORT', time: 2, cause: 'NO_LIFTOFF' }],
+    } as FlightResult, 'aborted-blank'),
+    rodExitVelocity: null, safeLiftoffSpeed: null, safeThrustToWeight: null, safeLandingRate: null,
+    safeDeployment: null, deployments: [], velocityAtDeployment: null, launchStaticMarginCal: null,
+  };
+  const safeCells = () => Array.from(host.querySelectorAll('tr.motor-row')).map((tr) =>
+    tr.querySelector('td.stability-warn, td.stability-bad, td.stability-good')!.textContent);
+
+  it('marks an aborted run ⚠, whatever its verdicts say', () => {
+    render(<SimHistory runs={[clean, passing, blank]} onRunsChange={() => {}} />);
+    openTable();
+    expect(safeCells()).toEqual(['✓', '⚠', '⚠']);
+  });
+
+  it('agrees with the batch grade on every run, an aborted one included', () => {
+    const runs = [clean, passing, blank];
+    render(<SimHistory runs={runs} onRunsChange={() => {}} />);
+    openTable();
+    const cells = safeCells();
+    runs.forEach((r, i) => {
+      const batchStopped = gradeBatchRun(r, NO_CRITERIA).includes('flight stopped early');
+      expect(batchStopped, r.id).toBe(runStoppedEarly(r));
+      // Nothing else is wrong with these runs, so the two verdicts coincide.
+      expect(cells[i], r.id).toBe(batchStopped ? '⚠' : '✓');
+      expect(gradeBatchRun(r, NO_CRITERIA), r.id).toEqual(batchStopped ? ['flight stopped early'] : []);
+    });
   });
 });
 

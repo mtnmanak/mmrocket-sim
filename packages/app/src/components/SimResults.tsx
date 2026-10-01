@@ -8,7 +8,7 @@ import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
   launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
-  ROLL_RATE_MEANINGFUL_RAD_S, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
@@ -617,8 +617,13 @@ export function SimHistory({
             <tbody>
               {runs.map((r) => {
                 // Over-stability is a caution (△), not a failure — only real
-                // failures paint the row's Safe cell red.
-                const unsafe = r.safeLiftoffSpeed === false || deploymentVerdict(r) === false
+                // failures paint the row's Safe cell red. A flight the kernel
+                // stopped early is one whatever its verdicts say: they describe
+                // a truncated flight, and for a rocket that never left the pad
+                // they are all blank (audit 2026-09-30). The batch's grade asks
+                // the same predicate.
+                const unsafe = runStoppedEarly(r)
+                  || r.safeLiftoffSpeed === false || deploymentVerdict(r) === false
                   || stabilityState(r.launchStaticMarginCal) === 'under'
                   || r.safeThrustToWeight === false
                   || r.safeLandingRate === false

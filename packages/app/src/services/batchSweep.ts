@@ -322,6 +322,40 @@ export function listsNoDelay(entry: TcMotor): boolean {
   return defaultDelay(entry) === null;
 }
 
+/**
+ * How many of a sweep's flights search for their optimum delay. The search's
+ * probe flights make such a flight several times dearer than one at a fixed
+ * delay, so the batch dialog's time estimate prices the two apart and needs
+ * this count (review of the batch cap, 2026-10-01: it priced every flight of an
+ * unticked sweep at a fixed delay). Every flight searches while "optimal delay
+ * per motor" is ticked, or while a motor on another mount is on Auto (it is
+ * solved on every flight). Unticked, flyLegs' rule: a flight searches when one
+ * of its motors lists no delay at all, or when every one of its motors is sold
+ * plugged only and the design deploys its recovery on the charge
+ * (optimumForPlugged). The flights that do NOT search are the ones drawn
+ * entirely from motors that list a delay, less those drawn entirely from the
+ * plugged-only ones on such a design, and each count is the sweep's own: every
+ * candidate alone, then each split's combinations (mixedComboCount).
+ */
+export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCharge, othersAuto }: {
+  candidates: readonly TcMotor[];
+  /** Each ticked split's group count (split.mountIds.length), as mixedComboCount takes it. */
+  groups: readonly number[];
+  autoDelay: boolean;
+  /** deploysOnEjectionCharge of the design. */
+  deploysOnCharge: boolean;
+  /** A motor on a mount other than the swept one is on Auto delay. */
+  othersAuto: boolean;
+}): number {
+  /** The flights drawn entirely from `n` of the candidates. */
+  const flightsFrom = (n: number) => n + groups.reduce((sum, g) => sum + mixedComboCount(n, g), 0);
+  const all = flightsFrom(candidates.length);
+  if (autoDelay || othersAuto) return all;
+  const listed = candidates.filter((e) => !listsNoDelay(e));
+  const pluggedOnly = listed.filter((e) => provisionalDelay(e, false) === Infinity).length;
+  return all - flightsFrom(listed.length) + (deploysOnCharge ? flightsFrom(pluggedOnly) : 0);
+}
+
 /** The deploy events the kernel does NOT read as the ejection charge (ComponentFactory.deployEventOf). */
 const NOT_ON_CHARGE = new Set(['launch', 'apogee', 'altitude', 'never']);
 
