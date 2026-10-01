@@ -427,6 +427,35 @@ describe('RockSim export → import round trip', () => {
     expect(r.notes.join(' ')).toMatch(/rotated 30/);
   });
 
+  it('does not turn a set only a swept tip overhangs: the importer keeps v0.145\'s root-chord span', () => {
+    // Held 2026-10-01 (v0.146 claim check): with the true swept span, 41 of 852
+    // RockSim files opened with a set turned away from the file's angle (the
+    // Spaceman's arm onto its leg). Root chords 0-100 and 110-160 mm do not
+    // overlap; the first set's tip reaches 130 mm.
+    const xml = `<RockSimDocument><DesignInformation><RocketDesign>
+      <Name>UN</Name><StageCount>1</StageCount>
+      <Stage3Parts>
+        <BodyTube><Name>Booster</Name><OD>102</OD><ID>98</ID><Len>800</Len>
+          <AttachedParts>
+            <FinSet><Name>Swept set</Name><ShapeCode>0</ShapeCode><FinCount>4</FinCount>
+              <RootChord>100</RootChord><TipChord>50</TipChord><SweepDistance>80</SweepDistance>
+              <SemiSpan>60</SemiSpan><Thickness>3</Thickness>
+              <Xb>0.</Xb><LocationMode>0</LocationMode><RadialAngle>0.</RadialAngle></FinSet>
+            <FinSet><Name>Aft set</Name><ShapeCode>0</ShapeCode><FinCount>4</FinCount>
+              <RootChord>50</RootChord><TipChord>30</TipChord><SweepDistance>10</SweepDistance>
+              <SemiSpan>40</SemiSpan><Thickness>3</Thickness>
+              <Xb>110.</Xb><LocationMode>0</LocationMode><RadialAngle>0.</RadialAngle></FinSet>
+          </AttachedParts>
+        </BodyTube>
+      </Stage3Parts><Stage2Parts/><Stage1Parts/>
+    </RocketDesign></DesignInformation></RockSimDocument>`;
+    const r = importRkt(xml);
+    const sets = flatten(r.tree.components).filter((c) => c.type === 'trapezoidfinset');
+    expect(sets).toHaveLength(2);
+    expect(sets.map((s) => s['rotation'] ?? 0)).toEqual([0, 0]);
+    expect(r.notes.join(' ')).not.toMatch(/to interleave/);
+  });
+
   it('interleaves by the fin count that is drawn and flown, not the raw one sanitize clamps', () => {
     // The de-collision runs BEFORE sanitizeTree, and it divided by the file's raw
     // count: a TubeCount of 12 turned the second set 15° and said so, while

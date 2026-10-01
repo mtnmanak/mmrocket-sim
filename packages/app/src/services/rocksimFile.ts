@@ -8,8 +8,8 @@ import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
-import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
-import { axialLength, positionOf } from '../tree/position.js';
+import { spansOverlap } from '../tree/finAlign.js';
+import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
@@ -1397,9 +1397,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const finSets = kids.filter((k) => k.type.endsWith('finset'));
       if (finSets.length >= 2) {
         const pLen = axialLength(parentNode);
-        // finAlign's span (kernel station, drawn extent), so an overhanging
-        // freeform tip still counts as overlap here exactly as it does there.
-        const range = (k: ComponentNode) => finSetSpan(k, pLen);
+        // v0.145's span, HELD (2026-10-01): from the kernel station to the
+        // root chord's end, or a freeform set's furthest point. Align fins
+        // (finAlign.finSetSpan) now takes a swept tip and a forward reach too,
+        // but here that turned 41 of 852 RockSim files' sets away from the
+        // angle the file gives them — the Spaceman's lower arm onto its leg,
+        // the Darkstars' lower fins and the PML Endeavour's upper fins by 60° —
+        // and a RockSim file states no interleave to guess from. Widen this only
+        // after checking against RockSim's own rendering (board, Tier 2).
+        const range = (k: ComponentNode): [number, number] => {
+          const start = startFromPosition(positionOf(k), axialLength(k), pLen);
+          const pts = k.type === 'freeformfinset' ? (k['points'] as [number, number][] | undefined) ?? [] : null;
+          const extent = pts ? (pts.length ? Math.max(...pts.map((p) => p[0])) : 0.05) : axialLength(k);
+          return [start, start + extent];
+        };
         const rotOf = (k: ComponentNode) => nnum(k, 'rotation', 0);
         for (let i = 1; i < finSets.length; i++) {
           const me = finSets[i]!;
