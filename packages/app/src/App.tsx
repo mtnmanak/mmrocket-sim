@@ -1158,6 +1158,15 @@ export function App() {
    */
   const refusedMountIds = useMemo(() => motorFailures.map((f) => f.mountId), [motorFailures]);
   /**
+   * The same mounts in a stored delay vector's terms: what the Auto-delay card
+   * checks a run's vector against. It was checked against every ASSIGNED mount,
+   * so on a design with a refused motor the card called the flight just flown
+   * a "Previous flight", and no Launch could change that (verifier, audit
+   * 2026-09-30).
+   */
+  const flownDelayMounts = useMemo(
+    () => delayMountsOf(installedMounts(assigned, refusedMountIds)), [assigned, refusedMountIds]);
+  /**
    * The hardware this build carries (kg), 0 when none: a provenance term
    * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
@@ -4036,12 +4045,12 @@ export function App() {
               // another design's "Previous flight" under this motor (audit
               // 2026-09-30).
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
-                && resolutionMatches(r.delayResolution, delayMountsOf(assigned)))
+                && resolutionMatches(r.delayResolution, flownDelayMounts))
                 ?? runs.find((r) => r.designKey === provenanceKey.designKey
                   && validDelayResolution(r.delayResolution)
                   && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
-                && resolutionMatches(delayRun.delayResolution, delayMountsOf(assigned));
+                && resolutionMatches(delayRun.delayResolution, flownDelayMounts);
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>

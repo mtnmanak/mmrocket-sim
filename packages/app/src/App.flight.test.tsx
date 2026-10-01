@@ -13,6 +13,7 @@ import { testMotor, testResolution } from './services/autoDelay.testSupport.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import type { SessionState } from './services/session.js';
+import type { SimRun } from './services/simReport.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -294,6 +295,52 @@ describe('a design whose pod motor the kernel refused', () => {
       created.mockRestore();
       revoked.mockRestore();
     }
+  }, 30000);
+});
+
+/**
+ * AN AUTO MOTOR BESIDE ONE THE KERNEL REFUSED (verifier's review of audit
+ * 2026-09-30, Step 2): the same root cause as the re-fly above, where a flight's
+ * Auto delays are read back. Launch stores the delay vector of the mounts it
+ * flew, the core alone here, and that vector was checked against every
+ * ASSIGNED mount, a length that can never match while the pods' motor is
+ * refused. Pressing Launch again could not change that.
+ */
+describe('an Auto motor beside a pod motor the kernel refused', () => {
+  /**
+   * podTree with the core's Estes C6-5 on Auto delay and the pods' C6 on a
+   * curve the kernel refuses (its last mass below zero), mounted and flown
+   * once. Returns the core's mount id and its stored delay record.
+   */
+  async function flownWithRefusedPodMotor(): Promise<{ host: HTMLElement; core: string; flownS: number }> {
+    const tree = podTree(defaultTree());
+    const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const refused = {
+      ...c6, spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [core]: { ...c6, meta: { ...c6.meta, autoDelay: true } }, 'pod-mmt': refused },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await settle(50);
+    expect(document.querySelector('.notice-bar')?.textContent).toContain('ends at a negative mass');
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    await settle(50);
+    // The case itself: a vector of the core alone, its Auto delay settled.
+    const [run] = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+    expect(run!.delayResolution!.mounts.map((m) => [m.mountId, m.mode])).toEqual([[core, 'auto']]);
+    return { host, core, flownS: run!.delayResolution!.mounts[0]!.flownDelay as number };
+  }
+
+  it('its card says the flight just flown is current, not a previous one', async () => {
+    const { host, flownS } = await flownWithRefusedPodMotor();
+    await openTab(host, 'Motors & Launch');
+    const card = [...host.querySelectorAll('.mount-card p.field-hint')]
+      .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
+    expect(card).toMatch(new RegExp(`^Auto flew ${flownS} s · ballistic optimum`));
   }, 30000);
 });
 
