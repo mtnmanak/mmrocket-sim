@@ -551,7 +551,7 @@ describe('the Auto delay box on a motor card', () => {
     await openTab(host, 'Motors & Launch');
     await settle(50);
     const box = (mountName: string) => [...host.querySelectorAll('.mount-card')]
-      .find((c) => c.querySelector('label')?.firstChild?.textContent === mountName)
+      .find((c) => c.querySelector('.mount-card-title')?.firstChild?.textContent === mountName)
       ?.querySelector('input[type="checkbox"]:checked')?.parentElement?.textContent?.trim();
     // The ticked box on each card — "plugged" is the other checkbox, unticked here.
     expect(box(core.name!)).toBe('auto (optimal)');

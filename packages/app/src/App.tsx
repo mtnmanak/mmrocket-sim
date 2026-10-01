@@ -3980,11 +3980,13 @@ export function App() {
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <label style={{ flex: 1, fontWeight: 600 }}>
+                    {/* The card's title, not a <label>: it names no control
+                        (audit 2026-09-30). */}
+                    <span className="mount-card-title" style={{ flex: 1, fontWeight: 600 }}>
                       {m.name ?? 'Motor mount'}
                       <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
                       {countNote && ` (${countNote})`}
-                    </label>
+                    </span>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
                         // Named, not "multiplication x" (audit 2026-09-22).
@@ -4016,7 +4018,9 @@ export function App() {
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
-                      <label>
+                      {/* Tied to its box (audit 2026-09-30), which keeps the
+                          name that says which mount, as Max motor length's does. */}
+                      <label htmlFor={`ejection-delay-${m.id}`}>
                         Ejection delay (s)
                         {mm.meta.availableDelays?.length
                           ? ` — prescribed: ${mm.meta.availableDelays.map((d) => (Number.isFinite(d) ? d : 'P')).join(', ')}`
@@ -4025,6 +4029,7 @@ export function App() {
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
                           <NumField
+                            id={`ejection-delay-${m.id}`}
                             // A plugged motor has no numeric delay — blank the
                             // field (it used to render the literal "Infinity").
                             value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}

@@ -152,7 +152,7 @@ describe('App — accessibility, as rendered', () => {
     await openTab(host, 'Motors & Launch');
     expect(host.querySelector('.motors-layout')?.tagName).toBe('MAIN');
     const remove = [...host.querySelectorAll('button[title="Remove this motor"]')];
-    const mount = host.querySelector('.mount-card label')!.firstChild!.textContent;
+    const mount = host.querySelector('.mount-card-title')!.firstChild!.textContent;
     expect(remove.map((b) => b.getAttribute('aria-label'))).toEqual([`Remove C6-5 from ${mount}`]);
   }, 30000);
 
@@ -267,6 +267,28 @@ describe('App — accessibility, as rendered', () => {
     // ITS select: the one that sets when this motor lights.
     expect([...select!.options].map((o) => o.value))
       .toEqual(['automatic', 'burnout', 'launch', 'ejectioncharge', 'never']);
+  }, 30000);
+
+  /**
+   * Audit 2026-09-30, the class of the Ignition label: a motor card's title
+   * was a <label> that labelled nothing, and "Ejection delay (s)" sat beside
+   * its box tied to nothing, so clicking the words did nothing. The title is
+   * the card's text now, and every label in the card reaches its control. The
+   * delay box keeps its own name, which says which mount, as Max motor
+   * length's does.
+   */
+  it('no label in a motor card labels nothing, and the delay’s words reach the delay box', async () => {
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const card = host.querySelector<HTMLElement>('.mount-card')!;
+    const labels = [...card.querySelectorAll('label')];
+    for (const l of labels) expect(l.control, `"${l.textContent}" labels nothing`).not.toBeNull();
+    const delay = labels.find((l) => l.textContent?.startsWith('Ejection delay (s)'));
+    expect(delay, 'a loaded motor shows its delay field').toBeTruthy();
+    const box = delay!.control;
+    expect(box?.tagName).toBe('INPUT');
+    const mount = card.querySelector('.mount-card-title')!.firstChild!.textContent;
+    expect(box!.getAttribute('aria-label')).toBe(`Ejection delay for ${mount}`);
   }, 30000);
 
   /**
