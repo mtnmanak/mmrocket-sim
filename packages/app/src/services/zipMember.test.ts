@@ -1,4 +1,4 @@
-import { gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
+import { Deflate, gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { gunzipCapped, MAX_ZIP_ENTRIES, MAX_ZIP_MEMBER_BYTES, unzipMember } from './zipMember.js';
 
@@ -326,6 +326,44 @@ describe('a GZIP design file is inflated as a bounded stream', () => {
     garbage.fill(0xff, 10, garbage.length - 8); // header kept, deflate data destroyed
     expect(() => gunzipCapped(garbage, '.ork')).toThrow(/damaged/); // the tail on its own
     const bomb = join(zeroMembers(MAX_ZIP_MEMBER_BYTES / MIB + 1), garbage);
+    expect(() => gunzipCapped(bomb, '.ork')).toThrow(/expands past the 64 MB this app will open/);
+  });
+
+  it('stops at the cap WHILE inflating ONE member, not only between members', () => {
+    // The test above holds at member granularity alone: fflate hands over each
+    // member's output as that member ends, even when the whole file is pushed
+    // at once. A bomb is as easily ONE member (zeros deflate about 1,000:1),
+    // and pushed whole, all of it is inflated before the cap sees a byte: a
+    // 519 KiB file of 512 MiB of zeros peaked at 1,075 MiB that way, against
+    // 239 MiB in INFLATE_CHUNK pushes (measured 2026-10-01, Node 24).
+    //
+    // Built from one deflate segment of 1 MiB of zeros ending on a sync flush:
+    // byte-aligned and referring to nothing before it, so copies back to back
+    // are one sound stream.
+    const segment = (() => {
+      const parts: Uint8Array[] = [];
+      const deflate = new Deflate((c) => { parts.push(c); });
+      deflate.push(new Uint8Array(MIB), false);
+      deflate.flush(true);
+      return join(...parts);
+    })();
+    const header = new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff]);
+    const sound = join(header, segment, segment,
+      new Uint8Array([1, 0, 0, 0xff, 0xff]), // an empty final block
+      gzipSync(new Uint8Array(2 * MIB)).subarray(-8)); // the trailer 2 MiB of zeros has
+    expect(gunzipCapped(sound, '.ork').length).toBe(2 * MIB);
+    // The same, then a block of type 3, which does not exist (0x07: BFINAL, type 3).
+    const damagedAfter = (mib: number): Uint8Array => join(header,
+      ...Array.from({ length: mib }, () => segment), new Uint8Array([0x07]), new Uint8Array(8));
+    expect(() => gunzipCapped(damagedAfter(1), '.ork')).toThrow(/damaged \(invalid block type\)/);
+    // 160 MiB in one member. Its first two 64 KiB pushes inflate past the cap
+    // on their own, and the damage lies after them: in chunks the cap refuses
+    // the file there; pushed whole, the damage is reached first and the file
+    // is called damaged, once all 160 MiB has been held.
+    const bomb = damagedAfter(160);
+    const twoPushes = 2 * 64 * 1024;
+    expect(Math.floor((twoPushes - header.length) / segment.length) * MIB).toBeGreaterThan(MAX_ZIP_MEMBER_BYTES);
+    expect(bomb.length - 9).toBeGreaterThan(twoPushes); // where the 0x07 sits
     expect(() => gunzipCapped(bomb, '.ork')).toThrow(/expands past the 64 MB this app will open/);
   });
 });
