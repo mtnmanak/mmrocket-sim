@@ -343,6 +343,30 @@ describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
   });
 
   /**
+   * A CERTIFICATION LETTER THE OTHER SOURCES CONTRADICT (board Tier 1 row 8 (c),
+   * 2026-10-01). The AeroTech F52C's and H13ST's Tripoli Motor Testing letters,
+   * undated drafts from one test day, put total impulse, peak and average thrust
+   * 15.9 % over thrustcurve.org's rows, and on total impulse AeroTech's own pages,
+   * the NAR's list and the propellant's specific impulse all side with the rows
+   * (scripts/aerotech-certified.test.mjs, KNOWN). Taking the letters' figures put
+   * "-13.6 % ... expect apogee to read low" on every F52C (-12.2 % on the H13ST),
+   * for a shortfall no other source shows. Until that is ruled the rows ship as
+   * listed, and their curves, which deliver what the rows say, load with no note.
+   * On the shipped catalogue and bundle, as a user gets them.
+   */
+  describe('a certification letter the other sources contradict', () => {
+    for (const designation of ['F52C', 'H13ST']) {
+      it(`${designation}: ships the total its maker publishes, so loading it says nothing about its impulse`, async () => {
+        const { MOTOR_DB } = await import('./motorDb.js');
+        const { fetchMotorSpec, isImpulseNote } = await import('./thrustcurve.js');
+        const shipped = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'AeroTech' && m.designation === designation)!;
+        const spec = await fetchMotorSpec(shipped, 5);
+        expect(spec.curveRepairs?.filter(isImpulseNote) ?? []).toEqual([]);
+      });
+    }
+  });
+
+  /**
    * Audit 2026-09-30 and the 1 October curve research (§8 item 2): the gate
    * integrated the RAW file, but a file whose first sample comes after t = 0
    * FLIES with a ramp up from (0, 0) in front — impulse the raw integral leaves
