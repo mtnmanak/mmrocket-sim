@@ -61,9 +61,10 @@ const FIGURES = [...CERTIFIED, ...MEASURED];
  * 0.5 %. Where the catalogue carries a motor these letters certify, its figure
  * IS the letter's, transcribed: as thrustcurve.org served it on 2026-10-01, 37
  * of the 41 matched rows agree on all three figures to 0.11 % or better (the
- * other four are the ones in KNOWN), and the widest of the 37 are rounding (the
- * B6W's 4.87 N·s for the letter's 4.865, 0.10 %; the J1265T's 1,073.3 for
- * 1,072.3, 0.09 %).
+ * other four, the F52C, H13ST, J99N and N2700W-PS, are held in KNOWN, which
+ * holds the B6W too, for its loaded mass alone), and the widest of the 37 are
+ * rounding (the B6W's 4.87 N·s for the letter's 4.865, 0.10 %; the J1265T's
+ * 1,073.3 for 1,072.3, 0.09 %).
  * The ± each letter prints is another quantity: the spread between the motors
  * fired, 0.15 to 4.3 % of total impulse, 0.4 to 14.6 % of peak thrust and 0.3
  * to 9.2 % of average thrust. It says how far one motor may stray from the
