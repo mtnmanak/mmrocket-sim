@@ -1395,6 +1395,21 @@ describe('.rkt export writes a stage\'s known mass where RockSim keeps it', () =
     expect(exportRkt({ name: 'M', tree, measured: { massKg: null, cgM: null } })).not.toMatch(/<UseKnownMass>/);
   });
 
+  it('is what the guide says Save .rkt does with the box and a stage override', () => {
+    // The File formats row is where a user checks what a .rkt keeps before
+    // relying on it, and it said the save leaves the box out: so a weight
+    // typed there as a guess reached RockSim, which flies it in place of the
+    // parts, with the guide promising it would not.
+    const guide = readFileSync(join(here, '..', '..', 'user-guide.md'), 'utf8');
+    const row = guide.split('\n').find((l) => l.startsWith('| `.rkt` |'))!;
+    expect(field(exportRkt({ name: 'M', tree: { components: oneStage() }, measured: { massKg: 0.45, cgM: 0.55 } }),
+      'Stage3Mass')).toBeCloseTo(450, 9);
+    expect(field(exportRkt({ name: 'P', tree: { components: oneStage(PINNED) } }), 'Stage3Mass')).toBeCloseTo(500, 9);
+    expect(row, 'the guide says Save .rkt leaves the box out').not.toMatch(/leaves out[^.]*Measured mass & CG/);
+    expect(row).toMatch(/A stage's mass and CG overrides go out as RockSim's known mass for that stage/);
+    expect(row).toMatch(/your \*\*Measured mass & CG\*\* figures go out there instead/);
+  });
+
   it('credits a stage override in the save note only when the override is what went out', async () => {
     // Stage overrides that move nothing the kernel flies — a CG override that
     // does not cover the parts, a 0 g mass that does — write nothing, so the
