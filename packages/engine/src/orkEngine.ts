@@ -660,7 +660,7 @@ function assertFiniteCurve(motor: MotorSpec): void {
   if (at > 0) {
     throw new Error(
       `Motor ${motor.designation}: its thrust curve has two readings at ` +
-        `t=${motor.times[at]} s, which cannot be simulated. The published ` +
+        `t=${motor.times[at]!} s, which cannot be simulated. The published ` +
         'motor file is malformed — try another data file for this motor, or ' +
         'import a corrected .rse/.eng.',
     );

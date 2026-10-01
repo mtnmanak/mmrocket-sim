@@ -2,7 +2,9 @@ import { validDelayResolution, type MountDelayRecord } from '../services/autoDel
 
 export function autoDelayCardText(record: MountDelayRecord | undefined, current: boolean): string {
   if (!record || record.mode !== 'auto' || record.status !== 'resolved') return 'Auto delay not yet calculated.';
-  return `${current ? '' : 'Previous flight: '}Auto flew ${record.flownDelay} s · ballistic optimum ${record.rawOptimum!.toFixed(1)} s · ${record.branchName}`
+  // A resolved Auto record always carries its optimum and its branch's name
+  // (the solver writes both; validDelayResolution refuses one without them).
+  return `${current ? '' : 'Previous flight: '}Auto flew ${record.flownDelay} s · ballistic optimum ${record.rawOptimum!.toFixed(1)} s · ${record.branchName!}`
     + (record.caution ? `. ${record.caution}` : '');
 }
 

@@ -211,6 +211,26 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('turns restrict-template-expressions on for shipped source, refusing nullish, and off in tests (audit Step B)', async () => {
+    // typescript-eslint merges given options over the rule's defaults, which
+    // allow any, boolean, nullish and RegExp: written `{ allowNumber: true }`,
+    // the rule is its default and passes `${maybeUndefined}`, the case it is
+    // on for (a motor card's delay box once read "Ejection delay for
+    // undefined"). The tests' 53 hits are why the tests block turns it off.
+    const RULE = '@typescript-eslint/restrict-template-expressions';
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/autoDelay.testSupport.ts',
+      'packages/engine/src/index.ts']) {
+      const entry = (await rulesFor(rel, [RULE]))[RULE];
+      expect(severity(entry), rel).toBe(2);
+      expect(entry[1], rel).toEqual(expect.objectContaining({
+        allowAny: false, allowBoolean: false, allowNullish: false, allowRegExp: false, allowNumber: true,
+      }));
+    }
+    for (const rel of ['packages/app/src/App.session.test.tsx', 'packages/engine/src/orkEngine.test.ts']) {
+      expect(severity((await rulesFor(rel, [RULE]))[RULE]), rel).toBe(0);
+    }
+  });
+
   it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
     // an operand of && / || beside a bound or Number.isFinite has a partner

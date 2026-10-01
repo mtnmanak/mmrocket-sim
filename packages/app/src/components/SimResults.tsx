@@ -459,7 +459,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {/* Every motor firing together — a cluster times any pod set or
                   strap-on ring (mountMotorCount). "(cluster)" read wrong once
                   the count took in the pods (audit 2026-09-22, row 351). */}
-              <Row label="Motors" value={(run.motorCount ?? 1) > 1 ? `${run.motorCount} firing together` : '1'} />
+              <Row label="Motors" value={(run.motorCount ?? 1) > 1 ? `${run.motorCount!} firing together` : '1'} />
             </tbody>
           </table>
           </div>

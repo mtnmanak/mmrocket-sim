@@ -164,7 +164,7 @@ export async function decodeShareFragment(hash: string): Promise<string> {
   const m = /^#?d=([0-9]+)\.(.+)$/.exec(hash);
   if (!m) throw new Error('not a share link (missing the d=<version>.<data> payload)');
   if (m[1] !== VERSION) {
-    throw new Error(`this link was made by a newer version of the app (format ${m[1]})`);
+    throw new Error(`this link was made by a newer version of the app (format ${m[1]!})`);
   }
   if (!canInflateDeflateRaw()) {
     const err = new Error('this browser can\'t unpack share links. Open the link in Chrome or Edge 103,'

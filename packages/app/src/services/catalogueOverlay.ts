@@ -73,13 +73,20 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   // browser dereferences it on every row — its search and its load label call
   // string methods on it — so one live row without it threw inside the render.
   if (typeof m.commonName !== 'string' || !m.commonName.trim()) return 'no common name';
-  if (!(Number.isFinite(m.diameter) && m.diameter! > 0 && m.diameter! <= 300)) return `diameter ${m.diameter} mm is not a motor`;
-  if (!(Number.isFinite(m.length) && m.length! > 0 && m.length! <= 3000)) return `length ${m.length} mm is not a motor`;
+  // A required number the row lacks, or carries as JSON's null, is named as
+  // missing: describeOverlay shows the reason, and it read "diameter undefined
+  // mm is not a motor" (audit 2026-09-30).
+  if (!(Number.isFinite(m.diameter) && m.diameter! > 0 && m.diameter! <= 300)) {
+    return m.diameter == null ? 'no diameter' : `diameter ${m.diameter} mm is not a motor`;
+  }
+  if (!(Number.isFinite(m.length) && m.length! > 0 && m.length! <= 3000)) {
+    return m.length == null ? 'no length' : `length ${m.length} mm is not a motor`;
+  }
   const tw = m.totalWeightG; const pw = m.propWeightG;
   if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${tw} g`;
   if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${pw} g`;
   if (Number.isFinite(tw) && Number.isFinite(pw) && (pw as number) > (tw as number)) {
-    return `more propellant (${pw} g) than loaded mass (${tw} g)`;
+    return `more propellant (${pw as number} g) than loaded mass (${tw as number} g)`;
   }
   if (m.totImpulseNs !== undefined && m.totImpulseNs !== null && !(Number.isFinite(m.totImpulseNs) && m.totImpulseNs > 0)) {
     return `total impulse ${m.totImpulseNs} Ns`;
@@ -87,7 +94,9 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   // Required too, for the same reason: the table draws `burnTimeS.toFixed(1)`.
   // Every one of the 1,156 shipped rows carries it; the weights, which 156 of
   // them lack one or both of, stay optional above.
-  if (!(Number.isFinite(m.burnTimeS) && m.burnTimeS! > 0)) return `burn time ${m.burnTimeS} s`;
+  if (!(Number.isFinite(m.burnTimeS) && m.burnTimeS! > 0)) {
+    return m.burnTimeS == null ? 'no burn time' : `burn time ${m.burnTimeS} s`;
+  }
   if (m.availability !== undefined && !['regular', 'occasional', 'OOP'].includes(String(m.availability))) {
     return `unknown availability "${m.availability}"`;
   }

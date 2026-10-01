@@ -324,7 +324,7 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
     }
     const e = finiteOrNull(item['elevation']);
     if (e === null || Math.abs(e - elevationsM[i]!) > 0.5) {
-      throw new WeatherError('shape', `Open-Meteo answered for ${e ?? 'no'} m, not the ${elevationsM[i]} m asked for.`);
+      throw new WeatherError('shape', `Open-Meteo answered for ${e ?? 'no'} m, not the ${elevationsM[i]!} m asked for.`);
     }
     const h = item['hourly'];
     const time = h['time'];
@@ -448,7 +448,7 @@ export const isDigitsOnly = (q: string): boolean => /^[\d\s-]+$/.test(q.trim()) 
  */
 export function usCommaRetry(q: string): string | null {
   const m = /^(.*\S)\s+([A-Za-z]{2})$/.exec(q.trim());
-  return m && !m[1]!.includes(',') ? `${m[1]}, ${m[2]}` : null;
+  return m && !m[1]!.includes(',') ? `${m[1]!}, ${m[2]!}` : null;
 }
 
 // -------------------------------------------------------------- coordinates

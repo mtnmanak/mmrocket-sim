@@ -17,9 +17,9 @@
 //
 // Deliberately NOT enabled, with the measured reason:
 //   - the type-aware typescript-eslint CONFIGS (recommendedTypeChecked and up):
-//     thirteen type-aware RULES are on, in their own block below, each at 0 hits
+//     fourteen type-aware RULES are on, in their own block below, each at 0 hits
 //     in shipped source when it went on; recommendedTypeCheckedOnly would add
-//     12 more, not all of them measured here. Both figures are recounted from
+//     11 more, not all of them measured here. Both figures are recounted from
 //     the installed typescript-eslint by
 //     packages/app/scripts/eslint-config.guards.test.mjs
 //   - @typescript-eslint/no-non-null-assertion: 4,433 hits (631 outside tests) on
@@ -478,6 +478,24 @@ export default tseslint.config(
       // `EditorComponentType | string` now takes the component type every
       // caller passes; and two test unions with `unknown` in them.
       '@typescript-eslint/no-redundant-type-constituents': 'error',
+      // Step B: a template literal interpolating anything but a string or a
+      // number, which is how "undefined", "null" or "[object HTMLElement]"
+      // reaches text a user reads. The allow options are SPELLED OUT because
+      // typescript-eslint merges them over the rule's defaults, which allow
+      // any, boolean, nullish and RegExp: `{ allowNumber: true }` alone is the
+      // default rule and passes `${maybeUndefined}` (5 hits that way on
+      // 2026-10-01, 53 this way). Arrays and never stay refused by default;
+      // Error, URL and URLSearchParams stay allowed (its default `allow`).
+      // The 53 in shipped source were fixed first. Ten, in four places, could
+      // put "undefined" or "null" into what a user reads, and each got a
+      // fallback and a test: a motor card's two delay boxes, Batch's
+      // weighed-mount note, a refused catalogue row's reason and a RASAero
+      // booster refusal. The rest held a value the code already knew was
+      // there (`!` or a narrower type) or converted on purpose (`String`).
+      // Tests: off (tests block).
+      '@typescript-eslint/restrict-template-expressions': ['error', {
+        allowAny: false, allowBoolean: false, allowNullish: false, allowRegExp: false, allowNumber: true,
+      }],
     },
   },
 
@@ -560,9 +578,18 @@ export default tseslint.config(
     // read `process` on purpose (unhandledRejection hooks, and process.cwd() to
     // find the repo's fixtures). require-await is off for the 289 async
     // signatures tests keep on purpose: act(async …) and async stubs
-    // (type-aware block above).
+    // (type-aware block above). restrict-template-expressions is off for the
+    // 53 hits in tests on 2026-10-01 (in both packages), not yet fixed: a
+    // `| undefined` or `| null` value in an assertion's label, a selector, an
+    // expected string, a map key or a test's title, where a literal
+    // "undefined" misleads whoever reads a failure, not a user. Re-measure
+    // before switching it on here:
+    // npx eslint packages/*/src --rule '{"@typescript-eslint/restrict-template-expressions":["error",{"allowAny":false,"allowBoolean":false,"allowNullish":false,"allowRegExp":false,"allowNumber":true}]}'
     files: ['**/*.test.{ts,tsx,mts,mjs,js}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
-    rules: { 'no-console': 'off', 'no-restricted-globals': 'off', '@typescript-eslint/require-await': 'off' },
+    rules: {
+      'no-console': 'off', 'no-restricted-globals': 'off', '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+    },
   },
 );

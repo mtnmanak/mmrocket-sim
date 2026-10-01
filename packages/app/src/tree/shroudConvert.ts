@@ -110,8 +110,12 @@ function samePlace(pos: ComponentPosition, fromLen: number, toLen: number): Comp
   return pos;
 }
 
-/** Builds the fairing node a candidate freeform set becomes (same id, same station). */
-export function shroudToFairing(n: ComponentNode): ComponentNode {
+/**
+ * Builds the fairing node a candidate freeform set becomes (same id, same
+ * station). It always has a name — the set's, or "Camera shroud" — which the
+ * conversion note quotes.
+ */
+export function shroudToFairing(n: ComponentNode): ComponentNode & { name: string } {
   const pts = (n['points'] as [number, number][] | undefined) ?? [];
   const length = pts.length ? reach(pts, 0) : 0.08;
   const height = pts.length ? reach(pts, 1) : 0.02;
@@ -120,7 +124,7 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
   const mass = typeof override === 'number' && override > 0
     ? override
     : profileArea(pts, length, height) * width * num(n, 'density', 680);
-  const out: ComponentNode = {
+  const out = {
     type: 'fairing',
     id: n.id,
     name: n.name ?? 'Camera shroud',
@@ -151,7 +155,7 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     // its tube, and this read 'middle' (until 2026-10-01), moving the part.
     // Re-anchored for the fairing's own length: see `samePlace`.
     position: samePlace(positionOf(n), axialLength(n), length),
-  } as ComponentNode;
+  } as ComponentNode & { name: string };
   if (typeof n['finish'] === 'string') out['finish'] = n['finish'];
   if (typeof n['color'] === 'string') out['color'] = n['color'];
   return out;
