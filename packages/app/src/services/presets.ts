@@ -46,6 +46,19 @@ export const KIND_FOR_TYPE = lookupTable<string>({
   streamer: 'Streamer',
 } satisfies Partial<Record<ComponentType, string>>) as Partial<Record<ComponentType, string>>;
 
+/**
+ * DESKTOP'S OWN LINK for a part, as an .ork's `<preset>` stated it — kept
+ * verbatim so a save hands desktop back the row it chose (orkFile.ts, the
+ * writer's `presetLink`, has why: desktop finds a row by a digest of its own
+ * that this app cannot compute). Part of the link (CATALOGUE_LINK_KEYS): a
+ * pick replaces it, Detach clears it.
+ */
+export const ORK_PRESET_KEYS = {
+  manufacturer: 'orkPresetManufacturer',
+  partNo: 'orkPresetPartNo',
+  digest: 'orkPresetDigest',
+} as const;
+
 let bundled: Preset[] | null = null;
 
 export async function loadPresets(): Promise<Preset[]> {
@@ -164,10 +177,14 @@ export function presetPatch(
     own('overrideMass', undefined);
     own('overrideSubcomponentsMass', undefined);
   }
-  // The catalogue identity rides with the part, so a saved .rkt names the row
-  // it came from (<PartMfg>/<PartNo>) and an import can find it again.
+  // The catalogue identity rides with the part, so a saved file names the row
+  // it came from (.rkt <PartMfg>/<PartNo>, .ork <preset>) and an import can
+  // find it again.
   set('presetManufacturer', p.manufacturer);
   set('presetPartNo', p.partNo);
+  // A pick is a new link, so desktop's own link for the part it replaces (an
+  // .ork's <preset>, carried for the next save) names the wrong row now.
+  for (const key of Object.values(ORK_PRESET_KEYS)) own(key, undefined);
 
   const out = n(p, 'outsideDiameter');
   const inn = n(p, 'insideDiameter');
@@ -609,6 +626,9 @@ const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueFi
   name: { words: 'name', differs: NEVER },
   presetManufacturer: { words: 'manufacturer', differs: NEVER },
   presetPartNo: { words: 'part number', differs: NEVER },
+  orkPresetManufacturer: { words: 'desktop OpenRocket’s manufacturer', differs: NEVER },
+  orkPresetPartNo: { words: 'desktop OpenRocket’s part number', differs: NEVER },
+  orkPresetDigest: { words: 'desktop OpenRocket’s preset digest', differs: NEVER },
   materialName: { words: 'material', differs: NEVER },
   surfaceMaterialName: { words: 'canopy material', differs: NEVER },
   lineMaterialName: { words: 'line material', differs: NEVER },
@@ -846,7 +866,9 @@ export function linkedPreset(node: ComponentNode, presets: readonly Preset[]): P
 }
 
 /** Every key that makes up a part's catalogue link — Detach clears these, and nothing else. */
-export const CATALOGUE_LINK_KEYS: readonly string[] = ['presetManufacturer', 'presetPartNo'];
+export const CATALOGUE_LINK_KEYS: readonly string[] = [
+  'presetManufacturer', 'presetPartNo', ...Object.values(ORK_PRESET_KEYS),
+];
 
 /**
  * Tier (c)'s Detach as an edit: the link goes, and the markers with it, and

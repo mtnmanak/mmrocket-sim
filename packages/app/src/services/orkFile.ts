@@ -14,9 +14,9 @@ import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
-import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
-import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
+import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
 import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
 import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
@@ -250,6 +250,21 @@ export interface OrkImportResult extends OrkTreeImportResult {
    */
   configNotes?: Record<string, string[]>;
 }
+
+/**
+ * Desktop's ComponentPreset.Type for every part it can link to its catalogue —
+ * each component's getPresetType() in 24.12, which is what its saver writes as
+ * <preset type>. An inner tube and a tube-fin set take BODY_TUBE presets. A
+ * part type absent here has no preset in desktop, so no <preset> is read onto
+ * it or written for it. A lookupTable: the type comes off a node a file or a
+ * restored session wrote.
+ */
+const DESKTOP_PRESET_TYPE: Partial<Record<ComponentType, string>> = lookupTable<string>({
+  bodytube: 'BODY_TUBE', innertube: 'BODY_TUBE', tubefinset: 'BODY_TUBE',
+  nosecone: 'NOSE_CONE', transition: 'TRANSITION', tubecoupler: 'TUBE_COUPLER',
+  bulkhead: 'BULK_HEAD', centeringring: 'CENTERING_RING', engineblock: 'ENGINE_BLOCK',
+  launchlug: 'LAUNCH_LUG', railbutton: 'RAIL_BUTTON', parachute: 'PARACHUTE', streamer: 'STREAMER',
+});
 
 // ============================ IMPORT ============================
 
@@ -632,7 +647,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const presetEl = el.querySelector(':scope > preset');
       const pMfr = presetEl?.getAttribute('manufacturer');
       const pNo = presetEl?.getAttribute('partno');
-      if (pMfr && pNo) pendingLinks.push({ node, manufacturer: pMfr, partNo: pNo });
+      if (pMfr && pNo) {
+        pendingLinks.push({ node, manufacturer: pMfr, partNo: pNo });
+        // And desktop's link itself, verbatim, for the next save (the writer's
+        // `presetLink`) — whether or not this catalogue has the part.
+        if (DESKTOP_PRESET_TYPE[type]) {
+          node[ORK_PRESET_KEYS.manufacturer] = pMfr;
+          node[ORK_PRESET_KEYS.partNo] = pNo;
+          const digest = presetEl?.getAttribute('digest');
+          if (digest) node[ORK_PRESET_KEYS.digest] = digest;
+        }
+      }
       const density = matDensity(el);
       if (density !== undefined) node.density = density;
       const matName = matName_(el, 'bulk');
@@ -2048,9 +2073,55 @@ export function exportOrk({
     emit(depth, `<position type="${method}">${pos.offset}</position>`);
   };
 
+  /**
+   * The part's catalogue link, as desktop's RocketComponentSaver writes it:
+   * <preset type manufacturer partno digest/>, straight after <id> and so
+   * before every explicit value — on load desktop applies its preset first and
+   * each element after it, so the file's own values stand (and, for most
+   * fields, a value that differs makes desktop drop the link, as its own
+   * editor does). Without it a link did not survive a save, a reopen or a
+   * share link (format audit, `RocketComponent:preset`: "exp=omitted, rt=no").
+   * Checked against the installed desktop 24.12 JAR and its own catalogue
+   * (2026-10-01): every <preset> in ninja_4in_54mm-MMT.ork (5), SS Wild Bash
+   * 20260623v0.ork (13) and goblin-256.ork (2), opened here and saved, re-links
+   * in desktop with the structure mass unchanged.
+   *
+   * THE DIGEST. Desktop takes a row only when its digest matches the file's
+   * (24.12 ComponentPresetSetter; the type branch beside it never fires), and
+   * the digest is an MD5 over desktop's OWN preset fields
+   * (ComponentPreset.computeDigest) — its unit conversions, its derived
+   * densities, its manufacturer spellings — which this app's catalogue does not
+   * reproduce (merged sources, corrected densities, curated part numbers). So:
+   *  - a link that came FROM an .ork is written back exactly as desktop wrote
+   *    it (ORK_PRESET_KEYS), and desktop finds its row again;
+   *  - a link made here carries `digest=""`, desktop's own "no digest" (a
+   *    ComponentPreset's initial value): desktop opens the file, keeps every
+   *    explicit value, and reports the one warning "No matching
+   *    ComponentPreset … found matching <manufacturer> <part number>". This
+   *    app's own reader needs only the manufacturer and the part number.
+   * Escaped as attributes: both names come from files.
+   */
+  const presetLink = (depth: number, node: ComponentNode) => {
+    const type = DESKTOP_PRESET_TYPE[node.type];
+    if (!type) return;
+    const str = (key: string): string | undefined => {
+      const v = node[key];
+      return typeof v === 'string' && v !== '' ? v : undefined;
+    };
+    const desktopMfr = str(ORK_PRESET_KEYS.manufacturer);
+    const desktopNo = str(ORK_PRESET_KEYS.partNo);
+    const [mfr, partNo, digest] = desktopMfr && desktopNo
+      ? [desktopMfr, desktopNo, str(ORK_PRESET_KEYS.digest) ?? '']
+      : [str('presetManufacturer'), str('presetPartNo'), ''];
+    if (!mfr || !partNo) return;
+    emit(depth, `<preset type="${type}" manufacturer="${escapeXmlAttr(mfr)}" partno="${escapeXmlAttr(partNo)}"`
+      + ` digest="${escapeXmlAttr(digest)}"/>`);
+  };
+
   const header = (depth: number, node: ComponentNode, fallback: string) => {
     emit(depth, `<name>${escapeXml(node.name ?? fallback)}</name>`);
     emit(depth, `<id>${uuid()}</id>`);
+    presetLink(depth, node);
     overrides(depth, node);
   };
 

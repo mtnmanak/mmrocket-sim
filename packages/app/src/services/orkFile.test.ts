@@ -8,7 +8,7 @@ import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '.
 import { conditionsKeyOf } from './simReport.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
-import { loadPresets } from './presets.js';
+import { CATALOGUE_LINK_KEYS, detachPatch, loadPresets, presetPatch } from './presets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -2929,6 +2929,130 @@ describe(".ork <preset> — desktop's catalogue link is read (ruled 2026-09-03)"
     const { chute } = chuteOf(withPreset());
     expect(chute['cd']).toBeUndefined();
     expect(chute['presetPartNo']).toBeUndefined();
+  });
+});
+
+/**
+ * The catalogue link ROUND-TRIPS through a .ork (board Tier 1 row 5; format
+ * audit: `RocketComponent:preset` "exp=omitted, rt=no"). Until this, the .ork
+ * writer wrote no <preset> at all, so a part picked from the catalogue — or
+ * linked by the file it came from — came back from its own saved .ork, or a
+ * share link (which IS a .ork), as an unlinked part: no Catalogue line, no
+ * markers, and desktop OpenRocket showed it as a custom part.
+ *
+ * Desktop matches a <preset> by DIGEST, an MD5 over its own preset fields
+ * (24.12 ComponentPreset.computeDigest; ComponentPresetSetter only ever takes a
+ * row whose digest equals the file's). This app's catalogue is not desktop's
+ * row for row, so it cannot compute one: a link that CAME from a desktop file
+ * is written back exactly as desktop wrote it, and a link made here carries
+ * desktop's own "no digest" (`""`, ComponentPreset's initial value).
+ */
+describe('.ork <preset> — the catalogue link round-trips', () => {
+  const linked = (over: Record<string, unknown> = {}) => ({
+    name: 'P', components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+      { type: 'bodytube', id: 'b', name: 'Body', length: 0.5, outerRadius: 0.05, thickness: 0.001, density: 1800, children: [
+        { type: 'parachute', id: 'p', name: 'Main', diameter: 2.1336, lineCount: 12, lineLength: 2.45,
+          presetManufacturer: 'Fruity Chutes', presetPartNo: 'IFC-084-S', ...over },
+      ] },
+    ] }],
+  }) as unknown as RocketTree;
+  const save = (tree: RocketTree) => exportOrk({ name: 'P', tree, launch: DEFAULT_CONDITIONS });
+  const chuteIn = (tree: RocketTree) => flatten(tree.components).find((c) => c.type === 'parachute')!;
+
+  it('a link made here comes back from the saved file', async () => {
+    const xml = save(linked());
+    const back = chuteIn(importOrk(xml, { presets: await loadPresets() }).tree);
+    expect(back['presetManufacturer']).toBe('Fruity Chutes');
+    expect(back['presetPartNo']).toBe('IFC-084-S');
+    // The file's explicit values still stand over the catalogue's.
+    expect(back['lineCount']).toBe(12);
+  });
+
+  it('is written where desktop writes it, in desktop’s words, with desktop’s “no digest”', () => {
+    const xml = save(linked());
+    // Right after <id>, before every explicit value — desktop applies the
+    // preset first and the file's own values after it, so they win.
+    expect(xml).toMatch(/<parachute>\s*<name>Main<\/name>\s*<id>[^<]*<\/id>\s*<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest=""\/>\s*<axialoffset/);
+    // An inner tube takes desktop's BODY_TUBE presets (InnerTube.getPresetType).
+    const mmt = exportOrk({ name: 'P', launch: DEFAULT_CONDITIONS, tree: {
+      name: 'P', components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.05,
+        thickness: 0.001, children: [{ type: 'innertube', id: 'm', length: 0.2, outerRadius: 0.0145, thickness: 0.0005,
+          presetManufacturer: 'LOC Precision', presetPartNo: 'LOC MMT-1.14' }] }] }],
+    } as unknown as RocketTree });
+    expect(mmt).toContain('<preset type="BODY_TUBE" manufacturer="LOC Precision" partno="LOC MMT-1.14" digest=""/>');
+  });
+
+  it('a part with no link writes no <preset>', () => {
+    expect(save(linked({ presetManufacturer: undefined, presetPartNo: undefined }))).not.toContain('<preset');
+  });
+
+  it('desktop’s own link comes back out exactly as it went in — digest and all', async () => {
+    // ninja_4in_54mm-MMT.ork, a desktop 24.12 file: the digest is what desktop
+    // finds its row by, and the manufacturer and part number are desktop's
+    // spellings ("LOC/Precision", where this catalogue says "LOC Precision").
+    const desktop = '<preset type="CENTERING_RING" manufacturer="LOC/Precision" partno="CR-3.90-54mm" digest="b45d1bb209e36174a0e82a2e4f2b339a"/>';
+    const ring = save({
+      name: 'P', components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b', name: 'Body', length: 0.5, outerRadius: 0.05, thickness: 0.001, children: [
+          { type: 'centeringring', id: 'c', name: 'Ring', length: 0.003 },
+        ] },
+      ] }],
+    } as unknown as RocketTree).replace(/(<centeringring>\s*<name>Ring<\/name>\s*<id>[^<]*<\/id>)/, `$1${desktop}`);
+    expect(ring).toContain(desktop);
+    // Opened with the catalogue (the ring links to this app's row) and without
+    // it (nothing links): either way the save hands desktop its own link back.
+    const presets = await loadPresets();
+    const linkedHere = importOrk(ring, { presets });
+    expect(flatten(linkedHere.tree.components).find((c) => c.type === 'centeringring')!['presetPartNo'])
+      .toBe('CR-3.90-54mm');
+    expect(save(linkedHere.tree), 'the desktop link did not survive a save').toContain(desktop);
+    expect(save(importOrk(ring).tree), 'the desktop link did not survive a save').toContain(desktop);
+  });
+
+  it('a desktop link to a part this catalogue lacks still goes back to desktop', async () => {
+    // SS Wild Bash 20260623v0.ork carries a Rail-Buttons.com RB1515S; the
+    // app has no rail-button catalogue, so it cannot link it — but desktop can.
+    const desktop = '<preset type="RAIL_BUTTON" manufacturer="Rail-Buttons.com" partno="RB1515S" digest="30ddc4df54063b9aacb3b58b916581c4"/>';
+    const xml = save({
+      name: 'P', components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+        { type: 'bodytube', id: 'b', name: 'Body', length: 0.5, outerRadius: 0.05, thickness: 0.001, children: [
+          { type: 'railbutton', id: 'r', name: 'Button' },
+        ] },
+      ] }],
+    } as unknown as RocketTree).replace(/(<railbutton>\s*<name>Button<\/name>\s*<id>[^<]*<\/id>)/, `$1${desktop}`);
+    const opened = importOrk(xml, { presets: await loadPresets() });
+    const button = flatten(opened.tree.components).find((c) => c.type === 'railbutton')!;
+    expect(button['presetPartNo']).toBeUndefined(); // not linked here
+    expect(save(opened.tree)).toContain(desktop);   // and not lost for desktop
+  });
+
+  describe('a new pick or Detach retires desktop’s link with the old one', () => {
+    const desktop = '<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest="0123456789abcdef0123456789abcdef"/>';
+    /** A desktop-linked canopy, opened with the catalogue. */
+    const open = async () => {
+      const xml = save(linked({ presetManufacturer: undefined, presetPartNo: undefined }))
+        .replace(/(<parachute>\s*<name>Main<\/name>\s*<id>[^<]*<\/id>)/, `$1${desktop}`);
+      const presets = await loadPresets();
+      const opened = importOrk(xml, { presets });
+      expect(save(opened.tree)).toContain(desktop);
+      return { opened, presets, chute: chuteIn(opened.tree) };
+    };
+
+    it('picked again: the new link is this catalogue’s, with no digest of desktop’s', async () => {
+      const { opened, presets, chute } = await open();
+      const other = presets.find((p) => p.kind === 'Parachute' && p.partNo === 'CFC-015-N')!;
+      Object.assign(chute, presetPatch('parachute', other));
+      const repicked = save(opened.tree);
+      expect(repicked).not.toContain('0123456789abcdef');
+      expect(repicked).toContain('partno="CFC-015-N" digest=""');
+    });
+
+    it('detached: no link of either kind is written', async () => {
+      const { opened, chute } = await open();
+      Object.assign(chute, detachPatch());
+      for (const key of CATALOGUE_LINK_KEYS) expect(chute[key], key).toBeUndefined();
+      expect(save(opened.tree)).not.toContain('<preset');
+    });
   });
 });
 
