@@ -363,9 +363,10 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
 });
 
 /**
- * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 row 6). The guide says the
- * app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01 two rows
- * are not: motor-corrections.mjs replaces figures no motor can have. The sentence
+ * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 rows 6 and 37). The guide
+ * says the app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01
+ * a few rows are not: motor-corrections.mjs replaces figures its sources show
+ * the motor cannot have. The sentence
  * that says so is phrased FROM that table, so retiring an entry there retires
  * its words here, and a correction to a field the guide has no wording for stops
  * the build rather than going unmentioned.
@@ -393,10 +394,12 @@ describe('the motor-catalogue corrections the guide states', () => {
   });
 
   it('joins several corrections with semicolons, since each carries its own comma', () => {
-    const one = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(0, 1), motors);
-    const both = motorCorrectionsSentence(MOTOR_CORRECTIONS, motors);
+    const first = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(0, 1), motors);
+    const last = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(-1), motors);
+    const all = motorCorrectionsSentence(MOTOR_CORRECTIONS, motors);
     expect(MOTOR_CORRECTIONS.length).toBeGreaterThan(1);
-    expect(both.startsWith(`${one}; and `)).toBe(true);
+    expect(all.startsWith(`${first}; `)).toBe(true);
+    expect(all.endsWith(`; and ${last}`)).toBe(true);
   });
 
   it('refuses to print the sentence once the table has nothing in it', () => {

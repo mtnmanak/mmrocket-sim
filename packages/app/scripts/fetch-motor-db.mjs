@@ -27,8 +27,8 @@
  *
  * THE SOURCED CORRECTIONS ARE APPLIED BEFORE ANYTHING IS WRITTEN (board Tier 1
  * row 6, 2026-10-01): motor-corrections.mjs holds thrustcurve.org rows whose
- * figures no motor can have, each corrected from the manufacturer's or the
- * certifying body's own published data. Writing thrustcurve.org's figures back
+ * figures their motors cannot have, each corrected from the manufacturer's or
+ * the certifying body's own published data. Writing thrustcurve.org's figures back
  * over them would undo that on every refresh. A corrected row that comes back
  * holding a THIRD figure stops the write, as a short page does, and so does a
  * corrected motor that does not come back at all.

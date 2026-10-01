@@ -151,9 +151,9 @@ describe('main', () => {
 });
 
 /**
- * THE SOURCED CORRECTIONS SURVIVE A REFRESH (board Tier 1 row 6). motors.json
- * ships two of thrustcurve.org's rows corrected from the manufacturer's and the
- * certifying body's data (motor-corrections.mjs); a refresh that wrote
+ * THE SOURCED CORRECTIONS SURVIVE A REFRESH (board Tier 1 rows 6 and 37).
+ * motors.json ships some of thrustcurve.org's rows corrected from the
+ * manufacturer's and the certifying body's data (motor-corrections.mjs); a refresh that wrote
  * thrustcurve.org's figures back over them would undo that every Monday.
  */
 describe('main, with the rows motor-corrections.mjs corrects', () => {

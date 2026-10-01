@@ -250,10 +250,12 @@ describe('checkForCatalogueUpdates — the button', () => {
     // Until 2026-10-01 the shipped catalogue itself carried two rows that fail
     // screenEntry, exactly as thrustcurve.org lists them, and this test held a
     // live pull returning them unchanged to refusing nothing. They are corrected
-    // now (scripts/motor-corrections.mjs) and thrustcurve.org still serves the
-    // known-bad figures, so a live pull returns them DIFFERENT from the shipped
-    // rows. Without the same corrections on the live side they would arrive as
-    // changes, fail the screen and be reported "refused" on every check.
+    // now (scripts/motor-corrections.mjs), with the AeroTech K62N's length since,
+    // and thrustcurve.org still serves the known-bad figures, so a live pull
+    // returns them DIFFERENT from the shipped rows. Without the same corrections
+    // on the live side they would arrive as changes: the two impossible ones
+    // refused by the screen and reported on every check, and the K62N's 274 mm,
+    // a length the screen passes, applied, putting the error back everywhere.
     const live = MOTOR_DB.map((m) => {
       const c = MOTOR_CORRECTIONS.find((x) => x.motorId === m.motorId);
       if (!c) return m;
@@ -261,8 +263,9 @@ describe('checkForCatalogueUpdates — the button', () => {
       for (const [f, { bad }] of Object.entries(c.fields)) asUpstream[f] = bad;
       return asUpstream as unknown as MotorDbEntry;
     });
-    // Not vacuous: each of those live rows really is one the screen refuses.
-    expect(live.filter((m) => screenEntry(m) !== null)).toHaveLength(MOTOR_CORRECTIONS.length);
+    // Not vacuous: compared raw, every one of those live rows is a change.
+    expect(diffCatalogue(MOTOR_DB, live).changed.map((c) => c.motorId).sort())
+      .toEqual(MOTOR_CORRECTIONS.map((c) => c.motorId).sort());
     const spy = stubApi(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.rejected).toEqual([]);

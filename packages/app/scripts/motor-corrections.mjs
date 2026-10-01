@@ -9,6 +9,14 @@
  * src/services/catalogueOverlay.ts), and motor-catalogue-screen.test.mjs now
  * keeps any other from shipping. Board Tier 1 row 6.
  *
+ * A third carries a figure a motor can have, just not this one, which no
+ * plausibility screen can see: the AeroTech K62N, 274 mm long where its
+ * certification letter measured 374.25 mm and AeroTech's own drawing makes the
+ * case alone 358 mm (thrustcurve.org's `updatedOn: 2023-01-09`). It was found by
+ * aerotech-certified.test.mjs, which holds the catalogue to AeroTech's
+ * certification letters and keeps any other such row from shipping
+ * unremarked. Board Tier 1 row 37.
+ *
  * ONE TABLE, FOUR READERS — the rule apply-preset-corrections.mjs set for the
  * parts catalogue, "one list, not two":
  *  - fetch-motor-db.mjs applies it to every refresh before it writes, so
@@ -31,7 +39,17 @@
  * published data or a certification record, quoted with its URL. thrustcurve.org
  * is where the error is, so it is never a source for its own correction. A field
  * nobody authoritative publishes stays as it is: no "obvious typo" is fixed on a
- * guess, however obvious.
+ * guess, however obvious. And never on one document: a second document has to
+ * STATE the same figure, because a certification letter can be the one that is
+ * wrong (the F52C's and H13ST's are undated drafts that AeroTech's own pages and
+ * the NAR's list contradict on total impulse: aerotech-certified.test.mjs,
+ * KNOWN). A source that states a corrected figure gives it in `states`, as it
+ * prints it, and must agree with the correction and rule out the known-bad
+ * figure, each to its own last printed digit (the NAR's list keeps whole
+ * millimetres, so the K62N's 374.25 mm is its 375). A source that only bounds
+ * the figure or explains it is quoted without `states`, and is not the second:
+ * the K62N's drawing gives its case alone, a floor under its length.
+ * Where the sources disagree, nothing is corrected.
  *
  * CONTRACT, as apply-preset-corrections.mjs's: idempotent, and loud on surprise.
  * A row holding the known-bad figure is corrected. A row already holding the
@@ -60,12 +78,14 @@ export const MOTOR_CORRECTIONS = [
         by: 'Cesaroni Technology, the manufacturer: the motor\'s Motor Data page',
         url: 'https://cesaroni.net/products/p24-1g/25e75-17a/',
         says: 'Loaded Weight 52.0 g; Propellant Weight 10.4 g; Burnout Weight 36 g; CAR Designation CTI 25-E75-VM-17A',
+        states: { propWeightG: '10.4' },
         read: '2026-10-01',
       },
       {
         by: 'National Association of Rocketry, "Certified Model Rocket Motors Approved for Use in ARC 2026" (June 4, 2025)',
         url: 'https://www.rocketrychallenge.org/wp-content/uploads/Rocket-Motors-Approved-for-Use-in-ARC-2026-June-4-2025.pdf',
         says: 'E75VM-17A | Cesaroni | Casing Size (mm) 24 x 69 | Propellant Mass (grams) 10.4 | Total Impulse (N-sec.) 24.8',
+        states: { propWeightG: '10.4' },
         read: '2026-10-01',
       },
     ],
@@ -87,12 +107,57 @@ export const MOTOR_CORRECTIONS = [
         url: 'https://contrailrockets.com/wp-content/uploads/2021/12/J234BG-1.pdf',
         says: 'Motor Designation J234BG; Metric Dimensions 54 X 922 MM; Total Weight 1764 g; Fuel Grain Weight '
           + '450 G; Total Impulse 1032.56 NS; Burn Time 4.3 seconds',
+        states: { length: '922' },
         read: '2026-10-01',
       },
       {
         by: 'NAR Standards & Testing, Combined CAR/NAR/TRA Certified Rocket Motors List (prepared 2009 June 03)',
         url: 'http://blogs.nwic.edu/rocketteam/files/2011/10/NAR-TRACombinedMotorList.pdf',
         says: 'H | J234-P | Contrail | Dimensions (mm) 54 x 922 | Impulse (N-sec) 1033 | Propellant Mass 910cc | Tested By TRA',
+        states: { length: '922' },
+        read: '2026-10-01',
+      },
+    ],
+  },
+  {
+    motorId: '63bb643e1d26f30004b4b077',
+    manufacturer: 'AeroTech',
+    designation: 'K62N',
+    fields: { length: { bad: 274, good: 374.25 } },
+    why: 'thrustcurve.org lists this 54 mm single-use motor as 274 mm long: 100 mm shorter than its certification '
+      + 'letter measured it, and 84 mm shorter than its case alone by AeroTech\'s own drawing (14.104 in, 358.2 mm). '
+      + 'The app put its centre of gravity, at half its length, 137 mm ahead of its aft end where it is 187 mm, and a '
+      + 'mount with 274 to 374 mm of room for a motor was offered it. The NAR\'s combined list gives 54 x 375, the '
+      + 'letter\'s length to the millimetre above, as it gives the H13ST-P\'s 213.39 mm as 214 and the J1265ST-14A\'s '
+      + '397.27 as 398. Its other figures are the letter\'s (its 1,277 g loaded is the letter\'s 1,276.9) and are left '
+      + 'as they are.',
+    sources: [
+      {
+        by: 'Tripoli Motor Testing certification letter for the AeroTech K62N-P, December 6, 2022 (Alan C. Whitmore, '
+          + 'TMT Chair; tested December 4, 2022), linked from the manufacturer\'s own certification page, '
+          + 'https://www.rocketmotorparts.com/page/nar-tra-certification-docs',
+        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/k62n%20cert%20letter_1673060829432.pdf',
+        says: 'Manufacturer\'s Designation K62N-P [single use, DMS]; Diameter 2.125″ 53.98 mm; Overall Length 14.734″ '
+          + '374.25 mm; Loaded Mass 2.815 lb 1276.9 g; Propellant Mass 1.832 lb* 831 g*',
+        states: { length: '374.25' },
+        read: '2026-10-01',
+      },
+      {
+        by: 'NAR Standards & Testing, "Combined CAR/NAR/TRA Certified Rocket Motors List", page 18 of 28 (printed '
+          + 'August 12, 2026), the PDF https://www.nar.org/CertifiedMotorListing links',
+        url: 'https://www.nar.org/docs.ashx?id=1468138',
+        says: 'S | K62N-P | AeroTech | Dimensions (mm) 54 x 375 | Impulse (N-sec) 1438.5 | Propellant Mass (g) 831 | '
+          + 'Tested By TRA',
+        states: { length: '375' },
+        read: '2026-10-01',
+      },
+      {
+        by: 'RCS Rocket Motor Components (AeroTech), drawing 116200 "K62N-P DMS™ Motor Assembly", rev. A, first release '
+          + '12/7/22, linked as "K62N-P" from https://www.rocketmotorparts.com/page/single-use-motor-designs: the case '
+          + 'alone, so a floor under the motor\'s length, not the length',
+        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/k62n-p%20rcs%20assembly_1670429681665.pdf',
+        says: 'FIBERGLASS CASE, THIN (2.125" O.D. X 14.104"); 54MM PHENOLIC LINER, 1.982" O.D. X 12.832" LONG; PROP '
+          + 'GRAIN (1.87" O.D. X 12.362" CAP TUBE) 8223AL',
         read: '2026-10-01',
       },
     ],
