@@ -406,6 +406,23 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     if (picked) setDelay(defaultDelay(picked) ?? 'auto');
   }, [picked]);
 
+  /**
+   * The pick follows the catalogue (audit 2026-09-30). It is held as a ROW, and
+   * a check or "Discard fetched changes" swaps the rows underneath it: after a
+   * discard, Load still loaded the discarded row — a motor that existed only in
+   * the fetched changes included — so one motorId flew two ways, the discarded
+   * data in this load and the shipped row everywhere else, the split
+   * useCatalogue exists to prevent. Re-resolved by id: still in the catalogue,
+   * the pick becomes its row there (a changed row re-runs the delay default
+   * above, since its delays may differ); gone, the pick is cleared. An imported
+   * EX motor is never in the catalogue, so a check leaves it alone.
+   */
+  useEffect(() => {
+    setPicked((p) => (p === null || p.motorId.startsWith('ex:')
+      ? p
+      : catalogue.find((m) => m.motorId === p.motorId) ?? null));
+  }, [catalogue]);
+
   const tooLong = (m: MotorDbEntry) =>
     maxMotorLengthM !== null && m.length / 1000 > maxMotorLengthM;
 

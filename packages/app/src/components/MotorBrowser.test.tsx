@@ -323,6 +323,93 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     const { getCatalogueOverlay } = await import('../services/motorDb.js');
     expect(getCatalogueOverlay()).toBeNull();
   });
+
+  /**
+   * DISCARD TAKES THE PICK WITH IT (audit 2026-09-30). "Discard fetched
+   * changes" put the shipped catalogue back, but the row already picked was the
+   * OVERLAY's, held as an object — so Load still loaded the discarded data, a
+   * motor that existed only in the overlay included, and that motorId then flew
+   * two ways: the discarded row in this load, the shipped one everywhere else.
+   * The pick now follows the catalogue: kept, as the shipped row, when the motor
+   * is still in it; cleared when it existed only in the overlay.
+   */
+  describe('Discard fetched changes', () => {
+    const C6_ID = '5f4294d20002310000000015';
+    /** thrustcurve.org as the whole shipped catalogue, with Estes C6 given a 9 s delay and one motor added. */
+    const stubWithChanges = async () => {
+      const { MOTOR_DB } = await import('../services/motorDb.js');
+      const c6 = MOTOR_DB.find((m) => m.motorId === C6_ID)!;
+      expect(c6.delays, 'the shipped C6 this test changes').toBe('0,3,5,7');
+      const d12 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'D12')!;
+      const live = [
+        ...MOTOR_DB.filter((m) => m.motorId !== C6_ID),
+        { ...c6, delays: '0,3,5,7,9' },
+        { ...d12, motorId: 'overlay-only-e99', designation: 'E99', commonName: 'E99', availability: 'regular' },
+      ];
+      const makers = [...new Set(live.map((m) => m.manufacturerAbbrev))];
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const u = new URL(url);
+        const body = u.pathname.endsWith('/metadata.json')
+          ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
+          : { results: live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+        return { ok: true, status: 200, json: async () => body } as unknown as Response;
+      }));
+    };
+    const check = async (h: Harness) => {
+      click(checkButton(h));
+      for (let i = 0; i < 100 && !h.host.querySelector('.file-note[role="status"]'); i++) await settle(10);
+      expect(h.host.querySelector('.file-note[role="status"]')!.textContent).toMatch(/1 new, 1 changed/);
+    };
+    const discard = (h: Harness) => click(Array.from(h.host.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Discard fetched changes'))!);
+    const loadRow = (h: Harness) => h.host.querySelector('.motor-load-row')!.textContent ?? '';
+    const loadAndWait = async (h: Harness) => {
+      click(loadButton(h)!);
+      for (let i = 0; i < 50 && h.selected.length === 0; i++) await settle(10);
+    };
+
+    it('a motor that existed only in the fetched changes is no longer picked, so it cannot be loaded', async () => {
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 24 });
+      await check(h);
+      search(h, 'E99');
+      click(rowFor(h, 'Estes', 'E99')!);
+      expect(loadRow(h)).toMatch(/Estes E99/);
+      discard(h);
+      expect(rowFor(h, 'Estes', 'E99')).toBeUndefined();
+      expect(loadRow(h)).not.toMatch(/E99/);
+      expect(loadButton(h)).toBeUndefined();
+    });
+
+    it('a changed motor stays picked and loads as the app shipped it, not as fetched', async () => {
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 18 });
+      await check(h);
+      search(h, 'C6');
+      click(rowFor(h, 'Estes', 'C6')!);
+      // The fetched row's longest delay.
+      expect(delaySelect(h)!.value).toBe('9');
+      discard(h);
+      // Still picked — the motor is in the shipped catalogue — at the shipped row's delay.
+      expect(loadRow(h)).toMatch(/Estes C6/);
+      expect(Array.from(delaySelect(h)!.options).map((o) => o.value)).not.toContain('9');
+      expect(delaySelect(h)!.value).toBe('7');
+      await loadAndWait(h);
+      expect(h.selected).toEqual([{ label: 'C6-7', ejectionDelay: 7 }]);
+    });
+
+    it('an imported motor stays picked through a check and a discard — it was never in the catalogue', async () => {
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 54 });
+      await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+      click(rowFor(h, 'EX', 'K550W')!);
+      await check(h);
+      discard(h);
+      expect(loadRow(h)).toMatch(/EX K550W/);
+      await loadAndWait(h);
+      expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
+    });
+  });
 });
 
 describe('MotorBrowser — filters that persist where they cannot be seen (audit 2026-09-22)', () => {
