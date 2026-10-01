@@ -8,9 +8,9 @@ import { useEffect, useState } from 'react';
  * request. False, though, is reliable: nothing is going to answer.
  *
  * It lived in services/net.ts until 2026-10-01, beside the network helpers
- * the file readers, the batch runner and the import planner reach through
- * thrustcurve.ts and openMeteo.ts, so each of them loaded React for a hook
- * none of them calls — in the node corpus sweep and any worker too, where
+ * the RockSim reader, the batch runner, the import planner, motorMatch and the
+ * weather proposal reach through thrustcurve.ts or openMeteo.ts, so each of
+ * them loaded React for a hook none of them calls — in the node corpus sweep and any worker too, where
  * nothing else needs it. launchConditions.test holds those services
  * React-free.
  */

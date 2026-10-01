@@ -1530,11 +1530,13 @@ function readLaunchConditions(
 
   // Every launch value is believed only inside the bounds the panel enforces on
   // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
-  // since v0.105. Nothing downstream re-checks a rod, wind, latitude or
-  // longitude value (kernelSimOptions passes them as stored), so a file could
-  // fly an 80° rail or a negative rod length that the panel would refuse to
-  // have typed. Clamped into the panel's range, with a note quoting the file's
-  // own number.
+  // since v0.105. kernelSimOptions passes a rod, wind, latitude or longitude
+  // value as stored. The kernel holds a latitude to ±90° and a negative gust
+  // deviation to 0 by itself (WorldCoordinate, PinkNoiseWindModel), but
+  // nothing re-checks a rod angle or length, or a wind average (a negative one
+  // flies reversed), so a file could fly an 80° rail or a negative rod length
+  // that the panel would refuse to have typed. Clamped into the panel's range,
+  // with a note quoting the file's own number.
   const m = (x: number): string => `${fmt6(x)} m`;
   const deg = (x: number): string => `${fmt6(x)}°`;
   const ms = (x: number): string => `${fmt6(x)} m/s`;

@@ -1470,15 +1470,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         name: `${n.name ?? 'Nose cone'} base extension`,
         length: len,
         outerRadius: or, // BaseDia/2 — the extension has no diameter of its own
-        // A SOLID cone (ConstructionType 0 → filled) has a SOLID extension. The app
-        // has no `filled` for a body tube: ComponentFactory builds
-        // `new BodyTube(len, radius, thickness)` and never calls setFilled (it does
-        // so only for the nose and transition cases). Express solid as
-        // thickness = outerRadius, which carved BodyTube.java:248-252 turns into
-        // innerRadius 0. Copying the cone's WallThickness instead gives a ZERO-MASS
-        // tube: 8 of the 9 solid corpus cones state WallThickness 0, and
-        // PELTZER-Warp-7.rkt then reads 32.97 g against RockSim's own CalcMass of
-        // 38.63 g, where the solid form gives 38.631 g.
+        // A SOLID cone (ConstructionType 0 → filled) has a SOLID extension,
+        // expressed as thickness = outerRadius, which carved BodyTube.java:248-252
+        // turns into innerRadius 0. (A body tube has had its own `filled` since
+        // v0.147, which ComponentFactory passes to BodyTube.setFilled; this form
+        // predates it and flies the same.) Copying the cone's WallThickness
+        // instead gives a ZERO-MASS tube: 8 of the 9 solid corpus cones state
+        // WallThickness 0, and PELTZER-Warp-7.rkt then reads 32.97 g against
+        // RockSim's own CalcMass of 38.63 g, where the solid form gives 38.631 g.
         thickness: n['filled'] === true ? or : nnum(n, 'thickness', 0),
         position: { method: 'top', offset: 0 },
         // Durable marker so the .rkt exporter can fold it back into
@@ -1537,14 +1536,15 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       + 'the extension, so the added tube carries none of its own.');
   }
   if (holedBulkheads.length) {
-    // What RockSim does with the hole, not a promise of what this app weighs:
-    // the kernel can still fly one solid. US Rockets 2.25 V2.rkt's baffle has
-    // a 25.4 mm hole, the size of the mount tube ending at its face, and flies
-    // 5.569 g against RockSim's 4.402 g: RadiusRingComponent.setInnerRadius
-    // returns early on a value equal to the automatic one the ring holds, so
-    // the bore stays automatic (a fix for the engine bridge, ComponentFactory).
-    // Each part still stops the motor-room estimate unless its hole fits the
-    // motor (`holedBulkhead`, motorRoom.ts).
+    // What RockSim does with the hole. US Rockets 2.25 V2.rkt's baffle has a
+    // 25.4 mm hole, the size of the mount tube ending at its face, and flew
+    // 5.569 g against RockSim's 4.402 g until v0.147:
+    // RadiusRingComponent.setInnerRadius returns early on a value equal to the
+    // automatic one the ring holds, so the bore stayed automatic. The engine
+    // bridge now sets a stated bore through setStatedInnerRadius
+    // (ComponentFactory), and the baffle flies 4.402 g. Each part still stops
+    // the motor-room estimate unless its hole fits the motor (`holedBulkhead`,
+    // motorRoom.ts).
     const n = holedBulkheads.length;
     const one = holedBulkheads[0]!;
     notes.push((n === 1

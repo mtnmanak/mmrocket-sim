@@ -624,9 +624,10 @@ describe('an imported atmosphere is checked before it reaches the engine', () =>
 /**
  * THE REST OF THE LAUNCH ENVELOPE (audit 2026-09-22). The atmosphere above had
  * the panel's bounds since v0.105; rod angle and length, wind, altitude and
- * latitude were imported raw, and nothing downstream re-checks a rod, wind or
- * latitude value — so a file flew an 80° rail (the panel stops at 30°, desktop
- * at 60°) or a negative rod length. Each is now clamped into the panel's own
+ * latitude were imported raw, and nothing downstream re-checks a rod angle or
+ * length or a wind average (the kernel itself holds only a latitude to ±90° and
+ * a negative gust deviation to 0) — so a file flew an 80° rail (the panel stops
+ * at 30°, desktop at 60°) or a negative rod length. Each is now clamped into the panel's own
  * range, with a note.
  */
 describe('an imported launch site is held to the panel’s own bounds', () => {

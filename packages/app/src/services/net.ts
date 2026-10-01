@@ -10,9 +10,11 @@
  * user guide's "What needs the network" paragraph, so a new outside host
  * cannot be fetched without being listed here and named there.
  *
- * No React here: the file readers reach this module (through thrustcurve.ts
- * and openMeteo.ts), and `launchConditions.test.ts` holds them React-free. The
- * online/offline hook a button gates on is hooks/useOnline.ts.
+ * No React here: the RockSim reader, the batch runner, the import planner,
+ * motorMatch and the weather proposal reach this module through thrustcurve.ts
+ * or openMeteo.ts, and `launchConditions.test.ts` holds them React-free (the
+ * .ork and .CDX1 readers reach neither). The online/offline hook a button gates
+ * on is hooks/useOnline.ts.
  */
 
 /**
