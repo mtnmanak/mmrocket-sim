@@ -114,4 +114,65 @@ describe('autosavedDesignFile', () => {
     expect(back.motors[backMount]?.designation).toBe('K1100T');
     expect(back.motors[backMount]?.delay).toBe(Infinity);
   });
+
+  /**
+   * AN AUTO MOUNT AT THE DELAY IT FLEW (audit 2026-09-30, item 23). A Save
+   * writes an Auto mount at the rounded optimum its newest qualifying flight
+   * flew; this file wrote the provisional delay, so the design reopened flying
+   * a delay Auto never flew. The runs that say are judged against the build
+   * and the model, which a crash leaves nothing of, so App keeps what a Save
+   * would write beside the design (SessionState.flownAutoDelays).
+   */
+  describe('an Auto mount', () => {
+    const auto = (): MountMotor => ({ ...c6(), label: 'C6 (auto delay)', meta: { ...c6().meta, autoDelay: true } });
+
+    it('is written at the delay it flew, as a Save would write it', () => {
+      const tree = { ...defaultTree(), name: 'Auto' };
+      const mount = motorMounts(tree)[0]!.id!;
+      saveSessionDebounced({
+        tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, flownAutoDelays: { '': { [mount]: 7 } },
+      });
+      vi.runAllTimers();
+      const back = importOrk(autosavedDesignFile()!.data);
+      expect(back.motors[motorMounts(back.tree)[0]!.id!]?.delay).toBe(7);
+    });
+
+    it('in each stored configuration, at the delay that configuration flew', () => {
+      const tree = { ...defaultTree(), name: 'Two configurations' };
+      const mount = motorMounts(tree)[0]!.id!;
+      saveSessionDebounced({
+        tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, activeConfigId: 'A',
+        savedConfigs: [
+          { id: 'A', name: null, isDefault: true, motors: { [mount]: auto() } },
+          { id: 'B', name: 'Windy', isDefault: false, motors: { [mount]: auto() } },
+        ],
+        flownAutoDelays: { A: { [mount]: 7 }, B: { [mount]: 8 } },
+      });
+      vi.runAllTimers();
+      const back = importOrk(autosavedDesignFile()!.data);
+      const backMount = motorMounts(back.tree)[0]!.id!;
+      const delayIn = (id: string) => back.configs.find((c) => c.id === id)?.motors[backMount]?.delay;
+      expect([delayIn('A'), delayIn('B')]).toEqual([7, 8]);
+    });
+
+    it('keeps its provisional delay, and the file is still an .ork, when what is stored is not a table of delays', () => {
+      const tree = { ...defaultTree(), name: 'Garbled' };
+      const mount = motorMounts(tree)[0]!.id!;
+      storeDesign(tree, { [mount]: auto() });
+      vi.runAllTimers();
+      const stored = JSON.parse(localStorage.getItem(KEY)!) as Record<string, unknown>;
+      for (const garbled of [
+        null, 7, { '': null }, { '': [7] }, { '': { [mount]: '7' } }, { '': { [mount]: -1 } },
+        // One run flew all of a configuration's mounts: a table with a bad
+        // entry is not that run's, so none of it is taken.
+        { '': { [mount]: 7, another: 'x' } },
+      ]) {
+        localStorage.setItem(KEY, JSON.stringify({ ...stored, flownAutoDelays: garbled }));
+        const file = autosavedDesignFile()!;
+        expect(file.ork, JSON.stringify(garbled)).toBe(true);
+        const back = importOrk(file.data);
+        expect(back.motors[motorMounts(back.tree)[0]!.id!]?.delay, JSON.stringify(garbled)).toBe(5);
+      }
+    });
+  });
 });

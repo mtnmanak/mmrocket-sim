@@ -863,31 +863,8 @@ export function App() {
     dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
   } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore);
 
-  // Autosave the working state so a closed tab or crash never loses work.
-  useEffect(() => {
-    saveSessionDebounced({
-      ...designSnapshot,
-      motorLengthLimitsMigrated: true,
-      // Not part of the design fingerprint, but the only copy of a
-      // configuration-less import's unresolved motors (audit 2026-09-22).
-      unmatchedRefs,
-      // Not part of the design either: where applied weather came from.
-      // Written only while there is some, so an older session's payload is
-      // unchanged until weather is applied.
-      ...(weather ? { weather } : {}),
-      // The build that PARSED this design, not the one writing the file — see
-      // parsedByVersion. writeNow spreads `pending` AFTER its own
-      // `appVersion: APP_VERSION`, so this value is the one that reaches
-      // storage; the APP_VERSION there is only the fallback for a payload
-      // that carries none.
-      appVersion: parsedByVersion.current,
-      savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
-    });
-  // savedMark and flownSinceSave are useDesignDirty's refs — stable, so naming
-  // them costs no runs — and dirtyTick is how they announce a change. `weather`
-  // (weather build, step 3): where applied weather came from rides in the same
-  // payload, outside the design snapshot, so it is a dependency too.
-  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather]);
+  // The autosave effect itself sits below `flownAutoDelaysNow`: it carries
+  // what a Save would write for each Auto mount's delay, from the export input.
 
   // Close the 400 ms debounce window on the way out. `pagehide` fires on
   // close, reload and navigation away - and on a mobile browser discarding the
@@ -2126,6 +2103,46 @@ export function App() {
    * delay and carries the flight of another.
    */
   const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownAutoDelays(flightExportInput());
+  /**
+   * The same delays as of this render, for the autosave below: the
+   * crash-recovery .ork writes each Auto mount at them (SessionState.
+   * flownAutoDelays), because the runs they come from are judged against a
+   * build and a model that a crash leaves nothing of. Memoized on the export
+   * input, so the autosave re-runs only when that does.
+   */
+  const flownForAutosave = useMemo(() => flownAutoDelays(flightExportInput()), [flightExportInput]);
+
+  // Autosave the working state so a closed tab or crash never loses work.
+  // Declared here, below the export input, for `flownForAutosave`.
+  useEffect(() => {
+    saveSessionDebounced({
+      ...designSnapshot,
+      motorLengthLimitsMigrated: true,
+      // Not part of the design fingerprint, but the only copy of a
+      // configuration-less import's unresolved motors (audit 2026-09-22).
+      unmatchedRefs,
+      // Not part of the design either: where applied weather came from.
+      // Written only while there is some, so an older session's payload is
+      // unchanged until weather is applied.
+      ...(weather ? { weather } : {}),
+      // Nor this: the delay each Auto mount flew, which the crash-recovery
+      // .ork writes as a Save would (audit 2026-09-30, item 23). Written only
+      // while there is one, so a design with no Auto flight stores what it
+      // always did.
+      ...(Object.keys(flownForAutosave).length > 0 ? { flownAutoDelays: flownForAutosave } : {}),
+      // The build that PARSED this design, not the one writing the file — see
+      // parsedByVersion. writeNow spreads `pending` AFTER its own
+      // `appVersion: APP_VERSION`, so this value is the one that reaches
+      // storage; the APP_VERSION there is only the fallback for a payload
+      // that carries none.
+      appVersion: parsedByVersion.current,
+      savedMark: savedMark.current ?? undefined, flownSinceSave: flownSinceSave.current,
+    });
+  // savedMark and flownSinceSave are useDesignDirty's refs — stable, so naming
+  // them costs no runs — and dirtyTick is how they announce a change. `weather`
+  // (weather build, step 3) and `flownForAutosave` ride in the same payload,
+  // outside the design snapshot, so they are dependencies too.
+  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride

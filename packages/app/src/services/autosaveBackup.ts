@@ -40,7 +40,11 @@ export interface AutosaveFile {
 /**
  * One configuration's motors for the writer (orkExportMotors.orkMotorSet): the
  * matched records, the file's own references on mounts that have nothing
- * matched, and the pad mass kept on the primary mount only.
+ * matched, and the pad mass kept on the primary mount only. Each Auto mount
+ * goes out at the delay it flew — what a Save writes — from the copy App keeps
+ * with the autosave (SessionState.flownAutoDelays), since the runs that say
+ * are judged against a build this path does not have; with none it keeps its
+ * provisional delay.
  */
 function motorSet(
   s: SessionState,
@@ -48,7 +52,9 @@ function motorSet(
   motors: Record<string, MountMotor> | undefined,
   refs: Record<string, OrkMotorRef> | undefined,
 ): Record<string, OrkExportMotor> {
-  return orkMotorSet({ records: motors ?? {}, refs, tree: s.tree, configKey, exLibrary: loadExMotors });
+  return orkMotorSet({
+    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotors,
+  });
 }
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
