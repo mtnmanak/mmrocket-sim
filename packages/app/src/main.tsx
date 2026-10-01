@@ -8,6 +8,7 @@ import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import { AppRoot } from './root.js';
 import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
+import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 
 // Offline-first on the canonical host. On the RETIRED pre-rename host the
@@ -19,8 +20,14 @@ if (isRetiredHost(location.hostname)) {
   // does NOT do is go looking — the browser checks for a new worker when this
   // registration runs, i.e. on a page load. Publishing the registration lets
   // the header's version check ask for that on demand, which is the whole of
-  // the "am I on the current version?" support conversation.
-  registerSW({ immediate: true, onRegisteredSW: (_url, reg) => setSwRegistration(reg) });
+  // the "am I on the current version?" support conversation. Every
+  // registration also goes past the empty-precache safeguard
+  // (services/precacheGuard.ts), which does nothing unless the worker's
+  // offline copy is empty.
+  registerSW({
+    immediate: true,
+    onRegisteredSW: (_url, reg) => { setSwRegistration(reg); void guardPrecache(reg); },
+  });
 }
 
 // Never a silently-blank page: uncaught errors paint into the root. A throw
