@@ -9,18 +9,6 @@
  * src/services/catalogueOverlay.ts), and motor-catalogue-screen.test.mjs now
  * keeps any other from shipping. Board Tier 1 row 6.
  *
- * Two more carry figures their own certification letters contradict, which no
- * plausibility screen can see (board Tier 1 row 8 (c), 2026-10-01): the AeroTech
- * F52C and H13ST, both tested on 10 September 2020, each listed with its letter's
- * total impulse, peak and average thrust divided by the same 1.159, while its
- * masses, length and burn time are the letter's, rounded. Every file
- * thrustcurve.org publishes for them delivers the low figure, so the picker's
- * impulse gate and the impulse note had nothing to disagree with.
- * aerotech-certified.test.mjs now holds the catalogue to those letters. Only the
- * three figures are corrected, and no curve is touched: both motors fly the
- * curve they flew, and loading one now says how far that curve falls short of
- * its certification.
- *
  * ONE TABLE, FOUR READERS — the rule apply-preset-corrections.mjs set for the
  * parts catalogue, "one list, not two":
  *  - fetch-motor-db.mjs applies it to every refresh before it writes, so
@@ -105,62 +93,6 @@ export const MOTOR_CORRECTIONS = [
         by: 'NAR Standards & Testing, Combined CAR/NAR/TRA Certified Rocket Motors List (prepared 2009 June 03)',
         url: 'http://blogs.nwic.edu/rocketteam/files/2011/10/NAR-TRACombinedMotorList.pdf',
         says: 'H | J234-P | Contrail | Dimensions (mm) 54 x 922 | Impulse (N-sec) 1033 | Propellant Mass 910cc | Tested By TRA',
-        read: '2026-10-01',
-      },
-    ],
-  },
-  {
-    motorId: '5f5e57811e865c0004c955d8',
-    manufacturer: 'AeroTech',
-    designation: 'F52C',
-    fields: {
-      totImpulseNs: { bad: 66.2, good: 76.73 },
-      maxThrustN: { bad: 64.33, good: 74.57 },
-      avgThrustN: { bad: 52.65, good: 61.04 },
-    },
-    why: 'thrustcurve.org lists 66.2 N·s, 64.33 N peak and 52.65 N average: each the certification letter\'s figure '
-      + 'divided by 1.159, the same factor as the H13ST tested the same day, while the row\'s masses, length and burn '
-      + 'time are the letter\'s, rounded. Both files it publishes integrate to 66.31 N·s and agree with that row, '
-      + 'so nothing said the curve flown falls 13.6 % short of the certification. It is still flown as published, '
-      + 'and now the impulse note says so.',
-    sources: [
-      {
-        by: 'Tripoli Motor Testing certification letter for the AeroTech (Enerjet) F52C single-use motor, tested '
-          + 'September 10, 2020, 10 motors (Alan C. Whitmore, TMT Chair; the letter\'s own date reads "xxxxxxxx, 2020"), '
-          + 'linked as "F52-5, 8, 11C" from the manufacturer\'s own NAR/TRA certification page, '
-          + 'https://www.rocketmotorparts.com/page/nar-tra-certification-docs',
-        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f52c%20cert%20letter_1656516242122.pdf',
-        says: 'Manufacturer\'s Designation F52C-5,8,12 [single use]; TMT Nomenclature 77 F61; Loaded Mass 81.40 g; '
-          + 'Burn time 1.258 ± 0.055 sec; Total Impulse 76.73 ± 0.60 N.s; Max Impulse 74.57 ± 3.25 N; '
-          + 'Average Impulse 61.04 ± 2.99 N; Number of Motors Tested 10',
-        read: '2026-10-01',
-      },
-    ],
-  },
-  {
-    motorId: '5f5e58171e865c0004c955f8',
-    manufacturer: 'AeroTech',
-    designation: 'H13ST',
-    fields: {
-      totImpulseNs: { bad: 211.19, good: 244.76 },
-      maxThrustN: { bad: 43.51, good: 50.42 },
-      avgThrustN: { bad: 13.89, good: 16.1 },
-    },
-    why: 'thrustcurve.org lists 211.19 N·s, 43.51 N peak and 13.89 N average: each the certification letter\'s figure '
-      + 'divided by 1.159, the same factor as the F52C tested the same day, while the row\'s masses, length and burn '
-      + 'time are the letter\'s, rounded. Both files it publishes integrate to 214.94 N·s and agree with that row, '
-      + 'so nothing said the curve flown falls 12.2 % short of the certification. It is still flown as published, '
-      + 'and now the impulse note says so.',
-    sources: [
-      {
-        by: 'Tripoli Motor Testing certification letter for the AeroTech H13ST-P single-use motor, tested '
-          + 'September 10, 2020, 3 motors (Alan C. Whitmore, TMT Chair; the letter\'s own date reads "xxxxxxxx, 2020"), '
-          + 'linked as "H13ST-P DMS" from the manufacturer\'s own NAR/TRA certification page, '
-          + 'https://www.rocketmotorparts.com/page/nar-tra-certification-docs',
-        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/h13st%20cert%20letter_1656524721164.pdf',
-        says: 'Manufacturer\'s Designation H13ST-P [single use]; TMT Nomenclature 245 H16; Loaded Mass 203.38 g; '
-          + 'Burn time 15.22 ± 0.55 sec; Total Impulse 244.76 ± 7.29N.s; Max Impulse 50.42 ± 2.02 N; '
-          + 'Average Impulse 16.10 ± 0.98 N; Number of Motors Tested 3',
         read: '2026-10-01',
       },
     ],

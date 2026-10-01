@@ -267,52 +267,27 @@ const TOKEN_KIND = {
 };
 
 /**
- * THE CATALOGUE ROWS THE APP CORRECTS, as one clause a motor (board Tier 1 row
- * 6, 2026-10-01). The guide says the bundled motors are thrustcurve.org's "as
+ * THE CATALOGUE ROWS THE APP CORRECTS, as one clause each (board Tier 1 row 6,
+ * 2026-10-01). The guide says the bundled motors are thrustcurve.org's "as
  * pulled", and the rows packages/app/scripts/motor-corrections.mjs corrects are
  * not, so the guide says which and how — phrased from that table, the same one
  * the refresh applies, so retiring an entry there retires its words here. A
  * field with no wording below stops the build: a correction must not go
  * unmentioned just because nobody wrote a phrase for it.
- *
- * A motor's certified thrust figures (board Tier 1 row 8 (c)) read as one
- * phrase, "is certified at 76.73 N·s of total impulse, 74.57 N peak thrust and
- * 61.04 N average thrust, where thrustcurve.org lists 66.2 N·s, 64.33 N and
- * 52.65 N", rather than as three clauses naming the motor three times.
  */
-const CERTIFIED = {
-  totImpulseNs: ['N·s of total impulse', 'N·s'],
-  maxThrustN: ['N peak thrust', 'N'],
-  avgThrustN: ['N average thrust', 'N'],
-};
-
 export function motorCorrectionsSentence(corrections, motors) {
   const n = (v) => Number(v).toLocaleString('en-US');
-  const and = (parts) => (parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]);
   const byId = new Map(motors.map((m) => [m.motorId, m]));
-  const clauses = corrections.map((c) => {
-    const said = [];
-    const listed = [];
-    for (const [field, { bad, good }] of Object.entries(c.fields)) {
-      if (Object.hasOwn(CERTIFIED, field)) continue;
-      if (field === 'length') {
-        said.push(`is ${n(good)} mm long`);
-        listed.push(`${n(bad)} mm`);
-      } else if (field === 'propWeightG') {
-        const loaded = byId.get(c.motorId)?.totalWeightG;
-        said.push(`carries ${n(good)} g of propellant`);
-        listed.push(`${n(bad)} g${Number.isFinite(loaded) ? ` in a ${n(loaded)} g motor` : ''}`);
-      } else {
-        fail(`motor-corrections.mjs corrects ${c.designation} ${field}, and the guide has no wording for ${field} — add one in motorCorrectionsSentence()`);
-      }
+  const clauses = corrections.flatMap((c) => Object.entries(c.fields).map(([field, { bad, good }]) => {
+    const name = `the ${c.manufacturer} ${c.designation}`;
+    if (field === 'length') return `${name} is ${n(good)} mm long, where thrustcurve.org lists ${n(bad)} mm`;
+    if (field === 'propWeightG') {
+      const loaded = byId.get(c.motorId)?.totalWeightG;
+      return `${name} carries ${n(good)} g of propellant, where thrustcurve.org lists ${n(bad)} g`
+        + (Number.isFinite(loaded) ? ` in a ${n(loaded)} g motor` : '');
     }
-    const certified = Object.entries(c.fields).filter(([field]) => Object.hasOwn(CERTIFIED, field));
-    if (certified.length) {
-      said.push(`is certified at ${and(certified.map(([f, { good }]) => `${n(good)} ${CERTIFIED[f][0]}`))}`);
-      listed.push(and(certified.map(([f, { bad }]) => `${n(bad)} ${CERTIFIED[f][1]}`)));
-    }
-    return `the ${c.manufacturer} ${c.designation} ${said.join(' and ')}, where thrustcurve.org lists ${listed.join(' and ')}`;
-  });
+    return fail(`motor-corrections.mjs corrects ${c.designation} ${field}, and the guide has no wording for ${field} — add one in motorCorrectionsSentence()`);
+  }));
   return clauses.length > 1 ? `${clauses.slice(0, -1).join('; ')}; and ${clauses.at(-1)}` : (clauses[0] ?? '');
 }
 

@@ -67,11 +67,9 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
       expect(s.by.length).toBeGreaterThan(10);
       expect(s.read).toMatch(/^\d{4}-\d\d-\d\d$/);
     }
-    // Each corrected figure is printed in at least one source's quoted text, as printed: a letter's "16.10 N" is
-    // the 16.1 the table holds. Trailing zeros only after a decimal point, where they change nothing.
+    // Each corrected figure is printed in at least one source's quoted text.
     for (const { good } of Object.values(c.fields)) {
-      const figure = String(good).replace('.', '\\.') + (String(good).includes('.') ? '0*' : '');
-      expect(c.sources.some((s) => new RegExp(`(?<![\\d.])${figure}(?![\\d])`).test(s.says)),
+      expect(c.sources.some((s) => new RegExp(`(?<![\\d.])${String(good).replace('.', '\\.')}(?![\\d])`).test(s.says)),
         `no source quotes ${good}`).toBe(true);
     }
   });

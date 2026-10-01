@@ -363,54 +363,40 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
 });
 
 /**
- * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 rows 6 and 8 (c)). The guide
- * says the app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01
- * some rows are not: motor-corrections.mjs replaces figures no motor can have, and
- * figures a motor's certification letter contradicts. The sentence that says so
- * is phrased FROM that table, so retiring an entry there retires its words here,
- * and a correction to a field the guide has no wording for stops the build
- * rather than going unmentioned.
+ * THE CATALOGUE ROWS THE APP CORRECTS (board Tier 1 row 6). The guide says the
+ * app bundles thrustcurve.org's motors "as pulled", and since 2026-10-01 two rows
+ * are not: motor-corrections.mjs replaces figures no motor can have. The sentence
+ * that says so is phrased FROM that table, so retiring an entry there retires
+ * its words here, and a correction to a field the guide has no wording for stops
+ * the build rather than going unmentioned.
  */
 describe('the motor-catalogue corrections the guide states', () => {
   const motors = JSON.parse(readFileSync(join(DATA, 'motors.json'), 'utf8')).motors;
   const n = (v) => v.toLocaleString('en-US');
-  const figure = (v) => new RegExp(`(?<![\\d.,])${n(v).replace(/[.,]/g, '\\$&')}(?![\\d])`);
 
   it('names every corrected figure, and the figure thrustcurve.org gives, in the shipped guide', () => {
     expect(readFileSync(SRC, 'utf8')).toContain('{{MOTOR_CORRECTIONS}}');
     const html = allHtml(compileGuide().ts);
     for (const c of MOTOR_CORRECTIONS) {
-      // One clause a motor, from its name to the next clause: what is right, then what thrustcurve.org lists.
-      const at = html.indexOf(`the ${c.manufacturer} ${c.designation} `);
-      expect(at, `${c.manufacturer} ${c.designation} is not in the guide`).toBeGreaterThanOrEqual(0);
-      const [right, listed] = html.slice(at).split(/;|\.\s|<\/p>/)[0].split('where thrustcurve.org lists');
       for (const { bad, good } of Object.values(c.fields)) {
-        expect(right, `${c.designation}: ${good}`).toMatch(figure(good));
-        expect(listed, `${c.designation}: thrustcurve.org's ${bad}`).toMatch(figure(bad));
+        expect(html).toMatch(new RegExp(`${c.manufacturer} ${c.designation}[^;.]*\\b${n(good).replace('.', '\\.')} [^;]*thrustcurve\\.org lists ${n(bad)}\\b`));
       }
     }
   });
 
-  it('is phrased from the table, motor by motor, and refuses a field it has no words for', () => {
+  it('is phrased from the table, field by field, and refuses a field it has no words for', () => {
     const [c] = MOTOR_CORRECTIONS;
     expect(motorCorrectionsSentence([c], motors)).toMatch(new RegExp(`^the ${c.manufacturer} ${c.designation} `));
-    const unworded = { ...c, fields: { burnTimeS: { bad: 1, good: 2 } } };
-    expect(() => motorCorrectionsSentence([unworded], motors)).toThrow(/no wording for .*burnTimeS/);
+    const unworded = { ...c, fields: { avgThrustN: { bad: 1, good: 2 } } };
+    expect(() => motorCorrectionsSentence([unworded], motors)).toThrow(/no wording for .*avgThrustN/);
     expect(motorCorrectionsSentence([], motors)).toBe('');
   });
 
-  it('says a motor\'s certified figures in one phrase, naming it once', () => {
-    const certified = { ...MOTOR_CORRECTIONS[0], manufacturer: 'AeroTech', designation: 'X1', fields: {
-      totImpulseNs: { bad: 66.2, good: 76.73 }, maxThrustN: { bad: 64.33, good: 74.57 }, avgThrustN: { bad: 52.65, good: 61.04 },
-    } };
-    expect(motorCorrectionsSentence([certified], motors)).toBe('the AeroTech X1 is certified at 76.73 N·s of total '
-      + 'impulse, 74.57 N peak thrust and 61.04 N average thrust, where thrustcurve.org lists 66.2 N·s, 64.33 N and 52.65 N');
-  });
-
   it('joins several corrections with semicolons, since each carries its own comma', () => {
-    const each = MOTOR_CORRECTIONS.map((c) => motorCorrectionsSentence([c], motors));
+    const one = motorCorrectionsSentence(MOTOR_CORRECTIONS.slice(0, 1), motors);
+    const both = motorCorrectionsSentence(MOTOR_CORRECTIONS, motors);
     expect(MOTOR_CORRECTIONS.length).toBeGreaterThan(1);
-    expect(motorCorrectionsSentence(MOTOR_CORRECTIONS, motors)).toBe(`${each.slice(0, -1).join('; ')}; and ${each.at(-1)}`);
+    expect(both.startsWith(`${one}; and `)).toBe(true);
   });
 
   it('refuses to print the sentence once the table has nothing in it', () => {

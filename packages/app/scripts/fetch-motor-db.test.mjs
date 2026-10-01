@@ -152,7 +152,7 @@ describe('main', () => {
 
 /**
  * THE SOURCED CORRECTIONS SURVIVE A REFRESH (board Tier 1 row 6). motors.json
- * ships some of thrustcurve.org's rows corrected from the manufacturer's and the
+ * ships two of thrustcurve.org's rows corrected from the manufacturer's and the
  * certifying body's data (motor-corrections.mjs); a refresh that wrote
  * thrustcurve.org's figures back over them would undo that every Monday.
  */

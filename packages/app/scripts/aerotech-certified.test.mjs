@@ -15,16 +15,21 @@ import { describe, expect, it } from 'vitest';
  * WHY (board Tier 1 row 8 (c), 2026-10-01). The picker's impulse-agreement gate
  * and the impulse note (thrustcurve.ts) compare a curve with the catalogue's
  * certified total, and both come from thrustcurve.org: where the two agree with
- * each other, nothing looks further. The F52C and the H13ST shipped 13.7 % under
+ * each other, nothing looks further. The F52C and the H13ST ship 13.7 % under
  * their certification letters on all three figures, every bundled curve agreeing
  * with the low one, and nothing in the app could see it. The letters are a
  * reference from outside thrustcurve.org, read from the PDFs by
  * extract-aerotech-certified.py. That needs the local-only docs/RCS Schematics,
  * so the JSON is a committed artifact, the way nozzles.json is.
  *
- * A ROW THAT FAILS HERE is fixed the way the F52C and H13ST are: a sourced entry
- * in motor-corrections.mjs, quoting the letter. While that waits on a ruling it
- * goes in KNOWN, with the figures it holds and why. Never by widening TOLERANCE.
+ * A ROW THAT FAILS HERE IS A QUESTION, NOT AN ANSWER, because a letter can be
+ * the one that is wrong: the F52C's and H13ST's are undated drafts from one test
+ * day, and on total impulse AeroTech's own pages, the NAR's list and the
+ * propellant all side with the rows. So a failing row goes in KNOWN, with the
+ * figures it holds, why, and every source that bears on it, for the letter or
+ * against it, and waits for a ruling. A ruling for the letter makes it a sourced
+ * entry in motor-corrections.mjs; one against it keeps it in KNOWN, saying so.
+ * Never by widening TOLERANCE.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const certified = JSON.parse(readFileSync(join(here, 'aerotech-certified.json'), 'utf8'));
@@ -37,9 +42,9 @@ const FIGURES = ['totImpulseNs', 'maxThrustN', 'avgThrustN'];
  * 0.5 %. Where the catalogue carries a motor these letters certify, its figure
  * IS the letter's, transcribed: as thrustcurve.org served it on 2026-10-01, 37
  * of the 41 matched rows agree on all three figures to 0.11 % or better (the
- * other four are the F52C, the H13ST and the two in KNOWN), and the widest of
- * the 37 are rounding (the B6W's 4.87 N·s for the letter's 4.865, 0.10 %; the
- * J1265T's 1,073.3 for 1,072.3, 0.09 %).
+ * other four are the ones in KNOWN), and the widest of the 37 are rounding (the
+ * B6W's 4.87 N·s for the letter's 4.865, 0.10 %; the J1265T's 1,073.3 for
+ * 1,072.3, 0.09 %).
  * The ± each letter prints is another quantity: the spread between the motors
  * fired, 0.15 to 4.3 % of total impulse, 0.4 to 14.6 % of peak thrust and 0.3
  * to 9.2 % of average thrust. It says how far one motor may stray from the
@@ -95,10 +100,61 @@ const ABSENT = {
 /**
  * Rows that disagree with their letter, held EXACTLY as they ship until a ruling
  * corrects or excuses them, by motorId. A row that changes in any way fails the
- * screen, so an entry cannot outlive what it describes: if thrustcurve.org fixes
- * one, retire its entry; if it moves to a third figure, look again.
+ * screen, so an entry cannot outlive what it describes: if one comes to agree
+ * with its letter, retire its entry; if it moves to a third figure, look again.
+ * `sources` lists what else bears on a row, for or against its letter.
  */
 const KNOWN = {
+  '5f5e57811e865c0004c955d8': {
+    designation: 'F52C',
+    holds: { totImpulseNs: 66.2, maxThrustN: 64.33, avgThrustN: 52.65 },
+    why: 'every figure is the letter\'s divided by 1.159 (76.73 N·s, 74.57 N, 61.04 N), the same factor as the H13ST '
+      + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
+      + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
+      + 'pages, the NAR\'s list, both bundled curves (66.31 N·s, peak 61.32 N), and the propellant. Over the mass the '
+      + 'letter itself measured burning away (81.40 - 45.77 g), 76.73 N·s is 220 s of specific impulse, against 187 s '
+      + 'for the F67C, the same Classic propellant, by its 2022 letter; the row\'s 66.2 is 189 s. Only the peak has a '
+      + 'second source, AeroTech\'s 74.6 N, printed beside its 66.2 N·s and 52 N average. A ruling, not a transcription',
+    sources: [
+      {
+        by: 'AeroTech (RCS Rocket Motor Components), product pages "Enerjet by AeroTech F52-5C 2-Motor Pack - 65212" '
+          + 'and "F52-8C 2-Motor Pack - 65214" (the second at product_7a611801-ae04-c2f5-40e3-dfbd90aaa20c)',
+        url: 'https://aerotech-rocketry.com/products/product_f5da1f55-0034-c13d-9f5a-3ef5f1d395f1',
+        says: 'Total Impulse: 66.2 N-sec; Average Thrust: 52 newtons; Peak Thrust: 74.6 N-sec; Thrust Duration: 1.3 '
+          + 'seconds; Propellant Weight: 30 grams; Motor Weight: 81.4 grams',
+        read: '2026-10-01',
+      },
+      {
+        by: 'National Association of Rocketry, "Certified Model Rocket Motors Approved for Use in ARC 2026", as of '
+          + 'June 4, 2025, page 3, read by word position',
+        url: 'https://www.rocketrychallenge.org/wp-content/uploads/Rocket-Motors-Approved-for-Use-in-ARC-2026-June-4-2025.pdf',
+        says: 'F52C-5,8,12 | Aerotech | 29 x 112 | propellant 30.0 g | total impulse 66.2 N-sec (and F67C-6,9,14 | '
+          + '29 x 112 | 36.8 g | 77.5 N-sec, its letter\'s 77.46 rounded)',
+        read: '2026-10-01',
+      },
+    ],
+  },
+  '5f5e58171e865c0004c955f8': {
+    designation: 'H13ST',
+    holds: { totImpulseNs: 211.19, maxThrustN: 43.51, avgThrustN: 13.89 },
+    why: 'every figure is the letter\'s divided by 1.159 (244.76 N·s, 50.42 N, 16.10 N), the same factor as the F52C '
+      + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
+      + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
+      + 'page, both bundled curves (214.94 N·s, peak 44.53 N), and the propellant. Over the mass the letter itself '
+      + 'measured burning away (203.38 - 70.11 g), 244.76 N·s is 187 s of specific impulse, against 160 s for the '
+      + 'H14ST-P and 164 s for the G12ST-P, the same Super Thunder, by their 2023 and 2020 letters; the row\'s 211.19 is '
+      + '162 s. Only the peak has a second source, AeroTech\'s 50.4 N. A ruling, not a transcription',
+    sources: [
+      {
+        by: 'AeroTech (RCS Rocket Motor Components), product page "AeroTech H13ST-P 29mm x 147mm Single Use DMS '
+          + '1-Motor Kit - 081300"',
+        url: 'https://aerotech-rocketry.com/products/product_b7697119-7d82-3db0-694e-7de6ea74dd90',
+        says: 'Total Impulse: 211 N-sec; Average Thrust: 13 newtons; Peak Thrust: 50.4 N-sec; Thrust Duration: 15.2 '
+          + 'seconds; Propellant Weight: 116.4 grams; Motor Weight: 202 grams',
+        read: '2026-10-01',
+      },
+    ],
+  },
   '5f4294d20002310000000309': {
     designation: 'J99N',
     holds: { totImpulseNs: 945.2, maxThrustN: 151.95, avgThrustN: 92.4 },
@@ -168,7 +224,8 @@ describe('the shipped motor catalogue against AeroTech\'s certification letters'
       .filter(({ row }) => !(row.motorId in KNOWN))
       .flatMap((pair) => disagreements(pair).map((d) => `${pair.row.manufacturerAbbrev} ${pair.row.designation} `
         + `(${pair.row.motorId}): ${d} — ${pair.letter.file}, ${pair.letter.letterDate}`));
-    expect(offenders, `rows that disagree with their certification letter:\n${offenders.join('\n')}`).toEqual([]);
+    expect(offenders, 'rows that disagree with their certification letter (hold each in KNOWN with every source that '
+      + `bears on it, and put it to a ruling: a letter can be wrong too):\n${offenders.join('\n')}`).toEqual([]);
   });
 
   it('holds each KNOWN row exactly as recorded, and still disagreeing', () => {

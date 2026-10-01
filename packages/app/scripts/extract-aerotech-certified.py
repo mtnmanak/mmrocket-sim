@@ -6,10 +6,12 @@ holds the shipped motor catalogue to (board Tier 1 row 8 (c), 2026-10-01).
 WHY. v0.116's impulse-agreement gate compares a picked curve's integral with
 the catalogue's certified total, and both come from thrustcurve.org. When the
 two agree with each other the gate passes, whatever the certification says:
-the F52C and the H13ST shipped 13.7 % under their certification letters on
+the F52C and the H13ST ship 13.7 % under their certification letters on
 total impulse, peak AND average thrust, with both bundled curves agreeing with
 the low figure (docs/research/aerotech-document-set-2026-09-08.md section 1).
-These letters are a reference from outside thrustcurve.org.
+These letters are a reference from outside thrustcurve.org, and a reference
+can be wrong too: for those two, AeroTech's own pages side with thrustcurve.org
+on total impulse (aerotech-certified.test.mjs, KNOWN).
 
 WHAT IS READ. `Cert Docs/TRA` under `docs/RCS Schematics` (local-only,
 gitignored): the TRA certification documents AeroTech's maker, RCS Rocket Motor
