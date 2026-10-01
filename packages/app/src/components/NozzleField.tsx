@@ -75,13 +75,26 @@ export function NozzleField({
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
   const inputId = useId();
-  const [lookup, setLookup] = useState<{ key: string; entries: (NozzleEntry | null)[] } | null>(null);
+  /** `entries: null` — the look-up FAILED for this loadout (below). */
+  const [lookup, setLookup] = useState<{ key: string; entries: (NozzleEntry | null)[] | null } | null>(null);
 
   const key = motors.map((m) => `${m.motorId}x${m.count}`).join(',');
   useEffect(() => {
     let live = true;
     void (async () => {
-      const found = await Promise.all(motors.map((m) => nozzleForMotorId(m.motorId)));
+      // THE DATA CAN FAIL TO ARRIVE (audit 2026-09-30). nozzles.json is a lazy
+      // chunk of its own: offline before the service worker had cached it, or
+      // in a tab older than the deploy that replaced it, the import rejects.
+      // With no catch here that rejection went nowhere — main.tsx's handler
+      // paints only into an EMPTY root — and the field waited for an answer
+      // that never came: no fill, no disagreement, no provenance, no word why.
+      let found: (NozzleEntry | null)[] | null;
+      try {
+        found = await Promise.all(motors.map((m) => nozzleForMotorId(m.motorId)));
+      } catch (err) {
+        console.error('The nozzle data could not be loaded:', err);
+        found = null;
+      }
       if (live) setLookup({ key, entries: found });
     })();
     return () => { live = false; };
@@ -89,7 +102,9 @@ export function NozzleField({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key IS motors
   }, [key]);
 
-  const entries = lookup?.key === key ? lookup.entries : null;
+  const settled = lookup?.key === key ? lookup : null;
+  const entries = settled?.entries ?? null;
+  const unavailable = settled !== null && settled.entries === null;
 
   // The stage's equivalent nozzle: null when it has no motors, or when any
   // motor in it has no published figure (a partial sum is short by whatever it
@@ -205,6 +220,21 @@ export function NozzleField({
           {motors.length === 0
             ? 'No motor is loaded in this stage, so there is no nozzle.'
             : `No published exit diameter for ${motorLabel ?? 'this motor'}. Type one if you have measured it — blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.`}
+        </p>
+      )}
+      {/* Not on a stage switched OFF: nothing is filled or checked there anyway.
+          The reload is the cure, as for the lazy dialogs (LazyDialog.tsx): it
+          fetches the current build's chunk, or the service worker's copy. */}
+      {unavailable && exitDiameterM !== 0 && (
+        <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="unavailable">
+          <strong>The nozzle data could not be loaded</strong>, so this field cannot fill itself in
+          from the published figure or check a typed value against it.
+          {exitDiameterM === null && ' Blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.'}
+          {' '}The connection may have dropped, or the app may have been updated since this page loaded.
+          {' '}
+          <button className="file-btn" style={{ marginLeft: 4 }} onClick={() => window.location.reload()}>
+            ↻ Reload the page
+          </button>
         </p>
       )}
       {!mixed && entry?.note && published !== null && (

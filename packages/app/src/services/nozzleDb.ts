@@ -151,6 +151,10 @@ function toEntry(m: RawMotor): NozzleEntry | null {
 }
 
 async function db(): Promise<Map<string, NozzleEntry>> {
+  // Only a LOADED map is kept. A rejected import (offline before the service
+  // worker cached the chunk, or a tab older than the deploy that replaced it)
+  // leaves this null, so the next look-up tries again rather than failing for
+  // the life of the page (NozzleField.loadFailure.test.tsx).
   if (!byMotorId) {
     const mod = await import('../data/nozzles.json');
     const raw = mod.default as unknown as RawDb;
