@@ -407,7 +407,7 @@ const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
   foreShoulderRadius: LEN, foreShoulderLength: LEN, foreShoulderThickness: LEN,
   aftShoulderRadius: LEN, aftShoulderLength: LEN, aftShoulderThickness: LEN,
   diameter: LEN, spillHoleDiameter: LEN, lineLength: LEN, stripLength: LEN, stripWidth: LEN,
-  cordLength: LEN, width: LEN,
+  cordLength: LEN, width: LEN, packedLength: LEN, packedRadius: LEN,
   outerDiameter: LEN, innerDiameter: LEN, totalHeight: LEN, baseHeight: LEN, flangeHeight: LEN,
   screwHeight: LEN,
   tabHeight: LEN, tabLength: LEN, airfoilLeDiamond: LEN, airfoilTeDiamond: LEN, finLeRadius: LEN,
@@ -735,6 +735,19 @@ const PROTUBERANCE_CLASSES: [string, string][] = [
   ['plate', 'Inclined flat plate (fin bracket, anchor) — Cd = 1.17·sin²θ'],
 ];
 
+/**
+ * A recovery device's PACKED size: the cylinder the kernel puts its mass in
+ * (MassObject), its CG half the packed length behind its front. Desktop shows
+ * both on every parachute, streamer and shock cord; the radius follows the
+ * radius/diameter preference, which is desktop's "Packed diameter". Blank flies
+ * the kernel's own 25 mm x 12.5 mm (BLANK_BY_KEY), what every device flew
+ * whatever it said until KB1 (2026-10-01).
+ */
+const PACKED: FieldDef[] = [
+  { ...lenMM('packedLength', 'Packed length', 1, 500), optional: true },
+  { ...radMM('packedRadius', 'Packed radius', 0.5, 80), optional: true },
+];
+
 export const FIELDS = lookupTable<FieldDef[]>({
   // Separation applies to lower stages (the booster separates FROM the stack
   // above); the top stage ignores it — same as the desktop.
@@ -968,6 +981,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     lenMM('spillHoleDiameter', 'Spill hole ⌀ (0 = none)', 1, 500),
     { key: 'lineCount', label: 'Line count', unit: 'count', smin: 0, smax: 16 },
     lenMM('lineLength', 'Line length', 10, 1000),
+    ...PACKED,
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
     { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
     { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
@@ -976,12 +990,14 @@ export const FIELDS = lookupTable<FieldDef[]>({
     lenMM('stripLength', 'Strip length', 10, 2000),
     lenMM('stripWidth', 'Strip width', 5, 150),
     CD,
+    ...PACKED,
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
     { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
     { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
   ],
   shockcord: [
     lenMM('cordLength', 'Cord length', 10, 2000),
+    ...PACKED,
   ],
   masscomponent: [
     { key: 'mass', label: 'Mass', unit: 'g', step: 1, smin: 0, smax: 500 },
@@ -1189,6 +1205,9 @@ const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
   aftShoulderRadius: 0, aftShoulderLength: 0, aftShoulderThickness: 0,
   spillHoleDiameter: 0, // no vent (treeModel's Cd scaling reads absent as 0)
   lineCount: 6, lineLength: 0.3, // :431-432
+  // A recovery device's packed size: MassObject's own 25 mm x 12.5 mm, which
+  // applyPackedSize leaves in place when the key is absent (and the .ork writer's).
+  packedLength: 0.025, packedRadius: 0.0125,
   // Unset, DeploymentConfiguration's own 200 m and 0 s (the .ork writer's too).
   deployAltitude: 200, deployDelay: 0,
   separationDelay: 0, // StageSeparationConfiguration's own

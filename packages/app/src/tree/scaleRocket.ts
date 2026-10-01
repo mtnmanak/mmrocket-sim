@@ -122,9 +122,11 @@ const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly stri
   railbutton: ['instanceSeparation'],
   // spillHoleDiameter must track `diameter` — the effective-Cd model is
   // cd·(1−(d/D)²), so only the ratio matters, and scaling both preserves it.
-  parachute: ['diameter', 'spillHoleDiameter', 'lineLength'],
-  streamer: ['stripLength', 'stripWidth'],
-  shockcord: ['cordLength'],
+  // The packed size is the cylinder the device's mass sits in, inside a bay
+  // that grows with the airframe — scaled as a mass component's is.
+  parachute: ['diameter', 'spillHoleDiameter', 'lineLength', 'packedLength', 'packedRadius'],
+  streamer: ['stripLength', 'stripWidth', 'packedLength', 'packedRadius'],
+  shockcord: ['cordLength', 'packedLength', 'packedRadius'],
   masscomponent: ['length', 'radius', 'radialPosition'],
   // A camera shroud is sized by the camera inside it. Nothing here.
   fairing: [],

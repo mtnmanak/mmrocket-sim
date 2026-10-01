@@ -374,6 +374,22 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     autoUnresolved.push({ el, name: label, radius: autoFallback });
     return autoFallback;
   };
+  /**
+   * A parachute's, streamer's or shock cord's PACKED size (MassObject
+   * :packedlength / :packedradius): the cylinder the kernel puts its mass in,
+   * its CG half the packed length behind its front. Never read until KB1
+   * (2026-10-01), and written back as a literal 0.025 / 0.0125, so a 254 mm
+   * packed main flew and saved as 25 mm. An ABSENT tag stays absent — the
+   * kernel's own 25 mm x 12.5 mm, as before. `auto <r>` keeps the radius
+   * desktop resolved; a bare `auto` resolves to the cavity it sits in, as a
+   * mass component's does, else the kernel's 12.5 mm.
+   */
+  const readPackedSize = (el: Element, n: ComponentNode): void => {
+    if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025);
+    if (text(el, ':scope > packedradius') !== null) {
+      n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
+    }
+  };
 
   // Flight-configuration table: rocket-level <motorconfiguration> blocks
   // (optional <name>, optional default="true" — desktop 24.12
@@ -981,6 +997,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'parachute': {
         const n = base('parachute', true);
+        readPackedSize(el, n);
         n['diameter'] = num(el, 'diameter', 0.3);
         // <cd>auto</cd> stays automatic (the kernel's own CD_AUTOMATIC path).
         // Anything unparseable is dropped rather than stored as NaN — a NaN Cd
@@ -1002,6 +1019,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'streamer': {
         const n = base('streamer', true);
+        readPackedSize(el, n);
         n['stripLength'] = num(el, 'striplength', 0.5);
         n['stripWidth'] = num(el, 'stripwidth', 0.05);
         readAutoCd(el, n);
@@ -1012,6 +1030,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'shockcord': {
         const n = base('shockcord', true);
+        readPackedSize(el, n);
         n['cordLength'] = num(el, 'cordlength', 0.3);
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName');
         return n;
@@ -2207,6 +2226,13 @@ export function exportOrk({
       : `<thickness>${n(node, 'thickness', fb)}</thickness>`);
   };
 
+  // A recovery device's packed size (readPackedSize), else the kernel's own
+  // 25 mm x 12.5 mm that it flies without one. These were literals until KB1.
+  const packedXml = (depth: number, node: ComponentNode) => {
+    emit(depth, `<packedlength>${n(node, 'packedLength', 0.025)}</packedlength>`);
+    emit(depth, `<packedradius>${n(node, 'packedRadius', 0.0125)}</packedradius>`);
+  };
+
   /** The write-configs that hold a motor for this mount, in write order. */
   const mountConfigs = (nodeId: string | undefined) =>
     nodeId ? writeConfigs.filter((c) => c.motors[nodeId]) : [];
@@ -2639,8 +2665,7 @@ export function exportOrk({
         open('parachute');
         header(depth + 1, node, 'Parachute');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
@@ -2670,8 +2695,7 @@ export function exportOrk({
         open('streamer');
         header(depth + 1, node, 'Streamer');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
@@ -2689,8 +2713,7 @@ export function exportOrk({
         open('shockcord');
         header(depth + 1, node, 'Shock Cord');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cordlength>${n(node, 'cordLength', 0.3)}</cordlength>`);

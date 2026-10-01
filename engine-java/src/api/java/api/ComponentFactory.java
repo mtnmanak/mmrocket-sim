@@ -599,6 +599,7 @@ final class ComponentFactory {
             c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
             c.setAxialOffset(dbl(position, "offset", 0));
         }
+        applyTypeExtras(c, node);
         return c;
     }
 
@@ -1061,6 +1062,62 @@ final class ComponentFactory {
             throw new IllegalArgumentException("Fin set \"" + label
                     + "\": its outline crosses or touches itself, so it cannot be"
                     + " simulated. Redraw it in the fin editor.");
+        }
+    }
+
+    /**
+     * Per-type fields bridged after the create() switch had become a set of
+     * line numbers the app's comments cite (position.ts, treeModel.ts). They
+     * are set here, last in create(), and live at the end of the file for the
+     * same reason setOutline does: so those citations stay true. Dispatch is
+     * on the node's type string, as in applyPostAttachDimensions.
+     */
+    private static void applyTypeExtras(RocketComponent c, Map<String, Object> node) {
+        switch (str(node, "type", "")) {
+            case "parachute":
+            case "streamer":
+            case "shockcord":
+                applyPackedSize((info.openrocket.core.rocketcomponent.MassObject) c, node);
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * A recovery device's PACKED size. Parachute, Streamer and ShockCord are
+     * MassObjects: a cylinder of this length and radius, its CG at half the
+     * length behind its front (MassObject.getComponentCG), its inertia taken
+     * over that cylinder. Desktop's .ork loader sets both
+     * (DocumentConfig "MassObject:packedlength" -> setLength,
+     * "MassObject:packedradius" -> setRadius). This bridge set neither until
+     * KB1 (2026-10-01), so every device flew the constructor's 25 mm x
+     * 12.5 mm whatever the design said: LEM-IV.ork's 254 mm main put its CG
+     * 114.5 mm from where desktop puts it.
+     *
+     * NO KEY MEANS DO NOTHING: an absent key keeps the constructor's default,
+     * which is what every design without one has always flown.
+     *
+     * Desktop's `auto <r>` packed radius arrives as plain numbers: the .ork
+     * reader keeps the radius desktop resolved and the length it wrote beside
+     * it (MassObjectSaver writes getLength(), already the conserved-volume
+     * length), which is the cylinder desktop flies. So setRadiusAutomatic is
+     * not called, as for a mass component.
+     *
+     * The shock cord's cord length is set in create() BEFORE this, unlike
+     * desktop's document order: ShockCord.setCordLength returns early when the
+     * new cord length equals this.length - the PACKED length - so in desktop
+     * order a cord as long as its own bundle keeps the previous cord length.
+     */
+    private static void applyPackedSize(info.openrocket.core.rocketcomponent.MassObject m,
+            Map<String, Object> node) {
+        double length = dbl(node, "packedLength", Double.NaN);
+        if (!Double.isNaN(length)) {
+            m.setLength(length);
+        }
+        double radius = dbl(node, "packedRadius", Double.NaN);
+        if (!Double.isNaN(radius)) {
+            m.setRadius(radius);
         }
     }
 }

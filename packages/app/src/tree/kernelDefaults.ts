@@ -30,10 +30,14 @@ import { num } from './nodeNum.js';
  *    sits in, which tree/solidContext.ts resolves), a tube-fin set's;
  *  - a tube-fin set's wall, which inherits its parent tube's
  *    (BodyTube.addChild; ComponentFactory.applyTubeFinThickness);
- *  - parachutes, streamers and shock cords' length: the bridge never sets it,
- *    so the kernel keeps MassObject's packed 25 mm — `axialLength`'s own
- *    fallback.
+ *  - parachutes, streamers and shock cords' `length`: they have none. Their
+ *    size along the axis is `packedLength`, below.
  * Callers keep their own placeholder for those, and say so where they use it.
+ *
+ * A recovery device's PACKED size is the one entry that is not a `dbl(node,
+ * key, default)`: the bridge sets it only when the key is present
+ * (ComponentFactory.applyPackedSize), so an absent one is MassObject's own
+ * constructor value, 25 mm x 12.5 mm.
  */
 const KERNEL_DEFAULTS: Record<string, Readonly<Record<string, number>>> = Object.assign(
   Object.create(null) as Record<string, Readonly<Record<string, number>>>, {
@@ -51,9 +55,9 @@ const KERNEL_DEFAULTS: Record<string, Readonly<Record<string, number>>> = Object
     engineblock: { length: 0.005, thickness: 0.00095 },
     launchlug: { length: 0.05, outerRadius: 0.0022, thickness: 0.0003 },
     masscomponent: { length: 0.02, radius: 0.005, mass: 0.01 },
-    parachute: { diameter: CANOPY_DIAMETER_FALLBACK, lineLength: 0.3 },
-    streamer: { stripLength: 0.5, stripWidth: 0.05 },
-    shockcord: { cordLength: 0.3 },
+    parachute: { diameter: CANOPY_DIAMETER_FALLBACK, lineLength: 0.3, packedLength: 0.025, packedRadius: 0.0125 },
+    streamer: { stripLength: 0.5, stripWidth: 0.05, packedLength: 0.025, packedRadius: 0.0125 },
+    shockcord: { cordLength: 0.3, packedLength: 0.025, packedRadius: 0.0125 },
     // App-only parts, as engineTree lowers them. A shroud flies as a one-fin
     // strake whose root chord is its length; a protuberance as a zero-length
     // carrier at the bump's centre, so its length is the one the views draw

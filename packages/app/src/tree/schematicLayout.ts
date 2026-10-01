@@ -1067,13 +1067,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // there alike, where the kernel builds a 70 mm inner tube).
         const len = axialLength(child);
         // A stated radius, else the kernel's (an inner tube's 9.5 mm, a mass
-        // component's 5 mm — what its cluster offsets below are spaced by),
-        // else a share of the body for a part sized by what it sits in.
+        // component's 5 mm — what its cluster offsets below are spaced by; a
+        // recovery device's packed 12.5 mm), else a share of the body for a
+        // part sized by what it sits in.
         const r = Math.min(
           pRadius * 0.85,
           num(child, 'outerRadius', kernelDefault(child.type, 'outerRadius')
             ?? num(child, 'radius', kernelDefault(child.type, 'radius')
-              ?? num(child, 'packedRadius', pRadius * 0.7))),
+              ?? num(child, 'packedRadius', kernelDefault(child.type, 'packedRadius') ?? pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
