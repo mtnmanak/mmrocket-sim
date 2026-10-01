@@ -231,6 +231,76 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
   });
 });
 
+/**
+ * Audit 2026-09-30: every failure on the way to a curve — no network, a
+ * timeout, a bundle chunk that would not load — reached the importer as one
+ * thrown Error, and its note said thrustcurve.org "publishes none". Offline, a
+ * motor the catalogue check added (not in the bundle) read as having no curve
+ * at all, and the user went looking for a file they did not need.
+ */
+describe('"no curve exists" is said only when thrustcurve.org says so', () => {
+  const failure = async (p: Promise<unknown>): Promise<Error> => {
+    const err = await p.then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    return err as Error;
+  };
+
+  it('an answer that lists no file is NoPublishedCurveError — the one failure that means none exists', async () => {
+    const tc = await freshModule();
+    stubDownload([]);
+    const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
+    expect(err).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(err.message).toMatch(/No sample data available for C6/);
+    stubDownload([{ format: 'RASP', samples: [{ time: 0.1, thrust: 5 }] }]); // one sample cannot fly
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+  });
+
+  it('a connection that never opens is not that, and says to check the connection', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
+    expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(err.message).toMatch(/^thrustcurve\.org could not be reached for C6 — are you offline\?/);
+    expect(err.cause).toBeInstanceOf(TypeError);
+  });
+
+  it('an HTTP error or an answer with no results list is not that either', async () => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 }) as unknown as Response));
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: 'nope' })));
+    expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
+  });
+
+  it('a bundle that fails to load is not "no curve" — the error says the bundle failed', async () => {
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => {
+      throw new Error('Failed to fetch dynamically imported module');
+    });
+    try {
+      const tc = await import('./thrustcurve.js');
+      // The real Quest C6, which the bundle carries — when it loads.
+      const bundled: TcMotor = { ...QUEST_C6, motorId: '5f4294d20002310000000016' };
+      // Its other caller (the motor browser) still reads a failed bundle as "no files".
+      expect(await tc.bundledSimFiles(bundled.motorId)).toEqual([]);
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+      const err = await failure(tc.fetchMotorSpec(bundled, 5));
+      expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
+      expect(err.message).toMatch(/^The thrust curves bundled with the app did not load, and thrustcurve\.org could not be reached for C6/);
+      // With a connection the download stands in for the bundle, as before.
+      stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+      expect((await tc.fetchMotorSpec(bundled, 5)).times.length).toBeGreaterThan(1);
+      // And thrustcurve.org's own "none" is still that, bundle or no bundle.
+      localStorage.clear();
+      stubDownload([]);
+      expect(await failure(tc.fetchMotorSpec(bundled, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    } finally {
+      vi.doUnmock('../data/motorCurves.json');
+      vi.resetModules();
+    }
+  });
+});
+
 describe('the download has a deadline, and honours a caller cancelling it', () => {
   it('gives up on a stalled socket after 15 s with a message a rocketeer can act on',
     async () => {

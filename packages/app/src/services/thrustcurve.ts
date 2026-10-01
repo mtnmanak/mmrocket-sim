@@ -61,6 +61,22 @@ export interface TcHeaderMasses {
 }
 
 /**
+ * fetchMotorSpec's failure when thrustcurve.org ANSWERS, and its answer lists
+ * no file with a curve to fly — the one failure that means no curve exists.
+ * Every other one (no connection, a timeout, an HTTP error, a bundle chunk
+ * that would not load, an answer that cannot be read) means only that the
+ * curve could not be had this time, and a caller must not say there is none:
+ * the import note did, for every failure, until the 2026-09-30 audit, and a
+ * user offline went looking for a file they did not need (motorMatch.ts).
+ */
+export class NoPublishedCurveError extends Error {
+  constructor(designation: string) {
+    super(`No sample data available for ${designation}`);
+    this.name = 'NoPublishedCurveError';
+  }
+}
+
+/**
  * Most bytes of a download.json body read. One motor's answer — its handful
  * of simulator files, samples and raw text both — is tens of kilobytes; the
  * origin is a pinned HTTPS service, so this is defence in depth against a
@@ -530,15 +546,39 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
 /**
  * The bundled files for one motor as TcSimFile, or [] when it has none —
  * exported for the picker's tests and for callers that want to know whether a
- * motor CAN fly offline before offering it.
+ * motor CAN fly offline before offering it. A bundle that did not load also
+ * reads as [] here, which is the honest answer to that question right now;
+ * fetchMotorSpec, which has to say WHY a curve could not be had, reads
+ * bundledFiles instead and tells the two apart (audit 2026-09-30).
  */
 export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
-  let curves: Record<string, BundledSimFile[]>;
   try {
-    curves = await loadBundledCurves();
+    return await bundledFiles(motorId);
   } catch {
     return [];
   }
+}
+
+/**
+ * Does the bundle carry a curve for this motor? true or false once it has
+ * loaded; null when it could not be loaded at all, which says nothing about
+ * the motor. The bundle holds every file thrustcurve.org published for the
+ * catalogue it was built from — scripts/motor-db-age.test.mjs holds it and
+ * motors.json to one date — so `false` for a motor of THAT catalogue means it
+ * had none when this version was built: an answer motorMatch can give with no
+ * network, and one a chunk that failed must never give (audit 2026-09-30).
+ */
+export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
+  try {
+    return (await bundledFiles(motorId)).length > 0;
+  } catch {
+    return null;
+  }
+}
+
+/** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
+async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
+  const curves = await loadBundledCurves();
   return (curves[motorId] ?? []).map((f) => ({
     format: f.format,
     source: f.source,
@@ -953,9 +993,19 @@ export async function fetchMotorSpec(
   // The shipped bundle comes BEFORE the network: it holds every file
   // thrustcurve.org publishes for this motor, chosen by the same pickSampleFile
   // a live response goes through, so a motor flies the same curve offline as
-  // on. It is not written to localStorage — it is already local.
+  // on. It is not written to localStorage — it is already local. A bundle
+  // chunk that would not load (a tab left open across an update) is not "no
+  // files": the download stands in for it, and if that fails too the error
+  // says both, because the cure for each is different.
+  let bundleFailed = false;
   if (!samples) {
-    const file = pickSampleFile(await bundledSimFiles(motor.motorId), motor);
+    let files: TcSimFile[] = [];
+    try {
+      files = await bundledFiles(motor.motorId);
+    } catch {
+      bundleFailed = true;
+    }
+    const file = pickSampleFile(files, motor);
     if (file?.samples) {
       samples = file.samples;
       fromFile = headerMasses(file);
@@ -982,15 +1032,24 @@ export async function fetchMotorSpec(
       // CAPPED, never whole (see readJsonCapped).
       body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
     } catch (err) {
-      if (limit.timedOut()) {
-        throw new Error(
-          `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ` +
-            `${motor.designation}. Check the connection and try again, or import ` +
-            "the motor's .rse/.eng file.",
-          { cause: err },
-        );
-      }
-      throw err;
+      const timedOut = limit.timedOut();
+      // An HTTP error, an unreadable answer and the caller's own cancel (Stop,
+      // in BatchSimulate) go back as they came. What is left is a connection
+      // that never opened — fetch's TypeError, worded differently by every
+      // browser ("Failed to fetch", "Load failed") — or our deadline, and both
+      // are said in words a note can repeat (motorMatch.ts).
+      if (!timedOut && (signal?.aborted || !(err instanceof TypeError))) throw err;
+      const miss = timedOut
+        ? `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ${motor.designation}`
+        : `thrustcurve.org could not be reached for ${motor.designation}`;
+      throw new Error(
+        bundleFailed
+          ? `The thrust curves bundled with the app did not load, and ${miss}. Reload the app with a `
+            + "connection, or import the motor's .rse/.eng file."
+          : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
+            + "the motor's .rse/.eng file.",
+        { cause: err },
+      );
     } finally {
       limit.done();
     }
@@ -1000,19 +1059,26 @@ export async function fetchMotorSpec(
     // failure class as the sample guard below — trust nothing in this body,
     // its ELEMENTS included: `{"results":[null]}` threw "Cannot read
     // properties of null" from pickSampleFile (audit 2026-09-22).
-    const results = Array.isArray(body?.results)
-      ? body.results.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
+    const listed = body?.results;
+    const results = Array.isArray(listed)
+      ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
       : [];
     const file = pickSampleFile(results, motor);
     if (!file?.samples) {
       // pickSampleFile rejects a file whose samples are not finite time/thrust
       // pairs, so "files came back, none of them usable" is its own case and
       // deserves its own message — silently flying it produced NaN masses.
-      throw new Error(results.some((f) => (f.samples?.length ?? 0) >= 2)
-        ? `thrustcurve.org returned a thrust curve for ${motor.designation} whose `
+      if (results.some((f) => (f.samples?.length ?? 0) >= 2)) {
+        throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} whose `
           + 'time or thrust values are not numbers, so it cannot be simulated. '
-          + 'Pick another motor, or import its .rse/.eng file.'
-        : `No sample data available for ${motor.designation}`);
+          + 'Pick another motor, or import its .rse/.eng file.');
+      }
+      // thrustcurve.org answered, and lists nothing to fly: the one failure
+      // that means no curve exists. An answer with no `results` list at all is
+      // a broken answer, not that one.
+      throw Array.isArray(listed)
+        ? new NoPublishedCurveError(motor.designation)
+        : new Error(`No sample data available for ${motor.designation}`);
     }
     samples = file.samples;
     fromFile = headerMasses(file);

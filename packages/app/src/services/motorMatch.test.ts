@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
-import { findDbMotor, type MotorDbEntry } from './motorDb.js';
+import { findDbMotor, MOTOR_DB, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
   baseDesignation, stripDelay, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
   withMountCount,
 } from './motorMatch.js';
+import { NoPublishedCurveError } from './thrustcurve.js';
 
 /** A .ork <motor> block as the importer hands it over. SI: metres, seconds. */
 const ref = (over: Partial<OrkMotorRef> = {}): OrkMotorRef => ({
@@ -85,13 +86,67 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
   // to one of three hand-written approximations. Now nothing is loaded and the
   // note says exactly that. A wrong curve flown silently is the worse outcome.
   it('loads NOTHING when the curve cannot be had, and never substitutes', async () => {
+    for (const failure of [new NoPublishedCurveError('C6'), new Error('offline')]) {
+      const res = await matchImportedMotor(ref(), {
+        findDb: () => dbEntry(),
+        fetchSpec: async () => { throw failure; },
+      });
+      expect(res.motor).toBeUndefined();
+      expect('approximated' in res).toBe(false);
+    }
+  });
+
+  /**
+   * Audit 2026-09-30: the catch around the fetch took EVERY failure for "no
+   * curve exists". Offline, a motor the catalogue check added — not in the
+   * bundle — was reported as having none, and a user hunted for a file they
+   * did not need when opening the design again online would have flown it.
+   */
+  it('says the motor has no thrust curve only when thrustcurve.org publishes none', async () => {
     const res = await matchImportedMotor(ref(), {
       findDb: () => dbEntry(),
-      fetchSpec: async () => { throw new Error('offline'); },
+      fetchSpec: async () => { throw new NoPublishedCurveError('C6'); },
+    });
+    expect(res.note).toBe('Motor “C6” is in the motor database but has no thrust curve — thrustcurve.org publishes'
+      + ' none for it. Import its .eng/.rse via Browse motor database.');
+    expect(res.missing).toBe('curve');
+  });
+
+  it('says a curve that could not be loaded could not be loaded, and why — not that none exists', async () => {
+    const why = 'thrustcurve.org could not be reached for C6 — are you offline? Check the connection and try'
+      + ' again, or import the motor\'s .rse/.eng file.';
+    const res = await matchImportedMotor(ref(), {
+      findDb: () => dbEntry(),
+      fetchSpec: async () => { throw new Error(why); },
     });
     expect(res.motor).toBeUndefined();
-    expect('approximated' in res).toBe(false);
-    expect(res.note).toContain('has no thrust curve');
+    expect(res.note).toBe(`Motor “C6” is in the motor database, but its thrust curve could not be loaded: ${why}`);
+    expect(res.note).not.toMatch(/no thrust curve|publishes none/);
+    expect(res.missing).toBeUndefined();
+  });
+
+  it('knows a SHIPPED motor the bundle has nothing for has no curve, offline too — unless the bundle did not load', async () => {
+    // The bundle holds every curve thrustcurve.org published for the shipped
+    // catalogue, so Estes's G80 — catalogued, no curve — has none whether or
+    // not thrustcurve.org can be asked. A bundle chunk that failed knows nothing.
+    const estesG80 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'G80')!;
+    const offline = async (): Promise<never> => { throw new Error('thrustcurve.org could not be reached for G80'); };
+    const g80 = ref({ designation: 'G80', diameter: 0.029 });
+    expect((await matchImportedMotor(g80, { findDb: () => estesG80, fetchSpec: offline })).missing).toBe('curve');
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => {
+      throw new Error('Failed to fetch dynamically imported module');
+    });
+    try {
+      const fresh = await import('./motorMatch.js');
+      const res = await fresh.matchImportedMotor(g80, { findDb: () => estesG80, fetchSpec: offline });
+      expect(res.missing).toBeUndefined();
+      expect(res.note).toBe('Motor “G80” is in the motor database, but its thrust curve could not be loaded:'
+        + ' thrustcurve.org could not be reached for G80');
+    } finally {
+      vi.doUnmock('../data/motorCurves.json');
+      vi.resetModules();
+    }
   });
 
   it('loads NOTHING when the database has no such motor', async () => {
