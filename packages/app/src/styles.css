@@ -922,7 +922,7 @@ html {
 
 /* `.field-caption`: a field's caption over something a <label> cannot name (a
    list — ScaleDialog's motor mounts, named by aria-labelledby), dressed as the
-   labels beside it. Every `.field label` rule below carries it too. */
+   labels beside it: the 1600px type step and Daylight's bold carry it too. */
 .field label,
 .field .field-caption {
   font-size: 11px;
