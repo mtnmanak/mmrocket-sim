@@ -388,8 +388,11 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
 
             {mounts.length > 0 && (
               <div className="field">
-                <label>Motor mounts</label>
-                <ul className="comp-stats" style={{ margin: 0, paddingLeft: 18 }}>
+                {/* A caption, not a <label> (audit 2026-09-30): a <ul> is not
+                    labelable, so the label named nothing and the list had no
+                    name. The list takes this caption as its name instead. */}
+                <span id="scale-mounts" className="field-caption">Motor mounts</span>
+                <ul aria-labelledby="scale-mounts" className="comp-stats" style={{ margin: 0, paddingLeft: 18 }}>
                   {mounts.map((m) => (
                     <li key={m.id}>
                       {m.name}: {m.boreMm.toFixed(1)} →{' '}

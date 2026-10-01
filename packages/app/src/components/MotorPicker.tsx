@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
 import { useCatalogue } from './useCatalogue.js';
@@ -58,6 +58,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   const [browsing, setBrowsing] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const picksId = useId();
 
   // The live catalogue, so a "check thrustcurve.org" overlay reaches the picks
   // the same way it reaches the browser.
@@ -114,10 +115,16 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   return (
     <div>
       <div className="field">
-        <label>{offerPicks ? 'Quick picks' : 'Motor'}</label>
+        {/* The words on screen name the select (audit 2026-09-30): it carried
+            its own aria-label, "Quick picks", beside a label tied to nothing.
+            Over the readout there is no control to name, so "Motor" is a
+            caption there, not a label. */}
+        {offerPicks
+          ? <label htmlFor={picksId}>Quick picks</label>
+          : <span className="field-caption">Motor</span>}
         {offerPicks ? (
           <select
-            aria-label="Quick picks"
+            id={picksId}
             value={current ? pickLabel(current) : ''}
             disabled={loading !== null}
             onChange={(e) => {

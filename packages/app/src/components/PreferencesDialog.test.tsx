@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
 import { aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
+import { QUANTITY_LABEL, UNITS, type Quantity } from '../prefs/units.js';
 
 /**
  * The 3D-printing section: picking a machine fills the build volume, typing
@@ -28,8 +29,23 @@ const printerSelect = (): HTMLSelectElement =>
     (s) => [...s.options].some((o) => o.value === 'bambu-h2d'),
   ) as HTMLSelectElement;
 
-const axis = (label: string): HTMLInputElement | null =>
-  host.querySelector(`input[aria-label="${label}"]`);
+/** A label's own words: its text without the unit chip's options, as getByLabelText reads it. */
+const labelWords = (l: HTMLLabelElement): string => {
+  const words = l.cloneNode(true) as HTMLLabelElement;
+  words.querySelectorAll('select').forEach((s) => s.remove());
+  return (words.textContent ?? '').replace(/\s+/g, ' ').trim();
+};
+
+/**
+ * The control the label reading `words` reaches: the DOM's own `label.control`.
+ * A label with no `for` reaches nothing, or its first labelable descendant —
+ * the unit chip — so this finds a field only through a real association.
+ * (getByLabelText would also take a matching aria-label, and pass unassociated.)
+ */
+const byLabel = (words: string): HTMLElement | null =>
+  [...host.querySelectorAll('label')].find((l) => labelWords(l) === words)?.control ?? null;
+
+const axis = (label: string): HTMLInputElement | null => byLabel(label) as HTMLInputElement | null;
 
 const pick = (el: HTMLSelectElement, value: string) => act(() => {
   el.value = value;
@@ -115,7 +131,7 @@ describe('Preferences → 3D printing', () => {
   it('joint clearance is editable and defaults to 0.15 mm', () => {
     mount();
     pick(printerSelect(), 'bambu-h2d');
-    const clearance = host.querySelector('input[aria-label="Joint clearance"]') as HTMLInputElement;
+    const clearance = byLabel('Joint clearance (per side)') as HTMLInputElement;
     expect(clearance.value).toBe('0.15');
     type(clearance, '0.05');
     expect(stored().printer!.clearance).toBeCloseTo(0.00005, 12);
@@ -142,6 +158,111 @@ describe('Preferences → 3D printing', () => {
     expect(hint).toContain('at the top of Z');
     expect(hint).not.toContain('every axis');
   });
+
+  /**
+   * Audit 2026-09-30: each box's label was a bare sibling, so it reached the
+   * unit chip inside it — clicking "Bed X" focused the chip, not the box — and
+   * the box was named by a second copy of the words in an aria-label, which had
+   * already drifted: "Joint clearance" under "Joint clearance (per side)".
+   */
+  it('each box is the control of the label above it, and has no second name', () => {
+    mount();
+    pick(printerSelect(), 'bambu-h2d');
+    for (const words of ['Bed X', 'Bed Y', 'Maximum Z', 'Joint clearance (per side)']) {
+      const box = byLabel(words);
+      expect(box?.tagName, words).toBe('INPUT');
+      expect(box!.getAttribute('aria-label'), words).toBeNull();
+    }
+    expect(axis('Maximum Z')!.value).toBe('325');
+    expect(axis('Joint clearance (per side)')!.value).toBe('0.15');
+  });
+});
+
+/**
+ * Audit 2026-09-30: every select in the dialog sat beside a bare <label> and
+ * was named by an aria-label repeating its words. The label was tied to
+ * nothing — clicking it did nothing — and the name lived in two strings.
+ * jsx-a11y saw eight of them; the units grid's eleven hold their words in an
+ * expression, which the rule assumes may contain a control, and were the same.
+ */
+describe('Preferences → every label names its own control', () => {
+  const QUANTITIES = Object.keys(UNITS) as Quantity[];
+  /**
+   * The other selects: the words beside each, a value to pick (never the
+   * default), and where that pick lands.
+   */
+  const SETTINGS: [string, string, (p: Preferences) => unknown][] = [
+    ['Round components entered as', 'radius', (p) => p.radiusMode],
+    ['Stability shown as', 'pct', (p) => p.stabilityUnit],
+    ['CG / CP markers in 3D', 'callout', (p) => p.markers3d],
+    ['Theme', 'light', (p) => p.theme],
+    ['Daylight mode', 'on', (p) => (p.daylight ? 'on' : 'off')],
+    ['First-run tour', 'off', (p) => (p.tourOff ? 'off' : 'on')],
+    ['Aerodynamics model', 'supersonic', (p) => aeroChoiceOf(p)],
+    ['Printer', 'bambu-h2d', (p) => p.printer?.preset],
+  ];
+
+  /**
+   * Each label is shown to reach ITS select, not merely a select: the pick has
+   * to MOVE the setting the words name. A value chosen off whatever the reached
+   * select showed proved less. Velocity and Wind speed offer one list, and
+   * Rocket and Motor dimensions share three units, so that value could already
+   * be the named setting's own: Wind speed's label reaching the Velocity select
+   * passed.
+   */
+  it('each select is the control of the label beside it, and has no second name', () => {
+    let live: Preferences | undefined;
+    function Live() {
+      live = usePrefs().prefs;
+      return null;
+    }
+    act(() => root.render(
+      <PrefsProvider><Live /><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
+    ));
+    const check = (words: string, value: string, read: (p: Preferences) => unknown) => {
+      const select = byLabel(words) as HTMLSelectElement | null;
+      expect(select?.tagName, words).toBe('SELECT');
+      expect(select!.getAttribute('aria-label'), words).toBeNull();
+      expect(read(live!), `${words} already reads ${value}`).not.toBe(value);
+      pick(select!, value);
+      expect(read(stored()), words).toBe(value);
+    };
+    for (const q of QUANTITIES) {
+      check(QUANTITY_LABEL[q], UNITS[q].map((u) => u.symbol).find((s) => s !== live!.units[q])!, (p) => p.units[q]);
+    }
+    for (const [words, value, read] of SETTINGS) check(words, value, read);
+  });
+
+  it('every label in the dialog reaches its own field, never a unit chip, and the field has no second name', () => {
+    mount();
+    pick(printerSelect(), 'bambu-h2d'); // every field on screen
+    const labels = [...host.querySelectorAll('label')];
+    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 4);
+    for (const l of labels) {
+      const control = l.control;
+      expect(control, `"${labelWords(l)}" labels nothing`).not.toBeNull();
+      expect(control!.classList.contains('unit-chip'), labelWords(l)).toBe(false);
+      expect(control!.hasAttribute('aria-label'), labelWords(l)).toBe(false);
+    }
+    // One label each way. Two labels reaching one field leave another with no
+    // label and no name at all, which the loop above cannot see.
+    const reached = labels.map((l) => l.control);
+    const fields = [...host.querySelectorAll<HTMLElement>('select, input')]
+      .filter((f) => !f.classList.contains('unit-chip'));
+    expect(new Set(reached).size, 'two labels reach one field').toBe(labels.length);
+    expect(fields.filter((f) => !reached.includes(f)).map((f) => f.id), 'fields no label reaches').toEqual([]);
+    expect(fields).toHaveLength(labels.length);
+  });
+
+  it('clicking the words reaches the select (happy-dom forwards the click; a browser focuses it)', () => {
+    mount();
+    const theme = byLabel('Theme')!;
+    let clicks = 0;
+    theme.addEventListener('click', () => { clicks++; });
+    const label = [...host.querySelectorAll('label')].find((l) => labelWords(l) === 'Theme')!;
+    act(() => { label.click(); });
+    expect(clicks).toBe(1);
+  });
 });
 
 /**
@@ -154,8 +275,7 @@ describe('Preferences → 3D printing', () => {
  */
 describe('Preferences → First-run tour', () => {
   const TOUR_KEY = 'online-openrocket.tour.v1';
-  const tourSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="First-run tour"]')!;
+  const tourSelect = (): HTMLSelectElement => byLabel('First-run tour') as HTMLSelectElement;
 
   it('Off is durable — it stores the preference AND the tour’s own seen flag', () => {
     mount();
@@ -190,8 +310,7 @@ describe('Preferences → First-run tour', () => {
  * models with nothing saying why.
  */
 describe('Preferences → Aerodynamics vs the strip override', () => {
-  const aeroSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="Aerodynamics model"]')!;
+  const aeroSelect = (): HTMLSelectElement => byLabel('Aerodynamics model') as HTMLSelectElement;
 
   /** Renders the dialog plus a stand-in for the strip switch, one provider. */
   const mountBoth = () => act(() => root.render(
@@ -260,7 +379,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     // a theme toggle.
     mountBoth();
     pick(strip(), 'supersonic');
-    pick(host.querySelector('select[aria-label="Daylight mode"]') as HTMLSelectElement, 'on');
+    pick(byLabel('Daylight mode') as HTMLSelectElement, 'on');
     expect(strip().value).toBe('supersonic');
     expect(host.textContent).toContain('overriding the setting above');
   });
@@ -292,8 +411,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
 });
 
 describe('Preferences → CG / CP markers in 3D', () => {
-  const markerSelect = (): HTMLSelectElement =>
-    host.querySelector('select[aria-label="CG / CP markers in 3D"]')!;
+  const markerSelect = (): HTMLSelectElement => byLabel('CG / CP markers in 3D') as HTMLSelectElement;
 
   it('defaults to showing everything, and stores nothing until asked', () => {
     mount();

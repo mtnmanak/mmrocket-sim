@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
@@ -24,6 +25,17 @@ const CUSTOM_SEED: PrinterPrefs = {
 
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   const { prefs, setPrefs, aeroOverride, setAeroOverride } = usePrefs();
+  /**
+   * Every field's `<label htmlFor>` points at its own control (audit
+   * 2026-09-30), and the control carries no aria-label: the words on screen
+   * are its one name. A label with no `for` names its first labelable
+   * descendant — the unit chip, so clicking "Bed X" focused the chip, not the
+   * box — or nothing at all, which was every select here: each named by a
+   * second copy of its label's words in an aria-label, the label itself tied
+   * to nothing.
+   */
+  const uid = useId();
+  const idFor = (key: string) => `${uid}-${key}`;
 
   // Build volumes are stored in metres and edited through the same
   // siToUi/uiToSi plumbing as every other length (prefs/printers.ts explains
@@ -40,11 +52,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   };
   const axisField = (axis: 'x' | 'y' | 'z', label: string) => (
     <div className="field">
-      <label>{label} <UnitChip quantity="length" /></label>
+      <label htmlFor={idFor(`printer-${axis}`)}>{label} <UnitChip quantity="length" /></label>
       <NumField
+        id={idFor(`printer-${axis}`)}
         value={printer ? toUi(printer[axis]) : undefined}
         step={niceStep(toUi(0.001))}
-        ariaLabel={label}
         onCommit={(v) => { if (v !== null && v > 0) setAxis(axis, uiToSi('length', lengthSym, v)); }}
       />
     </div>
@@ -81,12 +93,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <div className="field-grid">
           {QUANTITIES.map((q) => (
             <div className="field" key={q}>
-              <label>{QUANTITY_LABEL[q]}</label>
-              {/* Named explicitly: the sibling <label> is not associated with
-                  the control, so these ten read as combo boxes announcing only
-                  "m" / "kg" / "m/s" with no clue which quantity they set. */}
+              {/* Tied to its select, or these read as combo boxes announcing
+                  only "m" / "kg" / "m/s" with no clue which quantity they set. */}
+              <label htmlFor={idFor(`unit-${q}`)}>{QUANTITY_LABEL[q]}</label>
               <select
-                aria-label={QUANTITY_LABEL[q]}
+                id={idFor(`unit-${q}`)}
                 value={prefs.units[q]}
                 onChange={(e) => setPrefs({ ...prefs, units: { ...prefs.units, [q]: e.target.value } })}
               >
@@ -101,9 +112,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <h3 className="prefs-section">Display</h3>
         <div className="field-grid">
           <div className="field">
-            <label>Round components entered as</label>
+            <label htmlFor={idFor('radius-mode')}>Round components entered as</label>
             <select
-              aria-label="Round components entered as"
+              id={idFor('radius-mode')}
               value={prefs.radiusMode}
               onChange={(e) => setPrefs({ ...prefs, radiusMode: e.target.value as 'radius' | 'diameter' })}
             >
@@ -112,9 +123,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>Stability shown as</label>
+            <label htmlFor={idFor('stability-unit')}>Stability shown as</label>
             <select
-              aria-label="Stability shown as"
+              id={idFor('stability-unit')}
               value={prefs.stabilityUnit ?? 'cal'}
               onChange={(e) => setPrefs({
                 ...prefs,
@@ -127,9 +138,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>CG / CP markers in 3D</label>
+            <label htmlFor={idFor('markers-3d')}>CG / CP markers in 3D</label>
             <select
-              aria-label="CG / CP markers in 3D"
+              id={idFor('markers-3d')}
               value={prefs.markers3d ?? 'both'}
               onChange={(e) => setPrefs({
                 ...prefs,
@@ -143,9 +154,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>Theme</label>
+            <label htmlFor={idFor('theme')}>Theme</label>
             <select
-              aria-label="Theme"
+              id={idFor('theme')}
               value={prefs.theme}
               onChange={(e) => setPrefs({
                 ...prefs,
@@ -159,9 +170,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>Daylight mode</label>
+            <label htmlFor={idFor('daylight')}>Daylight mode</label>
             <select
-              aria-label="Daylight mode"
+              id={idFor('daylight')}
               value={prefs.daylight ? 'on' : 'off'}
               onChange={(e) => setPrefs({ ...prefs, daylight: e.target.value === 'on' })}
             >
@@ -170,9 +181,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div className="field">
-            <label>First-run tour</label>
+            <label htmlFor={idFor('tour')}>First-run tour</label>
             <select
-              aria-label="First-run tour"
+              id={idFor('tour')}
               value={prefs.tourOff ? 'off' : 'on'}
               onChange={(e) => {
                 // The preference and the tour's "seen" flag were two separate
@@ -213,9 +224,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             called classic). The select derives from and writes BOTH stored
             prefs (aeroModel + rogersKbf) — no migration needed. */}
         <div className="field">
-          <label>Aerodynamics model</label>
+          <label htmlFor={idFor('aero-model')}>Aerodynamics model</label>
           <select
-            aria-label="Aerodynamics model"
+            id={idFor('aero-model')}
             value={aeroChoiceOf(prefs)}
             onChange={(e) => {
               // Both stored fields from the ONE mapping the strip's override
@@ -276,9 +287,9 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             before splitting existed. */}
         <div className="field-grid">
           <div className="field">
-            <label>Printer</label>
+            <label htmlFor={idFor('printer')}>Printer</label>
             <select
-              aria-label="Printer"
+              id={idFor('printer')}
               value={printer
                 ? (PRINTER_PRESETS.some((p) => p.id === printer.preset) ? printer.preset : CUSTOM_PRESET)
                 : ''}
@@ -304,15 +315,17 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               {axisField('y', 'Bed Y')}
               {axisField('z', 'Maximum Z')}
               <div className="field">
-                <label>Joint clearance (per side) <UnitChip quantity="length" /></label>
+                {/* Its aria-label read "Joint clearance" under these words:
+                    two copies of one name, already drifted apart. */}
+                <label htmlFor={idFor('printer-clearance')}>Joint clearance (per side) <UnitChip quantity="length" /></label>
                 <NumField
+                  id={idFor('printer-clearance')}
                   value={toUi(printer.clearance)}
                   step={niceStep(toUi(0.00005))}
                   // 0 is not "no clearance", it is two parts that cannot be
                   // assembled; prefs substitutes the 0.15 mm default for it,
                   // which is safe but silent. Refuse it at the keyboard.
                   min={toUi(0.00002)}
-                  ariaLabel="Joint clearance"
                   onCommit={(v) => {
                     if (v !== null) setPrinter({ ...printer, clearance: uiToSi('length', lengthSym, v) });
                   }}

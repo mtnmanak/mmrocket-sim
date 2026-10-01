@@ -69,7 +69,8 @@ const render = () => act(() => root.render(
 ));
 
 const quickPick = (label: string) => act(() => {
-  const sel = host.querySelector<HTMLSelectElement>('select[aria-label="Quick picks"]')!;
+  const sel = [...host.querySelectorAll('label')].find((l) => l.textContent === 'Quick picks')!
+    .control as HTMLSelectElement;
   Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, label);
   sel.dispatchEvent(new Event('change', { bubbles: true }));
 });

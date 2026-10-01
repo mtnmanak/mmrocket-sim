@@ -3,8 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { flyLaunch } from './services/flightRunner.js';
+import { loadCatalogueMotor } from './services/motorMatch.js';
+import { addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { APP_VERSION } from './version.js';
 
 /**
  * App-level accessibility from the 2026-09-22 audit (rows 443, 444, 445, 453,
@@ -148,7 +152,7 @@ describe('App — accessibility, as rendered', () => {
     await openTab(host, 'Motors & Launch');
     expect(host.querySelector('.motors-layout')?.tagName).toBe('MAIN');
     const remove = [...host.querySelectorAll('button[title="Remove this motor"]')];
-    const mount = host.querySelector('.mount-card label')!.firstChild!.textContent;
+    const mount = host.querySelector('.mount-card-title')!.firstChild!.textContent;
     expect(remove.map((b) => b.getAttribute('aria-label'))).toEqual([`Remove C6-5 from ${mount}`]);
   }, 30000);
 
@@ -237,5 +241,79 @@ describe('App — accessibility, as rendered', () => {
       + ' — not the model now selected. Press Launch to re-fly it.');
     expect(apogee().querySelector('.vitals-stale')?.getAttribute('aria-hidden')).toBe('true');
     expect(apogee().querySelector('.vitals-value .sr-only')?.textContent).toBe(` — warning: ${why}`);
+  }, 30000);
+
+  /**
+   * Audit 2026-09-30: a staged design's motor card put a bare "Ignition"
+   * label beside a select its own aria-label named "Ignition event" — the
+   * label tied to nothing, and a name that was not the one on screen. The
+   * label names the select now: what is heard is what is shown.
+   */
+  it('a staged motor card’s Ignition label names its select, and the select has no second name', async () => {
+    const tree = addStage(defaultTree()).tree;
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: c6 }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const label = [...host.querySelectorAll<HTMLLabelElement>('.mount-card label')]
+      .find((l) => l.textContent === 'Ignition');
+    expect(label, 'a staged design shows the Ignition field').toBeTruthy();
+    const select = label!.control as HTMLSelectElement | null;
+    expect(select?.tagName).toBe('SELECT');
+    expect(select!.hasAttribute('aria-label')).toBe(false);
+    // ITS select: the one that sets when this motor lights.
+    expect([...select!.options].map((o) => o.value))
+      .toEqual(['automatic', 'burnout', 'launch', 'ejectioncharge', 'never']);
+  }, 30000);
+
+  /**
+   * Audit 2026-09-30, the class of the Ignition label: a motor card's title
+   * was a <label> that labelled nothing, and "Ejection delay (s)" sat beside
+   * its box tied to nothing, so clicking the words did nothing. The title is
+   * the card's text now, and every label in the card reaches its control. The
+   * delay box keeps its own name, which says which mount, as Max motor
+   * length's does.
+   */
+  it('no label in a motor card labels nothing, and the delay’s words reach the delay box', async () => {
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const card = host.querySelector<HTMLElement>('.mount-card')!;
+    const labels = [...card.querySelectorAll('label')];
+    for (const l of labels) expect(l.control, `"${l.textContent}" labels nothing`).not.toBeNull();
+    const delay = labels.find((l) => l.textContent?.startsWith('Ejection delay (s)'));
+    expect(delay, 'a loaded motor shows its delay field').toBeTruthy();
+    const box = delay!.control;
+    expect(box?.tagName).toBe('INPUT');
+    const mount = card.querySelector('.mount-card-title')!.firstChild!.textContent;
+    expect(box!.getAttribute('aria-label')).toBe(`Ejection delay for ${mount}`);
+  }, 30000);
+
+  /**
+   * The header's two disclosure popups close on a click-away backdrop, and on
+   * Escape for the keyboard (useMenuPopup). The backdrop is a pointer-only
+   * click target, so it is presentational and says so, as every dialog's
+   * overlay does (audit 2026-09-30) — and both ways out still close each.
+   */
+  it('the Save As and Feedback backdrops are presentational, and click-away and Escape still close each popup', async () => {
+    const host = await mountApp();
+    for (const name of ['Save As / Export', 'Feedback']) {
+      const trigger = [...host.querySelectorAll<HTMLButtonElement>('.file-menu-wrap > button')]
+        .find((b) => b.textContent?.includes(name))!;
+      const popup = () => host.querySelector(`.file-menu[aria-label="${name}"]`);
+      await act(async () => { trigger.click(); });
+      const backdrop = trigger.parentElement!.querySelector<HTMLElement>('.file-menu-backdrop')!;
+      expect(backdrop.getAttribute('role'), name).toBe('presentation');
+      await act(async () => { backdrop.click(); });
+      expect(popup(), `${name}: the click-away`).toBeNull();
+      await act(async () => { trigger.click(); });
+      expect(popup(), name).not.toBeNull();
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      });
+      expect(popup(), `${name}: Escape`).toBeNull();
+    }
   }, 30000);
 });

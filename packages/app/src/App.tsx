@@ -2946,7 +2946,10 @@ export function App() {
             </button>
             {showFileMenu && (
               <>
-                <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
+                {/* The click-away: pointer-only, so presentational, as every
+                    dialog's overlay is. Escape is the keyboard's way out
+                    (useMenuPopup). */}
+                <div className="file-menu-backdrop" role="presentation" onClick={() => setShowFileMenu(false)} />
                 <div className="file-menu" role="group" aria-label="Save As / Export"
                   onClick={() => setShowFileMenu(false)}>
                   <button onClick={() => { void onSaveOrk(); }}>Save .ork — OpenRocket design</button>
@@ -3019,7 +3022,7 @@ export function App() {
             </button>
             {showFeedback && (
               <>
-                <div className="file-menu-backdrop" onClick={() => setShowFeedback(false)} />
+                <div className="file-menu-backdrop" role="presentation" onClick={() => setShowFeedback(false)} />
                 {/* Contract first, hardcoded constants second — see the
                     FEEDBACK_REPO comment. GitHub links open a new tab (the owner's
                     ruling: don't take the user away from the site); the mailto
@@ -3979,11 +3982,13 @@ export function App() {
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <label style={{ flex: 1, fontWeight: 600 }}>
+                    {/* The card's title, not a <label>: it names no control
+                        (audit 2026-09-30). */}
+                    <span className="mount-card-title" style={{ flex: 1, fontWeight: 600 }}>
                       {m.name ?? 'Motor mount'}
                       <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
                       {countNote && ` (${countNote})`}
-                    </label>
+                    </span>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
                         // Named, not "multiplication x" (audit 2026-09-22).
@@ -4015,7 +4020,9 @@ export function App() {
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
-                      <label>
+                      {/* Tied to its box (audit 2026-09-30), which keeps the
+                          name that says which mount, as Max motor length's does. */}
+                      <label htmlFor={`ejection-delay-${m.id}`}>
                         Ejection delay (s)
                         {mm.meta.availableDelays?.length
                           ? ` — prescribed: ${mm.meta.availableDelays.map((d) => (Number.isFinite(d) ? d : 'P')).join(', ')}`
@@ -4024,6 +4031,7 @@ export function App() {
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
                           <NumField
+                            id={`ejection-delay-${m.id}`}
                             // A plugged motor has no numeric delay — blank the
                             // field (it used to render the literal "Infinity").
                             value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}
@@ -4078,10 +4086,13 @@ export function App() {
                   {mm && isStaged && (
                     <div className="field" style={{ marginTop: 6 }}
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
-                      <label>Ignition</label>
+                      {/* The words on screen name the select (audit
+                          2026-09-30): it carried its own aria-label, "Ignition
+                          event", beside a label tied to nothing. */}
+                      <label htmlFor={`ignition-${m.id}`}>Ignition</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select
-                          aria-label="Ignition event"
+                          id={`ignition-${m.id}`}
                           style={{ flex: 1 }}
                           value={mm.ignition.event}
                           onChange={(e) => setMountMotors((prev) => ({
