@@ -7,10 +7,11 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
+import { DEFAULT_CONDITIONS, timeStepCostFactor } from './LaunchPanel.js';
 import {
-  BatchSimulate, BATCH_CONFIRM_ABOVE_FLIGHTS, batchButtonLabel, batchConfirmWarning,
-  batchProgressAnnouncement,
+  BatchSimulate, BATCH_CONFIRM_ABOVE_FLIGHTS, BATCH_ESTIMATE_ABOVE_FLIGHTS, BATCH_FLIGHT_S, BATCH_MAX_FLIGHTS,
+  batchButtonLabel, batchConfirmWarning, batchDurationText, batchEstimate, batchFlightCount, batchMaxCandidates,
+  batchProgressAnnouncement, batchRefusal, batchSweepSeconds,
 } from './BatchSimulate.js';
 import { mixedComboCount, type BatchMountOption } from '../services/batchSweep.js';
 
@@ -65,15 +66,103 @@ describe('batchButtonLabel — the button must name what it will fly', () => {
   });
 
   it('becomes the second ask once armed', () => {
-    expect(batchButtonLabel({ candidates: 226, totalFlights: 1_949_476, confirming: true }))
-      .toBe('Yes — fly 1,949,476 flights');
+    expect(batchButtonLabel({ candidates: 113, totalFlights: 6441, confirming: true }))
+      .toBe('Yes — fly 6,441 flights');
+  });
+
+  it('states how long the sweep will take as well as how many flights, when it is given an estimate', () => {
+    expect(batchButtonLabel({ candidates: 232, totalFlights: 232, confirming: false, estimate: 'about 8 min' }))
+      .toBe('Simulate 232 motors · about 8 min');
+    expect(batchButtonLabel({ candidates: 113, totalFlights: 6441, confirming: false, estimate: 'about 3 h 30 min' }))
+      .toBe('Simulate 6,441 flights · about 3 h 30 min');
+    expect(batchButtonLabel({ candidates: 113, totalFlights: 6441, confirming: true, estimate: 'about 3 h 30 min' }))
+      .toBe('Yes — fly 6,441 flights · about 3 h 30 min');
+  });
+});
+
+/**
+ * THE SCALE OF A SWEEP, said before it starts (board Tier 1 row 7). The count
+ * was fixed in v0.105, but nothing said how LONG a sweep was, and nothing
+ * stopped one: 226 candidates with "mixed 4+2 / 2+2+2" was 1,949,476 flights —
+ * weeks — behind a button and one confirmation. The pace is measured (see
+ * BATCH_FLIGHT_S), not guessed.
+ */
+describe('the estimate', () => {
+  it('is the measured pace times the flights, following the delay setting', () => {
+    expect(batchSweepSeconds({ flights: 100, optimalDelay: true })).toBeCloseTo(100 * BATCH_FLIGHT_S.optimalDelay, 9);
+    expect(batchSweepSeconds({ flights: 100, optimalDelay: false })).toBeCloseTo(100 * BATCH_FLIGHT_S.fixedDelay, 9);
+    // The solver flies each candidate several times: it is most of the cost.
+    expect(BATCH_FLIGHT_S.optimalDelay).toBeGreaterThan(2 * BATCH_FLIGHT_S.fixedDelay);
+  });
+
+  it('scales by the time-step caution’s own factor when the step is finer than the default, and never shrinks for a coarser one', () => {
+    const at = (timeStepS: number | null) => batchSweepSeconds({ flights: 100, optimalDelay: true, timeStepS });
+    expect(at(0.01)).toBeCloseTo(at(null) * timeStepCostFactor(0.01), 9);
+    expect(at(0.01)).toBeGreaterThan(3 * at(null));
+    expect(at(0.05)).toBeCloseTo(at(null), 9);
+    expect(at(0.1)).toBeCloseTo(at(null), 9);
+  });
+
+  it('reads as a rounded duration, never more precise than it can be', () => {
+    expect(batchDurationText(30)).toBe('under a minute');
+    expect(batchDurationText(61)).toBe('about 1 min');
+    expect(batchDurationText(8 * 60 + 20)).toBe('about 8 min');
+    expect(batchDurationText(59.6 * 60)).toBe('about 1 h');
+    expect(batchDurationText(4 * 3600 + 43 * 60)).toBe('about 4 h 45 min');
+    expect(batchDurationText(2 * 3600 + 5 * 60)).toBe('about 2 h');
+    expect(batchDurationText(11.1 * 3600)).toBe('about 11 h');
+    expect(batchDurationText(45.1 * 86400)).toBe('about 45 days');
+  });
+
+  it(`is offered above ${BATCH_ESTIMATE_ABOVE_FLIGHTS} flights only`, () => {
+    expect(batchEstimate({ flights: BATCH_ESTIMATE_ABOVE_FLIGHTS, optimalDelay: true })).toBeNull();
+    // The owner's 226-motor sweep: minutes of watching, now said up front.
+    expect(batchEstimate({ flights: 226, optimalDelay: true }))
+      .toBe(batchDurationText(226 * BATCH_FLIGHT_S.optimalDelay));
+    expect(batchEstimate({ flights: 226, optimalDelay: true })).toBe('about 8 min');
+  });
+});
+
+describe('the cap', () => {
+  it('counts flights as the sweep does: every candidate, plus each ticked split’s combinations', () => {
+    expect(batchFlightCount(113, [])).toBe(113);
+    expect(batchFlightCount(113, [2])).toBe(113 + mixedComboCount(113, 2));
+    expect(batchFlightCount(226, [3])).toBe(1_949_476);
+    expect(batchFlightCount(20, [2, 3])).toBe(20 + mixedComboCount(20, 2) + mixedComboCount(20, 3));
+  });
+
+  it('knows how many candidates fit under it with the splits that are ticked', () => {
+    for (const groups of [[], [2], [3], [2, 3]]) {
+      const n = batchMaxCandidates(groups);
+      expect(batchFlightCount(n, groups), `${groups}`).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
+      expect(batchFlightCount(n + 1, groups), `${groups}`).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+    }
+    expect(batchMaxCandidates([3])).toBe(48);
+    expect(batchMaxCandidates([2])).toBe(199);
+  });
+
+  it('refuses nothing at the cap, and past it says why and how to narrow the sweep', () => {
+    const pace = { optimalDelay: true };
+    expect(batchRefusal({ flights: BATCH_MAX_FLIGHTS, groups: [2], modes: ['mixed 3+3'], includeOOP: false, ...pace }))
+      .toBeNull();
+    const said = batchRefusal({
+      flights: 1_949_476, groups: [3], modes: ['mixed 4+2 / 2+2+2'], includeOOP: false, ...pace,
+    })!;
+    expect(said).toBe('1,949,476 flights is more than one batch will fly: the most is 20,000, about 11 h at the '
+      + 'measured pace. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 48 or fewer with the maker '
+      + 'and diameter chips.');
+    // Both modes ticked, and out-of-production motors included: every way down is named.
+    expect(batchRefusal({
+      flights: 300_000, groups: [2, 3], modes: ['mixed 3+3', 'mixed 4+2 / 2+2+2'], includeOOP: true, ...pace,
+    })).toContain('Untick mixed 3+3 or mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer with the '
+      + 'maker and diameter chips, or by unticking include OOP.');
   });
 });
 
 describe('batchConfirmWarning', () => {
-  it('names the count and how to shrink it', () => {
-    const w = batchConfirmWarning(1_949_476);
-    expect(w).toContain('1,949,476 flights');
+  it('names the count, how long it takes and how to shrink it', () => {
+    const w = batchConfirmWarning(6441, 'about 3 h 30 min');
+    expect(w).toContain('6,441 flights is a very long run — about 3 h 30 min');
     expect(w).toContain('untick a combination mode');
   });
 });
@@ -173,9 +262,9 @@ describe('the batch dialog', () => {
   const box = (words: string) => Array.from(host.querySelectorAll('label'))
     .find((l) => (l.textContent ?? '').includes(words))
     ?.querySelector('input') as HTMLInputElement;
-  /** 3+3 halves: n(n−1)/2 extra flights — inside the cap for the bundled DB. */
+  /** 3+3 halves: n(n−1)/2 extra flights — past the second ask, inside the cap, for the bundled DB. */
   const halvesBox = () => box('mixed 3+3');
-  /** 4+2 / 2+2+2: n(n+1)(n+2)/6 − n extra — the one that explodes. */
+  /** 4+2 / 2+2+2: n(n+1)(n+2)/6 − n extra — the one that explodes, past the cap. */
   const pairsBox = () => box('mixed 4+2');
 
   it('Escape closes an IDLE dialog — the behaviour that must survive the guard', () => {
@@ -197,8 +286,9 @@ describe('the batch dialog', () => {
     expect(live!.textContent).toBe('');
   });
 
-  /** How many candidates the bundled catalog offers this 24 mm mount. */
-  const candidateCount = () => Number(primaryText().replace(/[^0-9]/g, ''));
+  /** How many candidates the bundled catalog offers this 24 mm mount — the count the button names. */
+  const candidateCount = () => Number(/^Simulate ([\d,]+) motors?/.exec(primaryText())![1]!.replace(/,/g, ''));
+  const en = (n: number) => n.toLocaleString('en-US');
 
   it('the primary button names flights, not motors, once combinations are on', () => {
     mount();
@@ -207,16 +297,31 @@ describe('the batch dialog', () => {
     act(() => { halvesBox().click(); });
     // The button used to keep saying "Simulate <n> motors" while the sweep
     // flew n + n(n−1)/2 — the meta line beside it already said the truth.
-    expect(primaryText()).toBe(`Simulate ${(n + mixedComboCount(n, 2)).toLocaleString('en-US')} flights`);
+    expect(primaryText()).toMatch(new RegExp(`^Simulate ${en(n + mixedComboCount(n, 2))} flights · about \\d`));
   });
 
-  it('asks a second time before a sweep past the cap, and does not start on the first click', () => {
+  it('says how long the sweep will take, beside the count', () => {
     mount();
     const n = candidateCount();
-    act(() => { pairsBox().click(); });
-    // The 4+2 / 2+2+2 split is the one that explodes: n(n+1)(n+2)/6 − n.
-    const total = n + mixedComboCount(n, 3);
+    expect(n).toBeGreaterThan(BATCH_ESTIMATE_ABOVE_FLIGHTS);
+    // At the dialog's default (optimal delay on) and the default step.
+    expect(primaryText()).toBe(`Simulate ${en(n)} motors · ${batchEstimate({ flights: n, optimalDelay: true })}`);
+    act(() => { halvesBox().click(); });
+    const total = n + mixedComboCount(n, 2);
+    expect(primaryText()).toBe(`Simulate ${en(total)} flights · ${batchEstimate({ flights: total, optimalDelay: true })}`);
+    // Unticking "optimal delay per motor" is a third of the pace, and the estimate follows it.
+    act(() => { box('optimal delay per motor').click(); });
+    expect(primaryText()).toBe(`Simulate ${en(total)} flights · ${batchEstimate({ flights: total, optimalDelay: false })}`);
+  });
+
+  it('asks a second time before a sweep past the second-ask threshold, and does not start on the first click', () => {
+    mount();
+    const n = candidateCount();
+    act(() => { halvesBox().click(); });
+    // 3+3 on this mount's candidates sits between the two thresholds.
+    const total = n + mixedComboCount(n, 2);
     expect(total).toBeGreaterThan(BATCH_CONFIRM_ABOVE_FLIGHTS);
+    expect(total).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
 
     act(() => { primary().click(); });
     // Armed, not started: the alert is up, the Stop button is not, and the
@@ -224,17 +329,41 @@ describe('the batch dialog', () => {
     expect(host.querySelector('[role="alert"]')?.textContent ?? '').toContain('very long run');
     expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Stop'))
       .toBe(false);
-    expect(primaryText()).toBe(`Yes — fly ${total.toLocaleString('en-US')} flights`);
+    expect(primaryText()).toMatch(new RegExp(`^Yes — fly ${en(total)} flights · about \\d`));
   });
 
   it('disarms when the sweep shrinks again', () => {
     mount();
-    act(() => { pairsBox().click(); });
+    act(() => { halvesBox().click(); });
     act(() => { primary().click(); });
     expect(primaryText()).toContain('Yes —');
-    act(() => { pairsBox().click(); });
+    act(() => { halvesBox().click(); });
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(primaryText()).toContain('motors');
+  });
+
+  it('refuses a sweep past the cap — says why and how to narrow it, and never starts it', () => {
+    mount();
+    const n = candidateCount();
+    act(() => { pairsBox().click(); });
+    // The 4+2 / 2+2+2 split is the one that explodes: n(n+1)(n+2)/6 − n.
+    const total = n + mixedComboCount(n, 3);
+    expect(total).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+    // The button still names the count and the time it would take…
+    expect(primaryText()).toMatch(new RegExp(`^Simulate ${en(total)} flights · about \\d`));
+    // …but will not start it, and the reason is on screen, not in a tooltip.
+    expect(primary().disabled).toBe(true);
+    const said = host.querySelector('[role="alert"]')?.textContent ?? '';
+    expect(said).toContain(`${en(total)} flights is more than one batch will fly: the most is ${en(BATCH_MAX_FLIGHTS)}`);
+    expect(said).toContain('Untick mixed 4+2 / 2+2+2');
+    expect(said).toContain(`down to ${batchMaxCandidates([3])} or fewer`);
+    act(() => { primary().click(); });
+    expect(primaryText()).not.toContain('Yes —');
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Stop')).toBe(false);
+    // Unticked, the sweep is back within the cap and the button with it.
+    act(() => { pairsBox().click(); });
+    expect(primary().disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
   });
 });
 

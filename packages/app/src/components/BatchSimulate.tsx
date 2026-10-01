@@ -15,7 +15,7 @@ import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from '../services/simStore.js';
 import { XLSX_MIME } from '../services/xlsx.js';
-import { TimeStepCaution, type LaunchConditions } from './LaunchPanel.js';
+import { DEFAULT_TIME_STEP_S, TimeStepCaution, timeStepCostFactor, type LaunchConditions } from './LaunchPanel.js';
 import {
   isWeighedCandidate, mixedComboCount, runBatchSweep, type BatchModel, type BatchMountOption, type BatchRow,
   type BatchWeighed,
@@ -207,17 +207,153 @@ export function batchSummary(
 const group = (n: number) => n.toLocaleString('en-US');
 
 /**
+ * WHAT ONE BATCH FLIGHT COSTS, in seconds at the 0.05 s default step — measured,
+ * so the Simulate button can say how long a sweep will take (board Tier 1 row 7:
+ * a combination sweep's count was fixed in v0.105, but nothing said how long
+ * one would run, and nothing stopped one).
+ *
+ * Measured 2026-10-01 through runBatchSweep itself — catalogue curves, nozzle
+ * table, the delay solver and the Mach probe, everything a sweep does — on the
+ * shipped kernel under Node 24 on the project laptop: 29 in-production motors
+ * spanning a 38 mm mount's impulse range in a 50 mm airframe (apogees to
+ * 3.2 km), and 36 flights of a 24 mm 4-ring cluster with "mixed 2+2".
+ *
+ *   "optimal delay per motor" on (the default): 1.80-1.88 s a flight on every
+ *   aero model, 2.0 s for the cluster's combinations
+ *   off: 0.47 s (Rogers) to 0.60 s (Auto)
+ *
+ * The delay solver is most of the cost — it flies each candidate more than
+ * once — so it is the one setting the estimate follows; the aero model moved the
+ * figure by under 0.1 s. A faster or slower machine moves all of it, which is
+ * why the button says "about".
+ */
+export const BATCH_FLIGHT_S = { optimalDelay: 2, fixedDelay: 0.6 } as const;
+
+/**
+ * Above this many flights the button says how long the sweep will take beside
+ * how many flights it is. 100 flights is about three minutes at the default
+ * pace (BATCH_FLIGHT_S): a shorter sweep is over while the user watches, and a
+ * longer one — the owner's 226-motor sweep is about eight minutes — is worth
+ * knowing the length of before it starts.
+ */
+export const BATCH_ESTIMATE_ABOVE_FLIGHTS = 100;
+
+/**
  * Above this many flights the Simulate button asks a second time.
  *
- * The threshold is an ORDER of magnitude, not a budget: the owner's real
- * 226-motor sweep took several minutes, so one flight is of order a second and
- * 5,000 of them is over an hour of a page that cannot respond between flights.
- * The number that made a gate necessary is 1,949,476 — his 226 candidates with
- * "mixed 4+2 / 2+2+2" ticked, i.e. mixedComboCount(226, 3) + 226 — which is
- * about three weeks at that rate, and it was one click away behind a button
- * that said "Simulate 226 motors".
+ * The threshold is an ORDER of magnitude, not a budget: at the measured pace
+ * (BATCH_FLIGHT_S) 5,000 flights is close to three hours of a page that cannot
+ * respond between flights.
  */
 export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
+
+/**
+ * The most flights one sweep will fly. Past it the sweep is REFUSED — the
+ * button disabled, and a sentence saying how to bring it under (batchRefusal) —
+ * never silently cut short.
+ *
+ * Chosen from two measurements (2026-10-01, the project laptop):
+ *  - TIME: 20,000 flights at the default pace (BATCH_FLIGHT_S) is about 11
+ *    hours — an overnight run, the longest a page that cannot respond while a
+ *    flight runs should be asked to stay in front.
+ *  - THE TABLE: the dialog holds every row a sweep flies (it draws the best
+ *    BATCH_TABLE_ROWS) and re-sorts them all after each flight. An update took
+ *    ~21 ms at 10,000 rows, ~51 ms at 25,000 and ~78 ms at 50,000 — 1-4 % of a
+ *    2 s flight — at ~3.4 KiB a row, ~70 MB at the cap; the CSV of 10,000 runs
+ *    took 0.15 s (8.6 MB) and the XLSX 0.8 s. Below ~50,000 the table is not
+ *    what binds; time is.
+ * The sweep that made a cap necessary, 226 candidates with "mixed 4+2 /
+ * 2+2+2" ticked (1,949,476 flights), would run about 45 days and hold ~6.5 GB
+ * of rows — more than a browser tab can hold at all. Before the cap it was
+ * one click and one confirmation away.
+ */
+export const BATCH_MAX_FLIGHTS = 20_000;
+
+/** The pair-split box's words — on the box, and in the refusal that says to untick it. */
+const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
+
+/**
+ * How many flights a sweep of `n` candidates flies with these combination
+ * splits ticked (each split's group count): every candidate alone, plus each
+ * split's mixed combinations — the total runBatchSweep counts its progress to.
+ */
+export function batchFlightCount(n: number, groups: readonly number[]): number {
+  return n + groups.reduce((sum, g) => sum + mixedComboCount(n, g), 0);
+}
+
+/** The most candidates whose sweep stays within BATCH_MAX_FLIGHTS with these splits still ticked. */
+export function batchMaxCandidates(groups: readonly number[]): number {
+  let n = 0;
+  while (batchFlightCount(n + 1, groups) <= BATCH_MAX_FLIGHTS) n++;
+  return n;
+}
+
+/**
+ * Roughly how long a sweep of `flights` takes, in seconds: the measured pace
+ * (BATCH_FLIGHT_S) for the delay setting, times the time-step caution's own
+ * factor when the step is finer than the default, since a fine step's cost is
+ * per flight. A coarser step keeps the measured pace: the factor was fitted on
+ * finer steps only, and an estimate should not shrink on a guess.
+ */
+export function batchSweepSeconds(
+  { flights, optimalDelay, timeStepS }: { flights: number; optimalDelay: boolean; timeStepS?: number | null },
+): number {
+  const perFlight = optimalDelay ? BATCH_FLIGHT_S.optimalDelay : BATCH_FLIGHT_S.fixedDelay;
+  const step = timeStepS != null && timeStepS < DEFAULT_TIME_STEP_S ? timeStepCostFactor(timeStepS) : 1;
+  return flights * perFlight * step;
+}
+
+/**
+ * A duration as an estimate can honestly claim it: minutes under the hour,
+ * quarter hours under ten, whole hours under two days, then days.
+ */
+export function batchDurationText(seconds: number): string {
+  if (seconds < 60) return 'under a minute';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `about ${minutes} min`;
+  if (seconds < 10 * 3600) {
+    const quarters = Math.round(seconds / 900);
+    const h = Math.floor(quarters / 4);
+    const m = (quarters % 4) * 15;
+    return m > 0 ? `about ${h} h ${m} min` : `about ${h} h`;
+  }
+  if (seconds < 48 * 3600) return `about ${Math.round(seconds / 3600)} h`;
+  return `about ${Math.round(seconds / 86400)} days`;
+}
+
+/** What the button says after the count: how long the sweep takes, or null for one too short to need it. */
+export function batchEstimate(
+  pace: { flights: number; optimalDelay: boolean; timeStepS?: number | null },
+): string | null {
+  return pace.flights > BATCH_ESTIMATE_ABOVE_FLIGHTS ? batchDurationText(batchSweepSeconds(pace)) : null;
+}
+
+/**
+ * Why a sweep past BATCH_MAX_FLIGHTS will not start, and every way to bring it
+ * under: the ticked combination modes, by the words on their boxes; the number
+ * of candidates that fits with them still ticked; and the out-of-production
+ * motors when they are in. Null when the sweep fits.
+ */
+export function batchRefusal({ flights, groups, modes, includeOOP, optimalDelay, timeStepS }: {
+  flights: number;
+  /** Each ticked split's group count, as batchFlightCount takes them. */
+  groups: readonly number[];
+  /** The ticked combination modes, by the words on their boxes. */
+  modes: readonly string[];
+  includeOOP: boolean;
+  optimalDelay: boolean;
+  timeStepS?: number | null;
+}): string | null {
+  if (flights <= BATCH_MAX_FLIGHTS) return null;
+  const atCap = batchDurationText(batchSweepSeconds({ flights: BATCH_MAX_FLIGHTS, optimalDelay, timeStepS }));
+  const narrow = `bring the candidates down to ${group(batchMaxCandidates(groups))} or fewer with the maker and `
+    + `diameter chips${includeOOP ? ', or by unticking include OOP' : ''}`;
+  const how = modes.length > 0
+    ? `Untick ${modes.join(' or ')}, or ${narrow}`
+    : narrow[0]!.toUpperCase() + narrow.slice(1);
+  return `${group(flights)} flights is more than one batch will fly: the most is ${group(BATCH_MAX_FLIGHTS)}, `
+    + `${atCap} at the measured pace. ${how}.`;
+}
 
 /**
  * The primary button's label.
@@ -227,23 +363,25 @@ export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
  * combination mode ticked those two differ by up to four orders of magnitude,
  * so the button contradicted the meta line beside it, and the button is what
  * gets clicked. It counts FLIGHTS, and says so, as soon as the two differ: a
- * mixed-cluster combination is not a motor.
+ * mixed-cluster combination is not a motor. Past BATCH_ESTIMATE_ABOVE_FLIGHTS
+ * it says how long they will take as well (batchEstimate).
  */
 export function batchButtonLabel(
-  { candidates, totalFlights, confirming }:
-  { candidates: number; totalFlights: number; confirming: boolean },
+  { candidates, totalFlights, confirming, estimate = null }:
+  { candidates: number; totalFlights: number; confirming: boolean; estimate?: string | null },
 ): string {
-  if (confirming) return `Yes — fly ${group(totalFlights)} flights`;
+  const time = estimate ? ` · ${estimate}` : '';
+  if (confirming) return `Yes — fly ${group(totalFlights)} flights${time}`;
   if (totalFlights === candidates) {
-    return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}`;
+    return `Simulate ${group(candidates)} ${candidates === 1 ? 'motor' : 'motors'}${time}`;
   }
-  return `Simulate ${group(totalFlights)} flights`;
+  return `Simulate ${group(totalFlights)} flights${time}`;
 }
 
 /** The second-ask copy for a sweep past {@link BATCH_CONFIRM_ABOVE_FLIGHTS}. */
-export function batchConfirmWarning(totalFlights: number): string {
-  return `${group(totalFlights)} flights is a very long run. The page cannot respond `
-    + 'while a flight runs, and Stop only takes effect between them. Press the button '
+export function batchConfirmWarning(totalFlights: number, estimate: string | null): string {
+  return `${group(totalFlights)} flights is a very long run${estimate ? ` — ${estimate}` : ''}. The page `
+    + 'cannot respond while a flight runs, and Stop only takes effect between them. Press the button '
     + 'again to start, or untick a combination mode to shrink it.';
 }
 
@@ -362,6 +500,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const includedMotor = useMemo(() => includedMotorOf(tree, sel.id), [tree, sel.id]);
   const clusterSplit = useMemo(() => splitClusterTree(tree, sel.id), [tree, sel.id]);
   const pairSplit = useMemo(() => splitClusterPairsTree(tree, sel.id), [tree, sel.id]);
+  /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
+  const halvesName = clusterSplit ? `mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize}` : '';
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [running, setRunning] = useState(false);
   /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
@@ -601,14 +741,25 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   // The time-step caution multiplies by this: a fine step's cost is per
   // flight, and the launch panel's per-flight caution says nothing about a
   // candidate list turning 15 s of freeze into 20 minutes of it.
-  const totalFlights = candidates.length
-    + (comboMode && clusterSplit ? mixedComboCount(candidates.length, clusterSplit.mountIds.length) : 0)
-    + (pairMode && pairSplit ? mixedComboCount(candidates.length, pairSplit.mountIds.length) : 0);
+  const ticked = [
+    ...(comboMode && clusterSplit ? [{ name: halvesName, groups: clusterSplit.mountIds.length }] : []),
+    ...(pairMode && pairSplit ? [{ name: PAIRS_NAME, groups: pairSplit.mountIds.length }] : []),
+  ];
+  const totalFlights = batchFlightCount(candidates.length, ticked.map((t) => t.groups));
+  // How long that takes, and whether it is more than one sweep will fly. Past
+  // BATCH_MAX_FLIGHTS the button is disabled and says why — refused, never
+  // trimmed to fit.
+  const pace = { flights: totalFlights, optimalDelay: criteria.autoDelay, timeStepS: launch.timeStepS };
+  const estimate = batchEstimate(pace);
+  const refusal = batchRefusal({
+    ...pace, groups: ticked.map((t) => t.groups), modes: ticked.map((t) => t.name), includeOOP: criteria.includeOOP,
+  });
 
   // Disarm the second-ask whenever the sweep's size changes: unticking a
   // combination mode or narrowing the filters must not leave a confirmation
-  // armed for a count that no longer exists.
+  // armed for a count that no longer exists. A refused sweep is never armed.
   useEffect(() => { setConfirming(false); }, [totalFlights]);
+  const armed = confirming && refusal === null;
 
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
@@ -720,7 +871,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 title={`Also fly every PAIR of candidates split symmetrically across the ${clusterSplit.groupSize * 2}-motor cluster (${clusterSplit.groupSize}+${clusterSplit.groupSize}). Off = one motor type in every tube (the default). Pairs grow fast — n candidates add n·(n−1)/2 extra flights.`}>
                 <input type="checkbox" checked={comboMode} style={{ width: 'auto' }}
                   onChange={(e) => setComboMode(e.target.checked)} />
-                mixed {clusterSplit.groupSize}+{clusterSplit.groupSize}
+                {halvesName}
               </label>
             )}
             {pairSplit && (
@@ -728,7 +879,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 title="Also fly the 6-motor cluster as THREE opposite-tube pairs with up to three motor types — 4+2 and 2+2+2 configurations (every pair is thrust-balanced, so all of them are symmetric). Adds every candidate multiset of size 3 — this grows FAST: n candidates add n(n+1)(n+2)/6 − n flights.">
                 <input type="checkbox" checked={pairMode} style={{ width: 'auto' }}
                   onChange={(e) => setPairMode(e.target.checked)} />
-                mixed 4+2 / 2+2+2
+                {PAIRS_NAME}
               </label>
             )}
             <label className="motor-inline-label">
@@ -748,9 +899,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
         )}
 
-        {confirming && !running && (
+        {armed && !running && (
           <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>
-            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights)}
+            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights, estimate)}
+          </p>
+        )}
+        {/* On screen, not in a tooltip on the disabled button: a disabled
+            button shows nothing when it is clicked (the 2026-09-01b report). */}
+        {refusal && !running && (
+          <p className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
+            <Icon name="zap" size={13} /> {refusal}
           </p>
         )}
 
@@ -758,9 +916,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           <span style={{ flex: 1 }} className="motor-db-meta">
             {candidates.length} candidate motors
             {comboMode && clusterSplit
-              && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize} combinations`}
+              && ` · +${mixedComboCount(candidates.length, clusterSplit.mountIds.length)} ${halvesName} combinations`}
             {pairMode && pairSplit
-              && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} mixed 4+2 / 2+2+2 combinations`}
+              && ` · +${mixedComboCount(candidates.length, pairSplit.mountIds.length)} ${PAIRS_NAME} combinations`}
             {tooLongCount > 0 && ` · ${tooLongCount} excluded — over this mount’s max motor length`}
             {criteria.autoDelay ? ' · 2 sims each (delay probe + final)' : ''}
             {progress && ` — simulating ${progress.done + 1}/${progress.total}: ${progress.current}`}
@@ -780,6 +938,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
           ) : (
             <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
               onClick={() => {
+                // Past the cap there is nothing to start or to confirm.
+                if (refusal) return;
                 // A sweep this big is not something anyone clicks on purpose
                 // by accident — the second ask names the flight count.
                 if (!confirming && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS) {
@@ -789,9 +949,9 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 setConfirming(false);
                 void start();
               }}
-              disabled={candidates.length === 0}>
+              disabled={candidates.length === 0 || refusal !== null}>
               <Icon name="rocket" /> {batchButtonLabel({
-                candidates: candidates.length, totalFlights, confirming,
+                candidates: candidates.length, totalFlights, confirming: armed, estimate,
               })}
             </button>
           )}
