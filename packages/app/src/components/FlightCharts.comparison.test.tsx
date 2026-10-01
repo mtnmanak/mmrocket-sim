@@ -202,6 +202,22 @@ it('time comparisons preserve the current group window across theme and expansio
   for (const p of timePlots()) expect(p.scales['x']).toEqual(before);
 });
 
+it('pans every synced time chart with a shift-drag on the comparison chart (audit 2026-09-30)', () => {
+  // The pointer path through the mounted charts; chartPanZoom.pan.test.ts
+  // drives the plugin's gestures one by one.
+  render(result()); select('Comparison chart', 'altitude-velocity'); wheel(overlay());
+  const before = { ...timePlots()[0]!.scales['x']! };
+  const drag = (type: string, x: number) => act(() => {
+    overlay().over.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', button: 0,
+      buttons: type === 'pointerup' ? 0 : 1, shiftKey: true, clientX: x,
+    }));
+  });
+  drag('pointerdown', 2); drag('pointermove', 2.5); drag('pointerup', 2.5);
+  expect(new Set(timePlots().map((p) => JSON.stringify(p.scales['x']))).size).toBe(1);
+  expect(timePlots()[0]!.scales['x']).not.toEqual(before);
+});
+
 it('synchronizes only x across time charts with incompatible vertical dimensions', () => {
   render(result()); select('Comparison chart', 'altitude-velocity');
   for (const p of timePlots()) expect(p.opts.cursor?.sync?.scales).toEqual(['x', null]);

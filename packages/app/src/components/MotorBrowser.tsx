@@ -1,8 +1,8 @@
 import {
-  useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode,
+  useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
-import { clickable } from './clickable.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
+import { useRovingRows } from './useRovingRows.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
 import {
   changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay, discardCatalogueOverlay,
@@ -523,34 +523,11 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
    * else the first — the arrows (and Home/End) move focus between rows, and
    * Enter/Space picks, as before. From there one Tab reaches Delay, another
    * Load. The arrows move focus without picking: a pick resets the Delay, and
-   * passing over a row should not.
+   * passing over a row should not. Shared with PresetPicker since the
+   * 2026-09-30 audit found the same 300-stop table there (useRovingRows).
    */
   const shownRows = rows.slice(0, ROW_CAP);
-  const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const tabStop = [cursor, picked?.motorId].find((id) => id != null && shownRows.some((m) => m.motorId === id))
-    ?? shownRows[0]?.motorId;
-  const rove = (m: MotorDbEntry, i: number, activate: () => void) => {
-    // clickable()'s Enter/Space is COMPOSED here, not spread beside another
-    // onKeyDown — the second of two spreads silently wins (ComponentTree's note).
-    const base = clickable(activate);
-    return {
-      ...base,
-      tabIndex: m.motorId === tabStop ? 0 : -1,
-      onFocus: () => setCursor(m.motorId),
-      onKeyDown: (e: ReactKeyboardEvent) => {
-        if (e.target !== e.currentTarget) return;
-        let next: number | null = null;
-        if (e.key === 'ArrowDown') next = Math.min(i + 1, shownRows.length - 1);
-        else if (e.key === 'ArrowUp') next = Math.max(i - 1, 0);
-        else if (e.key === 'Home') next = 0;
-        else if (e.key === 'End') next = shownRows.length - 1;
-        if (next === null) { base.onKeyDown(e); return; }
-        e.preventDefault();
-        tbodyRef.current?.querySelectorAll<HTMLElement>(':scope > tr')[next]?.focus();
-      },
-    };
-  };
+  const { bodyRef: tbodyRef, rove } = useRovingRows(shownRows.map((m) => m.motorId), picked?.motorId);
 
   const dialogRef = useDialog(onClose);
   // Closes only on a press and a release on the backdrop itself, so text
@@ -852,7 +829,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                     key={m.motorId}
                     className={`motor-row ${picked?.motorId === m.motorId ? 'motor-row-picked' : ''} ${flagged ? 'motor-row-long' : ''} ${noMass ? 'motor-row-nomass' : ''}`}
                     aria-disabled={noMass || undefined}
-                    {...rove(m, i, () => { if (!noMass) setPicked(m); })}
+                    {...rove(i, () => { if (!noMass) setPicked(m); })}
                     title={noMass
                       ? 'thrustcurve.org publishes no usable weight for this motor, so it cannot be simulated. Import its .rse/.eng file to fly it.'
                       : flagged

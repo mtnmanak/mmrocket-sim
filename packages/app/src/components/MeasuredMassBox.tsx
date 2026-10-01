@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -65,6 +66,9 @@ export function MeasuredMassBox({
   const mass = (kg: number) => `${fmtSi('mass', massSym, kg)} ${massSym}`;
   const len = (m: number) => `${fmtSi('length', lenSym, m, 3)} ${lenSym}`;
   const signed = (v: number, f: (n: number) => string) => `${v >= 0 ? '+' : '−'}${f(Math.abs(v))}`;
+  const shown = solution && verdict({
+    solution, hasAllowance, onApply, mass, len, blockedBy: blockedBy ?? null, onPinStage,
+  });
 
   return (
     <div className="panel measured-box">
@@ -143,20 +147,31 @@ export function MeasuredMassBox({
         </div>
       </dl>
 
-      {solution && <Verdict
-        solution={solution}
-        hasAllowance={hasAllowance}
-        onApply={onApply}
-        mass={mass}
-        len={len}
-        blockedBy={blockedBy ?? null}
-        onPinStage={onPinStage}
-      />}
+      {/*
+        The verdict is the entire OUTPUT of this box — including "no ballast
+        anywhere can reconcile these" — and it changes as the user types, so it
+        is announced (2026-09-08 audit): without a live region a screen-reader
+        user had to navigate away and come back to find it had changed. ONE
+        region, always mounted (audit 2026-09-30): each verdict used to carry
+        its own role="status", rendered only once both boxes were filled, so the
+        first verdict — and the first after a box was cleared to retype it —
+        arrived as a new region with its text already in it, which a screen
+        reader announces unreliably. The buttons stay outside it, so an
+        announcement is the verdict alone and not "… Add Build allowance,
+        button".
+      */}
+      <div role="status">{shown?.text}</div>
+      {shown?.action}
     </div>
   );
 }
 
-function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinStage }: {
+/**
+ * The verdict on the two measured figures: the sentence the box's live region
+ * announces, and the button that acts on it, which must stay out of that
+ * region (see the call site).
+ */
+function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinStage }: {
   solution: BallastSolution;
   hasAllowance: boolean;
   onApply: (s: Extract<BallastSolution, { kind: 'ok' }>) => void;
@@ -164,21 +179,16 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
   len: (m: number) => string;
   blockedBy: { name?: string } | null;
   onPinStage?: () => void;
-}) {
-  /*
-   * Every branch below carries role="status" (2026-09-08 audit): the verdict is
-   * the entire OUTPUT of this box — including "no ballast anywhere can
-   * reconcile these" — and it changes as the user types. Sighted users watch it
-   * appear; without a live region a screen-reader user had to navigate away and
-   * come back to discover it had changed.
-   */
+}): { text: ReactNode; action?: ReactNode } {
   switch (solution.kind) {
     case 'matches':
-      return (
-        <p role="status" className="measured-verdict measured-ok">
-          Your build matches the model. Nothing to add.
-        </p>
-      );
+      return {
+        text: (
+          <p className="measured-verdict measured-ok">
+            Your build matches the model. Nothing to add.
+          </p>
+        ),
+      };
 
     case 'ok': {
       // Ballast under a mass-overridden stage weighs nothing — say so instead
@@ -186,9 +196,9 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
       // Overrides rows in the property panel, so the two read as one rule.
       if (blockedBy) {
         const who = blockedBy.name || 'A stage above it';
-        return (
-          <>
-            <p role="status" className="measured-verdict measured-bad">
+        return {
+          text: (
+            <p className="measured-verdict measured-bad">
               <strong>{who}</strong> stands in for the mass of everything inside it, so a
               Build allowance added here would weigh nothing.{' '}
               {onPinStage
@@ -202,58 +212,66 @@ function Verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
                   is no telling which should carry the difference — clear the mass overrides
                   under <strong>Overrides</strong> and weigh again.</>}
             </p>
-            {onPinStage && (
-              <button className="file-btn measured-apply" onClick={onPinStage}>
-                Pin “{who}” to my measured mass &amp; CG
-              </button>
-            )}
-          </>
-        );
+          ),
+          action: onPinStage && (
+            <button className="file-btn measured-apply" onClick={onPinStage}>
+              Pin “{who}” to my measured mass &amp; CG
+            </button>
+          ),
+        };
       }
-      return (
-        <>
-          <p role="status" className="measured-verdict measured-ok">
+      return {
+        text: (
+          <p className="measured-verdict measured-ok">
             {`Add ${mass(solution.massKg)} at ${len(solution.stationM)} from the nose tip.`}
           </p>
+        ),
+        action: (
           <button className="file-btn measured-apply" onClick={() => onApply(solution)}>
             {hasAllowance ? 'Update “Build allowance”' : 'Add “Build allowance”'}
           </button>
-        </>
-      );
+        ),
+      };
     }
 
     // The three cases below are the useful half of the feature: no ballast
     // anywhere on the rocket can reconcile these two numbers, which is a real
     // finding about the design, not an error to swallow.
     case 'cg-only':
-      return (
-        <p role="status" className="measured-verdict measured-bad">
-          {`Your rocket weighs what the model says but balances ${len(Math.abs(solution.cgErrorM))} `}
-          {solution.cgErrorM > 0 ? 'further back' : 'further forward'}
-          {'. Adding mass cannot move the CG without also changing the total, so the '}
-          <strong>distribution</strong> of your part masses is off, not the total.
-        </p>
-      );
+      return {
+        text: (
+          <p className="measured-verdict measured-bad">
+            {`Your rocket weighs what the model says but balances ${len(Math.abs(solution.cgErrorM))} `}
+            {solution.cgErrorM > 0 ? 'further back' : 'further forward'}
+            {'. Adding mass cannot move the CG without also changing the total, so the '}
+            <strong>distribution</strong> of your part masses is off, not the total.
+          </p>
+        ),
+      };
 
     case 'overweight-model':
-      return (
-        <p role="status" className="measured-verdict measured-bad">
-          {`Your rocket came out ${mass(solution.excessKg)} LIGHTER than the model. `}
-          There is no negative ballast — something in the design is modelled heavier than
-          you built it. Check the parts you guessed at.
-        </p>
-      );
+      return {
+        text: (
+          <p className="measured-verdict measured-bad">
+            {`Your rocket came out ${mass(solution.excessKg)} LIGHTER than the model. `}
+            There is no negative ballast — something in the design is modelled heavier than
+            you built it. Check the parts you guessed at.
+          </p>
+        ),
+      };
 
     case 'unreachable':
-      return (
-        <p role="status" className="measured-verdict measured-bad">
-          {`Closing this gap would need ${mass(solution.massKg)} at `}
-          {len(solution.stationM)}
-          {solution.stationM < 0 ? ' — ahead of the nose tip' : ' — behind the tail'}
-          {', which is not on the rocket. Your measured mass and balance point cannot both be '}
-          explained by added mass anywhere, so the part masses are wrong in their
-          <strong> distribution</strong>, not just their total.
-        </p>
-      );
+      return {
+        text: (
+          <p className="measured-verdict measured-bad">
+            {`Closing this gap would need ${mass(solution.massKg)} at `}
+            {len(solution.stationM)}
+            {solution.stationM < 0 ? ' — ahead of the nose tip' : ' — behind the tail'}
+            {', which is not on the rocket. Your measured mass and balance point cannot both be '}
+            explained by added mass anywhere, so the part masses are wrong in their
+            <strong> distribution</strong>, not just their total.
+          </p>
+        ),
+      };
   }
 }
