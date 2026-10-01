@@ -115,12 +115,15 @@ describe('📍 Auto-place rail buttons', () => {
     expect(pos.offset).toBeCloseTo(-0.05, 12);
   });
 
-  it('a button with no position is placed on the top method', () => {
-    // positionX 0.1: the kernel's station for a zero-length part at the top of the tube.
-    const got = place({ ...RB }, { length: 1.1, cg: 0.55 }, 0.1);
+  it('a button with no position is placed on the middle method, where the kernel flies it', () => {
+    // positionX 0.6: the kernel's station for a button with no position — the
+    // tube's middle, RailButton's own default. Read as Top (until 2026-10-01),
+    // the tube appeared to start at 0.6 m and the button was refused.
+    const got = place({ ...RB }, { length: 1.1, cg: 0.55 }, 0.6);
+    expect(got!.disabled).toBe(false);
     const pos = got!.patch!['position'] as { method: string; offset: number };
-    expect(pos.method).toBe('top');
-    expect(pos.offset).toBeCloseTo(0.45, 12);
+    expect(pos.method).toBe('middle');
+    expect(pos.offset).toBeCloseTo(-0.05, 12);
   });
 
   it('with no kernel station it takes the tube to start at the nose tip', () => {

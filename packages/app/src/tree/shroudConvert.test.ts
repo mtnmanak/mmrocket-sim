@@ -55,6 +55,15 @@ describe('shroud → fairing conversion', () => {
     expect(f.position).toEqual({ method: 'middle', offset: 0 });
   });
 
+  it('a set with no position converts where it flew: the bottom of the tube, offset 0', () => {
+    // The kernel flies a freeform set with no position from the BOTTOM of its
+    // parent (FinSet). It converted to the MIDDLE (until 2026-10-01), moving
+    // the part, and its mass, drag and lift, by half the tube less half its length.
+    const set = freeform({ id: 'c1', name: 'Camera Shroud' });
+    delete set.position;
+    expect(shroudToFairing(set).position).toEqual({ method: 'bottom', offset: 0 });
+  });
+
   it('estimates mass from outline area × thickness × density when no override', () => {
     const f = shroudToFairing(freeform({ id: 'c1', name: 'shroud', density: 1000 }));
     // 0.08 × 0.02 rectangle = 1.6e-3 m² × 0.025 m × 1000 kg/m³ = 0.04 kg

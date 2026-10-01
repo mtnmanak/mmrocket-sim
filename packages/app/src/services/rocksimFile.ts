@@ -9,6 +9,7 @@ import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { finCountOf } from '../tree/counts.js';
 import { finSetSpan, spansOverlap } from '../tree/finAlign.js';
+import { positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
@@ -2299,7 +2300,9 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
    * and became separate centreline tubes, with no note.
    */
   const rocksimXb = (node: ComponentNode, parent: ComponentNode | null): { mode: number; xb: number } => {
-    const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+    // Where the part flies: one with no position is not at the front of its
+    // parent (a coupler or ring flies flush with the rear) — `positionOf`.
+    const pos = positionOf(node);
     const mode = pos.method === 'absolute' ? 1 : pos.method === 'bottom' ? 2 : 0;
     let xb = pos.method === 'bottom' ? -pos.offset : pos.offset;
     // RockSim has no "middle" mode — convert to front-referenced, mirroring

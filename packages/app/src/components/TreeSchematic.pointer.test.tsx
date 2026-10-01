@@ -179,6 +179,34 @@ describe('a click is not a drag: the threshold gates the PATCH', () => {
 });
 
 /**
+ * A part with NO position is drawn, and dragged, from where it flies
+ * (2026-10-01). The kernel flies a fin set with none from the BOTTOM of its
+ * tube; the drag read a missing position as Top of parent, offset 0, so the
+ * first drag re-anchored the set to the top of the tube, wherever it was drawn.
+ */
+describe('a part with no position drags from where it flies', () => {
+  const dragFrom300To = (part: Record<string, unknown>, x: number) => {
+    const { patches } = mount(rocket([part]));
+    const drawnAt = finX();
+    pointer(finShape(), 'pointerdown', { x: 300 });
+    pointer(svgEl(), 'pointermove', { x });
+    pointer(svgEl(), 'pointerup', { x });
+    return { drawnAt, patches };
+  };
+
+  it('is drawn, and commits, exactly as a set stated at the bottom does', () => {
+    const stated = dragFrom300To(fin({ method: 'bottom', offset: 0 }), 250);
+    const bare = dragFrom300To({
+      id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: 0.03,
+    }, 250);
+    expect(stated.patches).toHaveLength(1);
+    expect((stated.patches[0]!.patch.position as { method: string }).method).toBe('bottom');
+    expect(bare.drawnAt).toBe(stated.drawnAt);
+    expect(bare.patches).toEqual(stated.patches);
+  });
+});
+
+/**
  * A DRAG IS A LOCAL PREVIEW, COMMITTED ONCE ON RELEASE (audit 2026-09-22,
  * Performance). Every pointermove used to call onPatchNode, App mapped that to
  * setTree, and App rebuilds the kernel from the tree in render: 73 ms a move on

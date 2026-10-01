@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { fmtFieldValue, readDecimal } from '../prefs/units.js';
 
+/** An unfocused field has written no text of its own (`ownText`). */
+const NO_TEXT: ReadonlySet<string> = new Set();
+
 /**
  * Numeric input that lets the user TYPE anything mid-edit (including "-",
  * clearing the field, or pasting) without the value snapping back to 0 —
@@ -13,7 +16,8 @@ import { fmtFieldValue, readDecimal } from '../prefs/units.js';
  *   "10,000") show an error border and commit nothing — except a draft over
  *   `max` with `clampToMax`, which keeps the error border and commits `max`.
  *   A single comma is a decimal separator ("1,5" is 1.5) — see `readDecimal`
- *   in prefs/units.
+ *   in prefs/units. Text the field wrote itself is read as it was written
+ *   (see `ownText`).
  * - Blur/Enter reformats from the last committed value; an invalid draft is
  *   simply discarded (the previous value survives).
  * - Unfocused, the box always shows `value`. The draft exists only while the
@@ -108,6 +112,19 @@ export function NumField({
   const [focused, setFocused] = useState(false);
   const live = focused ? draft : null;
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * The text this field put in the box itself since it took focus — the value
+   * as it was displayed, the focus draft that spells it out, each focused
+   * step's result — read back as it was WRITTEN: with a decimal point, as the
+   * app prints every number, never as a thousands group (audit 2026-09-30). In
+   * a decimal-comma locale `readDecimal` refuses "1.625", because that is how
+   * 1625 is written there, so the field refused its own value: focusing 1.625
+   * in (any eighth of an inch) turned it red before a key was pressed, and
+   * deleting the 5 and typing it back left 1.62 stored. A number typed from
+   * scratch is read exactly as before. Emptied on blur: the next value, and
+   * its text, are the parent's.
+   */
+  const [ownText, setOwnText] = useState<ReadonlySet<string>>(NO_TEXT);
 
   const lowBound = min !== undefined ? min : (allowNegative ? undefined : 0);
   /**
@@ -120,8 +137,10 @@ export function NumField({
 
   /** `capped` false: every check but the `max` one (see clampToMax). */
   const parse = (s: string, capped = true): number | null => {
-    // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal).
-    const v = readDecimal(s);
+    // "1,5" is 1.5; "10,000" is refused rather than read as 10 (readDecimal) —
+    // unless this field wrote the text itself, which reads as written (ownText).
+    const t = s.trim();
+    const v = ownText.has(t) ? readDecimal(t, false) : readDecimal(s);
     if (v === null) return null;
     if (lowBound !== undefined && v < lowBound) return null;
     if (capped && max !== undefined && v > max) return null;
@@ -210,7 +229,11 @@ export function NumField({
     // Focused, the draft follows the step so the box shows it and a second
     // step works off it. Unfocused, the parent's re-render with the committed
     // value is what the box shows — see `focused` above.
-    if (focused) setDraft(String(next));
+    if (focused) {
+      const text = String(next);
+      setOwnText((prev) => new Set(prev).add(text));
+      setDraft(text);
+    }
     onCommit(next);
   };
 
@@ -227,9 +250,14 @@ export function NumField({
         aria-label={ariaLabel}
         aria-invalid={draftInvalid || invalid || undefined}
         aria-describedby={describedBy}
-        onFocus={() => { setFocused(true); setDraft(fmtEdit(value)); }}
+        onFocus={() => {
+          const seed = fmtEdit(value);
+          setFocused(true);
+          setOwnText(new Set([fmtDisplay(value), seed]));
+          setDraft(seed);
+        }}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => { setFocused(false); setDraft(null); }}
+        onBlur={() => { setFocused(false); setDraft(null); setOwnText(NO_TEXT); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowUp') { e.preventDefault(); stepBy(1); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); stepBy(-1); }

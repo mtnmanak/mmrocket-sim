@@ -2,6 +2,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineIntersection } from './finOutline.js';
 import { num } from './nodeNum.js';
 import { signedArea } from './polygon.js';
+import { positionOf } from './position.js';
 
 /**
  * Hand-rolled camera shrouds (issue 2026-08-05e): RockSim has no shroud
@@ -124,7 +125,9 @@ export function shroudToFairing(n: ComponentNode): ComponentNode {
     // warnings started or stopped firing on a part nobody had moved, and the
     // next save persisted the 0.
     angleOffset: num(n, 'rotation', 0),
-    position: n.position ?? { method: 'middle', offset: 0 },
+    // Where the fin set flew. One with no position flies from the BOTTOM of
+    // its tube, and this read 'middle' (until 2026-10-01), moving the part.
+    position: positionOf(n),
   } as ComponentNode;
   if (typeof n['finish'] === 'string') out['finish'] = n['finish'];
   if (typeof n['color'] === 'string') out['color'] = n['color'];

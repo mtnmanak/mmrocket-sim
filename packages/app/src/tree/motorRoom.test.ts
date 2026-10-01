@@ -329,6 +329,10 @@ describe('estimateMotorRoom', () => {
   });
 
   it('takes the tightest mount when a stage has several', () => {
+    // Both mounts at the TOP of the tube, stated: an inner tube with no
+    // position flies flush with the bottom (position.ts positionOf), where
+    // either motor could reach the front of the airframe.
+    const top = { method: 'top', offset: 0 };
     const tree = {
       name: 'R',
       components: [{
@@ -336,8 +340,8 @@ describe('estimateMotorRoom', () => {
         children: [{
           id: 'b1', type: 'bodytube', length: 0.6, outerRadius: 0.05,
           children: [
-            { id: 'm1', type: 'innertube', length: 0.30, outerRadius: 0.0145 },
-            { id: 'm2', type: 'innertube', length: 0.18, outerRadius: 0.0145 },
+            { id: 'm1', type: 'innertube', length: 0.30, outerRadius: 0.0145, position: top },
+            { id: 'm2', type: 'innertube', length: 0.18, outerRadius: 0.0145, position: top },
           ],
         }],
       }],

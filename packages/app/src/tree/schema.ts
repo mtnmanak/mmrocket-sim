@@ -1063,9 +1063,13 @@ export function defaultParams(type: EditorComponentType): Partial<ComponentNode>
     };
     case 'tubefinset': return { finCount: 6, length: 0.1, thickness: 0.0005, position: { method: 'bottom', offset: 0 } };
     case 'innertube': return { length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } };
-    case 'tubecoupler': return { length: 0.05, thickness: 0.0005 };
+    // A coupler and a bulkhead start flush with the bottom of their parent, where
+    // the kernel flies one with no position (InternalComponent's BOTTOM) and
+    // desktop OpenRocket adds one. They were born with no position, which every
+    // reader took for Top of parent until 2026-10-01 (position.ts positionOf).
+    case 'tubecoupler': return { length: 0.05, thickness: 0.0005, position: { method: 'bottom', offset: 0 } };
     case 'centeringring': return { length: 0.002, position: { method: 'bottom', offset: -0.01 } };
-    case 'bulkhead': return { length: 0.003 };
+    case 'bulkhead': return { length: 0.003, position: { method: 'bottom', offset: 0 } };
     case 'engineblock': return { length: 0.005, thickness: 0.001, position: { method: 'top', offset: 0 } };
     // angleOffset PI = the bottom of the side view, which is the kernel's own
     // default (LaunchLug.java and RailButton.java both initialise

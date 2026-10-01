@@ -13,7 +13,7 @@ import {
   mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
-import { anchorStarts, axialLength, offsetForStart, snapStart, startFromPosition } from '../tree/position.js';
+import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
@@ -43,7 +43,7 @@ import { fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { KIND_FOR_TYPE } from '../services/presets.js';
-import { limitPatch } from '../tree/sanitize.js';
+import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
@@ -387,7 +387,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
   const fields = FIELDS[node.type] ?? [];
   const parent = findParent(tree, node.id!);
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
-  const pos = (node.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  // Where the kernel flies it: a part with no position is NOT at Top, 0.
+  const pos = positionOf(node);
   const parentLenSi = parent && parent !== 'stage' ? num(parent, 'length', 0.2) : 0.2;
 
   /**
@@ -1374,9 +1375,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
               nullable
               placeholder={info ? fmtSi('length', lengthSym, info.cgX, 3) : undefined}
               autoValue={info ? lenToUi(info.cgX) : undefined}
+              // Through the limits table, as a schema field's commit is: typed
+              // 5000 m it stored and flew 5000 m until a reload's sanitize pass
+              // cut it to 1 km (audit 2026-09-30).
               onCommit={(v) => onPatch(v === null
                 ? { overrideCGX: undefined, overrideSubcomponentsCG: undefined, ...statedLaunchMark }
-                : { overrideCGX: lenFromUi(v), ...statedLaunchMark })}
+                : { ...limitPatch(node, { overrideCGX: lenFromUi(v) }), ...statedLaunchMark })}
             />
             <SubcomponentsToggle
               tree={tree}
@@ -1473,8 +1477,24 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 id={idFor('positionMethod')}
                 aria-label="Position relative to"
                 value={pos.method}
-                onChange={(e) =>
-                  onPatch({ position: { ...pos, method: e.target.value as ComponentPosition['method'] } })}
+                onChange={(e) => {
+                  // A new way of MEASURING the same station: the offset is
+                  // recomputed so the part stays put, as desktop's
+                  // setAxialMethod does (RocketComponent.java:1384-1387). It
+                  // used to keep the offset, so a fin set at Top +0.25 m on a
+                  // 0.30 m tube became Bottom +0.25 m, its trailing edge 0.25 m
+                  // past the tube's end (audit 2026-09-30). Both lengths are the
+                  // kernel's — axialLength is what 'middle' and 'bottom' measure
+                  // against when it builds, which `parentLenSi` is not for a
+                  // tube saved with no length. ('absolute' never gets here:
+                  // normalizeTree rewrites it at every load boundary.)
+                  const next = e.target.value as ComponentPosition['method'];
+                  if (next === pos.method || !parent) return;
+                  const cLen = axialLength(node);
+                  const pLen = axialLength(parent);
+                  const start = startFromPosition(pos, cLen, pLen);
+                  onPatch({ position: { method: next, offset: offsetForStart(next, start, cLen, pLen) } });
+                }}
               >
                 <option value="top">Top of parent</option>
                 <option value="middle">Middle of parent</option>
@@ -1490,7 +1510,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 step={niceStep(siToUi('length', lengthSym, 0.001))}
                 allowNegative
                 onCommit={(v) => {
-                  if (v !== null) onPatch({ position: { ...pos, offset: lenFromUi(v) } });
+                  // The load boundary's ±1 km, as the CG override above.
+                  if (v !== null) onPatch({ position: { ...pos, offset: applyFieldLimit(POSITION_LIMIT, lenFromUi(v)) } });
                 }}
               />
               <ValueSlider

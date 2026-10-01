@@ -23,7 +23,7 @@
 // bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { axialLength, resolveAbsolutePositions } from './position.js';
+import { axialLength, positionOf, resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
 import { shroudEnds, surfaceBumpFrontalArea } from './shroud.js';
 import { clusterCount } from './cluster.js';
@@ -1398,9 +1398,10 @@ export function engineTree(tree: RocketTree): RocketTree {
       // overstating the margin); with no position at all it flew at the tube's
       // middle (RailButton's MIDDLE default) where the app draws it from the
       // top. Only 'middle' was right, because it already names the centre. The
-      // length is `axialLength`'s, the one the views draw the bump with.
+      // length is `axialLength`'s, the one the views draw the bump with, and
+      // the position `positionOf`'s, the one they place it by.
       const half = axialLength(n) / 2;
-      const pos = n.position ?? { method: 'top', offset: 0 };
+      const pos = positionOf(n);
       const centre = pos.method === 'middle' ? pos
         : { method: pos.method, offset: pos.offset + (pos.method === 'bottom' ? -half : half) };
       return {

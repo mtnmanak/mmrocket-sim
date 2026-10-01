@@ -3306,3 +3306,32 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     expect(cluster['overrideMass']).toBeCloseTo(6 * 0.892, 12);
   });
 });
+
+/**
+ * A part with NO position is written where it flies (2026-10-01). The kernel
+ * flies a coupler with none from the BOTTOM of its tube (InternalComponent);
+ * the exporter read a missing position as Top of parent and wrote it to the
+ * front of the tube, where RockSim, and this app on reopening, then flew it.
+ */
+describe('RockSim export — a part with no position', () => {
+  it('writes a coupler with no position from the aft end of its tube', () => {
+    const tree = {
+      name: 'NP',
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer', children: [
+          { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.0125, thickness: 0.002, shape: 'ogive' },
+          { type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005, children: [
+            { type: 'tubecoupler', id: 'cp', length: 0.05, thickness: 0.0005 },
+          ] },
+        ],
+      }],
+    } as unknown as Parameters<typeof exportRkt>[0]['tree'];
+    const xml = exportRkt({ name: 'NP', tree });
+    const ring = xml.split('<Ring>')[1]!.split('</Ring>')[0]!;
+    // LocationMode 2 measures from the parent's aft end.
+    expect(ring).toContain('<LocationMode>2</LocationMode>');
+    const back = flatten(importRkt(xml).tree.components).find((c) => c.type === 'tubecoupler')!;
+    expect(back.position!.method).toBe('bottom');
+    expect(back.position!.offset).toBeCloseTo(0, 12);
+  });
+});

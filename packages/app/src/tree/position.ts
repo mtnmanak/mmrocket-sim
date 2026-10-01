@@ -113,6 +113,48 @@ export function drawnExtent(n: ComponentNode): number {
   return axialLength(n);
 }
 
+/**
+ * Where a part sits in its parent: its own `position`, or — when it carries
+ * none — offset 0 from the end its KERNEL class anchors a new part to. The
+ * bridge positions a part only when the node carries a position
+ * (`ComponentFactory.java:598`, `:976` for an assembly), so a node without one
+ * flies at its class's constructor default (`METHOD_DEFAULTS` below).
+ *
+ * Every reader read a missing position as Top of parent, offset 0, until
+ * 2026-10-01. A Tube coupler or Bulkhead added from the Add menu carried none
+ * (`defaultParams` gave them no position), so it was drawn, listed in the
+ * panel ("Top of parent", 0), dragged and exported at the TOP of its tube
+ * while it flew at the bottom — measured behind a 0.15 m nose on a 0.7 m
+ * tube: drawn at 0.150 m, flown at 0.800 m (coupler) and 0.847 m (bulkhead).
+ * Every reader takes this one answer; `position.test.ts` pins the table
+ * against the kernel's own station, type by type.
+ */
+export function positionOf(n: ComponentNode): ComponentPosition {
+  return (n.position ?? { method: METHOD_DEFAULTS[n.type as string] ?? 'top', offset: 0 }) as ComponentPosition;
+}
+
+/**
+ * The axial method each kernel class is constructed with (24.12): FinSet.java:147
+ * and TubeFinSet.java:56 BOTTOM; InternalComponent.java:21 BOTTOM, for the
+ * inner tube, coupler, rings, bulkhead and engine block; MassObject.java:47
+ * TOP, for the recovery devices, shock cord and mass component; LaunchLug.java:33
+ * and RailButton.java:59 MIDDLE; PodSet.java:33 and ParallelStage.java:32
+ * BOTTOM. The two app-only parts are what engineTree lowers them to: a camera
+ * shroud flies as a freeform fin set (BOTTOM), and a protuberance's carrier is
+ * placed from the bump's TOP, which is where its mass has flown since v0.138
+ * (audit 2026-09-22, row 372). A chain member's own position is never read.
+ */
+const METHOD_DEFAULTS: Record<string, ComponentPosition['method']> = Object.assign(
+  Object.create(null) as Record<string, ComponentPosition['method']>, {
+    trapezoidfinset: 'bottom', ellipticalfinset: 'bottom', freeformfinset: 'bottom', tubefinset: 'bottom',
+    innertube: 'bottom', tubecoupler: 'bottom', centeringring: 'bottom', bulkhead: 'bottom', engineblock: 'bottom',
+    parachute: 'top', streamer: 'top', shockcord: 'top', masscomponent: 'top',
+    launchlug: 'middle', railbutton: 'middle',
+    podset: 'bottom', parallelstage: 'bottom',
+    fairing: 'bottom', protuberance: 'top',
+  },
+);
+
 export function startFromPosition(pos: ComponentPosition, childLen: number, pLen: number): number {
   switch (pos.method) {
     case 'middle': return (pLen - childLen) / 2 + pos.offset;
@@ -138,7 +180,7 @@ export function startFromPosition(pos: ComponentPosition, childLen: number, pLen
  * that stays true by construction rather than by that rewrite.
  */
 export function axialStart(child: ComponentNode, childLen: number, pStart: number, pLen: number): number {
-  const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+  const pos = positionOf(child);
   return pos.method === 'absolute' ? pos.offset : pStart + startFromPosition(pos, childLen, pLen);
 }
 
@@ -208,7 +250,7 @@ export function resolveAbsolutePositions(tree: RocketTree): RocketTree {
     // 'top' measures from.
     const children = placeChildren(parent, pStart, pLen).map(({ node: child, start, len }) => {
       let next = child;
-      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const pos = positionOf(child);
       if (pos.method === 'absolute') {
         changed = true;
         next = { ...child, position: { method: 'top', offset: pos.offset - pStart } } as ComponentNode;
@@ -344,8 +386,7 @@ export function anchorStarts(parent: ComponentNode, child: ComponentNode): numbe
   for (const sib of parent.children ?? []) {
     if (sib.id === child.id) continue;
     const sLen = axialLength(sib);
-    const pos = (sib.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
-    const sStart = startFromPosition(pos, sLen, pLen);
+    const sStart = startFromPosition(positionOf(sib), sLen, pLen);
     anchors.add(sStart);               // align leading edges
     anchors.add(sStart + sLen - cLen); // align trailing edges
     anchors.add(sStart - cLen);        // butt in front of the sibling

@@ -1,6 +1,6 @@
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num, numOpt } from './nodeNum.js';
-import { axialLength, startFromPosition } from './position.js';
+import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
 
@@ -88,7 +88,7 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       if (foreR === undefined || aftR === undefined) return undefined;
       const wall = Math.max(num(host, 'thickness', 0.002), 0);
       const len = axialLength(child);
-      const pos = (child.position ?? { method: 'top', offset: 0 }) as ComponentPosition;
+      const pos = positionOf(child);
       const x0 = Math.min(Math.max(startFromPosition(pos, len, L), 0), L);
       const x1 = Math.min(Math.max(startFromPosition(pos, len, L) + len, 0), L);
       const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';
