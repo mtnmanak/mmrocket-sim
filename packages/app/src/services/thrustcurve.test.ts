@@ -463,6 +463,34 @@ J1026 38 625.5 P 0.616 1.172 Loki
       .toThrow(/publishes no loaded/);
   });
 
+  /**
+   * Audit 2026-09-30 (and the 1 October curve research, §8 item 2): the note
+   * integrated the RAW file, not the curve flown — which is repaired and, when
+   * the file's first sample is after t = 0, starts with a (0, 0) point the
+   * kernel needs. 387 picked files gain that point. Two real motors show it.
+   */
+  it('AeroTech E16W: no impulse note — the curve flown IS the certified 37.67 N·s', async () => {
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { fetchMotorSpec, isImpulseNote } = await import('./thrustcurve.js');
+    const e16w = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'AeroTech' && x.designation === 'E16W')!;
+    const spec = await fetchMotorSpec(e16w, 4);
+    expect(fileImpulseNs({ samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })) }))
+      .toBeCloseTo(37.67, 1);
+    // The raw file starts at 0.132 s and 32.22 N, so it integrates 2.1 N·s short:
+    // "−5.6 % … expect apogee to read low" for a motor that flies exactly right.
+    expect(spec.curveRepairs?.filter(isImpulseNote) ?? []).toEqual([]);
+  });
+
+  it('AeroTech J570W: says it flies 6.2 % over its certification, which the raw file hid', async () => {
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { fetchMotorSpec, isImpulseNote } = await import('./thrustcurve.js');
+    const j570w = MOTOR_DB.find((x) => x.manufacturerAbbrev === 'AeroTech' && x.designation === 'J570W')!;
+    const notes = (await fetchMotorSpec(j570w, 10)).curveRepairs?.filter(isImpulseNote) ?? [];
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^The thrust curve flown for J570W integrates to 1034 N·s, \+6\.2 % against the 973\.1 N·s/);
+    expect(notes[0]).toMatch(/read high/);
+  });
+
   it('Estes 1/2A6 — no catalogue weight, good bundled file — now loads from the shipped data', async () => {
     const { MOTOR_DB, hasMassData } = await import('./motorDb.js');
     const { fetchMotorSpec } = await import('./thrustcurve.js');

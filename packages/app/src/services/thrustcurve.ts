@@ -375,7 +375,9 @@ const IMPULSE_AGREEMENT = 0.03;
  * about the only file there is — 122 of the 140 off-by-≥3 % motors have no
  * closer sibling — and a note on every 3–5 % digitisation would be noise
  * against a certified figure that is itself a rounded average. 69 motors
- * trip it today (2026-09-07 census), the RATT K600TR-P at −73 % the worst.
+ * tripped it in the 2026-09-07 census; measured on the curve flown (see
+ * impulseNote), 66 of the 2026-09-30 bundle's do, the RATT K600TR-P at
+ * −71.7 % the worst.
  */
 const IMPULSE_FLAG = 0.05;
 
@@ -403,6 +405,13 @@ export function isImpulseNote(entry: string): boolean {
  * within IMPULSE_FLAG or the catalogue publishes no total to compare with.
  * Exported for the tests; the wording names both numbers because a reader
  * has to be able to decide which one to believe.
+ *
+ * `samples` is the curve FLOWN — the MotorSpec's, repaired and starting at
+ * t = 0 — never a raw file. fetchMotorSpec passed the raw file until the
+ * 2026-09-30 audit, and a file whose first sample comes after t = 0 flies a
+ * ramp up from (0, 0) the raw integral leaves out: the AeroTech E16W said
+ * "−5.6 % … expect apogee to read low" while flying exactly its certified
+ * 37.67 N·s, and the J570W, flying +6.2 %, said nothing.
  */
 export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>, samples: readonly TcSample[]): string | null {
   const ref = motor.totImpulseNs;
@@ -1103,9 +1112,11 @@ export async function fetchMotorSpec(
   // Say when the curve flown disagrees with the motor's certification, in the
   // list the app already shows curve repairs from (services/notices.ts, which
   // tells this sentence apart from a repair and shows it as written). Found
-  // on the owner's own WM 4" Extreme / J460T flight: the cert file integrates
-  // +5.3 % and the sim read 24 % over the altimeter while the same day's
-  // other flight closed to 1 % (docs/research/metra-flights-2026-09-06.md).
-  const note = impulseNote(motor, samples);
+  // on the owner's own WM 4" Extreme / J460T flight: the cert file flies
+  // +6.5 % (its raw samples read +5.3 %) and the sim read 24 % over the
+  // altimeter while the same day's other flight closed to 1 %
+  // (docs/research/metra-flights-2026-09-06.md). Measured on the spec, the
+  // curve that flies, not on `samples` (audit 2026-09-30; see impulseNote).
+  const note = impulseNote(motor, spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })));
   return note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
 }

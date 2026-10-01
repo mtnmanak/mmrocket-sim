@@ -232,6 +232,35 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
 });
 
 /**
+ * Audit 2026-09-30: the impulse note measured the RAW file, not the curve the
+ * motor flies. A file whose first sample is after t = 0 flies with a (0, 0)
+ * point in front (the kernel needs one), and that ramp is impulse the note
+ * left out.
+ */
+describe('the impulse note measures the curve flown', () => {
+  // Raw, these integrate to 36 N·s. Flown, the ramp from (0, 0) to the first
+  // sample adds ½ × 0.3 s × 30 N = 4.5 N·s: 40.5.
+  const LATE_START: TcSample[] = [{ time: 0.3, thrust: 30 }, { time: 1, thrust: 30 }, { time: 2, thrust: 0 }];
+  const notesFor = async (totImpulseNs: number): Promise<string[]> => {
+    const tc = await freshModule();
+    stubDownload([{ format: 'RASP', samples: LATE_START }]);
+    const spec = await tc.fetchMotorSpec({ ...QUEST_C6, totImpulseNs, burnTimeS: 2 }, 5);
+    return spec.curveRepairs?.filter(tc.isImpulseNote) ?? [];
+  };
+
+  it('says nothing for a motor whose flown curve is its certified impulse', async () => {
+    // Raw, this read "−11.1 % … expect apogee to read low".
+    expect(await notesFor(40.5)).toEqual([]);
+  });
+
+  it('quotes the flown figure, and warns where only the flown curve is off', async () => {
+    // Raw, 36 against 37.8 is −4.8 %: inside 5 %, no note. Flown, 40.5 is +7.1 %.
+    expect(await notesFor(37.8)).toEqual([expect.stringMatching(
+      /^The thrust curve flown for C6 integrates to 41 N·s, \+7\.1 % against the 37\.8 N·s it is certified for — expect apogee to read high/)]);
+  });
+});
+
+/**
  * Audit 2026-09-30: every failure on the way to a curve — no network, a
  * timeout, a bundle chunk that would not load — reached the importer as one
  * thrown Error, and its note said thrustcurve.org "publishes none". Offline, a
