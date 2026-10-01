@@ -55,6 +55,23 @@ describe('assemblyBoundingRadius', () => {
     expect(assemblyBoundingRadius(node('podset', { children: [] }))).toBe(0);
     expect(assemblyBoundingRadius(node('podset'))).toBe(0);
   });
+
+  it('reads a nose or tube with no radius at the 12 mm it flies', () => {
+    // ComponentAssembly.getBoundingRadius takes each tube's and transition's
+    // (a nose cone is one) radius as the kernel builds it, and a tube or nose
+    // with none is the bridge's 12 mm. Read as 0, a RELATIVE pod whose tube
+    // states no radius was drawn, and written to a .rkt's <RadialLoc>, 12 mm
+    // closer to the core than it flies (audit 2026-09-30, the class of G9).
+    const bare = node('podset', { children: [node('nosecone', { length: 0.06 }), node('bodytube', { length: 0.2 })] });
+    const stated = node('podset', { children: [
+      node('nosecone', { length: 0.06, aftRadius: 0.012 }), node('bodytube', { length: 0.2, outerRadius: 0.012 }),
+    ] });
+    expect(assemblyBoundingRadius(bare)).toBeCloseTo(0.012, 12);
+    expect(resolveAssemblyRadius(bare, 0.05)).toBeCloseTo(resolveAssemblyRadius(stated, 0.05), 12);
+    // An automatic transition radius has no constant: its neighbours carry it.
+    const auto = node('podset', { children: [node('bodytube', { outerRadius: 0.02 }), node('transition', {})] });
+    expect(assemblyBoundingRadius(auto)).toBeCloseTo(0.02, 12);
+  });
 });
 
 describe('resolveAssemblyRadius', () => {
