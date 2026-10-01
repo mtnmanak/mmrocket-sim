@@ -900,11 +900,14 @@ export function oneRowPerMotor(rows, assemblies) {
  * publishes. Recorded 2026-09-13, when all 41 new DMS rows were read back from
  * their own PDFs by someone other than the code that wrote them, and every
  * published exit was then attacked by a second reader. NO EXIT WAS REFUTED.
- * (41 of the 49 DMS rows carry an exit; the other eight publish none, so there
- * was nothing to check on them.)
+ * (41 of the 49 DMS rows carried an exit at that pass and the other eight
+ * published none, so there was nothing to check on those. It is 42 and seven
+ * now - counts.dmsRowsWithExit - because v0.133 read the I65W-PS exit off part
+ * 01700-1 a day later, so that one exit was never part of the pass.)
  * What that pass turned up anyway is kept below (the count is no longer written out here -
  * it was "These four" after the list had been cut to three, in the very commit that added a
- * build-time check because the list "is no longer trusted prose"), because a
+ * build-time check because the list "is no longer trusted prose"), because a finding nobody
+ * writes down is a finding that has to be made twice.
  *
  * NONE OF THEM CHANGES A ROW, and the reason is a standing rule of this file:
  * a leader-line CALLOUT on a drawing is an unlabelled number, so it is only
@@ -1759,15 +1762,17 @@ export function buildNozzleDb({
       partsResolvedPerMotor: partRows.filter((p) => p.exitSource === 'medusa').length,
       motorsWithExit: motorRows.filter((m) => m.exitDiameterM !== undefined).length,
       motorsMatchedToCatalogue: motorRows.filter((m) => m.motorId).length,
-      // THE NUMBER THE GUIDE QUOTES, DERIVED (2026-09-14, from review). The guide said "278
+      // THE NUMBER THE GUIDE QUOTED, DERIVED (2026-09-14, from review). The guide said "278
       // motors you can load" as hand-typed prose with nothing behind it, and the paragraph's
       // own components (221 AeroTech + 54 Loki) sum to 275, because three of the covered motors
       // are out of production and the sentence never said so. Neither `motorsWithExit` (287, all
       // rows) nor `motorsMatchedToCatalogue` (287, ignoring the exit) is that figure: a motor a
-      // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is now
-      // counted here, so the guide can quote a build-derived value the way the coverage block
-      // already forced everything else to - the 287 this replaced survived exactly because
-      // nothing computed it.
+      // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is
+      // counted here - and until 2026-10-01 NOTHING READ IT: the guide went on typing the
+      // figure by hand until the 18 September rewrite dropped it, while v0.133's note said it
+      // "cannot drift again". nozzleDb.test.ts now holds it to the rows through the app's own
+      // lookup, and the guide's nozzle coverage is compiled from `coverage` by
+      // scripts/build-user-guide.mjs (board Tier 1 row 17).
       motorsLoadableWithExit: motorRows.filter((m) => m.motorId && m.exitDiameterM !== undefined).length,
       // The honest coverage figure — AND IT IS PER MANUFACTURER, because it was
       // not, and that broke the moment a second manufacturer arrived.
