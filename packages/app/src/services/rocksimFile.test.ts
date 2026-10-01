@@ -1395,6 +1395,30 @@ describe('.rkt export writes a stage\'s known mass where RockSim keeps it', () =
     expect(exportRkt({ name: 'M', tree, measured: { massKg: null, cgM: null } })).not.toMatch(/<UseKnownMass>/);
   });
 
+  it('credits a stage override in the save note only when the override is what went out', async () => {
+    // Stage overrides that move nothing the kernel flies — a CG override that
+    // does not cover the parts, a 0 g mass that does — write nothing, so the
+    // box takes the slot. The note said the override had gone out.
+    const box = { massKg: 0.45, cgM: 0.5 };
+    for (const over of [{ overrideCGX: 0.6 }, { overrideMass: 0, overrideSubcomponentsMass: true }]) {
+      const label = JSON.stringify(over);
+      const components = oneStage(over);
+      const { compInfo } = await kernel(components);
+      for (const info of [compInfo, undefined]) {
+        const notes: string[] = [];
+        const xml = exportRkt({ name: 'M', tree: { components }, compInfo: info, measured: box, notes });
+        expect(field(xml, 'Stage3Mass'), label).toBeCloseTo(450, 9);
+        expect(field(xml, 'Stage3CG'), label).toBeCloseTo(500, 9);
+        expect(notes.filter((n) => /known mass/.test(n)), `${label}: the box went out, credited to the override`).toEqual([]);
+      }
+    }
+    // The override that does go out keeps the slot, and its note.
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'M', tree: { components: oneStage(PINNED) }, measured: box, notes });
+    expect(field(xml, 'Stage3Mass')).toBeCloseTo(500, 9);
+    expect(notes).toEqual([expect.stringMatching(/^“Sustainer”: its mass and CG overrides go out as RockSim's known mass/)]);
+  }, 60000);
+
   it('writes each stage of a two-stage rocket in its own slot, the booster\'s CG from its own front', async () => {
     const components = twoStage({ overrideMass: 0.4, overrideSubcomponentsMass: true },
       { overrideMass: 0.3, overrideSubcomponentsMass: true, overrideCGX: 0.25, overrideSubcomponentsCG: true });

@@ -3003,7 +3003,8 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   // no stage override holds the slot; RockSim's is a mass, so a balance point
   // alone has nowhere to go. More stages than one and the box, which is the
   // whole rocket's, has no slot either.
-  const known = stagesIn.map(stageKnown);
+  const fromStage = stagesIn.map(stageKnown);
+  const known = [...fromStage];
   const boxMass = measured?.massKg;
   const boxCg = measured?.cgM;
   if (stagesIn.length === 1 && !known[0] && typeof boxMass === 'number' && Number.isFinite(boxMass) && boxMass > 0) {
@@ -3024,9 +3025,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   // What a stage override becomes on the way back in here: importRkt reads
   // a known mass into Measured mass & CG, or for more stages than one into
   // a note, and never pins the stage (ruling 2026-08-23), so the design it
-  // re-opens flies the parts.
+  // re-opens flies the parts. Only where the override itself took the slot:
+  // one that moves nothing writes nothing, and the box may hold it instead.
   stagesIn.forEach((s, i) => {
-    if (!known[i] || (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined)) return;
+    if (!fromStage[i]) return;
     const mass = numOpt(s, 'overrideMass') !== undefined;
     const both = mass && numOpt(s, 'overrideCGX') !== undefined;
     notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
