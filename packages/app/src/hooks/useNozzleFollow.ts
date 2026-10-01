@@ -123,9 +123,18 @@ export function useNozzleFollow(opts: {
       stamps.current.set(treeRef.current, decided.current);
       if (acted.length === 0) return;
 
+      // A LOOK-UP THAT FAILS IS AN UNKNOWN FIGURE (audit 2026-09-30). The
+      // nozzles.json chunk can fail to load — offline before the service worker
+      // cached it, or in a tab older than the deploy that replaced it — and the
+      // record above already holds the new loadout, so a rejection here dropped
+      // the decision with nothing left to make it again: the new motor flew the
+      // previous motor's exit, unannounced, until the motors changed once more.
+      // Unknown is what the rule clears, with the note saying whose the number
+      // was; NozzleField says the data could not be loaded, and fills the blank
+      // from the published figure once a look-up succeeds.
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
       for (const s of acted) {
-        looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId))) });
+        looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId).catch(() => null))) });
       }
       if (!mounted.current) return;
 

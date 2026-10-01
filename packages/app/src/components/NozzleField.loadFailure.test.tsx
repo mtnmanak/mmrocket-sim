@@ -133,6 +133,16 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     expect(host.querySelector('[data-nozzle="off"]')).not.toBeNull();
   });
 
+  it('does not tell a cleared stage its new motor publishes nothing when the data did not load', async () => {
+    // useNozzleFollow clears the previous motor's exit when the new motor's
+    // figure cannot be loaded. "No published exit diameter" would then be
+    // false: the figure may exist, it could not be looked up.
+    render({ exitDiameterM: null, clearedFor: { previousLabel: 'J350W', previousM: 0.012 } });
+    await waitFor(() => note() !== null, 'the could-not-load note');
+    expect(host.querySelector('[data-nozzle="cleared"]')?.textContent).toMatch(/was for J350W/);
+    expect(text()).not.toMatch(/No published exit diameter/);
+  });
+
   it('fills the field once a later look-up can load the data — a failure is not kept', async () => {
     render({ exitDiameterM: null });
     await waitFor(() => note() !== null, 'the could-not-load note');

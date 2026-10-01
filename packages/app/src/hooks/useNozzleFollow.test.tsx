@@ -133,6 +133,26 @@ describe('useNozzleFollow', () => {
     expect(h.out.cleared['s1']).toEqual({ previousLabel: 'J1-label', previousM: 0.012 });
   });
 
+  /**
+   * A LOOK-UP THAT FAILS (audit 2026-09-30). nozzles.json is a lazy chunk:
+   * offline before the service worker cached it, or in a tab older than the
+   * deploy that replaced it, its import rejects. The record of what was seen
+   * already held K1, so the rejection dropped the decision with nothing left to
+   * make it again, and K1 flew J1's 12 mm with no note — until the motors
+   * changed once more. A figure that cannot be loaded is not known, and an
+   * unknown figure is what the rule clears, saying whose the number was.
+   */
+  it('clears the previous motor’s exit when the new motor’s figure cannot be loaded', async () => {
+    const offline: NozzleLookup = async () => {
+      throw new TypeError('Failed to fetch dynamically imported module: https://example.test/assets/nozzles-x.js');
+    };
+    const h = harness(tree(0.012), offline);
+    await h.show(loadout('J1'));
+    await h.show(loadout('K1'));
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(h.out.cleared['s1']).toEqual({ previousLabel: 'J1-label', previousM: 0.012 });
+  });
+
   it('does nothing when the loadout did not change', async () => {
     const h = harness(tree(0.03));
     await h.show(loadout('J1'));

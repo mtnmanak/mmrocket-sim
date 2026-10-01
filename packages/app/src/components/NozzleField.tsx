@@ -219,6 +219,9 @@ export function NozzleField({
           {' '}
           {motors.length === 0
             ? 'No motor is loaded in this stage, so there is no nozzle.'
+            // "No published exit diameter" would be false when the figure could
+            // not be LOOKED UP — the note below says that, and what blank does.
+            : unavailable ? null
             : `No published exit diameter for ${motorLabel ?? 'this motor'}. Type one if you have measured it — blank means the pressure-thrust term and the power-on base-drag reduction are both off for this stage.`}
         </p>
       )}
