@@ -289,7 +289,10 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     discardCatalogueOverlay();
   });
 
-  /** A thrustcurve.org stand-in: metadata, then one search page per maker, from `live`. */
+  /**
+   * A thrustcurve.org stand-in: metadata, then one search page per maker, from
+   * `live` — as real Responses, since the check reads each body capped.
+   */
   const stubThrustcurve = async (live: (m: { manufacturerAbbrev: string }) => boolean) => {
     const { MOTOR_DB } = await import('../services/motorDb.js');
     const rows = MOTOR_DB.filter(live);
@@ -299,7 +302,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       const body = u.pathname.endsWith('/metadata.json')
         ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
         : { results: rows.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
-      return { ok: true, status: 200, json: async () => body } as unknown as Response;
+      return new Response(JSON.stringify(body), { status: 200 });
     }));
   };
   const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check thrustcurve.org for newer motors"]')!;
@@ -315,13 +318,32 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
   });
 
   it('reports a failed check as an alert and installs nothing', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }) as unknown as Response));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html><h1>503 Service Unavailable</h1></html>', { status: 503 })));
     h = openBrowser({ mountDiameterMm: 29 });
     click(checkButton(h));
     for (let i = 0; i < 50 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settle(10);
     expect(h.host.querySelector('[role="alert"]')!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
     const { getCatalogueOverlay } = await import('../services/motorDb.js');
     expect(getCatalogueOverlay()).toBeNull();
+  });
+
+  it('Stop on a check that has stalled says it stopped, not that it failed (audit 2026-09-30)', async () => {
+    // Every request now carries a deadline merged with the caller's signal
+    // (net.ts getJsonCapped), which reports a cancel in its own words; the
+    // browser must still read the user's Stop as a Stop.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const sig = init?.signal;
+      sig?.addEventListener('abort', () => reject(sig.reason instanceof Error
+        ? sig.reason : Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    })));
+    h = openBrowser({ mountDiameterMm: 29 });
+    click(checkButton(h));
+    const stop = h.host.querySelector('button[aria-label="Stop the catalogue check"]');
+    expect(stop, 'the Stop button while checking').not.toBeNull();
+    click(stop!);
+    for (let i = 0; i < 50 && !h.host.querySelector('.file-note[role="status"]'); i++) await settle(10);
+    expect(h.host.querySelector('.file-note[role="status"]')!.textContent).toMatch(/Stopped\. Nothing was changed\./);
+    expect(h.host.textContent).not.toMatch(/Could not check thrustcurve/);
   });
 });
 

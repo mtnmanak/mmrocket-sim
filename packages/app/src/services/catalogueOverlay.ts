@@ -3,6 +3,7 @@ import {
   type MotorDbEntry,
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
+import { getJsonCapped, NetError, type JsonAnswer } from './net.js';
 import { API } from './thrustcurve.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
 
@@ -209,10 +210,48 @@ export interface CheckOptions {
   now?: () => number;
 }
 
-async function getJson(url: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetchImpl(url, { signal });
-  if (!res.ok) throw new Error(`thrustcurve.org answered HTTP ${res.status} for ${url.replace(API, '')}`);
-  return res.json();
+/**
+ * ONE REQUEST'S DEADLINE, AND THE MOST ONE ANSWER MAY BE (audit 2026-09-30).
+ * This used to be bare fetch with only the caller's signal, so a request that
+ * stalled (thrustcurve.org itself, or a captive portal holding it open) kept the
+ * check in its checking state until the user pressed Stop, and a runaway answer
+ * was read whole before anything looked at it.
+ *
+ * Measured 2026-10-01, the whole pull the button makes: 28 requests (27 makers,
+ * none at the 500-motor cap), 939,126 bytes. The largest pages are AeroTech's
+ * (249,667 bytes for 307 motors) and Cesaroni's (245,645 for 296), about 830
+ * bytes a motor; the slowest answer took 1.0 s.
+ *
+ * THE CAP COMES FROM SEARCH_CAP, not from today's largest maker: no page can
+ * carry more motors than that (past it the pull pages by impulse class), so 2 KB
+ * a motor — about 2.5x today's rows — covers every page the pull can ask for.
+ * net.ts's 256 KB default would not: AeroTech's page is at 95 % of it.
+ *
+ * THE DEADLINE is twice thrustcurve.ts's 15 s for one motor's curve file, because
+ * an answer here is up to 250 KB, which arrives inside 30 s on any link faster
+ * than about 67 kbit/s.
+ */
+const ANSWER_TIMEOUT_MS = 30_000;
+const MAX_ANSWER_BYTES = SEARCH_CAP * 2048;
+
+async function getJson(url: string, opts: Pick<CheckOptions, 'fetchImpl' | 'signal'>): Promise<unknown> {
+  let answer: JsonAnswer;
+  try {
+    answer = await getJsonCapped(url, {
+      timeoutMs: ANSWER_TIMEOUT_MS, maxBytes: MAX_ANSWER_BYTES, signal: opts.signal, fetchImpl: opts.fetchImpl,
+    });
+  } catch (err) {
+    // A Stop is still a Stop. getJsonCapped calls it 'aborted'; the motor
+    // browser tells a Stop from a failure by the name fetch gives it.
+    if (err instanceof NetError && err.kind === 'aborted') {
+      throw Object.assign(new Error('The catalogue check was stopped.', { cause: err }), { name: 'AbortError' });
+    }
+    throw err;
+  }
+  if (answer.status < 200 || answer.status >= 300) {
+    throw new Error(`thrustcurve.org answered HTTP ${answer.status} for ${url.replace(API, '')}`);
+  }
+  return answer.json;
 }
 
 /**
@@ -222,8 +261,7 @@ async function getJson(url: string, fetchImpl: typeof fetch, signal?: AbortSigna
  * Projected to the same 18 fields so the diff compares like with like.
  */
 async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
-  const meta = await getJson(`${API}/metadata.json?availability=all`, fetchImpl, opts.signal) as {
+  const meta = await getJson(`${API}/metadata.json?availability=all`, opts) as {
     manufacturers?: { abbrev: string }[]; impulseClasses?: string[];
   };
   const manufacturers = (meta.manufacturers ?? []).map((m) => m.abbrev).filter(Boolean);
@@ -232,7 +270,7 @@ async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry
 
   const search = async (params: Record<string, string>): Promise<Record<string, unknown>[]> => {
     const qs = new URLSearchParams({ ...params, maxResults: String(SEARCH_CAP) });
-    const body = await getJson(`${API}/search.json?${qs}`, fetchImpl, opts.signal) as { results?: Record<string, unknown>[] };
+    const body = await getJson(`${API}/search.json?${qs}`, opts) as { results?: Record<string, unknown>[] };
     return Array.isArray(body.results) ? body.results : [];
   };
 

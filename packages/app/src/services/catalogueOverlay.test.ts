@@ -9,6 +9,7 @@ import {
   diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry,
 } from './catalogueOverlay.js';
 import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
+import { DEFAULT_MAX_JSON_BYTES } from './net.js';
 
 /**
  * The in-app "check thrustcurve.org for newer motors" path. Everything here
@@ -22,8 +23,12 @@ const row = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
   propInfo: 'black powder', caseInfo: '', ...over,
 });
 
-/** A fetch that serves metadata.json and one search.json page per manufacturer. */
-function stubApi(live: MotorDbEntry[], opts: { cap?: string[] } = {}): ReturnType<typeof vi.fn> {
+/**
+ * A fetch that serves metadata.json and one search.json page per manufacturer,
+ * as real Responses: the check reads each body capped, as a stream.
+ * `pad` adds that many bytes to every search page — a runaway answer.
+ */
+function stubApi(live: MotorDbEntry[], opts: { cap?: string[]; pad?: number } = {}): ReturnType<typeof vi.fn> {
   const mfrs = [...new Set(live.map((m) => m.manufacturerAbbrev))];
   const spy = vi.fn(async (url: string) => {
     const u = new URL(url);
@@ -37,12 +42,20 @@ function stubApi(live: MotorDbEntry[], opts: { cap?: string[] } = {}): ReturnTyp
       // Simulate the 500 cap for a named manufacturer: the un-subdivided
       // query returns 500 stub rows so the caller must page by class.
       if (!ic && opts.cap?.includes(mfr!)) results = Array.from({ length: 500 }, (_, i) => row({ motorId: `cap-${i}`, manufacturerAbbrev: mfr! }));
-      body = { results };
+      body = { results, ...(opts.pad ? { pad: 'x'.repeat(opts.pad) } : {}) };
     }
-    return { ok: true, status: 200, json: async () => body } as unknown as Response;
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   });
   return spy;
 }
+
+/** A fetch that never answers until its signal aborts — a stalled thrustcurve.org — and then fails as fetch does. */
+const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_resolve, reject) => {
+  const sig = init?.signal;
+  const fail = () => reject(sig?.reason instanceof Error ? sig.reason : Object.assign(new Error('aborted'), { name: 'AbortError' }));
+  if (sig?.aborted) fail();
+  sig?.addEventListener('abort', fail, { once: true });
+});
 
 beforeEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
 afterEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
@@ -302,10 +315,69 @@ describe('checkForCatalogueUpdates — the button', () => {
   });
 
   it('surfaces an HTTP failure as an error naming the endpoint, and installs nothing', async () => {
-    const spy = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }) as unknown as Response);
+    // The service's own error page, not JSON: the status is what there is to say.
+    const spy = vi.fn(async () => new Response('<html><h1>503 Service Unavailable</h1></html>', { status: 503 }));
     await expect(checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch })).rejects.toThrow(/HTTP 503/);
     expect(getCatalogueOverlay()).toBeNull();
     expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+  });
+});
+
+/**
+ * A DEADLINE AND A CAP ON EVERY ANSWER (audit 2026-09-30). The check called
+ * bare fetch with only the caller's signal — no deadline and no body cap — for
+ * metadata.json and the ~27 per-maker pages, so a stalled thrustcurve.org or a
+ * captive portal held "Check thrustcurve.org" in its checking state until the
+ * user pressed Stop, and a runaway answer was read whole before anything
+ * looked at it. Every request now goes through net.ts's getJsonCapped.
+ */
+describe('checkForCatalogueUpdates — a deadline and a cap on every answer', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('gives up on a stalled thrustcurve.org at its deadline, says so, and installs nothing', async () => {
+    vi.useFakeTimers();
+    let outcome: unknown = 'pending';
+    void checkForCatalogueUpdates({ fetchImpl: stalled(), force: true })
+      .then(() => { outcome = 'resolved'; }, (e: unknown) => { outcome = e; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(outcome).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBeInstanceOf(Error);
+    expect((outcome as Error).message).toMatch(/did not answer within 30 s/);
+    expect(getCatalogueOverlay()).toBeNull();
+  });
+
+  it('stops reading a runaway answer at the cap rather than holding it whole', async () => {
+    const live = [row({ motorId: 'r1', manufacturerAbbrev: 'Estes' })];
+    const spy = stubApi(live, { pad: 2 * 1024 * 1024 });
+    await expect(checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true }))
+      .rejects.toThrow(/ran past \d+ KB/);
+    expect(getCatalogueOverlay()).toBeNull();
+  });
+
+  it('reads a maker’s page as large as the biggest live ones, past net.ts’s 256 KB default', async () => {
+    // Measured 2026-10-01: AeroTech's page was 249,667 bytes for 307 motors —
+    // about 813 a motor, 95 % of the default cap. A page holds at most 500
+    // motors (past that the check pages by class), so 499 rows of that size
+    // is the largest page one request can bring.
+    const live = Array.from({ length: 499 }, (_, i) => row({
+      motorId: `big-${i}`, manufacturerAbbrev: 'Big', caseInfo: 'x'.repeat(560),
+    }));
+    const page = JSON.stringify({ results: live }).length;
+    expect(page / live.length).toBeGreaterThan(813);
+    expect(page).toBeGreaterThan(DEFAULT_MAX_JSON_BYTES);
+    const { overlay } = await checkForCatalogueUpdates({ fetchImpl: stubApi(live) as unknown as typeof fetch, force: true });
+    expect(overlay.added).toHaveLength(499);
+  });
+
+  it('still stops on the user’s Stop, as the AbortError the motor browser tells a Stop by', async () => {
+    const ctrl = new AbortController();
+    const p = checkForCatalogueUpdates({ fetchImpl: stalled(), force: true, signal: ctrl.signal });
+    ctrl.abort();
+    const err = await p.then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('AbortError');
+    expect(getCatalogueOverlay()).toBeNull();
   });
 });
 

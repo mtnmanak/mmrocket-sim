@@ -151,6 +151,17 @@ function toEntry(m: RawMotor): NozzleEntry | null {
 }
 
 async function db(): Promise<Map<string, NozzleEntry>> {
+  // Only a LOADED map is kept: a rejected import (offline before the service
+  // worker cached the chunk, or a tab older than the deploy that replaced it)
+  // leaves this null, so nothing HERE stops a later look-up from importing again
+  // (NozzleField.loadFailure.test.tsx). The BROWSER may: Chrome keeps a failed
+  // module fetch for the life of the page. Measured 2026-10-01 in Chrome 154,
+  // for a connection reset and an HTTP 503 alike: once the server answered
+  // again, a second import() of the same chunk made no request and failed
+  // again, and it loaded only after a reload. So the cure is the reload
+  // NozzleField's could-not-load note offers, as for the lazy dialogs
+  // (LazyDialog.tsx), and nothing may promise that the field fills itself in
+  // when the connection comes back.
   if (!byMotorId) {
     const mod = await import('../data/nozzles.json');
     const raw = mod.default as unknown as RawDb;

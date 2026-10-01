@@ -53,6 +53,88 @@
   </head>
   <body>
     <div id="root"></div>
+    <script data-startup-painter>
+      // NEVER A SILENTLY-BLANK PAGE, FROM THE FIRST BYTE (audit 2026-09-30).
+      // main.tsx paints a failure into #root, but it runs only after the whole
+      // static import graph has loaded and evaluated: a chunk that could not be
+      // fetched (a first visit at a field, a file a deploy replaced) or a
+      // module that threw while evaluating left the page blank. This runs
+      // first, as a classic script, and paints those itself. Only into an
+      // EMPTY #root, with textContent (an error message is never markup), and
+      // it stands down for good once the app has drawn: from then on a failure
+      // is AppBoundary's or main.tsx's to report, and nothing here may paint
+      // over a working app. Tested by src/startupFailure.test.ts.
+      (function () {
+        var mounted = false;
+        var shown = null;
+        function root() { return document.getElementById('root'); }
+        // The app has drawn once #root holds anything that is not this message.
+        function appMounted() {
+          if (!mounted) {
+            var first = root() && root().firstElementChild;
+            if (first && first !== shown) mounted = true;
+          }
+          return mounted;
+        }
+        function paint(detail) {
+          var r = root();
+          if (!r || shown || appMounted()) return;
+          var box = document.createElement('div');
+          box.setAttribute('data-startup-failure', '');
+          box.setAttribute('role', 'alert');
+          box.style.cssText = 'font-family:system-ui,sans-serif;max-width:36em;margin:48px auto;'
+            + 'padding:20px 24px;border-radius:8px;background:#f4f2ee;color:#111110;line-height:1.5';
+          var p = document.createElement('p');
+          p.style.margin = '0 0 12px';
+          p.textContent = 'MMRocket Sim could not start because part of it failed to load or run; '
+            + 'reloading the page usually fixes it.';
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = 'Reload the page';
+          b.onclick = function () { location.reload(); };
+          var d = document.createElement('p');
+          d.style.cssText = 'margin:12px 0 0;font-size:0.85em;opacity:0.75;white-space:pre-wrap;word-break:break-word';
+          d.textContent = detail;
+          box.appendChild(p);
+          box.appendChild(b);
+          box.appendChild(d);
+          r.appendChild(box);
+          shown = box;
+        }
+        function onError(e) {
+          var t = e.target;
+          if (t && t.nodeType === 1) {
+            // A file that did not load: only the app's own module scripts are
+            // fatal. An image, a stylesheet or the analytics beacon an ad
+            // blocker refuses (a classic script Cloudflare adds) is not.
+            if (t.tagName === 'SCRIPT' && t.type === 'module') {
+              paint('Could not load ' + (t.getAttribute('src') || 'the app') + '.');
+            }
+            return;
+          }
+          // A cross-origin script's error arrives as "Script error." with no
+          // error object; the app's own carry one.
+          if (e.error != null) paint(String(e.error.stack || e.error));
+        }
+        function onRejection(e) {
+          var r = e.reason;
+          paint(String((r && r.stack) || r));
+        }
+        function standDown() {
+          window.removeEventListener('error', onError, true);
+          window.removeEventListener('unhandledrejection', onRejection);
+        }
+        // Capture phase: a script that fails to load fires its error at the
+        // element, and that event does not bubble to the window.
+        window.addEventListener('error', onError, true);
+        window.addEventListener('unhandledrejection', onRejection);
+        // #root is parsed already (this sits right after it), and the app's
+        // module scripts are deferred, so this always runs before they do.
+        new MutationObserver(function (_, seen) {
+          if (appMounted()) { seen.disconnect(); standDown(); }
+        }).observe(root(), { childList: true });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

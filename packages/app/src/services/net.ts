@@ -143,8 +143,9 @@ export const DEFAULT_MAX_JSON_BYTES = 256 * 1024;
  * - A non-2xx status is NOT an error here: `{ status, json }` comes back so the
  *   caller can quote the service's own reason.
  *
- * Deliberately not `catalogueOverlay.ts`'s `getJson`, which has no timeout and
- * no cap.
+ * The weather requests go through here, and since 2026-09-30 so does the
+ * motor-catalogue check (`catalogueOverlay.ts`), which passes a larger
+ * `maxBytes` for its 250 KB pages.
  */
 export async function getJsonCapped(url: string, opts: {
   signal?: AbortSignal;

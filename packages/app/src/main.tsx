@@ -8,6 +8,7 @@ import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import { AppRoot } from './root.js';
 import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
+import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 
 // Offline-first on the canonical host. On the RETIRED pre-rename host the
@@ -19,15 +20,24 @@ if (isRetiredHost(location.hostname)) {
   // does NOT do is go looking — the browser checks for a new worker when this
   // registration runs, i.e. on a page load. Publishing the registration lets
   // the header's version check ask for that on demand, which is the whole of
-  // the "am I on the current version?" support conversation.
-  registerSW({ immediate: true, onRegisteredSW: (_url, reg) => setSwRegistration(reg) });
+  // the "am I on the current version?" support conversation. Every
+  // registration also goes past the empty-precache safeguard
+  // (services/precacheGuard.ts), which does nothing unless the worker's
+  // offline copy is empty.
+  registerSW({
+    immediate: true,
+    onRegisteredSW: (_url, reg) => { setSwRegistration(reg); void guardPrecache(reg); },
+  });
 }
 
 // Never a silently-blank page: uncaught errors paint into the root. A throw
 // while RENDERING is caught by AppBoundary (root.tsx), which keeps the root
 // filled and offers the autosaved design and a fresh start (audit
 // 2026-09-22); this paints only into an EMPTY root, so it is the last resort
-// for what no boundary sees (the root failing to mount at all).
+// for what no boundary sees (the root failing to mount at all). What fails
+// before this body can run — a chunk that would not load, a module that threw
+// while evaluating — is painted by index.html's startup painter, which stands
+// down once the app has drawn (audit 2026-09-30).
 function showFatal(message: string) {
   const root = document.getElementById('root');
   if (root && !root.childElementCount) {

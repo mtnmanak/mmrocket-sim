@@ -133,6 +133,26 @@ describe('useNozzleFollow', () => {
     expect(h.out.cleared['s1']).toEqual({ previousLabel: 'J1-label', previousM: 0.012 });
   });
 
+  /**
+   * A LOOK-UP THAT FAILS (audit 2026-09-30). nozzles.json is a lazy chunk:
+   * offline before the service worker cached it, or in a tab older than the
+   * deploy that replaced it, its import rejects. The record of what was seen
+   * already held K1, so the rejection dropped the decision with nothing left to
+   * make it again, and K1 flew J1's 12 mm with no note — until the motors
+   * changed once more. A figure that cannot be loaded is not known, and an
+   * unknown figure is what the rule clears, saying whose the number was.
+   */
+  it('clears the previous motor’s exit when the new motor’s figure cannot be loaded', async () => {
+    const offline: NozzleLookup = async () => {
+      throw new TypeError('Failed to fetch dynamically imported module: https://example.test/assets/nozzles-x.js');
+    };
+    const h = harness(tree(0.012), offline);
+    await h.show(loadout('J1'));
+    await h.show(loadout('K1'));
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(h.out.cleared['s1']).toEqual({ previousLabel: 'J1-label', previousM: 0.012 });
+  });
+
   it('does nothing when the loadout did not change', async () => {
     const h = harness(tree(0.03));
     await h.show(loadout('J1'));
@@ -177,6 +197,63 @@ describe('useNozzleFollow', () => {
     expect(exitOf(h.treeRef.current)).toBeUndefined();
     // Written once, by the newest loadout's decision - K1's never lands.
     expect(h.writes.map(exitOf)).toEqual([undefined]);
+  });
+
+  /**
+   * WHAT THE NOZZLE IN THE TREE WAS DECIDED FOR (audit 2026-09-30). The
+   * decision read "the motors before" off the record of what was SEEN, which,
+   * while an earlier look-up is still pending (the first nozzles.json import),
+   * names a loadout that never got a decision. The tree's nozzle still belongs
+   * to the one before it.
+   */
+  describe('while an earlier look-up is still pending', () => {
+    const gated = () => {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((r) => { release = r; });
+      const slow: NozzleLookup = async (id) => { await gate; return lookup(id); };
+      return { slow, open: async () => { await act(async () => { release(); await gate; }); } };
+    };
+
+    it('keeps a value typed with no motor loaded when two motors are picked in a row', async () => {
+      // The case `hadMotorsBefore` exists for: the 20 mm was never a motor's.
+      const g = gated();
+      const h = harness(tree(0.02), g.slow);
+      await h.show(loadout());
+      await h.show(loadout('J1'));
+      await h.show(loadout('K1'));       // before J1's look-up has landed
+      await g.open();
+      expect(exitOf(h.treeRef.current)).toBe(0.02);
+      expect(h.writes).toEqual([]);
+    });
+
+    it('names the motor a cleared exit belonged to, not the one picked and replaced meanwhile', async () => {
+      const g = gated();
+      const h = harness(tree(0.012), g.slow);
+      await h.show(loadout('J1'));
+      await h.show(loadout('K1'));
+      await h.show(loadout('X9'));       // no published exit: this one decides
+      await g.open();
+      expect(exitOf(h.treeRef.current)).toBeUndefined();
+      // The 12 mm was J1's: K1 never got a decision, so it never had a nozzle.
+      expect(h.out.cleared['s1']).toEqual({ previousLabel: 'J1-label', previousM: 0.012 });
+    });
+
+    it('leaves a configuration’s stated nozzle alone when the switch lands on the loadout being looked up', async () => {
+      // The switch seeds K1 and writes the nozzle its configuration states;
+      // the motor change's look-up then lands for the very same K1. The tree's
+      // nozzle was decided for K1 by the configuration, so there is no change.
+      const g = gated();
+      const h = harness(tree(0.012), g.slow);
+      await h.show(loadout('J1'));
+      await h.show(loadout('K1'));       // a motor change: its look-up is pending
+      h.out.seed(loadout('K1'));         // the switch, onto K1...
+      h.treeRef.current = tree(0.02);    // ...writing the nozzle it states
+      await h.show(loadout('K1'));
+      await g.open();
+      expect(exitOf(h.treeRef.current)).toBe(0.02);
+      expect(h.writes).toEqual([]);
+      expect(h.out.cleared).toEqual({});
+    });
   });
 
   /**
