@@ -4030,9 +4030,15 @@ export function App() {
               const countNote = mountCountNote(tree, m.id!);
               // Every loaded mount has its own Auto policy and flown evidence.
               const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
+              // The fallback — an earlier flight's Auto delay on this mount — is
+              // THIS design's alone. The run list is global and mount ids are
+              // counter values every load mints afresh, so a match on the id put
+              // another design's "Previous flight" under this motor (audit
+              // 2026-09-30).
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
                 && resolutionMatches(r.delayResolution, delayMountsOf(assigned)))
-                ?? runs.find((r) => validDelayResolution(r.delayResolution)
+                ?? runs.find((r) => r.designKey === provenanceKey.designKey
+                  && validDelayResolution(r.delayResolution)
                   && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
                 && resolutionMatches(delayRun.delayResolution, delayMountsOf(assigned));

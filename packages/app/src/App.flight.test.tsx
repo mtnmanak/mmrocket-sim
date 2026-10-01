@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { testMotor, testResolution } from './services/autoDelay.testSupport.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import type { SessionState } from './services/session.js';
@@ -535,5 +536,47 @@ describe('the time-step caution’s measured cost', () => {
     const host = await mountApp();
     await settle(50);
     expect(await quotesSeconds(host)).toBe(true);
+  }, 30000);
+});
+
+/**
+ * THE AUTO-DELAY CARD QUOTES ONLY THIS DESIGN'S FLIGHTS (audit 2026-09-30).
+ * With no flight of the design as it stands, the card under an Auto motor falls
+ * back to an earlier flight's Auto delay for its mount, found by mount id — and
+ * the run list is global, while mount ids are counter values every load mints
+ * afresh. So another design's run under the same id put "Previous flight: Auto
+ * flew 7 s · ballistic optimum 7.0 s · <that design's branch>" under this motor.
+ */
+describe('the Auto-delay card under a motor', () => {
+  it('quotes no other design’s flight, even one stored under the same mount id', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(RUNS_KEY, JSON.stringify([{
+      id: 'another-design', when: Date.now() - 60_000, rocket: 'Another rocket', motor: 'C6-5',
+      delayS: 7, execMs: 100,
+      designKey: 'another-design', motorSetKey: 'another-motors', conditionsKey: 'another-conditions',
+      delayResolution: testResolution([[mount, testMotor(true)]], [7]),
+    }]));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: { ...c6, meta: { ...c6.meta, autoDelay: true } } },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    const card = () => [...host.querySelectorAll('.mount-card p.field-hint')]
+      .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
+    expect(card()).toBe('Auto delay not yet calculated.');
+
+    // The control: this design's own flight is quoted, and still quoted, as a
+    // previous flight, once the conditions move on from it.
+    await launch(host);
+    await waitFor(() => runs() === 2, 'the flight to be saved');
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    expect(card()).toMatch(/^Auto flew \d+ s · ballistic optimum/);
+    await type(input(host, 'Wind avg'), '8');
+    expect(card()).toMatch(/^Previous flight: Auto flew \d+ s · ballistic optimum/);
   }, 30000);
 });
