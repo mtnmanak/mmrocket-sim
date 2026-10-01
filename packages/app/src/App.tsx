@@ -2944,7 +2944,10 @@ export function App() {
             </button>
             {showFileMenu && (
               <>
-                <div className="file-menu-backdrop" onClick={() => setShowFileMenu(false)} />
+                {/* The click-away: pointer-only, so presentational, as every
+                    dialog's overlay is. Escape is the keyboard's way out
+                    (useMenuPopup). */}
+                <div className="file-menu-backdrop" role="presentation" onClick={() => setShowFileMenu(false)} />
                 <div className="file-menu" role="group" aria-label="Save As / Export"
                   onClick={() => setShowFileMenu(false)}>
                   <button onClick={() => { void onSaveOrk(); }}>Save .ork — OpenRocket design</button>
@@ -3017,7 +3020,7 @@ export function App() {
             </button>
             {showFeedback && (
               <>
-                <div className="file-menu-backdrop" onClick={() => setShowFeedback(false)} />
+                <div className="file-menu-backdrop" role="presentation" onClick={() => setShowFeedback(false)} />
                 {/* Contract first, hardcoded constants second — see the
                     FEEDBACK_REPO comment. GitHub links open a new tab (the owner's
                     ruling: don't take the user away from the site); the mailto

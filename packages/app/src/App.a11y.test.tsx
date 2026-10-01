@@ -268,4 +268,30 @@ describe('App — accessibility, as rendered', () => {
     expect([...select!.options].map((o) => o.value))
       .toEqual(['automatic', 'burnout', 'launch', 'ejectioncharge', 'never']);
   }, 30000);
+
+  /**
+   * The header's two disclosure popups close on a click-away backdrop, and on
+   * Escape for the keyboard (useMenuPopup). The backdrop is a pointer-only
+   * click target, so it is presentational and says so, as every dialog's
+   * overlay does (audit 2026-09-30) — and both ways out still close each.
+   */
+  it('the Save As and Feedback backdrops are presentational, and click-away and Escape still close each popup', async () => {
+    const host = await mountApp();
+    for (const name of ['Save As / Export', 'Feedback']) {
+      const trigger = [...host.querySelectorAll<HTMLButtonElement>('.file-menu-wrap > button')]
+        .find((b) => b.textContent?.includes(name))!;
+      const popup = () => host.querySelector(`.file-menu[aria-label="${name}"]`);
+      await act(async () => { trigger.click(); });
+      const backdrop = trigger.parentElement!.querySelector<HTMLElement>('.file-menu-backdrop')!;
+      expect(backdrop.getAttribute('role'), name).toBe('presentation');
+      await act(async () => { backdrop.click(); });
+      expect(popup(), `${name}: the click-away`).toBeNull();
+      await act(async () => { trigger.click(); });
+      expect(popup(), name).not.toBeNull();
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      });
+      expect(popup(), `${name}: Escape`).toBeNull();
+    }
+  }, 30000);
 });
