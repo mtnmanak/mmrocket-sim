@@ -176,6 +176,10 @@ describe('the nozzle database figures the guide quotes', () => {
     expect(md).toMatch(/\b[A-Za-z]+ Loki motors are short\b/);
     expect(md).toMatch(/\b[A-Za-z]+ 29 mm DMS motors have the nozzle moulded into the case\b/);
     expect(md).toMatch(/K1100T's two options differ by \d+ % in area/);
+    expect(md).toMatch(/\bcarry a row with no number on purpose\b/);
+    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]* is an aerospike\b/);
+    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]*(?:-[A-Z]+)?'s machined nozzle is drawn with its outside diameter and no exit\b/);
+    expect(md).toMatch(/\b[A-Za-z]+ has a nozzle the sheet says was cut shorter than the mould\b/);
   });
 });
 
@@ -193,6 +197,9 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
   };
   const row = (db, designation) => db.motors.find((m) => m.designation === designation);
   const loki = (db, mm) => db.coverage.byManufacturer.Loki.byCasingDiameterMm[mm];
+  /** A loadable 54 mm AeroTech reload with one published exit, to take that exit away from. */
+  const anOrdinaryReload = (db) => db.motors.find((m) => m.manufacturer === 'AeroTech' && m.motorId
+    && m.exitDiameterM !== undefined && m.casingDiameterMm === 54 && m.docFamily === 'reloadable' && !m.exitAmbiguous);
 
   it('reads as stale when the coverage it quotes moves', () => {
     // A new in-production 38 mm Loki motor with a published exit: one more of one
@@ -227,6 +234,44 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
     expect(() => compileGuide({ dataDir: exitFound })).toThrow(/29 mm DMS.*three/);
     const altered = rebuilt((db) => { row(db, 'K1100T-L').alternatives[0].exitDiameterIn = 1.0; });
     expect(() => compileGuide({ dataDir: altered })).toThrow(/K1100T.*56 %/);
+  });
+
+  it('refuses to compile when a row the guide gives as having no exit on purpose gets one', () => {
+    // The K76WN-P's cut-down exit is resolved: AeroTech's 54 mm coverage and the
+    // file's counts gain one, which the guide quotes nowhere, so without a check on
+    // the sentence it compiled byte for byte and still said one motor's nozzle was
+    // cut shorter than the mould.
+    const resolved = rebuilt((db) => {
+      Object.assign(row(db, 'K76WN-P'), { exitDiameterM: 0.019, exitDiameterIn: 0.748 });
+      db.coverage.byManufacturer.AeroTech.byCasingDiameterMm['54'].withExitDiameter += 1;
+      db.counts.motorsWithExit += 1;
+      db.counts.motorsLoadableWithExit += 1;
+    });
+    expect(() => compileGuide({ dataDir: resolved }))
+      .toThrow(/says "one has a nozzle the sheet says was cut shorter than the mould"; .* are none/);
+    const spike = rebuilt((db) => { row(db, 'J615ST-20A').exitDiameterM = 0.02; });
+    expect(() => compileGuide({ dataDir: spike })).toThrow(/says "the J615ST is an aerospike"; .* are none/);
+    const machined = rebuilt((db) => { row(db, 'I40N-P').exitDiameterM = 0.02; });
+    expect(() => compileGuide({ dataDir: machined })).toThrow(/says "the I40N-P's machined nozzle .* are none/);
+    // A rebuild that adds a second aerospike, after the J615ST: the sentence names
+    // one, so it would leave the new one out.
+    const twoSpikes = rebuilt((db) => {
+      db.motors.push({ motorId: 'f'.repeat(24), manufacturer: 'AeroTech', designation: 'K950ST-14A',
+        casingDiameterMm: 54, docFamily: 'reloadable', provenance: { lomDescription: 'AEROSPIKE NOZZLE W/-4 ANNULAR RING' } });
+    });
+    expect(() => compileGuide({ dataDir: twoSpikes }))
+      .toThrow(/says "the J615ST is an aerospike"; .* are two: J615ST-20A, K950ST-14A/);
+  });
+
+  it('refuses to compile when a loadable row has no exit for a reason the guide does not give', () => {
+    const unexplained = rebuilt((db) => {
+      const r = anOrdinaryReload(db);
+      delete r.exitDiameterM;
+      delete r.exitDiameterIn;
+      r.provenance = { ...r.provenance, lomDescription: '54MM NOZZLE, EXIT NOT DIMENSIONED' };
+    });
+    expect(() => compileGuide({ dataDir: unexplained }))
+      .toThrow(/with no exit that user-guide\.md's sentence on the rows with no number on purpose does not account for: \S+ \("54MM NOZZLE, EXIT NOT DIMENSIONED"\)/);
   });
 
   it('compiles the shipped file unchanged, so each refusal above is the edit and not the copy', () => {
