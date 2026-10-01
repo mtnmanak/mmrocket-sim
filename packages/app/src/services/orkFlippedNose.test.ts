@@ -75,6 +75,23 @@ describe('.ork reads, flies and writes a flipped nose cone as a tail cone', () =
     expect(tail['aftRadius']).toBeCloseTo(0.03, 12);
   });
 
+  it('sizes a bare automatic packed radius inside such a tail cone from the part AHEAD too', () => {
+    // A recovery device in the cone whose <packedradius> is a bare `auto` takes
+    // the cavity it sits in: the cone's base, found forward, at the tube — not
+    // behind the point, where there is nothing (makeAutoRadii `packed`).
+    const tail = (flipped: string) => `<nosecone><name>Tail</name><length>0.12</length>
+      <thickness>0.002</thickness><shape>conical</shape><aftradius>auto</aftradius>
+      <isflipped>${flipped}</isflipped><subcomponents>
+      <streamer><name>Tape</name><packedlength>0.05</packedlength><packedradius>auto</packedradius>
+      <striplength>1.0</striplength><stripwidth>0.05</stripwidth></streamer></subcomponents></nosecone>`;
+    const packed = (flipped: string) =>
+      find(importOrk(ORK(NOSE + TUBE + tail(flipped))).tree.components, 'Tape')['packedRadius'];
+    expect(packed('true')).toBeCloseTo(0.03, 12);
+    // Unflipped, the same cone's base faces aft, at nothing: the reader's own
+    // 12.5 mm for a mass object it cannot size.
+    expect(packed('false')).toBeCloseTo(0.0125, 12);
+  });
+
   it('hands its base to an automatic transition ahead of it, and only its point to one behind', () => {
     const transition = (name: string, fore: string, aft: string) => `<transition><name>${name}</name>
       <length>0.05</length><thickness>0.002</thickness><shape>conical</shape>
