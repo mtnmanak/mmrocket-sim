@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-13",
+ "generated": "2026-10-01",
  "source": "AeroTech / RCS Rocket Motor Components published drawings and store pages; Loki Research published instruction sheets and Tech Info tables",
  "sourceNote": "docs/RCS Schematics and docs/Loki Data (both LOCAL-ONLY, gitignored). Regenerate with packages/app/scripts/build-nozzle-db.mjs.",
  "catalogueGenerated": "2026-09-30",
@@ -10,11 +10,11 @@
   "instructionSheetRows": 1,
   "drawingsJoinedByEvidence": 2,
   "distinctNozzleParts": 115,
-  "partsWithExitDiameter": 92,
+  "partsWithExitDiameter": 93,
   "partsResolvedPerMotor": 20,
-  "motorsWithExit": 289,
+  "motorsWithExit": 291,
   "motorsMatchedToCatalogue": 290,
-  "motorsLoadableWithExit": 282,
+  "motorsLoadableWithExit": 283,
   "aerotechMatched": 234,
   "lokiMatched": 56,
   "aerotechMatchedInProduction": 232,
@@ -26,8 +26,8 @@
   "reloadableDrawings": 324,
   "dmsDrawings": 51,
   "dmsRows": 49,
-  "dmsRowsWithExit": 42,
-  "dmsInProductionWithExit": 36,
+  "dmsRowsWithExit": 44,
+  "dmsInProductionWithExit": 37,
   "lokiSheetsRead": 21,
   "lokiMotorsOnASheet": 43,
   "lokiRows": 56,
@@ -39,7 +39,7 @@
  "gaps": {
   "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR (\"we can leave them as unknown and, if we get the data, we can update the database\") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed \"Historical Information Only — Not In Production\", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads \"Single Use\") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in `uncovered`.",
   "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 36 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 40 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 37 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. What is STILL not covered is the older single-use line, which has neither a reload kit nor a DMS sheet: 40 in-production AeroTech motors have no row here at all, most of them 24 mm and 29 mm hobby motors, and every one is named in `uncovered`."
  },
  "coverage": {
   "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`.",
@@ -106,7 +106,7 @@
      "38": {
       "inProduction": 59,
       "withNozzleRow": 55,
-      "withExitDiameter": 54,
+      "withExitDiameter": 55,
       "missing": [
        "H130W",
        "H550ST",
@@ -483,7 +483,7 @@
    }
   ],
   "dmsSheetObservations": {
-   "note": "The 42 DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows in all; the rest publish no exit, so there was no exit to check.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
+   "note": "The 41 DMS rows that carried an EXIT on 2026-09-13 were read back from their own PDFs that day by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows now, 44 with an exit: the 3 added since were not part of that pass, and the rest publish no exit.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
    "rows": [
     {
      "motors": [
@@ -498,10 +498,11 @@
      "motors": [
       "I40N-P"
      ],
-     "field": "exit",
-     "published": null,
+     "field": "exitSource",
+     "published": "spec-page",
      "onSheet": 0.289,
-     "note": "Part 01600 has no published exit anywhere, so this row publishes none. The sheet carries two leadered aft-end diameters, 0.289 in and 0.156 in, the second being the stated throat - which makes the first a candidate exit. A callout, so not taken."
+     "partNo": "01600",
+     "note": "The 0.289 in exit is published since 2026-10-01: part 01600's store page states \"0.289\" diameter exit\". The sheet carries the same figure as one of two leadered aft-end diameters, 0.289 in beside the 0.156 in throat, recorded here on 2026-09-13 as a candidate exit and not taken because it is a callout. It agrees with the page, and the row's provenance names only the page."
     },
     {
      "motors": [
@@ -1934,16 +1935,19 @@
   {
    "partNo": "01600",
    "manufacturer": "AeroTech",
-   "exitSource": "none",
-   "exitConfidence": "none",
-   "throatDiameterIn": 0.156,
-   "throatSource": "assembly-description",
+   "name": "38mm Nozzle, 0.137\" Throat",
+   "exitDiameterIn": 0.289,
+   "exitSource": "spec-page",
+   "exitConfidence": "high",
+   "throatDiameterIn": 0.137,
+   "throatSource": "spec-page",
    "provenance": {
+    "specPage": "https://www.rocketmotorparts.com/details/p1577809_7762990.aspx (store page, read 2026-10-01)",
     "dashNumberRuleStatedOnDrawing": false
    },
    "usedByDrawings": 2,
-   "throatDiameterM": 0.003962,
-   "note": "A machined 38 mm nozzle whose drawing states an outside diameter (1.25 in) and a drilled throat, and no exit. The O.D. is the part's outside, NOT the exit plane, and guessing one from the other is how a 1.25 in exit would reach a thrust term that has no business with it. Affects I40N-P, J33N-P."
+   "exitDiameterM": 0.007341,
+   "throatDiameterM": 0.00348
   },
   {
    "partNo": "01650",
@@ -6372,14 +6376,16 @@
    "docFamily": "dms",
    "casingDiameterMm": 38,
    "nozzlePartNo": "01600",
+   "exitDiameterM": 0.007341,
+   "exitDiameterIn": 0.289,
    "throatDiameterM": 0.003962,
    "throatDiameterIn": 0.156,
-   "exitSource": "none",
-   "exitConfidence": "none",
+   "exitSource": "spec-page",
+   "exitConfidence": "high",
    "provenance": {
     "lomDescription": "38MM NOZZLE MACHINED 1.25\" O.D. X .156\" DT",
     "designationOnSheet": "exact",
-    "exitFrom": "38mm/I40N-P.pdf",
+    "exitFrom": "https://www.rocketmotorparts.com/details/p1577809_7762990.aspx (store page, read 2026-10-01)",
     "matchedVia": "I40N-P",
     "caseAgrees": false,
     "assemblyDrawings": [
@@ -6952,14 +6958,16 @@
    "caseFamily": "38mm DMS (single-use)",
    "docFamily": "dms",
    "nozzlePartNo": "01600",
+   "exitDiameterM": 0.007341,
+   "exitDiameterIn": 0.289,
    "throatDiameterM": 0.003962,
    "throatDiameterIn": 0.156,
-   "exitSource": "none",
-   "exitConfidence": "none",
+   "exitSource": "spec-page",
+   "exitConfidence": "high",
    "provenance": {
     "lomDescription": "38MM NOZZLE MACHINED 1.25\" O.D. X .156\" DT",
     "designationOnSheet": "exact",
-    "exitFrom": "38mm/J33N-P.pdf",
+    "exitFrom": "https://www.rocketmotorparts.com/details/p1577809_7762990.aspx (store page, read 2026-10-01)",
     "assemblyDrawings": [
      "38mm/J33N-P.pdf"
     ]

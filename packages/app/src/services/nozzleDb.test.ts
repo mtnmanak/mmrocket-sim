@@ -66,6 +66,16 @@ describe('the published nozzle lookup', () => {
     }
   });
 
+  it('fills the I40N-P from part 01600’s published exit', async () => {
+    // RCS's store page for 01600 states "0.289" diameter exit" (read 2026-10-01); the
+    // file said the part had none, so the I40N-P loaded with a blank field.
+    const e = await nozzleForMotorId('616e6152763045000425980a'); // I40N-P
+    expect(e).not.toBeNull();
+    expect(e!.nozzlePartNo).toBe('01600');
+    expect(e!.exitDiameterM).toBeCloseTo(0.289 * 0.0254, 6);
+    expect(e!.confidence).toBe('high');
+  });
+
   it('ships the database’s own provenance', () => {
     // Read off the file itself: the accessor that carried it (nozzleDbMeta)
     // had no production caller and went (audit 2026-09-22, Dead code row 575).

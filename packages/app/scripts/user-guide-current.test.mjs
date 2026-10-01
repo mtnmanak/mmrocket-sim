@@ -199,7 +199,6 @@ describe('the nozzle database figures the guide quotes', () => {
     expect(md).toMatch(/K1100T's two options differ by \d+ % in area/);
     expect(md).toMatch(/\bcarry a row with no number on purpose\b/);
     expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]* is an aerospike\b/);
-    expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]*(?:-[A-Z]+)?'s machined nozzle is drawn with its outside diameter and no exit\b/);
     expect(md).toMatch(/\b[A-Za-z]+ has a nozzle the sheet says was cut shorter than the mould\b/);
     expect(md).toMatch(/\d*\.\d+″ against the standard \d*\.\d+″ is \d+ % more area, and against the \d*\.\d+″ band it is \d+ %/);
   });
@@ -273,8 +272,12 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
       .toThrow(/says "one has a nozzle the sheet says was cut shorter than the mould"; .* are none/);
     const spike = rebuilt((db) => { row(db, 'J615ST-20A').exitDiameterM = 0.02; });
     expect(() => compileGuide({ dataDir: spike })).toThrow(/says "the J615ST is an aerospike"; .* are none/);
-    const machined = rebuilt((db) => { row(db, 'I40N-P').exitDiameterM = 0.02; });
-    expect(() => compileGuide({ dataDir: machined })).toThrow(/says "the I40N-P's machined nozzle .* are none/);
+    // The I40N-P's machined nozzle went the other way: part 01600's exit was published
+    // (2026-10-01) and the guide stopped giving a reason for it to have none. Losing it
+    // again is a row with no reason the guide gives, not one it already explains.
+    const machined = rebuilt((db) => { const r = row(db, 'I40N-P'); delete r.exitDiameterM; delete r.exitDiameterIn; });
+    expect(() => compileGuide({ dataDir: machined }))
+      .toThrow(/does not account for: I40N-P \("38MM NOZZLE MACHINED 1\.25" O\.D\. X \.156" DT"\)/);
     // A rebuild that adds a second aerospike, after the J615ST: the sentence names
     // one, so it would leave the new one out.
     const twoSpikes = rebuilt((db) => {

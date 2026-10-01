@@ -99,6 +99,35 @@ export class BuildRefused extends Error {
 // readSpecPage: nozzle-db-helpers.mjs. The index by part number is built per run,
 // in aerotechDrawingRows below, as is the one for the nozzle drawings.
 
+/**
+ * STORE PAGES READ LIVE, for a part whose page is not among the ones saved in
+ * docs/RCS Schematics/Nozzles (2026-10-01).
+ *
+ * Part 01600's page states its exit, and the set never saved it, so this file
+ * said 01600 had none "anywhere" and the in-production I40N-P loaded with a
+ * blank field. Its summary is copied here verbatim, with the page and the day
+ * it was read, and goes through `readSpecPage` exactly as a saved page does, so
+ * the exit is the page's own labelled figure. The day it was read dates the
+ * file when it is the newest source. A saved page for the same part replaces
+ * this: the build refuses to keep both.
+ *
+ * 01600: read 2026-10-01 at the URL below (and again by WebFetch that day); its
+ * drawing, linked from the page, dimensions the same 0.289 exit and 0.137
+ * throat, and the I40N-P sheet's own aft-end callout reads 0.289 too. Its
+ * dash numbers keep their own exits: DASH_NUMBERS_WITH_OWN_EXIT.
+ */
+const STORE_PAGES_READ_LIVE = [
+  {
+    productCode: '01600',
+    title: '38mm Nozzle, 0.137" Throat',
+    url: 'https://www.rocketmotorparts.com/details/p1577809_7762990.aspx',
+    readOn: '2026-10-01',
+    summary: 'Molded glass/phenolic nozzle for 38mm diameter motors. Especially good for endburners using the '
+      + '01970L phenolic casing. Dimensions: 1.308" O.D. 0.137" diameter throat 0.289" diameter exit Click here for '
+      + 'drawing',
+  },
+];
+
 // --------------------------------------------------- reading a nozzle drawing
 
 /**
@@ -125,6 +154,21 @@ function drawingPart(d) {
 // -------------------------------------------------------- resolving one part
 
 // basePartNo: nozzle-db-helpers.mjs.
+
+/**
+ * BASE PARTS WHOSE OWN DRAWING GIVES A DASH NUMBER ITS OWN EXIT, so the dash
+ * rule may not lend it the base part's (2026-10-01). Each value is that drawing's
+ * own wording. 01600's exit has been published since STORE_PAGES_READ_LIVE, and
+ * without this a sheet naming 01600-1 would take its 0.289 in where the drawing
+ * says 0.375 in, an exit with 68 % more area. No sheet in the set names either today, so
+ * this changes no row: it stops the build, rather than guessing, on the day one
+ * does.
+ */
+const DASH_NUMBERS_WITH_OWN_EXIT = {
+  '01600': 'rcs_01600_nozzle_dwg.pdf, "H & I 38MM SINGLE USE", linked from the 01600 store page and read 2026-10-01: '
+    + 'revision A (6/26/01) "UPDATED TO ADD EXIT DIA FOR -1/-2 CONFIG.", and its LIST OF MATERIAL "01600-1 NOZZLE '
+    + 'DRILLED .228" Dt, .375" EXIT DIA." and "01600-2 NOZZLE DRILLED .375" Dt, .562" EXIT DIA."',
+};
 
 /**
  * Exit and throat for one nozzle part number, with the source that gave each.
@@ -182,6 +226,13 @@ function resolvePart(partNo, descriptions, { specByPart, drawingByPart }) {
       // Handled per motor, since the opened-throat count is per dash number.
       exitSource = 'medusa'; confidence = 'per-motor';
     } else if (baseSpec?.exitIn !== undefined) {
+      if (DASH_NUMBERS_WITH_OWN_EXIT[base]) {
+        throw new BuildRefused([
+          `${key}: ${base}'s own drawing gives its dash numbers their own exits, so its ${baseSpec.exitIn} in may not be carried to ${key}:`,
+          `  ${DASH_NUMBERS_WITH_OWN_EXIT[base]}`,
+          `Give ${key} the exit that drawing states, as a source of its own, rather than the base part's.`,
+        ]);
+      }
       exitIn = baseSpec.exitIn;
       exitSource = 'base-spec-page';
       // AeroTech's own printed rule is what licenses carrying the base exit
@@ -520,15 +571,30 @@ export function instructionSheetAssemblies(raw, entries) {
  * AeroTech motors). Several sheets can describe one motor; oneRowPerMotor
  * below decides between them. `raw` is extract-nozzle-pdfs.py's output, with any
  * instruction sheets already added as assemblies (`instructionSheetAssemblies`);
- * `sheetJoins` are SHEET_CATALOGUE_JOINS. Throws BuildRefused for a sheet whose
- * casing size cannot be read, a join that does not hold, or an instruction-sheet
- * line that reaches no catalogue motor in the case its sheet names.
+ * `sheetJoins` are SHEET_CATALOGUE_JOINS and `storePages` STORE_PAGES_READ_LIVE.
+ * Throws BuildRefused for a sheet whose casing size cannot be read, a join that
+ * does not hold, an instruction-sheet line that reaches no catalogue motor in
+ * the case its sheet names, or a live page a saved one covers or that states no
+ * exit.
  */
-export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [] } = {}) {
+export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [], storePages = [] } = {}) {
   const specByPart = new Map();
   for (const page of raw.specPages) {
     if (!page.productCode) continue;
     specByPart.set(page.productCode.toUpperCase(), readSpecPage(page));
+  }
+  // Pages read live go through the same reader, and never over a saved page.
+  const pageProblems = [];
+  for (const page of storePages) {
+    const code = page.productCode.toUpperCase();
+    const saved = specByPart.get(code);
+    if (saved) { pageProblems.push(`${code}: the saved page ${saved.file} now covers it — delete the live reading`); continue; }
+    const read = readSpecPage({ ...page, file: `${page.url} (store page, read ${page.readOn})` });
+    if (read.exitIn === undefined) { pageProblems.push(`${code}: the page states no exit`); continue; }
+    specByPart.set(code, read);
+  }
+  if (pageProblems.length > 0) {
+    throw new BuildRefused(['A store page in STORE_PAGES_READ_LIVE does not hold:', ...pageProblems.map((p) => `  ${p}`)]);
   }
 
   const drawingByPart = new Map();
@@ -1129,9 +1195,10 @@ export function oneRowPerMotor(rows, assemblies) {
  * their own PDFs by someone other than the code that wrote them, and every
  * published exit was then attacked by a second reader. NO EXIT WAS REFUTED.
  * (41 of the 49 DMS rows carried an exit at that pass and the other eight
- * published none, so there was nothing to check on those. It is 42 and seven
- * now - counts.dmsRowsWithExit - because v0.133 read the I65W-PS exit off part
- * 01700-1 a day later, so that one exit was never part of the pass.)
+ * published none, so there was nothing to check on those. The figure has moved
+ * since - counts.dmsRowsWithExit has it - because v0.133 read the I65W-PS exit
+ * off part 01700-1 a day later, and on 2026-10-01 part 01600's store page gave
+ * the I40N-P and J33N-P theirs; none of those exits was part of the pass.)
  * What that pass turned up anyway is kept below (the count is no longer written out here -
  * it was "These four" after the list had been cut to three, in the very commit that added a
  * build-time check because the list "is no longer trusted prose"), because a finding nobody
@@ -1143,11 +1210,17 @@ export function oneRowPerMotor(rows, assemblies) {
  * answer. That rule is why `exitOnDrawing` exists on parts and why the Tripoli
  * letters are compared and not used.
  *
- * THE TWO WORTH ACTING ON ONE DAY are the exits: K76WN-P and I40N-P both
- * publish nothing today, and their own sheets appear to dimension an exit. That
- * is a decision for the owner — reading exits off callouts would be a new
- * source with a new error mode — so it is written here rather than taken.
+ * THE ONE WORTH ACTING ON ONE DAY is K76WN-P's exit: it publishes nothing
+ * today, and its own sheet appears to dimension one. That is a decision for the
+ * owner — reading exits off callouts would be a new source with a new error
+ * mode — so it is written here rather than taken. I40N-P was the other until
+ * 2026-10-01, when part 01600's own store page turned out to state the same
+ * 0.289 in its sheet's callout shows (STORE_PAGES_READ_LIVE): a labelled
+ * source, so the callout became corroboration, as K62N-P's is.
  */
+/** How many DMS exits that 2026-09-13 pass read back: a fixed fact about one day. */
+const DMS_EXITS_READ_BACK_2026_09_13 = 41;
+
 const DMS_SHEET_OBSERVATIONS = [
   {
     motors: ['K76WN-P'],
@@ -1162,12 +1235,14 @@ const DMS_SHEET_OBSERVATIONS = [
   },
   {
     motors: ['I40N-P'],
-    field: 'exit',
-    published: null,
+    field: 'exitSource',
+    published: 'spec-page',
     onSheet: 0.289,
-    note: 'Part 01600 has no published exit anywhere, so this row publishes none. The sheet carries two '
-      + 'leadered aft-end diameters, 0.289 in and 0.156 in, the second being the stated throat - which '
-      + 'makes the first a candidate exit. A callout, so not taken.',
+    partNo: '01600',
+    note: 'The 0.289 in exit is published since 2026-10-01: part 01600\'s store page states "0.289" diameter '
+      + 'exit". The sheet carries the same figure as one of two leadered aft-end diameters, 0.289 in beside '
+      + 'the 0.156 in throat, recorded here on 2026-09-13 as a candidate exit and not taken because it is a '
+      + 'callout. It agrees with the page, and the row\'s provenance names only the page.',
   },
   {
     motors: ['K62N-P'],
@@ -1208,16 +1283,17 @@ const NO_EXIT_NOTES = {
   // altitude compensation is what the geometry is FOR. Leaving this blank is
   // the correct answer, not a gap to be filled.
   '01680': 'Aerospike with an annular ring — no conventional exit plane, so the pressure-thrust term does not apply as it does to a bell nozzle. Deliberately blank.',
-  // The three that arrived with the DMS single-use drawings, 2026-09-13. Each
-  // is a real absence with a stated reason, not a gap waiting to be filled.
+  // The one that arrived with the DMS single-use drawings, 2026-09-13: a real
+  // absence with a stated reason, not a gap waiting to be filled. 01600 was a
+  // second until 2026-10-01, when its own store page turned out to state its
+  // exit (STORE_PAGES_READ_LIVE): that absence was a page this set never saved.
   '01912': 'Not a nozzle part at all: the 29 mm DMS moulded case has its nozzle MOULDED INTO THE CASE, and the sheet gives only the throat it is drilled to. There is no nozzle drawing or store page to take an exit from, because there is no separate part.',
-  '01600': 'A machined 38 mm nozzle whose drawing states an outside diameter (1.25 in) and a drilled throat, and no exit. The O.D. is the part\'s outside, NOT the exit plane, and guessing one from the other is how a 1.25 in exit would reach a thrust term that has no business with it.',
 };
 
 /**
  * Which motors a no-exit part affects, COUNTED rather than written down.
  *
- * The first draft of the two notes above ended "Affects G125T, G72DM, G75M and
+ * The first draft of the 01912 and 01600 notes ended "Affects G125T, G72DM, G75M and
  * G80T" and "Affects I40N-P and J33N-P" — hand-written lists over data this
  * build already holds, which is the pattern the coverage block was rewritten to
  * remove ("a hand-written coverage claim is exactly how 'every 98 mm motor'
@@ -1675,7 +1751,7 @@ export function lokiMotorRows(loki, sheets = LOKI_SHEETS) {
 export function buildNozzleDb({
   raw, motorsDb, mtimeMs,
   lokiSheets = LOKI_SHEETS, observations = DMS_SHEET_OBSERVATIONS, measured = MEASURED_NOZZLES,
-  sheetJoins = SHEET_CATALOGUE_JOINS, instructionRows = INSTRUCTION_SHEET_NOZZLES,
+  sheetJoins = SHEET_CATALOGUE_JOINS, instructionRows = INSTRUCTION_SHEET_NOZZLES, storePages = STORE_PAGES_READ_LIVE,
 }) {
   const AEROTECH = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'AeroTech');
   const byMotorId = new Map(motorsDb.motors.map((m) => [m.motorId, m]));
@@ -1683,7 +1759,7 @@ export function buildNozzleDb({
   // own family. Every count of DRAWINGS below still reads `raw`, the extractor's.
   const instructionAssemblies = instructionSheetAssemblies(raw, instructionRows);
   const read = { ...raw, assemblies: [...raw.assemblies, ...instructionAssemblies] };
-  const { parts, perDrawing, rows, unresolved, unmatched, contradicted } = aerotechDrawingRows(read, AEROTECH, { sheetJoins });
+  const { parts, perDrawing, rows, unresolved, unmatched, contradicted } = aerotechDrawingRows(read, AEROTECH, { sheetJoins, storePages });
   const motorRows = oneRowPerMotor(rows, read.assemblies);
   const LOKI = motorsDb.motors.filter((m) => m.manufacturerAbbrev === 'Loki');
   const { lokiRows, lokiFromSheet, lokiSheetVsTable } = lokiMotorRows(LOKI, lokiSheets);
@@ -1900,12 +1976,17 @@ export function buildNozzleDb({
    * Assembly Drawings", so the DMS sheets were looked for where they are not and
    * the Loki sheets were not looked for at all, and neither could move the date
    * (`sourceDocuments` in nozzle-db-helpers.mjs, where the join is tested).
+   *
+   * And a store page read live (STORE_PAGES_READ_LIVE) counts from the day it
+   * was read, since 2026-10-01: it has no file to stat, and a figure read that
+   * day is in the file.
    */
   const sourceDate = (() => {
     let newest = 0;
     for (const doc of sourceDocuments(read, lokiSheets.map((x) => x.file))) {
       try { newest = Math.max(newest, mtimeMs(doc)); } catch { /* moved or renamed */ }
     }
+    for (const page of storePages) newest = Math.max(newest, Date.parse(`${page.readOn}T00:00:00Z`) || 0);
     return new Date(newest > 0 ? newest : Date.now()).toISOString().slice(0, 10);
   })();
 
@@ -2102,15 +2183,24 @@ export function buildNozzleDb({
       // asserted so a reader can see the agreement instead of taking it on trust
       // — and the build refuses to write this file if any row says `agrees:
       // false`.
+      // THE PASS WAS ONE DAY'S, so its size is a fixed fact and what came after it
+      // is counted beside it (2026-10-01). This said "The 42 DMS rows that carry an
+      // EXIT were read back" once v0.133 had added the I65W-PS's, and would have said
+      // 44 once part 01600's page gave two more, while the pass read back 41.
       dmsSheetObservations: {
-        note: `The ${motorRows.filter((m) => m.docFamily === 'dms' && m.exitDiameterM !== undefined).length} `
-          + `DMS rows that carry an EXIT were read back from their own PDFs on 2026-09-13 by readers other `
-          + `than the code that built them, and each of those exits was then attacked by a second reader `
-          + `told to refute it. NONE was refuted. (There are `
-          + `${motorRows.filter((m) => m.docFamily === 'dms').length} DMS rows in all; the rest publish no `
-          + `exit, so there was no exit to check.) These are the differences between what the drawings show `
-          + `and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number `
-          + `and is never an input here.`,
+        note: (() => {
+          const dmsRows = motorRows.filter((m) => m.docFamily === 'dms');
+          const withExit = dmsRows.filter((m) => m.exitDiameterM !== undefined).length;
+          const since = withExit - DMS_EXITS_READ_BACK_2026_09_13;
+          return `The ${DMS_EXITS_READ_BACK_2026_09_13} DMS rows that carried an EXIT on 2026-09-13 were read back `
+            + `from their own PDFs that day by readers other than the code that built them, and each of those exits `
+            + `was then attacked by a second reader told to refute it. NONE was refuted. (There are ${dmsRows.length} `
+            + `DMS rows now, ${withExit} with an exit: `
+            + (since >= 0 ? `the ${since} added since were not part of that pass` : `${-since} fewer than that pass read back`)
+            + `, and the rest publish no exit.) These are the differences between what the drawings show and what `
+            + `this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an `
+            + `input here.`;
+        })(),
         rows: observations,
       },
       lokiSheetAgainstCaseTable: {

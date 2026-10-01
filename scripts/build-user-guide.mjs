@@ -374,11 +374,14 @@ function guideTokens(data, corrections) {
  *    it must be the file's figure, or the build stops until the sentence is
  *    rewritten. user-guide-current.test.mjs holds the shipped guide to stating
  *    every one of them, so no check here can go quietly vacuous. That includes
- *    the motors the guide NAMES for a reason (the J615ST's aerospike, the
- *    I40N-P's machined nozzle) and the sentence listing every row with no
- *    number on purpose: a row with no exit for a reason it does not give stops
- *    the build too (2026-10-01 — resolving the K76WN-P's cut-down exit
- *    compiled byte for byte, with the guide still describing its nozzle). And
+ *    the motor the guide NAMES for a reason (the J615ST's aerospike) and the
+ *    sentence listing every row with no number on purpose: a row with no exit
+ *    for a reason it does not give stops the build too (2026-10-01 — resolving
+ *    the K76WN-P's cut-down exit compiled byte for byte, with the guide still
+ *    describing its nozzle). The I40N-P's machined nozzle was named the same
+ *    way until part 01600's published exit gave it a figure (2026-10-01), so
+ *    that reason is no longer one the guide gives, and a row with no exit for
+ *    it stops the build like any other unexplained one. And
  *    every AREA it states from two diameters is worked out from the file's
  *    diameters: the K1100T's two options, and Loki's 76 mm exit machined out
  *    against each standard exit for that casing.
@@ -417,8 +420,8 @@ function nozzleFacts(data) {
   }
   // Every other loadable row with no exit carries none ON PURPOSE, for the reason
   // its sheet's line of material gives, and the guide's sentence on those rows
-  // names each reason: an aerospike, a nozzle machined and drawn by its outside
-  // diameter, one cut shorter than its mould, and the moulded 29 mm cases.
+  // names each reason: an aerospike, one cut shorter than its mould, and the
+  // moulded 29 mm cases.
   const onPurpose = rows.filter((m) => m.manufacturer !== 'Loki' && m.motorId && m.exitDiameterM === undefined);
   const sheet = (m) => m.provenance?.lomDescription ?? '';
   return {
@@ -434,7 +437,6 @@ function nozzleFacts(data) {
     moulded29: rows.filter((m) => m.motorId && m.exitDiameterM === undefined
       && m.docFamily === 'dms' && m.casingDiameterMm === 29),
     aerospike: onPurpose.filter((m) => /\bAEROSPIKE\b/i.test(sheet(m))),
-    machinedOD: onPurpose.filter((m) => /\bMACHINED\b/i.test(sheet(m)) && /\bO\.D\./i.test(sheet(m))),
     cutShort: onPurpose.filter((m) => /\bCUT TO\b/i.test(sheet(m))),
   };
 }
@@ -484,7 +486,7 @@ function checkNozzleClaims(raw, facts) {
   }
 
   // The rest of the rows with no number on purpose. The sentence names one motor
-  // for two of its reasons and counts the other two, and it reads as the whole
+  // for one of its reasons and counts the other two, and it reads as the whole
   // list, so a row with no exit for a reason it does not give is a sentence to
   // write, not a row to leave out.
   const notTheFiles = (hit, what, rows) => fail(`user-guide.md says "${hit.m[0]}"; in nozzles.json the loadable `
@@ -494,15 +496,13 @@ function checkNozzleClaims(raw, facts) {
     if (hit && !(rows.length === 1 && rows[0].designation.startsWith(hit.m[1]))) notTheFiles(hit, what, rows);
   };
   theOne(/\bthe ([A-Z]\d+[A-Z]*) is an aerospike\b/, 'and an aerospike on the sheet', facts.aerospike);
-  theOne(/\bthe ([A-Z]\d+[A-Z]*(?:-[A-Z]+)?)'s machined nozzle is drawn with its outside diameter and no exit\b/,
-    'and a nozzle the sheet gives machined to an outside diameter', facts.machinedOD);
   at = find(new RegExp(String.raw`\b${SAID_COUNT} has a nozzle the sheet says was cut shorter than the mould\b`, 'i'));
   if (at && asCount(at.m[1]) !== facts.cutShort.length) {
     notTheFiles(at, 'and a nozzle the sheet says was "CUT TO" a length', facts.cutShort);
   }
   at = find(/\bcarry a row with no number on purpose\b/);
   if (at) {
-    const given = [facts.aerospike, facts.moulded29, facts.machinedOD, facts.cutShort];
+    const given = [facts.aerospike, facts.moulded29, facts.cutShort];
     const unexplained = facts.onPurpose.filter((m) => !given.some((rows) => rows.includes(m)));
     if (unexplained.length) {
       fail(`nozzles.json has ${inWords(unexplained.length)} loadable row(s) with no exit that user-guide.md's sentence `

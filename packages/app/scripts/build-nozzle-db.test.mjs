@@ -132,7 +132,7 @@ const SEPT_13 = Date.UTC(2026, 8, 13, 12);
 /** The full composition on the synthetic set, without the shipped tables that name real motors. */
 const build = async (over = {}) => (await builder()).buildNozzleDb({
   raw: RAW(), motorsDb: CATALOGUE(), mtimeMs: () => SEPT_13,
-  lokiSheets: [], observations: [], measured: [], sheetJoins: [], instructionRows: [],
+  lokiSheets: [], observations: [], measured: [], sheetJoins: [], instructionRows: [], storePages: [],
   ...over,
 });
 
@@ -334,6 +334,83 @@ describe('the AeroTech rows, one per drawing and then one per motor', () => {
       `  ${M_SHEET}`,
       'Put each in a casing-size subfolder, or give findMotor another way to get the diameter.',
     ]);
+  });
+});
+
+/**
+ * A STORE PAGE READ LIVE (2026-10-01). Part 01600's page states its exit, and it
+ * was never among the pages saved in docs/RCS Schematics/Nozzles, so the I40N-P
+ * published none. A page read live goes through the same reader as a saved one.
+ */
+describe('a store page read live', () => {
+  const DMS_38 = '38mm/I99N-P.pdf';
+  const liveRaw = (lom = [{ part: '01999', desc: '38MM NOZZLE MACHINED 1.25" O.D. X .156" DT' }]) => ({
+    specPages: [],
+    nozzleDrawings: [],
+    assemblies: [assembly(DMS_38, lom, { docFamily: 'dms', designationFromFile: 'I99N-P' })],
+    certNozzles: [],
+  });
+  const i99 = { motorId: 'at-i99n', manufacturerAbbrev: 'AeroTech', designation: 'I99N-P', commonName: 'I99',
+    diameter: 38, caseInfo: null, type: 'SU', availability: 'regular' };
+  const PAGE = {
+    productCode: '01999', title: '38mm Nozzle, 0.137" Throat',
+    url: 'https://example.invalid/01999', readOn: '2026-10-01',
+    summary: 'Molded nozzle for 38mm motors. Dimensions: 1.308" O.D. 0.137" diameter throat 0.289" diameter exit Click here for drawing',
+  };
+
+  it('resolves a part the way a saved page does, and names the page and the day it was read', async () => {
+    const { aerotechDrawingRows } = await builder();
+    const { rows, parts } = aerotechDrawingRows(liveRaw(), [i99], { storePages: [PAGE] });
+    expect(parts.get('01999')).toMatchObject({
+      name: '38mm Nozzle, 0.137" Throat', exitDiameterIn: 0.289, exitSource: 'spec-page', exitConfidence: 'high',
+      throatDiameterIn: 0.137, throatSource: 'spec-page',
+      provenance: { specPage: 'https://example.invalid/01999 (store page, read 2026-10-01)' },
+    });
+    expect(rows[0]).toMatchObject({
+      motorId: 'at-i99n', exitDiameterIn: 0.289, exitSource: 'spec-page', exitConfidence: 'high',
+      throatDiameterIn: 0.156, // the motor's own drilled throat, not the moulded 0.137
+      provenance: { exitFrom: 'https://example.invalid/01999 (store page, read 2026-10-01)' },
+    });
+    // And without it the part has no exit, which is what the file said before.
+    expect(aerotechDrawingRows(liveRaw(), [i99]).rows[0].exitSource).toBe('none');
+  });
+
+  it('dates the file by the day a live page was read, when that is the newest source', async () => {
+    const { db } = await build({ raw: liveRaw(), motorsDb: { generated: '2026-09-30', motors: [i99] }, storePages: [PAGE] });
+    expect(db.generated).toBe('2026-10-01'); // every document's mtime is 13 September
+    expect((await build({ raw: liveRaw(), motorsDb: { generated: '2026-09-30', motors: [i99] } })).db.generated).toBe('2026-09-13');
+  });
+
+  it('refuses a live page a saved one now covers, or one that states no exit', async () => {
+    const { aerotechDrawingRows, BuildRefused } = await builder();
+    const refused = (raw, pages) => {
+      try { aerotechDrawingRows(raw, [i99], { storePages: pages }); } catch (e) {
+        expect(e).toBeInstanceOf(BuildRefused);
+        return e.lines;
+      }
+      return null;
+    };
+    const saved = { ...liveRaw(), specPages: [specPage('01999', PAGE.summary)] };
+    expect(refused(saved, [PAGE])).toEqual(['A store page in STORE_PAGES_READ_LIVE does not hold:',
+      '  01999: the saved page Nozzles/01999.mhtml now covers it — delete the live reading']);
+    expect(refused(liveRaw(), [{ ...PAGE, summary: 'Molded nozzle for 38mm motors. Dimensions: 1.308" O.D.' }]))
+      .toEqual(['A store page in STORE_PAGES_READ_LIVE does not hold:', '  01999: the page states no exit']);
+  });
+
+  it('refuses to carry 01600\'s exit to a dash number its own drawing gives another', async () => {
+    // rcs_01600_nozzle_dwg.pdf: "01600-1 NOZZLE DRILLED .228" Dt, .375" EXIT DIA." — the dash
+    // rule would have carried the base 0.289 in onto a part whose drawing says 0.375 in.
+    const { aerotechDrawingRows, BuildRefused } = await builder();
+    const raw = liveRaw([{ part: '01600-1', desc: 'NOZZLE DRILLED .228"' }]);
+    let err;
+    try { aerotechDrawingRows(raw, [i99], { storePages: [{ ...PAGE, productCode: '01600' }] }); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(BuildRefused);
+    expect(err.lines[0]).toBe('01600-1: 01600\'s own drawing gives its dash numbers their own exits, so its 0.289 in '
+      + 'may not be carried to 01600-1:');
+    expect(err.lines[1]).toMatch(/01600-1 NOZZLE DRILLED \.228" Dt, \.375" EXIT DIA\./);
+    // Any other part's dash number still takes the base exit under the rule.
+    const other = aerotechDrawingRows(liveRaw([{ part: '01999-1', desc: 'NOZZLE DRILLED .228"' }]), [i99], { storePages: [PAGE] });
+    expect(other.rows[0]).toMatchObject({ nozzlePartNo: '01999-1', exitDiameterIn: 0.289, exitSource: 'base-spec-page' });
   });
 });
 
