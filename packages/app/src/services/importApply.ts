@@ -88,6 +88,13 @@ export function attachedSet(motors: Record<string, MountMotor>): Record<string, 
  * 0.01 and every later design, including .rkt and .CDX1 imports that carry no
  * step at all, silently inherited it and ran several times slower forever. So
  * it is always assigned, and a file without one goes back to the engine default.
+ *
+ * The geodetic model is the same kind of setting — desktop keeps it beside the
+ * time step in its simulation options — and follows the same rule: a file that
+ * carries no launch conditions (a .rkt, a .CDX1, a .ork with no simulation)
+ * opens on the default Spherical Earth rather than inheriting the previous
+ * design's. A .ork that HAS conditions always carries one, because its reader
+ * writes desktop's own rule for a missing `<geodeticmethod>` (flat).
  */
 export function importedLaunch(
   prev: LaunchConditions, fromFile: Partial<LaunchConditions> | undefined,
@@ -97,6 +104,7 @@ export function importedLaunch(
     : { ...prev, timeStepS: undefined };
   // Older files must open with guide allowance on, even after an off design.
   if (fromFile?.launchGuideAllowance == null) delete next.launchGuideAllowance;
+  if (fromFile?.geodeticMethod == null) delete next.geodeticMethod;
   // A file without a profile must not inherit the previous rocket's winds.
   if (!fromFile?.windLevels?.length) {
     delete next.windLevels;

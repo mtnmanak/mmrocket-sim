@@ -243,6 +243,56 @@ describe('a session saved before Rod aim', () => {
   });
 });
 
+/**
+ * THE GEODETIC MODEL (GS1) is OPTIONAL, and in a SESSION absent means
+ * SPHERICAL — what every flight flew before the field (the kernel was forced to
+ * it). That rule is `flownGeodeticMethod`'s. A session saved before the field
+ * restores with no key — nothing fills one in — so it is the same design
+ * (fingerprint, conditions key) and flies the same flight: no geodeticMethod
+ * reaches the kernel. A desktop FILE's absent method is the other rule, flat,
+ * and the .ork reader's (orkGeodetic.test.ts).
+ */
+describe('a session saved before the geodetic model', () => {
+  it('restores with no model, the same fingerprint and conditions key, and flies spherical', () => {
+    const launch = state().launch;
+    const snap: DesignSnapshot = {
+      ...state(), launch, mountMotors: {}, maxMotorLengthByStage: {}, savedConfigs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null },
+    };
+    const mark = designFingerprint(snap);
+    saveSessionDebounced({ ...snap, savedMark: mark });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s.launch).not.toHaveProperty('geodeticMethod');
+    expect(kernelSimOptions(s.launch)).not.toHaveProperty('geodeticMethod');
+    expect(conditionsKeyOf(s.launch)).toBe(conditionsKeyOf(launch));
+    // The same flight as naming it — and not the one a desktop file without it gets.
+    expect(conditionsKeyOf(s.launch)).toBe(conditionsKeyOf({ ...launch, geodeticMethod: 'spherical' }));
+    expect(conditionsKeyOf(s.launch)).not.toBe(conditionsKeyOf({ ...launch, geodeticMethod: 'flat' }));
+    const reloaded: DesignSnapshot = {
+      tree: s.tree, mountMotors: s.mountMotors!, launch: s.launch,
+      maxMotorLengthByStage: s.maxMotorLengthByStage!, savedConfigs: s.savedConfigs!,
+      activeConfigId: s.activeConfigId!, measured: s.measured!,
+    };
+    expect(isDirty(designFingerprint(reloaded), s.savedMark, false)).toBe(false);
+  });
+
+  it('flies a stored value that is not one of the three as spherical, as it keys it', () => {
+    // localStorage is anything's to write.
+    saveSessionDebounced({ ...state(), launch: { ...state().launch, geodeticMethod: 'Flat' as never } });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(kernelSimOptions(s.launch)).not.toHaveProperty('geodeticMethod');
+    expect(conditionsKeyOf(s.launch)).toBe(conditionsKeyOf(state().launch));
+  });
+
+  it('keeps a model the user chose', () => {
+    saveSessionDebounced({ ...state(), launch: { ...state().launch, geodeticMethod: 'wgs84' } });
+    vi.runAllTimers();
+    expect(kernelSimOptions(loadSession()!.launch).geodeticMethod).toBe('wgs84');
+  });
+});
+
 describe('a design restored from autosave remembers which build imported it', () => {
   const KEY = 'online-openrocket.session.v1';
   const rewrite = (patch: (raw: Record<string, unknown>) => void) => {

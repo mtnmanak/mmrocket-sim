@@ -1,4 +1,6 @@
-import { DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type SimulationOptions } from '@online-openrocket/engine';
+import {
+  DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type GeodeticMethod, type SimulationOptions,
+} from '@online-openrocket/engine';
 import { padAir } from './atmosphere.js';
 import { kernelWindProfile, type WindProfileConditions } from './windProfile.js';
 
@@ -80,6 +82,27 @@ export interface LaunchConditions extends WindProfileConditions {
    */
   longitudeDeg?: number | null;
   /**
+   * The Earth the flight is computed on — desktop OpenRocket's "Geodetic
+   * calculations" option (board Tier 1 row 2): 'spherical' includes the
+   * Coriolis effect, 'flat' leaves it out, and 'wgs84' flies the spherical
+   * trajectory and places its latitude and longitude on the WGS84 ellipsoid.
+   *
+   * TWO "ABSENT"S, KEPT APART:
+   *  - absent HERE — a session or share link from before the field, a new
+   *    design, a file with no launch conditions — means SPHERICAL, which is what
+   *    every flight flew before (the kernel was forced to it). That rule is
+   *    `flownGeodeticMethod`'s and nowhere else's. Never default-filled on
+   *    restore: `stableJson` would read the new key as an edit and mark every
+   *    restored design dirty. Out of `REQUIRED_CONDITION_KEYS` (simReport.ts),
+   *    and folded out of `conditionsKeyOf` whenever it flies as spherical.
+   *  - absent in a desktop .ork's `<conditions>` means FLAT: desktop's loader
+   *    pre-sets it for a file that names no method. That rule is the .ork
+   *    reader's (`readLaunchConditions`), which always writes this key for a
+   *    file with launch conditions, so an opened file never inherits the
+   *    previous design's model; `importedLaunch` drops it for a file with none.
+   */
+  geodeticMethod?: GeodeticMethod;
+  /**
    * Integration time step (s), seeded from the .ork's own `<simulation>` and
    * clamped there to MIN_IMPORTED_TIME_STEP_S. Absent = the engine's default
    * (0.05 s, the same as desktop OpenRocket).
@@ -147,6 +170,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   const air = padAir(l);
   const longitude = flownLongitudeDeg(l);
   const aim = flownRodAimDeg(l);
+  const geodetic = flownGeodeticMethod(l);
   return {
     launchRodLength: l.launchRodLengthM,
     ...(l.launchGuideAllowance === false ? { guideAllowance: false } : {}),
@@ -172,6 +196,10 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
     // left to the kernel's own −80.6, so every design saved before the field
     // hands the kernel byte-identical options.
     ...(longitude !== null ? { launchLongitude: longitude } : {}),
+    // The same rule for the Earth model: spherical is the kernel's own default,
+    // so it is sent only when it is not — and every design saved before the
+    // field, or left on Spherical Earth, hands the kernel the bytes it always did.
+    ...(geodetic !== null ? { geodeticMethod: geodetic } : {}),
     // `!= null` covers BOTH absent and cleared: the panel's nullable fields
     // commit null when emptied, and null means the same thing absent does —
     // fly the engine's default.
@@ -324,6 +352,39 @@ export const KERNEL_DEFAULT_LONGITUDE_DEG = -80.6;
 export function flownLongitudeDeg(l: Pick<LaunchConditions, 'longitudeDeg'>): number | null {
   const x = l.longitudeDeg;
   return typeof x === 'number' && Number.isFinite(x) && x !== KERNEL_DEFAULT_LONGITUDE_DEG ? x : null;
+}
+
+/**
+ * Desktop OpenRocket's three geodetic models in the order its selector lists
+ * them, each in its `.ork` spelling and with the label the Launch panel shows.
+ * The labels are desktop's ("Geodetic calculations" in its simulation options)
+ * but for the middle one, which desktop calls "Spherical approximation";
+ * "Spherical Earth" says the same in the words of the two beside it.
+ */
+export const GEODETIC_METHODS: readonly { readonly value: GeodeticMethod; readonly label: string }[] = [
+  { value: 'flat', label: 'Flat Earth' },
+  { value: 'spherical', label: 'Spherical Earth' },
+  { value: 'wgs84', label: 'WGS84 ellipsoid' },
+];
+
+/**
+ * The geodetic method the kernel is handed, or null when the flight is the
+ * spherical one every design flew before the field existed: absent, 'spherical',
+ * or anything that is not one of desktop's three (localStorage is anything's
+ * to write). ONE predicate for `kernelSimOptions` (which omits
+ * `geodeticMethod` on null) and `conditionsKeyOf` (which folds the key on
+ * null and hashes this value otherwise), so "flies as spherical" and "keys as
+ * before" cannot disagree — the rule the rod aim follows (decision D9).
+ *
+ * THIS is where a stored session's or share link's ABSENT key means spherical.
+ * A desktop file's absent `<geodeticmethod>` is the .ork reader's business,
+ * and never reaches here as absent.
+ */
+export function flownGeodeticMethod(
+  l: Pick<LaunchConditions, 'geodeticMethod'>,
+): Exclude<GeodeticMethod, 'spherical'> | null {
+  const m = l.geodeticMethod;
+  return m === 'flat' || m === 'wgs84' ? m : null;
 }
 
 /**

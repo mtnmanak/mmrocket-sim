@@ -1,7 +1,7 @@
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
-  canonicalRodAimDeg, DEFAULT_TIME_STEP_S, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE,
-  LONGITUDE_DEG_RANGE,
+  canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
+  LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
@@ -1527,6 +1527,9 @@ function readLaunchConditions(
   const launch: Partial<LaunchConditions> = {
     launchGuideAllowance: text(condEl, ':scope > launchguideallowance') !== 'false',
   };
+  // A file THIS APP wrote: its <timestep> and its <geodeticmethod> are
+  // settings the user chose here, not a stranger's desktop defaults (below).
+  const ourOwnFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR;
 
   // Every launch value is believed only inside the bounds the panel enforces on
   // a typed one (audit 2026-09-22) — the rule `<atmosphere>` below has followed
@@ -1789,7 +1792,6 @@ function readLaunchConditions(
     // displays it as "0" and refuses to take it back. So even our own files
     // keep the panel's hard floor: a step the field cannot show or re-enter
     // never reaches the engine.
-    const ourOwnFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR;
     const floorS = ourOwnFile ? PANEL_TIME_STEP_FLOOR_S : MIN_IMPORTED_TIME_STEP_S;
     launch.timeStepS = Math.max(step, floorS);
     if (step < PANEL_TIME_STEP_FLOOR_S) {
@@ -1816,10 +1818,44 @@ function readLaunchConditions(
     }
   }
 
-  const gm = text(condEl, ':scope > geodeticmethod');
-  if (gm && gm !== 'spherical') {
-    notes.push(
-      `Simulation used the “${gm}” geodetic model — this app simulates a spherical Earth.`);
+  // THE EARTH MODEL (board Tier 1 row 2, GS1): the file's own, in desktop's
+  // spellings — the kernel flies all three. Until it did, this element was read
+  // only for a note saying it was ignored, and EVERY file flew a spherical
+  // Earth, Coriolis term and all.
+  //
+  // A file that names none is desktop's rule, not ours: its loader pre-sets
+  // FLAT before it reads a <conditions> — "default loading settings (which may
+  // differ from the new defaults)", SimulationConditionsHandler — and keeps it
+  // for a value it cannot read, with a warning. So such a file flies a flat
+  // Earth there, and now here, and the note says so: the app used to fly it on
+  // a sphere without a word. Matched trimmed and in any case, where desktop
+  // wants the exact lower-case name: "Spherical" in a file means spherical.
+  //
+  // A file THIS APP wrote is the exception, and a share link is one: every
+  // export since v0.046 — the release that first wrote <conditions>, and the
+  // first share links — states its method, so one without it was edited by
+  // hand, and the only Earth any build of ours flew before this one is the
+  // sphere. That is the session's rule (`flownGeodeticMethod`) reached the
+  // only way a file can reach it.
+  //
+  // ALWAYS written when there are conditions, so an opened file never inherits
+  // the previous design's model (`importedLaunch` drops it for a file with none).
+  const gmText = text(condEl, ':scope > geodeticmethod');
+  const gm = gmText?.toLowerCase();
+  if (gm === 'flat' || gm === 'spherical' || gm === 'wgs84') {
+    launch.geodeticMethod = gm;
+  } else {
+    launch.geodeticMethod = ourOwnFile ? 'spherical' : 'flat';
+    const opensOn = ourOwnFile ? 'Spherical Earth' : 'Flat Earth, as desktop OpenRocket opens it';
+    if (gmText !== null) {
+      notes.push(`This design's simulation names the geodetic model “${gmText}”, which neither this app `
+        + `nor desktop OpenRocket knows. It opens on ${opensOn}; Geodetic calculations, in the Launch `
+        + 'panel, changes it.');
+    } else if (!ourOwnFile) {
+      notes.push('This design\'s simulation names no geodetic model, so it opens on Flat Earth, the model '
+        + 'desktop OpenRocket gives such a file, which leaves out the Coriolis effect. To include it, '
+        + 'choose Spherical Earth under Geodetic calculations in the Launch panel.');
+    }
   }
 
   return Object.keys(launch).length > 0 ? launch : undefined;
@@ -3070,7 +3106,11 @@ export function exportOrk({
       emit(4, lonTyped === KERNEL_DEFAULT_LONGITUDE_DEG
         ? `<launchlongitude typed="true">${lonTyped}</launchlongitude>`
         : `<launchlongitude>${lonTyped ?? KERNEL_DEFAULT_LONGITUDE_DEG}</launchlongitude>`);
-      emit(4, '<geodeticmethod>spherical</geodeticmethod>');
+      // The Earth model the flight flies (`flownGeodeticMethod`; null is the
+      // spherical default), in desktop's spelling — so a design left on
+      // Spherical Earth writes the very line every export carried before the
+      // setting existed, and desktop opens each choice as itself.
+      emit(4, `<geodeticmethod>${flownGeodeticMethod(launch) ?? 'spherical'}</geodeticmethod>`);
       // THE PAD AIR THE FLIGHT FLIES — padAir, the one reading the flight and
       // the recovery sizing already share. KELVIN / PASCAL on disk, and they
       // are the values AT THE PAD: desktop builds ExtendedISAModel(launch

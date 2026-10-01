@@ -2,7 +2,7 @@ import type { DelayResolution } from './autoDelaySolver.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
-import { flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
+import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
@@ -1252,6 +1252,19 @@ export function conditionsKeyOf(launch: LaunchConditions): string {
   const aim = flownRodAimDeg(launch);
   if (aim === null) delete l['launchRodAimDeg'];
   else l['launchRodAimDeg'] = aim;
+  // AN EARTH THAT FLIES AS SPHERICAL IS THE EARTH EVERY RUN FLEW (GS1). Absent,
+  // 'spherical' and a stored value that is not a method hand the kernel no
+  // geodeticMethod (`flownGeodeticMethod`, the predicate kernelSimOptions
+  // spreads it by), so they are one flight and one key — the absent spelling
+  // every run stored before the field has. Without this, the .ork reader
+  // writing 'spherical' into each design it opens would re-key every run in the
+  // history. 'flat' and 'wgs84' ARE hashed, unlike longitude: flat moves the
+  // landing point by the Coriolis term, and wgs84 re-flies to other reported
+  // coordinates — a stored spherical run re-flown on either for Show charts or
+  // the flight data would not be the flight it names (`runMatchesDesign`).
+  const geodetic = flownGeodeticMethod(launch);
+  if (geodetic === null) delete l['geodeticMethod'];
+  else l['geodeticMethod'] = geodetic;
   // ABSENT AND CLEARED ARE THE SAME FLIGHT, so they must hash the same.
   //
   // This used to be `Object.keys(launch)` alone, which emitted no segment at

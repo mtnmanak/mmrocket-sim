@@ -16,8 +16,9 @@ import { provenanceText, WeatherStrip } from './WeatherStrip.js';
 import { sourceWord } from './weatherText.js';
 import { coordinateLabel } from '../services/coordinates.js';
 import {
-  DEFAULT_TIME_STEP_S, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE, PANEL_TIME_STEP_FLOOR_S,
-  ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, timeStepCostFactor, WIND_MS_RANGE, type LaunchConditions,
+  DEFAULT_TIME_STEP_S, flownGeodeticMethod, GEODETIC_METHODS, KERNEL_DEFAULT_LONGITUDE_DEG, LATITUDE_DEG_RANGE,
+  LONGITUDE_DEG_RANGE, PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE,
+  timeStepCostFactor, WIND_MS_RANGE, type LaunchConditions,
 } from '../services/launchConditions.js';
 import { editProfileSurface } from '../services/windProfile.js';
 import { WindProfile } from './WindProfile.js';
@@ -29,9 +30,10 @@ import { WindProfile } from './WindProfile.js';
 // and the corpus sweep loaded React and every weather component with them.
 // Re-exported for the components and tests that name the panel.
 export {
-  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownLongitudeDeg, flownRodAimDeg, importLaunchValue,
-  KERNEL_DEFAULT_LONGITUDE_DEG, kernelSimOptions, LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE, normalizeRodAimDeg,
-  PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, timeStepCostFactor, WIND_MS_RANGE,
+  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownGeodeticMethod, flownLongitudeDeg, flownRodAimDeg,
+  GEODETIC_METHODS, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG, kernelSimOptions, LATITUDE_DEG_RANGE,
+  LONGITUDE_DEG_RANGE, normalizeRodAimDeg, PANEL_TIME_STEP_FLOOR_S, ROD_AIM_DEG_RANGE, ROD_ANGLE_DEG_RANGE,
+  ROD_LENGTH_M_RANGE, timeStepCostFactor, WIND_MS_RANGE,
 } from '../services/launchConditions.js';
 export type { LaunchConditions } from '../services/launchConditions.js';
 
@@ -348,6 +350,47 @@ export const LONGITUDE_HELP =
   + 'Longitude column and travels with the .ork.';
 
 /**
+ * Help for the Geodetic calculations selector (board Tier 1 row 2, GS1).
+ * Exported for the tests. The sizes are measured through the app's own open
+ * and Launch on desktop OpenRocket's example designs that name Flat Earth
+ * (2026-10-01): the landing point moved 0.015–0.28 m on the C6/B6 flights and
+ * 3.0–3.4 m on the two 2.3 km L540 flights, apogee −59 to +2 mm. WGS84 is the
+ * same physics as Spherical Earth (one Coriolis formula; engine geodetic.test.ts).
+ */
+export const GEODETIC_HELP =
+  'How the flight treats the Earth — desktop OpenRocket’s setting of the same name. Spherical Earth, '
+  + 'the default (desktop’s “Spherical approximation”), includes the Coriolis effect of the Earth’s '
+  + 'spin. Flat Earth leaves it out, which moves the landing point by centimetres on a small flight and '
+  + 'a few metres on a high one, and apogee by millimetres to centimetres. WGS84 ellipsoid flies the '
+  + 'same physics as Spherical Earth and places the flight’s latitude and longitude on the WGS84 '
+  + 'ellipsoid, the shape GPS uses. Desktop opens a file that names no model on Flat Earth, and so '
+  + 'does this app.';
+
+/**
+ * THE GEODETIC SELECTOR, a `.field` like its neighbours so it sits in the grid.
+ * It shows what the flight flies (`flownGeodeticMethod`), so a design saved
+ * before the setting — or a stored value that is not a method — reads as the
+ * Spherical Earth it flies; nothing is written until the user picks.
+ */
+function GeodeticField({ value, onChange }: { value: LaunchConditions; onChange: (v: LaunchConditions) => void }) {
+  const id = useId();
+  const helpId = `${id}-help`;
+  return (
+    <div className="field" title={GEODETIC_HELP}>
+      <label htmlFor={id}>Geodetic calculations</label>
+      <span id={helpId} className="sr-only">{GEODETIC_HELP}</span>
+      <select id={id} aria-describedby={helpId} value={flownGeodeticMethod(value) ?? 'spherical'}
+        onChange={(e) => {
+          const picked = GEODETIC_METHODS.find((m) => m.value === e.target.value);
+          if (picked) onChange({ ...value, geodeticMethod: picked.value });
+        }}>
+        {GEODETIC_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/**
  * DENSITY ALTITUDE, as a readout in the grid (weather build, step 1).
  *
  * An `<output>`, not a read-only input or a NumField: nothing here is
@@ -518,6 +561,7 @@ export function LaunchPanel({
               Temperature      | Station pressure
               Density altitude | Time step
               Latitude         | Longitude
+              Geodetic calculations
             Rod aim sits beside the Rod angle it only matters with. σ must stay
             a RIGHT-hand cell, so the chip's full-width row under it starts
             clean. Step 1 had put Density altitude beside Site altitude; this
@@ -576,6 +620,9 @@ export function LaunchPanel({
             −80.6 it flies. */}
         {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
           KERNEL_DEFAULT_LONGITUDE_DEG)}
+        {/* Under the coordinates its Coriolis term reads (GS1); desktop keeps it
+            in its simulation options, beside the time step. */}
+        <GeodeticField value={value} onChange={onChange} />
       </div>
       {/* Not a .field-caution: the tests (and a reader) take the FIRST caution
           as the one about what was typed. */}

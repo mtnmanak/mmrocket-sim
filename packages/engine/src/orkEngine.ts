@@ -93,6 +93,12 @@ export interface WindLevel {
   standardDeviation?: number;
 }
 
+/**
+ * Desktop OpenRocket's three geodetic models, as its `.ork` files spell them —
+ * see {@link SimulationOptions.geodeticMethod}.
+ */
+export type GeodeticMethod = 'flat' | 'spherical' | 'wgs84';
+
 export interface SimulationOptions {
   /** Recovery-free target probe; keeps ignition, charges and separation active. */
   delayProbe?: boolean;
@@ -153,6 +159,19 @@ export interface SimulationOptions {
   launchLatitude?: number;
   /** DEGREES (exception to the radians rule). */
   launchLongitude?: number;
+  /**
+   * The Earth the flight is computed on — desktop OpenRocket's "Geodetic
+   * calculations" simulation option, in its on-disk spellings
+   * (`GeodeticComputationStrategy`). 'spherical' adds the Coriolis acceleration
+   * and places the flight's latitude and longitude on a sphere; 'flat' leaves
+   * Coriolis out and places them with a fixed metres-per-degree scaling; 'wgs84'
+   * is the spherical Coriolis term with positions on the WGS84 ellipsoid.
+   *
+   * Absent flies 'spherical', which is what every flight flew before the option
+   * existed and desktop's default for a new simulation: left undefined it is
+   * absent from the JSON the kernel reads, so those flights are byte-identical.
+   */
+  geodeticMethod?: GeodeticMethod;
   /** Integration ceiling (s); default {@link DEFAULT_TIME_STEP_S}. */
   timeStep?: number;
   maxTime?: number;
@@ -698,6 +717,19 @@ function assertWindLevels(options: SimulationOptions): void {
   });
 }
 
+/**
+ * Refuses a geodetic method the kernel does not know, by name, before it
+ * crosses. The kernel refuses one too (OrkEngine.geodeticFor), but as a Java
+ * exception from inside the bridge; absent (undefined) is the spherical
+ * default and passes.
+ */
+function assertGeodeticMethod(options: SimulationOptions): void {
+  const m: unknown = options.geodeticMethod;
+  if (m !== undefined && m !== 'flat' && m !== 'spherical' && m !== 'wgs84') {
+    throw new Error(`geodeticMethod must be 'flat', 'spherical' or 'wgs84', not '${String(m)}'.`);
+  }
+}
+
 /** A rocket design held inside the engine, addressed by handle. */
 export class OrkRocket {
   private readonly handle: number;
@@ -870,6 +902,7 @@ export class OrkRocket {
 
   simulate(options: SimulationOptions = {}): FlightResult {
     assertWindLevels(options);
+    assertGeodeticMethod(options);
     const raw = ork.simulateJson(this.handle, JSON.stringify({
       rodLength: options.launchRodLength ?? 1.0,
       guideAllowance: options.guideAllowance !== false,
@@ -890,6 +923,9 @@ export class OrkRocket {
       pressure: options.pressure,
       launchLatitude: options.launchLatitude,
       launchLongitude: options.launchLongitude,
+      // Absent unless given, like the levels above: undefined drops out of the
+      // JSON, and the kernel flies its spherical default.
+      geodeticMethod: options.geodeticMethod,
       timeStep: options.timeStep ?? DEFAULT_TIME_STEP_S,
       maxTime: options.maxTime,
       randomSeed: options.randomSeed,

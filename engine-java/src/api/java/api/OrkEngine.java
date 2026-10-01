@@ -886,13 +886,15 @@ public final class OrkEngine {
      *   windLevels: [{altitude, speed, direction, standardDeviation}...],
      *   windAltitudeReference: "MSL" (default) | "AGL",
      *   launchAltitude, launchLatitude, launchLongitude,
+     *   geodeticMethod: "spherical" (default) | "flat" | "wgs84",
      *   temperature (K, launch-site), pressure (Pa, launch-site),
      *   timeStep, maxTime, randomSeed,
      *   series: "summary" (default) | "full" — see appendBranchSeries }
      * Custom temperature/pressure switch the atmosphere to an ISA model based
      * at the launch site; otherwise standard ISA is used. A non-empty
      * windLevels switches the wind from the single-level model to desktop's
-     * multi-level one - see windModelFor.
+     * multi-level one - see windModelFor. geodeticMethod is desktop's
+     * "Geodetic calculations" option - see geodeticFor.
      */
     @JSExport
     public static String simulateJson(int rocketHandle, String optionsJson) {
@@ -923,7 +925,7 @@ public final class OrkEngine {
                 JsonLite.dbl(o, "launchLatitude", 28.61),
                 JsonLite.dbl(o, "launchLongitude", -80.60),
                 launchAltitude));
-        conditions.setGeodeticComputation(GeodeticComputationStrategy.SPHERICAL);
+        conditions.setGeodeticComputation(geodeticFor(o));
         if (!Double.isNaN(temperature) || !Double.isNaN(pressure)) {
             conditions.setAtmosphericModel(new ExtendedISAModel(
                     launchAltitude,
@@ -973,6 +975,36 @@ public final class OrkEngine {
     }
 
     // ---------- helpers ----------
+
+    /**
+     * The flight's geodetic model - desktop's "Geodetic calculations" option
+     * (SimulationOptions.getGeodeticComputation), read from the options JSON
+     * because this bridge builds the SimulationConditions directly.
+     * <p>
+     * The values are desktop's own spellings on disk (OpenRocketSaver writes
+     * name().toLowerCase()): "spherical" adds the Coriolis acceleration and
+     * places the flight on a sphere; "flat" leaves Coriolis out and places it
+     * with a fixed meters-per-degree scaling; "wgs84" is the spherical Coriolis
+     * term with positions on the WGS84 ellipsoid (Vincenty). Both steppers read
+     * the strategy from the conditions, so this one call governs the whole
+     * flight, recovery descent included.
+     * <p>
+     * ABSENT is SPHERICAL - the strategy this bridge forced on every flight
+     * before the option existed, and desktop's default for a new simulation -
+     * reached by the same setter call with the same constant, so every caller
+     * that sends no method flies bit-identically to before. A PRESENT value
+     * must be one of the three: anything else (a null, a number, another word)
+     * is refused rather than flown as the default, as windAltitudeReference is.
+     */
+    private static GeodeticComputationStrategy geodeticFor(Map<String, Object> o) {
+        if (!o.containsKey("geodeticMethod")) return GeodeticComputationStrategy.SPHERICAL;
+        Object method = o.get("geodeticMethod");
+        if ("spherical".equals(method)) return GeodeticComputationStrategy.SPHERICAL;
+        if ("flat".equals(method)) return GeodeticComputationStrategy.FLAT;
+        if ("wgs84".equals(method)) return GeodeticComputationStrategy.WGS84;
+        throw new IllegalArgumentException("geodeticMethod must be \"flat\", \"spherical\" or \"wgs84\", not "
+                + (method instanceof String ? "\"" + method + "\"" : String.valueOf(method)));
+    }
 
     /**
      * The flight's wind model - desktop's WindModelType switch, driven by the

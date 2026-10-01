@@ -4,7 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
-  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, kernelSimOptions,
+  canonicalRodAimDeg, DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, DENSITY_ALTITUDE_HELP, flownRodAimDeg, GEODETIC_HELP,
+  kernelSimOptions,
   hasLaunchGuides, rodLengthHelp, LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
   type LaunchConditions,
 } from './LaunchPanel.js';
@@ -562,6 +563,77 @@ describe('kernelSimOptions is byte-identical for every existing design', () => {
         .toBe(JSON.stringify(kernelSimOptions(tilted)));
     }
   });
+
+  // GS1: an Earth model that flies as spherical — absent (every design saved
+  // before the setting), named, or a stored value that is not a method — hands
+  // the kernel the golden's bytes; Flat and WGS84 are sent, and nothing else is.
+  it('is unchanged by an Earth model that flies as spherical, and sends the other two', () => {
+    const golden = JSON.stringify(kernelSimOptions(DEFAULT_CONDITIONS));
+    for (const m of [undefined, 'spherical', 'Flat', 'ellipsoid', null]) {
+      const geodeticMethod = m as LaunchConditions['geodeticMethod'];
+      expect(JSON.stringify(kernelSimOptions({ ...DEFAULT_CONDITIONS, geodeticMethod })), String(m)).toBe(golden);
+    }
+    for (const m of ['flat', 'wgs84'] as const) {
+      const sent = kernelSimOptions({ ...DEFAULT_CONDITIONS, geodeticMethod: m });
+      expect(sent.geodeticMethod).toBe(m);
+      const { geodeticMethod: _sent, ...rest } = sent;
+      expect(JSON.stringify(rest)).toBe(golden);
+    }
+  });
+});
+
+/**
+ * GEODETIC CALCULATIONS (board Tier 1 row 2, GS1): desktop OpenRocket's Earth
+ * model, as a selector under the coordinates its Coriolis term reads (the grid
+ * order is pinned below). It shows what the flight flies, so a design from
+ * before the setting reads Spherical Earth, and nothing is written until the
+ * user picks.
+ */
+describe('the geodetic selector', () => {
+  const select = () => [...host.querySelectorAll('select')]
+    .find((s) => [...s.options].some((o) => o.value === 'wgs84'))!;
+  const pick = (v: string) => act(() => {
+    select().value = v;
+    select().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  it('offers desktop’s three, and shows Spherical Earth for a design that never chose', () => {
+    renderConditions({});
+    expect([...select().options].map((o) => [o.value, o.textContent]))
+      .toEqual([['flat', 'Flat Earth'], ['spherical', 'Spherical Earth'], ['wgs84', 'WGS84 ellipsoid']]);
+    expect(select().value).toBe('spherical');
+    expect(lastLaunch, 'showing the default writes nothing').toBeNull();
+  });
+
+  it('writes the model picked, and the flight is handed it', () => {
+    renderConditions({});
+    pick('flat');
+    expect(lastLaunch!.geodeticMethod).toBe('flat');
+    expect(kernelSimOptions(lastLaunch!).geodeticMethod).toBe('flat');
+    renderConditions({ geodeticMethod: 'flat' });
+    expect(select().value).toBe('flat');
+    pick('wgs84');
+    expect(lastLaunch!.geodeticMethod).toBe('wgs84');
+  });
+
+  it('shows a stored value that is not a model as the Spherical Earth it flies', () => {
+    renderConditions({ geodeticMethod: 'Flat' as never });
+    expect(select().value).toBe('spherical');
+  });
+
+  it('is labelled, and carries its help where a screen reader and the keyboard reach it', () => {
+    renderConditions({});
+    const label = [...host.querySelectorAll('label')].find((l) => l.textContent === 'Geodetic calculations')!;
+    expect(label.htmlFor).toBe(select().id);
+    const described = select().getAttribute('aria-describedby')!;
+    expect(host.querySelector(`#${CSS.escape(described)}`)?.textContent).toBe(GEODETIC_HELP);
+    expect(select().closest('.field')!.getAttribute('title')).toBe(GEODETIC_HELP);
+    expect(GEODETIC_HELP).toMatch(/desktop’s “Spherical approximation”/);
+    expect(GEODETIC_HELP).toMatch(/Flat Earth leaves it out/);
+    expect(GEODETIC_HELP).toMatch(/names no model on Flat Earth, and so does this app/);
+    // Not shaped like the atmosphere helps, which other tests find by pattern.
+    expect(GEODETIC_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
+  });
 });
 
 /**
@@ -1057,7 +1129,8 @@ describe('the rod-aim field', () => {
     renderConditions({});
     const cells = [...host.querySelectorAll('.field-grid > *')];
     const order = ['Rod angle', 'Rod aim', 'Wind avg', 'Wind gusts σ', 'Rod length', 'Site altitude',
-      'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude'];
+      'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude',
+      'Geodetic calculations'];
     expect(cells.map((c) => {
       const text = c.querySelector('label')?.textContent ?? '';
       return order.find((o) => text.startsWith(o)) ?? text;
