@@ -2834,8 +2834,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // review). The old reading stays only where the context cannot resolve one.
         // A SOLID body tube is not one of those: it has a bore, of 0
         // (BodyTube.getInnerRadius when filled), which the kernel sizes an
-        // automatic ring to and desktop's RingDTO writes. The context gives no
-        // bore there, and the fallback read the tube's stated wall instead.
+        // automatic ring to and desktop's CenteringRingDTO writes (BulkheadDTO
+        // and EngineBlockDTO extend it; OD from getOuterRadius). The context
+        // gives no bore there, and the fallback read the tube's stated wall
+        // instead.
         const ctx = solidContextFor(tree, node);
         const solidHost = parent?.type === 'bodytube' && parent['filled'] === true;
         const parentInner = ctx.parentInnerRadius ?? (solidHost ? 0 : parent

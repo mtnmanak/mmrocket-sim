@@ -127,9 +127,10 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
 
   it('.rkt writes an automatic ring inside it at the size the kernel flies: none', () => {
     // RadiusRingComponent's automatic radius is the parent's inner radius, 0 in
-    // a filled tube; desktop's RingDTO writes that 0 too. solidContextFor gives
-    // no bore here, and the writer took that as "unresolved" and fell back to
-    // the stated wall: a 23 mm plug in a solid 25 mm rod.
+    // a filled tube; desktop's CenteringRingDTO writes that 0 too.
+    // solidContextFor gives no bore here, and the writer took that as
+    // "unresolved" and fell back to the stated wall: a 23 mm plug in a solid
+    // 25 mm rod.
     const odOf = (tube: ComponentNode) => {
       const bh = { type: 'bulkhead', id: 'bh', name: 'Plug', length: 0.003, position: { method: 'top', offset: 0 } };
       const tree = { name: 'R', components: [{ type: 'stage', id: 's', name: 'S', children: [{ ...tube, children: [bh] }] }] };
