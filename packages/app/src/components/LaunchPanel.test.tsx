@@ -9,6 +9,7 @@ import {
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import { fmtSi } from '../prefs/units.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -466,7 +467,7 @@ describe('a stored site altitude outside the range the flight flies', () => {
 
   it('shows the air at the altitude flown in the blank boxes', () => {
     renderConditions({ launchAltitudeM: 12000 });
-    // Flown at 10,000 m: −50 °C and 264 mbar, not 12 km's −56.5 °C and 194.
+    // Flown at 10,000 m: −50 °C and 264 mbar, not 12 km's −56.5 °C and 193.
     expect(Number(placeholder('Temperature'))).toBeCloseTo(-50, 1);
     expect(placeholder('Station pressure')).toBe('264');
     renderConditions({ launchAltitudeM: NaN });
@@ -486,7 +487,14 @@ describe('a stored site altitude outside the range the flight flies', () => {
     const t = renderConditions({ launchAltitudeM: 12000, pressureHPa: 1013.25 })?.textContent ?? '';
     expect(t).toMatch(/this pad is 10000 m up, where a barometer reads about 264 mbar/);
     expect(t).toMatch(/Clear the field and the app uses 264 mbar/);
-    expect(t).not.toMatch(/12000|194 mbar/);
+    // Neither figure of the STORED site, which the caution quoted before the
+    // fix. Its pressure is derived through the caution's own formatter: this
+    // guard used to look for "194 mbar", which the app never printed (ISA at
+    // 12 km is 19,330 Pa, printed as 193), so that half of it could not fail.
+    const stored = `${fmtSi('pressure', 'mbar', isaPressurePa(12000))} mbar`;
+    expect(stored).toBe('193 mbar');
+    expect(t).not.toContain('12000');
+    expect(t).not.toContain(stored);
   });
 });
 
