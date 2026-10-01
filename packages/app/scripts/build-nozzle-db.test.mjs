@@ -654,6 +654,15 @@ describe("the join from a drawing's name to the catalogue", () => {
     // The item number belongs to the line: "... UNDRILLED) 4" is another row of the table.
     expect(await refused({ raw: instructionRaw(), instructionRows: [{ ...INSTRUCTION, row: { ...INSTRUCTION.row, item: '4' } }] }))
       .toEqual([head, `  ${SHEET} page 2: no row reads "1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 4"`]);
+    // Whole words at both ends: a row with 11 of the part, or the line of item 31, holds the
+    // transcription as a substring and is neither of them.
+    const lineThree = `  ${SHEET} page 2: no row reads "1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3"`;
+    expect(await refused({ raw: instructionRaw(['L9999M-PS Assembly Drawing and Instructions',
+      '11 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3 1 03287 SMOKE CHARGE(1.305" O.D. X 1.5") 10']) }))
+      .toEqual([head, lineThree]);
+    expect(await refused({ raw: instructionRaw(['L9999M-PS Assembly Drawing and Instructions',
+      '1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 31 1 03287 SMOKE CHARGE(1.305" O.D. X 1.5") 10']) }))
+      .toEqual([head, lineThree]);
     expect(await refused({ raw: instructionRaw(['1 01770 HP 75MM NOZZLE (.685" DT UNDRILLED) 3']) }))
       .toEqual([head, `  ${SHEET} page 2: the page never names L9999M-PS`]);
     expect(await refused({ raw: { ...instructionRaw(), instructionSheets: [] } }))
