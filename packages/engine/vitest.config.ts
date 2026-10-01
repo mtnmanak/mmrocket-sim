@@ -4,10 +4,15 @@ import { defineConfig } from 'vitest/config';
 // vitest 2 -> 5); packages/app/vite.config.ts carries the same two.
 export default defineConfig({
   test: {
-    // Vitest 4 cut its default exclude to node_modules and .git. `tsc -p`
-    // compiles src/*.test.ts into dist/ beside the package's entry, so without
-    // dist/ here every engine test ran twice — 20 files and 224 tests where
-    // there are 10 and 112. This is vitest 2's own list.
+    // Vitest 4 cut its default exclude to node_modules and .git. This is
+    // vitest 2's own list, and its dist/ still guards one case. The build
+    // compiled src/*.test.ts into dist/ beside the entry, so every engine test
+    // ran twice without it; since the 2026-09-30 audit's Step 8 it leaves them
+    // out and empties dist/ first (tsconfig.json says how). A dist/ built
+    // before that keeps the compiled copies, and the orphan of any test since
+    // deleted, until its next engine build: every existing checkout has one,
+    // and a build of an older commit makes one. Measured on one: 37 files
+    // collected without this line, 18 with it.
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

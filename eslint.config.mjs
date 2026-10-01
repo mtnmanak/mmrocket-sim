@@ -431,8 +431,9 @@ export default tseslint.config(
     // error type and they see less (measured 2026-09-30: a switch over the
     // engine's IgnitionEvent that misses four cases fails lint warm and passes
     // cold). So `npm run lint` builds the engine first; a bare `npx eslint`
-    // does not. Each file's program is its own tsconfig project: tsconfig.app,
-    // tsconfig.test or packages/engine's (packages/app/tsconfig.json says why).
+    // does not. Each file's program is its own tsconfig project: tsconfig.app or
+    // tsconfig.test in packages/app, tsconfig.build or tsconfig.test in
+    // packages/engine (each package's tsconfig.json says why).
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       // Not import.meta.dirname, which needs Node 20.11: written when the README

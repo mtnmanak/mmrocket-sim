@@ -1,11 +1,22 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
-  },
-  "include": ["src"]
+  // A solution file, as packages/app/tsconfig.json is: it compiles nothing of its
+  // own, and editors and ESLint's projectService find each file's project through
+  // these references. The `build` script in package.json runs each one with
+  // `tsc -p`.
+  //
+  // WHY THREE (audit 2026-09-30, Step 8). This was the build itself, `include:
+  // ["src"]`, so it compiled every src/*.test.ts into dist/ beside the package's
+  // entry, and nothing ever deleted a compiled test whose source was gone. Leaving
+  // the tests out of this file alone would leave them in no project at all: the
+  // type-aware lint fails on every one ("was not found by the project service"),
+  // and an editor checks them without the base config's flags.
+  //   tsconfig.build.json  src/ without the tests: the dist/ the app imports
+  //   tsconfig.test.json   the *.test.ts files, typechecked, never emitted
+  //   tsconfig.node.json   vitest.config.ts, which runs under Node
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.build.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

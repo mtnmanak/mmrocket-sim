@@ -1,0 +1,16 @@
+{
+  // The package's build: src/ into dist/, which package.json's `exports` hands the
+  // app. The tests are tsconfig.test.json's, so none of them is emitted here; the
+  // `build` script empties dist/ before this runs, because tsc never deletes an
+  // output whose source has gone. See tsconfig.json for the split.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}
