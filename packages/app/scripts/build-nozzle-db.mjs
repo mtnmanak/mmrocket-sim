@@ -1765,9 +1765,10 @@ export function buildNozzleDb({
       // THE NUMBER THE GUIDE QUOTED, DERIVED (2026-09-14, from review). The guide said "278
       // motors you can load" as hand-typed prose with nothing behind it, and the paragraph's
       // own components (221 AeroTech + 54 Loki) sum to 275, because three of the covered motors
-      // are out of production and the sentence never said so. Neither `motorsWithExit` (287, all
-      // rows) nor `motorsMatchedToCatalogue` (287, ignoring the exit) is that figure: a motor a
-      // user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is
+      // are out of production and the sentence never said so. Neither `motorsWithExit` (every
+      // row with an exit, matched or not: 288 in the file v0.133 wrote) nor
+      // `motorsMatchedToCatalogue` (every matched row, exit or not: 287) is that figure (279): a
+      // motor a user can LOAD and get a number for needs BOTH a catalogue id and an exit. It is
       // counted here - and until 2026-10-01 NOTHING READ IT: the guide went on typing the
       // figure by hand until the 18 September rewrite dropped it, while v0.133's note said it
       // "cannot drift again". nozzleDb.test.ts now holds it to the rows through the app's own
