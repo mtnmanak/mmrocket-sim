@@ -765,7 +765,7 @@ const CACHE_PREFIX = `${CACHE_ROOT}v5:`;
  * itself, it breaks "your work saves itself": session.ts starts flagging the
  * autosave as failing and simStore.persist refuses run writes. One batch run
  * caches a curve per candidate (BatchSimulate's own example is 226 motors) and
- * the bundled database holds 1,129, so repeated batches walk toward the whole
+ * the bundled database holds 1,156, so repeated batches walk toward the whole
  * catalogue. A cached curve is roughly 1-3 kB of JSON (~30 bytes a sample,
  * 30-100 samples), so 300 entries is well under a megabyte.
  *

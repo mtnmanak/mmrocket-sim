@@ -1,5 +1,5 @@
-import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
-import { axialLength, startFromPosition } from './position.js';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { axialLength, positionOf, startFromPosition } from './position.js';
 import { num, numOrNull } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
 
@@ -98,7 +98,7 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
   const pLen = axialLength(parent);
   const span = (n: ComponentNode): [number, number] => {
     const len = axialLength(n);
-    const start = startFromPosition((n.position ?? { method: 'top', offset: 0 }) as ComponentPosition, len, pLen);
+    const start = startFromPosition(positionOf(n), len, pLen);
     return [start, start + len];
   };
   const holdsMount = (n: ComponentNode): boolean => (n.children ?? [])

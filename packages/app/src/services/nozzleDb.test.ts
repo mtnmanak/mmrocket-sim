@@ -146,8 +146,9 @@ describe('the shipped nozzle data itself', () => {
       if (m.motorId && (await nozzleForMotorId(m.motorId))) served.add(m.motorId);
     }
     expect(served.size).toBe(counts.motorsLoadableWithExit);
-    // Rows are not motors: the ten rows with no catalogue id carry exits a user can
-    // never load, so this figure must stay below the all-rows one.
+    // Rows are not motors: nine of the ten rows with no catalogue id carry an exit a
+    // user can never load (J33N-P carries none), so this figure must stay below the
+    // all-rows one.
     expect(counts.motorsLoadableWithExit).toBeLessThan(counts.motorsWithExit);
   });
 

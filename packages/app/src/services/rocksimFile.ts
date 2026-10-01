@@ -385,8 +385,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     // it appears at most ONCE per file, inside <RocketDesign> beside
     // <Stage3Mass>, never inside a part. So a part states a known mass in one
     // of two dialects:
-    //   1. a part-level <UseKnownMass> — what WE write on export, and what any
-    //      writer that distinguishes the two would write. Read strictly.
+    //   1. a part-level <UseKnownMass> — what a writer that distinguishes the
+    //      two would write. Read strictly. (exportRkt does NOT write it: it
+    //      writes UseKnownCG=1 beside a mass override, dialect 2, because
+    //      RockSim and desktop couple the flags — "EXPORT IS DELIBERATELY
+    //      UNCHANGED" in exportRkt. Corrected 2026-10-01.)
     //   2. no such element — RockSim's own dialect, where UseKnownCG=1 has to
     //      keep meaning "both are known": reading it as CG-only would discard
     //      5,626 weighed masses in that same survey.
@@ -2183,7 +2186,7 @@ export function rktComponentInfo(
  * app — with those parts weighed again on top, and one balanced for
  * everything inside it leaves them at their own CG. Measured through the
  * kernel, a fin can weighed at 200 g with its motor tube and four fins
- * re-opened at 227.1 g, its rocket's dry CG 20.6 mm further aft
+ * re-opened at 227.1 g, its rocket's dry CG 20.7 mm further aft
  * (rocksimFile.test.ts). No encoding keeps it, so the save says so: one sentence
  * per part, and only where there is something inside to count again. A
  * stage's own override is another gap — the writer drops it altogether

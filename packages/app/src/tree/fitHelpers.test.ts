@@ -68,6 +68,17 @@ describe('finTabFit', () => {
     expect(fit.depth).toBeCloseTo(0.0381 - 0.0153, 15);
   });
 
+  it('places a mount with no position where the kernel flies it, at the bottom', () => {
+    // An inner tube with no `position` flies at Bottom +0 (InternalComponent's
+    // default; positionOf). Read as Top +0, it sat 0-0.3 m, clear of fins at
+    // 0.7-0.8 m, and the fit fell back to the wall (merge of the 2026-10-01
+    // position and fit fixes).
+    const unplaced = node({ id: 'mu', type: 'innertube', length: 0.3, outerRadius: 0.0153, motorMount: true });
+    const fit = finTabFit(AFT_FINS, air([unplaced, AFT_FINS]))!;
+    expect(fit.toMount).toBe(true);
+    expect(fit.depth).toBeCloseTo(0.0381 - 0.0153, 15);
+  });
+
   it('prefers the motor tube alongside the fins over a wider piston beside them', () => {
     // The RockSim corpus's kit layouts (Hydra, Matrix, Pterodactyl, 1/2-scale
     // Patriot): a piston or insulator tube nearly as wide as the airframe
