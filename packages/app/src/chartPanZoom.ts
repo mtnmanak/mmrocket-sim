@@ -347,6 +347,14 @@ export function panZoomPlugin(
 
         over.addEventListener('pointermove', (e) => {
           if (panId !== e.pointerId) return;
+          // A move with no button held is a release this chart never saw
+          // (another window took the pointer mid-drag, say). End the pan, as
+          // the drawings end theirs (releasedDuring), or it follows the bare
+          // pointer and the mousedown interceptor below, seeing a pan still
+          // held, swallows every plain press — the box zoom dead until a
+          // click happens to release on the chart. ANY button, not bit 1
+          // alone: a middle-button pan holds bit 4.
+          if (e.buttons === 0) { panId = null; return; }
           const sc = u.scales['x']!;
           if (sc.min == null || sc.max == null) return;
           const dxPx = e.clientX - panX;

@@ -179,6 +179,28 @@ describe('panZoomPlugin — a pan ends with its own pointer', () => {
     expect(a.selectBox).toHaveBeenCalledOnce();
   });
 
+  /**
+   * A release the chart never saw — another window took the pointer mid-drag,
+   * so the pointerup went there. The drawings end their gestures on the first
+   * move with the button up (releasedDuring); the chart pan did not, so it
+   * followed the bare pointer across the chart, and the interceptor, seeing a
+   * pan still held, swallowed every plain press: the box zoom was dead until a
+   * click happened to land and release on the chart.
+   */
+  it('ends on a move with no button held, a release it never saw', () => {
+    const a = stand();
+    install(a);
+    pointer(a, 'pointerdown', { shift: true, x: 100 });
+    pointer(a, 'pointermove', { x: 110 });
+    expect(x(a)).toEqual({ min: 39, max: 59 });
+    pointer(a, 'pointermove', { x: 200, buttons: 0 });
+    pointer(a, 'pointermove', { x: 300, buttons: 0 });
+    expect(x(a)).toEqual({ min: 39, max: 59 }); // where the pan left it
+    expect(a.setScale).toHaveBeenCalledOnce();
+    expect(mousedown(a).defaultPrevented).toBe(false);
+    expect(a.selectBox).toHaveBeenCalledOnce();
+  });
+
   it('holds a pan under pointer id 0, a valid id that a truthiness test would read as no pan', () => {
     const a = stand();
     install(a);
