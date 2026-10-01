@@ -853,7 +853,18 @@ export function planOrkSave(
  * call while designFingerprint hashes the tree WITH its ids — so the mark
  * described a stage id one greater than the tree in state, and a design with
  * nothing in it was dirty the instant ✕ New was pressed. Launch and measured
- * are deliberately not reset by New, so they carry their current values.
+ * are deliberately not reset here, so they carry what the caller passes.
+ *
+ * BUT FOR THE GEODETIC MODEL (GS1). The launch conditions are the user's field
+ * and weather, so a new design keeps them — as desktop OpenRocket starts a new
+ * simulation from the site, wind and rod it saved as defaults. Desktop starts
+ * every new simulation on Spherical Earth, though (SimulationOptions.java:70;
+ * the defaults a new simulation copies, DefaultSimulationOptionFactory, never
+ * set the model), and a new design here does the same: carried, a Flat Earth
+ * opened from one of desktop's examples flew every design built after ✕ New
+ * without the Coriolis term. The key is dropped, not set, so the new design
+ * flies and keys as every design without one does. App applies the `launch`
+ * returned here, which the mark is taken over.
  *
  * NEW SUPERSEDES ANY OPEN IN FLIGHT (audit 2026-09-22). It never claimed the
  * open sequence, so an Open still waiting on a thrustcurve.org fetch landed on
@@ -866,10 +877,15 @@ export function planNewDesign(
   openSeq?: Sequencer,
 ): { snapshot: DesignSnapshot; mark: string } {
   openSeq?.begin();
+  let launch = keep.launch;
+  if (launch.geodeticMethod !== undefined) {
+    launch = { ...launch };
+    delete launch.geodeticMethod;
+  }
   const snapshot: DesignSnapshot = {
     tree: emptyTree(),
     mountMotors: {},
-    launch: keep.launch,
+    launch,
     savedConfigs: [],
     activeConfigId: null,
     measured: keep.measured,
