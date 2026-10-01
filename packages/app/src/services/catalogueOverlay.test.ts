@@ -235,10 +235,11 @@ describe('checkForCatalogueUpdates — the button', () => {
     // Until 2026-10-01 the shipped catalogue itself carried two rows that fail
     // screenEntry, exactly as thrustcurve.org lists them, and this test held a
     // live pull returning them unchanged to refusing nothing. They are corrected
-    // now (scripts/motor-corrections.mjs) and thrustcurve.org still serves the
+    // now (scripts/motor-corrections.mjs), as are two whose thrust figures their
+    // certification letters contradict, and thrustcurve.org still serves the
     // known-bad figures, so a live pull returns them DIFFERENT from the shipped
     // rows. Without the same corrections on the live side they would arrive as
-    // changes, fail the screen and be reported "refused" on every check.
+    // changes on every check, and the impossible ones be reported "refused".
     const live = MOTOR_DB.map((m) => {
       const c = MOTOR_CORRECTIONS.find((x) => x.motorId === m.motorId);
       if (!c) return m;
@@ -246,8 +247,10 @@ describe('checkForCatalogueUpdates — the button', () => {
       for (const [f, { bad }] of Object.entries(c.fields)) asUpstream[f] = bad;
       return asUpstream as unknown as MotorDbEntry;
     });
-    // Not vacuous: each of those live rows really is one the screen refuses.
-    expect(live.filter((m) => screenEntry(m) !== null)).toHaveLength(MOTOR_CORRECTIONS.length);
+    // Not vacuous: every one of those live rows differs from the row that ships,
+    // and the impossible ones are rows the screen refuses outright.
+    expect(live.filter((m, i) => m !== MOTOR_DB[i])).toHaveLength(MOTOR_CORRECTIONS.length);
+    expect(live.filter((m) => screenEntry(m) !== null).length).toBeGreaterThan(0);
     const spy = stubApi(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.rejected).toEqual([]);

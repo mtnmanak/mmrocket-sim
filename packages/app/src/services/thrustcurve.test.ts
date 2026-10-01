@@ -343,6 +343,51 @@ describe('pickSampleFile — choosing among thrustcurve.org sim files', () => {
   });
 
   /**
+   * A CATALOGUE TOTAL CORRECTED FROM ITS CERTIFICATION LETTER (board Tier 1 row
+   * 8 (c), 2026-10-01). thrustcurve.org lists the AeroTech F52C and H13ST 13.7 %
+   * under their Tripoli Motor Testing letters on total impulse, peak and average
+   * thrust, and both files it publishes for each deliver its low figure, so the
+   * gate above passed them and nothing said a word. The catalogue now carries
+   * the letters' figures (scripts/motor-corrections.mjs). A curve is flown as
+   * published, never scaled: the file chosen, the curve and the masses are the
+   * ones the uncorrected row flew, and what changes is that the note says how far
+   * that curve falls short. On the shipped catalogue and bundle, as a user gets them.
+   */
+  describe('a catalogue total corrected from its certification letter', () => {
+    const letters = JSON.parse(readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'aerotech-certified.json'), 'utf8')).rows as
+      { file: string; totImpulseNs: number; maxThrustN: number; avgThrustN: number }[];
+    for (const [designation, file, flies, note] of [
+      ['F52C', '29mm Model Rocket Single Use/F52-5, 8, 11C.pdf', '5f5e5a6a1e865c0004c95620',
+        /^The thrust curve flown for F52C integrates to 66 N·s, -13\.6 % against the 76\.73 N·s it is certified for/],
+      ['H13ST', '29mm High Power Single-Use/H13ST-P DMS.pdf', '5f5e5b3b1e865c0004c95621',
+        /^The thrust curve flown for H13ST integrates to 215 N·s, -12\.2 % against the 244\.76 N·s it is certified for/],
+    ] as const) {
+      it(`${designation}: carries its letter's figures, flies what it flew, and says the curve falls short`, async () => {
+        const { MOTOR_DB } = await import('./motorDb.js');
+        const { MOTOR_CORRECTIONS } = await import('../../scripts/motor-corrections.mjs');
+        const { bundledSimFiles, fetchMotorSpec } = await import('./thrustcurve.js');
+        const letter = letters.find((l) => l.file === file)!;
+        const shipped = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'AeroTech' && m.designation === designation)!;
+        expect([shipped.totImpulseNs, shipped.maxThrustN, shipped.avgThrustN])
+          .toEqual([letter.totImpulseNs, letter.maxThrustN, letter.avgThrustN]);
+        // The row as thrustcurve.org lists it: the known-bad side of its correction.
+        const c = MOTOR_CORRECTIONS.find((x) => x.motorId === shipped.motorId)!;
+        const listed = { ...shipped, ...Object.fromEntries(Object.entries(c.fields).map(([f, { bad }]) => [f, bad])) };
+        const files = await bundledSimFiles(shipped.motorId);
+        expect(files.length).toBeGreaterThan(1);
+        expect(pickSampleFile(files, shipped)).toBe(pickSampleFile(files, listed));
+        expect(pickSampleFile(files, shipped)).toMatchObject({ simfileId: flies, source: 'cert', format: 'RASP' });
+        const now = await fetchMotorSpec(shipped, 5);
+        const before = await fetchMotorSpec(listed, 5);
+        for (const k of ['times', 'thrusts', 'masses', 'cgX', 'length'] as const) expect(now[k]).toEqual(before[k]);
+        expect(before.curveRepairs ?? []).toEqual([]);
+        expect(now.curveRepairs).toEqual([expect.stringMatching(note)]);
+      });
+    }
+  });
+
+  /**
    * Audit 2026-09-30 and the 1 October curve research (§8 item 2): the gate
    * integrated the RAW file, but a file whose first sample comes after t = 0
    * FLIES with a ramp up from (0, 0) in front — impulse the raw integral leaves

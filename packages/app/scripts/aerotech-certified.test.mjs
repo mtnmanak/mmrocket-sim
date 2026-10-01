@@ -35,9 +35,11 @@ const FIGURES = ['totImpulseNs', 'maxThrustN', 'avgThrustN'];
 
 /**
  * 0.5 %. Where the catalogue carries a motor these letters certify, its figure
- * IS the letter's, transcribed: 37 of the 41 matched rows agree on all three
- * figures to 0.11 % or better, and the widest are rounding (the B6W's 4.87 N·s
- * for the letter's 4.865, 0.10 %; the J1265T's 1,073.3 for 1,072.3, 0.09 %).
+ * IS the letter's, transcribed: as thrustcurve.org served it on 2026-10-01, 37
+ * of the 41 matched rows agree on all three figures to 0.11 % or better (the
+ * other four are the F52C, the H13ST and the two in KNOWN), and the widest of
+ * the 37 are rounding (the B6W's 4.87 N·s for the letter's 4.865, 0.10 %; the
+ * J1265T's 1,073.3 for 1,072.3, 0.09 %).
  * The ± each letter prints is another quantity: the spread between the motors
  * fired, 0.15 to 4.3 % of total impulse, 0.4 to 14.6 % of peak thrust and 0.3
  * to 9.2 % of average thrust. It says how far one motor may stray from the
@@ -97,18 +99,6 @@ const ABSENT = {
  * one, retire its entry; if it moves to a third figure, look again.
  */
 const KNOWN = {
-  '5f5e57811e865c0004c955d8': {
-    designation: 'F52C',
-    holds: { totImpulseNs: 66.2, maxThrustN: 64.33, avgThrustN: 52.65 },
-    why: 'every figure is the letter\'s divided by 1.159 (76.73 N·s, 74.57 N, 61.04 N), while its masses, length and '
-      + 'burn time are the letter\'s, rounded; awaiting its correction in motor-corrections.mjs',
-  },
-  '5f5e58171e865c0004c955f8': {
-    designation: 'H13ST',
-    holds: { totImpulseNs: 211.19, maxThrustN: 43.51, avgThrustN: 13.89 },
-    why: 'every figure is the letter\'s divided by 1.159 (244.76 N·s, 50.42 N, 16.10 N), while its masses, length and '
-      + 'burn time are the letter\'s, rounded; awaiting its correction in motor-corrections.mjs',
-  },
   '5f4294d20002310000000309': {
     designation: 'J99N',
     holds: { totImpulseNs: 945.2, maxThrustN: 151.95, avgThrustN: 92.4 },
