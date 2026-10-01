@@ -15,6 +15,16 @@ export function recoveryScope(configs: SavedConfig[], activeId: string | null, n
 }
 
 /**
+ * A deployment altitude as the Deploy altitude box shows it: the user's
+ * distance unit (`prefs.units.distance`) and the box's own digits, "400 ft" or
+ * "121.92 m". Flight configurations and the RockSim reader's import note both
+ * quote it through here, so the one figure reads the same in both places.
+ */
+export function deployAltitudeText(altM: number, distanceUnit: string): string {
+  return `${fmtFieldValue(siToUi('distance', distanceUnit, altM))} ${distanceUnit}`;
+}
+
+/**
  * `distanceUnit` is the user's altitude/distance unit (`prefs.units.distance`),
  * the one the Deploy altitude box itself is shown in. It is required, not
  * defaulted: the altitude used to print as raw SI with a hard-coded "m", so an
@@ -32,7 +42,7 @@ export function recoverySummary(
     // (ComponentFactory.applyDeployment keeps its default), so that is quoted.
     const altM = Number.isFinite(d.deployAltitude) ? d.deployAltitude as number : 200;
     const at = event === 'altitude'
-      ? `${fmtFieldValue(siToUi('distance', distanceUnit, altM))} ${distanceUnit} AGL descending`
+      ? `${deployAltitudeText(altM, distanceUnit)} AGL descending`
       : event === 'ejection' ? 'ejection charge' : event;
     return `${node?.name ?? `Device ${i + 1}`}: ${at}${d.deployDelay ? ` + ${d.deployDelay} s` : ''}`;
   }).join('; ');

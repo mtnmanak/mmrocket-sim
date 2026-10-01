@@ -22,6 +22,7 @@ import { findDbMotor } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
+import { deployAltitudeText } from '../components/recoveryContext.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -162,7 +163,15 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 // ============================ IMPORT ============================
 
-export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonly Preset[] }): OrkImportResult {
+export function importRkt(data: ArrayBuffer | string, opts?: {
+  presets?: readonly Preset[];
+  /**
+   * The user's distance unit (`prefs.units.distance`), for the recovery line's
+   * deployment altitudes. This module holds no unit preference, so App hands it
+   * over; without it the line writes metres, the unit the file stores.
+   */
+  distanceUnit?: string;
+}): OrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -1741,12 +1750,15 @@ export function importRkt(data: ArrayBuffer | string, opts?: { presets?: readonl
     }
     return null;
   };
+  // In the user's unit, as Flight configurations quotes it: this printed the
+  // stored metres with a hard-coded "m", so a 500 ft main read "152.4 m".
+  const distanceUnit = opts?.distanceUnit ?? 'm';
   const recoveryNotesFor = (c: OrkFlightConfig): string[] => {
     const number = cfgSim.get(c)?.number;
     const summary = recoveryNodes.map((n) => {
       const d = c.deployments[n.id!]!;
       return (n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
-        ? 'at ' + d.deployAltitude + ' m descending' : d.deployEvent === 'apogee'
+        ? 'at ' + deployAltitudeText(d.deployAltitude!, distanceUnit) + ' descending' : d.deployEvent === 'apogee'
           ? 'at apogee' : 'at the ejection charge') + (d.deployDelay ? ' + ' + d.deployDelay + ' s' : '');
     });
     return [...designRecoveryNotes, ...(number == null ? [] : simulationRecoveryNotes[number - 1]!),

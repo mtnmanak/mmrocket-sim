@@ -2570,7 +2570,10 @@ export function App() {
       // file left unset - a RockSim chute's "auto" Cd, above all.
       const presets = await loadPresets();
       if (/\.(rkt|cdx1)$/i.test(file.name)) {
-        const imported = /\.rkt$/i.test(file.name) ? importRkt(buffer, { presets }) : importCdx1(buffer);
+        // The user's distance unit too: the reader holds no unit preference,
+        // and its note quotes each configuration's deployment altitude.
+        const imported = /\.rkt$/i.test(file.name)
+          ? importRkt(buffer, { presets, distanceUnit: prefs.units.distance }) : importCdx1(buffer);
         applyNameFallback(imported, file.name);
         await applyImported(imported, openId);
         return;

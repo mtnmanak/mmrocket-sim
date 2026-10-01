@@ -43,6 +43,22 @@ describe('resolved RockSim recovery configurations', () => {
     expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toContain('121.92 m descending');
   });
 
+  /**
+   * The recovery line quotes a deployment altitude in the distance unit App
+   * hands the reader (the user's), with the Deploy altitude box's digits, as
+   * Flight configurations does. It printed the stored metres with a hard-coded
+   * "m": 104 of the 843 readable corpus files opened telling a user who set
+   * 500 ft "Main Parachute at 152.4 m descending".
+   */
+  it('quotes a deployment altitude in the distance unit it is handed', () => {
+    const file = fixture('', sim(event(12, 5, 121.92)));
+    const notes = importRkt(file, { distanceUnit: 'ft' }).notes.join(' ');
+    expect(notes).toContain('recovery: Main at 400 ft descending; Streamer at the ejection charge.');
+    expect(notes).not.toContain('121.92');
+    // Handed no unit, it writes metres, as it always did.
+    expect(importRkt(file).notes.join(' ')).toContain('recovery: Main at 121.92 m descending;');
+  });
+
   it('inherits only design defaults, handles the legacy wrapper, and diagnoses unknown/Pro conditions', () => {
     const r = importRkt(fixture(event(12, 4), sim(event(12, 2, 0, 2)) + sim(event(13, 5, 50), 4, 'E15', 'SimulationEventList')
       + sim(event(12, 28).replace('</SimulationEvent>', '<ProEvent>1</ProEvent></SimulationEvent>'))));
