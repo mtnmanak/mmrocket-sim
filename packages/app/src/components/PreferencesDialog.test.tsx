@@ -189,8 +189,7 @@ describe('Preferences → every label names its own control', () => {
   const QUANTITIES = Object.keys(UNITS) as Quantity[];
   /**
    * The other selects: the words beside each, a value to pick (never the
-   * default), and where that pick lands — so each label is shown to reach ITS
-   * select, not merely a select. (Velocity and Wind speed offer one list.)
+   * default), and where that pick lands.
    */
   const SETTINGS: [string, string, (p: Preferences) => unknown][] = [
     ['Round components entered as', 'radius', (p) => p.radiusMode],
@@ -203,18 +202,33 @@ describe('Preferences → every label names its own control', () => {
     ['Printer', 'bambu-h2d', (p) => p.printer?.preset],
   ];
 
+  /**
+   * Each label is shown to reach ITS select, not merely a select: the pick has
+   * to MOVE the setting the words name. A value chosen off whatever the reached
+   * select showed proved less. Velocity and Wind speed offer one list, and
+   * Rocket and Motor dimensions share three units, so that value could already
+   * be the named setting's own: Wind speed's label reaching the Velocity select
+   * passed.
+   */
   it('each select is the control of the label beside it, and has no second name', () => {
-    mount();
+    let live: Preferences | undefined;
+    function Live() {
+      live = usePrefs().prefs;
+      return null;
+    }
+    act(() => root.render(
+      <PrefsProvider><Live /><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
+    ));
     const check = (words: string, value: string, read: (p: Preferences) => unknown) => {
       const select = byLabel(words) as HTMLSelectElement | null;
       expect(select?.tagName, words).toBe('SELECT');
       expect(select!.getAttribute('aria-label'), words).toBeNull();
+      expect(read(live!), `${words} already reads ${value}`).not.toBe(value);
       pick(select!, value);
       expect(read(stored()), words).toBe(value);
     };
     for (const q of QUANTITIES) {
-      const now = (byLabel(QUANTITY_LABEL[q]) as HTMLSelectElement | null)?.value;
-      check(QUANTITY_LABEL[q], UNITS[q].map((u) => u.symbol).find((s) => s !== now)!, (p) => p.units[q]);
+      check(QUANTITY_LABEL[q], UNITS[q].map((u) => u.symbol).find((s) => s !== live!.units[q])!, (p) => p.units[q]);
     }
     for (const [words, value, read] of SETTINGS) check(words, value, read);
   });
@@ -230,6 +244,14 @@ describe('Preferences → every label names its own control', () => {
       expect(control!.classList.contains('unit-chip'), labelWords(l)).toBe(false);
       expect(control!.hasAttribute('aria-label'), labelWords(l)).toBe(false);
     }
+    // One label each way. Two labels reaching one field leave another with no
+    // label and no name at all, which the loop above cannot see.
+    const reached = labels.map((l) => l.control);
+    const fields = [...host.querySelectorAll<HTMLElement>('select, input')]
+      .filter((f) => !f.classList.contains('unit-chip'));
+    expect(new Set(reached).size, 'two labels reach one field').toBe(labels.length);
+    expect(fields.filter((f) => !reached.includes(f)).map((f) => f.id), 'fields no label reaches').toEqual([]);
+    expect(fields).toHaveLength(labels.length);
   });
 
   it('clicking the words reaches the select (happy-dom forwards the click; a browser focuses it)', () => {
