@@ -89,7 +89,7 @@ import {
 import { exportRkt, importRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
-import { CSV_BOM, safeName } from './services/fileName.js';
+import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { cdx1RodAimNote, exportCdx1, importCdx1 } from './services/rasaeroFile.js';
@@ -2176,7 +2176,7 @@ export function App() {
     rkt: { mime: 'application/octet-stream', description: 'RockSim design' },
     CDX1: { mime: 'application/xml', description: 'RASAero II design' },
     obj: { mime: 'text/plain', description: 'Wavefront OBJ geometry' },
-    glb: { mime: 'model/gltf-binary', description: 'glTF binary 3D model' },
+    glb: { mime: GLB_MIME, description: 'glTF binary 3D model' },
     stl: { mime: 'application/octet-stream', description: 'STL 3D shell' },
     csv: { mime: 'text/csv', description: 'Comma-separated values' },
     xlsx: { mime: XLSX_MIME, description: 'Excel workbook' },

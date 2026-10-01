@@ -10,10 +10,11 @@ import { buildPieces, isShellPiece } from '../tree/pieces.js';
  * MeshStandardMaterial (the advantage over .obj, which is geometry-only).
  * glTF is METERS by spec, so our SI geometry passes through unscaled; the
  * rocket axis = +X with the nose tip at the origin, matching the .obj export
- * (viewers show the rocket lying on its side — that is fine).
+ * (viewers show the rocket lying on its side — that is fine). The MIME type a
+ * .glb is saved under is services/fileName.ts's GLB_MIME, not exported from
+ * here: this module is lazy-loaded, and App's Save-As table needs the type on
+ * the startup path.
  */
-
-export const GLB_MIME = 'model/gltf-binary';
 
 export function rocketToGlb(tree: RocketTree, name: string): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CSV_BOM, safeName, stampedName } from './fileName.js';
+import { CSV_BOM, GLB_MIME, safeName, stampedName } from './fileName.js';
 
 /**
  * The download-filename convention had no test of any kind: `safeName`,
@@ -75,5 +75,13 @@ describe('CSV_BOM', () => {
     expect(CSV_BOM).toBe('﻿');
     expect(CSV_BOM.length).toBe(1);
     expect(CSV_BOM.charCodeAt(0)).toBe(0xFEFF);
+  });
+});
+
+describe('GLB_MIME', () => {
+  it('is the registered glTF binary type, the one App offers a .glb export under', () => {
+    // App's Save-As table reads this constant. It used to hard-code the string,
+    // while this pin sat on a copy in gltfExport.ts that nothing shipped.
+    expect(GLB_MIME).toBe('model/gltf-binary');
   });
 });
