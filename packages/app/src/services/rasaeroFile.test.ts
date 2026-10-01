@@ -2396,6 +2396,39 @@ describe('RASAero export — booster fins are located on the whole booster body'
     ]);
     expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
   });
+
+  it('names a booster with no name "stage 1" when it refuses it, never "undefined" (audit 2026-09-30)', () => {
+    // The four refusals quoted the stage's name, so a booster saved without
+    // one (a .ork with no <name>, a session or share link written without it)
+    // was refused as stage "undefined". This file's other notes call such a
+    // stage `Stage ${i}`.
+    const nameless = (children: ComponentNode[]) => {
+      const d = booster(children);
+      delete (d.tree.components[1] as { name?: string }).name;
+      return d;
+    };
+    const tube = (id: string, children: ComponentNode[] = []): ComponentNode =>
+      ({ type: 'bodytube', id, length: 0.3, outerRadius: 0.0381, thickness: 0.001, children });
+    const narrowing = (id: string, children: ComponentNode[] = []): ComponentNode => ({ type: 'transition', id,
+      length: 0.1, foreRadius: 0.0381, aftRadius: 0.03, thickness: 0.002, shape: 'conical', children });
+    const refusal = (children: ComponentNode[]): string => {
+      try { exportCdx1(nameless(children)); } catch (e) { return (e as Error).message; }
+      return 'exported';
+    };
+    const cases: [ComponentNode[], RegExp][] = [
+      [[], /^Stage 1 has no body tube/],
+      [[tube('t1'), narrowing('x'), tube('t2')], /stage 1 has other transitions/],
+      [[tube('t1', [fin()]), tube('t2', [{ ...fin(), id: 'f2' }])], /stage 1 has several/],
+      [[tube('t1'), narrowing('bt', [fin()])], /\(stage 1's boat tail\)/],
+    ];
+    for (const [children, said] of cases) {
+      const message = refusal(children);
+      expect(message).toMatch(said);
+      expect(message).not.toMatch(/undefined/);
+    }
+    // A named booster is still quoted.
+    expect(() => exportCdx1(booster([]))).toThrow(/^Stage "Booster" has no body tube/);
+  });
 });
 
 /**

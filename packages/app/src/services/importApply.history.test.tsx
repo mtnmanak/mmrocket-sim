@@ -83,7 +83,8 @@ const ctrlZ = () => act(() => {
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
 });
 
-const sinksWith = (history: TreeHistory): ImportSinks & Record<string, ReturnType<typeof vi.fn> | unknown> => ({
+/** Every sink but the history is a vi.fn; a test reads its calls as `ReturnType<typeof vi.fn>`. */
+const sinksWith = (history: TreeHistory): ImportSinks => ({
   history,
   setMountMotors: vi.fn(), setUnmatchedRefs: vi.fn(), setSavedConfigs: vi.fn(), setActiveConfigId: vi.fn(),
   setLaunch: vi.fn(), setMeasured: vi.fn(), setMachAlt: vi.fn(), setNote: vi.fn(),

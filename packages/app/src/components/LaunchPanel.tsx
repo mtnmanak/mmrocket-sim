@@ -482,7 +482,8 @@ export function LaunchPanel({
   // applied; the chip itself decides whether Wind avg still matches.
   const fetched = weather?.fetched;
   // Both are number | null, and finite or null wherever a snapshot is built
-  // (openMeteo's and weatherSnapshot's finiteOrNull), so this is a null test.
+  // (openMeteo's finiteOrNull, weatherSnapshot's finiteNullOrInvalid), so this
+  // is a null test.
   // eslint-disable-next-line no-restricted-syntax -- a null test, not a design number (audit row 522)
   const forecastWind = weather && typeof fetched?.windSpeedMs === 'number' && typeof fetched.windGustMs === 'number'
     ? { meanMs: fetched.windSpeedMs, gustMs: fetched.windGustMs, source: sourceWord(weather.endpoint) } : null;

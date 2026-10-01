@@ -174,7 +174,7 @@ export function NozzleField({
           {entries.map((source, i) => source && <li key={i}>
             {motors[i]?.label ?? `Motor ${i + 1}`}: {motors[i]?.count} × {ui(source.exitDiameterM)} — {source.fromImportedFile ? 'imported motor file' : source.manufacturer}
             {source.nozzlePartNo ? `, nozzle ${source.nozzlePartNo}` : ''}
-            {source.drawings.length > 0 ? `. Source: ${source.drawings[0]}` : ''}.
+            {source.drawings.length > 0 ? `. Source: ${source.drawings[0]!}` : ''}.
             {source.confidence !== 'high' && ' Read at lower confidence.'}
             {source.note && ` ${source.note}`}
             {source.customExitNote && ` ${source.customExitNote}`}
@@ -190,7 +190,7 @@ export function NozzleField({
           {clustered && !mixed && ` One motor's exit: ${ui(entry.exitDiameterM)}.`}
           {clustered && ` Exit areas summed over the ${motors.reduce((n, m) => n + m.count, 0)} motors ${parallel ? 'in one strap-on' : 'in this stage'}.`}
           {!mixed && entry.confidence !== 'high' && ' Read at lower confidence.'}
-          {!mixed && entry.drawings.length > 0 && ` Source: ${entry.drawings[0]}.`}
+          {!mixed && entry.drawings.length > 0 && ` Source: ${entry.drawings[0]!}.`}
         </p>
       )}
       {differs && entry && (

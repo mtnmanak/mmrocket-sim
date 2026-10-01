@@ -43,7 +43,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
     let live = true;
     loadPresets()
       .then((p) => { if (live) setAll(p); })
-      .catch((e) => { if (live) setNote(`Could not load presets: ${e}`); });
+      .catch((e: unknown) => { if (live) setNote(`Could not load presets: ${e instanceof Error ? e.message : String(e)}`); });
     return () => { live = false; };
   }, []);
 
@@ -157,7 +157,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
       });
       setNote(imported);
     } catch (e) {
-      setNote(`CSV import failed: ${e instanceof Error ? e.message : e}`);
+      setNote(`CSV import failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 

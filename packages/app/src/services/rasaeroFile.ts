@@ -693,28 +693,26 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       }
       case 'Booster': {
         const idx = stages.length;
-        const stage: ComponentNode = {
-          type: 'stage', id: freshId(),
-          name: idx === 1 ? 'Booster' : `Booster ${idx}`, children: [],
-        };
+        const stageName = idx === 1 ? 'Booster' : `Booster ${idx}`;
+        const stage: ComponentNode = { type: 'stage', id: freshId(), name: stageName, children: [] };
         const shoulderLen = num(el, 'ShoulderLength', 0);
         const insideDia = num(el, 'InsideDiameter', 0);
         if (shoulderLen > 0 && insideDia > 0) {
           stage.children!.push({
-            type: 'transition', id: freshId(), name: `${stage.name} shoulder`,
+            type: 'transition', id: freshId(), name: `${stageName} shoulder`,
             length: shoulderLen / IN,
             foreRadius: insideDia / IN / 2,
             aftRadius: num(el, 'Diameter', 4) / IN / 2,
             thickness: 0.002, shape: 'conical',
           } as ComponentNode);
         }
-        const boosterTube = mkTube(el, `${stage.name} body tube`);
+        const boosterTube = mkTube(el, `${stageName} body tube`);
         stage.children!.push(boosterTube);
         const btLen = num(el, 'BoattailLength', 0);
         const btRear = num(el, 'BoattailRearDiameter', 0);
         if (btLen > 0 && btRear > 0) {
           stage.children!.push({
-            type: 'transition', id: freshId(), name: `${stage.name} boat tail`,
+            type: 'transition', id: freshId(), name: `${stageName} boat tail`,
             length: btLen / IN,
             foreRadius: num(el, 'Diameter', 4) / IN / 2,
             aftRadius: btRear / IN / 2,
@@ -740,7 +738,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
          */
         const boosterLocIn = num(el, 'Location', NaN);
         if (Number.isFinite(boosterLocIn) && Math.abs(boosterLocIn - stationIn) > 0.01) {
-          notes.push(`${stage.name}: the file says it starts at ${boosterLocIn} in, but the parts above `
+          notes.push(`${stageName}: the file says it starts at ${boosterLocIn} in, but the parts above `
             + `it add up to ${stationIn.toFixed(3)} in. Built from the parts — a stale <Location> is the `
             + 'usual cause, but check this one against RASAero.');
         }
@@ -829,7 +827,10 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
         launch.temperatureC = c;
       } else {
         launch.temperatureC = null;
-        const [loF, hiF] = PAD_TEMP_C_RANGE.map((b) => Math.round(b * 9 / 5 + 32));
+        // Bound by bound, not `.map`, which hands back number[] and loses the pair.
+        const toF = (b: number) => Math.round(b * 9 / 5 + 32);
+        const loF = toF(PAD_TEMP_C_RANGE[0]);
+        const hiF = toF(PAD_TEMP_C_RANGE[1]);
         notes.push(`Launch site: this file's temperature, ${Number(temp.toPrecision(6))} °F `
           + `(${Number(c.toPrecision(4))} °C), is outside the ${loF} to ${hiF} °F the Temperature field `
           + 'accepts, so it is not a launch site this app can fly. Flying the standard temperature for '
@@ -848,7 +849,9 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
       launch.pressureHPa = hPa;
     } else {
       launch.pressureHPa = null;
-      const [loIn, hiIn] = PAD_PRESSURE_HPA_RANGE.map((b) => (b / INHG).toFixed(2));
+      const toInHg = (b: number) => (b / INHG).toFixed(2);
+      const loIn = toInHg(PAD_PRESSURE_HPA_RANGE[0]);
+      const hiIn = toInHg(PAD_PRESSURE_HPA_RANGE[1]);
       notes.push(`Launch site: this file's pressure, ${Number(press.toPrecision(6))} in-Hg `
         + `(${Math.round(hPa)} mbar), is outside the ${loIn} to ${hiIn} in-Hg the Station pressure `
         + 'field accepts, so it is not a launch site this app can fly. (That field holds in-Hg: sea '
@@ -2043,11 +2046,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // tail — the same shapes our importer synthesizes, so this round-trips.
   for (let i = 1; i < stagesIn.length; i++) {
     const st = stagesIn[i]!;
+    // How a refusal below names this stage: its own name, quoted, or — for a
+    // stage saved without one — its number, as this file's notes do. Quoting
+    // `st.name` refused such a stage as stage "undefined" (audit 2026-09-30).
+    const stageSaid = st.name ? `"${st.name}"` : `${i}`;
     const kids = st.children ?? [];
     kids.forEach(refuseTailCone);
     const tubes = kids.filter((c) => c.type === 'bodytube');
     if (tubes.length === 0) {
-      throw new Error(`Stage "${st.name}" has no body tube — RASAero boosters need one.`);
+      throw new Error(`Stage ${stageSaid} has no body tube — RASAero boosters need one.`);
     }
     const bodyLen = tubes.reduce((s, t) => s + axialLength(t), 0);
     const externals = kids.filter((c) => c.type === 'bodytube' || c.type === 'transition');
@@ -2059,13 +2066,13 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       && nnum(last, 'foreRadius', 0) > nnum(last, 'aftRadius', 0) ? last : null;
     const extraTrans = kids.filter((c) => c.type === 'transition' && c !== shoulder && c !== boattail);
     if (extraTrans.length > 0) {
-      throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage "${st.name}" has other transitions; export as .ork/.rkt.`);
+      throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage ${stageSaid} has other transitions; export as .ork/.rkt.`);
     }
     const shoulderLen = shoulder ? axialLength(shoulder) : 0;
     const btLen = boattail ? axialLength(boattail) : 0;
     const finParents = kids.filter((c) => (c.children ?? []).some((k) => k.type.endsWith('finset')));
     if (finParents.length > 1) {
-      throw new Error(`RASAero allows ONE fin set per booster — stage "${st.name}" has several; export as .ork/.rkt.`);
+      throw new Error(`RASAero allows ONE fin set per booster — stage ${stageSaid} has several; export as .ork/.rkt.`);
     }
     // A booster's fins sit on the booster BODY: RASAero measures their
     // <Location> from its bottom, and the importer puts them on the one body
@@ -2082,7 +2089,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (finParent && finParent.type !== 'bodytube') {
       const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;
       throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${finParent.name ?? where}” `
-        + `(stage "${st.name}"'s ${where}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
+        + `(stage ${stageSaid}'s ${where}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
     }
     // RASAero's booster body is every tube of the stage end to end, and its
     // fin <Location> counts from the bottom of all of them — so a fin set on

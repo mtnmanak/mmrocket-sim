@@ -229,7 +229,14 @@ export function fieldProvenance(launch: LaunchConditions, snap: WeatherSnapshot 
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-const finiteOrNull = (x: unknown): number | null | undefined => (x === null ? null : finite(x) ? x : undefined);
+/**
+ * A finite number, null, or undefined for anything else (a string, NaN, a
+ * missing key), which validWeatherSnapshot reads as a malformed record and
+ * drops. Three states, where openMeteo.ts's finiteOrNull has two (anything not
+ * finite is null there): named apart, so a call copied from one file to the
+ * other cannot quietly accept what this one refuses.
+ */
+const finiteNullOrInvalid = (x: unknown): number | null | undefined => (x === null ? null : finite(x) ? x : undefined);
 
 /**
  * A stored snapshot, checked — or null, and the caller drops it. The session
@@ -245,9 +252,9 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   if (p['method'] !== 'search' && p['method'] !== 'coordinates' && p['method'] !== 'device') return null;
   const g = x['grid'];
   if (!isObj(g)) return null;
-  const gLat = finiteOrNull(g['latitudeDeg']);
-  const gLon = finiteOrNull(g['longitudeDeg']);
-  const dem = finiteOrNull(x['demElevationM']);
+  const gLat = finiteNullOrInvalid(g['latitudeDeg']);
+  const gLon = finiteNullOrInvalid(g['longitudeDeg']);
+  const dem = finiteNullOrInvalid(x['demElevationM']);
   if (gLat === undefined || gLon === undefined || dem === undefined) return null;
   if (!finite(x['forAltitudeM']) || typeof x['timezone'] !== 'string' || !finite(x['validUnix']) || typeof x['retrievedAt'] !== 'string') return null;
   // Finite is not enough: an hour the strip is to name must be one a Date can
@@ -256,8 +263,8 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   const f = x['fetched'];
   if (!isObj(f)) return null;
   const fetched = {
-    temperatureC: finiteOrNull(f['temperatureC']), pressureHPa: finiteOrNull(f['pressureHPa']),
-    windSpeedMs: finiteOrNull(f['windSpeedMs']), windGustMs: finiteOrNull(f['windGustMs']), windFromDeg: finiteOrNull(f['windFromDeg']),
+    temperatureC: finiteNullOrInvalid(f['temperatureC']), pressureHPa: finiteNullOrInvalid(f['pressureHPa']),
+    windSpeedMs: finiteNullOrInvalid(f['windSpeedMs']), windGustMs: finiteNullOrInvalid(f['windGustMs']), windFromDeg: finiteNullOrInvalid(f['windFromDeg']),
   };
   if (Object.values(fetched).some((v) => v === undefined)) return null;
   if (!isObj(x['applied']) || !isObj(x['before'])) return null;
@@ -270,7 +277,7 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
   const before: WeatherSnapshot['before'] = {};
   for (const [k, v] of Object.entries(x['before'])) {
     if (k === 'windLevels' || k === 'windProfileSource') continue;
-    const n = finiteOrNull(v);
+    const n = finiteNullOrInvalid(v);
     if (!(APPLY_KEYS as readonly string[]).includes(k) || n === undefined) return null;
     before[k as ApplyKey] = n;
   }

@@ -199,6 +199,38 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('turns no-redundant-type-constituents on for shipped source and its tests (audit Step B)', async () => {
+    // 9 hits on 2026-10-01, 2 of them in tests, all fixed before it went on.
+    // The header's count reads App.tsx's rules alone, so a tests-block edit
+    // that switched it off there would leave the count right and lint green.
+    const STEP_B = ['@typescript-eslint/no-redundant-type-constituents'];
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/App.session.test.tsx',
+      'packages/engine/src/index.ts', 'packages/engine/src/orkEngine.test.ts']) {
+      const rules = await rulesFor(rel, STEP_B);
+      expect(STEP_B.map((r) => severity(rules[r])), rel).toEqual([2]);
+    }
+  });
+
+  it('turns restrict-template-expressions on for shipped source, refusing nullish, and off in tests (audit Step B)', async () => {
+    // typescript-eslint merges given options over the rule's defaults, which
+    // allow any, boolean, nullish and RegExp: written `{ allowNumber: true }`,
+    // the rule is its default and passes `${maybeUndefined}`, the case it is
+    // on for (a motor card's delay box once read "Ejection delay for
+    // undefined"). The tests' 53 hits are why the tests block turns it off.
+    const RULE = '@typescript-eslint/restrict-template-expressions';
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/autoDelay.testSupport.ts',
+      'packages/engine/src/index.ts']) {
+      const entry = (await rulesFor(rel, [RULE]))[RULE];
+      expect(severity(entry), rel).toBe(2);
+      expect(entry[1], rel).toEqual(expect.objectContaining({
+        allowAny: false, allowBoolean: false, allowNullish: false, allowRegExp: false, allowNumber: true,
+      }));
+    }
+    for (const rel of ['packages/app/src/App.session.test.tsx', 'packages/engine/src/orkEngine.test.ts']) {
+      expect(severity((await rulesFor(rel, [RULE]))[RULE]), rel).toBe(0);
+    }
+  });
+
   it('leaves ordinary type narrowing, and a compound test that refuses NaN, alone', async () => {
     // A plain variable is as often a union discriminator as a field read, and
     // an operand of && / || beside a bound or Number.isFinite has a partner

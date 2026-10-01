@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import { estimateMotorRoom, estimateMotorRoomForMounts } from './motorRoom.js';
+import { estimateMotorRoom } from './motorRoom.js';
 
 /**
  * The "how long a motor fits" estimate (owner, 2026-08-30). Measured forward
@@ -328,10 +328,11 @@ describe('estimateMotorRoom', () => {
     });
   });
 
-  it('takes the tightest mount when a stage has several', () => {
+  it('gives each mount in a stage its own room — a sibling mount is not in the way', () => {
     // Both mounts at the TOP of the tube, stated: an inner tube with no
     // position flies flush with the bottom (position.ts positionOf), where
-    // either motor could reach the front of the airframe.
+    // either motor could reach the front of the airframe. Each figure is that
+    // mount's own Max motor length estimate (v0.144); there is no stage figure.
     const top = { method: 'top', offset: 0 };
     const tree = {
       name: 'R',
@@ -346,9 +347,11 @@ describe('estimateMotorRoom', () => {
         }],
       }],
     } as unknown as RocketTree;
-    const r = estimateMotorRoomForMounts(tree, ['m1', 'm2'])!;
-    expect(r.lengthM).toBeCloseTo(0.18, 9);
-    expect(estimateMotorRoomForMounts(tree, ['nope'])).toBeNull();
+    for (const [id, lengthM] of [['m1', 0.30], ['m2', 0.18]] as const) {
+      const r = estimateMotorRoom(tree, id)!;
+      expect(r.lengthM, id).toBeCloseTo(lengthM, 9);
+      expect(r.limitedBy, id).toBe('the front of the airframe');
+    }
   });
 });
 
@@ -358,14 +361,14 @@ describe('estimateMotorRoom', () => {
  * bulkheads cannot stop a core motor, and the core's cannot stop a pod's. The
  * search used to span every frame in the stage, so a pod's nose cone "limited"
  * the core motor — measured 1.00 m without the pod, 0.30 m with it — and since
- * the minimum over a stage's mounts feeds Room for and Estimate, the motor
+ * the minimum over a stage's mounts then fed Room for and Estimate, the motor
  * browser was filtered by a stop no motor in the stage ever meets. And inside a
  * pod the chain did not stack, so a pod mount measured from the wrong place.
  *
- * The stage figure is STILL the minimum over its mounts, pods included: one
- * per-stage limit filters every mount's browser in that stage, so it has to be
- * a length every one of them can take. What changed is that each mount's own
- * figure is now true, so the minimum is a real room, named by a real stop.
+ * Since v0.144 there is no stage figure: each mount has its own Max motor
+ * length (motorLength.ts), and its own figure is its Room for and what its
+ * Estimate writes. So the core and a pod each keep their own room, named by
+ * their own stop.
  */
 describe('a pod set or strap-on is its own airframe', () => {
   /** The dual-deploy core of the tests above, with a ring on the booster tube. */
@@ -446,21 +449,6 @@ describe('a pod set or strap-on is its own airframe', () => {
     const r = estimateMotorRoom(t, 'pm')!;
     expect(r.lengthM).toBeCloseTo(0.45, 9);
     expect(r.limitedBy).toBe('the front of the pod');
-  });
-
-  it('the stage figure is the tightest mount’s OWN room — never a pod blocking the core', () => {
-    // estimateMotorRoomForMounts is the stage figure. Asked for the core alone
-    // it is the core's 1.00 m — nothing inside the pod cuts it down…
-    const core = estimateMotorRoomForMounts(withRing('podset'), ['mt'])!;
-    expect(core.lengthM).toBeCloseTo(1.00, 9);
-    expect(core.limitedBy).toBe('Ebay floor');
-    // …and asked for the core and the pod, as App asks for a stage holding
-    // both, it is the pod's own 0.445 m to its own bulkhead: the one length
-    // both mounts take. Before, both figures were wrong — the core stopped at
-    // the pod's nose and the pod measured from the pod set's start.
-    const both = estimateMotorRoomForMounts(withRing('podset'), ['mt', 'pm'])!;
-    expect(both.lengthM).toBeCloseTo(0.445, 9);
-    expect(both.limitedBy).toBe('Pod bulkhead');
   });
 });
 

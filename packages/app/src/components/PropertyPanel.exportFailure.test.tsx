@@ -35,7 +35,8 @@ const tree = {
 let host: HTMLDivElement;
 let root: Root;
 const rejections: unknown[] = [];
-const onRejection = (e: PromiseRejectionEvent | unknown) => { rejections.push(e); };
+/** Node's unhandledRejection listener: it is handed the rejection's reason, of any type. */
+const onRejection = (reason: unknown) => { rejections.push(reason); };
 
 beforeEach(() => {
   localStorage.clear();

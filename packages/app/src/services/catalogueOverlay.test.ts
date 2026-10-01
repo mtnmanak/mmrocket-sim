@@ -86,6 +86,20 @@ describe('screenEntry — a live row must be a possible motor', () => {
     expect(screenEntry(row({ commonName: undefined as unknown as string }))).toMatch(/common name/);
     expect(screenEntry(row({ commonName: ' ' }))).toMatch(/common name/);
   });
+
+  it('names a missing number as missing, never as "undefined" or "null" (audit 2026-09-30)', () => {
+    // The reason is shown: describeOverlay writes "Refused <motor>: <reason>."
+    // into the motor browser's note. A live row without the field, or with
+    // JSON's null in it, read "diameter undefined mm is not a motor".
+    const cases = [['diameter', 'no diameter'], ['length', 'no length'], ['burnTimeS', 'no burn time']] as const;
+    for (const [field, reason] of cases) {
+      for (const missing of [undefined, null]) {
+        expect(screenEntry({ ...row(), [field]: missing }), `${field} ${String(missing)}`).toBe(reason);
+      }
+    }
+    // A number that is there but impossible is still quoted.
+    expect(screenEntry(row({ diameter: 0 }))).toBe('diameter 0 mm is not a motor');
+  });
 });
 
 describe('diffCatalogue', () => {
@@ -183,7 +197,8 @@ describe('persistence and expiry', () => {
     const o = restoreCatalogueOverlay()!;
     expect(o.added.map((m) => m.motorId)).toEqual(['kept']);
     expect(o.changed).toEqual([]);
-    expect(o.rejected.map((r) => r.reason)).toEqual(['burn time undefined s', 'no common name']);
+    // "no burn time", which read "burn time undefined s" until 2026-09-30.
+    expect(o.rejected.map((r) => r.reason)).toEqual(['no burn time', 'no common name']);
     expect(getCatalogue().some((m) => m.motorId === 'no-burn')).toBe(false);
     expect(getCatalogue().find((m) => m.motorId === shipped.motorId)?.commonName).toBe(shipped.commonName);
   });

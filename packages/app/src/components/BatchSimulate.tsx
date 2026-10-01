@@ -1033,7 +1033,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             ? (matched
               ? `Weighed pad mass: ${weighed.name} flies with ${delta} of hardware (adapter, retainer, closure), as on the design page — expect its apogee to read a little lower than another candidate of the same impulse. Every other candidate flies at its catalogue weight; only that motor was weighed.`
               : `Weighed pad mass: ${weighed.name}, the motor it was weighed with, is not among these candidates, so every row flies at its catalogue weight.`)
-            : `Weighed pad mass: ${weighed.name} on ${mounts.find((m) => m.id === weighed.mountId)?.label} keeps its ${delta} of hardware in every flight; the candidates on this mount fly at their catalogue weight.`;
+            : `Weighed pad mass: ${weighed.name} on ${mounts.find((m) => m.id === weighed.mountId)?.label ?? 'another mount'} keeps its ${delta} of hardware in every flight; the candidates on this mount fly at their catalogue weight.`;
           return <p className="comp-stats batch-weighed" style={{ margin: '4px 0 0' }}>{text}</p>;
         })()}
         {/* What the sweep does with the design's nozzle exit diameter, said

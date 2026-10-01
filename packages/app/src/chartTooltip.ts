@@ -186,8 +186,11 @@ export function tooltipPlugin(rowLabel?: (seriesIndex: number, idx: number, labe
     box.textContent = '';
     const head = document.createElement('div');
     head.className = 'chart-tooltip-x';
+    // uPlot types a series label string | HTMLElement; an element reads as its
+    // text rather than "[object HTMLElement]".
     const xLabel = u.series[0]?.label;
-    head.textContent = xLabel ? `${xLabel} ${formatReadout(xVal)}` : formatReadout(xVal);
+    const xText = typeof xLabel === 'string' ? xLabel : xLabel?.textContent ?? '';
+    head.textContent = xText ? `${xText} ${formatReadout(xVal)}` : formatReadout(xVal);
     box.appendChild(head);
     for (const r of rows) {
       const row = document.createElement('div');

@@ -51,8 +51,9 @@ import { lookupTable } from '../services/xmlUtil.js';
  * sits in (audit 2026-09-22, row 359). A pod is a separate tube beside the
  * core; its nose cone and bulkheads are no more in a core motor's way than the
  * core's are in a pod motor's. The search used to span every frame in the
- * stage, so a pod's nose cone "limited" the core motor — and the minimum over a
- * stage's mounts feeds Room for and ⌾ Estimate, which filter the motor browser.
+ * stage, so a pod's nose cone "limited" the core motor — and a mount's figure
+ * feeds that mount's Room for and ⌾ Estimate, whose Max motor length filters
+ * that mount's motor browser and Batch candidates.
  *
  * Deliberately NOT an obstruction:
  *
@@ -356,18 +357,4 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
       ?? (!assembly ? 'the front of the airframe'
         : assembly.type === 'podset' ? 'the front of the pod' : 'the front of the strap-on'),
   };
-}
-
-/**
- * The tightest estimate across several mounts — what a per-STAGE limit wants,
- * since one number has to serve every mount in the stage. Null when no mount
- * yields one.
- */
-export function estimateMotorRoomForMounts(tree: RocketTree, mountIds: string[]): MotorRoom | null {
-  let best: MotorRoom | null = null;
-  for (const id of mountIds) {
-    const r = estimateMotorRoom(tree, id);
-    if (r && (!best || r.lengthM < best.lengthM)) best = r;
-  }
-  return best;
 }

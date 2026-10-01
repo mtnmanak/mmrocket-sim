@@ -299,7 +299,9 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     if (!h) return;
     if (why) { skipped.push(why); return; }
     if (pts.length === 0) return;
-    const [name, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
+    // A header has seven or more tokens (isHeader), so the name is there.
+    const name = h[0]!;
+    const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
     // Trailing zeros after the last burning sample go, bar the first.
     let last = pts.length - 1;
     while (last > 0 && pts[last]!.thrust === 0 && pts[last - 1]!.thrust === 0) last--;
@@ -309,7 +311,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     if (problem) { skipped.push(`${name}: ${problem}`); return; }
     motors.push({
       motorId: `ex:${slug(`${mfr.join(' ') || 'ex'}-${name}`)}`,
-      designation: name!,
+      designation: name,
       realManufacturer: mfr.join(' ') || 'EX',
       diameter: Number(diaMm),
       length: Number(lenMm),
@@ -348,8 +350,9 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
       // nothing to do with a file the user loaded off their own disk.
       // parseRse refuses its equivalent ("initial mass missing or zero").
       if (!Number.isFinite(Number(tok[4])) || !Number.isFinite(Number(tok[5]))) {
+        // Both are there: a header has seven or more tokens (isHeader).
         refused = `Propellant and total mass must be numbers in "${line.slice(0, 60)}" — `
-          + `read "${tok[4]}" and "${tok[5]}".`;
+          + `read "${tok[4]!}" and "${tok[5]!}".`;
       }
       continue;
     }
@@ -400,7 +403,7 @@ function rseSampleMassesKg(
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.01 * b;
   if (near(masses[0]!, propG)) return masses.map((m) => (m + initG - propG) / 1000);
   if (near(masses[0]!, initG) && masses.every((m) => m > 0)) return masses.map((m) => m / 1000);
-  notes?.push(`${name}: its per-point masses start at ${masses[0]} g, which is neither its loaded mass `
+  notes?.push(`${name}: its per-point masses start at ${masses[0]!} g, which is neither its loaded mass `
     + `(${initG} g) nor its propellant (${propG} g), so burn-off is spread in proportion to impulse instead.`);
   return undefined;
 }

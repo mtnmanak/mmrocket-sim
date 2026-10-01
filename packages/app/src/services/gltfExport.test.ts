@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { GLB_MIME, rocketToGlb } from './gltfExport.js';
+import { rocketToGlb } from './gltfExport.js';
 
 const tree: RocketTree = {
   name: 'GlbTest',
@@ -71,9 +71,5 @@ describe('rocketToGlb', () => {
   it('rejects an empty design', async () => {
     await expect(rocketToGlb({ components: [{ type: 'stage', children: [] }] } as RocketTree, 'X'))
       .rejects.toThrow(/Nothing to export/);
-  });
-
-  it('exposes the download MIME type', () => {
-    expect(GLB_MIME).toBe('model/gltf-binary');
   });
 });

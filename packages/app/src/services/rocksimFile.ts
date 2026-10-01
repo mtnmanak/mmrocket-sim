@@ -1737,7 +1737,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         ? JSON.stringify(r.matchContext) : ''].join('|')).sort().join('\n');
     const same = seenSets.get(key);
     if (same) {
-      const label = `Simulation ${g.number}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
+      // Numbered: the unnumbered loose sets are the first group, so only a
+      // simulation after them can fold into one already seen.
+      const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
       foldedSources.get(same)!.push(label);
       if (g.number !== null) foldedDiagnostics.get(same)!.push(
         ...simulationRecoveryNotes[g.number - 1]!.map((note) => `${label}: ${note}`));
@@ -2308,7 +2310,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   const emitRecovery = (wrapper: 'SimulationEventList' | 'SimulationEvents') => {
     emit(`<${wrapper}>`);
     for (const { node, serial } of recoveryCopies) {
-      const event = node['deployEvent'] ?? 'ejection';
+      const event = String(node['deployEvent'] ?? 'ejection');
       const delay = nnum(node, 'deployDelay', 0);
       const altitude = nnum(node, 'deployAltitude', 200);
       const type = event === 'ejection' ? (delay > 0 ? 2 : 1)
@@ -3086,13 +3088,13 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   });
   // Slots are top-down: our stage 0 (sustainer) = Stage3Parts.
   const slots = ['Stage3Parts', 'Stage2Parts', 'Stage1Parts'];
-  for (let i = 0; i < 3; i++) {
-    emit(`<${slots[i]}>`);
+  for (const [i, slot] of slots.entries()) {
+    emit(`<${slot}>`);
     if (i < stagesIn.length) {
       // `folded` tubes went out inside their cone's <BaseExtensionLen>.
       for (const node of stagesIn[i]!.children ?? []) { if (folded.has(node)) continue; emitPart(node, null); }
     }
-    emit(`</${slots[i]}>`);
+    emit(`</${slot}>`);
   }
   emitRecovery('SimulationEventList');
   emit('</RocketDesign>');

@@ -5,7 +5,8 @@ import { autoDelayBox, padMassOntoRankedPrimary, primaryMountOf } from './treeMo
 /**
  * What the core-first primary ranking (audit 2026-09-22, row 356) has to carry
  * with it, found in review: a weighed pad mass saved on the record that used to
- * win the tie, and an auto-delay flag on a card that no longer shows the box.
+ * win the tie, and an auto-delay flag on a card that no longer showed the box
+ * (since v0.144 every mount's card shows it: autoDelayBox below).
  *
  * App's use of both is App.render.test.tsx's (audit 2026-09-22, row 477), with
  * App mounted on a pod design: the restore moving the pad mass in the working
@@ -107,24 +108,14 @@ describe('padMassOntoRankedPrimary — a weighing saved under the old tie-break'
 });
 
 describe('autoDelayBox — the auto-delay box each mount card shows', () => {
-  it('offers the working box on the primary’s sustainer card, ticked or not', () => {
-    expect(autoDelayBox(tree, 'core', 'core', false)).toBe('optimal');
-    expect(autoDelayBox(tree, 'core', 'core', true)).toBe('optimal');
+  it('offers "auto (optimal)" on every mount the tree holds: core, pod, strap-on or booster', () => {
+    // Since v0.144 each mount's Auto delay is its own carrier branch's
+    // (autoDelaySolver), so neither which mount is primary nor whether the
+    // box is ticked decides it: the two inputs that once did are gone.
+    for (const id of ['core', 'core2', 'pod', 'strap', 'b1']) expect(autoDelayBox(tree, id), id).toBe('optimal');
   });
 
-  it('shows a box on any other card whose motor carries the flag, so it can be unticked', () => {
-    // The pod and the strap-on fly their provisional delay whatever the flag
-    // says; only the primary's is honoured (flightRunner).
-    expect(autoDelayBox(tree, 'strap', 'core', true)).toBe('optimal');
-    expect(autoDelayBox(tree, 'pod', 'core', true)).toBe('optimal');
-    expect(autoDelayBox(tree, 'b1', 'core', true)).toBe('optimal');
-    // …and none where there is nothing to untick.
-    expect(autoDelayBox(tree, 'strap', 'core', false)).toBe('optimal');
-    expect(autoDelayBox(tree, 'pod', null, false)).toBe('optimal');
-  });
-
-  it('a booster that is primary shows the working box once ticked, and none before', () => {
-    expect(autoDelayBox(tree, 'b1', 'b1', false)).toBe('optimal');
-    expect(autoDelayBox(tree, 'b1', 'b1', true)).toBe('optimal');
+  it('offers none for a mount the tree no longer holds', () => {
+    expect(autoDelayBox(tree, 'gone')).toBeNull();
   });
 });

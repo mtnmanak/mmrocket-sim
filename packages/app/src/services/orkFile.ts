@@ -519,7 +519,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const known = separationEventOf(event);
         o.separationEvent = known ?? 'ejection';
         if (known === null && node['separationEvent'] !== event) {
-          outsideTreeEnums.set(`${node.id}\u0000separation\u0000${event}`, configSeparationNote(node, event));
+          outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`, configSeparationNote(node, event));
         }
       }
       if (text(src, ':scope > separationdelay') !== null) {
@@ -585,8 +585,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // it, for the reason the ignition note above is: no later step says it.
       // The plugged note for the opened configuration follows as for `none`.
       const delayValue = delayText === null || delayText === 'none' ? NaN : parseDecimal(delayText);
-      if (delayText !== 'none' && Number.isNaN(delayValue) && !unreadDelays.has(`${designation}|${delayText}`)) {
-        unreadDelays.add(`${designation}|${delayText}`);
+      const delayKey = `${designation}|${String(delayText)}`; // "|null" for no <delay>, apart from a blank one
+      if (delayText !== 'none' && Number.isNaN(delayValue) && !unreadDelays.has(delayKey)) {
+        unreadDelays.add(delayKey);
         notes.push(`Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
           : `the file's ejection delay “${delayText}” is not a number`}, so it is read as plugged (no`
           + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Launch.');
@@ -2439,10 +2440,10 @@ export function exportOrk({
         emit(depth + 1, `<aftshoulderradius>${n(node, 'shoulderRadius', 0)}</aftshoulderradius>`);
         emit(depth + 1, `<aftshoulderlength>${n(node, 'shoulderLength', 0)}</aftshoulderlength>`);
         emit(depth + 1, `<aftshoulderthickness>${n(node, 'shoulderThickness', 0)}</aftshoulderthickness>`);
-        emit(depth + 1, `<aftshouldercapped>${node['shoulderCapped'] === true}</aftshouldercapped>`);
+        emit(depth + 1, `<aftshouldercapped>${String(node['shoulderCapped'] === true)}</aftshouldercapped>`);
         // LAST, as NoseConeSaver writes it: desktop's loader flips the cone when
         // it meets this, moving the base and shoulder above to the fore side.
-        emit(depth + 1, `<isflipped>${isTailCone(node)}</isflipped>`);
+        emit(depth + 1, `<isflipped>${String(isTailCone(node))}</isflipped>`);
         close('nosecone');
         break;
       }
@@ -2465,7 +2466,7 @@ export function exportOrk({
         if (shapeIsClippable(String(node['shape'] ?? 'conical'))) {
           const clippedOut = typeof node['clipped'] === 'boolean'
             ? (node['clipped'] as boolean) : true;
-          emit(depth + 1, `<shapeclipped>${clippedOut}</shapeclipped>`);
+          emit(depth + 1, `<shapeclipped>${String(clippedOut)}</shapeclipped>`);
         }
         shapeParamXml(depth + 1, node);
         emit(depth + 1, `<foreradius>${numOpt(node, 'foreRadius') ?? 'auto'}</foreradius>`);
@@ -2479,7 +2480,7 @@ export function exportOrk({
           // rewrote every capped transition shoulder as uncapped on save (see
           // the reader), which is the fin-fillet and rail-button data loss over
           // again. Mirrors the nose cone's `<aftshouldercapped>` above.
-          emit(depth + 1, `<${side}shouldercapped>${node[`${key}Capped`] === true}</${side}shouldercapped>`);
+          emit(depth + 1, `<${side}shouldercapped>${String(node[`${key}Capped`] === true)}</${side}shouldercapped>`);
         }
         close('transition');
         break;
@@ -3024,7 +3025,7 @@ export function exportOrk({
       emit(3, '<conditions>');
       emit(4, `<configid>${escapeXml(c.id)}</configid>`);
       emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
-      emit(4, `<launchguideallowance>${launch.launchGuideAllowance !== false}</launchguideallowance>`);
+      emit(4, `<launchguideallowance>${String(launch.launchGuideAllowance !== false)}</launchguideallowance>`);
       // ROD AIM (weather build, step 2) as desktop spells a rod's direction.
       // At aim 0 — absent, NaN or a whole turn too — "launch into the wind"
       // and the rod direction desktop saves beside it: exactly the two lines

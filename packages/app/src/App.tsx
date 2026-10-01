@@ -89,7 +89,7 @@ import {
 import { exportRkt, importRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
-import { CSV_BOM, safeName } from './services/fileName.js';
+import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { cdx1RodAimNote, exportCdx1, importCdx1 } from './services/rasaeroFile.js';
@@ -1738,7 +1738,9 @@ export function App() {
         // test can fly them (audit 2026-09-22, extraction #1).
         const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
           assigned,
-          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? m.id!])),
+          // What the report's delay table and the Auto-delay refusal call each
+          // mount: the card heading's own fallback, never the internal id.
+          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? 'Motor mount'])),
           refusedMountIds,
           hardware: built.hardware,
           primaryMountId,
@@ -2176,7 +2178,7 @@ export function App() {
     rkt: { mime: 'application/octet-stream', description: 'RockSim design' },
     CDX1: { mime: 'application/xml', description: 'RASAero II design' },
     obj: { mime: 'text/plain', description: 'Wavefront OBJ geometry' },
-    glb: { mime: 'model/gltf-binary', description: 'glTF binary 3D model' },
+    glb: { mime: GLB_MIME, description: 'glTF binary 3D model' },
     stl: { mime: 'application/octet-stream', description: 'STL 3D shell' },
     csv: { mime: 'text/csv', description: 'Comma-separated values' },
     xlsx: { mime: XLSX_MIME, description: 'Excel workbook' },
@@ -3961,7 +3963,7 @@ export function App() {
               const count = mountMotorCount(tree, m.id!);
               const countNote = mountCountNote(tree, m.id!);
               // Every loaded mount has its own Auto policy and flown evidence.
-              const autoBox = autoDelayBox(tree, m.id!, primaryMountId, mm?.meta.autoDelay === true);
+              const autoBox = autoDelayBox(tree, m.id!);
               // The fallback — an earlier flight's Auto delay on this mount — is
               // THIS design's alone. The run list is global and mount ids are
               // counter values every load mints afresh, so a match on the id put
@@ -4028,7 +4030,8 @@ export function App() {
                             step={1}
                             max={60}
                             placeholder={Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'plugged'}
-                            ariaLabel={`Ejection delay for ${m.name ?? m.id}`}
+                            // The card heading's own fallback: never the internal id (audit 2026-09-30).
+                            ariaLabel={`Ejection delay for ${m.name ?? 'Motor mount'}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               // Typing a delay overrides auto (mountDelayEdits).
@@ -4097,7 +4100,7 @@ export function App() {
                             value={mm.ignition.delay}
                             step={0.5}
                             max={60}
-                            ariaLabel={`Ignition delay for ${m.name ?? m.id}`}
+                            ariaLabel={`Ignition delay for ${m.name ?? 'Motor mount'}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               setMountMotors((prev) => ({

@@ -963,7 +963,7 @@ export function changedSinceRun(
 /** "a", "a and b", "a, b and c" — for naming what changed without a bare list. */
 export function listAnd(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`;
 }
 
 export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {

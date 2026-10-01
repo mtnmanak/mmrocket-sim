@@ -531,14 +531,14 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
 });
 
 /**
- * THE AUTO DELAY BOX GOES ON THE PRIMARY'S CARD (audit 2026-09-22, row 356).
- * flightRunner writes the rounded optimum onto the primary mount alone, so the
- * working "auto (optimal)" box is that card's; any other card whose motor
- * carries the flag gets a box saying it applies to the top motor only, so it
- * can be unticked (treeModel.autoDelayBox, tested in primaryMount.test.ts).
- * It used to show "auto (optimal)" on every sustainer-stage card, over a pod
- * that flew its spec delay. primaryMount.test.ts held App's call as a string
- * match.
+ * THE AUTO DELAY BOX IS ON EVERY MOUNT'S CARD (v0.144). Each mount's Auto
+ * delay is its own carrier branch's (autoDelaySolver), so every loaded mount's
+ * card shows the working "auto (optimal)" box (treeModel.autoDelayBox, tested
+ * in primaryMount.test.ts). From audit 2026-09-22 row 356 until then,
+ * flightRunner wrote the rounded optimum onto the primary mount alone, so the
+ * working box was that card's, and any other card whose motor carried the flag
+ * got a box saying it applied to the top motor only. primaryMount.test.ts held
+ * App's call as a string match.
  */
 describe('the Auto delay box on a motor card', () => {
   it('is "auto (optimal)" on the core\'s card and "auto (optimal)" on the pods\'', async () => {
@@ -602,6 +602,71 @@ describe('the delay writers on a motor card', () => {
     expect(stored()).toEqual([7, true, 'C6 (auto delay)']);
     await tick('auto (optimal)');
     expect(stored()).toEqual([7, false, 'C6-7']);
+  }, 30000);
+});
+
+/**
+ * A MOTOR CARD'S DELAY BOXES NAME THEIR MOUNT AS THE CARD DOES (audit
+ * 2026-09-30). The ejection- and ignition-delay boxes were named
+ * `${m.name ?? m.id}`: on a mount with no name a screen reader heard its
+ * internal id ("c4"), and on one with no id either it heard "undefined". A
+ * nested part arrives with neither from a stored session or a share link
+ * written without them: normalizeTree mints ids for stages only. Its motor
+ * then sits under the key App itself reads it by, mountMotors[m.id!], which is
+ * "undefined" (the seed below stores it there the same way). The card's
+ * heading, its ✕ and its Max motor length box already said "Motor mount".
+ */
+describe('the delay boxes on a motor card', () => {
+  /** A two-stage design, so the ignition box shows, whose mount has lost `drop`. */
+  const bareMount = (...drop: ('name' | 'id')[]) => (t: RocketTree): RocketTree => {
+    const staged = structuredClone(addStage(t).tree);
+    const mount = motorMounts(staged)[0]! as Record<string, unknown>;
+    for (const key of drop) delete mount[key];
+    return staged;
+  };
+  const delayLabels = (host: HTMLElement) => [...host.querySelectorAll<HTMLInputElement>('.mount-card input[aria-label]')]
+    .map((i) => i.getAttribute('aria-label')!).filter((l) => / delay for /.test(l));
+
+  for (const drop of [['name'], ['name', 'id']] as const) {
+    it(`name a mount with no ${drop.join(' and no ')} "Motor mount", never an id or "undefined"`, async () => {
+      await seedStarterSession({ edit: bareMount(...drop) });
+      const host = await mountApp();
+      await openTab(host, 'Motors & Launch');
+      await settle(50);
+      expect(delayLabels(host)).toEqual(['Ejection delay for Motor mount', 'Ignition delay for Motor mount']);
+    }, 30000);
+  }
+});
+
+/**
+ * THE LAUNCH REPORT NAMES A MOUNT AS ITS CARD DOES (review of the audit
+ * 2026-09-30 fixes). The report's per-mount ejection-delay table, and the
+ * "Auto delay did not settle for …" refusal, name each mount from the map App
+ * hands flyLaunch, and that map fell back to the internal id (`m.name ??
+ * m.id!`): on a mount with no name the card said "Motor mount" while the
+ * report flown from it said "c4". A mount has no name when a desktop file's
+ * part has an empty or absent <name> (orkFile names a node only from a
+ * non-empty one), or when a stored session or share link was written without
+ * it, as seeded here.
+ */
+describe('the ejection-delay table in the launch report', () => {
+  it('names a mount with no name "Motor mount", as its card does, never by its internal id', async () => {
+    const { mount } = await seedStarterSession({
+      edit: (t) => {
+        const bare = structuredClone(t);
+        delete (motorMounts(bare)[0]! as Record<string, unknown>)['name'];
+        return bare;
+      },
+    });
+    expect(mount).toMatch(/^c\d+$/); // the internal id the row used to read
+    const host = await mountApp();
+    const launch = () => host.querySelector<HTMLButtonElement>('.vitals-launch');
+    await waitFor(() => launch()?.disabled === false, 'Launch to be ready');
+    await act(async () => { launch()!.click(); });
+    const rowHeads = () => [...host.querySelectorAll('section[aria-label="Per-mount ejection delays"] tbody th[scope="row"]')]
+      .map((th) => th.textContent);
+    await waitFor(() => rowHeads().length > 0, 'the per-mount delay table');
+    expect(rowHeads()).toEqual(['Motor mount']);
   }, 30000);
 });
 

@@ -55,3 +55,11 @@ export { downloadBlob } from './saveFile.js';
  * passed through as UTF-8, because folding it would throw the name away.
  */
 export const CSV_BOM = '\uFEFF';
+
+/**
+ * The MIME type a .glb export is offered under (App's Save-As table). It lives
+ * here rather than beside the writer: services/gltfExport.ts is lazy-loaded
+ * because it pulls in three.js and its GLTFExporter, and a constant imported
+ * from it into App would put both on the startup path.
+ */
+export const GLB_MIME = 'model/gltf-binary';

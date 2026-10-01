@@ -100,8 +100,8 @@ export type NewPairRule = 'auto-place' | 'tube-middle' | 'tube-quarters';
  * moved the pair 3.6 mm, the third 0.10 mm, the fourth 3 microns, and the
  * fifth found it settled — five builds for one add.
  */
-export const NEW_PAIR_MAX_PRESSES = 6;
-export const NEW_PAIR_SETTLED_M = 1e-7;
+const NEW_PAIR_MAX_PRESSES = 6;
+const NEW_PAIR_SETTLED_M = 1e-7;
 
 /**
  * A NEW rail button is a PAIR (Eric, 2026-09-30: "make new rail buttons

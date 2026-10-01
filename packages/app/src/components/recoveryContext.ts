@@ -37,13 +37,14 @@ export function recoverySummary(
   return Object.entries(config.deployments ?? {}).map(([id, stored], i) => {
     const node = tree ? findNode(tree, id) : null;
     const d = live && node ? node : stored;
-    const event = d.deployEvent ?? 'ejection';
+    // A live node's fields are `unknown`; the stored record's are typed.
+    const event = String(d.deployEvent ?? 'ejection');
     // A missing or non-finite altitude flies at the kernel's own 200 m
     // (ComponentFactory.applyDeployment keeps its default), so that is quoted.
     const altM = Number.isFinite(d.deployAltitude) ? d.deployAltitude as number : 200;
     const at = event === 'altitude'
       ? `${deployAltitudeText(altM, distanceUnit)} AGL descending`
       : event === 'ejection' ? 'ejection charge' : event;
-    return `${node?.name ?? `Device ${i + 1}`}: ${at}${d.deployDelay ? ` + ${d.deployDelay} s` : ''}`;
+    return `${node?.name ?? `Device ${i + 1}`}: ${at}${d.deployDelay ? ` + ${String(d.deployDelay)} s` : ''}`;
   }).join('; ');
 }
