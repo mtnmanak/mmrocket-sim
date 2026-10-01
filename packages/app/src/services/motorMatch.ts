@@ -107,7 +107,7 @@ export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
     ...(ref.ignitionDelay !== undefined ? { ignitionDelay: ref.ignitionDelay } : {}),
     // A pad mass the file left on an unmatched primary (v0.118) goes back out
     // with it, so Save cannot lose a number the user weighed; the key is
-    // written only when set, the same rule as App's toExportMotor.
+    // written only when set, the same rule as orkExportMotors.toOrkMotor.
     ...(typeof ref.padMassKg === 'number' && ref.padMassKg > 0 ? { padMassKg: ref.padMassKg } : {}),
     // RockSim's "every delay", so a .rkt Save hands RockSim its −1 back.
     ...(ref.rktEveryDelay ? { rktEveryDelay: true as const } : {}),

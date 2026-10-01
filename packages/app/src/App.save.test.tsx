@@ -5,8 +5,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
+import type { MountMotor } from './model/design.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { exportOrk } from './services/orkFile.js';
@@ -14,7 +16,7 @@ import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
-import { defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
 /**
@@ -436,6 +438,104 @@ describe('a reload keeps the motor a file names but the catalogue lacks', () => 
     await settle(0);
     const written = vi.mocked(exportOrk).mock.calls.at(-1)![0].motors!;
     expect(Object.values(written).map((m) => m.designation)).toEqual(['ZQ9999X']);
+  }, 30000);
+});
+
+/** The starter rocket with a two-pod set on its body tube, the pods' mount `pod-mmt`. */
+const podTree = (t: RocketTree): RocketTree => {
+  const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+  return addChild(t, body.id!, {
+    type: 'podset', id: 'pods', name: 'Side pods', instanceCount: 2, children: [{
+      type: 'bodytube', id: 'pod-bt', name: 'Pod tube', length: 0.1, outerRadius: 0.01, thickness: 0.0005,
+      children: [{
+        type: 'innertube', id: 'pod-mmt', name: 'Pod MMT', motorMount: true,
+        length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+      } as ComponentNode],
+    } as ComponentNode],
+  } as ComponentNode);
+};
+
+/**
+ * WHAT A Save .ork HANDS THE WRITER FOR EACH MOTOR (audit 2026-09-30, item 23).
+ * Turning a mount's motor record into the writer's <motor> — an EX motor's
+ * real maker, an Auto delay, the weighed pad mass on the primary alone, a
+ * stored configuration's own motors and the references it could not load —
+ * was App's own closures, which nothing but a mounted App could reach. One
+ * design that takes every branch, and what App hands exportOrk for it.
+ */
+describe('what a Save .ork hands the writer for each motor', () => {
+  /** An imported X99 in the EX library, as one vendor's file named it. */
+  const exEntry = (motorId: string, realManufacturer: string) => ({
+    motorId, designation: 'X99', realManufacturer, diameter: 18, length: 70, totalWeightG: 24, propWeightG: 12,
+    delays: '4', samples: [{ time: 0, thrust: 0 }, { time: 0.5, thrust: 10 }, { time: 1, thrust: 0 }],
+  });
+
+  it('the EX motor’s maker, the provisional Auto delay, one pad mass per configuration, a stored configuration’s references', async () => {
+    const tree = podTree(defaultTree());
+    const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    // Two vendors' X99, Acme's first: a find by designation alone takes Acme's.
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([
+      exEntry('ex:acme-x99', 'Acme'), exEntry('ex:loki-x99', 'Loki'),
+    ]));
+    const auto: MountMotor = { ...c6, label: 'C6 (auto delay)', meta: { ...c6.meta, autoDelay: true } };
+    const ex: MountMotor = {
+      ...c6, label: 'X99-4', spec: { ...c6.spec, designation: 'X99', ejectionDelay: 4 },
+      meta: { label: 'X99-4', manufacturer: 'EX', exMotorId: 'ex:loki-x99', type: 'reload', orkDigest: 'not-an-ex-digest' },
+      // Weighed on a record that is not the primary's: never written.
+      padMassKg: 0.3, padMassWeighedWith: 'stale',
+    };
+    const fixed: MountMotor = {
+      ...c6, label: 'C6-3', spec: { ...c6.spec, ejectionDelay: 3 },
+      meta: { ...c6.meta, orkManufacturer: 'Estes Industries', orkType: 'single', orkDigest: 'abc123' },
+      padMassKg: 0.25, padMassWeighedWith: 'weighed',
+    };
+    const working = { [core]: auto, 'pod-mmt': ex };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: working, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'A',
+      savedConfigs: [
+        { id: 'A', name: null, isDefault: true, motors: working },
+        {
+          id: 'B', name: 'Backup', isDefault: false, motors: { [core]: fixed },
+          // On the pod, which B has nothing loaded on; its pad mass is not the primary's.
+          unmatchedRefs: { 'pod-mmt': { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6, padMassKg: 0.5 } },
+          deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150 } },
+        },
+      ],
+    }));
+    const host = await mountApp();
+    await settle(50);
+    await saveAs(host, 'Save .ork');
+    await settle(0);
+
+    const written = vi.mocked(exportOrk).mock.calls.at(-1)![0];
+    const size = { diameter: c6.spec.diameter, length: c6.spec.length };
+    const ignition = { ignitionEvent: c6.ignition.event, ignitionDelay: c6.ignition.delay };
+    // No flight yet, so the Auto mount goes out at its provisional delay, and says so.
+    const autoOut = {
+      designation: 'C6', manufacturer: 'Estes', type: 'single', ...size, delay: 5,
+      autoDelay: true, autoDelayFrom: 'provisional', ...ignition,
+    };
+    // Loki's, by the pinned library id; no digest, which is over desktop's own file.
+    const exOut = { designation: 'X99', manufacturer: 'Loki', type: 'reload', ...size, delay: 4, ...ignition };
+    expect(written.motors).toEqual({ [core]: autoOut, 'pod-mmt': exOut });
+    expect(written.configs).toEqual([
+      { id: 'A', name: null, isDefault: true, motors: { [core]: autoOut, 'pod-mmt': exOut } },
+      {
+        id: 'B', name: 'Backup', isDefault: false,
+        motors: {
+          [core]: {
+            designation: 'C6', manufacturer: 'Estes Industries', type: 'single', digest: 'abc123', ...size, delay: 3,
+            ...ignition, padMassKg: 0.25,
+          },
+          'pod-mmt': { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 },
+        },
+        deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150 } },
+      },
+    ]);
+    // And the file says what the Auto mount was saved at.
+    expect(document.body.textContent).toContain('it is saved at its provisional 5 s');
   }, 30000);
 });
 

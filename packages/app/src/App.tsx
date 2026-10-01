@@ -74,7 +74,7 @@ import { UnitChip } from './components/UnitChip.js';
 import { fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
-import { refToExportMotor } from './services/motorMatch.js';
+import { orkMotorSet, type FlownAutoDelays } from './services/orkExportMotors.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
@@ -2051,107 +2051,18 @@ export function App() {
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
-   * `mountAuto`: each Auto mount's rounded delay from the newest complete
-   * qualifying flight (flownAutoDelaysNow), if any. The
-   * Auto mount is written at that delay — what it flies — rather than its
-   * provisional first flight, which a Save used to write and a reopen then
-   * flew (seam review of audit 2026-09-22); with no such flight it keeps the
-   * provisional delay and the Save says so (autoDelaySaveNote).
+   * The working set as the writers take it. The mapping — an EX motor's real
+   * maker, an Auto mount at the delay it flew, the references on mounts left
+   * empty, the pad mass on the primary alone — is services/orkExportMotors.ts's,
+   * shared with the crash-recovery download. `flown`: each Auto mount's
+   * rounded delay from the newest complete qualifying flight
+   * (flownAutoDelaysNow); with none, an Auto mount keeps its provisional delay
+   * and the Save says so (autoDelaySaveNote).
    */
-  const toExportMotor = (mm: MountMotor, mountAuto?: { flownS: number | undefined }): OrkExportMotor => {
-    // EX motors: the file gets the REAL manufacturer from the imported
-    // .eng/.rse, never the "EX" browser badge (the desktop would hunt for a
-    // manufacturer literally named EX and lose the motor), and never a
-    // digest — the desktop's digest is over ITS data file, which we lack.
-    const ex = mm.meta.manufacturer === 'EX';
-    // The exact library entry (meta.exMotorId, pinned at pick time) wins over
-    // the designation-only find: two vendors' same-designation curves coexist
-    // (motorId = slug(manufacturer+designation)), and the designation find
-    // wrote whichever vendor imported first into the file.
-    const exLib = ex ? loadExMotors() : [];
-    const exRealRaw = (
-      (mm.meta.exMotorId ? exLib.find((m) => m.motorId === mm.meta.exMotorId) : undefined)
-      ?? exLib.find((m) => m.designation === mm.spec.designation)
-    )?.realManufacturer;
-    // An .rse with no mfg attribute carries the 'EX' sentinel — a display
-    // badge, not a manufacturer. Omit it from the file: no desktop motor is
-    // literally named EX (the match would always fail), while omission lets
-    // the designation-only description tier still find the motor.
-    const exReal = exRealRaw && exRealRaw !== 'EX' ? exRealRaw : undefined;
-    // <type> per the desktop Motor.Type names: the file's own value verbatim
-    // when the motor came from a .ork, else mapped from the thrustcurve
-    // catalog type; omitted (never guessed) when neither is known.
-    const auto = mm.meta.autoDelay === true;
-    const type = mm.meta.orkType
-      ?? (mm.meta.type === 'SU' ? 'single'
-        : mm.meta.type === 'reload' ? 'reload'
-        : mm.meta.type === 'hybrid' ? 'hybrid'
-        : undefined);
-    return {
-      designation: mm.spec.designation,
-      // The file identity wins over the display abbreviation — but the
-      // thrustcurve abbrevs (AeroTech/Cesaroni/Estes…) are registered desktop
-      // alternate names, so a database-picked motor still matches.
-      manufacturer: ex ? exReal : mm.meta.orkManufacturer ?? mm.meta.manufacturer,
-      ...(type ? { type } : {}),
-      ...(!ex && mm.meta.orkDigest ? { digest: mm.meta.orkDigest } : {}),
-      diameter: mm.spec.diameter,
-      length: mm.spec.length,
-      delay: (auto ? mountAuto?.flownS : undefined) ?? mm.spec.ejectionDelay,
-      ...(auto ? { autoDelay: true as const } : {}),
-      ...(auto && mountAuto ? { autoDelayFrom: mountAuto.flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
-      ignitionEvent: mm.ignition.event,
-      ignitionDelay: mm.ignition.delay,
-      // The weighed pad mass rides out with the motor it was weighed with; the
-      // writer lifts it to a rocket-level <measuredpadmass configid> and never
-      // puts it inside <motor>. The set key is NOT written — it is rebuilt at
-      // open from the file's own set.
-      ...(typeof mm.padMassKg === 'number' && mm.padMassKg > 0 ? { padMassKg: mm.padMassKg } : {}),
-    };
-  };
-
-  /**
-   * THE PRIMARY GATE: `padMassKg` deleted from every entry except the primary
-   * mount's — in-tree ids only (primaryMountOf), so a record for a mount the
-   * tree no longer has can neither win nor lose it. A value orphaned on a
-   * record that stopped being primary (a motor loaded on a higher stage) is
-   * never applied and must never be written; a configuration whose primary is
-   * an unmatched reference writes the reference's value. The writer takes the
-   * first value it finds per configuration, so this is what makes it one.
-   */
-  const padMassOnPrimaryOnly = (
-    motors: Record<string, OrkExportMotor>, t: RocketTree,
-  ): Record<string, OrkExportMotor> => {
-    const primary = primaryMountOf(t, Object.keys(motors));
-    const out: Record<string, OrkExportMotor> = {};
-    for (const [id, m] of Object.entries(motors)) {
-      if (id !== primary && 'padMassKg' in m) {
-        const { padMassKg: _p, ...rest } = m;
-        out[id] = rest;
-      } else {
-        out[id] = m;
-      }
-    }
-    return out;
-  };
-
-  const exportMotorsMap = (flown: Record<string, Record<string, number>> = {}): Record<string, OrkExportMotor> => {
-    const motors: Record<string, OrkExportMotor> = {};
-    for (const [id, mm] of assigned) {
-      motors[id] = toExportMotor(mm, { flownS: flown[activeConfigId ?? '']?.[id] });
-    }
-    // Motors the import could not resolve ride back out VERBATIM on any mount
-    // that still has nothing on it. Without this the file the user saved came
-    // out with that mount empty: opening it again in desktop OpenRocket showed
-    // a configuration with no motor, and the original reference — the
-    // manufacturer, the diameter and length, and the <digest> that is
-    // desktop's silent-match tier — was gone from their only copy. A mount
-    // that HAS a matched motor is not a candidate: the user's choice wins.
-    for (const [id, ref] of Object.entries(unmatchedRefs)) {
-      if (!motors[id] && mounts.some((m) => m.id === id)) motors[id] = refToExportMotor(ref);
-    }
-    return padMassOnPrimaryOnly(motors, tree);
-  };
+  const exportMotorsMap = (flown: FlownAutoDelays = {}): Record<string, OrkExportMotor> => orkMotorSet({
+    records: Object.fromEntries(assigned), refs: unmatchedRefs, tree, flown,
+    configKey: activeConfigId ?? '', exLibrary: loadExMotors,
+  });
 
   /**
    * Which configurations may carry computed results into an exported `.ork`,
@@ -2224,22 +2135,17 @@ export function App() {
    * working set back into, so the file and the mark agree.
    */
   const exportConfigs = (
-    configs: SavedConfig[] = savedConfigs, flown: Record<string, Record<string, number>> = {},
+    configs: SavedConfig[] = savedConfigs, flown: FlownAutoDelays = {},
   ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
-    // Same rule as exportMotorsMap: what the file said, re-emitted verbatim
-    // for any mount this configuration could not match, so a preset the user
-    // has never applied does not quietly lose its motors on the way out — and
-    // the same primary gate, so each configuration writes ONE pad mass, its
-    // primary's.
-    motors: padMassOnPrimaryOnly({
-      ...Object.fromEntries(
-        Object.entries(c.unmatchedRefs ?? {}).map(([id, ref]) => [id, refToExportMotor(ref)])),
-      ...(() => {
-        return Object.fromEntries(Object.entries(c.motors).map(([id, mm]) =>
-          [id, toExportMotor(mm, { flownS: flown[c.id]?.[id] })]));
-      })(),
-    }, tree),
+    // The same mapping as exportMotorsMap: what the file said, re-emitted
+    // verbatim for any mount this configuration could not match, so a preset
+    // the user has never applied does not quietly lose its motors on the way
+    // out — and the same primary gate, so each configuration writes ONE pad
+    // mass, its primary's.
+    motors: orkMotorSet({
+      records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotors,
+    }),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
   }));
