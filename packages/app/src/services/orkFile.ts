@@ -1840,10 +1840,11 @@ export interface OrkExportMotor {
   ignitionDelay?: number;
   /**
    * The weighed pad mass (kg) this motor was weighed with, carried on the
-   * configuration's PRIMARY mount only (App gates it there). NEVER emitted
-   * inside <motor>: the writer's rocket-level pass reads it and emits one
-   * `<measuredpadmass configid>` per configuration, so the desktop sees the
-   * same warn-and-skip it gives <measuredmass>, not an unknown motor child.
+   * configuration's PRIMARY mount only (orkExportMotors.orkMotorSet gates it
+   * there). NEVER emitted inside <motor>: the writer's rocket-level pass reads
+   * it and emits one `<measuredpadmass configid>` per configuration, so the
+   * desktop sees the same warn-and-skip it gives <measuredmass>, not an
+   * unknown motor child.
    */
   padMassKg?: number;
   /** An unmatched reference's RockSim "every delay" (OrkMotorRef.rktEveryDelay): .rkt writes −1. */

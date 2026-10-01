@@ -1,8 +1,7 @@
 import type { MountMotor } from '../model/design.js';
-import { primaryMountOf, motorMounts } from '../tree/treeModel.js';
 import { loadExMotors } from './exMotors.js';
 import { safeName } from './fileName.js';
-import { refToExportMotor } from './motorMatch.js';
+import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
 import { exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
 
@@ -18,14 +17,13 @@ import { flushSession, heldSession, peekSession, sessionPayload, type SessionSta
  *
  * It builds the .ork from the STORED session (or, while another tab holds the
  * slot, the write this tab is holding back), with none of App's state — App
- * is what just failed. So it repeats, deliberately, the small part of App's
- * `toExportMotor` / `exportConfigs` a file needs to reopen with its motors
- * (designation, manufacturer, type, digest, size, delay, ignition, the weighed
- * pad mass on the primary, and the references a file could not match). What it
- * leaves out: the stored runs' <flightdata> (the runs themselves stay in this
- * browser). If the design cannot be written as an .ork at all — the writer may
- * be what threw — the autosave's own bytes are handed over as JSON instead, so
- * nothing the browser holds is ever withheld.
+ * is what just failed. Its motors go through the mapping App's Save uses
+ * (services/orkExportMotors.ts), which imports nothing of App's: it kept a
+ * copy of its own until audit 2026-09-30 (item 23), and the copy drifted.
+ * What it leaves out: the stored runs' <flightdata> (the runs themselves stay
+ * in this browser). If the design cannot be written as an .ork at all — the
+ * writer may be what threw — the autosave's own bytes are handed over as JSON
+ * instead, so nothing the browser holds is ever withheld.
  */
 
 export interface AutosaveFile {
@@ -39,60 +37,27 @@ export interface AutosaveFile {
   ork: boolean;
 }
 
-/** One mounted motor as the .ork writer takes it — App's toExportMotor, minus nothing a reopen needs. */
-function motorForOrk(mm: MountMotor): OrkExportMotor {
-  const ex = mm.meta?.manufacturer === 'EX';
-  // An EX motor's file manufacturer is the one its .eng/.rse named, never the
-  // "EX" badge; omitted when unknown, so the designation-only tier matches.
-  const exReal = ex
-    ? ((mm.meta.exMotorId ? loadExMotors().find((m) => m.motorId === mm.meta.exMotorId) : undefined)
-      ?? loadExMotors().find((m) => m.designation === mm.spec.designation))?.realManufacturer
-    : undefined;
-  const type = mm.meta?.orkType
-    ?? (mm.meta?.type === 'SU' ? 'single'
-      : mm.meta?.type === 'reload' ? 'reload'
-      : mm.meta?.type === 'hybrid' ? 'hybrid'
-      : undefined);
-  const manufacturer = ex ? (exReal && exReal !== 'EX' ? exReal : undefined)
-    : mm.meta?.orkManufacturer ?? mm.meta?.manufacturer;
-  return {
-    designation: mm.spec.designation,
-    ...(manufacturer ? { manufacturer } : {}),
-    ...(type ? { type } : {}),
-    ...(!ex && mm.meta?.orkDigest ? { digest: mm.meta.orkDigest } : {}),
-    diameter: mm.spec.diameter,
-    length: mm.spec.length,
-    delay: mm.spec.ejectionDelay,
-    ignitionEvent: mm.ignition?.event,
-    ignitionDelay: mm.ignition?.delay,
-    ...(typeof mm.padMassKg === 'number' && mm.padMassKg > 0 ? { padMassKg: mm.padMassKg } : {}),
-  };
-}
-
 /**
- * One set of motors for the writer: the matched records, the file's own
- * references on mounts that have nothing matched, and the pad mass kept on the
- * primary mount only (the writer takes the first it finds).
+ * One configuration's motors for the writer (orkExportMotors.orkMotorSet): the
+ * matched records, the file's own references on mounts that have nothing
+ * matched, and the pad mass kept on the primary mount only. Each Auto mount
+ * goes out at the delay it flew — what a Save writes — from the copy App keeps
+ * with the autosave (SessionState.flownAutoDelays), since the runs that say
+ * are judged against a build this path does not have; with none it keeps its
+ * provisional delay. `first` is the order a Save builds the same set in, which
+ * decides a same-stage tie for the pad mass: the working set's loaded motors
+ * first, a stored configuration's references first.
  */
 function motorSet(
   s: SessionState,
+  configKey: string,
   motors: Record<string, MountMotor> | undefined,
   refs: Record<string, OrkMotorRef> | undefined,
+  first: OrkMotorSetInput['first'],
 ): Record<string, OrkExportMotor> {
-  const mountIds = new Set(motorMounts(s.tree).map((m) => m.id));
-  const out: Record<string, OrkExportMotor> = {};
-  for (const [id, ref] of Object.entries(refs ?? {})) {
-    if (mountIds.has(id)) out[id] = refToExportMotor(ref);
-  }
-  for (const [id, mm] of Object.entries(motors ?? {})) out[id] = motorForOrk(mm);
-  const primary = primaryMountOf(s.tree, Object.keys(out));
-  for (const [id, m] of Object.entries(out)) {
-    if (id !== primary && 'padMassKg' in m) {
-      const { padMassKg: _p, ...rest } = m;
-      out[id] = rest;
-    }
-  }
-  return out;
+  return orkMotorSet({
+    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotors, first,
+  });
 }
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
@@ -106,12 +71,12 @@ export function autosaveToOrk(s: SessionState): string {
     // only for a session written before it kept them (seam review of audit
     // 2026-09-22): a design with no configurations keeps them nowhere else,
     // and its recovery file lost the motor. A matched record still wins its
-    // mount (motorSet).
-    motors: motorSet(s, s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs),
+    // mount (orkMotorSet).
+    motors: motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs, 'records'),
     launch: s.launch,
     configs: s.savedConfigs?.map((c) => ({
       id: c.id, name: c.name, isDefault: c.isDefault,
-      motors: motorSet(s, c.motors, c.unmatchedRefs),
+      motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
       ...(c.deployments ? { deployments: c.deployments } : {}),
       ...(c.separations ? { separations: c.separations } : {}),
     })),

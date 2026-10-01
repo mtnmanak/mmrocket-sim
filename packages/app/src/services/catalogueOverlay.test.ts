@@ -405,7 +405,7 @@ describe('the words the browser shows', () => {
   });
 
   it('knows a loaded motor whose picker label says "(auto delay)"', () => {
-    // App labels an auto-delay motor "C6 (auto delay)" (labelWithDelay), and
+    // App labels an auto-delay motor "C6 (auto delay)" (mountDelayEdits), and
     // this matcher's private copy of the delay rule stripped only "-5" / "-P",
     // so a changed motor flown on auto delay was never named (audit
     // 2026-09-22, Dead code row 575: one shared delay-strip rule).

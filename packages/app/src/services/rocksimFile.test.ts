@@ -1943,7 +1943,7 @@ describe('RockSim ejection-delay sentinels', () => {
     const ref = Object.values(r.motors)[0]!;
     const loaded = (await matchImportedMotor(ref)).motor!;
     expect(loaded.meta.autoDelay).toBe(true);
-    // What App's toExportMotor hands the writer for that primary, with no flight yet.
+    // What orkExportMotors.toOrkMotor hands the writer for that primary, with no flight yet.
     const notes: string[] = [];
     const xml = exportRkt({
       name: 'Cheetah', tree: r.tree, notes,

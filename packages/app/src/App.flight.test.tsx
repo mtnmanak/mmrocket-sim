@@ -10,10 +10,12 @@ import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { testMotor, testResolution } from './services/autoDelay.testSupport.js';
+import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { padMassSetKey } from './services/configSync.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
+import { importOrk } from './services/orkFile.js';
 import type { SessionState } from './services/session.js';
 import type { SimRun } from './services/simReport.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
@@ -365,6 +367,41 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
       created.mockRestore();
       revoked.mockRestore();
     }
+  }, 30000);
+});
+
+/**
+ * THE CRASH FILE WRITES AN AUTO MOUNT AT THE DELAY IT FLEW (audit 2026-09-30,
+ * item 23). The crash-recovery download builds its .ork from the stored
+ * session alone (services/autosaveBackup.ts), and it wrote the provisional
+ * delay: the runs that say what Auto flies are judged against the build and
+ * the model, and a crash leaves neither. So App stores what a Save would write
+ * with the autosave, and the crash file writes that.
+ */
+describe('the crash-recovery file, after an Auto flight', () => {
+  it('writes the Auto mount at the delay it flew, as Save .ork does', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const provisional = 0;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, appVersion: APP_VERSION, savedAt: Date.now(), launch: DEFAULT_CONDITIONS,
+      mountMotors: { [mount]: { ...c6, spec: { ...c6.spec, ejectionDelay: provisional }, meta: { ...c6.meta, autoDelay: true } } },
+    }));
+    const host = await mountApp();
+    await settle(600);
+    // Before any flight there is nothing to store, and nothing is stored.
+    expect(storedSession()).not.toHaveProperty('flownAutoDelays');
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    const [run] = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+    const flownS = run!.delayResolution!.mounts[0]!.flownDelay as number;
+    // Else the file at its provisional delay would pass.
+    expect(flownS).not.toBe(provisional);
+    await settle(600); // the autosave's debounce
+    expect(storedSession()?.flownAutoDelays).toEqual({ '': { [mount]: flownS } });
+    const back = importOrk(autosavedDesignFile()!.data);
+    expect(back.motors[motorMounts(back.tree)[0]!.id!]?.delay).toBe(flownS);
   }, 30000);
 });
 

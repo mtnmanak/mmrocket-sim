@@ -5,6 +5,7 @@ import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
+import { lookupTable } from './xmlUtil.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -40,6 +41,18 @@ export interface SessionState {
    * configuration (configSync.restoreUnmatchedRefs).
    */
   unmatchedRefs?: Record<string, OrkMotorRef>;
+  /**
+   * What a Save would write for each Auto mount's delay: the rounded optimum
+   * of the newest complete flight that still describes the design, by
+   * configuration id ('' for none) and mount id (orkFlightData.flownAutoDelays).
+   * Kept for the crash-recovery .ork alone (services/autosaveBackup.ts), which
+   * wrote the provisional delay instead (audit 2026-09-30, item 23): the runs
+   * are judged against the build and the model, and a crash leaves neither,
+   * so App stores the answer rather than the crash path asking again. App never
+   * reads it back — it recomputes it from the runs. Written only while there
+   * is one, and dropped on load unless it is a table of delays.
+   */
+  flownAutoDelays?: Record<string, Record<string, number>>;
   /** Prevents old filter preferences from returning after a mount is cleared. */
   motorLengthLimitsMigrated?: boolean;
   /** Legacy per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
@@ -271,6 +284,28 @@ function setConflicted(next: boolean): void {
   for (const fn of conflictListeners) fn(next);
 }
 
+const isTable = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A stored `flownAutoDelays`, or undefined when there is no table of delays in
+ * it. A configuration whose entries are not all delays (finite, ≥ 0) is left
+ * out whole — one run flew all of them — so the crash file writes that
+ * configuration's provisional delays, as a Save with no flight does.
+ * Prototype-free tables: the configuration ids are file-sourced.
+ */
+function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>> | undefined {
+  if (!isTable(v)) return undefined;
+  const out = lookupTable<Record<string, number>>({});
+  for (const [configId, delays] of Object.entries(v)) {
+    if (!isTable(delays)) continue;
+    const entries = Object.entries(delays);
+    if (entries.length > 0 && entries.every(([, d]) => typeof d === 'number' && Number.isFinite(d) && d >= 0)) {
+      out[configId] = lookupTable(Object.fromEntries(entries) as Record<string, number>);
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function loadSession(): SessionState | null {
   try {
     const raw = localStorage.getItem(KEY);
@@ -336,6 +371,12 @@ export function loadSession(): SessionState | null {
       const w = validWeatherSnapshot(s.weather);
       if (w) s.weather = w;
       else delete s.weather;
+    }
+    // The same for the delays a crash file writes an Auto mount at.
+    if (s.flownAutoDelays !== undefined) {
+      const f = validFlownAutoDelays(s.flownAutoDelays);
+      if (f) s.flownAutoDelays = f;
+      else delete s.flownAutoDelays;
     }
     return s;
   } catch {

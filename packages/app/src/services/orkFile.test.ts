@@ -1801,9 +1801,9 @@ describe('.ork motor identity (desktop three-tier matcher fidelity)', () => {
   });
 
   it('EX motor with the "EX" sentinel manufacturer exports with <manufacturer> omitted', () => {
-    // toExportMotor resolves an EX motor's real manufacturer from the local
-    // library; an .rse with no mfg attribute stores the 'EX' display badge,
-    // which toExportMotor maps to undefined at the export boundary — the
+    // orkExportMotors.toOrkMotor resolves an EX motor's real manufacturer from
+    // the local library; an .rse with no mfg attribute stores the 'EX' display
+    // badge, which toOrkMotor maps to undefined at the export boundary — the
     // desktop has no manufacturer literally named EX, and omission lets its
     // designation-only description match still find the motor.
     const orig = importOrk(golden('lemiv-motors.ork'));

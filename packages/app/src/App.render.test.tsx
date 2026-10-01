@@ -12,6 +12,7 @@ import { catalogueMotorMass } from './services/hardwareMass.js';
 import { classLabel } from './services/motorDb.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { nozzleOversize } from './services/nozzleCheck.js';
+import { peekSession } from './services/session.js';
 import { designMatchKeyOf } from './services/simReport.js';
 import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
@@ -555,6 +556,52 @@ describe('the Auto delay box on a motor card', () => {
     // The ticked box on each card — "plugged" is the other checkbox, unticked here.
     expect(box(core.name!)).toBe('auto (optimal)');
     expect(box('Pod MMT')).toBe('auto (optimal)');
+  }, 30000);
+});
+
+/**
+ * THE MOTOR CARD'S DELAY WRITERS (audit 2026-09-30, item 20). Typing a delay,
+ * the plugged box and the auto box each rewrite three things on the mount's
+ * motor — its delay, its Auto flag and its label, whose "(auto delay)" the
+ * pad-mass line and the batch note read — and no test drove any of them: the
+ * case above only reads which box is ticked. Driven here as a user does, and
+ * read back from the autosave, which is what a reload restores. Each writer's
+ * rules are services/mountDelayEdits.test.ts's.
+ */
+describe('the delay writers on a motor card', () => {
+  it('Auto on, a typed delay, plugged, unplugged, then Auto on and off again', async () => {
+    const { mount, c6 } = await seedStarterSession();
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    const card = host.querySelector<HTMLElement>('.mount-card')!;
+    const tick = (text: string) => act(async () => {
+      [...card.querySelectorAll('label')].find((l) => l.textContent?.trim() === text)!
+        .querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    });
+    /** The mount's motor as the autosave holds it: delay, Auto flag, label. */
+    const stored = () => {
+      window.dispatchEvent(new Event('pagehide')); // closes the debounce
+      const mm = peekSession()!.mountMotors![mount]!;
+      return [mm.spec.ejectionDelay, mm.meta.autoDelay === true, mm.label];
+    };
+    expect(stored()).toEqual([5, false, 'C6-5']);
+    await tick('auto (optimal)');
+    expect(stored()).toEqual([5, true, 'C6 (auto delay)']);
+    // A typed delay overrides Auto.
+    await type(card.querySelector<HTMLInputElement>('input[aria-label^="Ejection delay"]')!, '3');
+    expect(stored()).toEqual([3, false, 'C6-3']);
+    await tick('plugged');
+    expect(stored()).toEqual([Infinity, false, 'C6-P']);
+    // Unplugged: the longest delay the motor is sold with, not the 3 s it had.
+    const longest = Math.max(...(c6.meta.availableDelays ?? []).filter(Number.isFinite));
+    expect(longest).toBe(7);
+    await tick('plugged');
+    expect(stored()).toEqual([7, false, 'C6-7']);
+    await tick('auto (optimal)');
+    expect(stored()).toEqual([7, true, 'C6 (auto delay)']);
+    await tick('auto (optimal)');
+    expect(stored()).toEqual([7, false, 'C6-7']);
   }, 30000);
 });
 
