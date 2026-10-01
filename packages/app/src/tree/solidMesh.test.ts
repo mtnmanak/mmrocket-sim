@@ -569,4 +569,32 @@ describe('extrudePolygon refuses an outline it cannot triangulate', () => {
       tabHeight: 0.006, tabLength: 0.02, tabOffset: 0, tabOffsetMethod: 'middle',
     }))).mesh);
   });
+
+  it('a flat run along the root exports, closed, at its own volume', async () => {
+    // A point ON the root: the outline runs along the root to the corner and
+    // its closing edge runs back over that stretch, so the corner is the tip
+    // of an out-and-back run, exactly in line with its neighbours. earcut drops
+    // such a vertex when it runs out of ears, the face count came up one short,
+    // and these two sound fins were refused as crossings (audit 2026-09-30, on
+    // review). The 3D view draws both.
+    const fins: Array<{ points: Array<[number, number]>; area: number }> = [
+      // Trailing run 75 -> 80 mm: the trapezoid (50 + 75) / 2 x 20 mm.
+      { points: [[0, 0], [0.02, 0.02], [0.07, 0.02], [0.075, 0], [0.08, 0]], area: 0.00125 },
+      // Leading run 0 -> 5 mm: (75 + 60) / 2 x 20 mm.
+      { points: [[0, 0], [0.005, 0], [0.02, 0.02], [0.08, 0.02], [0.08, 0]], area: 0.00135 },
+    ];
+    for (const { points, area } of fins) {
+      const v = check(await extrudePolygon(points, 0.003));
+      expect(relErr(v, area * 0.003)).toBeLessThan(1e-9);
+      const printed = check((await solid(node('freeformfinset', { points, thickness: 0.003 }))).mesh);
+      expect(relErr(printed, area * 0.003)).toBeLessThan(1e-9);
+    }
+  });
+
+  it('still refuses what crosses itself once the in-line points are gone', async () => {
+    // The out-and-back run's tip goes, and what is left is a bow-tie: dropping
+    // in-line points must not let a crossing outline through.
+    expect((await extrudePolygon([[0, 0], [0.05, 0.03], [0, 0.03], [0.02, 0], [0.05, 0]], 0.003))
+      .triangles.length).toBe(0);
+  });
 });

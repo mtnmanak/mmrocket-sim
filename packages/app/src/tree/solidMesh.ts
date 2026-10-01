@@ -88,6 +88,40 @@ export function collapseLoop(pts: Array<[number, number]>): Array<[number, numbe
   return out;
 }
 
+/**
+ * Drop every vertex EXACTLY in line with its two neighbours — the vertices
+ * three's earcut drops itself when it runs out of ears (its filterPoints, on
+ * the same exact test). What they leave out encloses no area: a vertex the
+ * outline runs straight through, or the tip of a run the outline traverses out
+ * and back — a fin with a point ON its root, say, whose closing edge returns
+ * along the stretch the outline has just run. Left in, earcut dropped them and
+ * extrudePolygon's face count came up one short, so two sound fins with a flat
+ * run along the root were refused as crossings, printed nowhere though the 3D
+ * view drew them (audit 2026-09-30, on review). Dropped first, a short count
+ * again means what the guard says: an outline that crosses itself. A loop
+ * this empties to fewer than three points enclosed nothing.
+ */
+function dropCollinear(loop: Array<[number, number]>): Array<[number, number]> {
+  let out = loop;
+  // Until nothing moves: a removal gives both neighbours a new neighbour, and
+  // can bring two equal points together.
+  for (let removed = true; removed && out.length >= 3;) {
+    removed = false;
+    for (let i = 0; i < out.length && out.length >= 3; i++) {
+      const p = out[(i + out.length - 1) % out.length]!;
+      const q = out[i]!;
+      const r = out[(i + 1) % out.length]!;
+      // earcut's area(p, q, r), term for term, so the two agree on exact zero.
+      if ((q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]) === 0) {
+        out = collapseLoop([...out.slice(0, i), ...out.slice(i + 1)]);
+        removed = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Poles inside an on-axis run emit no triangles — drop unreferenced vertices. */
 function compact(pos: Float64Array, tris: number[]): SolidMesh {
   const nVerts = pos.length / 3;
@@ -174,7 +208,7 @@ export function revolveProfile(profile: Array<[number, number]>, segments = 96):
 export async function extrudePolygon(
   points: Array<[number, number]>, thickness: number,
 ): Promise<SolidMesh> {
-  const outline = collapseLoop(points.map(([x, y]) => [x, y] as [number, number]));
+  const outline = dropCollinear(collapseLoop(points.map(([x, y]) => [x, y] as [number, number])));
   if (outline.length < 3 || !(thickness > 0)) return emptyMesh();
   if (signedArea(outline) < 0) outline.reverse();
 
