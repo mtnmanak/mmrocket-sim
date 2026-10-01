@@ -2241,9 +2241,10 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
        */
       point?: { cg: number; length: number };
       /**
-       * How many RockSim parts this node goes out as — a cluster's tubes. Its
-       * override and computed mass are the whole cluster's; each part's
-       * <KnownMass> and <CalcMass> is its own share.
+       * How many RockSim parts this node goes out as — a cluster's tubes, a pod
+       * set's pods. Its override and computed mass are the whole set's; each
+       * part's <KnownMass> and <CalcMass> is its own share. <KnownCG> is a
+       * position and goes out whole on every part.
        */
       copies?: number;
     },
@@ -2572,7 +2573,13 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
         const angle0 = nnum(node, 'angleOffset', 0);
         for (let i = 0; i < count; i++) {
           emit('<ExternalPod>');
-          common(node, parent, node.type === 'podset' ? 'Pod' : 'Booster');
+          // Each pod its share, as desktop's own split writes it
+          // (RocketComponent.splitInstances: getOverrideMass() / count). The
+          // kernel weighs a set's override ONCE, for the whole assembly
+          // (MassCalculation.calculateStructure, after the instance loop), so
+          // written whole on every pod, a pair weighed at 400 g reached RockSim,
+          // desktop and this app's own re-open at 800 g.
+          common(node, parent, node.type === 'podset' ? 'Pod' : 'Booster', { copies: count });
           emit('<AutoCalcRadialDistance>0</AutoCalcRadialDistance>');
           emit('<AutoCalcRadialAngle>0</AutoCalcRadialAngle>');
           emit(`<Detachable>${node.type === 'parallelstage' ? 1 : 0}</Detachable>`);

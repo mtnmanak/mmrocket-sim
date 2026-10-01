@@ -589,6 +589,53 @@ describe('RockSim export → import round trip', () => {
     expect(pods[0]!.children?.[0]?.['outerRadius']).toBeCloseTo(0.012, 9);
   });
 
+  /**
+   * ONE POD'S MASS IS NOT THE SET'S (audit 2026-09-30). The kernel weighs a pod
+   * set's override ONCE, for the whole assembly (MassCalculation.calculateStructure
+   * applies it after the per-instance loop), where each RockSim <ExternalPod> is
+   * one pod. Written whole on every copy, a pair of strap-ons weighed at 400 g
+   * reached RockSim and desktop at 800 g, and came back here as two pods of 400 g.
+   */
+  it('gives each ExternalPod its share of a pod set’s mass override, so the total survives', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const dry = (components: ComponentNode[]): number => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree({ components })).staticInfo().massEmpty;
+    };
+    for (const type of ['podset', 'parallelstage'] as const) {
+      for (const count of [2, 3]) {
+        const components = [{
+          type: 'stage', id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.03, thickness: 0.001,
+            children: [{
+              type, id: 'p', instanceCount: count, radiusMethod: 'free', radiusOffset: 0.05,
+              position: { method: 'bottom', offset: 0 }, overrideMass: 0.4, overrideCGX: 0.07,
+              children: [{ type: 'bodytube', id: 'pb', length: 0.15, outerRadius: 0.012, thickness: 0.0005 }],
+            }],
+          }],
+        }] as ComponentNode[];
+        // The kernel's figures for the set, as componentInfo reports them: the whole set's.
+        const xml = exportRkt({ name: 'POD', tree: { components }, compInfo: { p: { mass: 0.4, cgX: 0.07 } } });
+        const perPod = (tag: string) => [...xml.matchAll(new RegExp(`<ExternalPod>[\\s\\S]*?<${tag}>([^<]+)</${tag}>`, 'g'))]
+          .map((m) => Number(m[1]));
+        const share = 400 / count;
+        expect(perPod('KnownMass')).toEqual(Array(count).fill(expect.closeTo(share, 9)));
+        expect(perPod('CalcMass')).toEqual(Array(count).fill(expect.closeTo(share, 9)));
+        // A CG is a position, not a quantity: every pod keeps the set's, undivided.
+        expect(perPod('KnownCG')).toEqual(Array(count).fill(expect.closeTo(70, 9)));
+        const back = importRkt(xml).tree.components;
+        const pods = flatten(back).filter((c) => c.type === type);
+        expect(pods).toHaveLength(count);
+        expect(pods.reduce((sum, p) => sum + (p['overrideMass'] as number), 0)).toBeCloseTo(0.4, 12);
+        expect(pods.map((p) => p['overrideCGX'])).toEqual(Array(count).fill(expect.closeTo(0.07, 12)));
+        // And the kernel weighs the re-opened rocket as it weighed the design.
+        expect(dry(back)).toBeCloseTo(dry(components), 9);
+      }
+    }
+  }, 60000);
+
   it('round-trips fin cant angle (radians, desktop exporter convention)', () => {
     const design = {
       name: 'CANT',
