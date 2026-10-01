@@ -182,6 +182,39 @@ describe('PresetPicker — CSV import', () => {
   });
 
   /**
+   * Review of the audit fixes, 2026-10-01: a material type presetPatch never
+   * applies — a typo, LINE, or the other kind's type — passed the soundness
+   * check and imported as a success. presetPatch writes a density only for
+   * BULK on a structural part and SURFACE on a canopy or streamer, so picking
+   * such a row left the part on its OLD material under the new part's name: a
+   * fibreglass tube weighed as cardboard, or a canopy back on the default
+   * fabric, with nothing said. The type a kind takes is a fixed rule (shipped
+   * catalogue: Parachute and Streamer all SURFACE, no other kind SURFACE), so
+   * such a row is skipped and named, like a bad density.
+   */
+  it('skips and names a row whose material type its part cannot take', async () => {
+    await render();
+    await importCsv([
+      'kind,manufacturer,partNo,description,materialName,materialType,materialDensity,outsideDiameter,lineMaterialName,lineMaterialDensity',
+      'BodyTube,ACME,TYPO-1,Typo in the type,Fiberglass,BULKK,1850,0.024',
+      'BodyTube,ACME,GOOD-1,Sound row,Cardboard,BULK,680,0.024',
+      'BodyTube,ACME,LOWER-1,Typed in lower case,Cardboard, bulk ,680,0.024',
+      'BodyTube,ACME,BLANK-1,Type left blank,Cardboard,,680,0.024',
+      'BodyTube,ACME,LINE-1,A line material on a tube,Kevlar,LINE,0.002,0.024',
+      'Parachute,ACME,CHUTE-1,Bulk fabric on a canopy,Ripstop nylon,BULK,1160',
+      'Parachute,ACME,CHUTE-2,Sound canopy,Ripstop nylon,SURFACE,0.067',
+      'Parachute,ACME,CHUTE-3,Sound canopy and its lines,Ripstop nylon,SURFACE,0.067,,Kevlar,0.0005',
+    ].join('\n'));
+
+    expect(text()).toContain('Imported 5 preset(s)');
+    expect(text()).toContain('3 row(s) skipped');
+    expect(text()).toContain('the type its part takes (SURFACE for a parachute or streamer, BULK for anything else)');
+    expect(text()).toContain('(first: TYPO-1)');
+    expect(loadCustomPresets().map((p) => p.partNo)).toEqual(['GOOD-1', 'LOWER-1', 'BLANK-1', 'CHUTE-2', 'CHUTE-3']);
+    expect(loadCustomPresets().at(-1)!.lineMaterial).toEqual({ name: 'Kevlar', type: 'LINE', density: 0.0005 });
+  });
+
+  /**
    * Audit 2026-09-22: after an import the list is reloaded, and that promise
    * had no catch. A reload that failed was an unhandled rejection that left
    * `all` null under an "Imported" note — and with a note on screen the

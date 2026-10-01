@@ -85,7 +85,7 @@ import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type Ork
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
-import { exportRkt, importRkt } from './services/rocksimFile.js';
+import { exportRkt, importRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, safeName } from './services/fileName.js';
@@ -2278,31 +2278,9 @@ export function App() {
   // the .ork round-trips everything, so only .ork marks.
   const onSaveRkt = async () => {
     try {
-      // Computed mass/CG for EVERY part. Two readers need it.
-      // (1) RockSim couples mass and CG under one flag, so a partially overridden
-      //     part must export its CALCULATED other value (issue 2026-08-05b #11).
-      // (2) <CalcMass>/<CalcCG> — desktop's importer pins any AIRFOIL fin set with
-      //     UseKnownCG=0 to them (FinSetHandler.java:299-309) from a field that
-      //     defaults to 0.0d, so a fin set with no CalcMass opens over there
-      //     weighing zero grams. That fin set has NO override, which is exactly why
-      //     this can no longer be gated on one: measured, the old XOR gate collected
-      //     0 entries for kitchensink.ork and auto-radius-15.03.ork. Cost of the
-      //     unconditional walk, measured: 4 ms for 14 nodes.
-      const compInfo: Record<string, { mass: number; cgX: number }> = {};
-      if (built) {
-        const collect = (nodes: ComponentNode[]) => {
-          for (const n of nodes) {
-            if (n.id) {
-              try {
-                const info = built.rocket.componentInfo(n.id);
-                compInfo[n.id] = { mass: info.mass, cgX: info.cgX };
-              } catch { /* component not in the engine tree — skip */ }
-            }
-            collect(n.children ?? []);
-          }
-        };
-        collect(tree.components);
-      }
+      // Computed mass, CG and position for EVERY part — rktComponentInfo says
+      // which readers need them and why.
+      const compInfo = built ? rktComponentInfo(tree, (id) => built.rocket.componentInfo(id)) : {};
       const losses: string[] = [];
       const xml = exportRkt({
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, notes: losses,

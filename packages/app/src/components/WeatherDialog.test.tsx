@@ -102,6 +102,8 @@ function choose(el: HTMLSelectElement | null, value: string) {
 }
 const row = (key: string) => q(`tr[data-row="${key}"]`);
 const GERLACH_PLACE: WeatherPlace = { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' };
+const RENO: WeatherPlace = { label: 'Reno, Nevada, US', latitudeDeg: 39.52963, longitudeDeg: -119.8138,
+  method: 'search', timezone: 'America/Los_Angeles' };
 
 const LEM_SITE = { ...DEFAULT_CONDITIONS, latitudeDeg: 26.380273, longitudeDeg: 80.126879, launchAltitudeM: 3.048 };
 // Synthetic terrain/zone evidence from the research, not measured Open-Meteo heights.
@@ -591,6 +593,106 @@ describe('the weather dialog', () => {
     // ...and nothing is left running: Fetch is back, for the new date.
     expect(button('Fetch')).toBeTruthy();
     expect(applied).toHaveLength(0);
+  });
+
+  // A PICK FROM THE LIST ENDS A FETCH STILL OUT (audit 2026-09-30). The list
+  // was the one place control left live while a fetch ran, and a pick
+  // cancelled nothing: the earlier place's answer then passed the sequencer,
+  // and Reno's air sat under "Forecast for Gerlach" with Gerlach's
+  // coordinates, one Apply away from the launch conditions.
+  it('never shows, or applies, one place’s weather under a place picked while it was out', async () => {
+    // Reno's air, unmistakable: 31.7 °C every hour.
+    const renoAir = (fixture('forecast-gerlach-0-1202m.json') as { hourly: { temperature_2m: number[] } }[])
+      .map((v) => ({ ...v, hourly: { ...v.hourly, temperature_2m: v.hourly.temperature_2m.map(() => 31.7) } }));
+    const held: Array<(v: { body: unknown }) => void> = [];
+    render({ initialPlace: RENO, route: (u) => (u.includes('/v1/forecast')
+      ? new Promise((resolve) => { held.push(resolve); })
+      : GERLACH(u)) });
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    // Reno is still the place; Gerlach's results wait in the list.
+    expect(q('.weather-chosen')!.textContent).toContain('Reno, Nevada, US');
+    await click(button('Fetch'));
+    expect(held).toHaveLength(1);
+    expect(urls.at(-1)).toContain('latitude=39.530,39.530');
+    // A slow connection: the user picks Gerlach before Reno's answer lands.
+    await click(button(/^Gerlach, Nevada, US/));
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(button('Fetch'), 'Fetch is back: nothing is left running').toBeTruthy();
+    held[0]!({ body: renoAir });
+    await settle();
+    expect(q('.weather-review')).toBeNull();
+    expect(button('Apply')!.hasAttribute('disabled')).toBe(true);
+    // Gerlach's own fetch shows Gerlach's own air, and applies it.
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('latitude=40.652,40.652');
+    held[1]!({ body: fixture('forecast-gerlach-0-1202m.json') });
+    await settle();
+    expect(q('.weather-review h3')!.textContent).toMatch(/^Forecast for Gerlach, Nevada, US · /);
+    expect(row('temperatureC')!.textContent).not.toContain(fieldText('temperatureC', 31.7, INITIAL_UNITS));
+    await click(button('Apply'));
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.patch.temperatureC).not.toBe(31.7);
+    expect(applied[0]!.patch.latitudeDeg).toBe(40.65157);
+  });
+
+  it('keeps a place picked while the browser was still locating, whatever the browser answers later', async () => {
+    let answer: PositionCallback | undefined;
+    render({ geolocation: { getCurrentPosition: (ok) => { answer = ok; } } });
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    // The permission prompt is still up when the user picks from the list instead.
+    await click(button(/^Gerlach, Nevada, US/));
+    expect(button(WEATHER_DIALOG_COPY.locate), 'the location request is over').toBeTruthy();
+    expect(button(WEATHER_DIALOG_COPY.locate)!.hasAttribute('disabled')).toBe(false);
+    await act(async () => { answer!({ coords: { latitude: 39.52963, longitude: -119.8138, accuracy: 30 } } as GeolocationPosition); });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(host.textContent).not.toContain('Located to within');
+  });
+
+  // A DATE TYPED WHILE A PLACE IS STILL COMING STAYS (review of the audit
+  // fixes, 2026-10-01). The place a location fix or a search's one answer
+  // brings lands through the render that STARTED the request, whose date had
+  // not been touched yet, so it put the Date box back on today — and Fetch
+  // then asked for today's weather, not the launch day typed into the box.
+  it('keeps a date typed while the browser was still locating', async () => {
+    let answer: PositionCallback | undefined;
+    render({ initialPlace: RENO, geolocation: { getCurrentPosition: (ok) => { answer = ok; } } });
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-22');
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    // The permission prompt is still up when the user types Saturday.
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await act(async () => { answer!({ coords: { latitude: 40.869712, longitude: -119.061288, accuracy: 30 } } as GeolocationPosition); });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('40.870° N, 119.060° W');
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
+  });
+
+  it('keeps a date typed while a search was still out', async () => {
+    const held: Array<(v: { body: unknown }) => void> = [];
+    const gerlachOnly = fixture('geocode-gerlach.json') as { results: unknown[] };
+    render({ initialPlace: RENO, route: (u) => (u.includes('geocoding-api')
+      ? new Promise((resolve) => { held.push(resolve); })
+      : GERLACH(u)) });
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    await click(button('Search'));
+    expect(held).toHaveLength(1);
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    // One place found, so it is chosen without a list.
+    held[0]!({ body: { ...gerlachOnly, results: gerlachOnly.results.slice(0, 1) } });
+    await settle();
+    expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
+    expect(q<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-09-26');
+    await click(button('Fetch'));
+    expect(urls.at(-1)).toContain('start_date=2026-09-25&end_date=2026-09-27');
   });
 
   it('can cancel a location request the browser never answers', async () => {

@@ -672,6 +672,59 @@ describe('preset CSV round trip', () => {
     expect(back!['packedDiameter']).toBeCloseTo(0.05, 12);
     expect(back!['packedLength']).toBeCloseTo(0.12, 12);
   });
+
+  /**
+   * A SPREADSHEET'S TRUE IS TRUE (audit 2026-09-30). A spreadsheet saves a
+   * `true` cell back as `TRUE` (Excel does), and the reader took only the
+   * lower-case word, so every solid part in an edited export came back hollow.
+   * 653 solid nose cones and 314 solid transitions in the catalogue carry no
+   * catalogue mass, so what they weigh is their geometry, solid or shell.
+   * Measured 2026-10-01 on the first of each: a BNC80S balsa nose, 34.78 g
+   * solid and 4.95 g as the default shell; a BMS20V2B balsa tail cone, 1.01 g
+   * and 0.43 g.
+   */
+  it('reads a spreadsheet’s TRUE as solid, however it is cased or padded', () => {
+    const solid = (kind: string) => db.find((p) => p.kind === kind && p.filled === true
+      && !(typeof p.mass === 'number' && p.mass > 0))!;
+    const [nose, tail] = [solid('NoseCone'), solid('Transition')];
+    // What the spreadsheet writes back: the boolean column upper-cased, every other cell as it was.
+    const resaved = presetsToCsv([nose, tail]).replace(/,true,/g, ',TRUE,');
+    expect(resaved.match(/,TRUE,/g)).toHaveLength(2);
+    const [n, t] = csvToPresets(resaved);
+    expect(presetPatch('nosecone', n!)['filled']).toBe(true);
+    expect(presetPatch('transition', t!)['filled']).toBe(true);
+    const filledOf = (cell: string) =>
+      csvToPresets(`kind,manufacturer,partNo,description,filled\nNoseCone,Acme,N1,Nose,${cell}\n`)[0]!['filled'];
+    for (const cell of ['TRUE', 'True', ' true ', 'true']) expect(filledOf(cell), JSON.stringify(cell)).toBe(true);
+    for (const cell of ['FALSE', 'false', '', ' ']) expect(filledOf(cell), JSON.stringify(cell)).toBeUndefined();
+  });
+
+  it('reads a typed material type whatever its case, so a canopy keeps its fabric weight', () => {
+    // A lower-case `surface` passed the picker's soundness check and then
+    // wrote no surface density: the canopy flew weightless.
+    const [chute] = csvToPresets(csvOf('Parachute,Acme,X1,Chute,Ripstop,surface,0.067,0.6,0.05,0.12'));
+    expect(chute!.material!.type).toBe('SURFACE');
+    expect(presetPatch('parachute', chute!)['surfaceDensity']).toBe(0.067);
+    // And a `bulk` one applied no density to a tube.
+    const [tube] = csvToPresets(csvOf('BodyTube,Acme,BT-50,Tube,Kraft, bulk ,680,0.024,,'));
+    expect(tube!.material!.type).toBe('BULK');
+    expect(presetPatch('bodytube', tube!)['density']).toBe(680);
+    // A cell holding only a space is blank: the kind decides, as for an empty cell.
+    const [spaced] = csvToPresets(csvOf('Parachute,Acme,X2,Chute,Ripstop, ,0.067,0.6,,'));
+    expect(spaced!.material!.type).toBe('SURFACE');
+  });
+
+  it('reads a typed shape trimmed: a padded cell keeps its shape, a lone space is blank', () => {
+    // The kernel reads any shape name it does not know as an ogive, so a
+    // padded `conical ` flew a different nose, and a cell holding only a space
+    // changed the part's shape on a pick where an empty cell leaves it alone.
+    const head = 'kind,manufacturer,partNo,description,length,outsideDiameter,shape\n';
+    const [padded] = csvToPresets(`${head}NoseCone,Acme,N1,Nose,0.1,0.025, Conical \n`);
+    expect(presetPatch('nosecone', padded!)['shape']).toBe('conical');
+    const [spaced] = csvToPresets(`${head}NoseCone,Acme,N2,Nose,0.1,0.025, \n`);
+    expect(spaced!['shape']).toBeUndefined();
+    expect('shape' in presetPatch('nosecone', spaced!)).toBe(false);
+  });
 });
 
 /**

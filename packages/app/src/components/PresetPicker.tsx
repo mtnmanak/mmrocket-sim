@@ -3,7 +3,7 @@ import { clickable } from './clickable.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
-  KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, presetPatch,
+  KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
   presetsToCsv, saveCustomPresets, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -102,9 +102,12 @@ export function PresetPicker({ type, node, onApply, onClose }: {
   // material block at parse time and import as a clean success, so the part
   // kept its old weight under a new label — silent, which is the one outcome
   // this guard exists to prevent (2026-09-21).
-  const matBad = (m?: { name: string; density: number }) =>
-    !!m && (badDensity(m.density) || !m.name.trim());
-  const rowIsSound = (p: Preset) => !matBad(p.material) && !matBad(p.lineMaterial);
+  // And the type its part takes (review of the audit fixes, 2026-10-01): a
+  // typo, LINE, or the other kind's type imported clean too, and presetPatch
+  // then applied no density at all — the same old weight under a new label.
+  const matBad = (m: { name: string; type: string; density: number } | undefined, type: string) =>
+    !!m && (badDensity(m.density) || !m.name.trim() || m.type !== type);
+  const rowIsSound = (p: Preset) => !matBad(p.material, materialTypeFor(p.kind)) && !matBad(p.lineMaterial, 'LINE');
 
   /** Reports every failure itself (setNote), so callers fire it with `void`. */
   const importCsv = async (file: File) => {
@@ -117,7 +120,8 @@ export function PresetPicker({ type, node, onApply, onClose }: {
       const good = parsed.filter(rowIsSound);
       const dropped = parsed.length - good.length;
       const droppedNote = dropped > 0
-        ? ` ${dropped} row(s) skipped — a material needs both a name and a plain positive density`
+        ? ` ${dropped} row(s) skipped — a material needs a name, a plain positive density and the type its part`
+          + ' takes (SURFACE for a parachute or streamer, BULK for anything else)'
           + ` (first: ${parsed.find((p) => !rowIsSound(p))!.partNo}).`
         : '';
       if (good.length === 0) {
