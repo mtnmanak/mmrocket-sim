@@ -2171,6 +2171,42 @@ export function rktComponentInfo(
   return out;
 }
 
+/**
+ * "OVERRIDE FOR ALL SUBCOMPONENTS" HAS NO .rkt FORM (review of the audit fixes,
+ * 2026-10-01). A RockSim part's <KnownMass> and <KnownCG> are its OWN, and
+ * every part inside it goes out with its own mass; desktop's reader says the
+ * same ("Rocksim does not support this type of override",
+ * BaseHandler.setOverride, which clears both subtree flags). So a part weighed
+ * for everything inside it re-opens — in RockSim, desktop OpenRocket and this
+ * app — with those parts weighed again on top, and one balanced for
+ * everything inside it leaves them at their own CG. Measured through the
+ * kernel, a fin can weighed at 200 g with its motor tube and four fins
+ * re-opened at 227.1 g, its rocket's dry CG 20.6 mm further aft
+ * (rocksimFile.test.ts). No encoding keeps it, so the save says so: one sentence
+ * per part, and only where there is something inside to count again. A
+ * stage's own override is another gap — the writer drops it altogether
+ * (format audit row 21).
+ */
+function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: readonly ComponentNode[] | undefined) => {
+    for (const n of nodes ?? []) {
+      const mass = n['overrideSubcomponentsMass'] === true && numOpt(n, 'overrideMass') !== undefined;
+      const cg = n['overrideSubcomponentsCG'] === true && numOpt(n, 'overrideCGX') !== undefined;
+      if ((mass || cg) && (n.children ?? []).length > 0) {
+        const both = mass && cg;
+        out.push(`“${n.name ?? n.type}”: its ${both ? 'mass and CG overrides cover' : `${mass ? 'mass' : 'CG'} override covers`}`
+          + ' the parts inside it, which a .rkt cannot say. RockSim, desktop OpenRocket and this app '
+          + (mass ? `add those parts' own mass on top${cg ? ', at their own CG' : ''}` : 'leave those parts at their own CG')
+          + ` when the file is opened. Save a .ork file to keep ${both ? 'them' : 'it'}.`);
+      }
+      walk(n.children);
+    }
+  };
+  for (const s of stages) walk(s.children);
+  return out;
+}
+
 export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   const lines: string[] = [];
@@ -2208,6 +2244,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // stage element, so there is nowhere for a fourth to go.
     throw new Error('A .rkt file holds at most 3 stages.');
   }
+  notes?.push(...subtreeOverrideNotes(stagesIn));
 
   // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
   // Without this it goes out as a plain <BodyTube> and its `overrideMass: 0` is lost

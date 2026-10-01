@@ -1059,6 +1059,73 @@ describe('RockSim export → import round trip of the two override flags', () =>
 });
 
 /**
+ * ".rkt HAS NO 'OVERRIDE FOR ALL SUBCOMPONENTS'" (review of the audit fixes,
+ * 2026-10-01). A RockSim part's <KnownMass> and <KnownCG> are its own, so a
+ * part weighed or balanced for everything inside it re-opens — here, in desktop
+ * OpenRocket and in RockSim — with those parts weighed again, or left where
+ * they sit. The file cannot keep it; the save note has to say so, and exactly
+ * when it is true: the kernel is the judge, re-opening the file it just wrote.
+ */
+describe('.rkt and an override for all subcomponents', () => {
+  it('says so on save exactly when the re-opened file weighs or balances the rocket differently', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const build = (components: ComponentNode[]) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree({ components }));
+    };
+    const inside: ComponentNode[] = [
+      { type: 'innertube', id: 'm', length: 0.1, outerRadius: 0.0125, thickness: 0.0005,
+        position: { method: 'bottom', offset: 0 } },
+      { type: 'trapezoidfinset', id: 'f', finCount: 4, rootChord: 0.08, tipChord: 0.04, sweep: 0.04,
+        height: 0.05, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+    ] as ComponentNode[];
+    const finCan = (over: Record<string, unknown>, kids = inside): ComponentNode[] => [{
+      type: 'stage', id: 's', name: 'Sustainer', children: [
+        { type: 'nosecone', id: 'n', length: 0.12, aftRadius: 0.025, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube', id: 'b', name: 'Fin can', length: 0.4, outerRadius: 0.025, thickness: 0.001,
+          ...over, children: kids },
+      ],
+    }] as ComponentNode[];
+    const pods = (over: Record<string, unknown>): ComponentNode[] => [{
+      type: 'stage', id: 's', name: 'Sustainer', children: [{
+        type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [{
+          type: 'podset', id: 'p', name: 'Fin can', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.05,
+          position: { method: 'bottom', offset: 0 }, ...over,
+          children: [{ type: 'bodytube', id: 'pb', length: 0.15, outerRadius: 0.012, thickness: 0.0005 }],
+        }],
+      }],
+    }] as ComponentNode[];
+    const MASS = { overrideMass: 0.2, overrideSubcomponentsMass: true };
+    const CG = { overrideCGX: 0.1, overrideSubcomponentsCG: true };
+    const cases: [string, ComponentNode[], RegExp | null][] = [
+      ['mass, for the subtree', finCan(MASS), /“Fin can”: its mass override covers the parts inside it, .*add those parts' own mass on top when/],
+      ['CG, for the subtree', finCan(CG), /“Fin can”: its CG override covers the parts inside it, .*leave those parts at their own CG when/],
+      ['both, for the subtree', finCan({ ...MASS, ...CG }), /“Fin can”: its mass and CG overrides cover the parts inside it, .*add those parts' own mass on top, at their own CG when .*keep them\./],
+      ['a pod set, for the subtree', pods({ overrideMass: 0.4, overrideSubcomponentsMass: true }), /“Fin can”: its mass override covers/],
+      ['mass, its own', finCan({ overrideMass: 0.2 }), null],
+      ['CG, its own', finCan({ overrideCGX: 0.1 }), null],
+      ['a pod set, its own', pods({ overrideMass: 0.4 }), null],
+      ['for the subtree, with nothing inside', finCan({ ...MASS, ...CG }, []), null],
+      ['a flag with no override', finCan({ overrideSubcomponentsMass: true, overrideSubcomponentsCG: true }), null],
+    ];
+    for (const [label, components, says] of cases) {
+      const rocket = build(components);
+      const was = rocket.staticInfo();
+      const notes: string[] = [];
+      const xml = exportRkt({
+        name: 'T', tree: { components }, notes, compInfo: rktComponentInfo({ components }, (id) => rocket.componentInfo(id)),
+      });
+      const now = build(importRkt(xml).tree.components).staticInfo();
+      const lost = Math.abs(now.massEmpty - was.massEmpty) > 1e-9 || Math.abs(now.cgEmpty - was.cgEmpty) > 1e-9;
+      const said = notes.filter((n) => n.includes('Fin can'));
+      expect(lost, `${label}: the re-opened rocket ${lost ? 'differs' : 'is the same'}`).toBe(says !== null);
+      expect(said, label).toEqual(says ? [expect.stringMatching(says)] : []);
+    }
+  }, 60000);
+});
+
+/**
  * Old RockSim (pre-9) wrote a BINARY design file that still carries a .rkt/.RKT
  * name. A 939-file survey of real vendor designs (2026-08-22) found 96 of them —
  * every Public Missiles kit in the set. They used to fail with "XML parse
