@@ -3257,8 +3257,8 @@ export function App() {
             This clears “{tree.name ?? 'the current rocket'}” — all components,
             overrides and the current simulation. Make sure it's saved as an
             .ork file first: Ctrl+Z brings the components back, but not the
-            motors, the flight configurations, the Measured mass &amp; CG or the
-            flight.
+            motors, the flight configurations, the Measured mass &amp; CG, the
+            Geodetic calculations choice or the flight.
           </p>
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
@@ -4027,7 +4027,7 @@ export function App() {
                     <div className="field" style={{ marginTop: 6 }}>
                       {/* Tied to its box (audit 2026-09-30), which keeps the
                           name that says which mount, as Max motor length's does. */}
-                      <label htmlFor={`ejection-delay-${m.id}`}>
+                      <label htmlFor={`ejection-delay-${m.id!}`}>
                         Ejection delay (s)
                         {mm.meta.availableDelays?.length
                           ? ` — prescribed: ${mm.meta.availableDelays.map((d) => (Number.isFinite(d) ? d : 'P')).join(', ')}`
@@ -4036,7 +4036,7 @@ export function App() {
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
                           <NumField
-                            id={`ejection-delay-${m.id}`}
+                            id={`ejection-delay-${m.id!}`}
                             // A plugged motor has no numeric delay — blank the
                             // field (it used to render the literal "Infinity").
                             value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}
@@ -4094,10 +4094,10 @@ export function App() {
                       {/* The words on screen name the select (audit
                           2026-09-30): it carried its own aria-label, "Ignition
                           event", beside a label tied to nothing. */}
-                      <label htmlFor={`ignition-${m.id}`}>Ignition</label>
+                      <label htmlFor={`ignition-${m.id!}`}>Ignition</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select
-                          id={`ignition-${m.id}`}
+                          id={`ignition-${m.id!}`}
                           style={{ flex: 1 }}
                           value={mm.ignition.event}
                           onChange={(e) => setMountMotors((prev) => ({

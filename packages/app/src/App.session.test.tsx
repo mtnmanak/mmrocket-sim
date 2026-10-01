@@ -347,7 +347,7 @@ describe('✕ New forgets the previous rocket\'s measured mass & CG (audit 2026-
     // coming back with it (from review; ScaleDialog says the same).
     expect(host.textContent).toContain(
       'Ctrl+Z brings the components back, but not the motors, the flight configurations,'
-      + ' the Measured mass & CG or the flight.');
+      + ' the Measured mass & CG, the Geodetic calculations choice or the flight.');
     await act(async () => { button(host, 'Discard & start new').click(); });
     await settle(600);
     window.dispatchEvent(new Event('pagehide'));
