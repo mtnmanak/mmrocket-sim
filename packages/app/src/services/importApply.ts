@@ -91,9 +91,10 @@ export function attachedSet(motors: Record<string, MountMotor>): Record<string, 
  *
  * The geodetic model is the same kind of setting — desktop keeps it beside the
  * time step in its simulation options — and follows the same rule: a file that
- * carries no launch conditions (a .rkt, a .CDX1, a .ork with no simulation)
- * opens on the default Spherical Earth rather than inheriting the previous
- * design's. A .ork that HAS conditions always carries one, because its reader
+ * names no model opens on the default Spherical Earth rather than inheriting
+ * the previous design's. That is a .rkt or a .ork with no simulation, which
+ * carry no launch conditions at all, and a .CDX1, whose launch site has no such
+ * setting. A .ork that HAS conditions always names one, because its reader
  * writes desktop's own rule for a missing `<geodeticmethod>` (flat).
  */
 export function importedLaunch(
