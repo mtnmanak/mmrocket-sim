@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { buildPieces, type Piece } from './pieces.js';
@@ -443,6 +444,67 @@ describe('a freeform fin on a rising mount is extruded closed, on the body', () 
       ] }],
     } as unknown as RocketTree;
     expect(finOf(tree)).toBeUndefined();
+  });
+});
+
+/**
+ * `maxR` is the 3D view's reach from the CORE axis: the snapshot header prints
+ * twice it as the span, and the camera and the CG/CP markers stand off by it.
+ * Inside a pod everything was measured from the POD's axis (audit 2026-09-30,
+ * on review of the side view's fix for the same thing): a pod set on a pod
+ * read 40 mm where its tube reaches 50, and the snapshot printed an 80 mm span
+ * where the 2D export printed 100.
+ */
+describe('maxR measures every part from the core axis', () => {
+  /** The farthest vertex of any piece from the x axis, transforms applied. */
+  const farthest = (tree: RocketTree): number => {
+    let r = 0;
+    for (const p of buildPieces(tree).pieces) {
+      const m = new THREE.Matrix4();
+      if (p.rotation) m.makeRotationFromEuler(new THREE.Euler(...p.rotation));
+      if (p.position) m.setPosition(...p.position);
+      const pos = p.geometry.getAttribute('position');
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(m);
+        r = Math.max(r, Math.hypot(v.y, v.z));
+      }
+    }
+    return r;
+  };
+  /** Core 20 mm; a 10 mm pod touching it, centre 30 mm out; on it `podKids`. */
+  const onPod = (podKids: Record<string, unknown>[]): RocketTree => ({
+    name: 'Rocket',
+    components: [{ id: 's1', type: 'stage', children: [
+      { id: 'n1', type: 'nosecone', shape: 'ogive', length: 0.1, aftRadius: 0.02 },
+      { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.02, children: [
+        { id: 'p1', type: 'podset', instanceCount: 1, radiusOffset: 0, position: { method: 'top', offset: 0 },
+          children: [{ id: 'pb', type: 'bodytube', length: 0.2, outerRadius: 0.01, children: podKids }] },
+      ] },
+    ] }],
+  } as unknown as RocketTree);
+
+  it('a pod set on a pod: its 5 mm tube reaches 30 + 15 + 5 = 50 mm', () => {
+    const tree = onPod([{ id: 'p2', type: 'podset', instanceCount: 1, radiusOffset: 0,
+      position: { method: 'top', offset: 0 },
+      children: [{ id: 'qb', type: 'bodytube', length: 0.1, outerRadius: 0.005 }] }]);
+    expect(farthest(tree)).toBeCloseTo(0.05, 6);
+    expect(buildPieces(tree).maxR).toBeCloseTo(0.05, 12);
+  });
+
+  it('fins on a pod: 30 mm fins on its 10 mm tube reach 30 + 10 + 30 = 70 mm', () => {
+    const tree = onPod([{ id: 'pf', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03,
+      sweep: 0.02, height: 0.03, thickness: 0.003, position: { method: 'bottom', offset: 0 } }]);
+    // The tip's corners sit half the 3 mm thickness off the fin's plane; maxR
+    // counts the fin to its tip, as it does on the core.
+    expect(farthest(tree)).toBeCloseTo(Math.hypot(0.07, 0.0015), 6);
+    expect(buildPieces(tree).maxR).toBeCloseTo(0.07, 12);
+  });
+
+  it('on the core it is unchanged: the fin tip, 24 + 30 mm', () => {
+    const tree = withChildren([{ id: 'f', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05,
+      tipChord: 0.03, sweep: 0.02, height: 0.03, thickness: 0.003, position: { method: 'bottom', offset: 0 } }]);
+    expect(buildPieces(tree).maxR).toBeCloseTo(BODY_R + 0.03, 12);
   });
 });
 

@@ -96,6 +96,16 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
   const pieces: Piece[] = [];
   let maxR = 0.005;
   let k = 0;
+  // The chain being built's axis, as a distance from the CORE axis: 0 on the
+  // core, the pod radii summed down to a pod's own chain. Every part below
+  // measures its reach from its own chain's axis, and `maxR` is the reach from
+  // the core's — the snapshot's span, the camera's and the markers' stand-off.
+  // Measured from the pod's axis, a pod set on a pod read 40 mm where its
+  // tube reaches 50, and a pod's fins read their own height off the pod
+  // (audit 2026-09-30, on review). The sum bounds every instance angle, as the
+  // side view's frame does (schematicLayout's scanRadial).
+  let axisR = 0;
+  const reach = (r: number) => { maxR = Math.max(maxR, axisR + r); };
 
   // Push a piece. For off-axis assemblies an instance transform `xform` is
   // baked into the geometry (like addFins already does), so the flat Piece[]
@@ -179,7 +189,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     // 2026-09-30). On a body tube it is the tube radius, as before.
     const mounted = child.type === 'freeformfinset' ? finOnMount(ffPoints, start - pStart, mount) : null;
     const r0 = mounted ? mounted.r0 : mount.radiusAt(start - pStart);
-    maxR = Math.max(maxR, r0 + height);
+    reach(r0 + height);
 
     // A self-intersecting planform is refused, not extruded. three's earcut
     // silently DELETES vertices it cannot triangulate, so the caps come out
@@ -296,7 +306,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         // No kernel constant for the wall: an absent one inherits the tube's.
         const wall = Math.min(num(child, 'thickness', 0.0005), rt * 0.45);
         const start = axialStart(child, len, pStart, pLen);
-        maxR = Math.max(maxR, pRadius + 2 * rt);
+        reach(pRadius + 2 * rt);
         for (let i = 0; i < count; i++) {
           const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
           // Open tube: an annulus extruded along the body axis.
@@ -324,7 +334,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const wid = kernelNum(child, 'width');
         const hgt = kernelNum(child, 'height');
         const start = axialStart(child, len, pStart, pLen);
-        maxR = Math.max(maxR, pRadius + hgt);
+        reach(pRadius + hgt);
         const ends = shroudEnds(child);
         const geo = shroudGeometry({
           length: len, width: wid, height: hgt, bodyRadius: pRadius,
@@ -340,7 +350,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const wid = kernelNum(child, 'width');
         const hgt = kernelNum(child, 'height');
         const start = axialStart(child, len, pStart, pLen);
-        maxR = Math.max(maxR, pRadius + hgt);
+        reach(pRadius + hgt);
         const geo = new THREE.BoxGeometry(len, hgt, wid);
         const pa = num(child, 'angleOffset', 0);
         const pd = pRadius + hgt / 2;
@@ -401,7 +411,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
             [station + li * bSep, bdst * Math.cos(ba), bdst * Math.sin(ba)], [ba, 0, 0], xform);
         }
         bGeo.dispose();
-        maxR = Math.max(maxR, pRadius + bh);
+        reach(pRadius + bh);
       } else if (child.type === 'innertube') {
         // Motor mount / inner tube, one per cluster position — visible through
         // the translucent shell. A loaded motor seats flush against the
@@ -448,12 +458,15 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const podStart = axialStart(child, podLen, pStart, pLen);
         const count = assemblyInstanceCount(child);
         const angleOffset = num(child, 'angleOffset', 0);
-        maxR = Math.max(maxR, podRadius + assemblyBoundingRadius(child));
+        reach(podRadius + assemblyBoundingRadius(child));
+        const parentAxisR = axisR;
+        axisR = parentAxisR + podRadius;
         for (const off of ringInstanceOffsets(count, podRadius, angleOffset)) {
           const m = new THREE.Matrix4().makeRotationX(off.angle)
             .multiply(new THREE.Matrix4().makeTranslation(podStart, podRadius, 0));
           addChain(podChain, xform ? new THREE.Matrix4().copy(xform).multiply(m) : m);
         }
+        axisR = parentAxisR;
       }
       // Other internal components are not rendered in 3D (invisible in tubes).
     }
@@ -474,14 +487,14 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, 0, R);
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
-        maxR = Math.max(maxR, R);
+        reach(R);
         addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, 0, R));
         x += len;
       } else if (n.type === 'bodytube') {
         const R = kernelNum(n, 'outerRadius');
         place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
           [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true);
-        maxR = Math.max(maxR, R);
+        reach(R);
         // Min-diameter mount: a motor loaded directly in this body tube.
         const tubeMotor = n.id ? motors?.[n.id] : undefined;
         if (tubeMotor) {
@@ -504,7 +517,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped);
         place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
-        maxR = Math.max(maxR, rf, ra);
+        reach(Math.max(rf, ra));
         // A fin roots on the profile it is drawn on, not at the larger end.
         addChildren(n, x, len, Math.max(rf, ra), xform,
           profileMount(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped));
