@@ -27,7 +27,10 @@ if (isRetiredHost(location.hostname)) {
 // while RENDERING is caught by AppBoundary (root.tsx), which keeps the root
 // filled and offers the autosaved design and a fresh start (audit
 // 2026-09-22); this paints only into an EMPTY root, so it is the last resort
-// for what no boundary sees (the root failing to mount at all).
+// for what no boundary sees (the root failing to mount at all). What fails
+// before this body can run — a chunk that would not load, a module that threw
+// while evaluating — is painted by index.html's startup painter, which stands
+// down once the app has drawn (audit 2026-09-30).
 function showFatal(message: string) {
   const root = document.getElementById('root');
   if (root && !root.childElementCount) {
