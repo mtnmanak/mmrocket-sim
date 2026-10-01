@@ -111,12 +111,16 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             {/* No onSelect: this drawing is a picture. A no-op one still made
                 every drawn part a focusable "Select …" button, hidden inside
                 the role="img" svg — a dead tab stop per part before the
-                flight numbers (audit 2026-09-22). */}
+                flight numbers (audit 2026-09-22).
+                No motors and no onPatchNode either, rather than `{}` and a
+                no-op (audit 2026-09-30): the drawing's layout is memoised on
+                `motors`, so a fresh `{}` per render walked the whole design
+                again on every FlyScreen render — every keystroke in the launch
+                fields below, on the phone. Absent draws the same: no motor
+                cases, and a vertical drawing never drags a part. */}
             <TreeSchematic
               tree={tree}
               info={info}
-              motors={{}}
-              onPatchNode={() => {}}
               selectedId={null}
               maxHeight={430}
               vertical
