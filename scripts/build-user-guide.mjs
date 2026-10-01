@@ -378,7 +378,10 @@ function guideTokens(data, corrections) {
  *    I40N-P's machined nozzle) and the sentence listing every row with no
  *    number on purpose: a row with no exit for a reason it does not give stops
  *    the build too (2026-10-01 — resolving the K76WN-P's cut-down exit
- *    compiled byte for byte, with the guide still describing its nozzle).
+ *    compiled byte for byte, with the guide still describing its nozzle). And
+ *    every AREA it states from two diameters is worked out from the file's
+ *    diameters: the K1100T's two options, and Loki's 76 mm exit machined out
+ *    against each standard exit for that casing.
  *
  * All of it reads nozzles.json alone, never motors.json: the weekly catalogue
  * refresh runs this script, and nozzles.json can only be rebuilt on the one
@@ -520,6 +523,35 @@ function checkNozzleClaims(raw, facts) {
     if (Number(said) !== pct) {
       fail(`user-guide.md says the ${name}'s two options differ by ${said} % in area; nozzles.json's exits `
         + `(${exits.join(' in and ')} in) give ${pct} %`, at.ln);
+    }
+  }
+
+  // Loki's 76 mm exit machined out, against each standard exit the app fills in
+  // for that casing: two areas from three diameters, every one of them the file's.
+  at = find(/\b(\d*\.\d+)″ against the standard (\d*\.\d+)″ is (\d+) % more area, and against the (\d*\.\d+)″ band it is (\d+) %/);
+  if (at) {
+    const [, out, ...said] = at.m;
+    const pairs = [[said[0], said[1]], [said[2], said[3]]];
+    // A figure is the file's when it reads the same at the decimals the guide writes.
+    const asWritten = (text, x) => Number(x.toFixed(text.split('.')[1]?.length ?? 0)) === Number(text);
+    const l76 = facts.rows.filter((m) => m.manufacturer === 'Loki' && m.casingDiameterMm === 76
+      && m.exitDiameterIn !== undefined);
+    const bands = [...new Set(l76.map((m) => m.exitDiameterIn))].sort((a, b) => b - a);
+    if (bands.length !== pairs.length || !pairs.every(([d]) => bands.some((x) => asWritten(d, x)))) {
+      fail(`user-guide.md compares a machined-out 76 mm Loki exit with ${pairs.map(([d]) => `${d}″`).join(' and ')}; `
+        + `nozzles.json's 76 mm Loki exits are ${bands.length > 1 ? `${bands.slice(0, -1).join(', ')} and ${bands.at(-1)}` : bands[0]} in`, at.ln);
+    }
+    const limits = [...new Set(l76.map((m) => m.customExitNote?.match(/\bout to (\d*\.\d+) in\b/)?.[1]))];
+    if (limits.length !== 1 || limits[0] === undefined || !asWritten(out, Number(limits[0]))) {
+      fail(`user-guide.md says a 76 mm Loki exit can be machined out to ${out}″; nozzles.json's 76 mm Loki rows say `
+        + `${limits.map((l) => (l === undefined ? 'nothing' : `${l} in`)).join(' or ')}`, at.ln);
+    }
+    for (const [d, pct] of pairs) {
+      const area = Math.round(100 * ((Number(out) / Number(d)) ** 2 - 1));
+      if (Number(pct) !== area) {
+        fail(`user-guide.md's ${out}″ against ${d}″ says ${pct} %; the area grows ${area} % (the diameter `
+          + `${Math.round(100 * (Number(out) / Number(d) - 1))} %)`, at.ln);
+      }
     }
   }
 }

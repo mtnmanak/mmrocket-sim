@@ -201,6 +201,7 @@ describe('the nozzle database figures the guide quotes', () => {
     expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]* is an aerospike\b/);
     expect(md).toMatch(/\bthe [A-Z]\d+[A-Z]*(?:-[A-Z]+)?'s machined nozzle is drawn with its outside diameter and no exit\b/);
     expect(md).toMatch(/\b[A-Za-z]+ has a nozzle the sheet says was cut shorter than the mould\b/);
+    expect(md).toMatch(/\d*\.\d+″ against the standard \d*\.\d+″ is \d+ % more area, and against the \d*\.\d+″ band it is \d+ %/);
   });
 });
 
@@ -282,6 +283,31 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
     });
     expect(() => compileGuide({ dataDir: twoSpikes }))
       .toThrow(/says "the J615ST is an aerospike"; .* are two: J615ST-20A, K950ST-14A/);
+  });
+
+  it("refuses to compile when Loki's 76 mm bands or their machined-out exit move", () => {
+    const loki76 = (db) => db.motors.filter((m) => m.manufacturer === 'Loki' && m.casingDiameterMm === 76);
+    // A rebuild that reads the 76/3600 band as 1.550 in: the guide's 1.500 and its 78 % go stale together.
+    const band = rebuilt((db) => { for (const r of loki76(db)) if (r.exitDiameterIn === 1.5) r.exitDiameterIn = 1.55; });
+    expect(() => compileGuide({ dataDir: band })).toThrow(/76 mm Loki exits are 1\.818 and 1\.55 in/);
+    // A third band: the sentence names two.
+    const third = rebuilt((db) => { row(db, 'M3464LB').exitDiameterIn = 1.9; });
+    expect(() => compileGuide({ dataDir: third })).toThrow(/76 mm Loki exits are 1\.9, 1\.818 and 1\.5 in/);
+    // Loki machine their 76 mm exits out further.
+    const further = rebuilt((db) => {
+      for (const r of loki76(db)) r.customExitNote = r.customExitNote.replace('out to 2.0 in', 'out to 2.1 in');
+    });
+    expect(() => compileGuide({ dataDir: further })).toThrow(/machined out to 2\.0″; nozzles\.json's 76 mm Loki rows say 2\.1 in/);
+  });
+
+  it('refuses to compile when the 76 mm percentages are not the areas of their own diameters', () => {
+    const md = readFileSync(SRC, 'utf8');
+    expect(md).toContain('1.818″ is 21 % more area');
+    // 21 % is the area; the diameter is 10 % wider, the shape v0.133's note got wrong.
+    expect(() => compileGuide({ markdown: md.replace('1.818″ is 21 % more area', '1.818″ is 10 % more area') }))
+      .toThrow(/against 1\.818″ says 10 %; the area grows 21 %/);
+    expect(() => compileGuide({ markdown: md.replace('1.500″ band it is 78 %', '1.500″ band it is 33 %') }))
+      .toThrow(/against 1\.500″ says 33 %; the area grows 78 %/);
   });
 
   it('refuses to compile when a loadable row has no exit for a reason the guide does not give', () => {
