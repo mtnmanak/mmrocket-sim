@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket, resetEngine } from '@online-openrocket/engine';
 import { isAssembly } from './assembly.js';
 import {
-  absoluteStations, anchorStarts, axialLength, axialStart, drawnExtent, positionOf, resolveAbsolutePositions,
+  absoluteStations, anchorStarts, axialLength, axialStart, drawnSpan, positionOf, resolveAbsolutePositions,
   startFromPosition,
 } from './position.js';
 import { POSITIONABLE } from './schema.js';
@@ -167,7 +167,7 @@ describe('absoluteStations', () => {
 /**
  * THE FREEFORM-FIN SPLIT (2026-09-07). `axialLength` is the kernel's length —
  * `FreeformFinSet.java:448/494/546`: the LAST point's x, the root chord — and
- * `drawnExtent` is the outline's furthest-aft x. From 2026-07-03 to v0.116
+ * `drawnSpan` reaches the outline's furthest-aft x. From 2026-07-03 to v0.116
  * `axialLength` returned max-x, so a 'bottom'/'middle'-anchored fin whose tip
  * trailing corner overhangs its root was drawn, dragged and exported forward
  * of where the kernel flew it, by the overhang, while the property panel
@@ -176,7 +176,7 @@ describe('absoluteStations', () => {
  * out of the file: root chord 360.76 mm, max-x 480.26 mm, overhang 119.50 mm,
  * on an 866.775 mm tube, 'bottom', offset -104.97 mm.
  */
-describe('axialLength vs drawnExtent — a freeform fin whose tip overhangs its root', () => {
+describe('axialLength vs drawnSpan — a freeform fin whose tip overhangs its root', () => {
   const NINJA: [number, number][] = [
     [0, 0],
     [0.48026079897864005, 0.15594675369134],
@@ -198,10 +198,10 @@ describe('axialLength vs drawnExtent — a freeform fin whose tip overhangs its 
     ] }],
   } as unknown as RocketTree);
 
-  it('axialLength is the root chord (the last point), drawnExtent the furthest-aft point', () => {
+  it('axialLength is the root chord (the last point), drawnSpan reaches the furthest-aft point', () => {
     expect(axialLength(fin())).toBeCloseTo(ROOT, 12);
-    expect(drawnExtent(fin())).toBeCloseTo(MAXX, 12);
-    expect(drawnExtent(fin()) - axialLength(fin())).toBeCloseTo(0.11949904924174605, 12);
+    expect(drawnSpan(fin())).toEqual([0, MAXX]);
+    expect(drawnSpan(fin())[1] - axialLength(fin())).toBeCloseTo(0.11949904924174605, 12);
   });
 
   it('a Bottom-anchored fin starts at parentLength - rootChord + offset', () => {
@@ -227,12 +227,24 @@ describe('axialLength vs drawnExtent — a freeform fin whose tip overhangs its 
     expect(top.end).toBeCloseTo(0.45 + MAXX, 12);
   });
 
+  it('absoluteStations: a swept trapezoid ENDS at its tip, still starting at the kernel station', () => {
+    // Root 100, sweep 80, tip 50 mm: the drawn shape reaches 130 mm (audit
+    // 2026-09-30); only a freeform fin used to be allowed to overhang.
+    const swept = {
+      id: 'ff', type: 'trapezoidfinset', finCount: 3, rootChord: 0.1, sweep: 0.08, tipChord: 0.05,
+      height: 0.04, position: { method: 'top', offset: 0.3 },
+    } as unknown as ComponentNode;
+    const st = absoluteStations(rocket(swept)).get('ff')!;
+    expect(st.start).toBeCloseTo(0.45, 12);
+    expect(st.end).toBeCloseTo(0.45 + 0.13, 12);
+  });
+
   it('a fin with NO overhang answers the same for both — nothing else moved', () => {
     const plain = fin({ points: [[0, 0], [0.02, 0.05], [0.06, 0.05], [0.08, 0]] });
     expect(axialLength(plain)).toBeCloseTo(0.08, 12);
-    expect(drawnExtent(plain)).toBeCloseTo(0.08, 12);
+    expect(drawnSpan(plain)).toEqual([0, 0.08]);
     const trap = { id: 't', type: 'trapezoidfinset', rootChord: 0.1 } as unknown as ComponentNode;
-    expect(drawnExtent(trap)).toBe(axialLength(trap));
+    expect(drawnSpan(trap)).toEqual([0, axialLength(trap)]);
   });
 
   it('the snap ladder anchors a Bottom fin at the kernel station', () => {
@@ -283,7 +295,7 @@ describe('axialLength — a rail button is ZERO, the kernel\'s own', () => {
     // Even a button that somehow acquired a length key: the kernel's
     // RocketComponent.length is 0 and RailButton never assigns it.
     expect(axialLength(button({ length: 0.05, totalHeight: 0.01142 }))).toBe(0);
-    expect(drawnExtent(button())).toBe(0);
+    expect(drawnSpan(button())).toEqual([0, 0]);
   });
 
   it('puts the station where the kernel puts it, for all three methods', () => {

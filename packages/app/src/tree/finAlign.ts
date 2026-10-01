@@ -1,6 +1,6 @@
 import { finCountOf } from './counts.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { axialLength, drawnExtent, positionOf, startFromPosition } from './position.js';
+import { axialLength, drawnSpan, positionOf, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
 
@@ -47,8 +47,9 @@ const countOf = (n: ComponentNode): number => finCountOf(n);
 /**
  * The axial span a fin set occupies on its parent, metres from the parent's
  * fore end. Anchored by the kernel's length, which is where the set is
- * STATIONED; extended by the drawn outline, because a freeform fin whose tip
- * overhangs its root collides with the set behind it out to the tip.
+ * STATIONED; extended both ways to the drawn outline (`drawnSpan`), because a
+ * fin whose tip overhangs its root collides with the set behind it out to the
+ * tip, and one swept forward with the set ahead of it.
  *
  * Shared with the RockSim importer's de-collision pass (rocksimFile.ts), which
  * carried its own copy of this and of `spansOverlap` (audit 2026-09-22, from
@@ -56,7 +57,8 @@ const countOf = (n: ComponentNode): number => finCountOf(n);
  */
 export function finSetSpan(k: ComponentNode, parentLength: number): [number, number] {
   const start = startFromPosition(positionOf(k), axialLength(k), parentLength);
-  return [start, start + drawnExtent(k)];
+  const [fore, aft] = drawnSpan(k);
+  return [start + fore, start + aft];
 }
 
 /** Do two axial spans overlap? Touching end to end is not an overlap. */

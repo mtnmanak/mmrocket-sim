@@ -14,8 +14,8 @@ import { num } from './nodeNum.js';
  * as the kernel reads it when it resolves a station
  * (`RocketComponent.java:1618`, `AxialMethod.java:74/94`: 'middle' and
  * 'bottom' both subtract this from the parent's length). It is the ANCHORING
- * question only; "how far aft does the drawn shape reach" is `drawnExtent`
- * below, and the two differ for exactly one shape.
+ * question only; "how far does the drawn shape reach" is `drawnSpan` below,
+ * and the two differ for a fin whose outline runs past its root.
  *
  * FREEFORM FIN: the ROOT CHORD — the last point's x (`FreeformFinSet.java:448`,
  * re-asserted at `:494` and `:546`), NOT the furthest-aft point of the outline.
@@ -96,21 +96,36 @@ const LENGTH_DEFAULTS: Record<string, number> = Object.assign(Object.create(null
 });
 
 /**
- * How far aft of its OWN leading edge a component's drawn shape reaches — the
- * EXTENT question, for the silhouette's hover box, the fin-overlap tests that
- * auto-rotate a second fin set (finAlign.ts, rocksimFile.ts) and the trailing
- * edge `absoluteStations` reports. Only a freeform fin answers differently
- * from `axialLength`: its outline may overhang its root, and the overhang is
- * real geometry that another fin can collide with even though the kernel's
- * length stops at the root trailing corner. Never use this to resolve a
- * station — that is `axialLength`, and the split is the whole point.
+ * How far a component's drawn shape reaches FORE and AFT of its own station —
+ * `[fore, aft]`, metres from the leading edge the kernel places it at, with
+ * `fore` negative when the shape reaches forward of it. The EXTENT question,
+ * for the fin-overlap tests that auto-rotate a second fin set (finAlign.ts,
+ * rocksimFile.ts) and the trailing edge `absoluteStations` reports.
+ *
+ * A FIN can reach past its root both ways, and the reach is real geometry that
+ * another fin collides with even though the kernel's length stops at the root:
+ * a freeform outline spans its points' x, and a trapezoid its four corners' —
+ * a tip overhanging the root (sweep + tip > root, the shape finTab.ts warns
+ * about) aft, a negative sweep forward. Only the freeform overhang was counted
+ * until audit 2026-09-30, so a swept trapezoid and a set beside its tips "did
+ * not overlap" and kept their fins on the same clock lines. Everything else
+ * spans `[0, axialLength]`. Never use this to resolve a station — that is
+ * `axialLength`, and the split is the whole point.
  */
-export function drawnExtent(n: ComponentNode): number {
+export function drawnSpan(n: ComponentNode): [number, number] {
   if (n.type === 'freeformfinset') {
     const pts = (n['points'] as [number, number][] | undefined) ?? [];
-    return pts.length ? Math.max(...pts.map((p) => p[0])) : 0.05;
+    if (!pts.length) return [0, 0.05];
+    const xs = pts.map((p) => p[0]);
+    return [Math.min(...xs), Math.max(...xs)];
   }
-  return axialLength(n);
+  if (n.type === 'trapezoidfinset') {
+    // The kernel bridge's defaults (ComponentFactory), as axialLength's.
+    const sweep = num(n, 'sweep', 0.02);
+    const xs = [0, sweep, sweep + num(n, 'tipChord', 0.03), num(n, 'rootChord', 0.05)];
+    return [Math.min(...xs), Math.max(...xs)];
+  }
+  return [0, axialLength(n)];
 }
 
 /**
@@ -285,11 +300,12 @@ export interface AbsoluteStation {
   /** Leading edge, metres aft of the nose tip of the assembled stack. */
   start: number;
   /**
-   * Trailing edge — `start + drawnExtent(node)`. The START is the kernel's
-   * station (anchored by `axialLength`); the END is where the drawn shape
-   * stops, which for an overhanging freeform fin is further aft than the
-   * root chord the kernel calls its length. One record, two lengths, on
-   * purpose: a wake arrives at the leading edge, a collision reaches the tip.
+   * Trailing edge — `start` plus the aft reach of `drawnSpan(node)`. The START
+   * is the kernel's station (anchored by `axialLength`); the END is where the
+   * drawn shape stops, which for a fin whose tip overhangs its root is further
+   * aft than the root chord the kernel calls its length. One record, two
+   * lengths, on purpose: a wake arrives at the leading edge, a collision
+   * reaches the tip.
    */
   end: number;
   node: ComponentNode;
@@ -340,7 +356,7 @@ export function absoluteStations(tree: RocketTree): Map<string, AbsoluteStation>
     // `len` anchors (and is the parent length its own children are placed
     // against — the kernel's getLength() either way); the END is the extent.
     for (const { node: child, start, len } of placeChildren(parent, pStart, pLen)) {
-      if (child.id) out.set(child.id, { start, end: start + drawnExtent(child), node: child, parent });
+      if (child.id) out.set(child.id, { start, end: start + drawnSpan(child)[1], node: child, parent });
       descend(child, start, len);
     }
   };
