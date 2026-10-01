@@ -16,6 +16,7 @@ import { exportOrk, importOrk } from './services/orkFile.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
+import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
@@ -586,6 +587,53 @@ describe('a pad mass on one of two mounts in the same stage', () => {
     expect(padMasses(vi.mocked(exportOrk).mock.results.at(-1)!.value as string)).toEqual({ W: 0.42, X: 0.5 });
     // The crash-recovery file, from the session App stored, keeps the same.
     expect(padMasses(autosavedDesignFile()!.data)).toEqual({ W: 0.42, X: 0.5 });
+  }, 30000);
+});
+
+/**
+ * AN AUTO MOUNT FLOWN IN THE ACTIVE FLIGHT CONFIGURATION, SAVED (verifier's
+ * review of audit 2026-09-30, item 23). A flight is filed under the
+ * configuration it flew (SimRun.flightConfigId), and the working set — which
+ * the writer puts in the file as the active configuration — takes its Auto
+ * delays from the active configuration's flights. Every other Auto-flight Save
+ * test flies a design with no configuration, where the key is '' either way: a
+ * working set read under '' would pass them all, and save this one at its
+ * provisional delay.
+ */
+describe('an Auto mount flown in the active flight configuration', () => {
+  it('is saved at the delay it flew there', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const provisional = 0;
+    const auto: MountMotor = {
+      ...c6, label: 'C6 (auto delay)', spec: { ...c6.spec, ejectionDelay: provisional },
+      meta: { ...c6.meta, autoDelay: true },
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: auto }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'A', savedConfigs: [{ id: 'A', name: 'Calm', isDefault: true, motors: { [mount]: auto } }],
+    }));
+    const host = await mountApp();
+    await settle(50);
+    await act(async () => {
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+    });
+    const stored = () => JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as SimRun[];
+    await waitFor(() => stored().length === 1, 'the flight to be saved');
+    const [run] = stored();
+    expect(run!.flightConfigId).toBe('A');
+    const flownS = run!.delayResolution!.mounts[0]!.flownDelay as number;
+    // Else the file at its provisional delay would pass.
+    expect(flownS).not.toBe(provisional);
+    await saveAs(host, 'Save .ork');
+    await settle(0);
+
+    const back = importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+    const backMount = motorMounts(back.tree)[0]!.id!;
+    expect(back.configs.find((c) => c.id === 'A')?.motors[backMount]?.delay).toBe(flownS);
+    expect(document.body.textContent).toContain(`it is saved at ${flownS} s, the rounded optimum it flies on Auto`);
+    expect(document.body.textContent).not.toContain('its provisional');
   }, 30000);
 });
 
