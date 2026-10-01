@@ -13,6 +13,7 @@ import {
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
 import { shroudEnds } from './shroud.js';
+import { isTailCone, noseEnds } from './tailCone.js';
 import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
@@ -1067,13 +1068,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // there alike, where the kernel builds a 70 mm inner tube).
         const len = axialLength(child);
         // A stated radius, else the kernel's (an inner tube's 9.5 mm, a mass
-        // component's 5 mm — what its cluster offsets below are spaced by),
-        // else a share of the body for a part sized by what it sits in.
+        // component's 5 mm — what its cluster offsets below are spaced by; a
+        // recovery device's packed 12.5 mm), else a share of the body for a
+        // part sized by what it sits in.
         const r = Math.min(
           pRadius * 0.85,
           num(child, 'outerRadius', kernelDefault(child.type, 'outerRadius')
             ?? num(child, 'radius', kernelDefault(child.type, 'radius')
-              ?? num(child, 'packedRadius', pRadius * 0.7))),
+              ?? num(child, 'packedRadius', kernelDefault(child.type, 'packedRadius') ?? pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
         const offsets = child.type === 'innertube'
@@ -1225,13 +1227,16 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       const part = partOf(n, false);
       if (n.type === 'nosecone') {
         const r = drawnRadius(n);
+        // A tail cone (flipped) points aft: its base and shoulder face forward.
+        const { fore, aft } = noseEnds(n, r);
+        const shL = num(n, 'shoulderLength', 0);
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:nose`, layer: 'base', tag: 'path', part, sel: true,
-          attrs: { d: profilePath(ctx, n, cx, len, 0, r, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
+          attrs: { d: profilePath(ctx, n, cx, len, fore, aft, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
-        shoulderRect(`${key}:shoulder`, cx + len, num(n, 'shoulderLength', 0), num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, 0, r));
+        shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY);
+        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft));
         cx += len;
       } else if (n.type === 'bodytube') {
         const r = drawnRadius(n);

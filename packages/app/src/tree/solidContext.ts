@@ -4,6 +4,7 @@ import { num, numOpt } from './nodeNum.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
+import { noseEnds } from './tailCone.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -136,7 +137,10 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
     }
     default: {
       // Body tube, inner tube, and any other parent stating an outer radius:
-      // unchanged from the rule this replaced, 0.5 mm floor included.
+      // unchanged from the rule this replaced, 0.5 mm floor included. A SOLID
+      // body tube has no bore at all (BodyTube.getInnerRadius is 0 when
+      // filled), so a part inside it has nothing to size itself to.
+      if (host.type === 'bodytube' && host['filled'] === true) return undefined;
       const outer = numOpt(host, 'outerRadius');
       if (outer === undefined) return undefined;
       return Math.max(0.0005, outer - num(host, 'thickness', 0.001));
@@ -158,8 +162,10 @@ function profileRadiiAt(host: ComponentNode, xs: readonly number[]): number[] | 
   if (host.type !== 'nosecone' && host.type !== 'transition') return undefined;
   const nose = host.type === 'nosecone';
   const L = axialLength(host);
-  const foreR = nose ? 0 : numOpt(host, 'foreRadius');
-  const aftR = nose ? num(host, 'aftRadius', 0.012) : numOpt(host, 'aftRadius');
+  // A nose cone's base is its aft end — or, flipped into a tail cone, its fore end.
+  const ends = nose ? noseEnds(host, num(host, 'aftRadius', 0.012)) : null;
+  const foreR = ends ? ends.fore : numOpt(host, 'foreRadius');
+  const aftR = ends ? ends.aft : numOpt(host, 'aftRadius');
   if (foreR === undefined || aftR === undefined) return undefined;
   const at = xs.map((x) => Math.min(Math.max(x, 0), L));
   const shape = typeof host['shape'] === 'string' ? (host['shape'] as string) : nose ? 'ogive' : 'conical';

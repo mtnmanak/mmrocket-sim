@@ -47,9 +47,12 @@ import { num } from './nodeNum.js';
  * which the kernel uses only for a packed recovery device (audit 2026-09-22,
  * row 373): measured 25 mm off for a launch lug, 45 mm for an inner tube,
  * 55 mm for a camera shroud, 75 mm for a tube-fin set and 275 mm for
- * everything behind a body tube. A parachute, streamer or shock cord has no
- * entry ON PURPOSE: the bridge never sets their length, so the kernel keeps
- * `MassObject`'s packed 25 mm — which the fallback here already is.
+ * everything behind a body tube.
+ *
+ * PARACHUTE, STREAMER, SHOCK CORD: the PACKED length, `packedLength`, which the
+ * bridge sets (ComponentFactory.applyPackedSize) — else `MassObject`'s own
+ * 25 mm, the table's entry for them. Until KB1 (2026-10-01) the bridge never
+ * set it, and every one flew 25 mm whatever the file said.
  */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
@@ -63,7 +66,8 @@ export function axialLength(n: ComponentNode): number {
   if (isAssembly(n.type)) {
     return (n.children ?? []).filter((c) => CHAIN_TYPES.has(c.type)).reduce((s, c) => s + axialLength(c), 0);
   }
-  return num(n, 'length', num(n, 'packedLength', kernelDefault(n.type as string, 'length') ?? 0.025));
+  return num(n, 'length', num(n, 'packedLength',
+    kernelDefault(n.type as string, 'packedLength') ?? kernelDefault(n.type as string, 'length') ?? 0.025));
 }
 
 /** The members of a nose-to-tail chain: what stacks AFTER the one before it. */
@@ -107,7 +111,7 @@ export function drawnSpan(n: ComponentNode): [number, number] {
  * Where a part sits in its parent: its own `position`, or — when it carries
  * none — offset 0 from the end its KERNEL class anchors a new part to. The
  * bridge positions a part only when the node carries a position
- * (`ComponentFactory.java:598`, `:976` for an assembly), so a node without one
+ * (`ComponentFactory.java:598`, `:977` for an assembly), so a node without one
  * flies at its class's constructor default (`METHOD_DEFAULTS` below).
  *
  * Every reader read a missing position as Top of parent, offset 0, until

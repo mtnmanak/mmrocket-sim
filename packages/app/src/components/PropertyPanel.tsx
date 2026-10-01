@@ -1257,7 +1257,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
       })()}
 
       {node.type === 'nosecone' && (() => {
-        // The shoulder into the tube behind the nose (tree/fitHelpers.ts).
+        // The shoulder into the tube behind the nose — ahead of a tail cone
+        // (tree/fitHelpers.ts).
         const shoulder = shoulderFit(tree, node, parent);
         if (!shoulder) return null;
         const shown = prefs.radiusMode === 'diameter' ? shoulder.innerR * 2 : shoulder.innerR;

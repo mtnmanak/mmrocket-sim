@@ -2,6 +2,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { num, numOrNull } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
+import { isTailCone } from './tailCone.js';
 
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
@@ -132,14 +133,16 @@ export interface ShoulderFit {
  * among the nose's SIBLINGS — the enclosing stage's children, or the rocket's
  * top level (`tree.components` holds only stage nodes since v0.009). Never a
  * tube forward of the nose; null when there is none, or it states no radius.
- * A tube with no stated wall is its own outer radius.
+ * A tube with no stated wall is its own outer radius. A TAIL CONE's shoulder
+ * is at its front (tailCone.ts), so it fits the nearest body tube AHEAD.
  */
 export function shoulderFit(
   tree: RocketTree, nose: ComponentNode, parent: ComponentNode | 'stage' | null,
 ): ShoulderFit | null {
   const siblings = parent && parent !== 'stage' ? (parent.children ?? []) : tree.components;
   const idx = siblings.findIndex((n) => n.id === nose.id);
-  const tube = siblings.slice(idx + 1).find((n) => n.type === 'bodytube');
+  const toward = isTailCone(nose) ? siblings.slice(0, Math.max(idx, 0)).reverse() : siblings.slice(idx + 1);
+  const tube = toward.find((n) => n.type === 'bodytube');
   if (!tube) return null;
   const outerR = numOrNull(tube, 'outerRadius');
   if (outerR === null) return null;

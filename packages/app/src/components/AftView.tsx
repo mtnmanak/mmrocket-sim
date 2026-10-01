@@ -10,6 +10,7 @@ import { finOnMount, flatMount, type MountSurface } from '../tree/finRoot.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
 import { axialLength, axialStart } from '../tree/position.js';
 import { drawnRadius, profileMountOf } from '../tree/schematicLayout.js';
+import { noseEnds } from '../tree/tailCone.js';
 import { num } from '../tree/nodeNum.js';
 import { RollControl } from './RollControl.js';
 
@@ -302,7 +303,8 @@ export function aftLayout(
   const chainSurface = (n: ComponentNode, len: number): { r: number; mount: MountSurface } => {
     if (n.type === 'nosecone') {
       const r = drawnRadius(n);
-      return { r, mount: profileMountOf(n, len, 0, r) };
+      const { fore, aft } = noseEnds(n, r); // a tail cone's base is forward
+      return { r, mount: profileMountOf(n, len, fore, aft) };
     }
     if (n.type === 'transition') {
       return { r: drawnRadius(n), mount: profileMountOf(n, len, num(n, 'foreRadius', 0.012), num(n, 'aftRadius', 0.009)) };

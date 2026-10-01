@@ -599,6 +599,7 @@ final class ComponentFactory {
             c.setAxialMethod(axialMethodOf(str(position, "method", "top")));
             c.setAxialOffset(dbl(position, "offset", 0));
         }
+        applyTypeExtras(c, node);
         return c;
     }
 
@@ -818,7 +819,7 @@ final class ComponentFactory {
                 }
                 double ir = dbl(node, "innerRadius", Double.NaN);
                 if (!Double.isNaN(ir)) {
-                    ring.setInnerRadius(ir);
+                    setStatedInnerRadius(ring, ir);
                 }
                 break;
             }
@@ -1062,5 +1063,108 @@ final class ComponentFactory {
                     + "\": its outline crosses or touches itself, so it cannot be"
                     + " simulated. Redraw it in the fin editor.");
         }
+    }
+
+    /**
+     * Per-type fields bridged after the create() switch had become a set of
+     * line numbers the app's comments cite (position.ts, treeModel.ts). They
+     * are set here, last in create(), and live at the end of the file for the
+     * same reason setOutline does: so those citations stay true. Dispatch is
+     * on the node's type string, as in applyPostAttachDimensions.
+     */
+    private static void applyTypeExtras(RocketComponent c, Map<String, Object> node) {
+        switch (str(node, "type", "")) {
+            case "parachute":
+            case "streamer":
+            case "shockcord":
+                applyPackedSize((info.openrocket.core.rocketcomponent.MassObject) c, node);
+                break;
+            case "nosecone":
+                // A TAIL CONE (desktop's "Flip to tail cone", .ork <isflipped>).
+                // The node keeps the file's convention - aftRadius is the BASE
+                // and the shoulder keys are the base's shoulder, as
+                // NoseConeSaver writes them - and setFlipped moves both to the
+                // fore side, exactly as desktop's loader does when it meets
+                // <isflipped> after them (DocumentConfig "NoseCone:isflipped",
+                // sanityCheck false). Never called until KB2 (2026-10-01): a
+                // tail cone flew point-forward, a diameter step against the tube
+                // ahead and its mass at the wrong end. Absent or false is the
+                // constructor's own unflipped cone, untouched.
+                if (bool(node, "flipped", false)) {
+                    ((NoseCone) c).setFlipped(true, false);
+                }
+                break;
+            case "bodytube":
+                // A SOLID tube (a dowel, a spike; .ork <thickness>filled</thickness>).
+                // The nose cone and transition cases have always called
+                // setFilled; this one never did, so a solid tube flew as a shell
+                // of whatever wall the node carried. After the constructor's
+                // wall on purpose: SymmetricComponent.setThickness clears filled.
+                if (bool(node, "filled", false)) {
+                    ((BodyTube) c).setFilled(true);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * A recovery device's PACKED size. Parachute, Streamer and ShockCord are
+     * MassObjects: a cylinder of this length and radius, its CG at half the
+     * length behind its front (MassObject.getComponentCG), its inertia taken
+     * over that cylinder. Desktop's .ork loader sets both
+     * (DocumentConfig "MassObject:packedlength" -> setLength,
+     * "MassObject:packedradius" -> setRadius). This bridge set neither until
+     * KB1 (2026-10-01), so every device flew the constructor's 25 mm x
+     * 12.5 mm whatever the design said: LEM-IV.ork's 254 mm main put its CG
+     * 114.5 mm from where desktop puts it.
+     *
+     * NO KEY MEANS DO NOTHING: an absent key keeps the constructor's default,
+     * which is what every design without one has always flown.
+     *
+     * Desktop's `auto <r>` packed radius arrives as plain numbers: the .ork
+     * reader keeps the radius desktop resolved and the length it wrote beside
+     * it (MassObjectSaver writes getLength(), already the conserved-volume
+     * length), which is the cylinder desktop flies. So setRadiusAutomatic is
+     * not called, as for a mass component.
+     *
+     * The shock cord's cord length is set in create() BEFORE this, unlike
+     * desktop's document order: ShockCord.setCordLength returns early when the
+     * new cord length equals this.length - the PACKED length - so in desktop
+     * order a cord as long as its own bundle keeps the previous cord length.
+     */
+    private static void applyPackedSize(info.openrocket.core.rocketcomponent.MassObject m,
+            Map<String, Object> node) {
+        double length = dbl(node, "packedLength", Double.NaN);
+        if (!Double.isNaN(length)) {
+            m.setLength(length);
+        }
+        double radius = dbl(node, "packedRadius", Double.NaN);
+        if (!Double.isNaN(radius)) {
+            m.setRadius(radius);
+        }
+    }
+
+    /**
+     * A STATED bore is the ring's own, never the automatic one. The ring is
+     * born automatic (CenteringRing's constructor), and
+     * RadiusRingComponent.setInnerRadius returns early when the value equals
+     * the field, before it clears innerRadiusAutomatic. While the tree is
+     * built a part sits at its RAW offset (setAxialOffset with no parent; the
+     * rocket's events correct it once enabled), so setOuterRadius's
+     * getInnerRadius() call can fill the field with the bore of an inner tube
+     * the ring overlaps only there - and a stated bore equal to that tube's
+     * outer radius, the usual centering ring, then kept the flag on. At the
+     * ring's real station, beside no tube, it flew a solid disc: US Rockets
+     * 2.25 V2's plywood baffle, 5.569 g for RockSim's 4.402 g (KB5,
+     * 2026-10-01). Clearing the flag first makes the stated value stand.
+     *
+     * Called from applyPostAttachDimensions in place of the bare setter, and
+     * kept down here so the line numbers the app cites into this file stay true.
+     */
+    private static void setStatedInnerRadius(CenteringRing ring, double r) {
+        ring.setInnerRadiusAutomatic(false);
+        ring.setInnerRadius(r);
     }
 }

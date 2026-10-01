@@ -12,6 +12,7 @@ import {
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
+import { isTailCone } from '../tree/tailCone.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
@@ -374,6 +375,22 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     autoUnresolved.push({ el, name: label, radius: autoFallback });
     return autoFallback;
   };
+  /**
+   * A parachute's, streamer's or shock cord's PACKED size (MassObject
+   * :packedlength / :packedradius): the cylinder the kernel puts its mass in,
+   * its CG half the packed length behind its front. Never read until KB1
+   * (2026-10-01), and written back as a literal 0.025 / 0.0125, so a 254 mm
+   * packed main flew and saved as 25 mm. An ABSENT tag stays absent — the
+   * kernel's own 25 mm x 12.5 mm, as before. `auto <r>` keeps the radius
+   * desktop resolved; a bare `auto` resolves to the cavity it sits in, as a
+   * mass component's does, else the kernel's 12.5 mm.
+   */
+  const readPackedSize = (el: Element, n: ComponentNode): void => {
+    if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025);
+    if (text(el, ':scope > packedradius') !== null) {
+      n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
+    }
+  };
 
   // Flight-configuration table: rocket-level <motorconfiguration> blocks
   // (optional <name>, optional default="true" — desktop 24.12
@@ -651,9 +668,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       case 'nosecone': {
         const n = base('nosecone', false);
         n['length'] = num(el, 'length', 0.07);
+        // A TAIL CONE: desktop's "Flip to tail cone" (format audit row 30). It
+        // still writes the BASE radius and the base's shoulder as <aftradius>
+        // and <aftshoulder*> (NoseConeSaver), so they are read as for any nose
+        // cone; the kernel and every reader turn the cone round (tailCone.ts).
+        const flipped = text(el, ':scope > isflipped') === 'true';
+        if (flipped) n['flipped'] = true;
         // A nose cone's <aftradius> is its BASE radius, and OpenRocket 15.03
-        // could write it as a bare `auto` (Wildman Mach 2 this one.ork).
-        n['aftRadius'] = autoDim(el, 'aftradius', 0.012, autoRadii.aft);
+        // could write it as a bare `auto` (Wildman Mach 2 this one.ork) — taken
+        // from the part behind it, or, on a tail cone, from the part ahead.
+        n['aftRadius'] = autoDim(el, 'aftradius', 0.012, flipped ? autoRadii.fore : autoRadii.aft);
         // Desktop writes <thickness>filled</thickness> for solid components.
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
@@ -724,7 +748,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // num()'s trailing-token parse made that the 12 mm fallback, so a
         // 6-inch airframe imported as a pencil and carried ~3x the drag.
         n['outerRadius'] = autoDim(el, 'radius', 0.012, autoRadii.bodyTube);
-        n['thickness'] = num(el, 'thickness', 0.0005);
+        // A SOLID tube is <thickness>filled</thickness>, as a nose cone or
+        // transition is (format audit row 27). num() read that word as NaN and
+        // kept the 0.5 mm fallback: a dowel flew, and saved, as a thin shell.
+        if (text(el, ':scope > thickness') === 'filled') {
+          n['filled'] = true;
+        } else {
+          n['thickness'] = num(el, 'thickness', 0.0005);
+        }
         readMotor(el, n);
         const mml = num(el, 'maxmotorlength', -1);
         if (mml >= 0) n['maxMotorLength'] = mml;
@@ -981,6 +1012,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'parachute': {
         const n = base('parachute', true);
+        readPackedSize(el, n);
         n['diameter'] = num(el, 'diameter', 0.3);
         // <cd>auto</cd> stays automatic (the kernel's own CD_AUTOMATIC path).
         // Anything unparseable is dropped rather than stored as NaN — a NaN Cd
@@ -1002,6 +1034,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'streamer': {
         const n = base('streamer', true);
+        readPackedSize(el, n);
         n['stripLength'] = num(el, 'striplength', 0.5);
         n['stripWidth'] = num(el, 'stripwidth', 0.05);
         readAutoCd(el, n);
@@ -1012,6 +1045,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       case 'shockcord': {
         const n = base('shockcord', true);
+        readPackedSize(el, n);
         n['cordLength'] = num(el, 'cordlength', 0.3);
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName');
         return n;
@@ -2207,6 +2241,13 @@ export function exportOrk({
       : `<thickness>${n(node, 'thickness', fb)}</thickness>`);
   };
 
+  // A recovery device's packed size (readPackedSize), else the kernel's own
+  // 25 mm x 12.5 mm that it flies without one. These were literals until KB1.
+  const packedXml = (depth: number, node: ComponentNode) => {
+    emit(depth, `<packedlength>${n(node, 'packedLength', 0.025)}</packedlength>`);
+    emit(depth, `<packedradius>${n(node, 'packedRadius', 0.0125)}</packedradius>`);
+  };
+
   /** The write-configs that hold a motor for this mount, in write order. */
   const mountConfigs = (nodeId: string | undefined) =>
     nodeId ? writeConfigs.filter((c) => c.motors[nodeId]) : [];
@@ -2308,7 +2349,9 @@ export function exportOrk({
         emit(depth + 1, `<aftshoulderlength>${n(node, 'shoulderLength', 0)}</aftshoulderlength>`);
         emit(depth + 1, `<aftshoulderthickness>${n(node, 'shoulderThickness', 0)}</aftshoulderthickness>`);
         emit(depth + 1, `<aftshouldercapped>${node['shoulderCapped'] === true}</aftshouldercapped>`);
-        emit(depth + 1, '<isflipped>false</isflipped>');
+        // LAST, as NoseConeSaver writes it: desktop's loader flips the cone when
+        // it meets this, moving the base and shoulder above to the fore side.
+        emit(depth + 1, `<isflipped>${isTailCone(node)}</isflipped>`);
         close('nosecone');
         break;
       }
@@ -2356,7 +2399,7 @@ export function exportOrk({
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${axialLength(node)}</length>`);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
+        thicknessXml(depth + 1, node, 0.0005); // `filled` for a solid tube
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
         // Extension tag (desktop warns-and-ignores): sub-minimum flag.
         if (node['caseAirframe'] === true) {
@@ -2639,8 +2682,7 @@ export function exportOrk({
         open('parachute');
         header(depth + 1, node, 'Parachute');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
@@ -2670,8 +2712,7 @@ export function exportOrk({
         open('streamer');
         header(depth + 1, node, 'Streamer');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
@@ -2689,8 +2730,7 @@ export function exportOrk({
         open('shockcord');
         header(depth + 1, node, 'Shock Cord');
         position(depth + 1, node, 'top');
-        emit(depth + 1, '<packedlength>0.025</packedlength>');
-        emit(depth + 1, '<packedradius>0.0125</packedradius>');
+        packedXml(depth + 1, node);
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cordlength>${n(node, 'cordLength', 0.3)}</cordlength>`);
@@ -3222,16 +3262,29 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     return r;
   };
 
+  /**
+   * A TAIL CONE (`<isflipped>true`): its <aftradius> is still its BASE, but the
+   * base faces FORWARD and the point aft (NoseCone.setFlipped).
+   */
+  const flippedNose = (el: Element): boolean =>
+    el.tagName === 'nosecone' && text(el, ':scope > isflipped') === 'true';
+
   /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
   const front = (el: Element, seen: Set<Element>): number => walk(el, seen, frontMemo, prevOf,
     // A body tube states its radius or defers to the one ahead (null: keep
-    // walking); anything else answers with its aft face, stated or not.
-    (e) => e.tagName === 'bodytube' ? stated(e, 'radius') : stated(e, 'aftradius') ?? UNRESOLVED);
+    // walking); anything else answers with its aft face, stated or not — a
+    // tail cone's being its POINT, no face to take a radius from (the answer
+    // rearFace gives for an ordinary nose cone's point, below).
+    (e) => e.tagName === 'bodytube' ? stated(e, 'radius')
+      : flippedNose(e) ? UNRESOLVED
+        : stated(e, 'aftradius') ?? UNRESOLVED);
 
   /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
   const rear = (el: Element, seen: Set<Element>): number => walk(el, seen, rearMemo, nextOf, rearFace);
   function rearFace(el: Element): number | null {
     if (el.tagName === 'bodytube') return stated(el, 'radius');
+    // A tail cone shows the part ahead of it its BASE.
+    if (flippedNose(el)) return stated(el, 'aftradius') ?? UNRESOLVED;
     // A DELIBERATE DEVIATION from 24.12, not a mirror of it. An un-flipped
     // nose cone's fore radius is 0 and NOT automatic (`NoseCone
     // .resetForeRadius`, NoseCone.java:276-278), so `Transition
@@ -3240,9 +3293,6 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     // nose cone silently ends up with a ZERO radius. We answer UNRESOLVED,
     // which becomes the 25 mm DEFAULT_AUTO_RADIUS plus the "no neighbour"
     // note: a degenerate design the user is told about beats one they are not.
-    // (`<isflipped>` is ignored on read and hard-coded `false` on save, so a
-    // flipped cone's genuine fore face is a separate gap, not one this walk
-    // attempts to close.)
     if (el.tagName === 'nosecone') return UNRESOLVED;
     return stated(el, 'foreradius') ?? UNRESOLVED;
   }
@@ -3274,7 +3324,8 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
       r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
     switch (owner.tagName) {
       case 'nosecone':
-        return resolved(stated(owner, 'aftradius'), () => aft(owner));
+        // The base: from the part behind, or on a tail cone the part ahead.
+        return resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
       case 'transition': {
         const f = resolved(stated(owner, 'foreradius'), () => fore(owner));
         const a = resolved(stated(owner, 'aftradius'), () => aft(owner));
