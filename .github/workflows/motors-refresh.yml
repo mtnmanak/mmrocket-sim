@@ -104,7 +104,8 @@ jobs:
     # A fork inherits the cron. Without this it would run weekly in someone else's
     # account and open PRs there against a catalogue they never asked for.
     if: github.repository == 'mtnmanak/mmrocket-sim'
-    runs-on: ubuntu-latest
+    # Pinned with deploy.yml's two jobs (see the note on its build job); move all four together.
+    runs-on: ubuntu-24.04
     # Measured shape of the work: ~27 GETs for the catalogue plus 24 POST batches
     # for the curves with a 250 ms pause between them (fetch-motor-curves.mjs
     # BATCH=50, PAUSE_MS=250, 1,155 motors) — a couple of minutes when upstream is
@@ -296,7 +297,7 @@ jobs:
   publish:
     needs: refresh
     if: needs.refresh.outputs.open-pr == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned with the refresh job
     # git and gh only: a commit, one push and one or two API calls.
     timeout-minutes: 10
     permissions:

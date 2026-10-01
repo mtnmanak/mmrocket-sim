@@ -137,3 +137,15 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
     expect(refresh.indexOf(gate[0])).toBeGreaterThan(refresh.indexOf('npm run motors:refresh'));
   });
 });
+
+describe('both workflows — one pinned runner image', () => {
+  // ubuntu-latest moves on GitHub's date, not on a commit here (to Ubuntu 26 from 19 October 2026), which would
+  // change the gate's OS under an unrelated push. The image moves only by a commit that changes all four jobs.
+  it('runs all four jobs on the same explicit image, never a -latest label', () => {
+    const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish']]
+      .map(([lines, job]) => value(path(lines, 'jobs', job), 'runs-on'));
+    expect(images).toHaveLength(4);
+    for (const image of images) expect(image).toMatch(/^ubuntu-\d\d\.\d\d$/);
+    expect(new Set(images).size).toBe(1);
+  });
+});

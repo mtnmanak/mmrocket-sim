@@ -90,7 +90,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest, which GitHub moves to Ubuntu 26 from 19 October 2026: the gate's OS
+    # should change in a commit that does only that and runs the whole gate, not under an unrelated push.
+    # The deploy job below and both jobs in motors-refresh.yml are pinned with it; move all four together.
+    runs-on: ubuntu-24.04
     # Recent runs of the whole single job took 2m53s-3m58s. Without a limit a hung
     # step holds the concurrency group for GitHub's 6 h default, and every deploy
     # queued behind it waits — a safety hotfix included.
@@ -191,7 +194,7 @@ jobs:
     # changed to pull_request_target, whose github.ref is the BASE branch
     # (main) and whose runs hold this repository's secrets.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned with the build job; see the note there
     timeout-minutes: 15
     # Nothing here calls the GitHub API: the artifact comes from this same run,
     # which needs no token, and the checkout below is of a public repository.
