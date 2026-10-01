@@ -10,7 +10,9 @@ import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { testMotor, testResolution } from './services/autoDelay.testSupport.js';
+import { padMassSetKey } from './services/configSync.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
+import { catalogueMotorMass } from './services/hardwareMass.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import type { SessionState } from './services/session.js';
 import type { SimRun } from './services/simReport.js';
@@ -471,17 +473,54 @@ const RKT_NAME = 'FooBar Test';
  * simulations, stamped with the design it flew — where selecting it shows what
  * changed since — so a Launch press never vanishes.
  *
- * The Rail button row is the one change that moves the airframe ALONE: every
- * other path here moves the motors or the conditions as well, so without it a
- * Launch that compared only those two would pass the whole table.
+ * The Rail button row is the one change that moves the airframe ALONE: the
+ * Open, New, Unload and wind rows move the motors or the conditions as well,
+ * so without it a Launch that compared only those two would pass the whole
+ * table.
+ *
+ * The Measured mass row moves none of the three. On a design with a weighed
+ * pad mass the typed dry mass changes the hardware the kernel flies (pad − dry
+ * − catalogue motor, services/hardwareMass.ts) while the tree, the motor
+ * records and the conditions stay put, and the reset effect, keyed on those,
+ * keeps a flight shown over that edit and marks it stale, as it does a model
+ * switch. Only the Launch's own comparison keeps this flight off the changed
+ * design (the v0.145 release-note claim check found it landing there).
  *
  * `cost`: whether the time-step caution prices a flight in seconds afterwards.
- * Where the design and its motors are still the ones that flew (a wind typed),
- * the stored run answers for it in place of the dropped write (storedSimCost).
+ * Where the design and its motors are still the ones that flew (a wind typed —
+ * not a Measured mass, whose hardware is part of the motors' key), the stored
+ * run answers for it in place of the dropped write (storedSimCost).
  */
 describe('what a Launch computed lands only on the design it flew', () => {
   type Change = (host: HTMLElement) => Promise<void>;
-  const paths: [string, Change, boolean][] = [
+  /** What a row stores before the app mounts, where the starter alone cannot take its path. */
+  type Seed = () => Promise<void>;
+  /**
+   * The starter rocket stored with a WEIGHED PAD MASS on its C6 and a Measured
+   * mass of 100 g, as the autosave writes them: 20 g of hardware, keyed to the
+   * motor set it was weighed with, so the build applies it.
+   */
+  const weighedStarter: Seed = async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree,
+      mountMotors: {
+        [mount]: {
+          ...c6,
+          padMassKg: 0.1 + catalogueMotorMass(tree, [[mount, c6]])! + 0.02,
+          padMassWeighedWith: padMassSetKey(tree, { [mount]: c6 }),
+        },
+      },
+      measured: { massKg: 0.1, cgM: null },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+  };
+  /** The line under the primary motor's Weighed pad mass field: what the weighing carries. */
+  const padMassLine = (host: HTMLElement): string =>
+    host.querySelector('[id^="pad-mass-"][id$="-line"]')?.textContent ?? '';
+  const paths: [string, Change, boolean, Seed?][] = [
     ['nothing: the control', async () => {}, true],
     ['Open… a file', async (host) => {
       await pick(host, new File([fixture(RKT)], RKT));
@@ -517,11 +556,21 @@ describe('what a Launch computed lands only on the design it flew', () => {
       await openTab(host, 'Motors & Launch');
       await type(input(host, 'Wind avg'), '8');
     }, true],
+    ['a Measured mass typed on Design over a weighed pad mass: the same design, motors and conditions, other hardware',
+      async (host) => {
+        await openTab(host, 'Motors & Launch');
+        expect(padMassLine(host), 'the hardware the held flight flies').toMatch(/^20\.0 g carried as hardware/);
+        await openTab(host, 'Design');
+        await type(input(host, 'Measured mass of the airframe'), '90');
+        await openTab(host, 'Motors & Launch');
+        expect(padMassLine(host), 'the hardware the design flies now').toMatch(/^30\.0 g carried as hardware/);
+      }, false, weighedStarter],
   ];
 
-  it.each(paths)('%s, while the flight is held', async (_what, change, cost) => {
+  it.each(paths)('%s, while the flight is held', async (_what, change, cost, seed) => {
     const landed = change === paths[0]![1]; // only the control's design still stands
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, aeroModel: 'auto' }));
+    await seed?.();
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     // A step finer than the default, so the caution is up and can quote seconds.

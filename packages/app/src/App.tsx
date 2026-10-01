@@ -1324,19 +1324,31 @@ export function App() {
     // dep added here later cannot hide behind this one.
   }, [physicsKey, mountMotors, launch, reflightCache]);
   /**
-   * The design on screen, in the three terms the effect above resets on — what
-   * onLaunch compares the design it flew against before anything it computed
-   * lands (audit 2026-09-30). A Launch awaits a paint and, on auto delay,
-   * yields between up to eight probes, and the whole UI stays live meanwhile:
-   * Open…, a share link, ✕ New, ⏏ Unload, every field on Design and Motors &
-   * Launch. Each of those moves one of these terms; the effect clears the shown
-   * flight, the Auto aero upgrade and the error for the design now on screen,
-   * and a write landing after it put them back on a design that never flew.
+   * The design on screen, in the three terms the effect above resets on and a
+   * fourth — what onLaunch compares the design it flew against before anything
+   * it computed lands (audit 2026-09-30). A Launch awaits a paint and, on auto
+   * delay, yields between up to eight probes, and the whole UI stays live
+   * meanwhile: Open…, a share link, ✕ New, ⏏ Unload, every field on Design and
+   * Motors & Launch. Each of those moves one of these terms; the effect clears
+   * the shown flight, the Auto aero upgrade and the error for the design now on
+   * screen, and a write landing after it put them back on a design that never
+   * flew.
+   *
+   * The fourth is `hardwareDeltaKg`, the weighed hardware the kernel flies. A
+   * Measured mass typed on a design with a weighed pad mass moves it (the typed
+   * dry mass wins over the computed one, services/hardwareMass.ts) and none of
+   * the three: the tree, the motor records and the conditions stay put. The
+   * effect keeps a flight already shown over that edit and marks it ("the
+   * weighed pad mass changed since"), as it does a model switch, so it is not
+   * one of its keys — but a Launch held through the edit landed its report,
+   * "M+", "Flight complete" and the flown-since-save mark on hardware it never
+   * flew (the v0.145 release-note claim check).
+   *
    * Mirrored on every render, not counted by the effect: a click handler reads
    * it, and must not depend on when an effect last ran.
    */
-  const designNow = useRef({ physicsKey, mountMotors, launch });
-  designNow.current = { physicsKey, mountMotors, launch };
+  const designNow = useRef({ physicsKey, mountMotors, launch, hardwareDeltaKg });
+  designNow.current = { physicsKey, mountMotors, launch, hardwareDeltaKg };
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -1734,10 +1746,14 @@ export function App() {
     // screen for the design that replaced it. An edit to this same design
     // counts: the flight does not describe the edited one, and a Save .ork
     // would not write it into the file as the edited one's. The RUN is kept
-    // either way (below), stamped with the design it flew.
-    const flown = { physicsKey, mountMotors, launch };
+    // either way (below), stamped with the design it flew. The fourth term,
+    // the weighed hardware, is one the effect does not clear on (`designNow`):
+    // a Measured mass typed meanwhile leaves the screen as it was, any flight
+    // shown there marked stale, and this flight lands nothing on it.
+    const flown = { physicsKey, mountMotors, launch, hardwareDeltaKg };
     const stillFlown = () => designNow.current.physicsKey === flown.physicsKey
-      && designNow.current.mountMotors === flown.mountMotors && designNow.current.launch === flown.launch;
+      && designNow.current.mountMotors === flown.mountMotors && designNow.current.launch === flown.launch
+      && designNow.current.hardwareDeltaKg === flown.hardwareDeltaKg;
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there, focus
     // included: on the Results <main>, before the flight blocks the thread,
