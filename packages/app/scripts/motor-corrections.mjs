@@ -13,12 +13,13 @@
  * plausibility screen can see (board Tier 1 row 8 (c), 2026-10-01): the AeroTech
  * F52C and H13ST, both tested on 10 September 2020, each listed with its letter's
  * total impulse, peak and average thrust divided by the same 1.159, while its
- * masses, length and burn time are the letter's. Every file thrustcurve.org
- * publishes for them delivers the low figure, so the picker's impulse gate and
- * the impulse note had nothing to disagree with. aerotech-certified.test.mjs now
- * holds the catalogue to those letters. Only the three figures are corrected,
- * and no curve is touched: both motors fly the curve they flew, and loading one
- * now says how far that curve falls short of its certification.
+ * masses, length and burn time are the letter's, rounded. Every file
+ * thrustcurve.org publishes for them delivers the low figure, so the picker's
+ * impulse gate and the impulse note had nothing to disagree with.
+ * aerotech-certified.test.mjs now holds the catalogue to those letters. Only the
+ * three figures are corrected, and no curve is touched: both motors fly the
+ * curve they flew, and loading one now says how far that curve falls short of
+ * its certification.
  *
  * ONE TABLE, FOUR READERS — the rule apply-preset-corrections.mjs set for the
  * parts catalogue, "one list, not two":
@@ -119,9 +120,9 @@ export const MOTOR_CORRECTIONS = [
     },
     why: 'thrustcurve.org lists 66.2 N·s, 64.33 N peak and 52.65 N average: each the certification letter\'s figure '
       + 'divided by 1.159, the same factor as the H13ST tested the same day, while the row\'s masses, length and burn '
-      + 'time are the letter\'s. Both files it publishes integrate to 66.31 N·s and agree with that row, so nothing '
-      + 'said the curve flown falls 13.6 % short of the certification. It is still flown as published, and now the '
-      + 'impulse note says so.',
+      + 'time are the letter\'s, rounded. Both files it publishes integrate to 66.31 N·s and agree with that row, '
+      + 'so nothing said the curve flown falls 13.6 % short of the certification. It is still flown as published, '
+      + 'and now the impulse note says so.',
     sources: [
       {
         by: 'Tripoli Motor Testing certification letter for the AeroTech (Enerjet) F52C single-use motor, tested '
@@ -147,9 +148,9 @@ export const MOTOR_CORRECTIONS = [
     },
     why: 'thrustcurve.org lists 211.19 N·s, 43.51 N peak and 13.89 N average: each the certification letter\'s figure '
       + 'divided by 1.159, the same factor as the F52C tested the same day, while the row\'s masses, length and burn '
-      + 'time are the letter\'s. Both files it publishes integrate to 214.94 N·s and agree with that row, so nothing '
-      + 'said the curve flown falls 12.2 % short of the certification. It is still flown as published, and now the '
-      + 'impulse note says so.',
+      + 'time are the letter\'s, rounded. Both files it publishes integrate to 214.94 N·s and agree with that row, '
+      + 'so nothing said the curve flown falls 12.2 % short of the certification. It is still flown as published, '
+      + 'and now the impulse note says so.',
     sources: [
       {
         by: 'Tripoli Motor Testing certification letter for the AeroTech H13ST-P single-use motor, tested '
