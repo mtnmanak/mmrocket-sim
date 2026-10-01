@@ -168,6 +168,27 @@ describe('ScaleDialog', () => {
     expect(text()).toMatch(/not a motor size you can buy/);
   });
 
+  /**
+   * The "Motor mounts" caption was a <label> over the <ul> (audit 2026-09-30,
+   * label-has-associated-control). A list is not labelable, so the label named
+   * nothing and the list had no name: a screen reader entered an anonymous
+   * list. The list is named by its caption now, and no label is left over.
+   */
+  it('names the motor-mount list by its caption, and no label in it labels nothing', async () => {
+    await render();
+    // getByRole('list', { name: 'Motor mounts' }) without Testing Library: a
+    // <ul> takes its name from aria-labelledby, the ids' text joined.
+    const name = (el: Element) => (el.getAttribute('aria-labelledby') ?? '').split(/\s+/)
+      .filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+    const lists = [...host.querySelectorAll('ul')].filter((ul) => name(ul) === 'Motor mounts');
+    expect(lists).toHaveLength(1);
+    expect(lists[0]!.textContent).toMatch(/not a motor size you can buy/);
+    // The DOM's own resolution: every label reaches a control.
+    for (const label of host.querySelectorAll('label')) {
+      expect(label.control, `"${label.textContent}" labels nothing`).not.toBeNull();
+    }
+  });
+
   it('warns when the loaded motor will no longer fit', async () => {
     await render({ m: 0.029 }); // a 29 mm motor in the mount, then halve the rocket
     const [factor] = numberInputs();

@@ -920,7 +920,11 @@ html {
   border-style: dashed;
 }
 
-.field label {
+/* `.field-caption`: a field's caption over something a <label> cannot name (a
+   list — ScaleDialog's motor mounts, named by aria-labelledby), dressed as the
+   labels beside it. Every `.field label` rule below carries it too. */
+.field label,
+.field .field-caption {
   font-size: 11px;
   color: var(--text-secondary);
 }
@@ -3678,7 +3682,8 @@ select.unit-chip:hover {
     font-size: 16px;
   }
 
-  .field label {
+  .field label,
+  .field .field-caption {
     font-size: 12.5px;
   }
 
@@ -3915,7 +3920,8 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .stat-label,
 .viz-root[data-contrast='high'] .series-chip,
 .viz-root[data-contrast='high'] .fin-table th,
-.viz-root[data-contrast='high'] .field label {
+.viz-root[data-contrast='high'] .field label,
+.viz-root[data-contrast='high'] .field .field-caption {
   font-weight: 700;
   color: var(--text-secondary);
 }
