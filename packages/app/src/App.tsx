@@ -4028,7 +4028,8 @@ export function App() {
                             step={1}
                             max={60}
                             placeholder={Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'plugged'}
-                            ariaLabel={`Ejection delay for ${m.name ?? m.id}`}
+                            // The card heading's own fallback: never the internal id (audit 2026-09-30).
+                            ariaLabel={`Ejection delay for ${m.name ?? 'Motor mount'}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               // Typing a delay overrides auto (mountDelayEdits).
@@ -4097,7 +4098,7 @@ export function App() {
                             value={mm.ignition.delay}
                             step={0.5}
                             max={60}
-                            ariaLabel={`Ignition delay for ${m.name ?? m.id}`}
+                            ariaLabel={`Ignition delay for ${m.name ?? 'Motor mount'}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               setMountMotors((prev) => ({

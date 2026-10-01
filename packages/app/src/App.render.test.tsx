@@ -606,6 +606,39 @@ describe('the delay writers on a motor card', () => {
 });
 
 /**
+ * A MOTOR CARD'S DELAY BOXES NAME THEIR MOUNT AS THE CARD DOES (audit
+ * 2026-09-30). The ejection- and ignition-delay boxes were named
+ * `${m.name ?? m.id}`: on a mount with no name a screen reader heard its
+ * internal id ("c4"), and on one with no id either it heard "undefined". A
+ * nested part arrives with neither from a stored session or a share link
+ * written without them: normalizeTree mints ids for stages only. Its motor
+ * then sits under the key App itself reads it by, mountMotors[m.id!], which is
+ * "undefined" (the seed below stores it there the same way). The card's
+ * heading, its ✕ and its Max motor length box already said "Motor mount".
+ */
+describe('the delay boxes on a motor card', () => {
+  /** A two-stage design, so the ignition box shows, whose mount has lost `drop`. */
+  const bareMount = (...drop: ('name' | 'id')[]) => (t: RocketTree): RocketTree => {
+    const staged = structuredClone(addStage(t).tree);
+    const mount = motorMounts(staged)[0]! as Record<string, unknown>;
+    for (const key of drop) delete mount[key];
+    return staged;
+  };
+  const delayLabels = (host: HTMLElement) => [...host.querySelectorAll<HTMLInputElement>('.mount-card input[aria-label]')]
+    .map((i) => i.getAttribute('aria-label')!).filter((l) => / delay for /.test(l));
+
+  for (const drop of [['name'], ['name', 'id']] as const) {
+    it(`name a mount with no ${drop.join(' and no ')} "Motor mount", never an id or "undefined"`, async () => {
+      await seedStarterSession({ edit: bareMount(...drop) });
+      const host = await mountApp();
+      await openTab(host, 'Motors & Launch');
+      await settle(50);
+      expect(delayLabels(host)).toEqual(['Ejection delay for Motor mount', 'Ignition delay for Motor mount']);
+    }, 30000);
+  }
+});
+
+/**
  * THE HERO CANVAS SIZES TO THE DRAWING (v0.076, v0.092). The schematic reports
  * its natural height and App's stage asks for that plus the stats chip's
  * headroom plus the open drawer, and publishes the drawer's height on its own

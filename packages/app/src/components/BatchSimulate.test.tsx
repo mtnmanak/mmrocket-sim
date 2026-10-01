@@ -291,6 +291,15 @@ describe('the batch dialog', () => {
       `Weighed pad mass: ${first.commonName} on Centre 29 mm keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
   });
 
+  it('the note never names a mount "undefined" when the weighed one is not among the options (audit 2026-09-30)', () => {
+    // App offers every mount in the tree and weighs on one of them, so today
+    // it always finds the label; the dialog read it with `?.label` all the
+    // same, and printed "on undefined" for a weighed mount it was not handed.
+    mount({}, { weighed: { ...WEIGHED, mountId: 'gone' } });
+    expect(host.querySelector('.batch-weighed')?.textContent).toBe(
+      `Weighed pad mass: ${first.commonName} on another mount keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
+  });
+
   /**
    * THE SWEEP FLIES PUBLISHED CURVES (2026-09-08). The design's nozzle exit
    * diameter now buys thrust as well as trimming base drag, and the batch
