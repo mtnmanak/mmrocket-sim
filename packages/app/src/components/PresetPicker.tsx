@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { clickable } from './clickable.js';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
+import { useRovingRows } from './useRovingRows.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
@@ -161,6 +161,23 @@ export function PresetPicker({ type, node, onApply, onClose }: {
     }
   };
 
+  /**
+   * ONE tab stop for the table (audit 2026-09-30), MotorBrowser's roving
+   * tabindex: every row spread clickable(), so a keyboard user walked up to
+   * ROW_CAP = 300 stops to get back to Close or the CSV buttons inside the
+   * focus trap. The arrows move between parts without applying one — a pick
+   * closes the dialog. Keyed by the row object, so the stop follows its part
+   * through a narrower search.
+   */
+  const shownRows = rows.slice(0, ROW_CAP);
+  const { bodyRef, rove } = useRovingRows(shownRows);
+  // Each row is described by this, not given role="button" (which would cost
+  // the cells their column headers) or an "Apply …" label (which would replace
+  // the part's dimensions, read on focus, with its number alone): a focusable
+  // <tr> otherwise gave a screen reader no sign that Enter applies the part
+  // and closes the dialog.
+  const hintId = `${useId()}-apply`;
+
   const dialogRef = useDialog(onClose);
   // Closes only on a press and a release on the backdrop itself, so text
   // selected in the search box or the table and dragged past the card's edge
@@ -211,6 +228,7 @@ export function PresetPicker({ type, node, onApply, onClose }: {
 
         <div className="motor-table-wrap">
           {!all && !note && <p className="placeholder">Loading preset database…</p>}
+          <span id={hintId} className="sr-only">Enter applies this part and closes the presets.</span>
           <table className="motor-table">
             {/* A <thead> at last (2026-09-08 audit). Five unlabelled data
                 columns, on the dialog whose whole job is COMPARING parts, so a
@@ -226,10 +244,10 @@ export function PresetPicker({ type, node, onApply, onClose }: {
                 <th>Material</th>
               </tr>
             </thead>
-            <tbody>
-              {rows.slice(0, ROW_CAP).map((p, i) => (
-                <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row"
-                  {...clickable(() => {
+            <tbody ref={bodyRef}>
+              {shownRows.map((p, i) => (
+                <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row" aria-describedby={hintId}
+                  {...rove(i, () => {
                     onApply(presetPatch(type, p, node && { node, presets: all ?? [] }));
                     onClose();
                   })}>

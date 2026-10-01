@@ -299,6 +299,100 @@ describe('PresetPicker — labelling', () => {
 });
 
 /**
+ * Audit 2026-09-30 (PresetPicker.tsx:228): every row spread clickable(), so
+ * each was its own tab stop — up to ROW_CAP = 300 of them between the search
+ * box and the way back to Close or the CSV buttons inside the focus trap — and
+ * nothing told a screen reader that Enter on a row applies that part and
+ * closes the dialog. MotorBrowser fixed the same pattern with a roving
+ * tabindex; the two pickers now share it (useRovingRows).
+ */
+describe('PresetPicker — the table is ONE tab stop, walked with the arrows', () => {
+  const PARTS: Preset[] = ['T-1', 'T-2', 'T-3', 'T-4'].map((partNo, i) => ({
+    kind: 'BodyTube', manufacturer: 'ACME', partNo, description: `tube ${i + 1}`,
+    outsideDiameter: 0.024 + i * 0.01, length: 0.3,
+  }));
+  const open = async () => {
+    saveCustomPresets(PARTS);
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <PresetPicker type={'bodytube' as ComponentNode['type']} onApply={onApply} onClose={onClose} />
+        </PrefsProvider>,
+      );
+    });
+    await flush();
+    return { onApply, onClose };
+  };
+  const bodyRows = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+  const stops = () => bodyRows().filter((tr) => tr.tabIndex >= 0);
+  /** A keydown that bubbles to the dialog's capture-phase Tab trap, as a real one does. */
+  const key = (el: Element, k: string) => {
+    const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+    act(() => { el.dispatchEvent(e); });
+    return e;
+  };
+
+  it('makes exactly one row tabbable, where every row used to be', async () => {
+    await open();
+    expect(bodyRows()).toHaveLength(4);
+    expect(stops()).toEqual([bodyRows()[0]]);
+  });
+
+  it('moves focus — and the tab stop — with ArrowDown/Up, Home and End, without applying', async () => {
+    const { onApply, onClose } = await open();
+    act(() => bodyRows()[0]!.focus());
+    expect(key(bodyRows()[0]!, 'ArrowDown').defaultPrevented).toBe(true); // the table does not scroll too
+    expect(document.activeElement).toBe(bodyRows()[1]);
+    expect(stops()).toEqual([bodyRows()[1]]);
+    key(bodyRows()[1]!, 'End');
+    expect(document.activeElement).toBe(bodyRows()[3]);
+    key(bodyRows()[3]!, 'ArrowDown'); // stays at the end
+    expect(document.activeElement).toBe(bodyRows()[3]);
+    key(bodyRows()[3]!, 'Home');
+    expect(document.activeElement).toBe(bodyRows()[0]);
+    key(bodyRows()[0]!, 'ArrowUp'); // stays at the top
+    expect(document.activeElement).toBe(bodyRows()[0]);
+    // Passing over a part must not apply it: a pick closes the dialog.
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('applies the focused part on Enter, and closes', async () => {
+    const { onApply, onClose } = await open();
+    act(() => bodyRows()[0]!.focus());
+    key(bodyRows()[0]!, 'ArrowDown');
+    key(bodyRows()[1]!, 'ArrowDown');
+    key(document.activeElement!, 'Enter');
+    expect(onApply).toHaveBeenCalledOnce();
+    expect((onApply.mock.calls[0]![0] as Record<string, unknown>)['presetPartNo']).toBe('T-3');
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('lets Tab leave the table from its one stop, back to the dialog’s buttons', async () => {
+    await open();
+    const csv = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('CSV'))!;
+    act(() => bodyRows()[0]!.focus());
+    key(bodyRows()[0]!, 'ArrowDown');
+    // The trap wraps from the dialog's last tab stop; with every row a stop,
+    // the next row was "next" and the keyboard walked on through the table.
+    key(document.activeElement!, 'Tab');
+    expect(document.activeElement).toBe(csv);
+  });
+
+  it('tells a screen reader that a row is an action that closes the dialog, and keeps it a row', async () => {
+    await open();
+    for (const tr of bodyRows()) {
+      // A role="button" on the <tr> would cost the cells their column headers.
+      expect(tr.getAttribute('role')).toBeNull();
+      const hint = document.getElementById(tr.getAttribute('aria-describedby') ?? '');
+      expect(hint?.textContent).toMatch(/Enter applies this part and closes/);
+    }
+  });
+});
+
+/**
  * Review of the audit 2026-09-22 presetPatch fix: a pick of a part with no
  * catalogue mass cleared EVERY mass override, including one the user typed.
  * The picker now hands presetPatch the node it replaces and the catalogue it
