@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   defaultDelay, delayOptions, fileImpulseNs, headerMasses, impulseNote, samplesToMotorSpec, repairSamples, pickSampleFile,
@@ -458,6 +461,37 @@ describe('pickSampleFile — the last word is the file, never its place in the l
       }
     }
     expect(withChoice).toBeGreaterThan(700); // 810 motors have two or more files in the 2026-09-30 bundle
+  });
+});
+
+/**
+ * The user guide (Motors → The database and browser) is where a user finds out
+ * why a motor flies the file it does. Until 2026-10-01 it named five of the
+ * sort's terms: not RASP over RockSim, nor the two that decide between files
+ * equal on everything else, so it could not explain the AeroTech H242T's file
+ * (chosen on its masses) or the Hypertek L625FX's +11.5 % in loaded mass.
+ */
+describe('pickSampleFile — the guide states its order', () => {
+  it('names every term the sort applies, in the order it applies them', () => {
+    const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
+    let rest = guide.split('\n').find((l) => l.includes('When a motor has several published files')) ?? '';
+    expect(rest).not.toBe('');
+    // One phrase per term of the sort at the end of pickSampleFile, best first.
+    for (const term of [
+      'time points all run forward', // sound
+      'burn time agrees', // agrees
+      'total impulse is within 3 %', // impulseAgrees
+      'certification-body file', // cert
+      'the richer one', // samples.length
+      'RASP `.eng` file over a RockSim', // format
+      'masses are closer to the catalogue', // massGap
+      "thrustcurve.org's own id", // identity
+      'never the order', // index: reached only by files that hold the same thing
+    ]) {
+      const at = rest.indexOf(term);
+      expect(at, term).toBeGreaterThanOrEqual(0);
+      rest = rest.slice(at + term.length);
+    }
   });
 });
 

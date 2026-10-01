@@ -348,9 +348,10 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
  * the equivalent when it builds its bundled database: SerializeThrustcurveMotors
  * catches the builder's exception per file and moves on to the next one.
  *
- * Order of preference: a curve whose times already increase, then the richer
- * curve, then RASP — the original tie-break, which still decides between files
- * of equal quality.
+ * Order of preference: the sort at the end of pickSampleFile, one commented
+ * term per key, best first. The user guide (Motors → The database and
+ * browser) names every term in the same order, and thrustcurve.test.ts holds
+ * it to that: a term added to the sort is a clause added to the guide.
  */
 /**
  * A file whose burn time is this far from the catalogue's certified figure is
