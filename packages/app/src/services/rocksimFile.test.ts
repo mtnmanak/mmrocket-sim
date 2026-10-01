@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportRkt, importRkt, rktEveryDelay } from './rocksimFile.js';
+import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { matchImportedMotor, refToExportMotor } from './motorMatch.js';
@@ -632,6 +632,120 @@ describe('RockSim export → import round trip', () => {
         expect(pods.map((p) => p['overrideCGX'])).toEqual(Array(count).fill(expect.closeTo(0.07, 12)));
         // And the kernel weighs the re-opened rocket as it weighed the design.
         expect(dry(back)).toBeCloseTo(dry(components), 9);
+      }
+    }
+  }, 60000);
+
+  /**
+   * AN ASSEMBLY'S OVERRIDE SITS AT ITS PARTS (review of the audit fixes,
+   * 2026-10-01). A pod set has no mass of its own, so its own CG is the
+   * kernel's zero (ComponentAssembly.getComponentCG), and a mass override with
+   * no CG override goes to its parts' centre of mass
+   * (MassCalculation.calculateStructure). Every <ExternalPod> carried that
+   * zero as <KnownCG> beside <UseKnownCG>1, which desktop reads as the pod's
+   * share sitting at the pod's nose (BaseHandler.setOverride pins it there).
+   */
+  it('puts a pod set’s mass-only override where the kernel puts it, at its parts’ centre of mass', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const build = (components: ComponentNode[]) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree({ components }));
+    };
+    for (const type of ['podset', 'parallelstage'] as const) {
+      for (const subtree of [false, true]) {
+        // A pod holding every rule the kernel weighs by: a nose weighed with
+        // what is inside it, fins, a 3-tube cluster balanced with its blocks,
+        // a weighed avionics mass, and a pair of pods of its own weighed alone.
+        const design = (over: Record<string, unknown> = {}, inner: Record<string, unknown> = {}): ComponentNode[] => [{
+          type: 'stage', id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.03, thickness: 0.001,
+            children: [{
+              type, id: 'p', name: 'Outer', instanceCount: 3, radiusMethod: 'free', radiusOffset: 0.06,
+              position: { method: 'bottom', offset: 0 }, overrideMass: 0.4,
+              ...(subtree ? { overrideSubcomponentsMass: true } : {}), ...over,
+              children: [
+                { type: 'nosecone', id: 'pn', length: 0.06, aftRadius: 0.012, thickness: 0.002, shape: 'ogive',
+                  overrideMass: 0.03, overrideSubcomponentsMass: true, children: [
+                    { type: 'masscomponent', id: 'pnm', mass: 0.01, length: 0.01, position: { method: 'top', offset: 0.005 } },
+                  ] },
+                { type: 'bodytube', id: 'pb', length: 0.15, outerRadius: 0.012, thickness: 0.0005, children: [
+                  { type: 'trapezoidfinset', id: 'pf', finCount: 3, rootChord: 0.04, tipChord: 0.02, sweep: 0.02,
+                    height: 0.03, thickness: 0.003, position: { method: 'bottom', offset: 0 } },
+                  { type: 'innertube', id: 'pm', length: 0.07, outerRadius: 0.004, thickness: 0.0005, cluster: '3-ring',
+                    position: { method: 'bottom', offset: 0 }, overrideCGX: 0.01, overrideSubcomponentsCG: true, children: [
+                      { type: 'engineblock', id: 'pe', length: 0.005, outerRadius: 0.0035, thickness: 0.001 },
+                    ] },
+                  { type: 'masscomponent', id: 'pw', mass: 0.05, length: 0.02, overrideMass: 0.08,
+                    position: { method: 'top', offset: 0.01 } },
+                  { type: 'podset', id: 'pq', name: 'Inner', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.02,
+                    position: { method: 'top', offset: 0.02 }, overrideMass: 0.03, ...inner, children: [
+                      { type: 'bodytube', id: 'pqb', length: 0.05, outerRadius: 0.005, thickness: 0.0005 },
+                    ] },
+                ] },
+              ],
+            }],
+          }],
+        }] as ComponentNode[];
+        const components = design();
+        const rocket = build(components);
+        const was = rocket.staticInfo();
+        const xml = exportRkt({
+          name: 'POD', tree: { components }, compInfo: rktComponentInfo({ components }, (id) => rocket.componentInfo(id)),
+        });
+        // Each set's own (<Name> precedes <KnownCG> in a part): the three outer
+        // pods', and the pair inside each of them.
+        const cgOf = (name: string) => [...xml.matchAll(new RegExp(`<Name>${name}</Name>[\\s\\S]*?<KnownCG>([^<]+)</KnownCG>`, 'g'))]
+          .map((m) => Number(m[1]));
+        const [at, inner] = [cgOf('Outer'), cgOf('Inner')];
+        expect(at).toHaveLength(3);
+        expect(new Set(at).size).toBe(1);
+        expect(inner).toHaveLength(6);
+        expect(new Set(inner).size).toBe(1);
+        // Pinned to the <KnownCG>s written, the overrides move nothing: that is
+        // where the kernel had them. A reader that pins them there, as desktop
+        // does, weighs and balances the rocket as this app does.
+        const pinned = build(design({ overrideCGX: at[0]! / 1000 }, { overrideCGX: inner[0]! / 1000 })).staticInfo();
+        expect(pinned.massEmpty, `${type}${subtree ? ', subtree' : ''}`).toBeCloseTo(was.massEmpty, 9);
+        expect(pinned.cgEmpty, `${type}${subtree ? ', subtree' : ''}`).toBeCloseTo(was.cgEmpty, 9);
+      }
+    }
+  }, 60000);
+
+  // This app's reader used to skip that 0; it now pins each re-opened pod's
+  // override where it already sat, so its own round trip still moves nothing.
+  it('re-opens a pod set weighed with no CG override as it was', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const build = (components: ComponentNode[]) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree({ components }));
+    };
+    for (const type of ['podset', 'parallelstage'] as const) {
+      for (const count of [2, 3]) {
+        const components = [{
+          type: 'stage', id: 's', name: 'Sustainer',
+          children: [{
+            type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.03, thickness: 0.001,
+            children: [{
+              type, id: 'p', instanceCount: count, radiusMethod: 'free', radiusOffset: 0.05,
+              position: { method: 'bottom', offset: 0 }, overrideMass: 0.4,
+              children: [{ type: 'bodytube', id: 'pb', length: 0.15, outerRadius: 0.012, thickness: 0.0005 }],
+            }],
+          }],
+        }] as ComponentNode[];
+        const rocket = build(components);
+        const was = rocket.staticInfo();
+        const back = importRkt(exportRkt({
+          name: 'POD', tree: { components }, compInfo: rktComponentInfo({ components }, (id) => rocket.componentInfo(id)),
+        })).tree.components;
+        // The pod tube's middle, where the kernel had each pod's share.
+        expect(flatten(back).filter((c) => c.type === type).map((p) => p['overrideCGX']))
+          .toEqual(Array(count).fill(expect.closeTo(0.075, 12)));
+        const now = build(back).staticInfo();
+        expect(now.massEmpty).toBeCloseTo(was.massEmpty, 9);
+        expect(now.cgEmpty).toBeCloseTo(was.cgEmpty, 9);
       }
     }
   }, 60000);

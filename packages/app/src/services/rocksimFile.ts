@@ -3,7 +3,7 @@ import { nozzleExportNotes } from './nozzleExport.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { CLUSTER_POINTS, clusterOffsets } from '../tree/cluster.js';
+import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
@@ -2101,6 +2101,16 @@ function parsePointList(raw: string): { pts: [number, number][]; problem?: strin
 
 // ============================ EXPORT ============================
 
+/** One part's figures from the engine's componentInfo, as exportRkt reads them (SI). */
+export interface RktPartInfo {
+  /** Its own mass (kg), override-aware, every instance of it (a fin set's every fin). */
+  mass: number;
+  /** Its CG from its own front (m). An assembly's is the kernel's zero: it has no mass of its own. */
+  cgX: number;
+  /** Its front's distance from the nose tip (m), first instance. */
+  positionX?: number;
+}
+
 export interface RktExportInput {
   name: string;
   tree: RocketTree;
@@ -2112,9 +2122,9 @@ export interface RktExportInput {
    * without CG, or CG without mass) must export the CALCULATED other value;
    * without this map the un-overridden half exports as 0, which any reader
    * that couples the flags takes as "CG at the component's front" — a real
-   * data error in RockSim.
+   * data error in RockSim. App builds it with rktComponentInfo.
    */
-  compInfo?: Record<string, { mass: number; cgX: number }>;
+  compInfo?: Record<string, RktPartInfo>;
   /**
    * Filled with what the file cannot say — one sentence each, for the Save
    * note. A .rkt is lossy by design (App's onSaveRkt never marks the design
@@ -2122,6 +2132,43 @@ export interface RktExportInput {
    * opened again is said out loud rather than left to be found at the field.
    */
   notes?: string[];
+}
+
+/**
+ * Computed mass, CG and position for EVERY part, keyed by node id — the
+ * `compInfo` App's Save .rkt hands exportRkt, from the kernel's componentInfo.
+ * Three readers need it.
+ * (1) RockSim couples mass and CG under one flag, so a partially overridden
+ *     part must export its CALCULATED other value (issue 2026-08-05b #11).
+ * (2) <CalcMass>/<CalcCG> — desktop's importer pins any AIRFOIL fin set with
+ *     UseKnownCG=0 to them (FinSetHandler.java:299-309) from a field that
+ *     defaults to 0.0d, so a fin set with no CalcMass opens over there
+ *     weighing zero grams. That fin set has NO override, which is exactly why
+ *     this can no longer be gated on one: measured, the old XOR gate collected
+ *     0 entries for kitchensink.ork and auto-radius-15.03.ork. Cost of the
+ *     unconditional walk, measured: 4 ms for 14 nodes.
+ * (3) A pod set's or strap-on's mass override sits at its parts' centre of
+ *     mass, which only their positions can find (exportRkt, `massAt`).
+ * A part the kernel does not know is left out.
+ */
+export function rktComponentInfo(
+  tree: RocketTree,
+  componentInfo: (id: string) => { mass: number; cgX: number; positionX: number },
+): Record<string, RktPartInfo> {
+  const out: Record<string, RktPartInfo> = {};
+  const collect = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n.id) {
+        try {
+          const info = componentInfo(n.id);
+          out[n.id] = { mass: info.mass, cgX: info.cgX, positionX: info.positionX };
+        } catch { /* component not in the engine tree — skip */ }
+      }
+      collect(n.children ?? []);
+    }
+  };
+  collect(tree.components);
+  return out;
 }
 
 export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInput): string {
@@ -2227,6 +2274,75 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     return { mode, xb };
   };
 
+  /**
+   * The kernel's structure mass for `node` and everything under it, and that
+   * mass's moment about the nose tip: MassCalculation.calculateStructure's
+   * axial half, read off componentInfo (each part's own mass at its own CG)
+   * and the override flags. Children are weighed once per instance of their
+   * parent — a pod set's pods, a cluster's tubes, all at one station.
+   * Undefined when compInfo does not carry the positions, or when an
+   * assembly's override has no parts to sit at.
+   */
+  const structureOf = (node: ComponentNode): { m: number; mx: number } | undefined => {
+    let m = 0;
+    let mx = 0;
+    for (const kid of node.children ?? []) {
+      const s = structureOf(kid);
+      if (!s) return undefined;
+      m += s.m;
+      mx += s.mx;
+    }
+    const per = node.type === 'podset' || node.type === 'parallelstage'
+      ? Math.max(1, Math.round(nnum(node, 'instanceCount', 1)))
+      : node.type === 'innertube' ? clusterCount(typeof node['cluster'] === 'string' ? (node['cluster'] as string) : undefined)
+        : 1;
+    m *= per;
+    mx *= per;
+    const info = node.id ? compInfo?.[node.id] : undefined;
+    // Not in the kernel's rocket: nothing of its own weighs there.
+    if (!info) return { m, mx };
+    if (info.positionX === undefined) return undefined;
+    const massOv = numOpt(node, 'overrideMass') !== undefined;
+    const cgOv = numOpt(node, 'overrideCGX') !== undefined;
+    // An assembly has no mass of its own: its override goes to its parts' centre.
+    const atParts = massOv && !cgOv && (node.type === 'podset' || node.type === 'parallelstage');
+    if (atParts && !(m > 0)) return undefined;
+    const x = atParts ? mx / m : info.positionX + info.cgX;
+    if (massOv && node['overrideSubcomponentsMass'] === true) { m = 0; mx = 0; }
+    if (cgOv && node['overrideSubcomponentsCG'] === true) mx = m * x;
+    return { m: m + info.mass, mx: mx + info.mass * x };
+  };
+
+  /**
+   * WHERE A POD SET'S MASS OVERRIDE SITS, from its own front, when no CG
+   * override places it (review of the audit fixes, 2026-10-01). An assembly has
+   * no mass of its own, so componentInfo's CG for it is the kernel's zero
+   * (ComponentAssembly.getComponentCG), while the kernel puts the override at
+   * its parts' centre of mass (calculateStructure: `if (!isMassive()) compCM =
+   * children.getCM()`). That zero went out as every pod's <KnownCG> beside
+   * <UseKnownCG>1, and desktop (BaseHandler.setOverride, which pins both)
+   * then puts each pod's share at the pod's nose; RockSim couples the same two
+   * flags, and what it does with the 0 is unverified. Measured through the
+   * kernel on a 0.4 m rocket with two 0.15 m pods weighed at 400 g, that
+   * reading has the dry CG 65.5 mm forward of where this app has it, the
+   * direction that overstates the stability margin. This app's reader skips a
+   * 0, which is why its own round trip never showed it.
+   */
+  const massAt = (node: ComponentNode): number | undefined => {
+    if (numOpt(node, 'overrideMass') === undefined || numOpt(node, 'overrideCGX') !== undefined) return undefined;
+    const front = node.id ? compInfo?.[node.id]?.positionX : undefined;
+    if (front === undefined) return undefined;
+    let m = 0;
+    let mx = 0;
+    for (const kid of node.children ?? []) {
+      const s = structureOf(kid);
+      if (!s) return undefined;
+      m += s.m;
+      mx += s.mx;
+    }
+    return m > 0 ? mx / m - front : undefined;
+  };
+
   const common = (
     node: ComponentNode,
     parent: ComponentNode | null,
@@ -2234,6 +2350,12 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     opts?: {
       knownMass?: number;
       useKnownCG?: boolean;
+      /**
+       * Where, from the part's own front, its mass override sits when that is
+       * not componentInfo's CG — a pod set's (see massAt). Read only when no CG
+       * override places it.
+       */
+      massAt?: number;
       /**
        * Write the part as RockSim's POINT mass: `<Xb>` on its CG and
        * `<KnownCG>` equal to that `<Xb>`. `cg` is measured from the part's own
@@ -2351,7 +2473,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
     // carrying exactly ONE of the two overrides, so `info?.cgX ?? 0` yielded 0.
     const knownCG = pt ? xbMm
       : cgOv !== undefined ? cgOv * LEN
-        : useKnown ? (info?.cgX ?? 0) * LEN : 0;
+        : useKnown ? (opts?.massAt ?? info?.cgX ?? 0) * LEN : 0;
     emit(`<KnownCG>${knownCG}</KnownCG>`);
     emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
@@ -2571,6 +2693,7 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
           : 0.012;
         const centerR = resolveAssemblyRadius(node, parentR);
         const angle0 = nnum(node, 'angleOffset', 0);
+        const at = massAt(node);
         for (let i = 0; i < count; i++) {
           emit('<ExternalPod>');
           // Each pod its share, as desktop's own split writes it
@@ -2578,8 +2701,11 @@ export function exportRkt({ name, tree, motors, compInfo, notes }: RktExportInpu
           // kernel weighs a set's override ONCE, for the whole assembly
           // (MassCalculation.calculateStructure, after the instance loop), so
           // written whole on every pod, a pair weighed at 400 g reached RockSim,
-          // desktop and this app's own re-open at 800 g.
-          common(node, parent, node.type === 'podset' ? 'Pod' : 'Booster', { copies: count });
+          // desktop and this app's own re-open at 800 g. And at its parts'
+          // centre, which every pod shares (massAt).
+          common(node, parent, node.type === 'podset' ? 'Pod' : 'Booster', {
+            copies: count, ...(at !== undefined ? { massAt: at } : {}),
+          });
           emit('<AutoCalcRadialDistance>0</AutoCalcRadialDistance>');
           emit('<AutoCalcRadialAngle>0</AutoCalcRadialAngle>');
           emit(`<Detachable>${node.type === 'parallelstage' ? 1 : 0}</Detachable>`);
