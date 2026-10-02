@@ -67,10 +67,17 @@ export const XML_JS_SUITES = [
   // browser's): without it, a setup file that stopped installing the parser
   // would leave every suite above passing under happy-dom twice.
   'src/services/xmlParse.project.test.ts',
+  // The headless door (step 1, 2026-10-01): simulateFile opens bytes through
+  // the importers, which is exactly the path a server takes under this parser.
+  'src/services/simulateFile.test.ts',
+  'src/services/flyBuiltDesign.test.ts',
 ];
 
 /** Files that call an importer but are NOT run twice, each with the reason. */
 export const XML_JS_EXCLUDED = {
+  'src/App.simulate.test.tsx': 'holds the mounted app and the headless Launch to the same flight; BOTH sides '
+    + 'parse with the same parser, so a second run tests nothing the importer suites and simulateFile.test.ts '
+    + '(above) do not, at the cost of a full app mount per case',
   'src/services/shareLink.test.ts': 'encodes and decodes the link payload as text and never parses it: no importer '
     + 'and no XML parser is reached (the scan counts encodeShareFragment( as reaching one, which is true of the App '
     + 'suites that then open the link)',

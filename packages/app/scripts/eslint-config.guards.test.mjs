@@ -190,6 +190,25 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('keeps the JS XML parser out of App.tsx AND every other shipped file, both rules at once (2026-10-01)', async () => {
+    // A flat config's later no-restricted-imports REPLACES an earlier one for
+    // the same file. When the two headless lanes met, the src/** parser block
+    // switched App.tsx's Launch rule off; App now carries both, and this pins
+    // the other direction: App must not lose the parser rule either.
+    const IMPORTS = ['no-restricted-imports'];
+    const src = [
+      "import { flyLaunch } from './services/flightRunner.js';",
+      "import { jsXmlParser } from './services/xmlParseJs.js';",
+      "import { DOMParser } from '@xmldom/xmldom';",
+      'export const all = [flyLaunch, jsXmlParser, DOMParser];',
+    ].join('\n');
+    expect(lint(src, await rulesFor('packages/app/src/App.tsx', IMPORTS)))
+      .toEqual(['no-restricted-imports@1', 'no-restricted-imports@2', 'no-restricted-imports@3']);
+    // Any other shipped file: the parser lines only (flyLaunch is App's rule).
+    expect(lint(src.replaceAll("'./services/", "'./"), await rulesFor('packages/app/src/services/presets.ts', IMPORTS)))
+      .toEqual(['no-restricted-imports@2', 'no-restricted-imports@3']);
+  });
+
   it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {
     // Resolution only: the rules themselves need a type program, which the
     // lint run builds. A files glob that stopped covering one of these would

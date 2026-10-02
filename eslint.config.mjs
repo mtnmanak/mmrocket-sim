@@ -114,6 +114,18 @@ const NUMBER_READ_RESTRICTIONS = [{
     + 'from tree/nodeNum.ts; if it is not a design number, say why in an eslint-disable-next-line comment.',
 }];
 
+/**
+ * The pure-JS XML parser is for Node and Workers only (headless step 2,
+ * 2026-10-01). Shared by the src/** block and App.tsx's own block, because a
+ * later no-restricted-imports entry replaces an earlier one for the same file.
+ */
+const JS_XML_PARSER_RESTRICTION = {
+  group: ['saxes', '@xmldom/*', 'css-select', '**/xmlParseJs', '**/xmlParseJs.*', '**/xmlParseParity', '**/xmlParseParity.*'],
+  message: 'The JS XML parser is for Node and Workers only: the browser parses with its native DOMParser '
+    + 'through services/xmlParse.ts. A non-browser ENTRY installs it with setXmlParser(jsXmlParser); '
+    + 'nothing the app ships may import it, its packages, or the test-only parity cases.',
+};
+
 export default tseslint.config(
   {
     // A suppression that suppresses nothing reads to a reviewer as a decision
@@ -412,6 +424,10 @@ export default tseslint.config(
               + 'button and the headless Launch share. Call that, not buildSimRun.',
           },
         ],
+        // The JS XML parser's rule, which the src/** block below applies to
+        // every other browser file: that block skips App.tsx (it would replace
+        // this one), so App carries it here.
+        patterns: [JS_XML_PARSER_RESTRICTION],
       }],
       'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, {
         selector: "Identifier[name='markSaved']:not(ObjectPattern > Property[shorthand=true] > Identifier)",
@@ -603,21 +619,20 @@ export default tseslint.config(
     // the test-only parity cases. services/xmlParse.guard.test.ts scans for the
     // same, and also sees a dynamic import(), which this rule does not.
     files: ['packages/app/src/**/*.{ts,tsx}'],
+    // App.tsx is left out HERE and carries the same pattern in its own block
+    // above: a flat config's later `no-restricted-imports` REPLACES an earlier
+    // one for the same file rather than adding to it, so this block silently
+    // switched off App's Launch-path rule when the two lanes met (2026-10-01,
+    // caught by eslint-config.guards.test.mjs).
     ignores: [
       '**/*.test.{ts,tsx}',
+      'packages/app/src/App.tsx',
       'packages/app/src/services/xmlParseJs.ts',
       'packages/app/src/services/xmlParseJs.setup.ts',
       'packages/app/src/services/xmlParseParity.ts',
     ],
     rules: {
-      'no-restricted-imports': ['error', {
-        patterns: [{
-          group: ['saxes', '@xmldom/*', 'css-select', '**/xmlParseJs', '**/xmlParseJs.*', '**/xmlParseParity', '**/xmlParseParity.*'],
-          message: 'The JS XML parser is for Node and Workers only: the browser parses with its native DOMParser '
-            + 'through services/xmlParse.ts. A non-browser ENTRY installs it with setXmlParser(jsXmlParser); '
-            + 'nothing the app ships may import it, its packages, or the test-only parity cases.',
-        }],
-      }],
+      'no-restricted-imports': ['error', { patterns: [JS_XML_PARSER_RESTRICTION] }],
     },
   },
 
