@@ -32,6 +32,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.150",
+    "date": "2026-10-01",
+    "title": "A file that starts with a DOCTYPE declaration is now refused, with a message that says how to fix it - in the browser and outside it alike",
+    "items": [
+      "A FILE THAT STARTS WITH A DOCTYPE DECLARATION IS NOW REFUSED, WITH A MESSAGE THAT SAYS HOW TO FIX IT. A DOCTYPE is an optional declaration near the top of an XML file (<!DOCTYPE ...>), and it can run over several lines. It can define text macros that the browser's XML reader expands while it reads the file, and macros nested inside one another can describe text that grows many times over at every level. Browsers limit how far they expand them (Chrome refused the test file the app uses for this), but the app no longer relies on that. Desktop OpenRocket's save code writes no DOCTYPE, and none of the 133 design and motor files in testers' uploads and the app's tests carries one. The app now refuses one in a .ork, RockSim (.rkt or .rse) or RASAero (.CDX1) file before its XML is parsed, and says: \"This file starts with a DOCTYPE declaration, which the app does not open. No rocket design program writes one; delete that line from the file and open it again.\" Until now the browser opened most such files, while the reader v0.149 added for use outside a browser refused them; both now refuse them with the same message.",
+      "UNDER THE HOOD. The check looks at the start of the file, where XML allows a DOCTYPE, stepping over the XML declaration, processing instructions and comments, so a long comment in front of the declaration cannot hide it. The user guide's File formats section documents the refusal and how to remove the declaration, including one that runs over several lines or defines names the rest of the file uses."
+    ]
+  },
+  {
     "version": "0.149",
     "date": "2026-10-01",
     "title": "Nothing the app does or shows changes, apart from the version number: the Launch button now flies through one shared path that also runs without a browser, groundwork for a possible server version",

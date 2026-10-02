@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { browserXmlParser } from './xmlParse.js';
+import { browserXmlParser, DOCTYPE_REFUSAL } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
 import { HOSTILE, hostileOutcome, runHostile, type HostileOutcome } from './xmlParseParity.js';
 
@@ -24,17 +24,14 @@ const golden = JSON.parse(readFileSync(join(here, '__fixtures__/xml-parity/chrom
  * in the stated direction — so a difference that appears, or one that quietly
  * goes away, fails this test.
  */
+/** The hostile rows that carry a DOCTYPE (xmlParseParity.ts). */
+const DOCTYPE_ROWS = ['bareDoctype', 'publicDoctypeNoSubset', 'doctypeInternalEntity', 'externalEntity',
+  'dtdAfter4k', 'dtdGtInSystemId'] as const;
+
 const JS_DIFFERS_FROM_CHROME: Readonly<Record<string, string>> = {
-  // A DOCTYPE: the JS parser refuses ANY (xmlParseJs.ts, piece 1). Chrome
-  // accepts one, and EXPANDS internal entities from it, which no JS parser
-  // does: refusing is the only answer that is never silently different. The
-  // browser keeps Chrome's behaviour (ruling (b), 2026-10-01).
-  bareDoctype: 'DOCTYPE refused by the JS parser',
-  publicDoctypeNoSubset: 'DOCTYPE refused by the JS parser',
-  doctypeInternalEntity: 'DOCTYPE refused by the JS parser (Chrome reads "EXPANDED")',
-  externalEntity: 'DOCTYPE refused by the JS parser (Chrome reads it empty: not fetched)',
-  dtdAfter4k: 'DOCTYPE refused by the JS parser, 5 KB into the file',
-  dtdGtInSystemId: 'DOCTYPE refused by the JS parser, a ">" inside its SYSTEM id',
+  // A DOCTYPE is NOT a difference since v0.150 (Tier 0 row 59, Eric
+  // 2026-10-01): both parsers refuse one with DOCTYPE_REFUSAL, and parseXml
+  // refuses it before either runs. The six rows are pinned in the test below.
   // XML 1.1: Chrome reads the document as 1.0 anyway; the JS parser refuses
   // it, because saxes would apply 1.1's rules (`&#1;` legal).
   version11Plain: 'XML 1.1 declaration refused by the JS parser',
@@ -42,6 +39,8 @@ const JS_DIFFERS_FROM_CHROME: Readonly<Record<string, string>> = {
   // parser has NO depth cap (ruling (c)): that belongs to the future server
   // package, before the parser runs.
   deep5000: 'Chrome refuses 5,000 levels of nesting; the JS parser has no cap (server package)',
+  // Both refuse it; the words differ (the test 'the billion-laughs row' below).
+  billionLaughs: 'Chrome refuses the entity bomb as a parse error; the JS parser refuses its DOCTYPE',
 };
 
 /**
@@ -101,9 +100,27 @@ describe(`hostile XML, against Chrome ${golden.chrome}`, () => {
       Object.keys(JS_DIFFERS_FROM_CHROME).sort());
   });
 
+  it('a DOCTYPE: Chrome (through the browser parser) and the JS parser both refuse it, with the ruled message', () => {
+    const got = runHostile(jsXmlParser);
+    for (const k of DOCTYPE_ROWS) {
+      expect(golden.hostile[k], k).toBe(`THREW ${DOCTYPE_REFUSAL}`);
+      expect(got[k], k).toBe(`THREW ${DOCTYPE_REFUSAL}`);
+    }
+  });
+
+  it('the billion-laughs row: both parsers refuse it, each its own way', () => {
+    // Chrome's reader refuses the bomb itself, as a parse error (its entity
+    // expansion limit), before the browser parser's DOCTYPE backstop runs; the
+    // JS gate refuses its DOCTYPE first. Both refuse — and an importer never
+    // gets that far: parseXml's scan refuses the DOCTYPE before either runs.
+    expect(golden.hostile['billionLaughs']).toBe('REFUSED');
+    expect(runHostile(jsXmlParser)['billionLaughs']).toBe(`THREW ${DOCTYPE_REFUSAL}`);
+  });
+
   it('each named difference goes the stated way: the JS parser refuses, except the depth it does not cap', () => {
     const got = runHostile(jsXmlParser);
     for (const k of Object.keys(JS_DIFFERS_FROM_CHROME)) {
+      if (k === 'billionLaughs') continue; // both refuse: pinned in its own test above
       if (k === 'deep5000') {
         expect(golden.hostile[k]).toBe('REFUSED');
         expect(got[k]).toMatchObject({ root: 'a' });

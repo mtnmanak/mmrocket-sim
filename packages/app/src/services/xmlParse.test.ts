@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  browserXmlParser, currentXmlParser, parseXml, setXmlParser, XmlParseError, type XmlParser,
+  browserXmlParser, currentXmlParser, DOCTYPE_REFUSAL, parseXml, setXmlParser, XmlDoctypeRefused, XmlParseError, type XmlParser,
 } from './xmlParse.js';
 import * as CSSselect from 'css-select';
 import type { Document as XmldomDocument, Element as XmldomElement, Node as XmldomNode } from '@xmldom/xmldom';
@@ -152,7 +152,10 @@ describe('the JS parser', () => {
       '<!DOCTYPE a><a/>',
       `<!--${'x'.repeat(5000)}--><!DOCTYPE a [<!ENTITY e "X">]><a>&e;</a>`,
       '<!DOCTYPE a SYSTEM "x>y" [<!ENTITY e "X">]><a>&e;</a>',
-    ]) expect(() => xmlGate(text), text.slice(0, 30)).toThrow(/DOCTYPE is not accepted/);
+    ]) expect(() => xmlGate(text), text.slice(0, 30)).toThrow(XmlDoctypeRefused);
+    // The ruled message, the same one parseXml and the browser parser give
+    // (Tier 0 row 59, v0.150).
+    expect(() => xmlGate('<!DOCTYPE a><a/>')).toThrow(DOCTYPE_REFUSAL);
   });
 
   it('refuses an XML declaration of any version but 1.0 (critique F4: saxes would read 1.1)', () => {

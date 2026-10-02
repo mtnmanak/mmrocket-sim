@@ -25,7 +25,7 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
-import { parseXml, type XmlElement } from './xmlParse.js';
+import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -203,6 +203,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // still this dialect (every Public Missiles kit in a 939-file survey,
   // 2026-08-22). Saying "XML parse error" there reads as "your file is corrupt"
   // and leaves the user nowhere, so name it and say what to do instead.
+  // A DOCTYPE first (Tier 0 row 59, 2026-10-01): a crafted file with the
+  // binary signature in a comment AND a DOCTYPE would otherwise be told it is
+  // binary. A real binary file has no prolog, so this never refuses one.
+  if (declaresDoctype(xml)) throw new XmlDoctypeRefused();
   if (xml.startsWith('[[RS') || xml.slice(0, 64).includes('[[RS001024RS]]')) {
     throw new Error(
       'This is an older BINARY RockSim file, not the XML .rkt this app reads. '

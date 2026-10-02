@@ -13,7 +13,8 @@
  *  - in the BROWSER, the native DOMParser, exactly as before. Same call, same
  *    `querySelector('parsererror')` check, same message per importer: nothing a
  *    user sees changes, and nothing is added to what ships (orchestrator's
- *    ruling (a) and (b), 2026-10-01). This module has no dependencies.
+ *    ruling (a) and (b), 2026-10-01) — except that since v0.150 a file with a
+ *    DOCTYPE is refused on every path (parseXml). This module has no dependencies.
  *  - where there is no DOMParser, a pure-JS parser that a non-browser entry
  *    installs with `setXmlParser(jsXmlParser)` (xmlParseJs.ts: a saxes
  *    well-formedness gate, @xmldom/xmldom for the DOM, css-select for the
@@ -26,21 +27,28 @@
  * hardening suites run a second time under the JS parser (the `jsxml` vitest
  * project in vite.config.ts).
  *
- * KNOWN, NAMED DIFFERENCES — three classes, each row listed by name in
- * xmlParse.hostile.test.ts JS_DIFFERS_FROM_CHROME (verify-step2 finding 8):
+ * KNOWN, NAMED DIFFERENCES BETWEEN THE TWO PARSERS — three classes, each row
+ * listed by name in xmlParse.hostile.test.ts JS_DIFFERS_FROM_CHROME
+ * (verify-step2 finding 8). The table holds the PARSERS to Chrome; what an
+ * importer sees goes through `parseXml`, which refuses class 1 first:
  *  1. A DOCTYPE. The JS parser refuses ANY, where Chrome accepts one and
  *     EXPANDS internal entities from it (`<!ENTITY e "X">` then `&e;` reads
  *     "X"). No JavaScript parser expands entities, so refusing is the only
  *     answer the JS path can give that is never silently different; 0 of the
  *     136 inputs measured (the corpus with the committed fixtures) carry a
  *     DOCTYPE, and none of OpenRocket, RockSim or RASAero writes one.
+ *     SINCE v0.150 `parseXml` refuses a DOCTYPE on BOTH paths before either
+ *     parser runs (Eric's ruling, board Tier 0 row 59, 2026-10-01), with
+ *     DOCTYPE_REFUSAL as the message — so for the importers this class is no
+ *     longer a difference at all.
  *  2. An XML declaration of any version but 1.0. Chrome reads `version="1.1"`
  *     (and, measured, `"1.9"`) as 1.0; the JS parser refuses it, because saxes
  *     would apply XML 1.1's rules (`&#1;` legal). No supported format writes one.
  *  3. Nesting deeper than Chrome's limit, somewhere between 4,000 and 5,000
  *     levels. Chrome refuses; the JS parser has no depth cap here — that
  *     belongs to the future server package (xmlParseJs.ts header).
- * The browser keeps Chrome's behaviour in all three — no new refusal there.
+ * The browser parser keeps Chrome's behaviour in all three; the one new refusal
+ * on the browser path is the DOCTYPE, made in parseXml above the parser.
  */
 
 /** A list the importers may index, count and spread. Iterable as well as
@@ -93,6 +101,61 @@ export class XmlParseError extends Error {
 export type XmlParser = (text: string) => XmlDocument;
 
 /**
+ * What the user reads when a file carries a DOCTYPE — Eric's wording, ruled
+ * 2026-10-01 (board Tier 0 row 59: "refuse in both, with that message"). An
+ * importer's open shows it after its own lead-in ("Could not open that .ork
+ * file: …"), so it names the problem and the fix on its own.
+ */
+export const DOCTYPE_REFUSAL = 'This file starts with a DOCTYPE declaration, which the app does not open. '
+  + 'No rocket design program writes one; delete that line from the file and open it again.';
+
+/** A file refused for its DOCTYPE. NOT an XmlParseError: `parseXml` passes it
+ *  through with its own message, where a parse error becomes the importer's
+ *  generic "not a valid file" sentence. */
+export class XmlDoctypeRefused extends Error {
+  constructor() {
+    super(DOCTYPE_REFUSAL);
+    this.name = 'XmlDoctypeRefused';
+  }
+}
+
+/**
+ * Does the text declare a DOCTYPE? XML allows one only in the prolog — after
+ * an optional BOM, the XML declaration, processing instructions, comments and
+ * whitespace, and before the root element — so this steps over exactly those
+ * and looks at what comes next. It is a scan of the structure, not a pattern
+ * over the first few KB: a long comment before the DOCTYPE, or a `>` inside
+ * its quoted SYSTEM id, cannot hide it (the two bypasses critique F5 found in
+ * the regex the first spec proposed). A prolog it cannot step over (an
+ * unterminated comment, say) is left to the parser, which refuses it as
+ * malformed. Case-insensitive: a lower-case `<!doctype` is not well-formed
+ * XML either, and saying DOCTYPE is the more useful refusal.
+ *
+ * WHY BEFORE THE PARSE (2026-10-01). The browser's reader EXPANDS the entities
+ * a DOCTYPE declares, and does it while parsing — a nested "billion laughs"
+ * file grows a few KB into gigabytes inside `parseFromString`, before any
+ * check on the finished document could run. Refusing here means neither
+ * reader ever sees the declaration.
+ */
+export function declaresDoctype(text: string): boolean {
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  for (;;) {
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (text.startsWith('<?', i)) {
+      const end = text.indexOf('?>', i + 2);
+      if (end < 0) return false;
+      i = end + 2;
+    } else if (text.startsWith('<!--', i)) {
+      const end = text.indexOf('-->', i + 4);
+      if (end < 0) return false;
+      i = end + 3;
+    } else {
+      return text.slice(i, i + 9).toUpperCase() === '<!DOCTYPE';
+    }
+  }
+}
+
+/**
  * The platform DOMParser — the browser path, unchanged from what each importer
  * did inline before this seam: `parseFromString(text, 'text/xml')`, then
  * refuse when `querySelector('parsererror')` finds the error element (Chrome
@@ -107,6 +170,10 @@ export const browserXmlParser: XmlParser = (text) => {
   }
   const doc = new DOMParser().parseFromString(text, 'text/xml');
   if (doc.querySelector('parsererror')) throw new XmlParseError('XML parse error');
+  // A backstop only: parseXml refuses a DOCTYPE before any parser runs
+  // (declaresDoctype). Called directly, this parser still never hands an
+  // importer a document that has one.
+  if (doc.doctype) throw new XmlDoctypeRefused();
   return doc;
 };
 
@@ -145,6 +212,10 @@ export function currentXmlParser(): XmlParser {
  * error", so it would give a log nothing.
  */
 export function parseXml(text: string, refusal: string): XmlDocument {
+  // A DOCTYPE is refused on EVERY path, before any parser sees it, with its
+  // own message (Tier 0 row 59, ruled 2026-10-01): the browser and a server
+  // then give the same answer for the same file.
+  if (declaresDoctype(text)) throw new XmlDoctypeRefused();
   try {
     return current(text);
   } catch (e) {

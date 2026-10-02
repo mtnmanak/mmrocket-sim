@@ -1,5 +1,5 @@
 {
-  "version": "0.149",
+  "version": "0.150",
   "released": "2026-10-01",
-  "note": "Nothing the app does or shows changes, apart from the version number. The Launch button now flies through one shared path, which can also open a design file and fly it with no browser, and the .ork, RockSim and RASAero readers can parse their XML outside a browser, held to answers recorded from Chrome. Both are groundwork for a possible server (API) version of the app, which is being discussed and is not decided. On 25 Launch cases, each flight's summary and events and the run the button builds, keys included, are identical to v0.148's."
+  "note": "A file that starts with a DOCTYPE declaration (a <!DOCTYPE ...> declaration near the top) is now refused in .ork, RockSim and RASAero files, before its XML is parsed, with a message that says to delete it and open the file again. Desktop OpenRocket's save code writes none, none of the 133 design and motor files in testers' uploads and the app's tests carries one, and a DOCTYPE can define nested text macros that a browser expands while it reads. The browser and the reader v0.149 added for use outside a browser now refuse such a file with the same message."
 }

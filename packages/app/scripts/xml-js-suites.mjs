@@ -67,6 +67,8 @@ export const XML_JS_SUITES = [
   // browser's): without it, a setup file that stopped installing the parser
   // would leave every suite above passing under happy-dom twice.
   'src/services/xmlParse.project.test.ts',
+  // The DOCTYPE refusal (Tier 0 row 59, v0.150): the same answer on both paths.
+  'src/services/xmlParse.doctype.test.ts',
   // The headless door (step 1, 2026-10-01): simulateFile opens bytes through
   // the importers, which is exactly the path a server takes under this parser.
   'src/services/simulateFile.test.ts',

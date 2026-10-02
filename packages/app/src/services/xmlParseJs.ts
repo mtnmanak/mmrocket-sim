@@ -28,9 +28,11 @@
  *         5 KB comment before it or a `>` inside a quoted SYSTEM id cannot
  *         hide it (both bypassed the 4 KiB regex the spec first proposed;
  *         critique F5). Chrome EXPANDS internal entities, no JS parser does;
- *         refusing is the only answer that is never silently different. The
- *         browser path keeps Chrome's behaviour (ruling (b)), and the hostile
- *         table names these rows as the expected difference.
+ *         refusing is the only answer that is never silently different. Since
+ *         v0.150 the browser path refuses one too, and parseXml refuses it
+ *         before either parser runs (Tier 0 row 59); this is the backstop for
+ *         a direct call, with the same XmlDoctypeRefused. The hostile
+ *         table pins both parsers to the same refusal on these rows.
  *       - an XML declaration whose version is not 1.0. saxes implements XML
  *         1.1, under which `&#1;` is legal; Chrome's libxml2 does not
  *         (critique F4).
@@ -74,7 +76,7 @@ import { SaxesParser } from 'saxes';
 import * as CSSselect from 'css-select';
 import { DOMParser, Document as XDocument, Element as XElement } from '@xmldom/xmldom';
 import type { Document as XmldomDocument, Element as XmldomElement, Node as XmldomNode } from '@xmldom/xmldom';
-import { XmlParseError, type XmlDocument, type XmlElement, type XmlParser } from './xmlParse.js';
+import { XmlDoctypeRefused, XmlParseError, type XmlDocument, type XmlElement, type XmlParser } from './xmlParse.js';
 
 const ELEMENT_NODE = 1;
 const DOCUMENT_NODE = 9;
@@ -190,9 +192,11 @@ const normalizeLineEndingsXml10 = (s: string): string => s.replace(/\r\n?/g, '\n
  */
 export function xmlGate(text: string): void {
   const sax = new SaxesParser({ xmlns: true });
+  // The same refusal, and the same message, as the browser parser's backstop
+  // and parseXml's pre-parse scan (Tier 0 row 59, 2026-10-01), so the two
+  // parsers give one answer for a DOCTYPE even when called directly.
   sax.on('doctype', () => {
-    throw new XmlParseError('A DOCTYPE is not accepted: no supported file format uses one, '
-      + 'and entities declared in one cannot be read the way a browser reads them.');
+    throw new XmlDoctypeRefused();
   });
   sax.on('xmldecl', (decl) => {
     if (decl.version !== '1.0') {
@@ -202,7 +206,7 @@ export function xmlGate(text: string): void {
   try {
     sax.write(text).close();
   } catch (e) {
-    if (e instanceof XmlParseError) throw e;
+    if (e instanceof XmlParseError || e instanceof XmlDoctypeRefused) throw e;
     throw new XmlParseError(`XML parse error: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
 }
