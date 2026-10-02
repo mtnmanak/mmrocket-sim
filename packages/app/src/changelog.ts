@@ -32,6 +32,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.149",
+    "date": "2026-10-01",
+    "title": "Nothing the app does or shows changes, apart from the version number: the Launch button now flies through one shared path that also runs without a browser, groundwork for a possible server version",
+    "items": [
+      "NOTHING THE APP DOES OR SHOWS CHANGES IN THIS RELEASE, APART FROM THE VERSION NUMBER. It is groundwork for a possible server (API) version of the app, which is being discussed and is not decided. The flights did not move: on 25 Launch cases - single and multi-stage, pods, every aerodynamics setting, Auto delay, a refused motor, an older saved session, and four design files testers sent - each flight's summary and events, and the run the Launch button builds from it with its design, motor and conditions keys, were recorded on v0.148 and on this release and are identical (a run's id, time stamp and run time aside). The full time series were not part of that before-and-after comparison; the test in the next item compares them between the button and the shared path.",
+      "THE LAUNCH BUTTON NOW FLIES THROUGH ONE SHARED PATH. What a Launch works out before it flies - which motors are on the rocket, the primary motor, the aerodynamics model, a weighed pad mass from an older session - was worked out inside the screen's own code. It now lives in plain functions the button calls, and the same functions can open a design file and fly it with no screen at all. A test mounts the app, presses Launch, and requires the shared path to give the same flight, time series included, and the same stored run, ids and timings aside, on every case it carries.",
+      "THE FILE READERS CAN NOW PARSE WITHOUT A BROWSER. The .ork, RockSim, RASAero and RockSim-motor (.rse) readers parsed their XML with the browser's own reader, which servers do not have. In the browser they still do, unchanged, with the same error messages. A program running outside a browser can now install a JavaScript XML reader in its place. The app's tests hold that reader to answers recorded from Chrome itself on 23 test files and 71 malformed, hostile and edge-case inputs, with eight differences that are deliberate and stated (it refuses any DOCTYPE, for one); and on every design file in the testers' uploads that the app can read, it gives the same import, or the same refusal, as the stand-in browser reader the tests use. That reader is not part of what your browser downloads.",
+      "UNDER THE HOOD. The refusal of a design file over 64 MiB, and the sentence a failed open shows, moved to a shared module word for word. A new test opens and flies one .ork, one RockSim and one RASAero file in plain Node, with no browser stand-in at all."
+    ]
+  },
+  {
     "version": "0.148",
     "date": "2026-10-01",
     "title": "A desktop file opens on the Earth model it names, with a selector for it; the AeroTech K62N's length corrected; a solid tube has no bore anywhere in the app; a RASAero save refuses a tail cone it would have dropped; and labels in Preferences and on the motor card reach their controls",
