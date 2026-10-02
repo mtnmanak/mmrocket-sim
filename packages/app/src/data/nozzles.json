@@ -8,16 +8,16 @@
   "assemblyDrawings": 375,
   "nozzlePartResolved": 374,
   "instructionSheetRows": 1,
-  "drawingsJoinedByEvidence": 2,
+  "drawingsJoinedByEvidence": 3,
   "distinctNozzleParts": 115,
   "partsWithExitDiameter": 93,
   "partsResolvedPerMotor": 20,
   "motorsWithExit": 291,
-  "motorsMatchedToCatalogue": 290,
-  "motorsLoadableWithExit": 283,
-  "aerotechMatched": 234,
+  "motorsMatchedToCatalogue": 291,
+  "motorsLoadableWithExit": 284,
+  "aerotechMatched": 235,
   "lokiMatched": 56,
-  "aerotechMatchedInProduction": 232,
+  "aerotechMatchedInProduction": 233,
   "lokiMatchedInProduction": 55,
   "motorsWithTwoNozzleOptions": 9,
   "catalogueMotors": 1156,
@@ -27,7 +27,7 @@
   "dmsDrawings": 51,
   "dmsRows": 49,
   "dmsRowsWithExit": 44,
-  "dmsInProductionWithExit": 37,
+  "dmsInProductionWithExit": 38,
   "lokiSheetsRead": 21,
   "lokiMotorsOnASheet": 43,
   "lokiRows": 56,
@@ -38,8 +38,8 @@
  },
  "gaps": {
   "Loki": "Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. 55 of 60 catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR (\"we can leave them as unknown and, if we get the data, we can update the database\") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed \"Historical Information Only — Not In Production\", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads \"Single Use\") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in `uncovered`.",
-  "Cesaroni": "No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki's was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.",
-  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 37 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. STILL NOT COVERED: 40 in-production AeroTech motors have no row here, because no document this build reads joins a nozzle to them. By the catalogue's own type (`coverage.byManufacturer.AeroTech.missingByType`): reload kits 8 (F62FJ, F63R, H130W, H550ST, I180W, J550ST-14, L2775ST-PS, M1305M); single-use 32, 28 of them 29 mm or smaller and 4 larger (I350R, N3120X-PS, N1975W-PS, O6000W). Every one is named in `uncovered` too. Until 2026-10-01 this sentence was written by hand and called them all the older single-use line, with neither a reload kit nor a DMS sheet; that day 12 of the 40 were reload kits or DMS motors."
+  "Cesaroni": "No published nozzle exit diameter found in the 2026-10-01 re-check. Four 2001 Tripoli throat readings are recorded in crossCheck.tripoliCesaroni for comparison only (owner ruling 2026-10-02); three identify catalogue motors, two OOP, and 133G69-A is unmatched. None supplies an exit or affects pressure thrust or power-on drag. Current exits still require measurements or Cesaroni in writing.",
+  "AeroTechSingleUse": "AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the \"Motor Assembly Drawings\" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from \"DMS Motor Designs\": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth 38 more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral (\"adding a document family is a decision rather than a fix\") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. STILL NOT COVERED: 39 in-production AeroTech motors have no row here, because no document this build reads joins a nozzle to them. By the catalogue's own type (`coverage.byManufacturer.AeroTech.missingByType`): reload kits 8 (F62FJ, F63R, H130W, H550ST, I180W, J550ST-14, L2775ST-PS, M1305M); single-use 31, 28 of them 29 mm or smaller and 3 larger (I350R, N3120X-PS, O6000W). Every one is named in `uncovered` too. Until 2026-10-01 this sentence was written by hand and called them all the older single-use line, with neither a reload kit nor a DMS sheet; that day 12 of the 40 were reload kits or DMS motors."
  },
  "coverage": {
   "note": "What this file covers, per MANUFACTURER and then per motor CASING DIAMETER, counted from motors.json at build time rather than written down. A hand-written coverage claim is exactly how \"every 98 mm motor\" reached a release note while four in-production 98 mm motors had no row here (M1305M, M1340W, N1975W-PS, O5500X-PS). \"inProduction\" is the rows this catalogue does not mark OOP; \"withNozzleRow\" is how many have a row here and \"withExitDiameter\" how many of those carry the number the app actually needs — they differ where a row exists with no exit (an aerospike, or a Loki motor larger than Loki's published exit table). Every motor short of a row is named, and named again in `uncovered`; \"missingByType\" names the same motors by the catalogue's own type (\"SU\", \"reload\", \"hybrid\") and then by casing diameter.",
@@ -133,11 +133,10 @@
      },
      "98": {
       "inProduction": 32,
-      "withNozzleRow": 30,
-      "withExitDiameter": 30,
+      "withNozzleRow": 31,
+      "withExitDiameter": 31,
       "missing": [
-       "M1305M",
-       "N1975W-PS"
+       "M1305M"
       ]
      },
      "152": {
@@ -190,9 +189,6 @@
       ],
       "75": [
        "N3120X-PS"
-      ],
-      "98": [
-       "N1975W-PS"
       ],
       "152": [
        "O6000W"
@@ -407,9 +403,6 @@
   "AeroTech 98 mm RMS-98/7680": [
    "M1305M"
   ],
-  "AeroTech 98 mm single-use (no reload case)": [
-   "N1975W-PS"
-  ],
   "Loki 38 mm single-use (no reload case)": [
    "H500-LW"
   ],
@@ -563,6 +556,51 @@
     "exitAgrees": true
    }
   ],
+  "tripoliCesaroni": {
+   "note": "Four Tripoli throats from the 2001 Pro38 certification, transcribed in the 2026-10-01 research. Comparison only — never an input to exitDiameterM, pressure thrust or power-on drag. Owner ruling: Eric, 2026-10-02. No evidence establishes the throat of current hardware.",
+   "rows": [
+    {
+     "designation": "512I285-A",
+     "motorId": "5f4294d200023100000000c6",
+     "catalogDesignation": "512I285-15A",
+     "certFile": "https://web.archive.org/web/20061128/http://www.pro38.com/pdfs/512I285-15A.pdf",
+     "testDate": "2001-09-08",
+     "certifiedUntil": "2005-11-01",
+     "certThroatIn": 0.344,
+     "evidence": "Tripoli letter dated October 1, 2001, text layer: \"Nozzle Throat Diameter\" 0.344″. 510.1 Ns and 272.4 g match catalogue motorId; the current Pro38 page gives \"Test Date 09/08/2001\"."
+    },
+    {
+     "designation": "384I205-A",
+     "motorId": "5f4294d200023100000000b7",
+     "catalogDesignation": "I205",
+     "certFile": "https://web.archive.org/web/20030803/http://www.pro38.com/curves/384I205.jpg",
+     "testDate": "2001-09-08",
+     "certifiedUntil": "2005-11-01",
+     "certThroatIn": 0.297,
+     "evidence": "Image only, read by eye in the 2026-10-01 research: \"Nozzle Throat Diameter\" 0.297″. The letterhead and date are cropped; 380.9 Ns and 206.1 g match the OOP catalogue I205."
+    },
+    {
+     "designation": "244H153-A",
+     "motorId": "5f4294d20002310000000088",
+     "catalogDesignation": "H153",
+     "certFile": "https://web.archive.org/web/20061128/http://www.pro38.com/pdfs/244H153-13A.pdf",
+     "testDate": "2001-09-08",
+     "certifiedUntil": "2005-11-01",
+     "certThroatIn": 0.234,
+     "evidence": "Tripoli letter dated October 1, 2001, text layer checked against a render: \"Nozzle Throat Diameter\" 0.234″. 258 Ns and 143.9 g match the OOP catalogue H153."
+    },
+    {
+     "designation": "133G69-A",
+     "unmatched": true,
+     "certFile": "https://web.archive.org/web/20210608/http://www.pro38.com/pdfs/133G69-12A.pdf",
+     "testDate": "2001-09-08",
+     "certifiedUntil": "2005-11-01",
+     "certThroatValue": 0.152,
+     "certThroatUnit": "not printed",
+     "evidence": "Tripoli letter dated October 1, 2001, text layer checked against a render: \"Nozzle Throat Diameter\" 0.152 (no unit printed). Classic, 128.8 Ns and 84 gm; no catalogue row. The catalogue G69 (117G69-14A) is Skidmark, 121.1 Ns and 61.5 g: a different motor, never a match."
+    }
+   ]
+  },
   "dmsSheetObservations": {
    "note": "The 41 DMS rows that carried an EXIT on 2026-09-13 were read back from their own PDFs that day by readers other than the code that built them, and each of those exits was then attacked by a second reader told to refute it. NONE was refuted. (There are 49 DMS rows now, 44 with an exit: the 3 added since were not part of that pass, and the rest publish no exit.) These are the differences between what the drawings show and what this file publishes, kept as a comparison — a drawing callout is an unlabelled number and is never an input here.",
    "rows": [
@@ -10042,21 +10080,39 @@
    }
   },
   {
+   "motorId": "616e64637630450004259814",
    "manufacturer": "AeroTech",
    "designation": "N1925W-PS",
+   "catalogDesignation": "N1975W-PS",
+   "commonName": "N1975",
    "caseFamily": "98mm DMS (single-use)",
    "docFamily": "dms",
+   "casingDiameterMm": 98,
    "nozzlePartNo": "01880",
    "exitDiameterM": 0.06952,
    "exitDiameterIn": 2.737,
    "throatDiameterM": 0.0254,
    "throatDiameterIn": 1,
    "exitSource": "spec-page",
-   "exitConfidence": "high",
+   "exitConfidence": "medium",
+   "confidenceNote": "Owner-ruled inference: use N1975W-PS only. The sheet names N1925W-PS, not N1975W-PS. N1975W-PS is the only catalogued 98 mm White Lightning plugged DMS N motor; its certification test followed the drawing by seven weeks. The different designation, drawing number and inconsistent grain count prevent treating this as a sheet naming the catalogue motor. Ruled by Eric on 2026-10-02.",
    "provenance": {
     "lomDescription": "ENLARGED 98MM NOZZLE (1.000\" DT UNDRILLED)",
     "designationOnSheet": "exact",
     "exitFrom": "Nozzles/98mm Nozzle, 1.000_ Throat.mhtml",
+    "matchedVia": "N1975W-PS",
+    "caseAgrees": false,
+    "joinEvidence": [
+     "DMS Motor Designs/98mm/N1925W-PS.pdf: \"N1925W-PS DMS™ MOTOR ASSEMBLY\", NUMBER \"14192P\", first release 8/26/21; item 2: \"01880 ENLARGED 98MM NOZZLE (1.000\" DT UNDRILLED)\".",
+     "01880 store page: \"3.619\" O.D. 1.000\" diameter throat 2.737\" diameter exit\".",
+     "N1975W-PS Tripoli letter: \"[DMS, single use]\", tested 16 Oct 2021. The catalogue has no N1925 motor.",
+     "Counterevidence (research 2026-10-01, section C): drawing 14192P differs from N1975W-PS part 13197P; 7 grains of 6.00 in conflict with a 36.938 in liner and 5 spacer O-rings, which fit 6 grains. Assuming round 1.250 in cores and 1.7264 g/cm³ propellant density inferred from M1340W-PS, 6 grains give 7,835 g (+2.1% vs 7,676 g); 7 give 9,140 g (+19.1%)."
+    ],
+    "ruledInference": {
+     "by": "Eric",
+     "date": "2026-10-02",
+     "reason": "Owner-ruled inference: use N1975W-PS only. The sheet names N1925W-PS, not N1975W-PS. N1975W-PS is the only catalogued 98 mm White Lightning plugged DMS N motor; its certification test followed the drawing by seven weeks. The different designation, drawing number and inconsistent grain count prevent treating this as a sheet naming the catalogue motor."
+    },
     "assemblyDrawings": [
      "98mm/N1925W-PS.pdf"
     ]

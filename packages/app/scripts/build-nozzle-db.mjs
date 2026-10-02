@@ -391,7 +391,7 @@ export function findMotor(aerotech, designation, diameterMm, caseFolder, preferS
  * SHEETS FILED UNDER A NAME THE CATALOGUE DOES NOT USE, joined by evidence
  * (board Tier 1 row 13, 2026-10-01).
  *
- * Both rows below were built from the start and reached no motor, so two
+ * The H219T and J1265T rows were built from the start and reached no motor, so two
  * in-production motors loaded with a blank nozzle field: H219T's sheet is FILED
  * as H218T-14A.pdf (RCS's own library page labels it that way too), and
  * AeroTech write the motor thrustcurve.org calls J1265T as J1265ST-14A. Neither
@@ -406,9 +406,34 @@ export function findMotor(aerotech, designation, diameterMm, caseFolder, preferS
  * is not proof on its own either: 29mm/I205W-14A.pdf is titled "I205NT-14A"
  * while its grains (8225W) and its 12.00 in case are the I205W's. So each entry
  * also rests on a second document. Keyed by family and file, as the extractor
- * names a sheet.
+ * names a sheet. N1975W-PS is a separate owner-ruled inference: the title names
+ * N1925W-PS. A different motor number requires the dated ruling below and
+ * a title matching the file's own designation, and lowers the confidence.
  */
-const SHEET_CATALOGUE_JOINS = [
+export const SHEET_CATALOGUE_JOINS = [
+  {
+    docFamily: 'dms',
+    file: '98mm/N1925W-PS.pdf',
+    titleBlock: 'N1925W-PS',
+    catalogDesignation: 'N1975W-PS',
+    ruledInference: {
+      by: 'Eric', date: '2026-10-02',
+      reason: 'Owner-ruled inference: use N1975W-PS only. The sheet names N1925W-PS, not N1975W-PS. '
+        + 'N1975W-PS is the only catalogued 98 mm White Lightning plugged DMS N motor; its certification test '
+        + 'followed the drawing by seven weeks. The different designation, drawing number and inconsistent grain '
+        + 'count prevent treating this as a sheet naming the catalogue motor.',
+    },
+    evidence: [
+      'DMS Motor Designs/98mm/N1925W-PS.pdf: "N1925W-PS DMS™ MOTOR ASSEMBLY", NUMBER "14192P", first release '
+        + '8/26/21; item 2: "01880 ENLARGED 98MM NOZZLE (1.000" DT UNDRILLED)".',
+      '01880 store page: "3.619" O.D. 1.000" diameter throat 2.737" diameter exit".',
+      'N1975W-PS Tripoli letter: "[DMS, single use]", tested 16 Oct 2021. The catalogue has no N1925 motor.',
+      'Counterevidence (research 2026-10-01, section C): drawing 14192P differs from N1975W-PS part 13197P; '
+        + '7 grains of 6.00 in conflict with a 36.938 in liner and 5 spacer O-rings, which fit 6 grains. '
+        + 'Assuming round 1.250 in cores and 1.7264 g/cm³ propellant density inferred from M1340W-PS, '
+        + '6 grains give 7,835 g (+2.1% vs 7,676 g); 7 give 9,140 g (+19.1%).',
+    ],
+  },
   {
     docFamily: 'dms',
     file: '38mm/H218T-14A.pdf',
@@ -452,6 +477,18 @@ function joinByEvidence(aerotech, join, asm, diameterMm, folder, isDms, problems
   if (!titles.includes(join.titleBlock)) {
     problems.push(`${where}: the entry rests on a title block reading "${join.titleBlock}", the sheet's reads `
       + `${titles.map((t) => `"${t}"`).join(', ') || 'nothing'}`);
+  }
+  // A propellant spelling may differ (J1265ST / J1265T); a different motor
+  // number needs an explicit ruling, not merely a matching transcription.
+  const motorNumber = (name) => /^([A-Z]+[\d.]+)/.exec(name)?.[1];
+  const ruling = join.ruledInference;
+  if (titles.includes(join.titleBlock)
+    && (motorNumber(join.titleBlock) !== motorNumber(join.catalogDesignation) || ruling)) {
+    if (!ruling?.by || !/^\d{4}-\d{2}-\d{2}$/.test(ruling.date ?? '') || !ruling.reason
+      || !join.evidence?.length || join.titleBlock !== asm.designationFromFile) {
+      problems.push(`${where}: a different motor number requires a documented owner ruling and a title block `
+        + 'equal to the file designation');
+    }
   }
   const byName = findMotor(aerotech, asm.designationFromFile, diameterMm, folder, isDms);
   if (byName) {
@@ -909,7 +946,7 @@ export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [], storePages
         }
         : {}),
       exitSource,
-      exitConfidence,
+      exitConfidence: join?.ruledInference && exitIn !== undefined ? 'medium' : exitConfidence,
       // Why a row is only "medium", in the file rather than in a commit message.
       // The dash-number rule is AeroTech's, printed on 14 of the 23 nozzle
       // drawing files; where their own sheet for this family does not print it, the
@@ -925,6 +962,8 @@ export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [], storePages
       // exactly why nobody would have noticed the first one that did.
       ...(() => {
         const notes = [
+          join?.ruledInference
+            ? `${join.ruledInference.reason} Ruled by ${join.ruledInference.by} on ${join.ruledInference.date}.` : null,
           exitSource === 'base-spec-page' && exitConfidence === 'medium'
             ? 'Exit carried from the base part under the dash-number rule, which this family\'s own drawing does not print.' : null,
           medusa?.outerCountAssumed
@@ -958,6 +997,7 @@ export function aerotechDrawingRows(raw, aerotech, { sheetJoins = [], storePages
         caseAgrees: found ? found.caseAgrees : undefined,
         // Why a sheet whose name reaches no motor has one: the documents its entry quotes.
         ...(join ? { joinEvidence: join.evidence } : {}),
+        ...(join?.ruledInference ? { ruledInference: join.ruledInference } : {}),
       },
     };
     rows.push(rec);
@@ -1320,10 +1360,8 @@ const NO_EXIT_NOTES = {
  * 1.3 in for the SAME motor (`38mm Min Diameter.CDX1`, `38mm_thought
  * experiment.CDX1`). None of that is imported.
  *
- * CESARONI: the owner searched pro38.com's product and resources pages and the
- * wider web and found no published nozzle geometry at all. Recorded as a known
- * gap rather than guessed at; a Cesaroni exit inferred from a photograph would
- * be indistinguishable, in the output, from one AeroTech printed on a drawing.
+ * CESARONI: the 2026-10-01 re-check found four historical Tripoli throats,
+ * recorded separately below for comparison. No exit was found.
  */
 const MEASURED_NOZZLES = [
   // Ruled, measured additions go here, e.g.
@@ -1338,6 +1376,44 @@ const MEASURED_NOZZLES = [
   // reaches the app. `appliesTo` names each motor by its motors.json `motorId`
   // AND its designation there, never by a name alone: a name can bind another
   // maker's motor, and the build checks the maker and the name against the id.
+];
+
+/**
+ * Owner ruling, 2026-10-02: comparison only, never motor rows or measured
+ * exits. Transcribed from docs/research/cesaroni-nozzle-recheck-2026-10-01.md
+ * section 2. Tripoli measured THROATS in 2001, not today's exit geometry.
+ * The unmatched G69 has no printed unit: do not silently call it inches.
+ */
+const TRIPOLI_CESARONI = [
+  {
+    designation: '512I285-A', motorId: '5f4294d200023100000000c6', catalogDesignation: '512I285-15A',
+    certFile: 'https://web.archive.org/web/20061128/http://www.pro38.com/pdfs/512I285-15A.pdf',
+    testDate: '2001-09-08', certifiedUntil: '2005-11-01', certThroatIn: 0.344,
+    evidence: 'Tripoli letter dated October 1, 2001, text layer: "Nozzle Throat Diameter" 0.344″. '
+      + '510.1 Ns and 272.4 g match catalogue motorId; the current Pro38 page gives "Test Date 09/08/2001".',
+  },
+  {
+    designation: '384I205-A', motorId: '5f4294d200023100000000b7', catalogDesignation: 'I205',
+    certFile: 'https://web.archive.org/web/20030803/http://www.pro38.com/curves/384I205.jpg',
+    testDate: '2001-09-08', certifiedUntil: '2005-11-01', certThroatIn: 0.297,
+    evidence: 'Image only, read by eye in the 2026-10-01 research: "Nozzle Throat Diameter" 0.297″. '
+      + 'The letterhead and date are cropped; 380.9 Ns and 206.1 g match the OOP catalogue I205.',
+  },
+  {
+    designation: '244H153-A', motorId: '5f4294d20002310000000088', catalogDesignation: 'H153',
+    certFile: 'https://web.archive.org/web/20061128/http://www.pro38.com/pdfs/244H153-13A.pdf',
+    testDate: '2001-09-08', certifiedUntil: '2005-11-01', certThroatIn: 0.234,
+    evidence: 'Tripoli letter dated October 1, 2001, text layer checked against a render: '
+      + '"Nozzle Throat Diameter" 0.234″. 258 Ns and 143.9 g match the OOP catalogue H153.',
+  },
+  {
+    designation: '133G69-A', unmatched: true,
+    certFile: 'https://web.archive.org/web/20210608/http://www.pro38.com/pdfs/133G69-12A.pdf',
+    testDate: '2001-09-08', certifiedUntil: '2005-11-01', certThroatValue: 0.152, certThroatUnit: 'not printed',
+    evidence: 'Tripoli letter dated October 1, 2001, text layer checked against a render: '
+      + '"Nozzle Throat Diameter" 0.152 (no unit printed). Classic, 128.8 Ns and 84 gm; no catalogue row. '
+      + 'The catalogue G69 (117G69-14A) is Skidmark, 121.1 Ns and 61.5 g: a different motor, never a match.',
+  },
 ];
 
 /* ------------------------------------------------------------------- LOKI
@@ -2181,7 +2257,10 @@ export function buildNozzleDb({
     },
     gaps: {
       Loki: `Covered since 2026-09-13 from Loki's OWN published tables, not from measurement: their Tech Info page prints the nozzle exit diameter per casing and nozzle-number band, and each reload kit's instruction sheet names the nozzle that motor takes. ${lokiRows.filter((m) => m.exitDiameterM !== undefined).length} of ${LOKI.length} catalogued Loki motors now carry an exit. WHAT IS STILL SHORT — four motors, and Eric ruled on each of them 2026-09-13: N3800-LW and N5500LW are SPECIALIST MOTORS HE DOES NOT HAVE THE FIGURES FOR ("we can leave them as unknown and, if we get the data, we can update the database") — Loki publish no exit band above 76 mm, their 98 mm hardware being listed "Historical Information Only — Not In Production", so N3800-LW carries its #64 throat and no exit and N5500LW has neither. L2050LW and M1378LR (54/4000, whose commercial-throat cell reads "Single Use") are ONE-TIME-USE NOZZLES HE OWNS AND WILL MEASURE — expect those two through MEASURED_NOZZLES, not through a sheet. H500-LW is a fifth row-less motor, out of production with no case stated. All are named in \`uncovered\`.`,
-      Cesaroni: 'No published nozzle geometry found on pro38.com or elsewhere (owner searched 2026-09-08). Known gap. Worth re-checking the way Loki\'s was: the Loki exits were on a page we had both already read, at the foot of it, under a heading we were not looking for.',
+      Cesaroni: 'No published nozzle exit diameter found in the 2026-10-01 re-check. Four 2001 Tripoli throat '
+        + 'readings are recorded in crossCheck.tripoliCesaroni for comparison only (owner ruling 2026-10-02); '
+        + 'three identify catalogue motors, two OOP, and 133G69-A is unmatched. None supplies an exit or affects '
+        + 'pressure thrust or power-on drag. Current exits still require measurements or Cesaroni in writing.',
       AeroTechSingleUse: `AeroTech publish an assembly drawing for RELOADABLE motors, because the drawing is the reload kit's parts list — that is the "Motor Assembly Drawings" folder. SINCE 2026-09-13 THE SINGLE-USE DMS LINE IS READ TOO, from "DMS Motor Designs": 51 sheets, 29 mm to 152 mm, in the identical LIST OF MATERIAL format and naming the same nozzle part families, which is worth ${dmsWithExit} more motors with a published exit. That folder was FOUND on 2026-09-08 and left unread for five days behind a deferral ("adding a document family is a decision rather than a fix") that was recorded here and never actually put to the owner — he asked why on 2026-09-13 and there was no good answer. STILL NOT COVERED: ${uncoveredInProd} in-production AeroTech motors have no row here, because no document this build reads joins a nozzle to them. By the catalogue's own type (\`coverage.byManufacturer.AeroTech.missingByType\`): ${uncoveredByType} Every one is named in \`uncovered\` too. Until 2026-10-01 this sentence was written by hand and called them all the older single-use line, with neither a reload kit nor a DMS sheet; that day 12 of the 40 were reload kits or DMS motors.`,
     },
     coverage: {
@@ -2219,6 +2298,12 @@ export function buildNozzleDb({
     crossCheck: {
       note: 'Tripoli certification letters that print a measured throat and exit. All are 1997-2001 tests on 98 mm motors, predating AeroTech\'s 2003 "REDESIGNED FOR NET MOLDED EXIT/THROAT" revision, so the throats corroborate this database and the exits describe the older hardware. Comparison only — never an input.',
       tripoli: certCheck,
+      tripoliCesaroni: {
+        note: 'Four Tripoli throats from the 2001 Pro38 certification, transcribed in the 2026-10-01 research. '
+          + 'Comparison only — never an input to exitDiameterM, pressure thrust or power-on drag. '
+          + 'Owner ruling: Eric, 2026-10-02. No evidence establishes the throat of current hardware.',
+        rows: TRIPOLI_CESARONI,
+      },
       // The second independent check in this file, and the one the whole Loki
       // section rests on: every motor whose instruction sheet is on disk, read
       // from the sheet, against the "Commercial Nozzle throat" Loki publish for

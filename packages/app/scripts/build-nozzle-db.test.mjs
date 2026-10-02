@@ -588,6 +588,44 @@ describe("the join from a drawing's name to the catalogue", () => {
       '  dms 38mm/H998T-14A Assembly.pdf: the sheet names no nozzle, so the entry joins nothing']);
   });
 
+  it('accepts the N1975 owner ruling with lower confidence, and refuses it when any safeguard is removed', async () => {
+    const { aerotechDrawingRows, SHEET_CATALOGUE_JOINS } = await builder();
+    const entry = SHEET_CATALOGUE_JOINS.find((j) => j.catalogDesignation === 'N1975W-PS');
+    const motor = { ...h999t, motorId: 'at-n1975', designation: 'N1975W-PS', commonName: 'N1975', diameter: 98 };
+    const raw = {
+      ...misnamedRaw(),
+      specPages: [specPage('01880', '1.000" diameter throat 2.737" diameter exit')],
+      assemblies: [assembly('98mm/N1925W-PS.pdf',
+        [{ part: '01880', desc: 'ENLARGED 98MM NOZZLE (1.000" DT UNDRILLED)' }],
+        { docFamily: 'dms', designationFromFile: 'N1925W-PS', titleBlockDesignations: ['N1925W-PS'] })],
+    };
+    const run = (join = entry, motors = [motor], documents = raw) =>
+      aerotechDrawingRows(documents, motors, { sheetJoins: [join] });
+    const { rows, unmatched } = run();
+    expect(unmatched).toEqual([]);
+    expect(rows[0]).toMatchObject({
+      motorId: 'at-n1975', catalogDesignation: 'N1975W-PS', nozzlePartNo: '01880',
+      exitDiameterIn: 2.737, exitDiameterM: round6(inToM(2.737)), exitConfidence: 'medium',
+      provenance: { ruledInference: { by: 'Eric', date: '2026-10-02' }, joinEvidence: entry.evidence },
+    });
+    expect(rows[0].confidenceNote).toMatch(/Owner-ruled inference.*sheet names N1925W-PS, not N1975W-PS/);
+    expect(() => run({ ...entry, ruledInference: undefined })).toThrow(/documented owner ruling/);
+    for (const field of ['by', 'date', 'reason']) {
+      expect(() => run({ ...entry, ruledInference: { ...entry.ruledInference, [field]: '' } }), field)
+        .toThrow(/documented owner ruling/);
+    }
+    expect(() => run({ ...entry, evidence: [] })).toThrow(/documented owner ruling/);
+    expect(() => run(entry, [motor], { ...raw, assemblies: [{ ...raw.assemblies[0], designationFromFile: 'N1924W-PS' }] }))
+      .toThrow(/equal to the file designation/);
+    expect(() => run(entry, [motor], { ...raw, assemblies: [{ ...raw.assemblies[0], titleBlockDesignations: ['N1975W-PS'] }] }))
+      .toThrow(/sheet's reads "N1975W-PS"/);
+    expect(() => run(entry, [])).toThrow(/found 0/);
+    expect(() => run(entry, [{ ...motor, diameter: 75 }])).toThrow(/found 0/);
+    expect(() => run(entry, [motor, { ...motor, motorId: 'duplicate' }])).toThrow(/found 2/);
+    expect(() => run(entry, [motor, { ...motor, motorId: 'n1925', designation: 'N1925W', commonName: 'N1925' }]))
+      .toThrow(/file name reaches N1925W by itself/);
+  });
+
   /**
    * A NOZZLE NAMED ONLY IN AN INSTRUCTION SHEET (board Tier 1 row 13). L1365M-PS
    * has no assembly drawing; its reload kit's instruction sheet prints the parts
