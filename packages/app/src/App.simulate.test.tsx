@@ -578,6 +578,19 @@ describe('the Launch button and simulateDesign fly a stored design the same', ()
     expect(out.run.aeroModel).toBe('supersonic');
   }, 60000);
 
+  it('Hybrid: the Launch button and headless run agree through the Mach band', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const f67 = (await loadCatalogueMotor('AeroTech', 'F67', 6))!;
+    const { app, out } = await sessionCase({ tree, launch: DEFAULT_CONDITIONS,
+      mountMotors: { [mount]: f67 } }, { ...CLASSIC, aeroMode: 'hybrid' });
+    expect(app.args.derived.effectiveSupersonic).toBe(false);
+    expect(app.upgraded).toBe(false);
+    expect(out.run.aeroModel).toBe('hybrid');
+    expect(out.run.rogersKbf).toBe(true);
+    expect(out.result.summary.maxMachNumber).toBeGreaterThan(0.9);
+  }, 60000);
+
   /**
    * C7: THE PRIMARY IS NOT THE FIRST MOTOR PICKED (verify-step1 finding 2). A
    * two-stage design whose booster motor is first in record order: the report

@@ -12,6 +12,21 @@
 import './kernelLogSink.js';
 import * as ork from '../vendor/orkengine.mjs';
 
+/** CP coordinates in metres, CNa per radian, remaining fields dimensionless. */
+export type AeroForceSample = [cpX: number, cpY: number, cpZ: number, cna: number,
+  cn: number, cside: number, cm: number, cyaw: number, croll: number, crollForce: number,
+  crollDamp: number, cd: number, cdAxial: number, frictionCD: number, pressureCD: number,
+  baseCD: number, overrideCD: number, pitchDamping: number, yawDamping: number];
+
+/** Calculator diagnostics: CP in metres, CNa per radian, stall margin in radians. */
+export interface AeroDiagnostics {
+  cp: [x: number, y: number, z: number, cna: number];
+  worstCP: AeroDiagnostics['cp'];
+  /** 360 roll-plane samples at theta = 2*pi*i/360. */
+  cpByTheta: AeroDiagnostics['cp'][];
+  stallMargin: number;
+}
+
 export type NoseShape = 'ogive' | 'conical' | 'ellipsoid' | 'power' | 'parabolic' | 'haack';
 
 export interface RocketSpec {
@@ -814,6 +829,29 @@ export class OrkRocket {
    */
   setRogersModifiedBarrowman(enabled: boolean): void {
     ork.setRogersModifiedBarrowman(this.handle, enabled);
+  }
+
+  /** Experimental Kbf/Supersonic Mach blend; independent of the endpoint flags. */
+  setHybridAero(enabled: boolean): void {
+    ork.setHybridAero(this.handle, enabled);
+  }
+
+  /** Experiment band, Mach units. Defaults to 0.8-1.2; requires finite 0 <= low < high. */
+  setHybridBand(low: number, high: number): void {
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low < 0 || high <= low) {
+      throw new RangeError('Hybrid band requires finite 0 <= low < high');
+    }
+    ork.setHybridBand(this.handle, low, high);
+  }
+
+  /** Complete force diagnostics. AoA is radians; angular rates are radians/second. */
+  forceSamples(machs: number[], aoa = 0, pitchRate = 0, yawRate = 0, rollRate = 0): AeroForceSample[] {
+    return JSON.parse(ork.getForceSamples(this.handle, machs, aoa, pitchRate, yawRate, rollRate)) as AeroForceSample[];
+  }
+
+  /** Direct CP/worst-CP and stall diagnostics, optionally from calculator.newInstance(). */
+  aeroDiagnostics(mach: number, aoa = 0, clone = false): AeroDiagnostics {
+    return JSON.parse(ork.getAeroDiagnostics(this.handle, mach, aoa, clone)) as AeroDiagnostics;
   }
 
   /**

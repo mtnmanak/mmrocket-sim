@@ -81,7 +81,7 @@ const oneStage = (nozzleExitDiameter: number): RocketTree => ({
   }],
 });
 
-type Model = 'classic' | 'kbf' | 'supersonic';
+type Model = 'classic' | 'kbf' | 'supersonic' | 'hybrid';
 
 interface Flown {
   time: number[];
@@ -98,6 +98,7 @@ function fly(tree: RocketTree, model: Model, options: Record<string, unknown> = 
   rocket.setMotorById(mountId, motor);
   if (model === 'kbf') rocket.setRogersModifiedBarrowman(true);
   if (model === 'supersonic') rocket.setSupersonicAero(true);
+  if (model === 'hybrid') rocket.setHybridAero(true);
   // 'full' is what carries the "P" (air pressure) series, and P is the whole point:
   // it is read out of the SAME DataStore, at the same RK4 sub-step, that produced
   // the thrust value beside it, so the identity below is exact rather than nearly.
@@ -120,7 +121,7 @@ const plateauRows = (f: Flown) =>
 describe('RASAero pressure thrust (kernel feature #5)', () => {
   it('adds exactly A_exit x (101325 - P(h)) to the curve, at every altitude in a burn', () => {
     const d = 0.02;
-    for (const model of ['kbf', 'supersonic'] as const) {
+    for (const model of ['kbf', 'supersonic', 'hybrid'] as const) {
       const f = fly(oneStage(d), model);
       const rows = plateauRows(f);
       expect(rows.length).toBeGreaterThan(30);
@@ -231,7 +232,7 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
 
     // Flag on, nozzle absent: the input gate, asserted separately from the model
     // gate so neither can cover for the other.
-    for (const model of ['kbf', 'supersonic'] as const) {
+    for (const model of ['kbf', 'supersonic', 'hybrid'] as const) {
       const bare = fly(oneStage(0), model, { launchAltitude: 2000 });
       for (const i of plateauRows(bare)) {
         expect(bare.thrust[i]).toBe(PLATEAU_N);
@@ -496,7 +497,7 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
       length: 0.1, thickness: 0.001, shape: 'conical' });
     // (d/2)^2 > n * (0.0155)^2: the drag cap must not become a thrust cap.
     expect((d / 2) ** 2).toBeGreaterThan(n * 0.0155 ** 2);
-    for (const model of ['kbf', 'supersonic'] as const) {
+    for (const model of ['kbf', 'supersonic', 'hybrid'] as const) {
       const f = fly(tree, model, { launchAltitude: 1400, temperature: 303.15, pressure: 86000 }, CONST_MOTOR, 'bmount');
       const rows = plateauRows(f);
       expect(rows.length).toBeGreaterThan(30);

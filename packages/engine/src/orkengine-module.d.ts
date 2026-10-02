@@ -35,6 +35,11 @@ declare module '*orkengine.mjs' {
   export function getDragSweep(rocket: number, optionsJson: string): string;
   export function setRogersModifiedBarrowman(rocket: number, enabled: boolean): void;
   export function setSupersonicAero(rocket: number, enabled: boolean): void;
+  export function setHybridAero(rocket: number, enabled: boolean): void;
+  export function setHybridBand(rocket: number, low: number, high: number): void;
+  export function getAeroDiagnostics(rocket: number, mach: number, aoa: number, clone: boolean): string;
+  export function getForceSamples(rocket: number, machs: number[], aoa: number,
+    pitchRate: number, yawRate: number, rollRate: number): string;
   export function setPerfectFinish(rocket: number, enabled: boolean): void;
   export function main(): void;
 }

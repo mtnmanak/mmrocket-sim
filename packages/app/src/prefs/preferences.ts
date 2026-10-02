@@ -36,7 +36,7 @@ export interface Preferences {
    * - 'auto': fly classic; if the flight is projected past Mach 0.9
    *   (transonic onset), re-fly the WHOLE flight on the supersonic model.
    */
-  aeroModel?: 'classic' | 'supersonic' | 'auto';
+  aeroModel?: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   /**
    * True once the user picks a theme themselves. Stored themes without this
    * flag were incidental snapshots of an old default and yield to the current

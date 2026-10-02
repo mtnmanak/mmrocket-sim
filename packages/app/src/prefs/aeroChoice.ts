@@ -10,13 +10,13 @@ import type { Preferences } from './preferences.js';
  */
 
 /**
- * The aero model as ONE four-way choice, which is how the UI has always shown
+ * The aero model as ONE five-way choice, which is how the UI has always shown
  * it: the two classic variants live in `aeroModel: 'classic'` and are told
  * apart only by `rogersKbf`, so `aeroMode` alone cannot see a switch between
  * Extended Barrowman and Rogers Kbf. Both the Preferences pulldown and the
  * vitals-strip switch speak this vocabulary, so they cannot drift.
  */
-export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic';
+export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic' | 'hybrid';
 
 /**
  * Labels for the vitals strip.
@@ -34,6 +34,7 @@ export const AERO_SHORT: Record<AeroChoice, string> = {
   eb: 'Classic Extended Barrowman',
   auto: 'Auto',
   supersonic: 'Supersonic',
+  hybrid: 'Hybrid (experimental)',
 };
 
 /** The stored preference as one choice. Folds in the pre-v0.026 boolean. */
@@ -45,7 +46,7 @@ export function aeroChoiceOf(prefs: Preferences): AeroChoice {
 
 /**
  * The stored-preference pair a choice stands for — THE one mapping from the
- * four-way choice to the two fields the kernel is driven by (audit
+ * five-way choice to the two fields the kernel is driven by (audit
  * 2026-09-22, row 499). Preferences writes it into the store, and
  * `effectiveAero` below flies an override through it, so the same choice made
  * from either control is the same physics. It used to be written out in both
@@ -56,7 +57,7 @@ export function aeroChoiceOf(prefs: Preferences): AeroChoice {
  * `aeroChoiceOf` is its inverse: aeroChoiceOf(prefsForAeroChoice(c)) === c.
  */
 export function prefsForAeroChoice(choice: AeroChoice): {
-  aeroModel: 'classic' | 'supersonic' | 'auto';
+  aeroModel: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   rogersKbf: boolean;
 } {
   return {
@@ -75,7 +76,7 @@ export function prefsForAeroChoice(choice: AeroChoice): {
  * from a single collapsed choice would silently flip such a store.
  */
 export function effectiveAero(prefs: Preferences, override: AeroChoice | null): {
-  aeroMode: 'classic' | 'supersonic' | 'auto';
+  aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   effectiveKbf: boolean;
 } {
   if (override) {
@@ -86,6 +87,6 @@ export function effectiveAero(prefs: Preferences, override: AeroChoice | null): 
   }
   return {
     aeroMode: prefs.aeroModel ?? (prefs.supersonicAero ? 'supersonic' : 'classic'),
-    effectiveKbf: prefs.rogersKbf ?? true,
+    effectiveKbf: prefs.aeroModel === 'hybrid' || (prefs.rogersKbf ?? true),
   };
 }

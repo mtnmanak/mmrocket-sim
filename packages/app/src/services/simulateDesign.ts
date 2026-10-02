@@ -338,6 +338,7 @@ function buildOrThrow(
     assigned: derived.assigned,
     effectiveKbf: aero.effectiveKbf,
     effectiveSupersonic: derived.effectiveSupersonic,
+    hybrid: aero.aeroMode === 'hybrid',
     measuredDryMassKg: state.measured.massKg,
     primaryMountId: derived.primaryMountId,
     currentSetKey: derived.currentSetKey,

@@ -24,7 +24,11 @@ import { lookupTable } from './xmlUtil.js';
  * design being written.
  */
 
-/** The ten summary values desktop OpenRocket stores in `<flightdata>`. */
+/**
+ * The ten summary values desktop OpenRocket stores in `<flightdata>`.
+ * No aero choice/provenance is serialized for any model, including Hybrid;
+ * model matching below is an export eligibility check, not a file extension.
+ */
 export function summaryOf(r: SimRun): OrkExportFlightData {
   return {
     maxAltitude: r.maxAltitude,
@@ -65,7 +69,7 @@ export interface FlightDataForExportInput {
    * of — the check would then silently refuse every run, which reads as "no
    * results to export" rather than as the bug it is.
    */
-  model: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean };
+  model: { aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid'; effectiveKbf: boolean; autoSupersonic: boolean };
   /** Whether ANY stage carries a nozzle exit diameter. */
   hasNozzle: boolean;
   /** Tree-only, so it also covers runs from inactive motor configurations. */

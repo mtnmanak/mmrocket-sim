@@ -40,6 +40,7 @@ function recordingHandle(summary: Partial<FlightResult['summary']> = {}, opts: {
   const handle: FlightHandle = {
     setMotorById: (id: string, spec: MotorSpec) => { calls.push(['motor', id, spec.ejectionDelay]); },
     setMotorIgnitionById: (id: string, event: IgnitionEvent, delay = 0) => { calls.push(['ignition', id, event, delay]); },
+    setHybridAero: () => {},
     setSupersonicAero: (on: boolean) => { calls.push(['supersonic', on]); },
     setRogersModifiedBarrowman: (on: boolean) => { calls.push(['kbf', on]); },
     simulate: (options) => {
@@ -83,6 +84,35 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+describe('Hybrid handle protocol', () => {
+  it('keeps Kbf on, disables inherited Supersonic, and never runs the Auto upgrade', async () => {
+    const { handle, calls } = recordingHandle({ maxMachNumber: 2 });
+    const hybrids: boolean[] = [];
+    handle.setHybridAero = (on) => { hybrids.push(on); };
+    let upgrades = 0;
+    const out = await flyLaunch(handle, { ...staged(false), aeroMode: 'hybrid', supersonic: true,
+      onSupersonicUpgrade: () => { upgrades++; } });
+    expect(hybrids).toEqual([true]);
+    expect(calls).toContainEqual(['kbf', true]);
+    expect(calls).toContainEqual(['supersonic', false]);
+    expect(calls.filter((c) => c[0] === 'simulate')).toHaveLength(1);
+    expect(out.usedSupersonic).toBe(false);
+    expect(upgrades).toBe(0);
+  });
+
+  it.each([false, true])('restores Hybrid after replay, including kernel failure=%s', (fail) => {
+    const { handle } = recordingHandle({}, { throwOnSimulate: fail });
+    const hybrids: boolean[] = [];
+    handle.setHybridAero = (on) => { hybrids.push(on); };
+    const replay = () => reflyRun(handle, { ...staged(false), delayS: 10,
+      fly: { hybrid: false, supersonic: true, kbf: true },
+      restore: { hybrid: true, supersonic: false, kbf: true } });
+    if (fail) expect(replay).toThrow('kernel threw');
+    else replay();
+    expect(hybrids).toEqual([false, true]);
+  });
+});
+
 describe('complete per-mount Launch protocol', () => {
   function setup() {
     const specs = new Map<string, MotorSpec>();
@@ -90,6 +120,7 @@ describe('complete per-mount Launch protocol', () => {
     let supersonic = false;
     const handle: FlightHandle = {
       setMotorById: (id, spec) => { specs.set(id, spec); }, setMotorIgnitionById: () => {},
+      setHybridAero: () => {},
       setSupersonicAero: (on) => { supersonic = on; }, setRogersModifiedBarrowman: () => {},
       simulate: (o) => {
         snapshots.push({ probe: !!o?.delayProbe, delays: [...specs.values()].map((s) => s.ejectionDelay), supersonic });

@@ -317,10 +317,11 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
   );
 }
 
-export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, fileMachAlt }: {
+export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, designName, fileMachAlt }: {
   rocket: OrkRocket;
   /** Whether the opt-in supersonic aero model is active. */
   supersonicModel?: boolean;
+  hybridModel?: boolean;
   /**
    * The FULL model label for the CSV metadata header. Passed in rather than
    * reassembled here: the panel is handed only the supersonic half, and read
@@ -685,7 +686,11 @@ export function DragPanel({ rocket, supersonicModel, aeroLabel, designName, file
               expanded={bigCharts.has('breakdown')} plotRef={bdPlot} onZoomChange={noteZoom('breakdown')} />
           </div>
 
-          {machTop > 1.5 && (supersonicModel ? (
+          {hybridModel && <p className="motor-db-meta">
+            Hybrid (experimental) uses Rogers Kbf below Mach 0.8, blends through Mach 1.2,
+            and uses Supersonic above it. Flight accuracy of this blend is not established.
+          </p>}
+          {machTop > 1.5 && !hybridModel && (supersonicModel ? (
             <p className="motor-db-meta" style={{ marginTop: 2 }}>
               Supersonic aero model active — CP and drag validated against NASA wind-tunnel
               data (ARCAS, Basic Finner) to ~Mach&nbsp;4.6 and physical to Mach&nbsp;25

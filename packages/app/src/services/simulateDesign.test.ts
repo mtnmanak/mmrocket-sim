@@ -338,3 +338,15 @@ describe('a used handle and a fresh one', () => {
     expect(used.flight.result.summary).toStrictEqual(fresh.flight.result.summary);
   }, 60000);
 });
+
+
+it('flies and stamps Hybrid through the transonic band without an Auto upgrade', async () => {
+  const s = await f67Auto();
+  const out = await simulateDesign(s, { aero: { ...CLASSIC, aeroMode: 'hybrid' } });
+  expect(out.result.summary.maxMachNumber).toBeGreaterThan(0.9);
+  expect(out.run.aeroModel).toBe('hybrid');
+  expect(out.run.rogersKbf).toBe(true);
+  expect(out.autoSupersonic).toBe(false);
+  expect(out.flight.usedSupersonic).toBe(false);
+  expect(out.provenance.aeroMode).toBe('hybrid');
+}, 30000);

@@ -10,6 +10,34 @@ git diff --no-index <openrocket-src>/<path> patches/<path>
 
 ## Active patches (all: TeaVM classlib gaps — not behavior changes)
 
+### aerodynamics/BarrowmanCalculator.java - experimental Hybrid (2026-10-02 sandbox)
+- **Why:** retain the Kbf force law below an experimental Mach band and the
+  Supersonic force law above it, without changing flags on cached calculators.
+- **Change:** `hybrid(low, high)` creates a Barrowman subclass with two permanent
+  endpoint calculators: Kbf `(true,false)` and Supersonic `(true,true)`. It returns
+  endpoint objects directly outside the band and smoothstep-blends complete forces
+  inside. CP uses blended CNalpha first moments in all three coordinates; zero
+  weight follows `AerodynamicForces`' `MathUtil.equals(0, weight)` convention.
+  Final Cm/Cyaw are already damped; reported damping is blended separately, never
+  subtracted twice. Each endpoint finishes its own drag/override scratch calculation.
+- **Integration:** preserves `newInstance`, stall margin, CP/worst-CP and force
+  analysis. The subtype and its Kbf flag retain RK4's pressure-thrust admission.
+  The bridge selects it for static info, drag sweeps and simulations, opt-in only;
+  defaults are Mach 0.8-1.2, with finite `0 <= low < high` bridge validation.
+  Existing endpoint code and default/Auto selection are unchanged.
+- **Evidence:** `packages/engine/src/hybridAero.test.ts` checks all 19 numeric
+  force/CP fields, exact endpoints, the smoothstep law, reverse crossings, bounded
+  0.005-Mach steps, preview/component sums and zero normal-force weight.
+  `pressureThrust.test.ts` exercises Hybrid with the same pressure-thrust formula
+  and staging/pod cases as the existing models. Review regressions use the bridge's
+  `getAeroDiagnostics` to exercise getCP/getWorstCP at Mach 0.3 inside a custom
+  band, asymmetric rounded freeform fins, newInstance band retention, and signed
+  stall margins. The diagnostic clone switch calls the actual newInstance method.
+  Sandbox build, golden comparison,
+  differential checks and mutation results are recorded in `CODEX-REPORT.md`.
+- **Limit:** the band and blend are an experiment, not a measured aerodynamic
+  improvement or permission to change the default. No endpoint equations changed.
+
 ### simulation/BasicEventSimulationEngine.java
 - **Why:** TeaVM 0.15's `java.util.Formatter` does not implement the `%g`
   conversion; the STAGE_SEPARATION handler logs `String.format("==>> @ %g; ...")`

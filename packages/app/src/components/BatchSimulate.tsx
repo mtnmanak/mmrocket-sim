@@ -917,6 +917,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                 <option value="kbf">Rogers Modified Barrowman</option>
                 <option value="eb">Classic Extended Barrowman</option>
                 <option value="supersonic">Supersonic — all speeds</option>
+                <option value="hybrid">Hybrid (experimental)</option>
               </select>
             </label>
             {mounts.length > 1 && (

@@ -1006,6 +1006,7 @@ export function App() {
   // byte-for-byte what it always was.
   const { aeroMode, effectiveKbf } = effectiveAero(prefs, aeroOverride);
   const effectiveSupersonic = effectiveSupersonicOf(aeroMode, autoSupersonic);
+  const effectiveHybrid = aeroMode === 'hybrid';
 
   // THE BUILD — services/buildDesign.ts, where the two orderings that decide
   // numbers (the ignition re-applied after the weighed-hardware write; the
@@ -1018,6 +1019,7 @@ export function App() {
     assigned,
     effectiveKbf,
     effectiveSupersonic,
+    hybrid: effectiveHybrid,
     measuredDryMassKg: measured.massKg,
     primaryMountId,
     currentSetKey,
@@ -1043,7 +1045,7 @@ export function App() {
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  [tree.components, assigned, effectiveKbf, effectiveSupersonic, measured.massKg, primaryMountId, currentSetKey]);
+  [tree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   // A fresh array every render whenever the build failed, which invalidated the
@@ -1809,7 +1811,7 @@ export function App() {
       // — in Auto the same effective model can be reached with the session's
       // upgrade flag either way, and a handle rebuilt since the flag flipped
       // would otherwise be silently one model behind.
-      const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf };
+      const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf, hybrid: effectiveHybrid };
       const res = reflyRun(built.rocket, {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
@@ -1824,7 +1826,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, cacheFlight, canShowCharts]);
+  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, cacheFlight, canShowCharts]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1847,7 +1849,7 @@ export function App() {
       || lastRun.aeroModel === 'auto-supersonic';
     const wasKbf = lastRun.rogersKbf ?? effectiveKbf;
     if (!runMatchesDesign(lastRun, { ...provenanceKey,
-      aeroMode: wasSupersonic ? 'supersonic' : 'classic', effectiveKbf: wasKbf, autoSupersonic: false })) {
+      aeroMode: lastRun.aeroModel === 'hybrid' ? 'hybrid' : wasSupersonic ? 'supersonic' : 'classic', effectiveKbf: wasKbf, autoSupersonic: false })) {
       throw new Error('This flight can no longer be reproduced — press Launch before downloading flight data.');
     }
     // Holds `built.rocket` across the paint below — no undo until it is done
@@ -1865,15 +1867,15 @@ export function App() {
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         simOptions: { ...kernelSimOptions(launch), series: 'full' },
-        fly: { supersonic: wasSupersonic, kbf: wasKbf },
+        fly: { supersonic: wasSupersonic, kbf: wasKbf, hybrid: lastRun.aeroModel === 'hybrid' },
         // Hand the shared handle back on the CURRENT model: the drag panel and
         // the component table read it too.
-        restore: { supersonic: effectiveSupersonic, kbf: effectiveKbf },
+        restore: { supersonic: effectiveSupersonic, kbf: effectiveKbf, hybrid: effectiveHybrid },
       });
     } finally {
       fullSeriesHolds.current -= 1;
     }
-  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, provenanceKey]);
+  }, [built, primaryMountId, lastRun, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, provenanceKey]);
 
   // ---- design file I/O (.ork native, .rkt RockSim) ----
   /**
@@ -3292,6 +3294,7 @@ export function App() {
                 <option value="eb">Classic Extended Barrowman</option>
                 <option value="auto">Auto</option>
                 <option value="supersonic">Supersonic</option>
+                <option value="hybrid">Hybrid (experimental)</option>
               </select>
               {effectiveSupersonic && aeroMode === 'auto' && (
                 // Auto has upgraded itself on this design — worth saying,
@@ -3483,7 +3486,7 @@ export function App() {
                 // handles go at the memo's next build.
                 const measure = (t: RocketTree) => {
                   const b = buildDesign(designBuildInputOf({
-                    tree: t, assigned, effectiveKbf, effectiveSupersonic,
+                    tree: t, assigned, effectiveKbf, effectiveSupersonic, hybrid: effectiveHybrid,
                     measuredDryMassKg: measured.massKg, primaryMountId, currentSetKey,
                   }), { reset: () => {}, build: KERNEL_HANDLES.build });
                   if ('error' in b) return null;
@@ -4215,7 +4218,7 @@ export function App() {
           )}
           {built && (
             <PanelBoundary what="The drag chart" resetKey={built}>
-              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic}
+              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic || aeroMode === 'hybrid'} hybridModel={aeroMode === 'hybrid'}
                 aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
                 designName={tree.name} fileMachAlt={fileMachAlt} />
             </PanelBoundary>

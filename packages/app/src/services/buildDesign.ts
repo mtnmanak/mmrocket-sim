@@ -61,6 +61,8 @@ export interface DesignBuildInput {
   kbf: boolean;
   /** RASAero-class supersonic aerodynamics — Auto's upgrade included. */
   supersonic: boolean;
+  /** Experimental memoryless Mach blend. */
+  hybrid?: boolean;
   /** The Measured mass & CG box's dry mass; it wins over the kernel's massEmpty. */
   measuredDryMassKg: number | null;
   /** `treeModel.primaryMountOf` over the assigned mounts. */
@@ -96,7 +98,8 @@ export function buildDesign<R extends BuildHandle>(
     // Opt-in Rogers Modified Barrowman (Kbf) — set before staticInfo() so the
     // reported CP/stability reflects it, and it persists onto this build's
     // handle for later simulate() calls.
-    rocket.setRogersModifiedBarrowman(kbf);
+    rocket.setRogersModifiedBarrowman(input.hybrid || kbf);
+    rocket.setHybridAero(input.hybrid ?? false);
     // Opt-in RASAero-class supersonic aerodynamics (feature #1) — CP/drag
     // move with Mach; affects staticInfo, dragSweep and simulate alike.
     rocket.setSupersonicAero(supersonic);
