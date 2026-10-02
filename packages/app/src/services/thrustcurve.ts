@@ -83,6 +83,19 @@ export class NoPublishedCurveError extends Error {
 }
 
 /**
+ * A bundle-only read (`fetchMotorSpec`'s `bundleOnly`, 2026-10-01) asked for a
+ * curve the shipped bundle cannot answer: one it does not hold, or an EX-library
+ * motor, which lives in one browser's storage. Thrown where the app's own path
+ * would go to the cache or the network instead.
+ */
+export class OfflineCurveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OfflineCurveError';
+  }
+}
+
+/**
  * Most bytes of a download.json body read. One motor's answer — its handful
  * of simulator files, samples and raw text both — is tens of kilobytes; the
  * origin is a pinned HTTPS service, so this is defence in depth against a
@@ -1024,7 +1037,21 @@ export async function fetchMotorSpec(
    * caller having to change.
    */
   signal?: AbortSignal,
+  /**
+   * `bundleOnly`: the curve the SHIPPED bundle holds, and nothing else — no
+   * read of this browser's curve cache (nor its once-per-load sweep of
+   * retired generations), no EX library, no network. A headless Launch reads
+   * motors this way (simulateFile's default), so its answer does not depend on
+   * which browser, with which history, ran it. Absent: the app's path, as it
+   * always was.
+   */
+  opts: { bundleOnly?: boolean } = {},
 ): Promise<RepairedMotorSpec> {
+  const bundleOnly = opts.bundleOnly === true;
+  if (bundleOnly && motor.motorId.startsWith('ex:')) {
+    throw new OfflineCurveError(`${motor.designation} is an imported EX-library motor, stored in one browser;`
+      + ' this run reads only the curves bundled with the app.');
+  }
   if (motor.motorId.startsWith('ex:')) {
     const { getExMotor } = await import('./exMotors.js');
     const ex = getExMotor(motor.motorId);
@@ -1059,32 +1086,35 @@ export async function fetchMotorSpec(
   let samples: TcSample[] | null = null;
   let fromFile: TcHeaderMasses | null = null;
 
-  try {
-    sweepDeadGenerations();
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const parsed = JSON.parse(cached) as unknown;
-      // Validate the shape — a corrupt entry parses fine but would break
-      // samplesToMotorSpec forever (the cache is never invalidated otherwise).
-      const entry = (parsed ?? {}) as { samples?: unknown; masses?: unknown };
-      const arr = entry.samples;
-      if (isSampleList(arr)) {
-        samples = arr;
-        // The masses get the SAME test headerMasses applies on the write path.
-        // Taken verbatim they bypassed the sanity checks in samplesToMotorSpec
-        // — those inspect the CATALOG pair, and a file pair overrides it — so
-        // an impossible cached pair silently changed apogee and the recovery
-        // numbers instead of throwing. null is not a made-up mass: it is
-        // headerMasses' own documented answer for a file it cannot read, and
-        // the caller then flies the catalog values, which ARE checked.
-        const m = entry.masses;
-        fromFile = isHeaderMasses(m) ? m : null;
-      } else {
-        localStorage.removeItem(cacheKey);
+  // A bundle-only read never touches this browser's cache (see `opts`).
+  if (!bundleOnly) {
+    try {
+      sweepDeadGenerations();
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as unknown;
+        // Validate the shape — a corrupt entry parses fine but would break
+        // samplesToMotorSpec forever (the cache is never invalidated otherwise).
+        const entry = (parsed ?? {}) as { samples?: unknown; masses?: unknown };
+        const arr = entry.samples;
+        if (isSampleList(arr)) {
+          samples = arr;
+          // The masses get the SAME test headerMasses applies on the write path.
+          // Taken verbatim they bypassed the sanity checks in samplesToMotorSpec
+          // — those inspect the CATALOG pair, and a file pair overrides it — so
+          // an impossible cached pair silently changed apogee and the recovery
+          // numbers instead of throwing. null is not a made-up mass: it is
+          // headerMasses' own documented answer for a file it cannot read, and
+          // the caller then flies the catalog values, which ARE checked.
+          const m = entry.masses;
+          fromFile = isHeaderMasses(m) ? m : null;
+        } else {
+          localStorage.removeItem(cacheKey);
+        }
       }
+    } catch {
+      // storage unavailable (private mode etc.) — just fetch
     }
-  } catch {
-    // storage unavailable (private mode etc.) — just fetch
   }
 
   // The shipped bundle comes BEFORE the network: it holds every file
@@ -1107,6 +1137,13 @@ export async function fetchMotorSpec(
       samples = file.samples;
       fromFile = headerMasses(file);
     }
+  }
+
+  if (!samples && bundleOnly) {
+    throw new OfflineCurveError(bundleFailed
+      ? 'The thrust curves bundled with the app did not load, and this run does not use the network.'
+      : `The thrust curve for ${motor.designation} is not among the curves bundled with the app,`
+        + ' and this run does not use the network.');
   }
 
   if (!samples) {
@@ -1207,4 +1244,12 @@ export async function fetchMotorSpec(
   // curve that flies, not on `samples` (audit 2026-09-30; see impulseNote).
   const note = impulseNote(motor, spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })));
   return note ? { ...spec, curveRepairs: [...(spec.curveRepairs ?? []), note] } : spec;
+}
+
+/**
+ * `fetchMotorSpec` reading the shipped bundle only — motorMatch's `fetchSpec`
+ * injection point takes it as it stands (simulateFile's `network: 'forbid'`).
+ */
+export function bundledOnlyFetchSpec(motor: TcMotor, ejectionDelay: number): Promise<RepairedMotorSpec> {
+  return fetchMotorSpec(motor, ejectionDelay, undefined, { bundleOnly: true });
 }

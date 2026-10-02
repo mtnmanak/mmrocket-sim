@@ -61,12 +61,22 @@ export const ORK_PRESET_KEYS = {
 
 let bundled: Preset[] | null = null;
 
-export async function loadPresets(): Promise<Preset[]> {
+/**
+ * The SHIPPED parts catalogue alone — no custom presets from this browser. A
+ * headless open (services/simulateFile.ts) reads this, so an opened design's
+ * catalogue links do not depend on which browser ran it (2026-10-01).
+ */
+export async function loadBundledPresets(): Promise<readonly Preset[]> {
   if (!bundled) {
     const mod = await import('../data/presets.json');
     bundled = (mod.default as { presets: Preset[] }).presets;
   }
-  return [...bundled, ...loadCustomPresets()];
+  return bundled;
+}
+
+/** The shipped catalogue, then this browser's custom presets — what the app's Open… links against. */
+export async function loadPresets(): Promise<Preset[]> {
+  return [...await loadBundledPresets(), ...loadCustomPresets()];
 }
 
 const CUSTOM_KEY = 'online-openrocket.custom-presets.v1';

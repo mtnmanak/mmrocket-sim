@@ -606,3 +606,59 @@ describe('cached masses are validated before they override the catalog', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * THE SHIPPED BUNDLE AND NOTHING ELSE (2026-10-01): what a headless Launch
+ * flies a motor on (simulateFile's default, `network: 'forbid'`). The app's
+ * own path reads this browser's curve cache BEFORE the bundle and downloads
+ * what the bundle lacks, so its answer depends on that browser's history; a
+ * bundle-only read must not — no cache read, no sweep of the cache's retired
+ * generations (it changes nothing it reads), no EX library, no network.
+ */
+describe('fetchMotorSpec, bundle only', () => {
+  /** A motor of the shipped catalogue, which the shipped bundle answers. */
+  async function bundled(): Promise<TcMotor> {
+    const { findDbMotor } = await import('./motorDb.js');
+    return findDbMotor('C6', 18, undefined, 'Estes')!;
+  }
+
+  it('refuses a motor the bundle lacks with a named error, and never calls fetch', async () => {
+    const tc = await freshModule();
+    const spy = stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+    const err = await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { bundleOnly: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(tc.OfflineCurveError);
+    expect((err as Error).message).toBe('The thrust curve for C6 is not among the curves bundled with the app,'
+      + ' and this run does not use the network.');
+    expect(spy).not.toHaveBeenCalled();
+    expect(await tc.bundledOnlyFetchSpec(QUEST_C6, 5).catch((e: unknown) => e)).toBeInstanceOf(tc.OfflineCurveError);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('flies the bundle’s curve over a cached one, and leaves the cache as it found it', async () => {
+    const tc = await freshModule();
+    const motor = await bundled();
+    const plain = await tc.fetchMotorSpec(motor, 5, undefined, { bundleOnly: true });
+    // A valid cached entry for the same motor, 10 % hotter: the app's path flies it.
+    const hot = plain.times.map((time, i) => ({ time, thrust: plain.thrusts[i]! * 1.1 }));
+    const key = `tc:samples:v7:${motor.motorId}`;
+    localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, t: 1 }));
+    localStorage.setItem('tc:samples:v6:retired', '{}');
+    const viaCache = await tc.fetchMotorSpec(motor, 5);
+    expect(Math.max(...viaCache.thrusts)).toBeGreaterThan(Math.max(...plain.thrusts) * 1.05);
+
+    const tc2 = await freshModule(); // a page load that has not swept yet
+    localStorage.setItem('tc:samples:v6:retired', '{}');
+    const bundleOnly = await tc2.fetchMotorSpec(motor, 5, undefined, { bundleOnly: true });
+    expect(bundleOnly).toStrictEqual(plain);
+    expect(localStorage.getItem(key)).not.toBeNull();
+    expect(localStorage.getItem('tc:samples:v6:retired')).toBe('{}');
+  });
+
+  it('refuses an EX-library motor: it lives in one browser, not in the app', async () => {
+    const tc = await freshModule();
+    const ex = { ...QUEST_C6, motorId: 'ex:abc' };
+    const err = await tc.fetchMotorSpec(ex, 5, undefined, { bundleOnly: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(tc.OfflineCurveError);
+    expect((err as Error).message).toContain('EX');
+  });
+});

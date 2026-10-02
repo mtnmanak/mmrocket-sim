@@ -108,6 +108,9 @@ describe('the launch conditions load no React', () => {
     ['buildDesign', () => import('./buildDesign.js')],
     ['flightRunner', () => import('./flightRunner.js')],
     ['simulateDesign', () => import('./simulateDesign.js')],
+    ['designFile', () => import('./designFile.js')],
+    ['simulateFile', () => import('./simulateFile.js')],
+    ['presets', () => import('./presets.js')],
   ])('%s', async (_, load) => {
     await load();
     expect(loaded).toEqual([]);

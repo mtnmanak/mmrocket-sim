@@ -245,10 +245,16 @@ export type SimulateFailureKind =
 
 export class SimulateDesignError extends Error {
   readonly kind: SimulateFailureKind;
-  constructor(kind: SimulateFailureKind, message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  /** A file's import note, when the refusal came after the open (simulateFile): often the reason. */
+  readonly importNote?: { text: string; severity: 'info' | 'warn' | 'error' };
+  constructor(
+    kind: SimulateFailureKind, message: string,
+    options?: { cause?: unknown; importNote?: SimulateDesignError['importNote'] },
+  ) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'SimulateDesignError';
     this.kind = kind;
+    if (options?.importNote) this.importNote = options.importNote;
   }
 }
 

@@ -86,13 +86,13 @@ import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type Ork
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
-import { exportRkt, importRkt, rktComponentInfo } from './services/rocksimFile.js';
+import { exportRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
-import { cdx1RodAimNote, exportCdx1, importCdx1 } from './services/rasaeroFile.js';
+import { cdx1RodAimNote, exportCdx1 } from './services/rasaeroFile.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -142,6 +142,7 @@ import { stageMotors } from './services/nozzleFollow.js';
 import type { DesignSnapshot } from './services/dirtyState.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
+import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
@@ -173,13 +174,6 @@ import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
 import type { MountMotor, SavedConfig } from './model/design.js';
 
 import './styles.css';
-
-/** Rocket names that mean "the user never named it" (desktop default is "Rocket"). */
-const GENERIC_ROCKET_NAMES = new Set([
-  'rocket', 'new rocket', 'imported rocket', 'my rocket',
-  // Importer fallbacks for files with no <Name> — the filename beats these.
-  'imported rocksim rocket', 'imported rasaero rocket',
-]);
 
 // Public feedback tracker — ONE tracker for the site and all tools
 // (adjudicated 2026-08-11).
@@ -2327,59 +2321,29 @@ export function App() {
     if (had) setFileNote('Every motor unloaded — the rocket is shown and weighed clean.');
   };
 
-  // Desktop OpenRocket's default rocket name is literally "Rocket" (users
-  // name the file instead) — fall back to the filename in that case. A
-  // helper because the config picker re-parses (fresh node ids), and the
-  // fallback must re-run on whichever parse is actually applied.
-  const applyNameFallback = (imported: ImportedDesign, fileName: string) => {
-    if (!imported.tree.name
-        || GENERIC_ROCKET_NAMES.has(imported.tree.name.trim().toLowerCase())) {
-      const fromFile = fileName.replace(/\.(ork|rkt|cdx1)$/i, '').replace(/_+/g, ' ').trim();
-      if (fromFile) {
-        imported.tree.name = fromFile;
-        imported.name = fromFile;
-      }
-    }
-  };
-
-  // Mirrors shareLink.ts's MAX_FRAGMENT_CHARS: refuse absurd input at the door
-  // rather than discovering it during a decompress.
-  const MAX_DESIGN_FILE_BYTES = 64 * 1024 * 1024;
-
   const onOpenOrk = async (file: File) => {
     // Claim the open BEFORE the first await — the parse and the motor fetches
     // that follow can take seconds, and a second Open in the meantime has to
     // win however the network orders them. See openSeq.
     const openId = openSeq.begin();
     try {
-      // Cheap pre-check before the bytes are read, let alone inflated. A .ork is
-      // a zip and gets traded in the beta thread and by email; zipMember.ts then
-      // walks its directory with bounds and inflates only the one member it
-      // reads, capped, but every byte of the file is in memory before it can
-      // look. The largest real design on hand is 4.46 MB, so 64 MiB refuses a
-      // hostile file without ever refusing a genuine one.
-      if (file.size > MAX_DESIGN_FILE_BYTES) {
-        setFileNote(`${file.name} is ${(file.size / (1024 * 1024)).toFixed(0)} MB — that is not `
-          + 'a rocket design. Nothing was opened.', 'error');
+      // Cheap pre-check before the bytes are read, let alone inflated — the
+      // file door (services/designFile.ts), which the headless open uses too.
+      const tooBig = designFileTooLarge(file.size, file.name);
+      if (tooBig) {
+        setFileNote(tooBig, 'error');
         return;
       }
       const buffer = await file.arrayBuffer();
       // The parts catalogue rides along so a part the file names by
       // manufacturer + part number (.rkt <PartMfg>/<PartNo>, .ork <preset>) is
       // linked to its row and takes the catalogue's values for whatever the
-      // file left unset - a RockSim chute's "auto" Cd, above all.
+      // file left unset - a RockSim chute's "auto" Cd, above all. The importer
+      // the extension names reads it (the user's distance unit to the .rkt
+      // reader, whose note quotes each configuration's deployment altitude),
+      // and a generically-named design takes its file's name.
       const presets = await loadPresets();
-      if (/\.(rkt|cdx1)$/i.test(file.name)) {
-        // The user's distance unit too: the reader holds no unit preference,
-        // and its note quotes each configuration's deployment altitude.
-        const imported = /\.rkt$/i.test(file.name)
-          ? importRkt(buffer, { presets, distanceUnit: prefs.units.distance }) : importCdx1(buffer);
-        applyNameFallback(imported, file.name);
-        await applyImported(imported, openId);
-        return;
-      }
-      const imported = importOrk(buffer, { presets });
-      applyNameFallback(imported, file.name);
+      const imported = openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
       // was the FIRST thing a new user saw, and it listed configurations by
@@ -2392,19 +2356,14 @@ export function App() {
     } catch (e) {
       // A superseded open must not shout about a design nobody is waiting for.
       if (!openSeq.isCurrent(openId)) return;
-      // Name the format the user actually picked. This handler takes .ork, .rkt
-      // and .CDX1, and hard-coding ".ork" made a precise importer message read
-      // as nonsense — "Could not open that .ork file: This is an older BINARY
-      // RockSim file…".
-      const ext = /\.(rkt|cdx1|ork)$/i.exec(file.name);
-      const kind = ext ? `.${ext[1]!.toLowerCase().replace('cdx1', 'CDX1')}` : '';
+      // Named for the format the user actually picked (designFile.ts says why);
+      // the headless open words a refused file with the same sentence.
       // 'error', not the default 'info'. The design on screen did not change,
       // so this note is the ONLY feedback the click produced — and an info
       // notice never opens the collapsed bar, which is exactly the shape of
       // "I clicked it and nothing happened". Every other export/import failure
       // in this file already passes an explicit severity.
-      setFileNote(`Could not open that${kind ? ` ${kind}` : ''} file: `
-        + `${e instanceof Error ? e.message : String(e)}`, 'error');
+      setFileNote(designFileOpenFailure(file.name, e), 'error');
     }
   };
 
