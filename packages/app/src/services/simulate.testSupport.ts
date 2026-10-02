@@ -17,3 +17,21 @@ export function comparable(run: FreshSimRun) {
     ...(rest.delayResolution ? { delayResolution: { ...rest.delayResolution, elapsedMs: 0 } } : {}),
   };
 }
+
+/**
+ * `comparable`, less the fields that carry a node id: the design and motor-set
+ * keys and each delay row's mount id. Ids are minted per parse (treeModel's
+ * freshId, a module-level counter), so two parses of the same bytes number the
+ * same parts differently — this is how a run from `simulateFile` (its own
+ * parse) is compared with one from another parse of the same file. Every other
+ * field must still match exactly. (Moved here from simulateFile.test.ts,
+ * 2026-10-01, when the agreement test began calling simulateFile too.)
+ */
+export function idFree(run: FreshSimRun) {
+  const { designKey: _d, motorSetKey: _m, delayResolution, ...rest } = comparable(run);
+  return {
+    ...rest,
+    delayResolution: delayResolution
+      && { ...delayResolution, mounts: delayResolution.mounts.map(({ mountId: _id, ...m }) => m) },
+  };
+}

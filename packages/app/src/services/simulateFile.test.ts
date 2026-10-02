@@ -8,12 +8,13 @@ import { APP_VERSION } from '../version.js';
 import { applyDesignNameFallback, designFileOpenFailure, MAX_DESIGN_FILE_BYTES, parseDesignFile } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
+import { matchImportedMotor } from './motorMatch.js';
 import { importOrk, type OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, loadPresets, type Preset } from './presets.js';
-import { comparable } from './simulate.testSupport.js';
+import { comparable, idFree } from './simulate.testSupport.js';
 import { SimulateDesignError } from './simulateDesign.js';
 import { simulateFile, simulateImported } from './simulateFile.js';
-import { bundleHasCurve } from './thrustcurve.js';
+import { bundledOnlyFetchSpec, bundleHasCurve } from './thrustcurve.js';
 
 /**
  * THE HEADLESS OPEN (2026-10-01): a design file's bytes, flown as the app opens
@@ -61,12 +62,6 @@ const buffer = (name: string): ArrayBuffer => {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 };
 
-/** The run's fields that do not carry a node id (ids are minted per parse — treeModel's freshId). */
-const idFree = (run: Parameters<typeof comparable>[0]) => {
-  const { designKey: _d, motorSetKey: _m, delayResolution, ...rest } = comparable(run);
-  return { ...rest, delayResolution: delayResolution && { ...delayResolution, mounts: delayResolution.mounts.map(({ mountId: _id, ...m }) => m) } };
-};
-
 describe('simulateFile flies a design file offline, on the shipped data', () => {
   it.each(['reference.ork', 'rocksimTestRocket1.rkt', 'Show-off.CDX1'])('%s, without the network', async (name) => {
     const out = await simulateFile(bytes(name), name);
@@ -80,6 +75,33 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
     const a = await simulateFile(buffer('reference.ork'), 'reference.ork');
     expect(a.run.motor).toBe('C6');
   }, 30000);
+
+  /**
+   * A VIEW IS ITS OWN BYTES. A Node Buffer from the pool, or any `subarray`, is
+   * a window onto a larger ArrayBuffer; reading `data.buffer` whole would hand
+   * the importer the bytes on either side of the file as well.
+   *
+   * A .ork (zip), not a .rkt: the XML reader shrugs off a few stray bytes
+   * around the document, so a .rkt flies the same either way and could not
+   * tell the two reads apart (re-check of verify-step1 finding 8). A zip is
+   * recognised by its first two bytes, so the buffer's leading filler makes the
+   * wrong read fail outright — and the importer's own argument is checked too.
+   */
+  it('reads a Uint8Array view as the bytes it views, not the buffer behind it', async () => {
+    const b = bytes('reference.ork');
+    const big = new Uint8Array(b.length + 8).fill(0x55);
+    big.set(b, 4);
+    const view = big.subarray(4, 4 + b.length);
+    expect(view.byteOffset).toBe(4);
+    const viaView = await simulateFile(view, 'reference.ork');
+    // The importer was handed exactly the viewed bytes: the file, from its zip signature on.
+    const handed = vi.mocked(importOrk).mock.calls[0]![0] as ArrayBuffer;
+    expect(handed.byteLength).toBe(b.length);
+    expect(new Uint8Array(handed)).toStrictEqual(b);
+    const whole = await simulateFile(b, 'reference.ork');
+    expect(idFree(viaView.run)).toStrictEqual(idFree(whole.run));
+    expect(viaView.result.summary).toStrictEqual(whole.result.summary);
+  }, 60000);
 
   it('names a generically-named design after its file, as Open… does', async () => {
     const out = await simulateFile(bytes('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1');
@@ -141,23 +163,76 @@ describe('simulateFile reads the shipped data only', () => {
   }, 60000);
 
   it('reports a catalogue motor the bundle has no curve for as unloaded — and makes no request', async () => {
-    let missing: (typeof MOTOR_DB)[number] | undefined;
-    for (const m of MOTOR_DB) {
-      if ((await bundleHasCurve(m.motorId)) === false) { missing = m; break; }
-    }
-    expect(missing, 'a catalogue motor with no bundled curve').toBeDefined();
-    const tree = defaultTree();
-    const mount = motorMounts(tree)[0]!.id!;
-    const ref = {
-      designation: missing!.designation, manufacturer: missing!.manufacturerAbbrev, diameter: missing!.diameter / 1000,
-      length: missing!.length / 1000, delay: 0,
-    } as OrkMotorRef;
-    const imported = { name: 'R', tree, motors: { [mount]: ref }, notes: [] } as unknown as ImportedDesign;
+    const { imported, designation } = await unbundledMotorDesign();
     const err = await simulateImported(imported).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SimulateDesignError);
     expect((err as SimulateDesignError).kind).toBe('no-motor');
-    expect((err as SimulateDesignError).importNote?.text).toContain(`Motor “${missing!.designation}”`);
+    expect((err as SimulateDesignError).importNote?.text).toContain(`Motor “${designation}”`);
     expect(fetchSpy).not.toHaveBeenCalled();
+  }, 60000);
+});
+
+/** The first catalogue motor the shipped bundle has no curve for, as a one-motor design on the starter rocket. */
+async function unbundledMotorDesign(): Promise<{ imported: ImportedDesign; designation: string }> {
+  let missing: (typeof MOTOR_DB)[number] | undefined;
+  for (const m of MOTOR_DB) {
+    if ((await bundleHasCurve(m.motorId)) === false) { missing = m; break; }
+  }
+  expect(missing, 'a catalogue motor with no bundled curve').toBeDefined();
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const ref = {
+    designation: missing!.designation, manufacturer: missing!.manufacturerAbbrev, diameter: missing!.diameter / 1000,
+    length: missing!.length / 1000, delay: 0,
+  } as OrkMotorRef;
+  return {
+    imported: { name: 'R', tree, motors: { [mount]: ref }, notes: [] } as unknown as ImportedDesign,
+    designation: missing!.designation,
+  };
+}
+
+/**
+ * A CANCEL REACHES THE OPEN (verify-step1 finding 7, 2026-10-01). The signal
+ * was checked once before the parse and never again, so every motor the file
+ * names was still resolved — and, with `network: 'allow'`, downloaded — after
+ * the caller had given up. And a cancel is reported as the caller's abort,
+ * never as a SimulateDesignError: a caller that reads `kind: 'flight'` as "the
+ * simulation failed" would misreport it.
+ */
+describe('simulateFile stops when the caller cancels', () => {
+  it('matches no further motor reference after a cancel, and rejects with the abort', async () => {
+    // Precondition: Show-off names more than one motor, so a second match would follow.
+    const counted = vi.fn((ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: bundledOnlyFetchSpec }));
+    await simulateFile(bytes('Show-off.CDX1'), 'Show-off.CDX1', { match: counted });
+    expect(counted.mock.calls.length).toBeGreaterThan(1);
+
+    const ac = new AbortController();
+    const match = vi.fn((ref: OrkMotorRef) => {
+      ac.abort('stop');
+      return matchImportedMotor(ref, { fetchSpec: bundledOnlyFetchSpec });
+    });
+    const err = await simulateFile(bytes('Show-off.CDX1'), 'Show-off.CDX1', { match, signal: ac.signal })
+      .catch((e: unknown) => e);
+    expect(match).toHaveBeenCalledTimes(1);
+    expect(err).not.toBeInstanceOf(SimulateDesignError);
+    expect(err).toMatchObject({ name: 'AbortError', message: 'stop' });
+  }, 60000);
+
+  it("hands the caller's signal to a download when the network is allowed", async () => {
+    const { imported } = await unbundledMotorDesign();
+    const ac = new AbortController();
+    let linked: boolean | null = null;
+    fetchSpy.mockImplementation(async (...args: unknown[]) => {
+      const init = args[1] as RequestInit | undefined;
+      ac.abort('stop');
+      // The request's own signal follows the caller's at once, or not at all.
+      linked = init?.signal?.aborted ?? false;
+      throw new TypeError('offline (test)');
+    });
+    const err = await simulateImported(imported, { network: 'allow', signal: ac.signal }).catch((e: unknown) => e);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(linked).toBe(true);
+    expect(err).toMatchObject({ name: 'AbortError', message: 'stop' });
   }, 60000);
 });
 

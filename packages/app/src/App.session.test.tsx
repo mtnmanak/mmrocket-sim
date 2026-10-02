@@ -84,6 +84,31 @@ describe('per-mount maximum motor length', () => {
     await settle(600);
     expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBeNull();
   }, 30000);
+
+  /**
+   * THE OLDEST FORM: a session from before any rocket-level limit, whose only
+   * maximum motor length is the motor browser's pre-v0.005 filter. App reads
+   * that filter from localStorage and hands it to the restore
+   * (sessionRestore.designStateFromSession's `legacyMaxMotorLengthM`); the
+   * restore is pinned on its own (sessionRestore.test.ts), and this pins App's
+   * wiring of it (verify-step1 finding 10, 2026-10-01).
+   */
+  it('a session older than per-stage limits takes the motor browser’s old filter as its mounts’ limit', async () => {
+    const tree = sanitizeTree({ name: 'Filter fixture', components: [{
+      type: 'stage', id: 's', name: 'Stage', children: [{
+        type: 'bodytube', id: 'core', name: 'Core', length: 0.60, outerRadius: 0.03,
+        thickness: 0.001, motorMount: true,
+      }],
+    }] });
+    localStorage.setItem('online-openrocket.motor-filters.v1', JSON.stringify({ maxLength: 0.1 }));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, savedConfigs: [], activeConfigId: null,
+      measured: { massKg: null, cgM: null }, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    await mountApp();
+    await settle(600);
+    expect(motorLengthLimit(findNode(storedSession()!.tree, 'core'))).toBe(0.1);
+  }, 30000);
 });
 
 // The real writer, passed through; one test makes a single save throw.

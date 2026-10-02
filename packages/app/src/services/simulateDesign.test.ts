@@ -8,13 +8,16 @@ import { addChild, addStage, defaultTree, motorMounts } from '../tree/treeModel.
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import {
-  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, provenanceKeyOf, type AeroState, type DesignState,
+  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, legacyPadMassStepOf, provenanceKeyOf, type AeroState,
+  type DesignState,
 } from './designDerivation.js';
 import { catalogueMotorMass, LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { loadCatalogueMotor } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { comparable } from './simulate.testSupport.js';
+import { padMassTextFor } from './unitText.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import {
   APP_DEFAULT_AERO, flyBuiltDesign, simulateDesign, SimulateDesignError, withKernel,
 } from './simulateDesign.js';
@@ -146,6 +149,10 @@ describe('simulateDesign settles a legacy pad mass as App does before any Launch
 
     const out = await simulateDesign(legacy, { aero: CLASSIC });
     expect(out.build.hardware.state).not.toBe('ok');
+    // The reason the apogee moved, in the notice App shows for it (verify-step1 finding 6).
+    const step = legacyPadMassStepOf({ state: legacy, derived: d, hardware: 'error' in raw ? null : raw.hardware, text: padMassTextFor(INITIAL_UNITS) });
+    expect(step?.kind).toBe('drop');
+    expect(out.padMassNote).toStrictEqual(step!.note);
     expect('padMassKg' in out.state.mountMotors[booster]!).toBe(false);
     expect('padMassWeighedWith' in out.state.mountMotors[booster]!).toBe(false);
     expect(Object.values(out.state.unmatchedRefs ?? {}).some((r) => 'padMassKg' in r)).toBe(false);
@@ -164,9 +171,13 @@ describe('simulateDesign settles a legacy pad mass as App does before any Launch
     const key = deriveLaunchInputs(legacy, CLASSIC).currentSetKey;
     expect(out.state.mountMotors[mount]).toMatchObject({ padMassKg: kg, padMassWeighedWith: key });
     expect(out.build.hardware.state).toBe('ok');
+    expect(out.padMassNote).toMatchObject({ severity: 'info' });
+    expect(out.padMassNote!.text).toContain('now belongs to the motor it was weighed with');
     const rekeyed = { ...legacy, mountMotors: { [mount]: { ...legacy.mountMotors[mount]!, padMassWeighedWith: key } } };
     const direct = await simulateDesign(rekeyed, { aero: CLASSIC });
     expect(comparable(out.run)).toStrictEqual(comparable(direct.run));
+    // Nothing to settle, nothing to say.
+    expect(direct.padMassNote).toBeNull();
   }, 60000);
 });
 
@@ -207,6 +218,30 @@ describe('simulateDesign says why it did not fly, in the app’s words', () => {
     const err = await simulateDesign(state(pod, { [mount]: m, 'pod-mmt': refused })).catch((e: unknown) => e);
     expect(err).toMatchObject({ kind: 'flight' });
     expect((err as Error).message).toMatch(/^Auto delay did not settle for Pod MMT/);
+  }, 30000);
+});
+
+/**
+ * A CANCEL IS THE CALLER'S ABORT, WHEREVER IT LANDS (verify-step1 finding 7).
+ * Refused while queued, `withKernel` rejects with the abort; cancelled after
+ * the build, the flight's own check threw it and the catch wrapped it as a
+ * `'flight'` failure — two shapes for one event, and a caller reading
+ * `kind: 'flight'` as "the simulation failed" misreports a cancel.
+ */
+describe('a cancel', () => {
+  it('after the build is reported as the abort, exactly as a cancel before the queue is — never as a failed flight', async () => {
+    const s = await starter();
+    const mid = new AbortController();
+    // Cancelled between the build and the flight: the factory aborts as it hands the handle over.
+    const handles = { reset: KERNEL_HANDLES.reset, build: (t: RocketTree) => { const h = KERNEL_HANDLES.build(t); mid.abort('stop'); return h; } };
+    const during = await simulateDesign(s, { handles, signal: mid.signal }).catch((e: unknown) => e);
+    const early = new AbortController();
+    early.abort('stop');
+    const before = await simulateDesign(s, { signal: early.signal }).catch((e: unknown) => e);
+    expect(before).toMatchObject({ name: 'AbortError', message: 'stop' });
+    expect(during).not.toBeInstanceOf(SimulateDesignError);
+    expect(during).toMatchObject({ name: 'AbortError', message: 'stop' });
+    expect((during as object).constructor).toBe((before as object).constructor);
   }, 30000);
 });
 

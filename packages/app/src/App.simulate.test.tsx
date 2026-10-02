@@ -14,10 +14,11 @@ import { catalogueMotorMass, LEGACY_PAD_MASS_KEY } from './services/hardwareMass
 import { importMark, type ImportedDesign } from './services/importApply.js';
 import { DEFAULT_CONDITIONS } from './services/launchConditions.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
+import type { HeldNote } from './services/notices.js';
 import type { OrkMotorRef } from './services/orkFile.js';
 import { peekSession } from './services/session.js';
 import { designStateFromSession } from './services/sessionRestore.js';
-import { comparable } from './services/simulate.testSupport.js';
+import { comparable, idFree } from './services/simulate.testSupport.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
 import { unzipMember } from './services/zipMember.js';
@@ -50,8 +51,22 @@ import { APP_VERSION } from './version.js';
  * the last bits between Node 22 and 24); the flight's summary and events; the
  * delay flown and the model; the full provenance key App stamped; the state
  * flown (tree, assigned motors, conditions, configurations, unmatched
- * references); the build's statics and weighed hardware; Auto's upgrade; and
- * for a file, the saved mark App took over its own plan — the plan-level proof.
+ * references); the build's statics and weighed hardware; Auto's upgrade; the
+ * legacy pad-mass settle's notice; and for a file, the saved mark App took
+ * over its own plan — the plan-level proof — and the import note App shows.
+ *
+ * AND THE BYTES DOOR ITSELF. A file case also runs `simulateFile` on the same
+ * bytes — its own parse, with the shipped presets and the default unit words —
+ * and holds it to the button on every field that carries no node id
+ * (simulate.testSupport's idFree: a second parse numbers the parts afresh).
+ * So "the button and simulateFile agree" is proven on every committed file and
+ * every corpus file, not only through simulateImported (verify-step1 finding 3).
+ *
+ * AERO WIRING. A case on Supersonic, one with Rogers Kbf off, and Auto's
+ * SECOND Launch (after the upgrade) each make App's aero arguments to
+ * flyBuiltDesign matter: with only Classic and a first Auto Launch, App could
+ * hard-code `effectiveSupersonic: false` or `effectiveKbf: true` and still
+ * agree (verify-step1 finding 1).
  *
  * WHAT IT CANNOT SEE. A mistake inside the shared functions (flyBuiltDesign,
  * designDerivation, sessionRestore) moves both sides together: their own tests
@@ -101,6 +116,21 @@ vi.mock('./services/rasaeroFile.js', async (importOriginal) => {
       const r = real.importCdx1(...a);
       parsed = structuredClone(r);
       return r;
+    },
+  };
+});
+
+// The notes App holds when it builds its notice list: the file's import note
+// and the legacy pad-mass settle's — read from what App hands the list, not
+// from the collapsed bar's first line.
+let notes: { fileNote: HeldNote | null; padMassNote: HeldNote | null } = { fileNote: null, padMassNote: null };
+vi.mock('./services/notices.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/notices.js')>();
+  return {
+    ...real,
+    designNotices: (...a: Parameters<typeof real.designNotices>) => {
+      notes = { fileNote: a[0].fileNote, padMassNote: a[0].padMassNote };
+      return real.designNotices(...a);
     },
   };
 });
@@ -185,9 +215,13 @@ async function pick(host: HTMLElement, file: File): Promise<void> {
 
 const CLASSIC: AeroState = { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false };
 const AUTO: AeroState = { aeroMode: 'auto', effectiveKbf: true, autoSupersonic: false };
+const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false };
+/** Extended Barrowman: the classic model with Rogers Kbf off. */
+const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
 
 beforeEach(() => {
   parsed = null;
+  notes = { fileNote: null, padMassNote: null };
   vi.mocked(flyBuiltDesign).mockClear();
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
@@ -199,10 +233,13 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-/** Stores the preferences App mounts with: the tour off, and the aero model when it is not the default. */
+/** Stores the preferences App mounts with: the tour off, and the aero model and Kbf when not the defaults. */
 function prefs(aero: AeroState): void {
-  localStorage.setItem('online-openrocket.prefs.v1',
-    JSON.stringify({ tourOff: true, ...(aero.aeroMode === 'auto' ? { aeroModel: 'auto' } : {}) }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+    tourOff: true,
+    ...(aero.aeroMode !== 'classic' ? { aeroModel: aero.aeroMode } : {}),
+    ...(aero.effectiveKbf ? {} : { rogersKbf: false }),
+  }));
 }
 
 /** What App's Launch flew and what it handed the shared path, read before App is unmounted. */
@@ -216,17 +253,32 @@ interface AppSide {
   /** The saved mark App took at the open (file cases). */
   savedMark: string | undefined;
   notice: string;
+  /** The file note App held before the Launch: after an open, the import note. */
+  fileNote: HeldNote | null;
+  /** The legacy pad-mass settle's notice App held before the Launch, if any. */
+  padMassNote: HeldNote | null;
 }
 
-/** Press Launch on the mounted app and keep everything the comparison needs, then unmount. */
-async function launchInApp(host: HTMLElement): Promise<AppSide> {
-  await launch(host);
-  await waitFor(() => runs() === 1, 'the flight to be saved');
-  await settle(50);
-  // The button went through the shared path, once.
-  expect(vi.mocked(flyBuiltDesign)).toHaveBeenCalledTimes(1);
-  const out = await (vi.mocked(flyBuiltDesign).mock.results[0]!.value as ReturnType<typeof flyBuiltDesign>);
-  const args = vi.mocked(flyBuiltDesign).mock.calls[0]![0];
+/**
+ * Press Launch `presses` times on the mounted app and keep everything the
+ * comparison needs about the LAST one, then unmount. A second press flies what
+ * App holds after the first: on Auto, the upgraded model.
+ */
+async function launchInApp(host: HTMLElement, presses = 1): Promise<AppSide> {
+  const held = notes;
+  for (let n = 1; n <= presses; n++) {
+    await launch(host);
+    await waitFor(() => runs() === n, `flight ${n} to be saved`);
+    await settle(50);
+  }
+  // The button went through the shared path, once a press.
+  expect(vi.mocked(flyBuiltDesign)).toHaveBeenCalledTimes(presses);
+  const out = await (vi.mocked(flyBuiltDesign).mock.results[presses - 1]!.value as ReturnType<typeof flyBuiltDesign>);
+  const args = vi.mocked(flyBuiltDesign).mock.calls[presses - 1]![0];
+  // Flush the debounced autosave first (pagehide is what flushes it on a real
+  // close): every change the flight made restarts the debounce, so without
+  // this the stored copy can predate the reconcile's own writes.
+  window.dispatchEvent(new Event('pagehide'));
   const stored = peekSession();
   const side: AppSide = {
     out, args,
@@ -234,6 +286,8 @@ async function launchInApp(host: HTMLElement): Promise<AppSide> {
     unmatchedRefs: stored?.unmatchedRefs ?? {},
     savedMark: stored?.savedMark,
     notice: document.querySelector('.notice-bar')?.textContent ?? '',
+    fileNote: held.fileNote,
+    padMassNote: held.padMassNote,
   };
   await unmountAll();
   return side;
@@ -245,6 +299,28 @@ async function launchInApp(host: HTMLElement): Promise<AppSide> {
  * drop out, which is the only difference a JSON round trip makes here.
  */
 const plain = (x: unknown): unknown => JSON.parse(JSON.stringify(x, (_k, v: unknown) => (v === Infinity ? 'Infinity' : v)));
+
+/**
+ * Every node id in `tree`, named by its place in a depth-first walk. Two
+ * parses of one file mint different ids for the same parts (treeModel's
+ * freshId) but agree on these, so a flight's events — which name the mount
+ * and the part by id — compare across parses once both are renumbered.
+ */
+function positions(tree: RocketTree): Map<string, string> {
+  const out = new Map<string, string>();
+  let n = 0;
+  const walk = (nodes: readonly ComponentNode[]) => {
+    for (const node of nodes) {
+      if (node.id) out.set(node.id, `#${n}`);
+      n++;
+      walk(node.children ?? []);
+    }
+  };
+  walk(tree.components);
+  return out;
+}
+const renumbered = (x: unknown, ids: Map<string, string>): unknown =>
+  JSON.parse(JSON.stringify(x, (_k, v: unknown) => (typeof v === 'string' && ids.has(v) ? ids.get(v) : v)));
 
 /**
  * The headless Launch against App's: every comparable field, exactly. `stored`:
@@ -271,10 +347,16 @@ function expectSameLaunch(app: AppSide, out: SimulateDesignResult, aero: AeroSta
   expect(out.build.info).toStrictEqual(app.args.built.info);
   expect(out.build.hardware).toStrictEqual(app.args.built.hardware);
   expect(out.appVersion).toBe(APP_VERSION);
+  // The settle's notice: what App's reconcile effect put on screen, or nothing on both.
+  expect(out.padMassNote).toStrictEqual(app.padMassNote);
 }
 
-/** A session case: seed, fly in App, fly the SEED headless (as App's restore reads it). */
-async function sessionCase(seed: object | null, aero: AeroState) {
+/**
+ * A session case: seed, fly in App, fly the SEED headless (as App's restore
+ * reads it). `presses`: Launches in App, the last compared; `headless`: the
+ * aero state the headless run is handed for it (App's after the earlier ones).
+ */
+async function sessionCase(seed: object | null, aero: AeroState, opts: { presses?: number; headless?: AeroState } = {}) {
   prefs(aero);
   if (seed) localStorage.setItem(SESSION_KEY, JSON.stringify({ appVersion: APP_VERSION, savedAt: Date.now(), ...seed }));
   // Read before App mounts: the state App's initializers restore, BEFORE its
@@ -286,9 +368,10 @@ async function sessionCase(seed: object | null, aero: AeroState) {
   // A first visit's design exists only once the starter motor has landed:
   // read it from the autosave, through the same restore.
   const input: DesignState = seeded ?? designStateFromSession(peekSession(), { legacyMaxMotorLengthM: null }).state;
-  const app = await launchInApp(host);
-  const out = await simulateDesign(input, { aero });
-  expectSameLaunch(app, out, aero, !seeded);
+  const app = await launchInApp(host, opts.presses);
+  const headless = opts.headless ?? aero;
+  const out = await simulateDesign(input, { aero: headless });
+  expectSameLaunch(app, out, headless, !seeded);
   return { app, out, input };
 }
 
@@ -313,7 +396,31 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
   const out = await simulateImported(imported, { aero });
   // The plan-level proof: the fingerprint App took over its OWN plan.
   expect(importMark(out.plan)).toBe(app.savedMark);
+  // The note App showed for the open (spec risk 10, verify-step1 finding 5).
+  // Spec risk 10 limits this to files whose motors all resolve from the
+  // shipped bundle; on every case here a motor either does (both sides load
+  // it) or is in no catalogue at all (F7's sustainer: neither side can load
+  // it), so App's note and the headless note are the same words. A file whose
+  // motor App downloads and the bundle lacks would not belong in this list.
+  expect(out.importNote).toStrictEqual(app.fileNote);
   expectSameLaunch(app, out, aero);
+  // The bytes door: its own parse, its own presets, its own unit words.
+  const viaBytes = await simulateFile(bytes, name, { aero });
+  expect(idFree(viaBytes.run)).toStrictEqual(idFree(app.out.run));
+  expect(viaBytes.result.summary).toStrictEqual(app.out.flight.result.summary);
+  expect(renumbered(viaBytes.result.events, positions(viaBytes.state.tree)))
+    .toStrictEqual(renumbered(app.out.flight.result.events, positions(app.args.tree)));
+  // A position, not an id: the delay table's mounts and the primary as well.
+  expect(renumbered(viaBytes.run.delayResolution?.mounts.map((m) => m.mountId), positions(viaBytes.state.tree)))
+    .toStrictEqual(renumbered(app.out.run.delayResolution?.mounts.map((m) => m.mountId), positions(app.args.tree)));
+  expect(viaBytes.flight.flownDelayS).toBe(app.out.flight.flownDelayS);
+  expect(viaBytes.flight.usedSupersonic).toBe(app.out.flight.usedSupersonic);
+  const mine = positions(viaBytes.state.tree);
+  const apps = positions(app.args.tree);
+  expect(renumbered(viaBytes.build.info, mine)).toStrictEqual(renumbered(app.args.built.info, apps));
+  expect(renumbered(viaBytes.build.hardware, mine)).toStrictEqual(renumbered(app.args.built.hardware, apps));
+  expect(viaBytes.importNote).toStrictEqual(app.fileNote);
+  expect(viaBytes.padMassNote).toStrictEqual(app.padMassNote);
   return { app, out };
 }
 
@@ -360,15 +467,22 @@ describe('the Launch button and simulateDesign fly a stored design the same', ()
         length: 0.07, outerRadius: 0.0095, thickness: 0.0003 } as ComponentNode],
     } as ComponentNode);
     const m = await c6();
+    // The reference carries the file's own pad mass as well: the drop strips it
+    // there too (padMassReconcile.legacyPadMassWrite's `refs`), and App's
+    // write of that is a line of its own in the reconcile effect
+    // (verify-step1 finding 4) — compared through `unmatchedRefs`.
     const { app, input, out } = await sessionCase({
       tree, launch: DEFAULT_CONDITIONS, measured: { massKg: 0.1, cgM: null },
       mountMotors: { 'boo-mmt': { ...m, padMassKg: weighed(tree, 'boo-mmt', m), padMassWeighedWith: LEGACY_PAD_MASS_KEY } },
-      unmatchedRefs: { [sustainer]: { designation: 'K550', manufacturer: 'AeroTech', diameter: 0.054, length: 0.4, delay: 10 } },
+      unmatchedRefs: { [sustainer]: { designation: 'K550', manufacturer: 'AeroTech', diameter: 0.054, length: 0.4, delay: 10, padMassKg: 1.2 } },
     }, CLASSIC);
     // The headless side was handed the value UNSETTLED — else the settle is not tested.
     expect(input.mountMotors['boo-mmt']!.padMassWeighedWith).toBe(LEGACY_PAD_MASS_KEY);
+    expect(input.unmatchedRefs![sustainer]!.padMassKg).toBe(1.2);
     expect(app.notice).toContain('could not be placed');
+    expect(out.padMassNote?.text).toContain('could not be placed');
     expect('padMassKg' in out.state.mountMotors['boo-mmt']!).toBe(false);
+    expect('padMassKg' in app.unmatchedRefs[sustainer]!).toBe(false);
   }, 60000);
 
   it('C3′: a legacy pad mass that checks out — re-keyed to the set now loaded', async () => {
@@ -425,6 +539,53 @@ describe('the Launch button and simulateDesign fly a stored design the same', ()
     expect(out.run.aeroModel).toBe('auto-supersonic');
     expect(out.run.delayResolution?.probes).toBeGreaterThan(0);
   }, 60000);
+
+  it('C5′: Auto’s SECOND Launch — flown on the supersonic statics the first one switched on', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const f67 = (await loadCatalogueMotor('AeroTech', 'F67', 6))!;
+    const { app, out } = await sessionCase({ tree, launch: DEFAULT_CONDITIONS, mountMotors: { [mount]: f67 } }, AUTO,
+      { presses: 2, headless: { ...AUTO, autoSupersonic: true } });
+    // App flew the second press on the upgraded model — else this is C5 again.
+    expect(app.args.derived.effectiveSupersonic).toBe(true);
+    expect(out.run.aeroModel).toBe('auto-supersonic');
+  }, 90000);
+
+  it('C6: the Supersonic model', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const f67 = (await loadCatalogueMotor('AeroTech', 'F67', 6))!;
+    const { app, out } = await sessionCase({ tree, launch: DEFAULT_CONDITIONS, mountMotors: { [mount]: f67 } }, SUPERSONIC);
+    expect(app.args.derived.effectiveSupersonic).toBe(true);
+    expect(out.run.aeroModel).toBe('supersonic');
+  }, 60000);
+
+  /**
+   * C7: THE PRIMARY IS NOT THE FIRST MOTOR PICKED (verify-step1 finding 2). A
+   * two-stage design whose booster motor is first in record order: the report
+   * names the sustainer's motor. Both sides read the primary inside
+   * flyBuiltDesign, so the agreement alone cannot see a slip there — the
+   * explicit motor names can.
+   */
+  it('C7: a two-stage design whose booster motor was picked first — the sustainer’s motor is the report’s', async () => {
+    const base = defaultTree();
+    const sustainer = motorMounts(base)[0]!.id!;
+    const { tree: staged, newId } = addStage(base);
+    const tree = addChild(staged, newId, {
+      type: 'bodytube', id: 'boo-bt', name: 'Booster tube', length: 0.1, outerRadius: 0.0124, thickness: 0.0003,
+      children: [{ type: 'innertube', id: 'boo-mmt', name: 'Booster MMT', motorMount: true,
+        length: 0.07, outerRadius: 0.0095, thickness: 0.0003 } as ComponentNode],
+    } as ComponentNode);
+    const b6 = (await loadCatalogueMotor('Estes', 'B6', 0))!;
+    const c6m = await c6();
+    const { app, out } = await sessionCase({
+      tree, launch: DEFAULT_CONDITIONS, mountMotors: { 'boo-mmt': b6, [sustainer]: c6m },
+    }, CLASSIC);
+    expect(app.args.derived.assigned.map(([id]) => id)).toEqual(['boo-mmt', sustainer]);
+    expect(app.out.run.motor).toBe(c6m.spec.designation);
+    expect(out.run.motor).toBe(c6m.spec.designation);
+    expect(out.run.boosterMotors).toEqual([b6.label]);
+  }, 60000);
 });
 
 /** reference.ork's XML (unzipped: the .ork reader takes plain XML too) with `extra` as the rocket's first children. */
@@ -467,6 +628,12 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
     expect(out.run.motor).toBe('J90W');
   }, 60000);
 
+  it('F11: a .ork flown with Rogers Kbf off (Extended Barrowman) — stamped as flown', async () => {
+    const { app, out } = await fileCase(fixture('reference.ork'), 'reference.ork', KBF_OFF);
+    expect(app.out.run.rogersKbf).toBe(false);
+    expect(out.run.rogersKbf).toBe(false);
+  }, 60000);
+
   it('F6: a supersonic .CDX1 on Auto aero — upgraded mid-flight', async () => {
     const { app, out } = await fileCase(fixture('Wildman_Mach 2 this one.CDX1'), 'Wildman_Mach 2 this one.CDX1', AUTO);
     expect(app.upgraded).toBe(true);
@@ -506,9 +673,11 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
   }, 60000);
 
   it('F9: a .ork with a legacy pad mass lighter than the rocket — dropped', async () => {
-    const { out } = await fileCase(referenceWithLegacyPadMass(0.001), 'reference.ork', CLASSIC);
+    const { app, out } = await fileCase(referenceWithLegacyPadMass(0.001), 'reference.ork', CLASSIC);
     const [record] = Object.values(out.state.mountMotors);
     expect('padMassKg' in record!).toBe(false);
+    expect(out.padMassNote?.text).toContain('was not kept');
+    expect(app.padMassNote).toStrictEqual(out.padMassNote);
     expect(out.build.hardware.state).not.toBe('ok');
   }, 60000);
 });

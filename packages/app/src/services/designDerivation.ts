@@ -130,7 +130,17 @@ export function mountNamesOf(mounts: readonly ComponentNode[]): Record<string, s
 /**
  * The build's input, assembled ONCE — App's build memo and the rail-button
  * placement's measuring build (onAdd) both pass through here, and so does the
- * headless build, so the three cannot hand the kernel different designs.
+ * headless build, so the three cannot name the kernel's fields differently.
+ *
+ * What it does NOT do (stated, verify-step1 finding 11): each caller still
+ * PICKS the values it passes. App's memo and onAdd's measuring build pick them
+ * from the same render's locals — one closure, the same names — and the
+ * headless build from `deriveLaunchInputs`. The agreement test holds the memo's
+ * build to the headless one (App.simulate.test.tsx compares `build.info` and
+ * `build.hardware`); onAdd's pick is held to the memo's only by that shared
+ * closure, as it was by the inline literal at 78d3015. App keeps no `derived`
+ * object to hand over whole, so taking objects here would move the picking
+ * into App rather than remove it.
  */
 export function designBuildInputOf(a: {
   tree: RocketTree;

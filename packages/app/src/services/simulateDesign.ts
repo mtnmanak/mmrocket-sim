@@ -14,6 +14,7 @@ import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js'
 import { flyLaunch, type LaunchFlight } from './flightRunner.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { applyLegacyPadMassStep } from './padMassReconcile.js';
+import type { HeldNote } from './notices.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
 import { padMassTextFor } from './unitText.js';
 
@@ -43,7 +44,14 @@ import { padMassTextFor } from './unitText.js';
  * same physics PER INPUTS, and on a user's machine some inputs live in that
  * browser — the thrustcurve.org curve cache, a catalogue overlay from "Check
  * thrustcurve.org", custom presets and the EX motor library. `simulateFile`
- * (simulateFile.ts) reads the shipped catalogue, curves and presets only.
+ * (simulateFile.ts) reads the shipped curves and presets only. The CATALOGUE
+ * its motors are matched against is the one exception: it is motorDb's live
+ * catalogue (`getCatalogue()`, the default of every lookup the importers and
+ * the matcher make), so in a JS realm where App has run `restoreCatalogueOverlay`
+ * — a page, not a Node script — it carries that browser's overlay rows too.
+ * Under plain Node no overlay is ever installed, and the shipped rows are all
+ * there is. Threading a shipped-only catalogue through the importers is not
+ * done here (verify-step1 finding 9, 2026-10-01): it is stated instead.
  *
  * A HANDLE THAT HAS SERVED THE DESIGN PAGE IS NOT A DIFFERENT HANDLE. App flies
  * a handle the drag sweep, component table and static analysis have already
@@ -203,7 +211,7 @@ export interface SimulateDesignOptions {
   signal?: AbortSignal;
   /** The clock the flight's cost is read from (`performance.now` when absent). */
   now?: () => number;
-  /** Unit words for a note only (never a number): default INITIAL_UNITS. */
+  /** Unit words for a note only (never a number) — the result's `padMassNote`: default INITIAL_UNITS. */
   units?: UnitSelection;
 }
 
@@ -228,6 +236,13 @@ export interface SimulateDesignResult {
   provenance: DesignMatchKey;
   /** The build that flew it (APP_VERSION): every answer says which. */
   appVersion: string;
+  /**
+   * What the legacy pad-mass settle did and why — the notice App shows for it
+   * (padMassReconcile's own sentence) — or null when there was nothing to
+   * settle. A dropped value moves the apogee, and this is the only place a
+   * headless caller is told why (verify-step1 finding 6, 2026-10-01).
+   */
+  padMassNote: HeldNote | null;
 }
 
 /** Why a headless Launch did not fly, by kind, with the app's own words. */
@@ -279,7 +294,7 @@ export function withKernel<T>(fn: () => Promise<T> | T, signal?: AbortSignal): P
   if (signal?.aborted) return Promise.reject(abortReason(signal));
   let started = false;
   const run = tail.then(() => {
-    signal?.throwIfAborted();
+    refuseIfAborted(signal);
     started = true;
     return fn();
   });
@@ -290,6 +305,17 @@ export function withKernel<T>(fn: () => Promise<T> | T, signal?: AbortSignal): P
     signal.addEventListener('abort', onAbort, { once: true });
     run.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort); });
   });
+}
+
+/**
+ * A cancel, thrown the ONE way every step of a headless run reports it: the
+ * caller's abort reason when it is an Error, else an AbortError naming it.
+ * `signal.throwIfAborted()` throws a string reason raw, and the flight's own
+ * check does exactly that — so a cancel landing mid-flight and one landing in
+ * the queue came back as two different things (verify-step1 finding 7).
+ */
+export function refuseIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortReason(signal);
 }
 
 /** The caller's abort reason when it is an Error (what `throwIfAborted` throws), else an AbortError naming it. */
@@ -366,6 +392,9 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
       ...(opts.now ? { now: opts.now } : {}),
     });
   } catch (e) {
+    // A cancel is the caller's, not a failed flight: the flight's own abort
+    // check threw it, and it is reported as withKernel reports a queued one.
+    refuseIfAborted(opts.signal);
     throw new SimulateDesignError('flight', e instanceof Error ? e.message : String(e), { cause: e });
   }
   const { result, ...flight } = flown.flight;
@@ -378,5 +407,6 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
     state,
     provenance,
     appVersion: APP_VERSION,
+    padMassNote: step?.note ?? null,
   };
 }

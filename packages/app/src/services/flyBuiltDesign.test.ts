@@ -7,7 +7,7 @@ import type {
 } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import {
-  addChild, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, motorMounts, mountMotorCount,
+  addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, motorMounts, mountMotorCount,
 } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES, type BuiltDesign } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
@@ -443,6 +443,33 @@ describe('flyBuiltDesign flies what 78d3015’s onLaunch flew, number for number
     expect(upgraded).toBe(true);
     expect(out.run.aeroModel).toBe('auto-supersonic');
     expect(out.run.delayResolution?.probes).toBeGreaterThan(0);
+  }, 30000);
+
+  /**
+   * THE PRIMARY IS NOT WHICHEVER MOTOR WAS PICKED FIRST (verify-step1 finding
+   * 2). `assigned` is in record order — the order the motors were picked — and
+   * the sustainer is the primary wherever it sits in it. Every other case here
+   * has the primary first, so "the first assigned record" would pass them all
+   * while the report named the booster's motor over the sustainer's flight.
+   */
+  it('a two-stage design whose booster motor was picked first: the report names the sustainer’s', async () => {
+    const base = defaultTree();
+    const sustainer = motorMounts(base)[0]!.id!;
+    const { tree: staged, newId } = addStage(base);
+    const tree = addChild(staged, newId, {
+      type: 'bodytube', id: 'boo-bt', name: 'Booster tube', length: 0.1, outerRadius: 0.0124, thickness: 0.0003,
+      children: [{ type: 'innertube', id: 'boo-mmt', name: 'Booster MMT', motorMount: true,
+        length: 0.07, outerRadius: 0.0095, thickness: 0.0003 } as ComponentNode],
+    } as ComponentNode);
+    const b6 = (await loadCatalogueMotor('Estes', 'B6', 0))!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const state = blank(tree, { 'boo-mmt': b6, [sustainer]: c6 });
+    const d = deriveLaunchInputs(state, CLASSIC);
+    expect(d.assigned.map(([id]) => id)).toEqual(['boo-mmt', sustainer]); // the primary is NOT first
+    expect(d.primaryMountId).toBe(sustainer);
+    const { out } = await bothWays(state, CLASSIC);
+    expect(out.run.motor).toBe(c6.spec.designation);
+    expect(out.run.boosterMotors).toEqual([b6.label]);
   }, 30000);
 
   it('a two-configuration .ork: the active configuration is named on the run', async () => {

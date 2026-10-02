@@ -7,9 +7,9 @@ import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, type Preset } from './presets.js';
 import {
-  simulateDesign, SimulateDesignError, type SimulateDesignOptions, type SimulateDesignResult,
+  refuseIfAborted, simulateDesign, SimulateDesignError, type SimulateDesignOptions, type SimulateDesignResult,
 } from './simulateDesign.js';
-import { bundledOnlyFetchSpec } from './thrustcurve.js';
+import { bundledOnlyFetchSpec, fetchMotorSpec } from './thrustcurve.js';
 import { statedWeightTextFor } from './unitText.js';
 
 /**
@@ -32,6 +32,16 @@ import { statedWeightTextFor } from './unitText.js';
  * and the bundled curves only (`network: 'forbid'`), so its answer does not
  * depend on which browser ran it; a motor the bundle cannot fly is reported
  * unloaded in the import note, as the app reports one it cannot download.
+ * ONE EXCEPTION, stated: motors are MATCHED against motorDb's live catalogue,
+ * which in a page where App has run carries this browser's "Check
+ * thrustcurve.org" overlay (simulateDesign.ts's header says why it is not
+ * threaded out). Under plain Node there is no overlay.
+ *
+ * A CANCEL (`signal`) is checked before the parse and before every motor
+ * reference is matched, is refused by the kernel lock after the last, and is
+ * handed to any download `network: 'allow'` makes; it rejects with the
+ * caller's abort, never with a SimulateDesignError
+ * (simulateDesign.refuseIfAborted).
  */
 
 export interface SimulateFileOptions extends SimulateDesignOptions {
@@ -62,7 +72,7 @@ export async function simulateFile(
 ): Promise<SimulateFileResult> {
   const tooBig = designFileTooLarge(data.byteLength, fileName);
   if (tooBig) throw new SimulateDesignError('file', tooBig);
-  opts.signal?.throwIfAborted();
+  refuseIfAborted(opts.signal);
   const buffer = data instanceof Uint8Array
     ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     : data;
@@ -84,11 +94,21 @@ export async function simulateFile(
 export async function simulateImported(
   imported: ImportedDesign, opts: SimulateFileOptions = {},
 ): Promise<SimulateFileResult> {
+  const { signal } = opts;
+  // 'allow' is the app's own curve path with the caller's signal on the
+  // download (fetchMotorSpec's third argument); nothing else about it changes.
   const match = opts.match ?? (opts.network === 'allow'
-    ? (ref: OrkMotorRef) => matchImportedMotor(ref)
+    ? (ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: (m, d) => fetchMotorSpec(m, d, signal) })
     : (ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: bundledOnlyFetchSpec }));
-  // The awaits of an open: every motor the file names, resolved.
-  const resolved = await resolveImportMotors(imported, match);
+  // The awaits of an open: every motor the file names, resolved — none after a
+  // cancel. A download the cancel cut short is reported by the matcher as an
+  // unloaded motor; the kernel lock (simulateDesign's withKernel) then refuses
+  // the aborted caller before anything is built, so it still ends as the
+  // cancel it was, not as a design with a motor missing.
+  const resolved = await resolveImportMotors(imported, (ref) => {
+    refuseIfAborted(signal);
+    return match(ref);
+  });
   // What goes on screen, decided as App decides it: the file's conditions
   // merged onto the panel's, the configuration to open, the import note.
   const plan = planImport(imported, resolved, {
