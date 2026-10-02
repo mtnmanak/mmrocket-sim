@@ -1,5 +1,5 @@
 {
-  "version": "0.151",
+  "version": "0.152",
   "released": "2026-10-02",
-  "note": "The release notes now have a page of their own on the web, https://mmrsim.mountainmanrockets.com/releases/: every numbered release, newest first, in the same words as the What's new list behind the version badge, with a link per release (…/releases/#v0.151). The app does not keep the page for offline use, so it is not part of what the app downloads. Apart from the version number and the notes, nothing changes."
+  "note": "An OpenRocket file whose launch site looks like a longitude typed with the wrong sign now gets a question and a one-click fix, never a silent change. The AeroTech N1975W-PS now has a nozzle exit (2.737 in), so a design flying it can fly different numbers. The user guide names the hosting's two analytics requests."
 }
