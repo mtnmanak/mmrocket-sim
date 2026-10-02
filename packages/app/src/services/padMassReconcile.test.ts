@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import type { HardwareMassResult } from './hardwareMass.js';
+import type { OrkMotorRef } from './orkFile.js';
 import {
-  reconcileLegacyPadMass, restoredPadMassNote, type LegacyPadMassInput, type PadMassText,
+  applyLegacyPadMassStep, dropPadMass, legacyPadMassWrite, reconcileLegacyPadMass, restoredPadMassNote,
+  type LegacyPadMassInput, type LegacyPadMassStep, type PadMassText,
 } from './padMassReconcile.js';
 
 /**
@@ -192,5 +194,53 @@ describe('reconcileLegacyPadMass — after the first build', () => {
       .toBeNull();
     expect(reconcileLegacyPadMass(input({ motors: { 'm-sus': motor('H220-14') } }))).toBeNull();
     expect(reconcileLegacyPadMass(input({ motors: {} }))).toBeNull();
+  });
+});
+
+/**
+ * WHAT A STEP WRITES (2026-10-01): one rule for App's reconcile effect, which
+ * hands these updaters to its setters, and the headless settle
+ * (simulateDesign), which applies them to plain values. A 'drop' is the pad-mass
+ * field's own clear (App's setPadMass(id, null)): both keys, and any pad mass
+ * the file left on an unmatched reference.
+ */
+describe('the writes a legacy step makes', () => {
+  const note = { severity: 'info' as const, text: 'x' };
+  const legacy = motor('H220-14', { kg: 2.2, key: 'legacy' });
+  const refs: Record<string, OrkMotorRef> = { 'm-boo': { designation: 'J350', padMassKg: 3 } as OrkMotorRef };
+
+  it('dropPadMass deletes BOTH keys, and leaves a record with none, or no record, by identity', () => {
+    const prev = { 'm-sus': legacy };
+    const next = dropPadMass('m-sus')(prev);
+    expect(next['m-sus']).toEqual(motor('H220-14'));
+    expect('padMassKg' in next['m-sus']!).toBe(false);
+    expect('padMassWeighedWith' in next['m-sus']!).toBe(false);
+    const bare = { 'm-sus': motor('H220-14') };
+    expect(dropPadMass('m-sus')(bare)).toBe(bare);
+    expect(dropPadMass('gone')(prev)).toBe(prev);
+  });
+
+  it("a 'drop' clears the record and strips the references' pad mass", () => {
+    const step: LegacyPadMassStep = { kind: 'drop', mountId: 'm-sus', note };
+    const out = applyLegacyPadMassStep({ mountMotors: { 'm-sus': legacy }, unmatchedRefs: refs }, step);
+    expect(out.mountMotors['m-sus']).toEqual(motor('H220-14'));
+    expect(out.unmatchedRefs).toEqual({ 'm-boo': { designation: 'J350' } });
+    expect(legacyPadMassWrite(step).refs).toBeDefined();
+  });
+
+  it("a 'rekey' keeps the value under the set now loaded, and writes no reference", () => {
+    const step: LegacyPadMassStep = { kind: 'rekey', mountId: 'm-sus', key: 'AeroTech/H220', note };
+    const out = applyLegacyPadMassStep({ mountMotors: { 'm-sus': legacy }, unmatchedRefs: refs }, step);
+    expect(out.mountMotors['m-sus']).toEqual(motor('H220-14', { kg: 2.2, key: 'AeroTech/H220' }));
+    expect(out.unmatchedRefs).toBe(refs);
+    expect(legacyPadMassWrite(step).refs).toBeUndefined();
+  });
+
+  it('the updaters compose with a write made in the same flush', () => {
+    // App's setters run them over the LATEST state: a motor landed on another
+    // mount in the same flush is kept.
+    const step: LegacyPadMassStep = { kind: 'rekey', mountId: 'm-sus', key: 'k', note };
+    const landed = { 'm-sus': legacy, 'm-boo': motor('J350-P') };
+    expect(legacyPadMassWrite(step).motors(landed)['m-boo']).toBe(landed['m-boo']);
   });
 });

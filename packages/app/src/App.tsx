@@ -19,7 +19,7 @@ import { FlyScreen } from './components/FlyScreen.js';
 import { ComponentTree } from './components/ComponentTree.js';
 import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
-import { DEFAULT_CONDITIONS, kernelSimOptions, hasLaunchGuides, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
+import { kernelSimOptions, hasLaunchGuides, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
@@ -64,7 +64,7 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
-import { loadCatalogueMotor, stripDelay } from './services/motorMatch.js';
+import { loadCatalogueMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
@@ -99,9 +99,8 @@ import {
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
-  currentModelLabel, designMatchKeyOf, formatRunWhenProse, formatStability, listAnd,
+  currentModelLabel, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
-  requiresPhysicsRevision, physicsRevisionsFor,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -112,9 +111,9 @@ import {
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
-  addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, defaultTree, duplicateNode, findNode,
+  addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   findParent, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, normalizeTree, padMassOntoRankedPrimary, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { num, numOrNull } from './tree/nodeNum.js';
@@ -122,7 +121,7 @@ import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
 import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
-import { legacyStageLimits, migrateMotorLengths, motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
+import { motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
 import { MotorLengthField } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -131,11 +130,17 @@ import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
 import {
-  reconcileLegacyPadMass, restoredPadMassNote, type PadMassText,
+  dropPadMass, legacyPadMassWrite, restoredPadMassNote, type PadMassText,
 } from './services/padMassReconcile.js';
+import { baseLabel, massTextFor, padMassTextFor, statedWeightTextFor } from './services/unitText.js';
+import {
+  assignedMotorsOf, currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, filePrimaryOf, hardwareDeltaKgOf,
+  launchPrimaryOf, legacyPadMassStepOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
+} from './services/designDerivation.js';
 import { nozzleExportNotes } from './services/nozzleExport.js';
 import { stageMotors } from './services/nozzleFollow.js';
 import type { DesignSnapshot } from './services/dirtyState.js';
+import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
@@ -144,7 +149,7 @@ import {
   catalogueMotorMass, flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity,
 } from './services/hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, stripPadMass,
   stripRefPadMass, syncActiveConfig, withoutStoredRef,
 } from './services/configSync.js';
 import {
@@ -244,16 +249,6 @@ function legacyMaxMotorLength(): number | null {
 const afterPaint = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
-/**
- * A motor label with its delay suffix stripped ("H220-14" / "H220-P" /
- * "H220 (auto delay)" → "H220"). The pad-mass field and the batch note name
- * the motor by this: the weighing belongs to the motor, not to its delay grain.
- * The rule is motorMatch's stripDelay, the one copy.
- */
-function baseLabel(label: string): string {
-  return stripDelay(label);
-}
-
 export function App() {
   const {
     prefs, setPrefs, resolvedTheme, daylight,
@@ -301,19 +296,16 @@ export function App() {
     const v = session?.timeStepClampedFromS;
     return v != null && Number.isFinite(v) && v >= PANEL_TIME_STEP_FLOOR_S ? v : null;
   })();
-  // Normalize ONCE and derive every dependent initializer from the SAME tree:
-  // each normalizeTree/defaultTree call mints fresh ids for nodes it creates,
-  // so a second call yields ids that don't exist in the tree state — the
-  // default-motor assignment and legacy migrations would key onto ghosts.
-  const [{ initialTree, restoreNotes, preLengthRestore }] = useState(() => {
-    // Name autosave repairs just like file imports (open-items, 22–23 September:
-    // "A restored session is repaired without a note").
-    const restoreNotes: string[] = [];
-    const before = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
-    const limits = legacyStageLimits(before, session, legacyMaxMotorLength());
-    const initialTree = migrateMotorLengths(before, limits);
-    return { initialTree, restoreNotes, preLengthRestore: { tree: before, maxMotorLengthByStage: limits } };
-  });
+  // The design the session restores to, decided ONCE, by the same function
+  // anything else that flies a stored session uses (services/sessionRestore.ts,
+  // 2026-10-01): the tree normalized and its motor-length limits migrated, a
+  // v0.116/v0.117 pad mass moved onto the primary, the core-first ranking, the
+  // unmatched references and the third `measured` key. Every initializer below
+  // reads from this one value, so they all key onto the SAME tree — a second
+  // normalizeTree would mint ids that are not in it.
+  const [restored] = useState(() => designStateFromSession(session, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
+  const { restoreNotes, preLengthRestore } = restored;
+  const initialTree = restored.state.tree;
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -337,7 +329,7 @@ export function App() {
   const [clipboard, setClipboard] = useState<ComponentNode | null>(null);
   // Per-mount motors (Release C). Legacy sessions carried ONE motor + the
   // mount it applied to — migrate it onto that mount.
-  const defaultMountId = session?.mountId ?? motorMounts(initialTree)[0]?.id;
+  const { defaultMountId } = restored;
   /**
    * What became of a v0.116/v0.117 session's `measured.padMassKg` at restore
    * (configSync.migrateLegacyPadMass): attached to the primary mount's record
@@ -345,61 +337,27 @@ export function App() {
    * none. Read once, by the `padMassNote` seed below — the notice that says
    * where the value went is the whole reason the outcome is kept.
    */
-  const legacyPadMass = useRef<ReturnType<typeof migrateLegacyPadMass> | null>(null);
+  const legacyPadMass = useRef<ReturnType<typeof migrateLegacyPadMass> | null>(restored.legacyPadMass);
   /**
    * Where the restore moved a weighed pad mass when the core-first ranking
    * (audit 2026-09-22, row 356) named a different primary than the session was
    * saved under — treeModel.padMassOntoRankedPrimary. Read once, by the
    * `padMassNote` seed, for the same reason as `legacyPadMass`.
    */
-  const rankedPadMass = useRef<{ from?: string; to?: string; kg?: number } | null>(null);
+  const rankedPadMass = useRef<RankedPadMass | null>(restored.rankedPadMass);
   /**
    * The working set and configurations exactly as the session stored them,
    * kept only when padMassOntoRankedPrimary moved a pad mass in either — for
    * the one re-take of the saved mark after the mark's seed (useDesignDirty).
    */
-  const preRankRestore = useRef<PreRankRestore | null>(null);
-  const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(() => {
-    if (session?.mountMotors) {
-      // The pad mass moved from the measured box onto the motor's record in
-      // v0.118. A session written before that carries it as a third measured
-      // key; migrate it onto the restored set (identity when there is none).
-      const m = migrateLegacyPadMass(
-        session.mountMotors,
-        (session.measured as (MeasuredFigures & { padMassKg?: unknown }) | undefined)?.padMassKg,
-        initialTree,
-      );
-      legacyPadMass.current = m;
-      // And a session saved with a pod or strap-on motor picked before the
-      // core's carries it on the record that has just stopped being primary.
-      const ranked = padMassOntoRankedPrimary(initialTree, m.motors);
-      rankedPadMass.current = ranked;
-      if (ranked.motors !== m.motors) preRankRestore.current = { motors: m.motors, configs: session.savedConfigs ?? [] };
-      return ranked.motors;
-    }
-    if (!defaultMountId) return {};
-    // A legacy (pre-per-mount) session carried its one motor's spec inline.
-    if (session?.motor) {
-      const label = session.motorLabel ?? 'C6-5';
-      // Those sessions predate the catalogue and only ever held the three
-      // Estes-class starters, so a missing meta can be named honestly.
-      // The invented `propellant` now feeds an ignition decision as well as a
-      // label — harmless here because such a session is single-stage by
-      // construction (one inline motor, one mount), so nothing above a launch
-      // stage can read it. If that ever stops being true, drop the field
-      // rather than guessing it: an unknown propellant defaults to
-      // electronics-timed on purpose, and this would quietly override that.
-      const meta = session.motorMeta
-        ?? { label, manufacturer: 'Estes', type: 'SU', propellant: 'black powder' };
-      return { [defaultMountId]: { label, spec: session.motor, meta, ignition: { event: 'automatic', delay: 0 } } };
-    }
-    // A fresh design starts EMPTY here and gets its starter motor from the
-    // effect below — the catalogue's Estes C6 with its published curve, which
-    // the shipped bundle answers with no network. Until 2026-09-05 this
-    // initializer loaded a hand-written C6-5 approximation (17.5 % high on
-    // impulse) synchronously; a real motor needs one await, so it moved.
-    return {};
-  });
+  const preRankRestore = useRef<PreRankRestore | null>(restored.preRankRestore);
+  // The working set as restored (services/sessionRestore.ts): a session's
+  // motors with any v0.116/v0.117 pad mass migrated onto the primary and a
+  // weighing moved onto the core's record, a pre-per-mount session's one motor
+  // on its mount, or — a fresh design — EMPTY: it gets its starter motor from
+  // the effect below, the catalogue's Estes C6 with its published curve, which
+  // the shipped bundle answers with no network.
+  const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(restored.state.mountMotors);
   // A previous "check thrustcurve.org for newer motors" left its delta in this
   // browser; install it before anything looks a motor up, so an imported file
   // naming a motor that exists only in the overlay still resolves. It discards
@@ -443,23 +401,11 @@ export function App() {
   // truth, and export writes the live set into it); only unloading
   // everything or applying "None" clears it.
   // Each stored configuration's pad mass follows the core-first ranking the
-  // same way the working set's does above (audit 2026-09-22, row 356), or
-  // applying one saved with a pod motor picked first would orphan it again.
-  // A row nothing moves in is kept by identity.
-  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(() => {
-    const stored = session?.savedConfigs ?? [];
-    const next = stored.map((c) => {
-      const ranked = padMassOntoRankedPrimary(initialTree, c.motors);
-      return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
-    });
-    // Recorded for the saved-mark re-take, with the working set as it was
-    // restored (moved or not — the initializer above ran first).
-    if (next.some((c, i) => c !== stored[i])) {
-      preRankRestore.current = { motors: preRankRestore.current?.motors ?? mountMotors, configs: stored };
-    }
-    return next;
-  });
-  const [activeConfigId, setActiveConfigId] = useState<string | null>(session?.activeConfigId ?? null);
+  // same way the working set's does (audit 2026-09-22, row 356; applied in
+  // services/sessionRestore.ts), or applying one saved with a pod motor picked
+  // first would orphan it again. A row nothing moves in is kept by identity.
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(restored.state.savedConfigs);
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(restored.state.activeConfigId);
   /**
    * The WORKING SET's unmatched motor references, keyed by mount node id — the
    * motors the file named that nothing could resolve. Kept so Save .ork writes
@@ -476,9 +422,7 @@ export function App() {
    * stored refs, which the write-back in applyConfig / clearConfig / onSaveOrk
    * (configSync.syncActiveConfig) keeps current (v0.118).
    */
-  const [unmatchedRefs, setUnmatchedRefsRaw] = useState<Record<string, OrkMotorRef>>(
-    () => restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {},
-      session?.unmatchedRefs));
+  const [unmatchedRefs, setUnmatchedRefsRaw] = useState<Record<string, OrkMotorRef>>(restored.state.unmatchedRefs);
   /**
    * The live references, mirrored into a ref for exactly the reason `treeRef`
    * mirrors the tree (2026-09-08, from review): `assignMotor` runs after an
@@ -506,7 +450,7 @@ export function App() {
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
-  const [launch, setLaunch] = useState<LaunchConditions>(session?.launch ?? DEFAULT_CONDITIONS);
+  const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
    * into AFTER its last await (audit 2026-09-22). The open's own closure holds
@@ -749,29 +693,21 @@ export function App() {
    * keys; a normaliser that touched every session would ask every user to
    * save on first load after the upgrade).
    */
-  const [measured, setMeasured] = useState<MeasuredFigures>(() => {
-    if (session?.measured && 'padMassKg' in session.measured) {
-      const { padMassKg: _x, ...rest } = session.measured as MeasuredFigures & { padMassKg?: unknown };
-      return rest;
-    }
-    return session?.measured ?? { massKg: null, cgM: null };
-  });
+  const [measured, setMeasured] = useState<MeasuredFigures>(restored.state.measured);
   /** A mass for a notice, in the user's unit ("7480 g"). */
-  const massText = (kg: number) => `${fmtSi('mass', prefs.units.mass, kg)} ${prefs.units.mass}`;
+  const massText = massTextFor(prefs.units);
   /**
    * The unit-aware formatters services/statedLaunchWeight.ts asks for, in one
    * place — four call sites used to build them inline and any one of them could
-   * have drifted into a different unit for the same sentence.
+   * have drifted into a different unit for the same sentence. Built by
+   * services/unitText.ts, which the headless Launch writes its notes with too.
    */
-  const statedWeightText = {
-    mass: massText,
-    length: (m: number) => `${fmtSi('length', prefs.units.length, m, 3)} ${prefs.units.length}`,
-  };
+  const statedWeightText = statedWeightTextFor(prefs.units);
   /**
    * The words a pad-mass note is written with (services/padMassReconcile.ts):
    * the user's mass unit, and a motor named without its delay grain.
    */
-  const padMassText: PadMassText = { mass: massText, motorName: baseLabel };
+  const padMassText: PadMassText = padMassTextFor(prefs.units);
   /**
    * What became of a pad mass carried in from v0.116/v0.117 — its own entry in
    * the notice strip (`pad-mass-moved`), NOT setFileNote, which would overwrite
@@ -1017,10 +953,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
     [stageList.length, tree.components]);
   // Assigned motors on mounts that still exist in the tree.
-  const assigned = useMemo(
-    () => Object.entries(mountMotors).filter(([id]) => mounts.some((m) => m.id === id)),
-    [mountMotors, mounts],
-  );
+  const assigned = useMemo(() => assignedMotorsOf(mountMotors, mounts), [mountMotors, mounts]);
 
   // THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13) — the rule,
   // and why it is decided here rather than in NozzleField, are in
@@ -1033,8 +966,7 @@ export function App() {
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
   // ONE definition of "the primary" — treeModel.primaryMountOf — shared with
   // the export gate, the .ork attach-on-open and the session migration.
-  const primaryMountId = useMemo(
-    () => primaryMountOf(tree, assigned.map(([id]) => id)), [assigned, tree]);
+  const primaryMountId = useMemo(() => launchPrimaryOf(tree, assigned), [assigned, tree]);
   /**
    * The primary as the FILE sees it: the topmost-stage mount among the
    * assigned motors AND the unmatched references. When the file's sustainer
@@ -1044,8 +976,7 @@ export function App() {
    * primary's), so the field is withheld and the card explains instead.
    */
   const filePrimaryMountId = useMemo(
-    () => primaryMountOf(tree, [...assigned.map(([id]) => id), ...Object.keys(unmatchedRefs)]),
-    [assigned, unmatchedRefs, tree]);
+    () => filePrimaryOf(tree, assigned, unmatchedRefs), [assigned, unmatchedRefs, tree]);
   /**
    * The identity of the motor set on the rocket RIGHT NOW — what a weighed pad
    * mass is keyed to when it is committed, and what a stored key is compared
@@ -1060,7 +991,7 @@ export function App() {
     // cluster: an enclosing pod set or parallel stage multiplies it, so an
     // instance-count edit after weighing invalidates the weighing the same way a
     // cluster edit does (2026-09-21).
-    () => padMassSetKey(tree, Object.fromEntries(assigned)),
+    () => currentSetKeyOf(tree, assigned),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components, not tree: a rename is not a set change
     [assigned, tree.components]);
 
@@ -1080,7 +1011,7 @@ export function App() {
   // stored preference is in force, which is the case that must stay
   // byte-for-byte what it always was.
   const { aeroMode, effectiveKbf } = effectiveAero(prefs, aeroOverride);
-  const effectiveSupersonic = aeroMode === 'supersonic' || (aeroMode === 'auto' && autoSupersonic);
+  const effectiveSupersonic = effectiveSupersonicOf(aeroMode, autoSupersonic);
 
   // THE BUILD — services/buildDesign.ts, where the two orderings that decide
   // numbers (the ignition re-applied after the weighed-hardware write; the
@@ -1088,15 +1019,15 @@ export function App() {
   // tests on a recording handle and on the kernel (audit 2026-09-22, row 494).
   // It never throws: the error is part of the memo's value, because setState
   // during render breaks under StrictMode's double-invoke.
-  const buildResult = useMemo((): DesignBuild => buildDesign({
+  const buildResult = useMemo((): DesignBuild => buildDesign(designBuildInputOf({
     tree,
     assigned,
-    kbf: effectiveKbf,
-    supersonic: effectiveSupersonic,
+    effectiveKbf,
+    effectiveSupersonic,
     measuredDryMassKg: measured.massKg,
     primaryMountId,
     currentSetKey,
-  }, {
+  }), {
     ...KERNEL_HANDLES,
     // Auto yields between probes. A render may build a newer design while the
     // captured flight still owns its handle; keep that handle alive until done.
@@ -1131,7 +1062,7 @@ export function App() {
    * that offers one — leaves out the same ones (flightRunner.installedMounts),
    * or the stored vector can never match (audit 2026-09-30).
    */
-  const refusedMountIds = useMemo(() => motorFailures.map((f) => f.mountId), [motorFailures]);
+  const refusedMountIds = useMemo(() => refusedMountIdsOf(motorFailures), [motorFailures]);
   /**
    * The same mounts in a stored delay vector's terms: what the Auto-delay card
    * checks a run's vector against. It was checked against every ASSIGNED mount,
@@ -1145,7 +1076,7 @@ export function App() {
    * The hardware this build carries (kg), 0 when none: a provenance term
    * (simReport's motorSetKeyOf) so a pad-mass edit marks the shown flight stale.
    */
-  const hardwareDeltaKg = built && built.hardware.state === 'ok' ? built.hardware.deltaKg : 0;
+  const hardwareDeltaKg = hardwareDeltaKgOf(built);
 
   /**
    * RECOVERY WEIGHT — the mass that comes down under the chute, which is
@@ -1260,16 +1191,10 @@ export function App() {
   // Cosmetic edits (rocket/component names, display colors) must NOT wipe the
   // current flight result — reset on a physics-relevant projection of the
   // tree, not on tree identity (renaming used to clear Results per keystroke).
-  const physicsKey = useMemo(() => {
-    const strip = (n: ComponentNode): unknown => {
-      const { name: _n, color: _c, children, ...rest } = n as ComponentNode & { color?: string };
-      return { ...rest, children: (children ?? []).map(strip) };
-    };
-    return JSON.stringify(tree.components.map(strip));
-    // `tree.components` for the same reason as `mounts`/`buildResult` above: a
-    // rename gives `tree` a fresh identity and this whole recursive strip +
-    // JSON.stringify re-ran per keystroke to produce the identical string.
-  }, [tree.components]);
+  // `tree.components` for the same reason as `mounts`/`buildResult` above: a
+  // rename gives `tree` a fresh identity and this whole recursive strip +
+  // JSON.stringify re-ran per keystroke to produce the identical string.
+  const physicsKey = useMemo(() => physicsKeyOf(tree.components), [tree.components]);
 
   useEffect(() => {
     setResult(null);
@@ -1647,11 +1572,9 @@ export function App() {
     setMountMotors((prev) => {
       const cur = prev[mountId];
       if (!cur) return prev;
-      if (kg === null || !Number.isFinite(kg) || kg <= 0) {
-        if (!('padMassKg' in cur)) return prev;
-        const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = cur;
-        return { ...prev, [mountId]: rest };
-      }
+      // A clear is padMassReconcile's dropPadMass, the one a dropped legacy
+      // value goes through too.
+      if (kg === null || !Number.isFinite(kg) || kg <= 0) return dropPadMass(mountId)(prev);
       return { ...prev, [mountId]: { ...cur, padMassKg: kg, padMassWeighedWith: key } };
     });
     setUnmatchedRefs((prev) => stripRefPadMass(prev));
@@ -1669,27 +1592,22 @@ export function App() {
    * stays here is writing the step into state.
    */
   useEffect(() => {
-    const step = reconcileLegacyPadMass({
+    // The decision's input and its writes are the headless settle's too
+    // (designDerivation.legacyPadMassStepOf, padMassReconcile.legacyPadMassWrite,
+    // 2026-10-01): written here as functional updaters, so a write in the same
+    // flush — the starter motor landing, a pick — is composed with, not lost.
+    const step = legacyPadMassStepOf({
+      state: { tree, mountMotors, unmatchedRefs },
+      derived: { primaryMountId, filePrimaryMountId, currentSetKey },
       hardware: built ? built.hardware : null,
-      primaryMountId,
-      filePrimaryMountId,
-      motors: mountMotors,
-      unmatchedRefs,
-      tree,
-      currentSetKey,
       text: padMassText,
     });
     if (!step) return;
-    if (step.kind === 'drop') {
-      setPadMass(step.mountId, null);
-    } else {
-      setMountMotors((prev) => ({
-        ...prev,
-        [step.mountId]: { ...prev[step.mountId]!, padMassWeighedWith: step.key },
-      }));
-    }
+    const write = legacyPadMassWrite(step);
+    setMountMotors(write.motors);
+    if (write.refs) setUnmatchedRefs(write.refs);
     setPadMassNote(step.note);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPadMass and padMassText are per-render closures over the same state
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- padMassText is a per-render closure over the same state, and the tree is read as of the build it judges
   }, [built, primaryMountId, filePrimaryMountId, unmatchedRefs, mountMotors, currentSetKey]);
 
   /**
@@ -1865,24 +1783,14 @@ export function App() {
    * start a new design, and the report went back to rendering an old flight with
    * nothing to say so. Every term here is computable without a motor.
    */
-  const provenanceKey = useMemo<DesignMatchKey>(() => designMatchKeyOf({
-    physicsKey,
-    assigned,
-    hardwareDeltaKg,
-    launch,
-    aeroMode,
-    effectiveKbf,
-    autoSupersonic,
-    // Does the design SPEND the pressure-thrust term? A stored run flown
-    // before v0.119 cannot be re-flown on a design that does — see
-    // simReport's runCarriesNozzleStamp (2026-09-08).
-    hasNozzle: motorisedStagesWithNozzle(tree, assigned).length > 0,
-    requiresPhysicsRevision: requiresPhysicsRevision(tree),
-    physicsRevisions: physicsRevisionsFor(tree),
-    // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
-    // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed
-    // on it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s
-    // match against every saved run, and `changedSince`.
+  // Assembled by designDerivation's provenanceKeyOf (the nozzle and the
+  // physics-revision terms with it), which the headless Launch calls too.
+  // `tree.components`, not `tree` (row 513, see `allowanceNode`). The memo
+  // itself is ~0.3 ms, but a new key per keystroke re-ran everything keyed on
+  // it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s match
+  // against every saved run, and `changedSince`.
+  const provenanceKey = useMemo<DesignMatchKey>(() => provenanceKeyOf({
+    physicsKey, tree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
@@ -3668,10 +3576,10 @@ export function App() {
                 // invalidate `built.rocket`, which a flight may hold; these
                 // handles go at the memo's next build.
                 const measure = (t: RocketTree) => {
-                  const b = buildDesign({
-                    tree: t, assigned, kbf: effectiveKbf, supersonic: effectiveSupersonic,
+                  const b = buildDesign(designBuildInputOf({
+                    tree: t, assigned, effectiveKbf, effectiveSupersonic,
                     measuredDryMassKg: measured.massKg, primaryMountId, currentSetKey,
-                  }, { reset: () => {}, build: KERNEL_HANDLES.build });
+                  }), { reset: () => {}, build: KERNEL_HANDLES.build });
                   if ('error' in b) return null;
                   return {
                     rocketLength: b.info.length,

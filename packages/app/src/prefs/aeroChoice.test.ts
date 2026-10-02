@@ -184,3 +184,19 @@ describe('the model labels the report and the banner share', () => {
       .toBe('Supersonic (auto — flight exceeded Mach 0.9)');
   });
 });
+
+/**
+ * Re-exported, never copied (2026-10-01). The stored shape's defaults and the
+ * aero choice moved to React-free modules so the headless Launch can read them
+ * (services/simulateDesign.ts); every importer that still names PrefsContext
+ * must get the modules' own bindings, or the dialog, the strip and the
+ * headless run could fly two copies of one mapping.
+ */
+it('PrefsContext re-exports every binding of preferences.ts and aeroChoice.ts', async () => {
+  const ctx = (await import('./PrefsContext.js')) as Record<string, unknown>;
+  for (const mod of [await import('./preferences.js'), await import('./aeroChoice.js')]) {
+    const entries = Object.entries(mod);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [name, value] of entries) expect(ctx[name], name).toBe(value);
+  }
+});

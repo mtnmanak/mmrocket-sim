@@ -90,6 +90,27 @@ describe('the launch conditions load no React', () => {
     await load();
     expect(loaded).toEqual([]);
   });
+
+  /**
+   * THE HEADLESS LAUNCH (2026-10-01): the path the Launch button flies, taken
+   * out of App so a script, a test or a later API can fly a design or a file
+   * with no React mounted. Each module on that path is listed, so the one that
+   * brings React back is the one named — the preferences and the aero choice
+   * moved out of prefs/PrefsContext.tsx for exactly this.
+   */
+  it.each<[string, () => Promise<unknown>]>([
+    ['prefs/preferences', () => import('../prefs/preferences.js')],
+    ['prefs/aeroChoice', () => import('../prefs/aeroChoice.js')],
+    ['unitText', () => import('./unitText.js')],
+    ['designDerivation', () => import('./designDerivation.js')],
+    ['sessionRestore', () => import('./sessionRestore.js')],
+    ['padMassReconcile', () => import('./padMassReconcile.js')],
+    ['buildDesign', () => import('./buildDesign.js')],
+    ['flightRunner', () => import('./flightRunner.js')],
+  ])('%s', async (_, load) => {
+    await load();
+    expect(loaded).toEqual([]);
+  });
 });
 
 /**

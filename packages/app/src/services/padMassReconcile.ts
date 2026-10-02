@@ -1,7 +1,7 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { findNode } from '../tree/treeModel.js';
-import type { migrateLegacyPadMass } from './configSync.js';
+import { stripRefPadMass, type migrateLegacyPadMass } from './configSync.js';
 import { LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { HeldNote } from './notices.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -177,4 +177,51 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
     };
   }
   return null;
+}
+
+/**
+ * A record's weighed pad mass, deleted: BOTH keys or neither — never a null
+ * value (dirtyState hashes keys). A mount with no record, or a record with no
+ * pad mass, comes back by identity. The pad-mass field's clear (App's
+ * `setPadMass(id, null)`) and a dropped legacy value are this one updater
+ * (2026-10-01), so the headless settle drops what the app drops.
+ */
+export function dropPadMass(mountId: string): (prev: Record<string, MountMotor>) => Record<string, MountMotor> {
+  return (prev) => {
+    const cur = prev[mountId];
+    if (!cur || !('padMassKg' in cur)) return prev;
+    const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = cur;
+    return { ...prev, [mountId]: rest };
+  };
+}
+
+/**
+ * What a legacy step WRITES, as functional updaters — App hands them to its
+ * setters (a write in the same flush, the starter motor landing or a pick, is
+ * composed with, never clobbered), and `applyLegacyPadMassStep` applies them
+ * to plain values for the headless settle. ONE rule for both.
+ *
+ * 'drop' deletes both keys and strips any pad mass the file left on an
+ * unmatched reference, exactly as the field's clear does (a typed or dropped
+ * value supersedes it); 'rekey' keeps the value under the set now loaded and
+ * leaves the references alone (`refs` absent: nothing to write).
+ */
+export function legacyPadMassWrite(step: LegacyPadMassStep): {
+  motors: (prev: Record<string, MountMotor>) => Record<string, MountMotor>;
+  refs?: (prev: Record<string, OrkMotorRef>) => Record<string, OrkMotorRef>;
+} {
+  if (step.kind === 'drop') return { motors: dropPadMass(step.mountId), refs: stripRefPadMass };
+  return {
+    motors: (prev) => ({ ...prev, [step.mountId]: { ...prev[step.mountId]!, padMassWeighedWith: step.key } }),
+  };
+}
+
+/** A legacy step applied to plain values — the headless twin of App's effect writing it into state. */
+export function applyLegacyPadMassStep<S extends { mountMotors: Record<string, MountMotor>; unmatchedRefs?: Record<string, OrkMotorRef> }>(
+  state: S, step: LegacyPadMassStep,
+): S {
+  const write = legacyPadMassWrite(step);
+  const mountMotors = write.motors(state.mountMotors);
+  if (!write.refs) return { ...state, mountMotors };
+  return { ...state, mountMotors, unmatchedRefs: write.refs(state.unmatchedRefs ?? {}) };
 }
