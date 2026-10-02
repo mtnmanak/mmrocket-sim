@@ -98,11 +98,16 @@ describe('the local corpus: JS parser against happy-dom', () => {
     };
     const notRefused: string[] = [];
     let cases = 0;
+    // Distinct files each kind of damage reached, by format: a damage that
+    // matches nothing in one format leaves that format untested while the
+    // total still clears its floor (verify-step2 finding 5).
+    const met: Record<string, Set<string>> = {};
     for (const i of corpus()) {
       const xml = fixtureXml(i.name, i.bytes);
       for (const [how, damage] of Object.entries(damaged)) {
         const text = damage(xml);
         if (text === xml) continue;
+        (met[`${formatOf(i.name)} ${how}`] ??= new Set()).add(xml);
         for (const [pn, parser] of [['happy-dom', browserXmlParser], ['JS', jsXmlParser]] as const) {
           cases++;
           let msg = 'imported';
@@ -110,6 +115,15 @@ describe('the local corpus: JS parser against happy-dom', () => {
           if (!/XML parse error|Not valid XML \(\.rse\)/.test(msg)) notRefused.push(`${how} ${pn} ${i.name.slice(repo.length)}: ${msg}`);
         }
       }
+    }
+    const reached = Object.fromEntries(Object.entries(met).map(([k, v]) => [k, v.size]));
+    console.log(`xml corpus damage, distinct files reached: ${JSON.stringify(reached)}`);
+    // .rse is absent from the corpus (no real one exists); every format that
+    // IS present must meet both kinds of damage. Measured 2026-10-01: every
+    // distinct file of each format met both (32 .ork, 9 .rkt, 58 .CDX1 — a
+    // .CDX1 carries </RocketDesign> too).
+    for (const format of ['ork', 'rkt', 'cdx1']) {
+      for (const how of Object.keys(damaged)) expect(reached[`${format} ${how}`] ?? 0, `${format} ${how}`).toBeGreaterThan(0);
     }
     expect(cases).toBeGreaterThan(400);
     expect(notRefused).toEqual([]);

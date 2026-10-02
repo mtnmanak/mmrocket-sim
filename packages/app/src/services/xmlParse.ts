@@ -26,13 +26,21 @@
  * hardening suites run a second time under the JS parser (the `jsxml` vitest
  * project in vite.config.ts).
  *
- * KNOWN, NAMED DIFFERENCE: a DOCTYPE. The JS parser refuses ANY DOCTYPE, where
- * Chrome accepts one and EXPANDS internal entities from it (`<!ENTITY e "X">`
- * then `&e;` reads "X"). No JavaScript parser expands entities, so refusing is
- * the only answer the JS path can give that is never silently different; 0 of
- * 136 corpus files carry a DOCTYPE and none of OpenRocket, RockSim or RASAero
- * writes one. The browser keeps Chrome's behaviour — no new refusal there. The
- * hostile table lists the rows this affects by name.
+ * KNOWN, NAMED DIFFERENCES — three classes, each row listed by name in
+ * xmlParse.hostile.test.ts JS_DIFFERS_FROM_CHROME (verify-step2 finding 8):
+ *  1. A DOCTYPE. The JS parser refuses ANY, where Chrome accepts one and
+ *     EXPANDS internal entities from it (`<!ENTITY e "X">` then `&e;` reads
+ *     "X"). No JavaScript parser expands entities, so refusing is the only
+ *     answer the JS path can give that is never silently different; 0 of the
+ *     136 inputs measured (the corpus with the committed fixtures) carry a
+ *     DOCTYPE, and none of OpenRocket, RockSim or RASAero writes one.
+ *  2. An XML declaration of any version but 1.0. Chrome reads `version="1.1"`
+ *     (and, measured, `"1.9"`) as 1.0; the JS parser refuses it, because saxes
+ *     would apply XML 1.1's rules (`&#1;` legal). No supported format writes one.
+ *  3. Nesting deeper than Chrome's limit, somewhere between 4,000 and 5,000
+ *     levels. Chrome refuses; the JS parser has no depth cap here — that
+ *     belongs to the future server package (xmlParseJs.ts header).
+ * The browser keeps Chrome's behaviour in all three — no new refusal there.
  */
 
 /** A list the importers may index, count and spread. Iterable as well as
@@ -126,15 +134,23 @@ export function currentXmlParser(): XmlParser {
  * Parse `text` with the installed parser. Malformed XML (an XmlParseError)
  * becomes `new Error(refusal)` — the importer's own message, word for word
  * what it threw before the seam ('Not a valid .ork file (XML parse error)'
- * and its siblings) — with the parser's own report kept as `cause`, which no
- * user sees and a server log can use. Anything else is rethrown untouched: a
- * bug is not a bad file.
+ * and its siblings). Anything else is rethrown untouched: a bug is not a bad
+ * file.
+ *
+ * `cause` ONLY OFF THE BROWSER PATH (verify-step2 finding 7, 2026-10-01).
+ * Elsewhere the parser's own report rides along as `cause`, which no user sees
+ * and a server log can use. In the browser the error is exactly the
+ * `new Error(message)` each importer threw before the seam — ruling (b) says
+ * byte for byte, and the browser's report would only ever say "XML parse
+ * error", so it would give a log nothing.
  */
 export function parseXml(text: string, refusal: string): XmlDocument {
   try {
     return current(text);
   } catch (e) {
-    if (e instanceof XmlParseError) throw new Error(refusal, { cause: e });
-    throw e;
+    if (!(e instanceof XmlParseError)) throw e;
+    // eslint-disable-next-line preserve-caught-error -- the browser path keeps the pre-seam error exactly (ruling (b)); its report says only "XML parse error"
+    if (current === browserXmlParser) throw new Error(refusal);
+    throw new Error(refusal, { cause: e });
   }
 }

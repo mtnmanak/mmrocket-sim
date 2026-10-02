@@ -118,6 +118,10 @@ export const HOSTILE: Readonly<Record<string, string>> = {
   nonAsciiName: '<Größe x="1">t</Größe>',
   nonAsciiTextAndAttr: '<a x="ü ñ 中文">é — 🚀</a>',
   u2028Text: '<a>x\u2028y\u2029z</a>',
+  // U+FFFD, the trace of a file decoded with the wrong encoding: legal XML,
+  // and something xmldom WARNS about \u2014 a warning must not refuse it
+  // (verify-step2 finding 6).
+  replacementChar: '<a x="\ufffd">t\ufffd</a>',
   version11Plain: '<?xml version="1.1"?><a>t</a>',
   version20: '<?xml version="2.0"?><a>t</a>',
   deep5000: nest(5000),
@@ -253,6 +257,30 @@ export const CONFORMANCE_QUERIES: readonly ConformanceQuery[] = [
   q('rocksim', [0, 0], 'qs', ':scope > Stage3Parts > BodyTube'), q('rocksim', [0, 0, 2, 0, 0], 'parent'),
   q('rocksim', null, 'qsa', 'SimulationList > SimulationResults'),
 ];
+
+/**
+ * A selector's SHAPE: each tag name replaced by T, pseudo-class names kept,
+ * whitespace collapsed — `:scope > subcomponents > stage` is `:scope > T > T`,
+ * and a `${…}` in a template is read as a tag name. Two selectors of one shape
+ * exercise the same paths of the css-select adapter in xmlParseJs.ts.
+ */
+export const selectorShape = (selector: string): string => selector
+  .replace(/\$\{[^}]*\}/g, 'T')
+  .replace(/[A-Za-z_À-￿][\w\-.·À-￿]*/g, (m, offset: number, s: string) => (s[offset - 1] === ':' ? m : 'T'))
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/** The selector shapes the conformance probes above hold to Chrome. An
+ *  importer selector of any other shape has never been checked against a
+ *  browser: xmlParse.conformance.test.ts (by grep) and xmlParseJs.setup.ts (at
+ *  run time, in the `jsxml` project) both fail on one. */
+export const COVERED_SELECTOR_SHAPES: ReadonlySet<string> = new Set(CONFORMANCE_QUERIES
+  .filter((query) => query.op === 'qs' || query.op === 'qsa' || query.op === 'closest' || query.op === 'gebtn')
+  .map((query) => selectorShape(query.arg!)));
+
+/** Every selector run on a JS-parser document while a `jsxml` test file runs,
+ *  recorded by xmlParseJs.setup.ts (verify-step2 finding 3, 2026-10-01). */
+export const SELECTORS_SEEN = new Set<string>();
 
 /** An element as a path of child indexes under the root, then its tag and
  *  the first 30 characters of its text: enough to tell two matches apart. */

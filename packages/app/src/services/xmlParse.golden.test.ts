@@ -8,6 +8,7 @@ import { browserXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
 import { domDump, fixtureXml, formatOf, goldenRun, importFixture } from './xmlParseParity.js';
 import { setXmlParser } from './xmlParse.js';
+import { importerKey, importerKeyFiles, importVerdict, KEY_EXCLUDED } from '../../scripts/xml-golden-key.mjs';
 
 /**
  * The committed fixtures, parsed and imported through the JS parser, held to
@@ -19,14 +20,28 @@ import { setXmlParser } from './xmlParse.js';
  * Chrome 154 differ in the last bit of one cluster rotation (V8's Math).
  *
  * WHEN THIS FAILS. "golden is stale" — the JS parser and happy-dom agree with
- * each other but not with the golden — means an importer change moved what a
- * fixture imports to: regenerate the golden (the script's header says how) and
- * read its diff. Anything else is the JS parser disagreeing with a browser.
+ * each other but not with the golden — means something the key below does not
+ * cover moved what a fixture imports to: regenerate the golden (the script's
+ * header says how) and read its diff. Anything else is the JS parser
+ * disagreeing with a browser.
+ *
+ * THE IMPORT HALF IS KEYED (verify-step2 finding 1, 2026-10-01). An import
+ * result depends on the importers, their helpers and the motor and preset
+ * catalogues as well as on the parser, so a bare hash went red on a motors
+ * refresh — in the weekly motors-refresh workflow, whose `npm test` gate cannot
+ * regenerate a Chrome golden. The golden records `importKey`
+ * (scripts/xml-golden-key.mjs: a hash of every file the imports are computed
+ * from, the parser excepted); while it matches, the import hashes are a hard
+ * check, and once it moves they are SKIPPED with a warning until someone
+ * regenerates. The DOM half below, the hostile table, the conformance probes
+ * and the exact JS-against-happy-dom import comparison stay hard either way.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(here, '__fixtures__');
+const APP = join(here, '../..');
 const golden = JSON.parse(readFileSync(join(FIXTURES, 'xml-parity/chrome-golden.json'), 'utf8')) as {
   chrome: string;
+  importKey?: string;
   fixtures: Record<string, { elements: number; dom: string; importer: string; importerLength: number }>;
 };
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
@@ -62,6 +77,51 @@ describe('the fixture set', () => {
   });
 });
 
+describe('the key of the Chrome import check (verify-step2 finding 1)', () => {
+  const key = importerKey(APP);
+
+  it('covers the importers and the catalogues they read, and not the parser', () => {
+    const files = importerKeyFiles(APP);
+    for (const f of ['src/services/orkFile.ts', 'src/services/rocksimFile.ts', 'src/services/rasaeroFile.ts',
+      'src/services/exMotors.ts', 'src/services/xmlUtil.ts', 'src/data/motors.json', 'src/data/presets.json']) {
+      expect(files).toContain(f);
+    }
+    for (const f of KEY_EXCLUDED) expect(files).not.toContain(f);
+  });
+
+  it('the golden records a key at all (one without would leave the import check skipped for good)', () => {
+    // NOT `toBe(key)`: a moved key is the very case that must stay green. When
+    // it has moved, the import tests below skip and say so.
+    expect(golden.importKey).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('a catalogue refresh leaves the gate GREEN: the import check goes unchecked, not red', () => {
+    // What .github/workflows/motors-refresh.yml does every Monday, simulated:
+    // one motor's mass moves, the key moves, and a fixture whose import moved
+    // with it is skipped rather than failed.
+    const motors = readFileSync(join(APP, 'src/data/motors.json'), 'utf8');
+    const refreshed = motors.replace(/"totalWeightG":([\d.]+)/, (_, g: string) => `"totalWeightG":${Number(g) + 0.1}`);
+    expect(refreshed).not.toBe(motors);
+    const movedKey = importerKey(APP, { 'src/data/motors.json': refreshed });
+    expect(movedKey).not.toBe(key);
+    expect(importVerdict({ key: movedKey, goldenKey: key, got: 'moved', want: 'recorded' })).toBe('unchecked');
+    const presets = readFileSync(join(APP, 'src/data/presets.json'), 'utf8');
+    expect(importerKey(APP, { 'src/data/presets.json': `${presets} ` })).not.toBe(key);
+  });
+
+  it('a parser change does NOT move the key: the import check stays hard for what the golden watches', () => {
+    expect(importerKey(APP, { 'src/services/xmlParse.ts': '// changed', 'src/services/xmlParseJs.ts': '// changed' }))
+      .toBe(key);
+    expect(importVerdict({ key, goldenKey: key, got: 'a', want: 'b' })).toBe('different');
+    expect(importVerdict({ key, goldenKey: key, got: 'a', want: 'a' })).toBe('same');
+  });
+
+  it('line ends do not move the key (a core.autocrlf checkout keys as CI does)', () => {
+    const ork = readFileSync(join(APP, 'src/services/orkFile.ts'), 'utf8');
+    expect(importerKey(APP, { 'src/services/orkFile.ts': ork.replace(/\n/g, '\r\n') })).toBe(key);
+  });
+});
+
 describe(`the committed fixtures through the JS parser, against Chrome ${golden.chrome}`, () => {
   const js = goldenRun(fixtures, jsXmlParser).fixtures;
 
@@ -70,9 +130,18 @@ describe(`the committed fixtures through the JS parser, against Chrome ${golden.
     expect(hashOrThrow(js[name]!.dom)).toBe(golden.fixtures[name]!.dom);
   });
 
-  it.each(names)('%s: the same import', (name) => {
+  const key = importerKey(APP);
+  if (key !== golden.importKey) {
+    console.warn('xml golden: the importers or the catalogues they read changed since the Chrome golden was '
+      + 'recorded, so its IMPORT hashes are skipped (the DOM hashes are still checked). Regenerate with '
+      + 'packages/app/scripts/xml-chrome-golden.mjs on a machine with Chrome, and read the diff.');
+  }
+
+  it.for(names)('%s: the same import', (name, ctx) => {
     const got = hashOrThrow(js[name]!.importer);
-    if (got !== golden.fixtures[name]!.importer) {
+    const verdict = importVerdict({ key, goldenKey: golden.importKey, got, want: golden.fixtures[name]!.importer });
+    if (verdict === 'unchecked') { ctx.skip(); return; }
+    if (verdict === 'different') {
       // Tell a stale golden from a parser that disagrees with Chrome.
       setXmlParser(browserXmlParser);
       let happy: string;

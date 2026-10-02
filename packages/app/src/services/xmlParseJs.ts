@@ -52,8 +52,10 @@
  * browser opens (critique F4).
  *
  * LICENCES (critique F11): saxes and boolbase ISC; @xmldom/xmldom, xmlchars and
- * dom-serializer MIT; css-select, css-what, domhandler, domutils, entities and
- * nth-check BSD-2-Clause — all GPL-3.0-compatible. As devDependencies they
+ * dom-serializer MIT; css-select, css-what, domelementtype, domhandler,
+ * domutils, entities and nth-check BSD-2-Clause — all GPL-3.0-compatible
+ * (twelve packages, read from package-lock.json's dependency closure of the
+ * three, 2026-10-01). As devDependencies they
  * are distributed with nothing. Once they ship in a served bundle (the server
  * step), MIT and BSD-2 require their notices to travel with it, and the repo
  * has no third-party-notices mechanism yet: that lands with the bundle. The
@@ -84,7 +86,7 @@ const childNodes = (n: XmldomNode): XmldomNode[] => Array.from(n.childNodes);
  *  exactly as written (`xmlMode: true` below): an XML document is
  *  case-sensitive, as Chrome is — and as happy-dom, the test stand-in, is NOT
  *  (it matches `bodytube` against <BodyTube>; spec §1.4). */
-const adapter: CSSselect.Options<XmldomNode, XmldomElement>['adapter'] = {
+export const xmlSelectAdapter: NonNullable<CSSselect.Options<XmldomNode, XmldomElement>['adapter']> = {
   isTag,
   getChildren: childNodes,
   // The Document is no element: a chain stops at the root, so
@@ -98,10 +100,11 @@ const adapter: CSSselect.Options<XmldomNode, XmldomElement>['adapter'] = {
   hasAttrib: (e, name) => e.hasAttribute(name),
   getText: (n) => n.textContent ?? '',
   getSiblings: (n) => (n.parentNode ? childNodes(n.parentNode) : [n]),
-  // Only reached for an ARRAY of roots, which nothing below passes; written
-  // linear anyway (a Set, not Array.includes per ancestor), because the
-  // prototype's quadratic version would take minutes on an element with
-  // tens of thousands of children.
+  // Only reached for an ARRAY of roots (or a sibling combinator after
+  // :scope), which no importer query produces — xmlParse.test.ts calls it
+  // directly, as css-select would. Written linear (a Set, not Array.includes
+  // per ancestor), because the prototype's quadratic version would take
+  // minutes on an element with tens of thousands of children.
   removeSubsets: (nodes) => {
     const all = new Set(nodes);
     const out: XmldomNode[] = [];
@@ -133,7 +136,7 @@ const adapter: CSSselect.Options<XmldomNode, XmldomElement>['adapter'] = {
  *    is the root element, as the DOM defines it.
  */
 const optionsFor = (scope: XmldomNode): CSSselect.Options<XmldomNode, XmldomElement> => ({
-  adapter,
+  adapter: xmlSelectAdapter,
   xmlMode: true,
   relativeSelector: false,
   // Queries run against a tree that never changes after the parse; caching
@@ -215,6 +218,8 @@ export function xmlDom(text: string): XmlDocument {
     doc = new DOMParser({
       normalizeLineEndings: normalizeLineEndingsXml10,
       onError: (level, message) => {
+        // A warning is not a refusal: xmldom warns on a U+FFFD in text (the
+        // trace of a file decoded with the wrong encoding), which Chrome opens.
         if (level !== 'warning') throw new XmlParseError(message);
       },
     }).parseFromString(text, 'text/xml');
@@ -224,7 +229,10 @@ export function xmlDom(text: string): XmlDocument {
     // EVERYTHING, so the importer shows its own message (critique F3).
     throw new XmlParseError(`XML parse error: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
-  if (!doc.documentElement) throw new XmlParseError('XML parse error: no root element');
+  // No `documentElement` null check: xmldom 0.9 itself throws on every
+  // rootless input (empty, whitespace, only a comment, PI or declaration), so
+  // one here was unreachable (verify-step2 finding 6). xmlParse.test.ts pins
+  // that xmldom behaviour; if a bump changes it, the check comes back.
   return doc as unknown as XmlDocument;
 }
 

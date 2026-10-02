@@ -12,10 +12,11 @@
  * services/xmlParseJs.ts. They pass unchanged both ways.
  *
  * WHICH. Every test file that calls an importer entry point (importOrk,
- * importRkt, importCdx1, parseRse, rocksimMotorEvidence) or an XML reader
- * helper (xmlText, xmlNum). xmlParse.guard.test.ts greps for exactly that and
- * fails if a file is in neither list below, so a new importer test is run
- * both ways unless someone writes down why not.
+ * importRkt, importCdx1, parseRse, parseMotorFile, rocksimMotorEvidence) or
+ * an XML reader helper (xmlText, xmlNum), or that hands the app a design or
+ * motor file as a `new File(...)`. xmlParse.guard.test.ts greps for exactly
+ * that and fails if a file is in neither list below, so a new importer test is
+ * run both ways unless someone writes down why not.
  *
  * Paths are relative to packages/app.
  */
@@ -50,6 +51,14 @@ export const XML_JS_SUITES = [
   'src/services/xmlUtil.test.ts',
   'src/tree/motorLength.test.ts',
   'src/components/TreeSchematic.golden.test.tsx',
+  // These three reach an importer THROUGH the app rather than by calling one
+  // (verify-step2 finding 2): App.session opens rocksimTestRocket1.rkt and
+  // App.nozzle ThreeCarbYen-2018.CDX1 as a user would, and MotorBrowser drops a
+  // hand-written .rse — an edge case (exit diameter in inches) no other suite
+  // carries — on its import input, which reaches parseRse via parseMotorFile.
+  'src/App.session.test.tsx',
+  'src/App.nozzle.test.tsx',
+  'src/components/MotorBrowser.test.tsx',
   // Proves this project really runs the JS parser (and the default project the
   // browser's): without it, a setup file that stopped installing the parser
   // would leave every suite above passing under happy-dom twice.

@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   browserXmlParser, currentXmlParser, parseXml, setXmlParser, XmlParseError, type XmlParser,
 } from './xmlParse.js';
-import { jsXmlParser, xmlDom, xmlGate } from './xmlParseJs.js';
+import * as CSSselect from 'css-select';
+import type { Document as XmldomDocument, Element as XmldomElement, Node as XmldomNode } from '@xmldom/xmldom';
+import { jsXmlParser, xmlDom, xmlGate, xmlSelectAdapter } from './xmlParseJs.js';
 import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -52,6 +54,20 @@ describe('the seam', () => {
     expect(() => parseXml('<a/>', 'Not a valid thing')).toThrow(other);
   });
 
+  it('the BROWSER path throws exactly what the importers threw before the seam: no `cause` (ruling (b); verify-step2 finding 7)', () => {
+    const refusal = (parser: XmlParser) => {
+      setXmlParser(parser);
+      try { parseXml('<a><b></a>', 'Not a valid thing'); } catch (e) { return e as Error; }
+      return null;
+    };
+    const browser = refusal(browserXmlParser)!;
+    expect(browser.message).toBe('Not a valid thing');
+    expect(Object.getPrototypeOf(browser)).toBe(Error.prototype);
+    expect('cause' in browser).toBe(false);
+    // The JS path keeps the parser's own report, for a server log.
+    expect(refusal(jsXmlParser)!.cause).toBeInstanceOf(XmlParseError);
+  });
+
   it('says plainly that no parser is installed where there is no DOMParser — not "not a valid file"', () => {
     vi.stubGlobal('DOMParser', undefined);
     setXmlParser(null);
@@ -86,6 +102,39 @@ describe('the JS parser', () => {
       try { xmlDom(text); } catch (e) { thrown = e; }
       expect(thrown, text).toBeInstanceOf(XmlParseError);
     }
+  });
+
+  it('refuses a document with no root element in xmldom itself (verify-step2 finding 6: why xmlDom has no root check of its own)', () => {
+    // xmldom 0.9 throws on every rootless input, so a `documentElement` null
+    // check after it was unreachable and is gone. If an xmldom bump stops
+    // throwing on one of these, this fails, and the check must come back.
+    for (const text of ['', '   ', '<!-- only a comment -->', '<?xml version="1.0"?>', '<?pi x?>']) {
+      let thrown: unknown = null;
+      try { xmlDom(text); } catch (e) { thrown = e; }
+      expect(thrown, JSON.stringify(text)).toBeInstanceOf(XmlParseError);
+    }
+  });
+
+  it('accepts what xmldom only WARNS about: a U+FFFD in text, which Chrome and saxes accept (verify-step2 finding 6)', () => {
+    // xmldom reports "Unicode replacement character detected" at level
+    // 'warning' — the trace of a file decoded with the wrong encoding, which
+    // the browser opens. Only errors stop the parse; a warning must not.
+    expect(xmlDom('<a>x�y</a>').documentElement.textContent).toBe('x�y');
+    expect(jsXmlParser('<a b="�">�</a>').documentElement.getAttribute('b')).toBe('�');
+  });
+
+  it('its css-select adapter collapses an array of roots to the outermost, once each (verify-step2 finding 6)', () => {
+    // css-select calls removeSubsets only for an ARRAY of roots (or a sibling
+    // combinator after :scope), which no importer query produces — so it is
+    // exercised here directly. Without it a match is returned once per root
+    // that contains it.
+    const doc = jsXmlParser('<a><b><b/></b><c/></a>') as unknown as XmldomDocument;
+    const a = doc.documentElement!;
+    const b = a.firstChild as XmldomElement;
+    const opts = { adapter: xmlSelectAdapter, xmlMode: true };
+    const names = (nodes: XmldomElement[]) => nodes.map((n) => `${n.tagName}${n.childNodes.length}`);
+    expect(names(CSSselect.selectAll<XmldomNode, XmldomElement>('b', [a, b, b], opts))).toEqual(['b1', 'b0']);
+    expect(xmlSelectAdapter.removeSubsets([b, a, b])).toEqual([a]);
   });
 
   it('strips ONE leading BOM, as Blob.text() and TextDecoder do in the browser (critique F4)', () => {

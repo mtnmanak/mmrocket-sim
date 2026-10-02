@@ -47,9 +47,17 @@ const JS_DIFFERS_FROM_CHROME: Readonly<Record<string, string>> = {
 /**
  * Where happy-dom — the browser stand-in every other test runs under — answers
  * differently from Chrome. Named so that a test that passes under happy-dom is
- * not mistaken for one that passes in a browser, and so that a happy-dom bump
- * that changes any of them is noticed. The spec counted 10 of its first 29;
- * the extra rows here add 24 more.
+ * not mistaken for one that passes in a browser. The spec counted 10 of its
+ * first 29; the extra rows here add 24 more.
+ *
+ * A SUBSET CHECK, NOT AN EXACT ONE (verify-step2 finding 9, 2026-10-01). A new
+ * difference fails the test: happy-dom is the stand-in every importer test
+ * trusts, so a happy-dom bump that starts disagreeing with Chrome somewhere
+ * new must be read. A row happy-dom has started to AGREE on does not: the
+ * monthly grouped Dependabot PR is merged when green (.github/dependabot.yml),
+ * and a stand-in that got closer to the browser is no reason to stop it. The
+ * test prints such a row so the list can be trimmed. The JS parser's own list
+ * above stays EXACT: that parser is the one a server will ship.
  */
 const HAPPY_DOM_DIFFERS_FROM_CHROME = [
   // accepts what Chrome refuses
@@ -73,11 +81,16 @@ describe(`hostile XML, against Chrome ${golden.chrome}`, () => {
   });
 
   it('the JS parser agrees with Chrome on every row but the named ones', () => {
+    // When this fails after a saxes, @xmldom/xmldom or css-select bump (the
+    // monthly Dependabot group carries them): the bump moved a row. Read which
+    // one and why — it is a statement about what a server would now accept —
+    // before changing JS_DIFFERS_FROM_CHROME or holding the package back.
     const got = runHostile(jsXmlParser);
     const unexpected = differing(got).filter((k) => !(k in JS_DIFFERS_FROM_CHROME))
       .map((k) => `${k}: Chrome ${JSON.stringify(golden.hostile[k])}, JS ${JSON.stringify(got[k])}`);
-    expect(unexpected).toEqual([]);
-    expect(differing(got)).toEqual(Object.keys(JS_DIFFERS_FROM_CHROME).sort());
+    expect(unexpected, 'a row the JS parser now answers differently from Chrome').toEqual([]);
+    expect(differing(got), 'JS_DIFFERS_FROM_CHROME names a row the JS parser now agrees on').toEqual(
+      Object.keys(JS_DIFFERS_FROM_CHROME).sort());
   });
 
   it('each named difference goes the stated way: the JS parser refuses, except the depth it does not cap', () => {
@@ -93,8 +106,15 @@ describe(`hostile XML, against Chrome ${golden.chrome}`, () => {
     }
   });
 
-  it('happy-dom differs from Chrome on exactly the rows named as its known gaps', () => {
-    expect(differing(runHostile(browserXmlParser))).toEqual(HAPPY_DOM_DIFFERS_FROM_CHROME);
+  it('happy-dom differs from Chrome only on the rows named as its known gaps', () => {
+    const differs = differing(runHostile(browserXmlParser));
+    const fixed = HAPPY_DOM_DIFFERS_FROM_CHROME.filter((k) => !differs.includes(k));
+    if (fixed.length) {
+      console.warn(`happy-dom now agrees with Chrome on ${fixed.join(', ')}: `
+        + 'trim HAPPY_DOM_DIFFERS_FROM_CHROME in xmlParse.hostile.test.ts.');
+    }
+    expect(differs.filter((k) => !HAPPY_DOM_DIFFERS_FROM_CHROME.includes(k)),
+      'happy-dom now differs from Chrome on a row not named as a known gap: read it before adding it').toEqual([]);
   });
 
   it('entity and non-ASCII rows are READ, not merely accepted (critique F1 fix 3)', () => {
@@ -107,5 +127,6 @@ describe(`hostile XML, against Chrome ${golden.chrome}`, () => {
     expect(got['numericRefsAttr']).toEqual({ root: 'a', txt: '', x: 'éé🚀' });
     expect(got['nonAsciiName']).toEqual({ root: 'Größe', txt: 't', x: '1' });
     expect(got['nonAsciiTextAndAttr']).toEqual({ root: 'a', txt: 'é — 🚀', x: 'ü ñ 中文' });
+    expect(got['replacementChar']).toEqual({ root: 'a', txt: 't�', x: '�' });
   });
 });

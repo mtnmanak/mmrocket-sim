@@ -10,10 +10,12 @@
  * --check writes nothing: it reports which recorded entries Chrome now answers
  * differently, and exits 1 if any do.
  *
- * WHEN TO RUN IT. When the golden test fails with "golden is stale" — an
- * importer change moved what a committed fixture imports to — or when a
- * fixture, a case in xmlParseParity.ts, or a parser package is added or
- * bumped. Read the diff of the JSON before committing it: an entry that moved
+ * WHEN TO RUN IT. When the golden test fails with "golden is stale", or warns
+ * that its import hashes were SKIPPED because the importers or the catalogues
+ * they read changed (the `importKey` below, scripts/xml-golden-key.mjs — a
+ * motors refresh does that, and must not turn CI red: verify-step2 finding 1);
+ * or when a fixture, a case in xmlParseParity.ts, or a parser package is added
+ * or bumped. Read the diff of the JSON before committing it: an entry that moved
  * is a statement about what users' browsers now do.
  *
  * WHAT IT NEEDS, neither of which CI has (so the JSON is a committed artifact,
@@ -36,6 +38,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { importerKey } from './xml-golden-key.mjs';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(APP, 'src/services/__fixtures__');
@@ -113,6 +116,9 @@ async function main() {
         + 'Do not edit by hand: regenerate. Hashes are SHA-256 of the UTF-8 JSON strings.',
       chrome: chromeVersion,
       generated: new Date().toISOString().slice(0, 10),
+      // What the import hashes were computed from (xml-golden-key.mjs): the
+      // golden test checks them only while this still matches.
+      importKey: importerKey(APP),
       hostile: raw.hostile,
       conformance: raw.conformance,
       fixtures: Object.fromEntries(Object.entries(raw.fixtures).map(([name, f]) => [name, {
@@ -126,6 +132,7 @@ async function main() {
     if (check) {
       const old = JSON.parse(readFileSync(OUT, 'utf8'));
       const moved = [];
+      if (old.importKey !== golden.importKey) moved.push('importKey: the importers or their catalogues changed');
       for (const part of ['hostile', 'conformance', 'fixtures']) {
         const keys = new Set([...Object.keys(old[part] ?? {}), ...Object.keys(golden[part])]);
         for (const k of keys) {

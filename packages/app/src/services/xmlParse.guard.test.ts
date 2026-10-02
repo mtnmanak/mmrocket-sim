@@ -38,7 +38,25 @@ const isTest = (p: string) => /\.test\.tsx?$/.test(p);
 const code = (p: string) => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 
 const NODE_SIDE = new Set(['src/services/xmlParseJs.ts', XML_JS_SETUP, 'src/services/xmlParseParity.ts']);
-const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"](?:saxes|@xmldom\/xmldom|css-select|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"]/;
+// A package may be named bare or by a subpath ('@xmldom/xmldom/lib/dom-parser.js').
+const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"]*)?|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"]/;
+
+/**
+ * Does a test file reach an importer? Two ways it can (verify-step2 finding 2,
+ * 2026-10-01 — the first version saw only the first):
+ *  - it CALLS one, or a wrapper of one: the four importers, the XML reader
+ *    helpers, and parseMotorFile (the .eng/.rse dispatcher MotorBrowser uses);
+ *  - it HANDS a design or motor file to the app or a picker: a `new File(...)`
+ *    in a file that names one by its extension (.ork, .rkt, .CDX1, .rse) —
+ *    App.session and App.nozzle open fixtures that way, and MotorBrowser drops
+ *    a hand-written .rse on its import input.
+ * A test that only SAVES a file (App.rodAim names 'Aimed.CDX1' as a download)
+ * builds no File, so it is not counted.
+ */
+const CALLS = /\b(importOrk|importRkt|importCdx1|parseRse|parseMotorFile|rocksimMotorEvidence|xmlText|xmlNum)\s*\(/;
+const NAMES_A_FILE = /['"`][^'"`\n]*\.(?:ork|rkt|cdx1|rse)['"`]/i;
+const reachesAnImporter = (src: string): boolean =>
+  CALLS.test(src) || (/\bnew File\(/.test(src) && NAMES_A_FILE.test(src));
 
 describe('the XML parser seam', () => {
   it('finds the files it guards (a scan that reads nothing passes everything)', () => {
@@ -49,6 +67,18 @@ describe('the XML parser seam', () => {
     expect(FORBIDDEN.test("import { SaxesParser } from 'saxes';")).toBe(true);
     expect(FORBIDDEN.test("import { goldenRun } from '../services/xmlParseParity';")).toBe(true);
     expect(FORBIDDEN.test("import { parseXml } from './xmlParse.js';")).toBe(false);
+    // A package SUBPATH, static or dynamic (verify-step2 finding 4: ESLint's
+    // no-restricted-imports does not see import(), and the first pattern
+    // wanted the quote straight after the package name).
+    expect(FORBIDDEN.test("export const lazyX = () => import('@xmldom/xmldom/lib/dom-parser.js');")).toBe(true);
+    expect(FORBIDDEN.test("const s = await import('saxes/saxes.js');")).toBe(true);
+    expect(FORBIDDEN.test("import { selectAll } from 'css-select/dist/index.js';")).toBe(true);
+    expect(FORBIDDEN.test("import x from 'css-selector-parser';")).toBe(false);
+    // what counts as reaching an importer
+    expect(reachesAnImporter('parsed.push(...parseMotorFile(f.name, text));')).toBe(true);
+    expect(reachesAnImporter("const f = new File([text], 'ThreeCarbYen-2018.CDX1');")).toBe(true);
+    expect(reachesAnImporter("await importFiles(h, [{ name: 'inches.rse', text }]); const x = new File([t], n);")).toBe(true);
+    expect(reachesAnImporter("saveFile: vi.fn(async () => ({ kind: 'downloaded', name: 'Aimed.CDX1' }))")).toBe(false);
   });
 
   it('shipped source never imports the JS parser, its packages, or the parity cases', () => {
@@ -63,8 +93,7 @@ describe('the XML parser seam', () => {
   });
 
   it('every test file that calls an importer runs under both parsers, or says why not', () => {
-    const CALLS = /\b(importOrk|importRkt|importCdx1|parseRse|rocksimMotorEvidence|xmlText|xmlNum)\s*\(/;
-    const callers = all.filter((p) => isTest(p) && CALLS.test(code(p))).map(rel)
+    const callers = all.filter((p) => isTest(p) && reachesAnImporter(code(p))).map(rel)
       .filter((p) => !p.startsWith('src/services/xmlParse.'));
     const listed = new Set([...XML_JS_SUITES, ...Object.keys(XML_JS_EXCLUDED)]);
     expect(callers.filter((p) => !listed.has(p))).toEqual([]);
