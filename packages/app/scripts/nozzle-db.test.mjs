@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findDbMotor, MOTOR_DB } from '../src/services/motorDb.ts';
+import { buildNozzleDb } from './build-nozzle-db.mjs';
 import {
   ASSEMBLY_FOLDER, IN_PER_M as BUILD_IN_PER_M, basePartNo, equivalent, exitFromDescription, inToM,
   medusaOpening, mergeMeasured, nozzleRow, readSpecPage, round6 as buildRound6, sourceDocuments,
@@ -619,6 +620,52 @@ describe('the independent Tripoli cross-check', () => {
     const disagreeing = comparable.filter((t) => !t.throatAgrees)
       .map((t) => `${t.designation}: cert ${t.certThroatIn} in vs db ${t.dbThroatIn} in (${t.dbNozzlePartNo})`);
     expect(agree / comparable.length, disagreeing.join('\n')).toBeGreaterThanOrEqual(0.7);
+  });
+});
+
+describe('the historical Cesaroni throats', () => {
+  // Exercise the production composition with the real catalogue and no
+  // assembly sources: comparisons alone must never create simulation inputs.
+  const built = buildNozzleDb({
+    raw: { assemblies: [], nozzleDrawings: [], specPages: [], certNozzles: [] },
+    motorsDb: catalogue, mtimeMs: () => Date.UTC(2026, 9, 1),
+    lokiSheets: [], observations: [], measured: [], sheetJoins: [], instructionRows: [], storePages: [],
+  }).db;
+  const comparisons = [
+    ['builder output', built.crossCheck.tripoliCesaroni],
+    ['shipped JSON', db.crossCheck.tripoliCesaroni],
+  ];
+
+  it.each(comparisons)('%s records three identified throats and one unmatched reading without inventing a unit', (_source, comparison) => {
+    expect(comparison).toBeDefined();
+    expect(comparison.rows).toHaveLength(4);
+    expect(comparison.note).toMatch(/Comparison only.*never an input/);
+    expect(comparison.rows.map((r) => [r.designation, r.motorId, r.certThroatIn])).toEqual([
+      ['512I285-A', '5f4294d200023100000000c6', 0.344],
+      ['384I205-A', '5f4294d200023100000000b7', 0.297],
+      ['244H153-A', '5f4294d20002310000000088', 0.234],
+      ['133G69-A', undefined, undefined],
+    ]);
+    for (const row of comparison.rows.filter((r) => r.motorId)) {
+      expect(byId.get(row.motorId)).toMatchObject({ manufacturerAbbrev: 'Cesaroni', designation: row.catalogDesignation });
+      expect(row.evidence).toContain('Nozzle Throat Diameter');
+    }
+    expect(comparison.rows[1].evidence).toMatch(/Image only, read by eye/);
+    expect(comparison.rows[3]).toMatchObject({ unmatched: true, certThroatValue: 0.152, certThroatUnit: 'not printed' });
+    expect(comparison.rows[3].evidence).toMatch(/Skidmark, 121.1 Ns/);
+  });
+
+  it('never gives a Cesaroni motor an exit from comparison-only throats', () => {
+    const ids = new Set(catalogue.motors.filter((m) => m.manufacturerAbbrev === 'Cesaroni').map((m) => m.motorId));
+    expect(ids.size).toBeGreaterThan(0);
+    for (const dbRows of [built.motors, rows]) {
+      expect(dbRows.filter((r) => r.manufacturer === 'Cesaroni' || ids.has(r.motorId)))
+        .toEqual([]);
+    }
+    expect(built.measured).toEqual([]);
+    for (const [, comparison] of comparisons) {
+      expect(comparison.rows.some((r) => 'exitDiameterM' in r || 'exitDiameterIn' in r || 'certExitIn' in r)).toBe(false);
+    }
   });
 });
 
