@@ -42,21 +42,23 @@ const NODE_SIDE = new Set(['src/services/xmlParseJs.ts', XML_JS_SETUP, 'src/serv
 const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"]*)?|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"]/;
 
 /**
- * Does a test file reach an importer? Two ways it can (verify-step2 finding 2,
+ * Does a test file reach an importer? Three ways it can (verify-step2 finding 2,
  * 2026-10-01 — the first version saw only the first):
  *  - it CALLS one, or a wrapper of one: the four importers, the XML reader
  *    helpers, and parseMotorFile (the .eng/.rse dispatcher MotorBrowser uses);
  *  - it HANDS a design or motor file to the app or a picker: a `new File(...)`
  *    in a file that names one by its extension (.ork, .rkt, .CDX1, .rse) —
  *    App.session and App.nozzle open fixtures that way, and MotorBrowser drops
- *    a hand-written .rse on its import input.
- * A test that only SAVES a file (App.rodAim names 'Aimed.CDX1' as a download)
- * builds no File, so it is not counted.
+ *    a hand-written .rse on its import input;
+ *  - it ENCODES a share link with encodeShareFragment: App.rodAim and
+ *    App.weather open designs that way.
+ * A line that only SAVES a file (App.rodAim names 'Aimed.CDX1' as a download)
+ * does not count by itself; App.rodAim also opens a design through a share link.
  */
 const CALLS = /\b(importOrk|importRkt|importCdx1|parseRse|parseMotorFile|rocksimMotorEvidence|xmlText|xmlNum)\s*\(/;
 const NAMES_A_FILE = /['"`][^'"`\n]*\.(?:ork|rkt|cdx1|rse)['"`]/i;
 const reachesAnImporter = (src: string): boolean =>
-  CALLS.test(src) || (/\bnew File\(/.test(src) && NAMES_A_FILE.test(src));
+  CALLS.test(src) || (/\bnew File\(/.test(src) && NAMES_A_FILE.test(src)) || /\bencodeShareFragment\s*\(/.test(src);
 
 describe('the XML parser seam', () => {
   it('finds the files it guards (a scan that reads nothing passes everything)', () => {
@@ -78,6 +80,8 @@ describe('the XML parser seam', () => {
     expect(reachesAnImporter('parsed.push(...parseMotorFile(f.name, text));')).toBe(true);
     expect(reachesAnImporter("const f = new File([text], 'ThreeCarbYen-2018.CDX1');")).toBe(true);
     expect(reachesAnImporter("await importFiles(h, [{ name: 'inches.rse', text }]); const x = new File([t], n);")).toBe(true);
+    expect(reachesAnImporter('window.location.hash = await encodeShareFragment(xml);')).toBe(true);
+    // Only the save line, not the whole App.rodAim suite (which also opens a share link).
     expect(reachesAnImporter("saveFile: vi.fn(async () => ({ kind: 'downloaded', name: 'Aimed.CDX1' }))")).toBe(false);
   });
 

@@ -100,7 +100,7 @@ describe('the key of the Chrome import check (verify-step2 finding 1)', () => {
     // one motor's mass moves, the key moves, and a fixture whose import moved
     // with it is skipped rather than failed.
     const motors = readFileSync(join(APP, 'src/data/motors.json'), 'utf8');
-    const refreshed = motors.replace(/"totalWeightG":([\d.]+)/, (_, g: string) => `"totalWeightG":${Number(g) + 0.1}`);
+    const refreshed = motors.replace(/"totalWeightG":\s*([\d.]+)/, (_, g: string) => `"totalWeightG":${Number(g) + 0.1}`);
     expect(refreshed).not.toBe(motors);
     const movedKey = importerKey(APP, { 'src/data/motors.json': refreshed });
     expect(movedKey).not.toBe(key);
