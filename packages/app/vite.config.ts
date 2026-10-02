@@ -5,6 +5,8 @@ import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
 import { checkDist } from './scripts/precache-coverage.mjs';
+import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
+import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
 
 /**
@@ -110,12 +112,22 @@ export default defineConfig({
       workbox: {
         // woff/woff2: the self-hosted Rajdhani display face must work offline.
         globPatterns: ['**/*.{js,css,html,png,webmanifest,woff,woff2}'],
+        // The release-notes page is NOT precached (scripts/release-notes.mjs:
+        // ~560 KB of text on every user's download), and the navigation
+        // fallback must not answer its URL with the app — without the
+        // denylist, anyone who has the app installed would get the app at
+        // /releases/ (2026-10-02).
+        globIgnores: ['releases/**'],
+        // With or without the slash or a query (RELEASES_NAVIGATION says why).
+        navigateFallbackDenylist: [RELEASES_NAVIGATION],
         // The main chunk is 2.68 MB (measured 2026-09-15; it carries the TeaVM kernel
         // AND the React app, so it grows with both) — well over workbox's 2 MB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
     lazyTextsStayLazy(),
+    // The public release-notes page (scripts/release-notes.mjs; Eric, 2026-10-02).
+    releaseNotesPlugin(CHANGELOG, PRE_VERSIONING_NOTE),
     precacheCoversBuild(),
   ],
   base: './',

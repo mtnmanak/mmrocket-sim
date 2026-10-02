@@ -1,5 +1,5 @@
 {
-  "version": "0.150",
-  "released": "2026-10-01",
-  "note": "A file that starts with a DOCTYPE declaration (a <!DOCTYPE ...> declaration near the top) is now refused in .ork, RockSim and RASAero files, before its XML is parsed, with a message that says to delete it and open the file again. Desktop OpenRocket's save code writes none, none of the 133 design and motor files in testers' uploads and the app's tests carries one, and a DOCTYPE can define nested text macros that a browser expands while it reads. The browser and the reader v0.149 added for use outside a browser now refuse such a file with the same message."
+  "version": "0.151",
+  "released": "2026-10-02",
+  "note": "The release notes now have a page of their own on the web, https://mmrsim.mountainmanrockets.com/releases/: every numbered release, newest first, in the same words as the What's new list behind the version badge, with a link per release (…/releases/#v0.151). The app does not keep the page for offline use, so it is not part of what the app downloads. Apart from the version number and the notes, nothing changes."
 }

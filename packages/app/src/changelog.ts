@@ -32,6 +32,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.151",
+    "date": "2026-10-02",
+    "title": "The release notes now have a page of their own on the web, one section per release, so a forum post can link straight to a release",
+    "items": [
+      "THE RELEASE NOTES NOW HAVE A PAGE OF THEIR OWN: https://mmrsim.mountainmanrockets.com/releases/. It carries every numbered release of the app, newest first, in the same words as the What's new list behind the version badge, and each release has its own link (for this one, .../releases/#v0.151). It is built from the same notes as the app's list every time the app is published, so the page always matches the newest version of the app; a copy of the app that has not updated yet still shows its own, older list. Release announcements on the forum can now be short and link here for the detail. The app does not keep this page for offline use, so the page itself is not part of what the app downloads, and once your copy of the app has updated to v0.151 it opens the page at that address instead of answering with the app.",
+      "NOTHING ELSE CHANGES IN THIS RELEASE apart from the version number and the notes themselves: the flights, the files the app reads and writes, and everything else the app shows are as they were in v0.150."
+    ]
+  },
+  {
     "version": "0.150",
     "date": "2026-10-01",
     "title": "A file that starts with a DOCTYPE declaration is now refused, with a message that says how to fix it - in the browser and outside it alike",

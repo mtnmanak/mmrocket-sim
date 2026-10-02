@@ -28,7 +28,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-export const DELIBERATELY_UNCACHED = [/^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/];
+// releases/: the public release-notes page (scripts/release-notes.mjs) — the
+// whole changelog as one page, kept off every user's download on purpose.
+export const DELIBERATELY_UNCACHED = [/^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/, /^releases\//];
 
 /**
  * The URLs a generated sw.js precaches: the `url` of every entry in workbox's
