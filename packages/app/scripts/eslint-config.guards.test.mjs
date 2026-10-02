@@ -168,6 +168,28 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('keeps flyLaunch and buildSimRun out of App.tsx: the Launch is flyBuiltDesign, one path (2026-10-01)', async () => {
+    // The button and the headless Launch share services/simulateDesign.ts's
+    // flyBuiltDesign, and App.simulate.test.tsx holds them to the same bytes —
+    // a second copy of the Launch inside App would be invisible to it. The
+    // re-fly paths are not the Launch: reflyRun stays importable.
+    const IMPORTS = ['no-restricted-imports'];
+    const rules = await rulesFor('packages/app/src/App.tsx', IMPORTS);
+    expect(lint([
+      "import { flyLaunch, installedMounts, reflyRun } from './services/flightRunner.js';",
+      "import { buildSimRun, changedSinceRun } from './services/simReport.js';",
+      "import { installedMounts as kept, reflyRun as refly } from './services/flightRunner.js';",
+      "import * as runner from './services/flightRunner.js';",
+      "import { flyBuiltDesign } from './services/simulateDesign.js';",
+      'export const all = [kept, refly, runner, flyBuiltDesign, flyLaunch, installedMounts, reflyRun, buildSimRun, changedSinceRun];',
+    ].join('\n'), rules)).toEqual(['no-restricted-imports@1', 'no-restricted-imports@2', 'no-restricted-imports@4']);
+    // App.tsx only: the module that IS the Launch, and its tests, import both.
+    const inside = "import { flyLaunch } from './flightRunner.js';\nimport { buildSimRun } from './simReport.js';\nexport const x = [flyLaunch, buildSimRun];";
+    for (const rel of ['packages/app/src/services/simulateDesign.ts', 'packages/app/src/App.flight.test.tsx']) {
+      expect(lint(inside.replaceAll("'./", "'./services/"), await rulesFor(rel, IMPORTS)), rel).toEqual([]);
+    }
+  });
+
   it('turns the type-aware rules on for shipped source, its tests and the engine', async () => {
     // Resolution only: the rules themselves need a type program, which the
     // lint run builds. A files glob that stopped covering one of these would

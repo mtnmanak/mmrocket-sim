@@ -107,6 +107,7 @@ describe('the launch conditions load no React', () => {
     ['padMassReconcile', () => import('./padMassReconcile.js')],
     ['buildDesign', () => import('./buildDesign.js')],
     ['flightRunner', () => import('./flightRunner.js')],
+    ['simulateDesign', () => import('./simulateDesign.js')],
   ])('%s', async (_, load) => {
     await load();
     expect(loaded).toEqual([]);

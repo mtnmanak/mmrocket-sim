@@ -390,6 +390,29 @@ export default tseslint.config(
     // block's options for App.tsx, so it carries them along.
     files: ['packages/app/src/App.tsx'],
     rules: {
+      // THE LAUNCH IS ONE PATH (2026-10-01). The Launch button flies through
+      // services/simulateDesign.ts's flyBuiltDesign, which the headless Launch
+      // (simulateDesign, simulateFile) calls too, and App.simulate.test.tsx
+      // holds the two to the same bytes. A flyLaunch or buildSimRun imported
+      // back into App would let the button grow a second copy that test cannot
+      // see. The re-fly paths (reflyRun) are not the Launch and stay importable.
+      // A namespace import is refused too; a dynamic import() is not seen.
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: './services/flightRunner.js',
+            importNames: ['flyLaunch'],
+            message: 'The Launch is services/simulateDesign.ts flyBuiltDesign, so a headless caller flies what the '
+              + 'button flies. Call that, not flyLaunch.',
+          },
+          {
+            name: './services/simReport.js',
+            importNames: ['buildSimRun'],
+            message: 'A Launch run is built inside services/simulateDesign.ts flyBuiltDesign, the one path the '
+              + 'button and the headless Launch share. Call that, not buildSimRun.',
+          },
+        ],
+      }],
       'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, {
         selector: "Identifier[name='markSaved']:not(ObjectPattern > Property[shorthand=true] > Identifier)",
         message: 'markSaved clears the unsaved-work guard, so the next Open or ✕ New discards without asking. '

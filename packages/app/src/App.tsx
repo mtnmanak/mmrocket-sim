@@ -76,10 +76,10 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { orkMotorSet, type FlownAutoDelays } from './services/orkExportMotors.js';
 import { withAuto, withDelay, withPlugged } from './services/mountDelayEdits.js';
-import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './services/flightPipeline.js';
 import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
-import { flyLaunch, installedMounts, reflyRun } from './services/flightRunner.js';
+import { installedMounts, reflyRun } from './services/flightRunner.js';
+import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotors } from './services/exMotors.js';
 import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
@@ -98,7 +98,7 @@ import {
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
 } from './services/session.js';
 import {
-  AERO_MODEL_CHANGED, aeroModelLabel, buildSimRun, changedSinceRun,
+  AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun,
   currentModelLabel, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
@@ -112,8 +112,8 @@ import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import {
   addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
-  findParent, hasParallelStage, isOnLaunchStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, motorisedStagesWithNozzle, mountCountNote, mountMotorCount, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  findParent, hasParallelStage, makeNode, motorMounts, moveNode,
+  isPristineDefault, mountCountNote, mountMotorCount, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { num, numOrNull } from './tree/nodeNum.js';
@@ -170,7 +170,7 @@ import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
 import { useFirstRunTour } from './hooks/useFirstRunTour.js';
 import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
 import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
-import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
+import type { MountMotor, SavedConfig } from './model/design.js';
 
 import './styles.css';
 
@@ -1631,7 +1631,6 @@ export function App() {
   const onLaunch = () => {
     if (!built || !primaryMountId || simulating || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
-    const primary = mountMotors[primaryMountId]!;
     // The design this flight flies: this render's, the one `built` was built
     // from. Everything it computed lands after an await, and only while that
     // design still stands (`designNow`, audit 2026-09-30) — an Open, a ✕ New,
@@ -1655,83 +1654,31 @@ export function App() {
     void afterPaint().then(async () => {
       resultsMainRef.current?.focus();
       try {
-        // The probe, the auto-aero upgrade, the auto delay and the handle
-        // protocol they share all live in services/flightRunner.ts, where a
-        // test can fly them (audit 2026-09-22, extraction #1).
-        const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = await flyLaunch(built.rocket, {
-          assigned,
-          // What the report's delay table and the Auto-delay refusal call each
-          // mount: the card heading's own fallback, never the internal id.
-          mountNames: Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? 'Motor mount'])),
-          refusedMountIds,
-          hardware: built.hardware,
-          primaryMountId,
-          simOptions: kernelSimOptions(launch),
-          aeroMode,
-          supersonic: effectiveSupersonic,
-          isOnLaunchStage: (id) => isOnLaunchStage(tree, id),
+        // THE LAUNCH — services/simulateDesign.ts's flyBuiltDesign (2026-10-01):
+        // the flight (flightRunner.flyLaunch: the probe, the Auto upgrade, the
+        // auto delay and the handle protocol) and the run built from it, moved
+        // out of this closure so a caller with no React flies exactly what this
+        // button flies (simulateDesign, simulateFile). App.simulate.test.tsx
+        // holds the two to the same bytes; flyBuiltDesign.test.ts pins what it
+        // hands the kernel and the report against this body as it stood at
+        // 78d3015. The lint gate keeps flyLaunch and buildSimRun out of this
+        // file, so the Launch cannot grow a second copy here.
+        const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
+          built,
+          tree,
+          derived: { mounts, stageList, assigned, effectiveSupersonic, primaryMountId },
+          launch,
+          aero: { aeroMode, effectiveKbf },
+          activeConfigId,
+          savedConfigs,
+          // Stamped from the SAME key every comparison uses (`provenanceKey`,
+          // below), so the two cannot be assembled apart.
+          provenance: provenanceKey,
           // Rebuilds the engine handle with the flag on after this callback
           // finishes, so the design's displayed statics follow the flight. The
           // runner calls it after its last await: on a design opened meanwhile
           // it put "M+" on the strip and flew every later flight supersonic.
           onSupersonicUpgrade: () => { if (stillFlown()) setAutoSupersonic(true); },
-        });
-        // Per-stage motor info so booster branches can be safety-checked
-        // (a chuteless booster above the high-power line must warn). The branch
-        // naming rule, and the reason it is not simply the stage's name, lives
-        // with the function in services/flightPipeline.ts — where a test can
-        // reach it, which it could not while it was inline here.
-        const branchMotors = stageMotorInfo(tree, assigned, stageList);
-        // Stage B: which flight configuration flew, by display name (the
-        // CSV's trailing "Flight config" column; absent when none active).
-        const activeConfig = activeConfigId === null ? undefined
-          : savedConfigs.find((c) => c.id === activeConfigId);
-        const run = buildSimRun({
-          result: res,
-          delayResolution, primaryMountId,
-          info: built.info,
-          motor: { ...primary.spec, ejectionDelay: flownDelay },
-          meta: {
-            ...primary.meta,
-            // What the kernel flew on the primary mount — the cluster times any
-            // enclosing pod set or strap-on ring (audit 2026-09-22, row 351: a
-            // motor in a three-pod set was recorded as one). The report's
-            // Motors row says "firing together"; the CSV column keeps its old
-            // 'Motors (cluster)' header so a sheet keyed on it still reads.
-            motorCount: mountMotorCount(tree, primaryMountId),
-          },
-          launch,
-          rocketName: tree.name ?? 'Rocket',
-          execMs,
-          stageMotorInfo: branchMotors,
-          boosterMotors: assigned
-            .filter(([id]) => id !== primaryMountId)
-            .map(([, mm]) => mm.label),
-          // Both stamps are permanent on the stored run, so both live in
-          // services/flightPipeline.ts with their reasoning and their tests —
-          // including why `effectiveKbf` and never the raw preference.
-          aeroModel: aeroModelFor(aeroMode, usedSupersonic),
-          rogersKbf: rogersKbfFor(effectiveKbf, usedSupersonic),
-          ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
-          // Provenance for the .ork <flightdata> guard: what this flight was
-          // computed FROM, so a later export can prove the design, motors and
-          // conditions have not moved since — and refuse to write the numbers
-          // when they have. Stamped from the SAME key every comparison uses
-          // (`provenanceKey`, below), so the two cannot be assembled apart.
-          ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
-          designKey: provenanceKey.designKey,
-          motorSetKey: provenanceKey.motorSetKey,
-          // What the kernel was handed for each chute — so the report can state
-          // the coefficient the verdict rests on, not just the device's name.
-          flownRecovery: built.flownRecovery,
-          // Which stages flew a nozzle AND a motor that can burn, so the report
-          // can say the flown thrust is not the published curve (2026-09-08).
-          // Motorised, not merely nozzle-bearing: the kernel's own gate is
-          // `getThrust(t) > 0`, so a nozzle on a stage the flown configuration
-          // left empty bought exactly nothing and must not be named as
-          // corrected. Names only: whether the term was LIVE is decided from
-          // the two model stamps above, which is the rest of that gate.
-          nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
         });
         // Saved simulations keeps the flight whatever is on screen now: it is
         // stamped with the design it flew, and selecting it says what changed
