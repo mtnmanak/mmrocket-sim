@@ -3,6 +3,7 @@ import { INITIAL_UNITS } from '../prefs/units.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './designFile.js';
 import { planImport, resolveImportMotors, type ImportedDesign, type ImportPlan } from './importApply.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './launchConditions.js';
+import { MOTOR_DB } from './motorDb.js';
 import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, type Preset } from './presets.js';
@@ -32,10 +33,9 @@ import { statedWeightTextFor } from './unitText.js';
  * and the bundled curves only (`network: 'forbid'`), so its answer does not
  * depend on which browser ran it; a motor the bundle cannot fly is reported
  * unloaded in the import note, as the app reports one it cannot download.
- * ONE EXCEPTION, stated: motors are MATCHED against motorDb's live catalogue,
- * which in a page where App has run carries this browser's "Check
- * thrustcurve.org" overlay (simulateDesign.ts's header says why it is not
- * threaded out). Under plain Node there is no overlay.
+ * Catalogue rows are shipped too (2026-10-01): live dimensions change the
+ * motor's length and CG even with a bundled curve. The importers and matcher
+ * share MOTOR_DB on this path; App's Open keeps its live-catalogue default.
  *
  * A CANCEL (`signal`) is checked before the parse and before every motor
  * reference is matched, is refused by the kernel lock after the last, and is
@@ -79,7 +79,8 @@ export async function simulateFile(
   const presets = opts.presets ?? await loadBundledPresets();
   let imported: ImportedDesign;
   try {
-    imported = openDesignFile(buffer, fileName, { presets, distanceUnit: (opts.units ?? INITIAL_UNITS).distance });
+    imported = openDesignFile(buffer, fileName, { presets, distanceUnit: (opts.units ?? INITIAL_UNITS).distance,
+      catalogue: opts.network === 'allow' ? undefined : MOTOR_DB });
   } catch (e) {
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
@@ -99,7 +100,7 @@ export async function simulateImported(
   // download (fetchMotorSpec's third argument); nothing else about it changes.
   const match = opts.match ?? (opts.network === 'allow'
     ? (ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: (m, d) => fetchMotorSpec(m, d, signal) })
-    : (ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: bundledOnlyFetchSpec }));
+    : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec }));
   // The awaits of an open: every motor the file names, resolved — none after a
   // cancel. A download the cancel cut short is reported by the matcher as an
   // unloaded motor; the kernel lock (simulateDesign's withKernel) then refuses

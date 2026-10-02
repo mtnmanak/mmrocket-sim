@@ -11,7 +11,7 @@ import { isAssembly } from '../tree/assembly.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
-import { findDbMotor, hasMassData } from './motorDb.js';
+import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
 import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
 import {
@@ -282,7 +282,10 @@ export interface Cdx1ImportResult extends OrkImportResult {
 
 // ============================ IMPORT ============================
 
-export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
+export function importCdx1(data: ArrayBuffer | string, opts?: {
+  /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
+  catalogue?: MotorDbEntry[];
+}): Cdx1ImportResult {
   // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22).
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(new Uint8Array(data));
@@ -1201,7 +1204,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     // groups in the shipped catalogue — the mass and moment subtracted here
     // could come from a different motor than the one that flies. Worst real
     // case measured: Contrail K456 at 2.220 kg against the other K456.
-    const db = findDbMotor(ref.designation, undefined, undefined, ref.manufacturer, ref.matchContext);
+    const db = findDbMotor(ref.designation, undefined, opts?.catalogue, ref.manufacturer, ref.matchContext);
     // NO catalog entry at all is not the same as an entry we cannot trust, and
     // the two must not skip together. With no entry App.matchImportedMotor
     // mounts NOTHING and says so, so the rocket really does fly with no motor

@@ -1,4 +1,5 @@
 import type { ImportedDesign } from './importApply.js';
+import type { MotorDbEntry } from './motorDb.js';
 import { importOrk } from './orkFile.js';
 import type { Preset } from './presets.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -85,15 +86,18 @@ export function designFormatOf(fileName: string): DesignFormat {
  * whatever the file left unset — a RockSim chute's "auto" Cd, above all. The
  * user's distance unit goes to the .rkt reader alone: it holds no unit
  * preference, and its note quotes each configuration's deployment altitude.
+ * Motor rows travel with it too (2026-10-01): headless imports must settle
+ * delays and motor moments on the shipped rows, while App keeps live defaults.
  */
 export function parseDesignFile(
-  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string },
+  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string; catalogue?: MotorDbEntry[] },
 ): ImportedDesign {
   switch (designFormatOf(fileName)) {
     case 'rkt':
-      return importRkt(data, { presets: opts.presets, ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) });
+      return importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
+        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) });
     case 'cdx1':
-      return importCdx1(data);
+      return importCdx1(data, { catalogue: opts.catalogue });
     case 'ork':
       return importOrk(data, { presets: opts.presets });
   }
@@ -101,7 +105,7 @@ export function parseDesignFile(
 
 /** A design file as App's Open… applies it: parsed, then named after its file when it names itself generically. */
 export function openDesignFile(
-  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string },
+  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string; catalogue?: MotorDbEntry[] },
 ): ImportedDesign {
   const imported = parseDesignFile(data, fileName, opts);
   applyDesignNameFallback(imported, fileName);

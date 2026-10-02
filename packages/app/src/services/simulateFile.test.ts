@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import presetsJson from '../data/presets.json';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { applyDesignNameFallback, designFileOpenFailure, MAX_DESIGN_FILE_BYTES, parseDesignFile } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
-import { findDbMotor, MOTOR_DB } from './motorDb.js';
+import { diffCatalogue } from './catalogueOverlay.js';
+import { findDbMotor, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from './motorDb.js';
 import { matchImportedMotor } from './motorMatch.js';
+import { G80_EQUIVALENT, MOTOR_MATCH_POLICY } from './motorMatchPolicy.js';
 import { importOrk, type OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, loadPresets, type Preset } from './presets.js';
 import { comparable, idFree } from './simulate.testSupport.js';
@@ -39,13 +42,14 @@ vi.mock('./presets.js', async (importOriginal) => {
 const fetchSpy = vi.fn(async () => { throw new TypeError('the network was used'); });
 beforeEach(() => {
   localStorage.clear();
+  setCatalogueOverlay(null);
   fetchSpy.mockClear();
   vi.mocked(importOrk).mockClear();
   vi.mocked(loadPresets).mockClear();
   vi.mocked(loadBundledPresets).mockClear();
   vi.stubGlobal('fetch', fetchSpy);
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { setCatalogueOverlay(null); vi.unstubAllGlobals(); });
 
 function repoRoot(): string {
   let dir = process.cwd();
@@ -63,6 +67,23 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  // A committed recovery case keeps the unit wire covered in CI (2026-10-01):
+  // the local corpus is optional, and a hard-coded ft otherwise goes unseen.
+  it('quotes an altitude deployment in the requested feet or metres', async () => {
+    const event = '<SimulationEvent><PartSerialNo>11</PartSerialNo><Type>5</Type>'
+      + '<DeployAltitude>121.92</DeployAltitude><DeplyTime>0</DeplyTime></SimulationEvent>';
+    const xml = new TextDecoder().decode(bytes('TubeFins2.rkt'))
+      .replace(/<(SimulationEventList|SimulationEvents)>[\s\S]*?<\/\1>/g,
+        (_all, tag: string) => `<${tag}>${event}</${tag}>`);
+    expect(xml).toContain(event);
+    const data = new TextEncoder().encode(xml);
+    const feet = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, distance: 'ft' } });
+    const metres = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, distance: 'm' } });
+    expect(feet.importNote.text).toContain('Parachute at 400 ft descending');
+    expect(metres.importNote.text).toContain('Parachute at 121.92 m descending');
+    expect(feet.importNote.text).not.toBe(metres.importNote.text);
+  }, 60000);
+
   it.each(['reference.ork', 'rocksimTestRocket1.rkt', 'Show-off.CDX1'])('%s, without the network', async (name) => {
     const out = await simulateFile(bytes(name), name);
     expect(out.result.summary.maxAltitude).toBeGreaterThan(0);
@@ -131,6 +152,52 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
 });
 
 describe('simulateFile reads the shipped data only', () => {
+  // Dimensions change the spec's CG, every-delay reads happen in the .rkt
+  // importer, and .CDX1 subtracts motor moments (2026-10-01). Cover both doors
+  // while the live rows differ, so choosing bundled curves alone cannot pass.
+  it.each(['reference.ork', 'TubeFins2.rkt', 'Show-off.CDX1'])('%s ignores a browser catalogue overlay', async (name) => {
+    const data = name.endsWith('.rkt')
+      ? new TextEncoder().encode(new TextDecoder().decode(bytes(name))
+        .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, '<EjectionDelay>-1</EjectionDelay>'))
+      : bytes(name);
+    const parsed = parseDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
+      name, { presets: await loadBundledPresets() });
+    applyDesignNameFallback(parsed, name);
+    const plain = await simulateFile(data, name);
+    const fromParse = await simulateImported(structuredClone(parsed));
+    const ids = new Set(Object.values(plain.state.mountMotors).map((m) => m.meta.motorId));
+    expect(ids.size).toBeGreaterThan(0);
+    const overlay = diffCatalogue(MOTOR_DB, MOTOR_DB.map((m) => ids.has(m.motorId)
+      ? { ...m, length: m.length + 1, delays: '1' } : m));
+    expect(overlay.changed).toHaveLength(ids.size);
+    setCatalogueOverlay({ ...overlay, baseGenerated: MOTOR_DB_DATE,
+      fetchedAt: '2026-10-01T00:00:00Z', liveCount: MOTOR_DB.length, rejected: [] });
+    const again = await simulateFile(data, name);
+    const parsedAgain = await simulateImported(structuredClone(parsed));
+    const specs = (out: typeof plain) => Object.values(out.state.mountMotors).map((m) => m.spec);
+    expect(specs(again)).toStrictEqual(specs(plain));
+    expect(specs(parsedAgain)).toStrictEqual(specs(fromParse));
+    expect(idFree(again.run)).toStrictEqual(idFree(plain.run));
+    expect(comparable(parsedAgain.run)).toStrictEqual(comparable(fromParse.run));
+    expect(again.importNote).toStrictEqual(plain.importNote);
+    // The app's default importer and matcher still read those live rows.
+    const live = await simulateFile(data, name, { network: 'allow' });
+    expect(specs(live)).not.toStrictEqual(specs(plain));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  }, 120000);
+
+  // A findDb-only override loses the detailed policy and its explanation
+  // (2026-10-01), even if an ordinary C6 still loads correctly.
+  it('keeps the makerless G80 equivalence policy on the shipped catalogue', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const out = await simulateImported({ name: 'Policy', tree, notes: [], motors: {
+      [mount]: { designation: 'G80', manufacturer: 'unknown', diameter: 0, length: 0, delay: 4 },
+    } });
+    expect(out.state.mountMotors[mount]!.meta.motorId).toBe(MOTOR_MATCH_POLICY.aeroTechG80);
+    expect(out.importNote.text).toContain(G80_EQUIVALENT);
+  }, 30000);
+
   it('links parts against the shipped presets, not this browser’s custom ones', async () => {
     const mine = { manufacturer: 'Mine', partNo: 'MY-1', type: 'BodyTube' } as unknown as Preset;
     localStorage.setItem('online-openrocket.custom-presets.v1', JSON.stringify([mine]));

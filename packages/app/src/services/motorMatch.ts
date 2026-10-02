@@ -149,6 +149,8 @@ export interface MotorMatchResult {
 /** Injection points, so the network and the catalog can be stubbed in tests. */
 export interface MotorMatchDeps {
   findDb?: typeof findDbMotor;
+  /** Keep match tiers, rivals and curve-equivalence policy on the chosen rows (2026-10-01). */
+  catalogue?: MotorDbEntry[];
   fetchSpec?: (motor: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
 }
 
@@ -203,7 +205,7 @@ export async function loadCatalogueMotor(
 ): Promise<MountMotor | null> {
   const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
-  const db = findDb(designation, undefined, undefined, manufacturer);
+  const db = findDb(designation, undefined, deps.catalogue, manufacturer);
   if (!db) return null;
   const spec = await fetchSpec(db, delay);
   return mountMotorFromDb(db, spec, delay, { event: 'automatic', delay: 0 });
@@ -234,7 +236,7 @@ export async function matchImportedMotor(
 
   // RockSim refs carry no motor diameter (0) — match by designation only.
   const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
-  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext);
+  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext);
   let dbMatch = deps.findDb
     ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
       : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))

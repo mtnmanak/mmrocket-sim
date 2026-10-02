@@ -44,14 +44,10 @@ import { padMassTextFor } from './unitText.js';
  * same physics PER INPUTS, and on a user's machine some inputs live in that
  * browser — the thrustcurve.org curve cache, a catalogue overlay from "Check
  * thrustcurve.org", custom presets and the EX motor library. `simulateFile`
- * (simulateFile.ts) reads the shipped curves and presets only. The CATALOGUE
- * its motors are matched against is the one exception: it is motorDb's live
- * catalogue (`getCatalogue()`, the default of every lookup the importers and
- * the matcher make), so in a JS realm where App has run `restoreCatalogueOverlay`
- * — a page, not a Node script — it carries that browser's overlay rows too.
- * Under plain Node no overlay is ever installed, and the shipped rows are all
- * there is. Threading a shipped-only catalogue through the importers is not
- * done here (verify-step1 finding 9, 2026-10-01): it is stated instead.
+ * (simulateFile.ts) defaults to shipped curves, presets and catalogue rows
+ * (2026-10-01), because an overlay's dimensions change a bundled motor's CG.
+ * Its importers and matcher receive the shipped catalogue; App's Open keeps
+ * their live defaults. An already-parsed design keeps its imported state.
  *
  * A HANDLE THAT HAS SERVED THE DESIGN PAGE IS NOT A DIFFERENT HANDLE. App flies
  * a handle the drag sweep, component table and static analysis have already

@@ -20,7 +20,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
-import { findDbMotor } from './motorDb.js';
+import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
@@ -167,6 +167,8 @@ const FINISH_TO_CODE = (finish: unknown): number => {
 
 export function importRkt(data: ArrayBuffer | string, opts?: {
   presets?: readonly Preset[];
+  /** Every-delay must use the same rows as the later match (2026-10-01); App defaults to live rows. */
+  catalogue?: MotorDbEntry[];
   /**
    * The user's distance unit (`prefs.units.distance`), for the recovery line's
    * deployment altitudes. This module holds no unit preference, so App hands it
@@ -1638,7 +1640,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
     const read = rktEjectionDelay(engineSet, num);
     const matchContext = rocksimMotorEvidence(doc, engineSet);
-    const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext) : null;
+    const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext, opts?.catalogue) : null;
     const ref: OrkMotorRef = {
       designation: code,
       matchContext,
@@ -1999,8 +2001,9 @@ function rktEjectionDelay(engineSet: Element, num: NumReader): number | 'plugged
 export function rktEveryDelay(
   designation: string, manufacturer: string,
   context?: MotorMatchContext,
+  catalogue?: MotorDbEntry[],
 ): { delay: number; autoDelay?: true } | null {
-  const m = findDbMotor(designation, undefined, undefined, manufacturer, context);
+  const m = findDbMotor(designation, undefined, catalogue, manufacturer, context);
   if (!m) return null;
   const dflt = defaultDelay(m);
   return dflt !== null ? { delay: dflt } : { delay: 0, autoDelay: true };

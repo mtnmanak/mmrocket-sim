@@ -7,18 +7,21 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { diffCatalogue, OVERLAY_KEY } from './services/catalogueOverlay.js';
 import { padMassSetKey } from './services/configSync.js';
 import { applyDesignNameFallback } from './services/designFile.js';
 import { deriveLaunchInputs, type AeroState, type DesignState } from './services/designDerivation.js';
 import { catalogueMotorMass, LEGACY_PAD_MASS_KEY } from './services/hardwareMass.js';
 import { importMark, type ImportedDesign } from './services/importApply.js';
 import { DEFAULT_CONDITIONS } from './services/launchConditions.js';
+import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from './services/motorDb.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import type { HeldNote } from './services/notices.js';
 import type { OrkMotorRef } from './services/orkFile.js';
 import { peekSession } from './services/session.js';
 import { designStateFromSession } from './services/sessionRestore.js';
 import { comparable, idFree } from './services/simulate.testSupport.js';
+import type { FreshSimRun } from './services/simReport.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
 import { unzipMember } from './services/zipMember.js';
@@ -30,8 +33,8 @@ import { APP_VERSION } from './version.js';
  * response-2026-10-01b § 3.2).
  *
  * Each case mounts the real app on the real kernel, presses Launch, and keeps
- * exactly what the button got back — the run Saved simulations stores and the
- * flight — and exactly what App handed the shared path (flyBuiltDesign's input).
+ * what the button got back, the run Saved simulations actually persisted,
+ * and what App handed the shared path (flyBuiltDesign's input).
  * Then, with App unmounted (the headless build resets the kernel, which would
  * make App's held handle stale), the same design goes through the headless
  * door: `simulateDesign` for a stored session, fed the SEED as App's restore
@@ -48,7 +51,7 @@ import { APP_VERSION } from './version.js';
  * WHAT IS COMPARED, per case: every field of the run but its id, timestamp and
  * two wall-clock costs, with `toStrictEqual` — floats included (same process,
  * same kernel, same inputs; never a hard-coded kernel float, which differs in
- * the last bits between Node 22 and 24); the flight's summary and events; the
+ * the last bits between Node 22 and 24); the complete FlightResult; the
  * delay flown and the model; the full provenance key App stamped; the state
  * flown (tree, assigned motors, conditions, configurations, unmatched
  * references); the build's statics and weighed hardware; Auto's upgrade; the
@@ -224,12 +227,14 @@ beforeEach(() => {
   notes = { fileNote: null, padMassNote: null };
   vi.mocked(flyBuiltDesign).mockClear();
   localStorage.clear();
+  setCatalogueOverlay(null);
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
 });
 
 afterEach(async () => {
   await unmountAll();
+  setCatalogueOverlay(null);
   vi.unstubAllGlobals();
 });
 
@@ -245,6 +250,7 @@ function prefs(aero: AeroState): void {
 /** What App's Launch flew and what it handed the shared path, read before App is unmounted. */
 interface AppSide {
   out: Awaited<ReturnType<typeof flyBuiltDesign>>;
+  persistedRun: FreshSimRun;
   args: Parameters<typeof flyBuiltDesign>[0];
   /** "M+" on the vitals strip after the flight: App's `autoSupersonic`. */
   upgraded: boolean;
@@ -275,13 +281,18 @@ async function launchInApp(host: HTMLElement, presses = 1): Promise<AppSide> {
   expect(vi.mocked(flyBuiltDesign)).toHaveBeenCalledTimes(presses);
   const out = await (vi.mocked(flyBuiltDesign).mock.results[presses - 1]!.value as ReturnType<typeof flyBuiltDesign>);
   const args = vi.mocked(flyBuiltDesign).mock.calls[presses - 1]![0];
+  // Counting writes cannot see App altering the run before addRun (2026-10-01).
+  // Read the last Launch by id, with only JSON's own losses normalised below.
+  const persisted = JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as FreshSimRun[];
+  const persistedRun = persisted.find((run) => run.id === out.run.id);
+  expect(persistedRun, 'the last Launch stored in run history').toBeDefined();
   // Flush the debounced autosave first (pagehide is what flushes it on a real
   // close): every change the flight made restarts the debounce, so without
   // this the stored copy can predate the reconcile's own writes.
   window.dispatchEvent(new Event('pagehide'));
   const stored = peekSession();
   const side: AppSide = {
-    out, args,
+    out, args, persistedRun: persistedRun!,
     upgraded: host.querySelector('.vitals-aero') !== null,
     unmatchedRefs: stored?.unmatchedRefs ?? {},
     savedMark: stored?.savedMark,
@@ -319,8 +330,14 @@ function positions(tree: RocketTree): Map<string, string> {
   walk(tree.components);
   return out;
 }
-const renumbered = (x: unknown, ids: Map<string, string>): unknown =>
-  JSON.parse(JSON.stringify(x, (_k, v: unknown) => (typeof v === 'string' && ids.has(v) ? ids.get(v) : v)));
+// Keep undefined, nonfinite samples and every series value (2026-10-01): a
+// JSON round trip would hide changes beyond the node ids that differ per parse.
+const renumbered = (x: unknown, ids: Map<string, string>): unknown => {
+  if (typeof x === 'string') return ids.get(x) ?? x;
+  if (Array.isArray(x)) return x.map((v) => renumbered(v, ids));
+  if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, renumbered(v, ids)]));
+  return x;
+};
 
 /**
  * The headless Launch against App's: every comparable field, exactly. `stored`:
@@ -331,8 +348,10 @@ function expectSameLaunch(app: AppSide, out: SimulateDesignResult, aero: AeroSta
   const same = (a: unknown, b: unknown) => (stored ? expect(plain(a)).toStrictEqual(plain(b)) : expect(a).toStrictEqual(b));
   // The flight and the run.
   expect(comparable(out.run)).toStrictEqual(comparable(app.out.run));
-  expect(out.result.summary).toStrictEqual(app.out.flight.result.summary);
-  expect(out.result.events).toStrictEqual(app.out.flight.result.events);
+  expect(plain(comparable(app.persistedRun))).toStrictEqual(plain(comparable(out.run)));
+  // Series and separated branches are part of the answer too (2026-10-01);
+  // summary/events alone let a truncated FlightResult agree with App.
+  expect(out.result).toStrictEqual(app.out.flight.result);
   expect(out.flight.flownDelayS).toBe(app.out.flight.flownDelayS);
   expect(out.flight.usedSupersonic).toBe(app.out.flight.usedSupersonic);
   // What App handed the shared path: the provenance key, the state, the build.
@@ -406,10 +425,9 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
   expectSameLaunch(app, out, aero);
   // The bytes door: its own parse, its own presets, its own unit words.
   const viaBytes = await simulateFile(bytes, name, { aero });
-  expect(idFree(viaBytes.run)).toStrictEqual(idFree(app.out.run));
-  expect(viaBytes.result.summary).toStrictEqual(app.out.flight.result.summary);
-  expect(renumbered(viaBytes.result.events, positions(viaBytes.state.tree)))
-    .toStrictEqual(renumbered(app.out.flight.result.events, positions(app.args.tree)));
+  expect(plain(idFree(viaBytes.run))).toStrictEqual(plain(idFree(app.persistedRun)));
+  expect(renumbered(viaBytes.result, positions(viaBytes.state.tree)))
+    .toStrictEqual(renumbered(app.out.flight.result, positions(app.args.tree)));
   // A position, not an id: the delay table's mounts and the primary as well.
   expect(renumbered(viaBytes.run.delayResolution?.mounts.map((m) => m.mountId), positions(viaBytes.state.tree)))
     .toStrictEqual(renumbered(app.out.run.delayResolution?.mounts.map((m) => m.mountId), positions(app.args.tree)));
@@ -600,6 +618,33 @@ function referenceWith(extra: string): Uint8Array {
 const referenceWithLegacyPadMass = (kg: number) => referenceWith(`<measuredpadmass>${kg}</measuredpadmass>`);
 
 describe('the Launch button and simulateFile fly an opened file the same', () => {
+  // Headless isolation must not change App's own Open/Launch (2026-10-01).
+  // Store a real overlay so the mount's restore effect takes the browser path.
+  it('F12: App opens and launches with the browser catalogue overlay', async () => {
+    const baseline = await simulateFile(fixture('reference.ork'), 'reference.ork');
+    const c6 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+    expect(c6.length).toBe(70);
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify({
+      ...diffCatalogue(MOTOR_DB, MOTOR_DB.map((m) => m === c6 ? { ...m, length: 71 } : m)),
+      baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-01T00:00:00Z', liveCount: MOTOR_DB.length, rejected: [],
+    }));
+    prefs(CLASSIC);
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await settle(50);
+    const markBefore = peekSession()?.savedMark;
+    parsed = null;
+    await pick(host, new File([fixture('reference.ork') as Uint8Array<ArrayBuffer>], 'reference.ork'));
+    await waitFor(() => parsed !== null && shownName(host) === baseline.state.tree.name
+      && peekSession()?.savedMark !== markBefore, 'opened reference to be autosaved');
+    await settle(100);
+    const app = await launchInApp(host);
+    const spec = app.args.derived.assigned[0]![1].spec;
+    expect(spec.length).toBe(0.071);
+    expect(spec.cgX).toBe(0.0355);
+    expect(spec).not.toStrictEqual(Object.values(baseline.state.mountMotors)[0]!.spec);
+  }, 60000);
+
   it('F1: a .ork', async () => {
     const { out } = await fileCase(fixture('reference.ork'), 'reference.ork', CLASSIC);
     expect(out.run.motor).toBe('C6');

@@ -378,8 +378,9 @@ async function bothWays(state: DesignState, aero: AeroState) {
   });
   expect(upgraded).toBe(refUpgraded);
   expect(comparable(out.run)).toStrictEqual(comparable(ref.run));
-  expect(out.flight.result.summary).toStrictEqual(ref.res.summary);
-  expect(out.flight.result.events).toStrictEqual(ref.res.events);
+  // The frozen Launch must catch lost series and branches too (2026-10-01).
+  // Both builds use the same tree, so no node id needs normalising here.
+  expect(out.flight.result).toStrictEqual(ref.res);
   return { out, ref, built: b.built, upgraded };
 }
 
