@@ -135,6 +135,65 @@ async function reviewLem(opts: { launch?: LaunchConditions; route?: Route } = {}
   await click(button('Fetch'));
 }
 
+describe('device compared with the design site', () => {
+  const geo = (longitude = -80.1269) => ({
+    getCurrentPosition: vi.fn((ok: PositionCallback) => ok({
+      coords: { latitude: 26.38029, longitude, accuracy: 30 },
+    } as GeolocationPosition)),
+  });
+
+  it('asks only after the location click, selects the precise mirrored site without a request, and writes only on Apply', async () => {
+    const geolocation = geo();
+    render({ launch: LEM_SITE, route: LEM_WEATHER, geolocation });
+    expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('the same number, east');
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('You are at 26.38, -80.13; this design’s Longitude is +80.126879 — the same number, east.');
+    expect(urls).toEqual([]);
+    await click(button('Use this design’s site, west'));
+    expect(urls).toEqual([]);
+    expect(applied).toEqual([]);
+    expect(host.textContent).not.toContain('the same number, east');
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(urls).toHaveLength(2);
+    expect(urls[0]).toContain('latitude=26.380&longitude=-80.127');
+    await click(button('Apply'));
+    expect(applied[0]!.patch).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: -80.126879 });
+    expect(applied[0]!.snapshot.place).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: -80.126879 });
+    expect(LEM_SITE.longitudeDeg).toBe(80.126879);
+  });
+
+  it('does not ask for a real eastern design with an eastern device', async () => {
+    render({ launch: LEM_SITE, geolocation: geo(80.1269) });
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    expect(button('Use this design’s site, west')).toBeUndefined();
+    expect(urls).toEqual([]);
+  });
+
+  it('does not reuse a device fix from a previous dialog or after another place is chosen', async () => {
+    render({ launch: LEM_SITE, geolocation: geo(), initialPlace: {
+      label: 'Device', method: 'device', latitudeDeg: 26.38, longitudeDeg: -80.13,
+    } });
+    expect(button('Use this design’s site, west')).toBeUndefined();
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    expect(button('Use this design’s site, west')).toBeTruthy();
+    await click(button(/^This design’s site/));
+    expect(button('Use this design’s site, west')).toBeUndefined();
+  });
+
+  it('cancel after locating and selecting the mirror leaves the design unchanged', async () => {
+    render({ launch: LEM_SITE, geolocation: geo() });
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    await click(button('Use this design’s site, west'));
+    await click(button('Cancel'));
+    expect(applied).toEqual([]);
+    expect(urls).toEqual([]);
+    expect(closed).toBe(1);
+  });
+});
+
 describe('the design-site longitude check', () => {
   it('uses only the chosen site’s existing fetch and shows hemispheres in the review', async () => {
     await reviewLem();

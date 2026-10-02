@@ -11,6 +11,7 @@ import {
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
+import type { LongitudeReview } from './components/LongitudeCheck.js';
 import { recoveryScope } from './components/recoveryContext.js';
 import { Icon } from './components/Icon.js';
 import { LazyDialog } from './components/LazyDialog.js';
@@ -462,6 +463,7 @@ export function App() {
    * (applyImported), since it would then describe numbers no longer there.
    */
   const [weather, setWeather] = useState<WeatherSnapshot | null>(session?.weather ?? null);
+  const [longitudeReview, setLongitudeReview] = useState<LongitudeReview | null>(null);
   /**
    * The weather dialog, and which way in: ☁ Get weather opens on today; the
    * stale strip's Fetch again opens on the applied weather's own date and
@@ -835,6 +837,7 @@ export function App() {
     // standing, the drag panel went on offering the PREVIOUS rocket's flight
     // altitudes as a sweep condition for a design that never flew them.
     setFileMachAlt(undefined);
+    setLongitudeReview(null);
     // A stale "Loaded <old rocket>…" banner over a fresh design
     // reads like the import happened again - clear both notes.
     setFileNote(null);
@@ -2263,6 +2266,7 @@ export function App() {
     applyImportPlan(plan, {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setLaunch, setMeasured,
+      setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
       setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
@@ -4032,6 +4036,7 @@ export function App() {
           </div>
 
           <LaunchPanel hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+            longitudeReview={longitudeReview} onLongitudeReview={setLongitudeReview}
             canLaunch={!!built && !!primaryMountId}
             lastRun={simCostRef}
             weather={weather} onGetWeather={() => setShowWeather('get')}

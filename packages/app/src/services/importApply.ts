@@ -54,7 +54,7 @@ import {
  * results — same shape minus `launch` — fit too; only .ork parses carry the
  * flight-configuration fields.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured'>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured' | 'longitudeCheck'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
@@ -336,6 +336,7 @@ function unconfirmedNotes(perMount: readonly (string | undefined)[]): string[] {
 
 /** What App writes for an opened design, and the mark it takes over it. */
 export interface ImportPlan {
+  longitudeCheck?: OrkTreeImportResult['longitudeCheck'];
   /**
    * Exactly the state App writes, in the shape the saved mark hashes — the
    * mark is `designFingerprint(snapshot)` and nothing else.
@@ -554,6 +555,7 @@ export function planImport(
       measured,
     },
     unmatchedRefs: nextUnmatchedRefs,
+    longitudeCheck: imported.longitudeCheck,
     machAlt: imported.machAlt,
     // A file whose motors all matched is routine information; one that lost a
     // motor is a warning the user has to act on (motorTrouble was counted
@@ -578,6 +580,7 @@ export interface ImportSinks {
   setSavedConfigs: (c: SavedConfig[]) => void;
   setActiveConfigId: (id: string | null) => void;
   setLaunch: (l: LaunchConditions) => void;
+  setLongitudeCheck?: (check: OrkTreeImportResult['longitudeCheck']) => void;
   setMeasured: (m: MeasuredFigures) => void;
   setMachAlt: (t: [number, number][] | undefined) => void;
   setNote: (text: string, severity: NoticeSeverity) => void;
@@ -609,6 +612,7 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   // The mark used to merge the launch captured when the open started, so that
   // edit left the just-opened design reading as unsaved.
   sinks.setLaunch(snapshot.launch);
+  sinks.setLongitudeCheck?.(plan.longitudeCheck);
   sinks.setMeasured(snapshot.measured);
   sinks.setNote(plan.note.text, plan.note.severity);
   sinks.setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);

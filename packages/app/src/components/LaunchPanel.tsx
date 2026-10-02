@@ -8,6 +8,7 @@ import {
 } from '../services/atmosphere.js';
 import { APPLY_KEYS, type ApplyKey, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { GustEstimate } from './GustEstimate.js';
+import { LongitudeCheck, type LongitudeReview } from './LongitudeCheck.js';
 import { Icon } from './Icon.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -473,7 +474,7 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 
 export function LaunchPanel({
   value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
-  onWeatherDismiss, onWeatherSigma, hasLaunchGuide = false,
+  onWeatherDismiss, onWeatherSigma, hasLaunchGuide = false, longitudeReview, onLongitudeReview,
 }: {
   value: LaunchConditions;
   hasLaunchGuide?: boolean;
@@ -518,6 +519,8 @@ export function LaunchPanel({
    * through `onChange` alone.
    */
   onWeatherSigma?: (sigmaMs: number) => void;
+  longitudeReview?: LongitudeReview | null;
+  onLongitudeReview?: (review: LongitudeReview | null) => void;
 }) {
   const { prefs } = usePrefs();
   // The applied forecast hour's mean wind and gust — what the σ chip works
@@ -621,6 +624,8 @@ export function LaunchPanel({
             −80.6 it flies. */}
         {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
           KERNEL_DEFAULT_LONGITUDE_DEG)}
+        {longitudeReview && onLongitudeReview && <LongitudeCheck value={value} onChange={onChange}
+          review={longitudeReview} onReview={onLongitudeReview} />}
         {/* Under the coordinates its Coriolis term reads (GS1); desktop keeps it
             in its simulation options, beside the time step. */}
         <GeodeticField value={value} onChange={onChange} />

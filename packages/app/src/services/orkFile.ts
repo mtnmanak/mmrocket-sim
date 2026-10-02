@@ -26,6 +26,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
+import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -103,6 +104,8 @@ export interface OrkTreeImportResult {
    * readLaunchConditions).
    */
   launch?: Partial<LaunchConditions>;
+  /** Transient evidence from this open; never written to the file or session. */
+  longitudeCheck?: FileLongitudeCheck;
   /**
    * What the builder weighed (SI, airframe only — motor out), for the Design
    * tab's "Measured mass & CG" box. Absent when the file carries neither
@@ -1371,6 +1374,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
   });
   const launch = readLaunchConditions(doc, notes, chosenConfigId);
+  const { simEls, simEl } = simulationForConfig(doc, chosenConfigId);
+  const siteOf = (sim: XmlElement) => {
+    const conditions = sim.querySelector(':scope > conditions');
+    return {
+      latitudeDeg: conditions ? num(conditions, 'launchlatitude', NaN) : NaN,
+      longitudeDeg: conditions ? num(conditions, 'launchlongitude', NaN) : NaN,
+    };
+  };
+  const longitudeCheck = simEl ? checkFileLongitude(siteOf(simEl), simEls.filter((s) => s !== simEl).map(siteOf)) : undefined;
+  if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, text(simEl!, ':scope > name') || 'Unnamed simulation'));
 
   // THE LIMITS TABLE, applied here where its notes still reach the import
   // banner (audit 2026-09-22): every count, dimension and enum string outside
@@ -1385,6 +1398,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     name, tree, motors, configs, chosenConfigId,
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
+    ...(longitudeCheck ? { longitudeCheck } : {}),
   };
 }
 
@@ -1519,9 +1533,7 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
   return referenceFrom;
 }
 
-function readLaunchConditions(
-  doc: XmlDocument, notes: string[], chosenConfigId?: string | null,
-): Partial<LaunchConditions> | undefined {
+function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // A .ork carries one <simulation> per flight configuration, and they are NOT
   // in configuration order. Taking the first one applied whichever site that
   // simulation was set up for — one real file's other five simulations declare
@@ -1533,6 +1545,13 @@ function readLaunchConditions(
     ? simEls.find((s) => text(s, ':scope > conditions > configid') === chosenConfigId)
     : undefined;
   const simEl = forChosen ?? simEls[0];
+  return { simEls, simEl };
+}
+
+function readLaunchConditions(
+  doc: XmlDocument, notes: string[], chosenConfigId?: string | null,
+): Partial<LaunchConditions> | undefined {
+  const { simEl } = simulationForConfig(doc, chosenConfigId);
   const condEl = simEl?.querySelector(':scope > conditions');
   if (!condEl) return undefined;
   const launch: Partial<LaunchConditions> = {

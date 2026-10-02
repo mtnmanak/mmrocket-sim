@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { coordinateLabel, weatherPlaceLabel } from '../services/coordinates.js';
-import { likelyFlippedLongitude } from '../services/longitudeCheck.js';
+import { deviceMirrorsDesign, likelyFlippedLongitude } from '../services/longitudeCheck.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, flownLongitudeDeg, type LaunchConditions } from './LaunchPanel.js';
 import { createSequencer } from '../services/latestWins.js';
@@ -196,6 +196,7 @@ export function WeatherDialog({
   const [searched, setSearched] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [locateNote, setLocateNote] = useState<string | null>(null);
+  const [locatedHere, setLocatedHere] = useState(false);
   const [place, setPlace] = useState<WeatherPlace | null>(initialPlace ? { ...initialPlace } : null);
   const [designSite, setDesignSite] = useState(false);
   const [keptSites, setKeptSites] = useState(() => new Set(keptLongitudeSites));
@@ -250,6 +251,7 @@ export function WeatherDialog({
     // cancel() only clears `busy` as its `finally` would.
     if (busy !== null) cancel();
     setDesignSite(fromDesign);
+    setLocatedHere(false);
     setPlace(p);
     setPlaces(null);
     setAnswer(null);
@@ -300,6 +302,7 @@ export function WeatherDialog({
       // Rounded to 2 dp HERE, before it is sent anywhere or kept.
       const p = placeFromDevice(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       choosePlace(p);
+      setLocatedHere(true);
       setLocateNote(`Located to within ${farText(units.distance, Math.max(p.accuracyM ?? 0, 1000))}.`);
     }, (err) => {
       if (!seq.current.isCurrent(id)) return;
@@ -434,6 +437,18 @@ export function WeatherDialog({
         </div>
         <p className="weather-small">{WEATHER_DIALOG_COPY.locateNote}</p>
         {locateNote && <p className="weather-small" role="status">{locateNote}</p>}
+        {locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) && (
+          <div className="weather-note" role="status">
+            You are at {place.latitudeDeg.toFixed(2)}, {place.longitudeDeg.toFixed(2)}; this design’s Longitude is{' '}
+            {launch.longitudeDeg! > 0 ? '+' : ''}{launch.longitudeDeg} — the same number, {launch.longitudeDeg! < 0 ? 'west' : 'east'}.
+            <div className="weather-actions">
+              <button type="button" className="file-btn" disabled={busy !== null} onClick={() => choosePlace({
+                label: coordinatesLabel(launch.latitudeDeg, -launch.longitudeDeg!),
+                latitudeDeg: launch.latitudeDeg, longitudeDeg: -launch.longitudeDeg!, method: 'coordinates',
+              })}>Use this design’s site, {launch.longitudeDeg! < 0 ? 'east' : 'west'}</button>
+            </div>
+          </div>
+        )}
         {note && <p className="weather-note" role="status">{note}</p>}
 
         {places && (

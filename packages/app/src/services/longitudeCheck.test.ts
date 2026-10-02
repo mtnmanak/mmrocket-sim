@@ -1,5 +1,67 @@
 import { describe, expect, it } from 'vitest';
-import { likelyFlippedLongitude } from './longitudeCheck.js';
+import { checkFileLongitude, deviceMirrorsDesign, likelyFlippedLongitude } from './longitudeCheck.js';
+
+const BOCA = { latitudeDeg: 26.380273, longitudeDeg: 80.126879 };
+const SIBLING = { latitudeDeg: 28.1, longitudeDeg: -80.63 };
+
+describe('file longitude evidence', () => {
+  it('finds five matching siblings without replacing the opened site', () => {
+    const result = checkFileLongitude(BOCA, [BOCA, ...Array.from({ length: 5 }, () => SIBLING)])!;
+    expect(result.opened).toEqual(BOCA);
+    expect(result.siblingCount).toBe(5);
+    expect(result.distanceKm).toBeCloseTo(13618, 0);
+    expect(result.flippedDistanceKm).toBeCloseTo(198, 0);
+  });
+
+  it('excludes the desktop default even for an Indian site whose mirror is nearby', () => {
+    expect(checkFileLongitude({ latitudeDeg: 28.61, longitudeDeg: 80.6 }, [
+      { latitudeDeg: 28.61, longitudeDeg: -80.6 },
+    ])).toBeUndefined();
+  });
+
+  it('does not flag the CT-Concep98 multi-site shape', () => {
+    expect(checkFileLongitude({ latitudeDeg: 40, longitudeDeg: -119 }, [
+      { latitudeDeg: 40.65, longitudeDeg: -119.35 }, { latitudeDeg: 41.35, longitudeDeg: -83.5 },
+    ])).toBeUndefined();
+  });
+
+  it.each([
+    ['blank', { ...BOCA, longitudeDeg: null }, [SIBLING]],
+    ['absent', { latitudeDeg: BOCA.latitudeDeg }, [SIBLING]],
+    ['legacy default', { ...BOCA, longitudeDeg: -80.6 }, [{ ...SIBLING, longitudeDeg: 80.63 }]],
+    ['near Greenwich', { latitudeDeg: 0, longitudeDeg: 4.99 }, [{ latitudeDeg: 0, longitudeDeg: -4.99 }]],
+    ['blank sibling', BOCA, [{ ...SIBLING, longitudeDeg: NaN }]],
+    ['legacy sibling longitude', BOCA, [{ ...SIBLING, longitudeDeg: -80.6 }]],
+    ['missing latitude', { longitudeDeg: 80.126879 }, [SIBLING]],
+    ['bad latitude', { ...BOCA, latitudeDeg: 91 }, [SIBLING]],
+    ['bad longitude', { ...BOCA, longitudeDeg: 181 }, [SIBLING]],
+    ['same hemisphere', BOCA, [{ ...SIBLING, longitudeDeg: 80.63 }]],
+    ['mirror more than 300 km away', BOCA, [{ ...SIBLING, latitudeDeg: 31 }]],
+    ['sites less than 2000 km apart', { latitudeDeg: 0, longitudeDeg: 5 }, [{ latitudeDeg: 0, longitudeDeg: -5 }]],
+  ])('stays silent for %s', (_name, opened, siblings) => {
+    expect(checkFileLongitude(opened, siblings)).toBeUndefined();
+  });
+});
+
+describe('device longitude evidence', () => {
+  it('matches a rounded west fix while retaining the precise design', () => {
+    expect(deviceMirrorsDesign(BOCA, { latitudeDeg: 26.38, longitudeDeg: -80.13 })).toBe(true);
+  });
+  it.each([
+    ['real eastern site and device', BOCA, { latitudeDeg: 26.38, longitudeDeg: 80.13 }],
+    ['latitude outside half a degree', BOCA, { latitudeDeg: 27, longitudeDeg: -80.13 }],
+    ['longitude outside half a degree', BOCA, { latitudeDeg: 26.38, longitudeDeg: -81 }],
+    ['blank', { ...BOCA, longitudeDeg: null }, { latitudeDeg: 26.38, longitudeDeg: -80.13 }],
+    ['legacy default', { ...BOCA, longitudeDeg: -80.6 }, { latitudeDeg: 26.38, longitudeDeg: 80.6 }],
+    ['near Greenwich', { latitudeDeg: 0, longitudeDeg: 4.99 }, { latitudeDeg: 0, longitudeDeg: -5 }],
+    ['device near Greenwich', { latitudeDeg: 0, longitudeDeg: 5 }, { latitudeDeg: 0, longitudeDeg: -4.99 }],
+  ])('stays silent for %s', (_name, design, device) => {
+    expect(deviceMirrorsDesign(design, device)).toBe(false);
+  });
+  it('includes the latitude, longitude-sum and five-degree boundaries', () => {
+    expect(deviceMirrorsDesign({ latitudeDeg: 0, longitudeDeg: 5 }, { latitudeDeg: 0.5, longitudeDeg: -5.5 })).toBe(true);
+  });
+});
 
 const LEM = { designSite: true, longitudeDeg: 80.126879, siteM: 3.048, demM: 125, utcOffsetHours: -4 };
 
