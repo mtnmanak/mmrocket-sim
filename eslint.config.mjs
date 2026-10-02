@@ -595,6 +595,33 @@ export default tseslint.config(
   },
 
   {
+    // The pure-JS XML parser is for Node and Workers only (headless step 2,
+    // 2026-10-01). The browser keeps its native DOMParser behind the seam in
+    // services/xmlParse.ts, and nothing the app ships may pull in the JS parser,
+    // its three packages (saxes, @xmldom/xmldom, css-select — devDependencies,
+    // so still resolvable, and Vite would bundle them silently: ~53 KB gzip) or
+    // the test-only parity cases. services/xmlParse.guard.test.ts scans for the
+    // same, and also sees a dynamic import(), which this rule does not.
+    files: ['packages/app/src/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      'packages/app/src/services/xmlParseJs.ts',
+      'packages/app/src/services/xmlParseJs.setup.ts',
+      'packages/app/src/services/xmlParseParity.ts',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['saxes', '@xmldom/*', 'css-select', '**/xmlParseJs', '**/xmlParseJs.*', '**/xmlParseParity', '**/xmlParseParity.*'],
+          message: 'The JS XML parser is for Node and Workers only: the browser parses with its native DOMParser '
+            + 'through services/xmlParse.ts. A non-browser ENTRY installs it with setXmlParser(jsXmlParser); '
+            + 'nothing the app ships may import it, its packages, or the test-only parity cases.',
+        }],
+      }],
+    },
+  },
+
+  {
     // Tests run under Node (vitest), some under happy-dom, and a few print measured
     // sweep numbers on purpose (services/lemivSweep.test.ts) — which is why
     // no-console is off here rather than suppressed line by line.

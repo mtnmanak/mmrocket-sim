@@ -37,6 +37,14 @@
 # scripts, merge if green, and report it. PR #2 (eslint, typescript-eslint,
 # happy-dom) was the first, merged 2026-09-24 as a fast-forward.
 #
+# ONE EXPECTED RED (2026-10-01). The XML-parser parity test
+# (packages/app/src/services/xmlParse.hostile.test.ts) holds saxes,
+# @xmldom/xmldom and css-select — the parser a server will ship — to a NAMED
+# list of the rows where they answer differently from Chrome, and fails when a
+# bump moves any row, on purpose. Read the row the failure names, then update
+# the list or hold the package back; it is not a flake. happy-dom's own list
+# is a subset check and stays green when happy-dom gets closer to Chrome.
+#
 # The wrangler version in deploy.yml (`wranglerVersion` and the install step)
 # is not something Dependabot reads: bump those two together, by hand.
 

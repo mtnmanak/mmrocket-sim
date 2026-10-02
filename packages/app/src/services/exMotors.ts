@@ -1,6 +1,7 @@
 import type { MotorDbEntry } from './motorDb.js';
 import { clearCurveCache } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
+import { parseXml, type XmlElement } from './xmlParse.js';
 
 /**
  * User-imported (EX / experimental) motors from RASP .eng or RockSim .rse
@@ -395,7 +396,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
  * is named in `notes` and flies the model.
  */
 function rseSampleMassesKg(
-  el: Element, name: string, masses: number[], initG: number, propG: number, n: number, notes?: string[],
+  el: XmlElement, name: string, masses: number[], initG: number, propG: number, n: number, notes?: string[],
 ): number[] | undefined {
   const autoCalc = !/^(0|false)$/i.test((el.getAttribute('auto-calc-mass') ?? '').trim());
   if (autoCalc) return undefined;
@@ -418,8 +419,8 @@ function rseSampleMassesKg(
  * every other motor in the file; only a file with nothing usable is refused.
  */
 export function parseRse(text: string, notes?: string[]): ExMotor[] {
-  const doc = new DOMParser().parseFromString(text, 'text/xml');
-  if (doc.querySelector('parsererror')) throw new Error('Not valid XML (.rse)');
+  // Through the parser seam (xmlParse.ts); same message as before it.
+  const doc = parseXml(text, 'Not valid XML (.rse)');
   const engines = Array.from(doc.querySelectorAll('engine'));
   if (engines.length === 0) throw new Error('No <engine> entries in .rse file');
 
@@ -462,7 +463,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
     // named. Desktop refuses the file ("Illegal motor data point encountered");
     // a point read as 0 — `Number(null)` — put a zero-thrust dip in the curve,
     // and one dropped joined its neighbours with a straight line, unsaid.
-    const unread = (d: Element, a: 't' | 'f'): string | null => {
+    const unread = (d: XmlElement, a: 't' | 'f'): string | null => {
       const raw = d.getAttribute(a);
       return Number.isFinite(parseDecimal(raw)) ? null : raw === null ? `no ${a}` : `${a}="${raw.slice(0, 20)}"`;
     };

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- HAND-WRITTEN, not a manufacturer's file: no real RockSim engine file
+     exists anywhere in the repo or docs/ (searched 2026-10-01). The one motor
+     of exMotors.test.ts's inline RSE, plus a second with a CR/LF comment and
+     entities, so parseRse runs through the Chrome golden like the design
+     formats do (xmlParse.golden.test.ts). -->
+<engine-database>
+ <engine-list>
+  <engine mfg="EX Labs" code="M1234-EX" Type="single-use" dia="75" len="620"
+    initWt="4200" propWt="2400" delays="10,14,18" auto-calc-mass="0" auto-calc-cg="0">
+   <comments>test motor</comments>
+   <data>
+     <eng-data t="0" f="0" m="4200" cg="310"/>
+     <eng-data t="0.1" f="1400" m="4100" cg="310"/>
+     <eng-data t="2.0" f="1300" m="2500" cg="310"/>
+     <eng-data t="2.4" f="0" m="1800" cg="310"/>
+   </data>
+  </engine>
+  <engine mfg="R &amp; D Motors" code="K321-Ü" Type="reloadable" dia="54" len="403"
+    initWt="1500" propWt="760" delays="6,10" auto-calc-mass="0" auto-calc-cg="0">
+   <comments>Größe — 2nd motor&#13;
+line two</comments>
+   <data>
+     <eng-data t="0" f="0" m="1500" cg="200"/>
+     <eng-data t="0.05" f="420" m="1490" cg="200"/>
+     <eng-data t="1.8" f="300" m="800" cg="200"/>
+     <eng-data t="2.2" f="0" m="740" cg="200"/>
+   </data>
+  </engine>
+ </engine-list>
+</engine-database>

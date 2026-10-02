@@ -1,7 +1,8 @@
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { parseDecimal } from './xmlUtil.js';
+import type { XmlDocument, XmlElement } from './xmlParse.js';
 
-const value = (el: Element | null, tag: string): number => {
+const value = (el: XmlElement | null, tag: string): number => {
   const raw = el?.querySelector(`:scope > ${tag}`)?.textContent?.trim();
   return raw ? parseDecimal(raw) : NaN;
 };
@@ -11,7 +12,7 @@ const value = (el: Element | null, tag: string): number => {
  * they are deliberately ineligible rather than guessed from the magnitude.
  * An enabled single-stage dry-mass override is the only accepted dry mass.
  */
-export function rocksimMotorEvidence(doc: Document, engineSet: Element): MotorMatchContext {
+export function rocksimMotorEvidence(doc: XmlDocument, engineSet: XmlElement): MotorMatchContext {
   const context: MotorMatchContext = { source: 'rocksim' };
   const design = doc.querySelector('RocketDesign');
   const serial = engineSet.querySelector(':scope > MountSerialNo')?.textContent?.trim();
