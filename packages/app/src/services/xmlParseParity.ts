@@ -50,6 +50,7 @@ const nest = (n: number): string => `<a>${'<b>'.repeat(n)}${'</b>'.repeat(n)}</a
  */
 export const HOSTILE: Readonly<Record<string, string>> = {
   ok: '<a><b x="1">t</b></a>',
+  literalParsererror: '<a><parsererror/></a>',
   mismatched: '<a><b></a>',
   unclosedRoot: '<a><b></b>',
   garbage: 'not xml at all',
@@ -176,6 +177,8 @@ export const CONFORMANCE_DOCS: Readonly<Record<string, string>> = {
   motors: '<rocket><motormount><motor configid="a"/></motormount><stage><motormount><motor configid="b"/>'
     + '<motor configid="c"/></motormount></stage><motor configid="stray"/></rocket>',
   nsDefault: '<a xmlns="urn:x"><b k="1"/><c><b k="2"/></c></a>',
+  nsPrefixed: '<a><p:engine xmlns:p="urn:x"/></a>',
+  nsUnprefixed: '<a><engine/></a>',
   rocksim: '<RockSimDocument><DesignInformation><RocketDesign><Name>R</Name><SerialNo>7</SerialNo>'
     + '<Stage3Parts><BodyTube><SerialNo>1</SerialNo><ID>48</ID></BodyTube></Stage3Parts></RocketDesign>'
     + '</DesignInformation><SimulationList><SimulationResults><Stage3Engines><EngineSet><MountSerialNo>1</MountSerialNo>'
@@ -250,6 +253,8 @@ export const CONFORMANCE_QUERIES: readonly ConformanceQuery[] = [
   // a default namespace does not stop a type selector
   q('nsDefault', [], 'qsa', 'b'), q('nsDefault', [], 'qsa', ':scope > b'), q('nsDefault', [], 'tag'),
   q('nsDefault', [1], 'closest', 'a'),
+  // a type selector reads the LOCAL name, with or without a namespace prefix
+  q('nsPrefixed', null, 'qs', 'engine'), q('nsUnprefixed', null, 'qs', 'engine'),
   // the RockSim shapes: closest() across levels, bare descendants, spread
   q('rocksim', null, 'qsa', 'EngineSet'), q('rocksim', null, 'qs', 'RockSimDocument > DesignInformation > RocketDesign'),
   q('rocksim', null, 'qsa', 'SerialNo'), q('rocksim', [1, 0, 0, 0], 'closest', 'SimulationResults'),

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { browserXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
-import { HOSTILE, runHostile, type HostileOutcome } from './xmlParseParity.js';
+import { HOSTILE, hostileOutcome, runHostile, type HostileOutcome } from './xmlParseParity.js';
 
 /**
  * Malformed, hostile and edge-case XML (xmlParseParity.ts HOSTILE), held to
@@ -76,6 +76,14 @@ const differing = (got: Record<string, HostileOutcome>) =>
   Object.keys(HOSTILE).filter((k) => JSON.stringify(got[k]) !== JSON.stringify(golden.hostile[k])).sort();
 
 describe(`hostile XML, against Chrome ${golden.chrome}`, () => {
+  it('literalParsererror: both paths refuse a well-formed parsererror element', () => {
+    // The browser's error-element check also finds a literal element in a
+    // well-formed file: the JS path must refuse the same file.
+    expect(golden.hostile['literalParsererror']).toBe('REFUSED');
+    expect(hostileOutcome(browserXmlParser, HOSTILE['literalParsererror']!)).toBe('REFUSED');
+    expect(hostileOutcome(jsXmlParser, HOSTILE['literalParsererror']!)).toBe('REFUSED');
+  });
+
   it('the golden has an answer for every row, and no answer for a row that is gone', () => {
     expect(Object.keys(golden.hostile).sort()).toEqual(Object.keys(HOSTILE).sort());
   });

@@ -82,8 +82,8 @@ const DOCUMENT_NODE = 9;
 const isTag = (n: XmldomNode): n is XmldomElement => n.nodeType === ELEMENT_NODE;
 const childNodes = (n: XmldomNode): XmldomNode[] => Array.from(n.childNodes);
 
-/** css-select's view of an xmldom tree. Tag and attribute names are matched
- *  exactly as written (`xmlMode: true` below): an XML document is
+/** css-select's view of an xmldom tree. Local tag names and attribute names
+ *  are matched exactly as written (`xmlMode: true` below): an XML document is
  *  case-sensitive, as Chrome is — and as happy-dom, the test stand-in, is NOT
  *  (it matches `bodytube` against <BodyTube>; spec §1.4). */
 export const xmlSelectAdapter: NonNullable<CSSselect.Options<XmldomNode, XmldomElement>['adapter']> = {
@@ -95,7 +95,9 @@ export const xmlSelectAdapter: NonNullable<CSSselect.Options<XmldomNode, XmldomE
     const p = e.parentNode;
     return p && p.nodeType === ELEMENT_NODE ? p : null;
   },
-  getName: (e) => e.tagName,
+  // A type selector with no default namespace matches the LOCAL name in
+  // any namespace: `engine` finds <p:engine>, as it does in Chrome.
+  getName: (e) => e.localName ?? e.tagName,
   getAttributeValue: (e, name) => (e.hasAttribute(name) ? e.getAttribute(name) ?? undefined : undefined),
   hasAttrib: (e, name) => e.hasAttribute(name),
   getText: (n) => n.textContent ?? '',
@@ -233,6 +235,9 @@ export function xmlDom(text: string): XmlDocument {
   // rootless input (empty, whitespace, only a comment, PI or declaration), so
   // one here was unreachable (verify-step2 finding 6). xmlParse.test.ts pins
   // that xmldom behaviour; if a bump changes it, the check comes back.
+  // The browser's error-element check also refuses a literal <parsererror/>
+  // in well-formed XML. Keep that refusal on this path too.
+  if (doc.querySelector('parsererror')) throw new XmlParseError('XML parse error');
   return doc as unknown as XmlDocument;
 }
 

@@ -39,7 +39,8 @@ const code = (p: string) => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g,
 
 const NODE_SIDE = new Set(['src/services/xmlParseJs.ts', XML_JS_SETUP, 'src/services/xmlParseParity.ts']);
 // A package may be named bare or by a subpath ('@xmldom/xmldom/lib/dom-parser.js').
-const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"]*)?|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"]/;
+// All three quotes count: import(`./services/xmlParseJs.js`) loads it too.
+const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"`](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"`]*)?|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"`]/;
 
 /**
  * Does a test file reach an importer? Three ways it can (verify-step2 finding 2,
@@ -61,6 +62,16 @@ const reachesAnImporter = (src: string): boolean =>
   CALLS.test(src) || (/\bnew File\(/.test(src) && NAMES_A_FILE.test(src)) || /\bencodeShareFragment\s*\(/.test(src);
 
 describe('the XML parser seam', () => {
+  it.each([
+    'void import(`./services/xmlParseJs.js`);',
+    'import { jsXmlParser } from `./xmlParseJs.js`;',
+    'import `saxes`;',
+    'void import(`@xmldom/xmldom/lib/dom-parser.js`);',
+    'import { selectAll } from `css-select/dist/index.js`;',
+  ])('finds a backtick-quoted forbidden specifier: %s', (src) => {
+    expect(FORBIDDEN.test(src)).toBe(true);
+  });
+
   it('finds the files it guards (a scan that reads nothing passes everything)', () => {
     expect(all.length).toBeGreaterThan(200);
     expect(all.map(rel)).toContain('src/services/orkFile.ts');

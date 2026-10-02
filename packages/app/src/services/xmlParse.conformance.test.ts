@@ -35,6 +35,15 @@ describe(`DOM-surface conformance of the JS parser, against Chrome ${golden.chro
       .map((k) => `${k}\n    Chrome ${JSON.stringify(golden.conformance[k])}\n    JS     ${JSON.stringify(got[k])}`);
     expect(wrong).toEqual([]);
   });
+
+  it.each([
+    ['nsPrefixed', '/0 p:engine ""'],
+    ['nsUnprefixed', '/0 engine ""'],
+  ])('%s: a type selector matches the local name', (doc, expected) => {
+    const key = `${doc} doc qs engine`;
+    expect(golden.conformance[key]).toBe(expected);
+    expect(runConformance(jsXmlParser)[key]).toBe(expected);
+  });
 });
 
 /**
