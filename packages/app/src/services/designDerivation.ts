@@ -147,6 +147,7 @@ export function designBuildInputOf(a: {
   assigned: Assigned;
   effectiveKbf: boolean;
   effectiveSupersonic: boolean;
+  hybrid?: boolean;
   measuredDryMassKg: number | null;
   primaryMountId: string | null;
   currentSetKey: string;
@@ -156,6 +157,7 @@ export function designBuildInputOf(a: {
     assigned: a.assigned,
     kbf: a.effectiveKbf,
     supersonic: a.effectiveSupersonic,
+    ...(a.hybrid ? { hybrid: true } : {}),
     measuredDryMassKg: a.measuredDryMassKg,
     primaryMountId: a.primaryMountId,
     currentSetKey: a.currentSetKey,

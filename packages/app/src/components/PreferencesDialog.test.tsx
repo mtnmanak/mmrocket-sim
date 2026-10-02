@@ -329,6 +329,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
         <option value="eb">eb</option>
         <option value="auto">auto</option>
         <option value="supersonic">supersonic</option>
+        <option value="hybrid">Hybrid (experimental)</option>
       </select>
     );
   }
@@ -398,7 +399,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
    * select set it. Both now read prefsForAeroChoice; this pins the outcome.
    */
   it('each choice made here flies exactly what the strip flies for it', () => {
-    const choices: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic'];
+    const choices: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic', 'hybrid'];
     mountBoth();
     for (const c of choices) {
       pick(aeroSelect(), c);

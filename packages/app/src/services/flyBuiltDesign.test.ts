@@ -84,6 +84,7 @@ function recordingHandle(mach: number): FlightHandle {
   return {
     setMotorById: () => {},
     setMotorIgnitionById: (_id: string, _e: IgnitionEvent) => {},
+    setHybridAero: () => {},
     setSupersonicAero: () => {},
     setRogersModifiedBarrowman: () => {},
     simulate: () => ({

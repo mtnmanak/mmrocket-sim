@@ -56,6 +56,8 @@ import java.util.Queue;
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
  */
 public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
+	public static final double M_LOW = 0.8;
+	public static final double M_HIGH = 1.2;
 	private static final Logger log = LoggerFactory.getLogger(BarrowmanCalculator.class);
 
 	private static final String BARROWMAN_PACKAGE = "info.openrocket.core.aerodynamics.barrowman";
@@ -123,6 +125,130 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	
 	public BarrowmanCalculator() {
 		
+	}
+
+	/** Experimental, memoryless Kbf/Supersonic blend. Endpoints never change flags. */
+	public static BarrowmanCalculator hybrid(double low, double high) {
+		if (!Double.isFinite(low) || !Double.isFinite(high) || low < 0 || high <= low) {
+			throw new IllegalArgumentException("Hybrid band requires finite 0 <= low < high");
+		}
+		return new HybridCalculator(low, high);
+	}
+
+	// Must remain a BarrowmanCalculator: RK4 uses instanceof to admit pressure thrust.
+	private static final class HybridCalculator extends BarrowmanCalculator {
+		private final BarrowmanCalculator kbf = new BarrowmanCalculator();
+		private final BarrowmanCalculator supersonic = new BarrowmanCalculator();
+		private final double low;
+		private final double high;
+		private double margin;
+
+		HybridCalculator(double low, double high) {
+			this.low = low;
+			this.high = high;
+			setRogersKbf(true);
+			kbf.setRogersKbf(true);
+			supersonic.setRogersKbf(true);
+			supersonic.setSupersonicAero(true);
+		}
+
+		@Override
+		public BarrowmanCalculator newInstance() {
+			return hybrid(low, high);
+		}
+
+		private double weight(FlightConditions conditions) {
+			double t = MathUtil.clamp((conditions.getMach() - low) / (high - low), 0, 1);
+			return t * t * (3 - 2 * t);
+		}
+
+		private static double mix(double a, double b, double w) {
+			return (1 - w) * a + w * b;
+		}
+
+		private static Coordinate mixCP(Coordinate a, Coordinate b, double w) {
+			double cna = mix(a.weight, b.weight, w);
+			// Match AerodynamicForces' explicit zero-weight convention.
+			if (MathUtil.equals(0, cna)) return Coordinate.ZERO;
+			return new Coordinate(mix(a.x * a.weight, b.x * b.weight, w) / cna,
+					mix(a.y * a.weight, b.y * b.weight, w) / cna,
+					mix(a.z * a.weight, b.z * b.weight, w) / cna, cna);
+		}
+
+		private static AerodynamicForces mixForces(AerodynamicForces a, AerodynamicForces b, double w) {
+			AerodynamicForces f = new AerodynamicForces();
+			f.setComponent(a.getComponent());
+			f.setAxisymmetric(a.isAxisymmetric() && b.isAxisymmetric());
+			f.setCP(mixCP(a.getCP(), b.getCP(), w));
+			f.setCN(mix(a.getCN(), b.getCN(), w));
+			f.setCside(mix(a.getCside(), b.getCside(), w));
+			// Endpoint moments already include damping. Do not subtract it again.
+			f.setCm(mix(a.getCm(), b.getCm(), w));
+			f.setCyaw(mix(a.getCyaw(), b.getCyaw(), w));
+			f.setCroll(mix(a.getCroll(), b.getCroll(), w));
+			f.setCrollForce(mix(a.getCrollForce(), b.getCrollForce(), w));
+			f.setCrollDamp(mix(a.getCrollDamp(), b.getCrollDamp(), w));
+			f.setCD(mix(a.getCD(), b.getCD(), w));
+			f.setCDaxial(mix(a.getCDaxial(), b.getCDaxial(), w));
+			f.setFrictionCD(mix(a.getFrictionCD(), b.getFrictionCD(), w));
+			f.setPressureCD(mix(a.getPressureCD(), b.getPressureCD(), w));
+			f.setBaseCD(mix(a.getBaseCD(), b.getBaseCD(), w));
+			f.setOverrideCD(mix(a.getOverrideCD(), b.getOverrideCD(), w));
+			f.setPitchDampingMoment(mix(a.getPitchDampingMoment(), b.getPitchDampingMoment(), w));
+			f.setYawDampingMoment(mix(a.getYawDampingMoment(), b.getYawDampingMoment(), w));
+			return f;
+		}
+
+		@Override
+		public Coordinate getCP(FlightConfiguration configuration, FlightConditions conditions, WarningSet warnings) {
+			double w = weight(conditions);
+			if (w == 0) return kbf.getCP(configuration, conditions, warnings);
+			if (w == 1) return supersonic.getCP(configuration, conditions, warnings);
+			return mixCP(kbf.getCP(configuration, conditions, warnings),
+					supersonic.getCP(configuration, conditions, warnings), w);
+		}
+
+		// Inherited getWorstCP searches this getCP, so it searches the blended law.
+		@Override
+		public Map<RocketComponent, AerodynamicForces> getForceAnalysis(FlightConfiguration configuration,
+				FlightConditions conditions, WarningSet warnings) {
+			double w = weight(conditions);
+			kbf.checkCache(configuration);
+			supersonic.checkCache(configuration);
+			if (w == 0) return kbf.getForceAnalysis(configuration, conditions, warnings);
+			if (w == 1) return supersonic.getForceAnalysis(configuration, conditions, warnings);
+			Map<RocketComponent, AerodynamicForces> a = kbf.getForceAnalysis(configuration, conditions, warnings);
+			Map<RocketComponent, AerodynamicForces> b = supersonic.getForceAnalysis(configuration, conditions, warnings);
+			Map<RocketComponent, AerodynamicForces> result = new LinkedHashMap<>();
+			for (RocketComponent component : a.keySet()) {
+				result.put(component, mixForces(a.get(component), b.get(component), w));
+			}
+			return result;
+		}
+
+		@Override
+		public AerodynamicForces getAerodynamicForces(FlightConfiguration configuration,
+				FlightConditions conditions, WarningSet warnings) {
+			double w = weight(conditions);
+			AerodynamicForces f;
+			if (w == 0) {
+				f = kbf.getAerodynamicForces(configuration, conditions, warnings);
+				margin = kbf.getStallMargin();
+			} else if (w == 1) {
+				f = supersonic.getAerodynamicForces(configuration, conditions, warnings);
+				margin = supersonic.getStallMargin();
+			} else {
+				f = mixForces(kbf.getAerodynamicForces(configuration, conditions, warnings),
+						supersonic.getAerodynamicForces(configuration, conditions, warnings), w);
+				margin = mix(kbf.getStallMargin(), supersonic.getStallMargin(), w);
+			}
+			return f;
+		}
+
+		@Override
+		public double getStallMargin() {
+			return margin;
+		}
 	}
 	
 	

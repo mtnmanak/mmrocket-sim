@@ -9,7 +9,7 @@ import { lookupTable } from './xmlUtil.js';
  * returns it. Spelled out rather than imported: PrefsContext is a .tsx module
  * that pulls React in, and nothing else here needs it.
  */
-export type AeroMode = 'classic' | 'supersonic' | 'auto';
+export type AeroMode = 'classic' | 'supersonic' | 'auto' | 'hybrid';
 
 /**
  * The decisions `onLaunch` makes that are pure functions of the design, the
@@ -86,6 +86,7 @@ export function stageMotorInfo(
  * Mach probe ran.
  */
 export function aeroModelFor(aeroMode: AeroMode, usedSupersonic: boolean): SimRun['aeroModel'] {
+  if (aeroMode === 'hybrid') return 'hybrid';
   if (aeroMode === 'auto' && usedSupersonic) return 'auto-supersonic';
   return usedSupersonic ? 'supersonic' : 'classic';
 }

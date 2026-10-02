@@ -174,3 +174,9 @@ describe('rogersKbfFor', () => {
     expect(rogersKbfFor(false, true)).toBe(false);
   });
 });
+
+
+it('records Hybrid as its own model even if a caller carries a stale Supersonic bit', () => {
+  expect(aeroModelFor('hybrid', false)).toBe('hybrid');
+  expect(aeroModelFor('hybrid', true)).toBe('hybrid');
+});

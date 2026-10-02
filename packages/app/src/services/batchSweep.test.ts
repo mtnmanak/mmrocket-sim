@@ -495,6 +495,7 @@ describe('the sweep, flown on the real kernel', () => {
     expect(await stamp('kbf')).toEqual({ aeroModel: 'classic', rogersKbf: true });
     expect(await stamp('eb')).toEqual({ aeroModel: 'classic', rogersKbf: false });
     expect(await stamp('supersonic')).toEqual({ aeroModel: 'supersonic', rogersKbf: false });
+    expect(await stamp('hybrid')).toEqual({ aeroModel: 'hybrid', rogersKbf: true });
     // A subsonic E under Auto stays classic, with Kbf on as Auto flies it.
     expect(await stamp('auto')).toEqual({ aeroModel: 'classic', rogersKbf: true });
   }, 60000);

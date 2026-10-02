@@ -483,15 +483,96 @@ public final class OrkEngine {
         ((RocketCtx) get(rocketHandle)).rocket.setPerfectFinish(enabled);
     }
 
+    /** Experimental Mach blend; the two endpoint calculators keep fixed flags. */
+    @JSExport
+    public static void setHybridAero(int rocketHandle, boolean enabled) {
+        ((RocketCtx) get(rocketHandle)).hybridAero = enabled;
+    }
+
+    @JSExport
+    public static void setHybridBand(int rocketHandle, double low, double high) {
+        if (!Double.isFinite(low) || !Double.isFinite(high) || low < 0 || high <= low) {
+            throw new IllegalArgumentException("Hybrid band requires finite 0 <= low < high");
+        }
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        ctx.hybridLow = low;
+        ctx.hybridHigh = high;
+    }
+
+    private static BarrowmanCalculator aerodynamicCalculator(RocketCtx ctx) {
+        if (ctx.hybridAero) return BarrowmanCalculator.hybrid(ctx.hybridLow, ctx.hybridHigh);
+        BarrowmanCalculator calc = new BarrowmanCalculator();
+        calc.setRogersKbf(ctx.rogersKbf);
+        calc.setSupersonicAero(ctx.supersonicAero);
+        return calc;
+    }
+
+    /** Full force diagnostics at shared conditions, retaining caches across Mach samples.
+     * Angles and rates are radians and radians/second; CP is metres and CNa per radian.
+     */
+    @JSExport
+    public static String getForceSamples(int rocketHandle, double[] machs, double aoa,
+            double pitchRate, double yawRate, double rollRate) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        FlightConfiguration config = ctx.rocket.getSelectedConfiguration();
+        BarrowmanCalculator calc = aerodynamicCalculator(ctx);
+        FlightConditions conditions = new FlightConditions(config);
+        conditions.setAOA(aoa);
+        conditions.setPitchRate(pitchRate);
+        conditions.setYawRate(yawRate);
+        conditions.setRollRate(rollRate);
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < machs.length; i++) {
+            if (i > 0) sb.append(',');
+            conditions.setMach(machs[i]);
+            AerodynamicForces f = calc.getAerodynamicForces(config, conditions, new WarningSet());
+            Coordinate cp = f.getCP();
+            nums(sb, new double[] {cp.x, cp.y, cp.z, cp.weight, f.getCN(), f.getCside(),
+                    f.getCm(), f.getCyaw(), f.getCroll(), f.getCrollForce(), f.getCrollDamp(),
+                    f.getCD(), f.getCDaxial(), f.getFrictionCD(), f.getPressureCD(), f.getBaseCD(),
+                    f.getOverrideCD(), f.getPitchDampingMoment(), f.getYawDampingMoment()});
+        }
+        return sb.append(']').toString();
+    }
+
+    /** Calculator-contract diagnostics. CP coordinates are metres, weights per radian;
+     * theta samples match the inherited worst-CP search, and stall margin is radians.
+     * The clone switch calls the real newInstance(), not the bridge factory twice.
+     */
+    @JSExport
+    public static String getAeroDiagnostics(int rocketHandle, double mach, double aoa, boolean clone) {
+        RocketCtx ctx = (RocketCtx) get(rocketHandle);
+        FlightConfiguration config = ctx.rocket.getSelectedConfiguration();
+        BarrowmanCalculator calc = aerodynamicCalculator(ctx);
+        if (clone) calc = calc.newInstance();
+        FlightConditions conditions = new FlightConditions(config);
+        conditions.setMach(mach);
+        conditions.setAOA(aoa);
+        Coordinate cp = calc.getCP(config, conditions, new WarningSet());
+        StringBuilder sb = new StringBuilder("{\"cp\":");
+        nums(sb, new double[] {cp.x, cp.y, cp.z, cp.weight});
+        Coordinate worst = calc.getWorstCP(config, conditions, new WarningSet());
+        sb.append(",\"worstCP\":");
+        nums(sb, new double[] {worst.x, worst.y, worst.z, worst.weight});
+        sb.append(",\"cpByTheta\":[");
+        for (int i = 0; i < 360; i++) {
+            if (i > 0) sb.append(',');
+            conditions.setTheta(2 * Math.PI * i / 360);
+            Coordinate c = calc.getCP(config, conditions, new WarningSet());
+            nums(sb, new double[] {c.x, c.y, c.z, c.weight});
+        }
+        conditions.setTheta(0);
+        calc.getAerodynamicForces(config, conditions, new WarningSet());
+        return sb.append("],\"stallMargin\":").append(calc.getStallMargin()).append('}').toString();
+    }
+
     @JSExport
     public static String getStaticInfo(int rocketHandle) {
         RocketCtx ctx = (RocketCtx) get(rocketHandle);
         RigidBody structure = MassCalculator.calculateLaunch(ctx.rocket.getSelectedConfiguration());
         RigidBody empty = MassCalculator.calculateStructure(ctx.rocket.getSelectedConfiguration());
 
-        BarrowmanCalculator calc = new BarrowmanCalculator();
-        calc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
-        calc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
+        BarrowmanCalculator calc = aerodynamicCalculator(ctx);
         FlightConditions conditions = new FlightConditions(ctx.rocket.getSelectedConfiguration());
         conditions.setMach(0.3);
         conditions.setAOA(0);
@@ -691,9 +772,7 @@ public final class OrkEngine {
             }
         }
 
-        BarrowmanCalculator calc = new BarrowmanCalculator();
-        calc.setRogersKbf(ctx.rogersKbf); // keep sweep CP consistent with staticInfo
-        calc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
+        BarrowmanCalculator calc = aerodynamicCalculator(ctx);
         WarningSet warnings = new WarningSet();
 
         double[] offTotal = new double[n], offFric = new double[n], offPress = new double[n], offBase = new double[n];
@@ -935,9 +1014,7 @@ public final class OrkEngine {
             conditions.setAtmosphericModel(new ExtendedISAModel());
         }
         conditions.setGravityModel(new WGSGravityModel());
-        BarrowmanCalculator aeroCalc = new BarrowmanCalculator();
-        aeroCalc.setRogersKbf(ctx.rogersKbf); // feature #3: opt-in body-fin interference
-        aeroCalc.setSupersonicAero(ctx.supersonicAero); // feature #1 Phase 1
+        BarrowmanCalculator aeroCalc = aerodynamicCalculator(ctx);
         int randomSeed = (int) JsonLite.dbl(o, "randomSeed", 42);
         conditions.setWindModel(windModelFor(o, randomSeed));
         conditions.setAerodynamicCalculator(aeroCalc);
@@ -1116,6 +1193,9 @@ public final class OrkEngine {
         boolean rogersKbf = false;
         /** Opt-in supersonic aerodynamics (feature #1 Phase 1). */
         boolean supersonicAero = false;
+        boolean hybridAero = false;
+        double hybridLow = BarrowmanCalculator.M_LOW;
+        double hybridHigh = BarrowmanCalculator.M_HIGH;
 
         RocketCtx(Rocket rocket, AxialStage stage, FlightConfigurationId fcid) {
             this.rocket = rocket;

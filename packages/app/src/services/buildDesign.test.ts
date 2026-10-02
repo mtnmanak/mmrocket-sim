@@ -42,6 +42,7 @@ function recordingFactory(opts: {
     nodes.some((n) => n.name === name || holds(n.children ?? [], name));
   const handle: BuildHandle = {
     setRogersModifiedBarrowman: (on: boolean) => { calls.push(['kbf', on]); },
+    setHybridAero: () => {},
     setSupersonicAero: (on: boolean) => { calls.push(['supersonic', on]); },
     setMotorById: (id: string, spec: MotorSpec) => { calls.push(['motor', id, spec.masses[0]!]); },
     setMotorIgnitionById: (id: string, event: IgnitionEvent, delay = 0) => { calls.push(['ignition', id, event, delay]); },
@@ -271,4 +272,22 @@ describe('buildDesign — on the real kernel, the weighed motor keeps its igniti
     expect(apogee(await c6Design({ event: 'automatic', delay: 0 }))).toBeGreaterThan(100);
     expect(apogee(await c6Design({ event: 'never', delay: 0 }))).toBeLessThan(1);
   }, 120_000);
+});
+
+
+it('enables Hybrid and Kbf before static analysis on a fresh design handle', () => {
+  const { handles, calls } = recordingFactory();
+  const build = handles.build;
+  let hybrid = false;
+  handles.build = (tree) => {
+    const h = build(tree);
+    h.setHybridAero = (on) => { hybrid = on; };
+    const info = h.staticInfo;
+    h.staticInfo = () => { expect(hybrid).toBe(true); return info(); };
+    return h;
+  };
+  const { input } = starter({ event: 'automatic', delay: 0 }, null);
+  const result = buildDesign({ ...input, kbf: false, hybrid: true }, handles);
+  expect(result).not.toHaveProperty('error');
+  expect(calls).toContainEqual(['kbf', true]);
 });

@@ -1,8 +1,11 @@
+// @vitest-environment happy-dom
 import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import type { SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 
 /**
  * SIX INDEPENDENT REFUSAL RULES, none of which had a test until this function
@@ -70,6 +73,46 @@ const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
 describe('flightDataForExport — the baseline qualifies', () => {
+  it.each([
+    ['classic', false, 'classic', false],
+    ['classic', true, 'classic', false],
+    ['supersonic', true, 'supersonic', false],
+    ['auto-classic', true, 'auto', false],
+    ['auto-supersonic', true, 'auto', true],
+    ['hybrid', true, 'hybrid', false],
+  ] as const)('saves/loads %s (Kbf=%s) with the existing model-neutral .ork contract',
+    (aeroModel, rogersKbf, aeroMode, autoSupersonic) => {
+      const run = { ...RUN, aeroModel, rogersKbf } as SimRun;
+      const flightData = flightDataForExport(base({
+        runs: [run], model: { aeroMode, effectiveKbf: rogersKbf, autoSupersonic },
+      }));
+      expect(flightData['c1']).toEqual(summaryOf(RUN));
+      expect(flightData['c1']).not.toHaveProperty('aeroModel');
+      const xml = exportOrk({
+        name: 'Save regression',
+        tree: { name: 'Save regression', components: [{ type: 'stage', children: [
+          { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+        ] }] },
+        launch: { ...DEFAULT_CONDITIONS, windAverage: 4.5 },
+        configs: [{ id: 'c1', name: 'Main', isDefault: true, motors: {} }],
+        activeConfigId: 'c1', flightData,
+      });
+      expect(xml).toContain('<simulation status="uptodate">');
+      expect(xml).toContain('<calculator>BarrowmanCalculator</calculator>');
+      expect(xml).toContain('<flightdata maxaltitude="1234.5" maxvelocity="210.1"'
+        + ' maxacceleration="190.2" maxmach="0.62" timetoapogee="15.9" flighttime="88.4"'
+        + ' groundhitvelocity="5.6" launchrodvelocity="19.3" deploymentvelocity="12.1" optimumdelay="7"/>');
+      expect(xml).not.toMatch(/hybrid|aeromodel|supersonic|rogers/i);
+      const loaded = importOrk(xml);
+      expect(loaded.chosenConfigId).toBe('c1');
+      expect(loaded.configs.map((c) => c.name)).toEqual(['Main']);
+      expect(loaded.launch?.windAverage).toBe(4.5);
+      // The reader ignores summary results for EVERY model; it cannot recover
+      // selection/provenance the existing format never wrote in the first place.
+      expect(loaded).not.toHaveProperty('aeroModel');
+      expect(loaded).not.toHaveProperty('flightData');
+    });
+
   it('writes the run for a configuration whose design, conditions, model and motors all match', () => {
     expect(ids()).toEqual(['c1']);
   });

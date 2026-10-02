@@ -51,6 +51,7 @@ describe('effectiveAero — with an override, the strip wins for the session', (
     ['kbf', { aeroMode: 'classic', effectiveKbf: true }],
     ['auto', { aeroMode: 'auto', effectiveKbf: true }],
     ['supersonic', { aeroMode: 'supersonic', effectiveKbf: true }],
+    ['hybrid', { aeroMode: 'hybrid', effectiveKbf: true }],
   ];
   for (const [choice, want] of cases) {
     it(`"${choice}" flies ${want.aeroMode}${want.effectiveKbf ? ' + Kbf' : ''}`, () => {
@@ -77,7 +78,7 @@ describe('effectiveAero — with an override, the strip wins for the session', (
  * out twice, kept in step by a comment.
  */
 describe('prefsForAeroChoice — the pair both controls turn a choice into', () => {
-  const ALL: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic'];
+  const ALL: AeroChoice[] = ['eb', 'kbf', 'auto', 'supersonic', 'hybrid'];
 
   it('maps each choice to its model and Kbf flag', () => {
     expect(prefsForAeroChoice('eb')).toEqual({ aeroModel: 'classic', rogersKbf: false });
@@ -198,5 +199,25 @@ it('PrefsContext re-exports every binding of preferences.ts and aeroChoice.ts', 
     const entries = Object.entries(mod);
     expect(entries.length).toBeGreaterThan(0);
     for (const [name, value] of entries) expect(ctx[name], name).toBe(value);
+  }
+});
+
+
+it('labels and compares Hybrid independently of either endpoint and Auto', () => {
+  expect(aeroModelLabel('hybrid')).toBe('Hybrid (experimental)');
+  const hybrid = { aeroMode: 'hybrid' as const, effectiveKbf: true, autoSupersonic: false };
+  expect(currentModelLabel(hybrid)).toBe('Hybrid (experimental)');
+  expect(effectiveAero(P({ aeroModel: 'hybrid', rogersKbf: false }), null)).toEqual({
+    aeroMode: 'hybrid', effectiveKbf: true,
+  });
+  expect(runMatchesModel({ aeroModel: 'hybrid' }, hybrid)).toBe(true);
+  for (const mode of ['classic', 'supersonic', 'auto'] as const) {
+    for (const autoSupersonic of [false, true]) {
+      expect(runMatchesModel({ aeroModel: 'hybrid', rogersKbf: true },
+        { ...hybrid, aeroMode: mode, autoSupersonic })).toBe(false);
+    }
+  }
+  for (const aeroModel of ['classic', 'supersonic', 'auto-supersonic'] as const) {
+    expect(runMatchesModel({ aeroModel, rogersKbf: true }, hybrid)).toBe(false);
   }
 });

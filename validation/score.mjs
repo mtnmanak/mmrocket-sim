@@ -7,6 +7,7 @@
  *   node validation/score.mjs               # classic model (both flags off)
  *   node validation/score.mjs --kbf         # score with rogersKbf ON — THE SHIPPED DEFAULT
  *   node validation/score.mjs --supersonic  # score with the supersonicAero flag ON
+ *   node validation/score.mjs --hybrid      # experimental Mach 0.8-1.2 blend
  *   node validation/score.mjs --strict      # exit 1 if any gate point fails
  *
  * The three flags are the app's three aero models, and `--kbf` is the one the
@@ -46,13 +47,14 @@ const gateTotalExpected = Object.entries(anchors)
       && (ser.gateMinMach == null || m >= ser.gateMinMach)).length
     : 0), 0), 0);
 const strict = process.argv.includes('--strict');
+const hybrid = process.argv.includes('--hybrid');
 const supersonic = process.argv.includes('--supersonic');
 const kbf = process.argv.includes('--kbf');
 // Named once so the header, the filename a caller redirects to, and any future
 // summary line cannot drift apart. Both flags together is not one of the app's
 // models — it sets both, and says so, rather than silently scoring something
 // no user can select.
-const modelName = supersonic && kbf ? 'SUPERSONIC + Rogers Kbf (both flags on)'
+const modelName = hybrid ? 'HYBRID experimental (Kbf/Supersonic, Mach 0.8-1.2)' : supersonic && kbf ? 'SUPERSONIC + Rogers Kbf (both flags on)'
   : supersonic ? 'SUPERSONIC AERO model (flag on)'
   : kbf ? 'Rogers Kbf model (flag on) — the app default'
   : 'classic Extended Barrowman (flags off)';
@@ -105,6 +107,7 @@ for (const [name, spec] of Object.entries(anchors)) {
   const tree = JSON.parse(readFileSync(join(here, 'fixtures', spec.fixture), 'utf8'));
   const rocket = OrkRocket.buildTree(tree);
   if (supersonic) rocket.setSupersonicAero(true);
+  if (hybrid) rocket.setHybridAero(true);
   if (kbf) rocket.setRogersModifiedBarrowman(true);
   const info = rocket.staticInfo();
   const sweep = rocket.dragSweep({

@@ -98,6 +98,8 @@ describe('effectiveSupersonicOf', () => {
     ['auto', false, false],
     ['supersonic', false, true],
     ['classic', true, false],
+    ['hybrid', false, false],
+    ['hybrid', true, false],
   ])('%s with Auto upgraded %s flies supersonic: %s', (mode, auto, want) => {
     expect(effectiveSupersonicOf(mode, auto)).toBe(want);
   });

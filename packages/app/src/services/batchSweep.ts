@@ -36,7 +36,7 @@ import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
  */
 
 /** The aero model the batch flies — its own, deliberately independent of the design page's (BatchSimulate says why). */
-export type BatchModel = 'eb' | 'kbf' | 'auto' | 'supersonic';
+export type BatchModel = 'eb' | 'kbf' | 'auto' | 'supersonic' | 'hybrid';
 
 export interface BatchMountOption {
   id: string;
@@ -483,7 +483,7 @@ export async function runBatchSweep(
   } = input;
   const { signal } = hooks;
   const kbf = model !== 'eb';
-  const aeroMode: AeroMode = model === 'auto' ? 'auto' : model === 'supersonic' ? 'supersonic' : 'classic';
+  const aeroMode: AeroMode = model === 'eb' || model === 'kbf' ? 'classic' : model;
 
   // Mounts other than the target keep their assigned motors for every flight.
   const applyOthers = (r: OrkRocket, targetIds: string[]) => {
@@ -549,6 +549,7 @@ export async function runBatchSweep(
       const r = OrkRocket.buildTree(engineTree(t));
       r.setRogersModifiedBarrowman(kbf);
       r.setSupersonicAero(model === 'supersonic');
+      r.setHybridAero(model === 'hybrid');
       applyOthers(r, exclude);
       pool.set(key, r);
       return r;

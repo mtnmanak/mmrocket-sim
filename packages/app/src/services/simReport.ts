@@ -547,7 +547,7 @@ export interface SimRun extends WindProfileConditions {
    * 'auto-supersonic' (Auto mode crossed the Mach-0.9 threshold and re-flew
    * on the supersonic model). Absent on runs stored before v0.025.
    */
-  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
+  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic' | 'hybrid';
   /**
    * Rogers Modified Barrowman (Kbf) was on for this run. Only meaningful for
    * classic-model runs — the supersonic model contains the full NACA-1307
@@ -716,7 +716,7 @@ export interface DesignMatchKey {
   designKey: string;
   motorSetKey: string;
   conditionsKey: string;
-  aeroMode: 'classic' | 'supersonic' | 'auto';
+  aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   effectiveKbf: boolean;
   autoSupersonic: boolean;
   /**
@@ -990,6 +990,7 @@ export function aeroModelLabel(
   aeroModel: SimRun['aeroModel'], rogersKbf?: boolean,
 ): string {
   switch (aeroModel) {
+    case 'hybrid': return 'Hybrid (experimental)';
     case 'supersonic': return 'Supersonic (our extended model)';
     case 'auto-supersonic': return 'Supersonic (auto — flight exceeded Mach 0.9)';
     // ONE NAME for the parity model (Eric, 2026-09-21): the same
@@ -1005,10 +1006,11 @@ export function aeroModelLabel(
 
 /** The same label for the model the app is set to fly RIGHT NOW. */
 export function currentModelLabel(cur: {
-  aeroMode: 'classic' | 'supersonic' | 'auto';
+  aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   effectiveKbf: boolean;
   autoSupersonic: boolean;
 }): string {
+  if (cur.aeroMode === 'hybrid') return aeroModelLabel('hybrid');
   if (cur.aeroMode === 'supersonic') return aeroModelLabel('supersonic');
   if (cur.aeroMode === 'auto') {
     return cur.autoSupersonic
@@ -1034,7 +1036,7 @@ export function currentModelLabel(cur: {
  * unknown must not be read as "the term was on".
  */
 export function pressureThrustActive(run: Pick<SimRun, 'aeroModel' | 'rogersKbf'>): boolean {
-  return run.aeroModel === 'supersonic' || run.aeroModel === 'auto-supersonic'
+  return run.aeroModel === 'hybrid' || run.aeroModel === 'supersonic' || run.aeroModel === 'auto-supersonic'
     || run.rogersKbf === true;
 }
 
@@ -1063,11 +1065,11 @@ export function pressureThrustActive(run: Pick<SimRun, 'aeroModel' | 'rogersKbf'
  */
 export function runCarriesNozzleStamp(
   run: Pick<SimRun, 'nozzleStages'>,
-  cur: { hasNozzle?: boolean; aeroMode: 'classic' | 'supersonic' | 'auto';
+  cur: { hasNozzle?: boolean; aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
     effectiveKbf: boolean; autoSupersonic: boolean },
 ): boolean {
   if (cur.hasNozzle !== true) return true;
-  const termLive = cur.aeroMode === 'supersonic'
+  const termLive = cur.aeroMode === 'hybrid' || cur.aeroMode === 'supersonic'
     || (cur.aeroMode === 'auto' && cur.autoSupersonic)
     || cur.effectiveKbf;
   if (!termLive) return true;
@@ -1156,9 +1158,12 @@ export function runCarriesPhysicsRevision(
  */
 export function runMatchesModel(
   run: Pick<SimRun, 'aeroModel' | 'rogersKbf'>,
-  cur: { aeroMode: 'classic' | 'supersonic' | 'auto'; effectiveKbf: boolean; autoSupersonic: boolean },
+  cur: { aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid'; effectiveKbf: boolean; autoSupersonic: boolean },
 ): boolean | null {
   if (!run.aeroModel) return null;
+  if (run.aeroModel === 'hybrid' || cur.aeroMode === 'hybrid') {
+    return run.aeroModel === 'hybrid' && cur.aeroMode === 'hybrid';
+  }
   // 'supersonic' and 'auto-supersonic' are the SAME physics — the second only
   // records that Auto chose it rather than the user. Treating them as
   // different would put a "flown on a different model" banner on a flight
@@ -1744,7 +1749,7 @@ export function buildSimRun(input: {
   /** Per-stage motor info by STAGE NAME (staged rockets; booster-recovery checks). */
   stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
   boosterMotors?: string[];
-  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic';
+  aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic' | 'hybrid';
   rogersKbf?: boolean;
   motorConfig?: string;
   flightConfig?: string;

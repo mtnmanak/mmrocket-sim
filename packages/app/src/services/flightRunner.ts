@@ -28,7 +28,7 @@ import { canReplayDelays, delayMountsOf, readDelay, solveAutoDelays, type DelayR
 
 /** The handle calls a flight makes — `OrkRocket`'s, narrowed so a test can stand in for it. */
 export type FlightHandle = Pick<OrkRocket,
-  'setMotorById' | 'setMotorIgnitionById' | 'setSupersonicAero' | 'setRogersModifiedBarrowman' | 'simulate'>;
+  'setHybridAero' | 'setMotorById' | 'setMotorIgnitionById' | 'setSupersonicAero' | 'setRogersModifiedBarrowman' | 'simulate'>;
 
 /** The motors a flight starts from: App's `assigned`, and the build's weighed hardware. */
 export interface AssignedMotors {
@@ -41,6 +41,7 @@ export interface AssignedMotors {
 
 /** Both aerodynamics switches a handle carries. */
 export interface AeroFlags {
+  hybrid?: boolean;
   supersonic: boolean;
   kbf: boolean;
 }
@@ -179,7 +180,7 @@ export interface LaunchInput extends AssignedMotors {
   primaryMountId: string;
   /** `kernelSimOptions(launch)`. */
   simOptions: SimulationOptions;
-  aeroMode: 'classic' | 'supersonic' | 'auto';
+  aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   /** The model the design is on right now (App's `effectiveSupersonic`). */
   supersonic: boolean;
   /** For the Mach probe's cutoff: does this mount sit on the launch stage? */
@@ -243,7 +244,10 @@ async function flyFromCleanHandle(
 ): Promise<LaunchFlight> {
   const { primaryMountId, simOptions, aeroMode } = input;
   let execMs = 0;
-  let usedSupersonic = input.supersonic;
+  const hybrid = aeroMode === 'hybrid';
+  rocket.setHybridAero(hybrid);
+  if (hybrid) rocket.setRogersModifiedBarrowman(true);
+  let usedSupersonic = !hybrid && input.supersonic;
   rocket.setSupersonicAero(usedSupersonic);
   const upgrade = () => {
     rocket.setSupersonicAero(true);
@@ -339,12 +343,14 @@ export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult 
       // Old Launch optimized only the primary. All other delays remained in the design.
       writeMountDelay(rocket, installed, primaryMountId, delayS);
     }
+    rocket.setHybridAero(fly.hybrid ?? false);
     rocket.setSupersonicAero(fly.supersonic);
     rocket.setRogersModifiedBarrowman(fly.kbf);
     return rocket.simulate(simOptions);
   } finally {
     // Hand the shared handle back as the design has it: the drag panel and the
     // component table read it too, and they follow the CURRENT model.
+    rocket.setHybridAero(restore.hybrid ?? false);
     rocket.setSupersonicAero(restore.supersonic);
     rocket.setRogersModifiedBarrowman(restore.kbf);
     // The MOTORS too, and for the same reason: a finally that restored only

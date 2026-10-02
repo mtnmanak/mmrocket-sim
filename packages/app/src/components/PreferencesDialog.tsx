@@ -238,6 +238,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             <option value="kbf">Rogers Modified Barrowman (Kbf) — the default</option>
             <option value="auto">Auto — Rogers Kbf, switching to our supersonic model past Mach 0.9</option>
             <option value="supersonic">Supersonic — our extended model at all speeds (validated to Mach 4.6)</option>
+                <option value="hybrid">Hybrid (experimental)</option>
           </select>
         </div>
         {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (

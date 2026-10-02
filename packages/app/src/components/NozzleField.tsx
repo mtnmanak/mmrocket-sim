@@ -166,7 +166,7 @@ export function NozzleField({
       <p className="comp-stats" id={`${inputId}-help`} style={{ margin: '3px 0 0' }}>
         {parallel && 'For ONE strap-on. If it carries several motors, enter the diameter of one nozzle with their combined exit area. The app accounts for the number of strap-ons. '}
         Blank means automatic. Enter 0 to switch off; 0 stays off when motors change.
-        {' '}This value controls pressure thrust and power-on base drag under Rogers Kbf, Auto and Supersonic.
+        {' '}This value controls pressure thrust and power-on base drag under Rogers Kbf, Auto, Supersonic and Hybrid.
       </p>
       {exitDiameterM === 0 && <p className="comp-stats" data-nozzle="off">Nozzle effects are off.</p>}
       {mixed && published !== null && entries && (
