@@ -342,13 +342,13 @@ describe('a nozzle-database rebuild the guide has not caught up with', () => {
       .toThrow(/says eight reload kits remain uncovered; nozzles\.json has seven/);
     // A larger single-use motor gets a row.
     expect(() => compileGuide({ dataDir: rebuilt(covered('SU', (mm) => mm > 29)) }))
-      .toThrow(/says four larger single-use motors remain uncovered; nozzles\.json has three/);
+      .toThrow(/says three larger single-use motors remain uncovered; nozzles\.json has two/);
     // Both 18 mm motors get one: the sizes the sentence gives no longer start at 18 mm.
     expect(() => compileGuide({ dataDir: rebuilt((db) => { delete missing(db).SU['18']; }) }))
       .toThrow(/hobby motors run 18 mm to 29 mm; in nozzles\.json they run 24 mm to 29 mm/);
     // All but one at each end get one: the sizes and the other counts still hold, "most" does not.
     expect(() => compileGuide({ dataDir: rebuilt((db) => { missing(db).SU = { ...missing(db).SU, 18: ['D10W'], 24: [], 29: ['G11'] }; }) }))
-      .toThrow(/says most of what AeroTech have left uncovered are single-use hobby motors; nozzles\.json has two of 14/);
+      .toThrow(/says most of what AeroTech have left uncovered are single-use hobby motors; nozzles.json has two of 13/);
     // A type the sentence has no words for.
     expect(() => compileGuide({ dataDir: rebuilt((db) => { missing(db).hybrid = { 54: ['K999H'] }; }) }))
       .toThrow(/does not account for K999H \(hybrid\)/);

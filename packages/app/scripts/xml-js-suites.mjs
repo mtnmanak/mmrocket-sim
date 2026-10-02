@@ -32,6 +32,7 @@ export const XML_JS_SUITES = [
   'src/services/nozzleWiring.test.ts',
   'src/services/orkFile.test.ts',
   'src/services/orkFileHardening.test.ts',
+  'src/services/orkLongitude.test.ts',
   'src/services/orkFilledTube.test.ts',
   'src/services/orkFlippedNose.test.ts',
   'src/services/orkGeodetic.test.ts',
@@ -87,6 +88,8 @@ export const XML_JS_EXCLUDED = {
     + 'and the importer suites above cover what it would parse',
   'src/App.save.test.tsx': 'presses every Save and Export entry; its imports read back what the app itself '
     + 'wrote, which the round-trip suites above already cover under both parsers',
+  'src/App.longitudeCheck.test.tsx': 'mounts the app to prove the longitude row is wired to a real open; the '
+    + 'reading itself is orkLongitude.test.ts (above), which runs under both parsers',
   'src/services/lemivSweep.test.ts': 'a measurement driver that prints a sweep of simulated flights; it opens '
     + 'one fixture, which the golden test already holds to Chrome',
 };
