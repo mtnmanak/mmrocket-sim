@@ -3,6 +3,7 @@
  * One escape implementation app-wide — the per-file copies had drifted (some
  * skipped the quote escape) — with an attribute-value variant beside it.
  */
+import type { XmlElement } from './xmlParse.js';
 
 /**
  * Everything XML 1.0's `Char` production does NOT allow: the C0 controls other
@@ -108,7 +109,7 @@ function decodeUtf8(bytes: Uint8Array): { xml: string; note?: string } {
 }
 
 /** Trimmed text of the first selector match; null when absent or empty. */
-export function xmlText(el: Element, selector: string): string | null {
+export function xmlText(el: XmlElement, selector: string): string | null {
   const t = el.querySelector(selector)?.textContent;
   return t == null || t.trim() === '' ? null : t.trim();
 }
@@ -138,7 +139,7 @@ export function parseDecimal(s: string | null | undefined): number {
 }
 
 /** Numeric content of a DIRECT child tag, with fallback. */
-export function xmlNum(el: Element, tag: string, fb: number): number {
+export function xmlNum(el: XmlElement, tag: string, fb: number): number {
   const t = xmlText(el, `:scope > ${tag}`);
   if (t === null) return fb;
   const v = parseDecimal(t);

@@ -25,6 +25,7 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
+import { parseXml, type XmlElement } from './xmlParse.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -80,7 +81,7 @@ const PENDING_BASE_EXT = '__rktBaseExt';
  * parameter rather than calling xmlNum themselves — a field read there is a
  * field the unreadable-number note has to be able to name.
  */
-type NumReader = (el: Element, tag: string, fb: number) => number;
+type NumReader = (el: XmlElement, tag: string, fb: number) => number;
 
 /**
  * The outline a FreeformFinSet is born with in the kernel (carved
@@ -124,7 +125,7 @@ const RKT_PARAM_SHAPES = ['power', 'haack', 'parabolic'];
  *
  * Must be called AFTER node['shape'] is set — the gate reads it.
  */
-const readShapeParameter = (num: NumReader, el: Element, node: ComponentNode): void => {
+const readShapeParameter = (num: NumReader, el: XmlElement, node: ComponentNode): void => {
   const sp = num(el, 'ShapeParameter', NaN);
   if (!Number.isNaN(sp) && RKT_PARAM_SHAPES.includes(node['shape'] as string)) {
     node['shapeParameter'] = sp;
@@ -209,8 +210,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   }
   // RockSim files may lack an XML declaration and can carry stray BOMs.
   xml = xml.replace(/^﻿?/, '');
-  // Some DOM parsers (notably the test environment's) reject CDATA sections;
-  // RockSim only uses them for plain text (PartDesc etc.) — inline-escape.
+  // happy-dom, the test stand-in, refuses CDATA sections (Chrome and the JS
+  // parser, xmlParseJs.ts, both read them; measured 2026-10-01). RockSim only
+  // uses them for plain text (PartDesc etc.), so inline-escape: harmless under
+  // every parser, and what lets the tests read the 6 corpus .rkt files with one.
   // LINEAR, not a global lazy regex (2026-09-08 audit). The pattern
   // `/<!\[CDATA\[([\s\S]*?)\]\]>/g` re-scans to end-of-file once per UNCLOSED
   // opener, which is quadratic: measured 0.1 MB -> 5 ms, 0.5 MB -> 33 ms,
@@ -245,10 +248,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     xml = rebuilt + xml.slice(at);
   }
-  const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  if (doc.querySelector('parsererror')) {
-    throw new Error('Not a valid RockSim file (XML parse error)');
-  }
+  // Through the parser seam (xmlParse.ts); same message as before it.
+  const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
@@ -365,7 +366,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       + 'masses counting.)');
   }
 
-  const readCommon = (el: Element, node: ComponentNode) => {
+  const readCommon = (el: XmlElement, node: ComponentNode) => {
     const nm = text(el, ':scope > Name');
     if (nm) node.name = nm;
     // RockSim names the catalogue part on every component - <PartMfg> is
@@ -447,7 +448,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * DensityType (RockSimCommonConstants): 0 = bulk (kg/m³, × thickness),
    * 1 = surface (kg/m², ÷ 0.1), 2 = line (kg/m, × 1 — NOT the surface divisor).
    */
-  const readRecoveryMaterial = (el: Element, node: ComponentNode, kind: 'surface' | 'line') => {
+  const readRecoveryMaterial = (el: XmlElement, node: ComponentNode, kind: 'surface' | 'line') => {
     const densityType = Math.round(num(el, 'DensityType', 0));
     const density = num(el, 'Density', 0);
     if (!(density > 0)) return;
@@ -483,7 +484,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     delete node['density'];
   };
 
-  const readPosition = (el: Element, node: ComponentNode) => {
+  const readPosition = (el: XmlElement, node: ComponentNode) => {
     const mode = Math.round(num(el, 'LocationMode', 0));
     const xb = num(el, 'Xb', 0) / LEN;
     const method: ComponentPosition['method'] =
@@ -492,7 +493,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     node.position = { method, offset: mode === 2 ? -xb : xb };
   };
 
-  const tubeThickness = (el: Element): number =>
+  const tubeThickness = (el: XmlElement): number =>
     Math.max(0, (num(el, 'OD', 0) - num(el, 'ID', 0)) / 2 / LEN);
 
   /**
@@ -500,7 +501,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * that `add` appends to. RockSim allows sub-assemblies both at stage level
    * and inside AttachedParts.
    */
-  const flattenSubAssembly = (el: Element, parent: ComponentNode | null, add: (n: ComponentNode) => void) => {
+  const flattenSubAssembly = (el: XmlElement, parent: ComponentNode | null, add: (n: ComponentNode) => void) => {
     notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
     const wrap = el.querySelector(':scope > AttachedParts');
     for (const sub of Array.from(wrap?.children ?? [])) {
@@ -538,7 +539,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // sibling at each append, N²/2 for N parts under one parent (audit
   // 2026-09-30: 20,000 took 2.1 s); the tree is this import's own until it
   // returns, so nothing else holds these arrays.
-  const convertAttached = (el: Element, parentNode: ComponentNode) => {
+  const convertAttached = (el: XmlElement, parentNode: ComponentNode) => {
     const wrap = el.querySelector(':scope > AttachedParts');
     if (!wrap) return;
     oneLevelDown(wrap.children.length > 0, () => {
@@ -557,7 +558,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     });
   };
 
-  const convertPart = (el: Element, parent: ComponentNode | null): ComponentNode | null => {
+  const convertPart = (el: XmlElement, parent: ComponentNode | null): ComponentNode | null => {
     const tag = el.tagName;
     const mk = (type: ComponentNode['type']): ComponentNode => {
       const node: ComponentNode = { type, id: freshId() };
@@ -997,7 +998,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // inside AttachedParts (desktop handles both) — collect from both, in
         // document order, then convert them ONE LEVEL DOWN: the pod's chain is
         // its children, so it counts against MAX_NESTING like attached parts.
-        const chainEls: Element[] = [];
+        const chainEls: XmlElement[] = [];
         const CHAIN_TAGS = ['NoseCone', 'BodyTube', 'Transition'];
         for (const sub of Array.from(el.children)) {
           if (CHAIN_TAGS.includes(sub.tagName)) {
@@ -1137,25 +1138,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       deployAltitude: trigger?.deployAltitude ?? 200, deployDelay: trigger?.deployDelay ?? 0 };
   };
   /** An engine set's stage in `components`: Stage3Engines → 0 (the sustainer), Stage2Engines → 1, Stage1Engines → 2. */
-  const stageOfSet = (engineSet: Element): number => {
+  const stageOfSet = (engineSet: XmlElement): number => {
     const slotMatch = engineSet.parentElement?.tagName.match(/^Stage(\d)Engines$/);
     return slotMatch ? 3 - Number(slotMatch[1]) : 0;
   };
   /** The motor mount an engine set's MountSerialNo names, when it names one. */
-  const namedMount = (engineSet: Element): ComponentNode | undefined => {
+  const namedMount = (engineSet: XmlElement): ComponentNode | undefined => {
     const serial = text(engineSet, ':scope > MountSerialNo');
     const node = serial ? serialToNode.get(serial) : undefined;
     return node?.['motorMount'] === true ? node : undefined;
   };
   /** The first mount of an engine set's stage: where readEngineSet sends a set nothing else places. */
-  const stageFallbackMount = (engineSet: Element): ComponentNode | undefined =>
+  const stageFallbackMount = (engineSet: XmlElement): ComponentNode | undefined =>
     mountsIn(components[stageOfSet(engineSet)]?.children ?? [])[0];
   /**
    * Engine sets that fly on another mount than their MountSerialNo names, for
    * readEngineSet: a set whose serial names no motor mount (simSets, below),
    * and the stale-serial repair in `groupLoadouts`.
    */
-  const movedSets = new Map<Element, ComponentNode>();
+  const movedSets = new Map<XmlElement, ComponentNode>();
   /**
    * Per stored simulation, its engine sets and the tube each flies on, before
    * any regrouping. RockSim flies EVERY engine set as a motor, and real files
@@ -1185,7 +1186,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     });
   });
   /** One engine set as a comparable string: code, maker and both delays, as numbers. */
-  const setKey = (el: Element): string => {
+  const setKey = (el: XmlElement): string => {
     const norm = (tag: string): string => {
       const raw = text(el, `:scope > ${tag}`) ?? '';
       const v = parseDecimal(raw);
@@ -1216,11 +1217,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * none in that simulation: merged, the pair used to fly as two of the last;
    * apart, un-repaired, it would fly one.
    */
-  const groupLoadouts = (g: ComponentNode[]): { differ: boolean; moves: Map<Element, ComponentNode> } => {
-    const moves = new Map<Element, ComponentNode>();
+  const groupLoadouts = (g: ComponentNode[]): { differ: boolean; moves: Map<XmlElement, ComponentNode> } => {
+    const moves = new Map<XmlElement, ComponentNode>();
     let differ = false;
     for (const sets of simSets) {
-      const on = new Map<ComponentNode, Element[]>(g.map((t) => [t, []]));
+      const on = new Map<ComponentNode, XmlElement[]>(g.map((t) => [t, []]));
       for (const { el, node } of sets) on.get(node)?.push(el);
       const empty = g.filter((t) => on.get(t)!.length === 0);
       for (const t of g) {
@@ -1586,7 +1587,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     for (const m of mountsIn(s.children ?? [])) if (m.id) stageOfMount.set(m.id, i);
   });
   /** One <EngineSet> as a motor reference on its mount, or null when it names none. */
-  const readEngineSet = (engineSet: Element): OrkMotorRef | null => {
+  const readEngineSet = (engineSet: XmlElement): OrkMotorRef | null => {
     const code = text(engineSet, ':scope > EngineCode');
     if (!code) return null;
     const mountSerial = text(engineSet, ':scope > MountSerialNo');
@@ -1682,7 +1683,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * export wrote them until the same audit — read as one more set, first. And
    * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
-  const simGroups: { number: number | null; name: string | null; sets: Element[] }[] = [];
+  const simGroups: { number: number | null; name: string | null; sets: XmlElement[] }[] = [];
   const loose = Array.from(doc.querySelectorAll('EngineSet')).filter((e) => !e.closest('SimulationResults'));
   if (loose.length) simGroups.push({ number: null, name: null, sets: loose });
   simEls.forEach((s, i) => {
@@ -1967,7 +1968,7 @@ const RKT_EVERY_DELAY = -1;
  * it for a plugged motor through v0.137, and Number() of it is not finite, so
  * xmlNum read it back as 0 s — every chute on ejection then deployed at burnout.
  */
-function rktEjectionDelay(engineSet: Element, num: NumReader): number | 'plugged' | 'every' {
+function rktEjectionDelay(engineSet: XmlElement, num: NumReader): number | 'plugged' | 'every' {
   const raw = text(engineSet, ':scope > EjectionDelay');
   if (raw !== null && /^\+?inf/i.test(raw)) return 'plugged';
   const v = num(engineSet, 'EjectionDelay', 0);
@@ -2034,7 +2035,7 @@ export function rktEveryDelay(
  * the design, then kernel defaults; never another simulation.
  */
 const readDeploymentEvents = (
-  scope: Element,
+  scope: XmlElement,
   serialToNode: Map<string, ComponentNode>,
   notes: string[],
   num: NumReader,
@@ -2093,7 +2094,7 @@ interface RktTrigger {
  * (audit 2026-09-22 review) so the opened simulation's own list can be read
  * the same way and compared.
  */
-function rktTrigger(ev: Element, num: NumReader): RktTrigger | number | null {
+function rktTrigger(ev: XmlElement, num: NumReader): RktTrigger | number | null {
   const type = Math.round(num(ev, 'Type', 0));
   switch (type) {
     case 0:

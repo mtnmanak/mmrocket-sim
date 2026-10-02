@@ -3,3 +3,8 @@
 # (See the README's Building section for the carve workflow.)
 engine-java/src/carved/** -text
 engine-java/patches/** -text
+
+# A hand-written RockSim engine file with CRLF line ends ON PURPOSE: the XML
+# parity tests (packages/app/src/services/xmlParse.golden.test.ts) read it to
+# prove both parsers normalise CR/CRLF the same way. No EOL conversion.
+packages/app/src/services/__fixtures__/synthetic-ex-labs.rse -text

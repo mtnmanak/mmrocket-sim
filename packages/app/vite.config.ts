@@ -5,6 +5,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
 import { checkDist } from './scripts/precache-coverage.mjs';
+import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
 
 /**
  * Fails `vite build` when the offline precache misses a built file (audit
@@ -171,5 +172,25 @@ export default defineConfig({
     fakeTimers: {
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'Date'],
     },
+    // TWO projects (headless step 2, 2026-10-01). `app` is the suite as it
+    // always was. `jsxml` runs the importer and hardening suites a SECOND time
+    // with the pure-JS XML parser installed (services/xmlParseJs.ts, the one a
+    // Node or Workers entry uses), so the paths only those unit tests reach —
+    // stray configs, wind levels, pods — are held to the same answers under
+    // both parsers. The file list, and why each file is in it or not:
+    // scripts/xml-js-suites.mjs. `extends: true` gives both projects every
+    // setting above.
+    projects: [
+      { extends: true, test: { name: 'app' } },
+      {
+        extends: true,
+        test: {
+          name: 'jsxml',
+          include: [...XML_JS_SUITES],
+          setupFiles: [XML_JS_SETUP],
+          env: { VITEST_XML_PARSER: 'js' },
+        },
+      },
+    ],
   },
 });

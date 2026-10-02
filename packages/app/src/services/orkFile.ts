@@ -25,6 +25,7 @@ import {
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
+import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -293,12 +294,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     ({ xml, note: encodingNote } = decodeXml(bytes));
   }
 
-  // OpenRocket writes a single-quoted XML declaration; some parsers reject it.
+  // OpenRocket writes a single-quoted XML declaration. Of the parsers measured
+  // (2026-10-01) only happy-dom, the test stand-in, refuses it — Chrome and the
+  // JS parser (xmlParseJs.ts) both accept it — so this strip is for the tests;
+  // it is harmless under every parser, and kept.
   xml = xml.replace(/^﻿?\s*<\?xml[^?]*\?>/, '');
-  const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  if (doc.querySelector('parsererror')) {
-    throw new Error('Not a valid .ork file (XML parse error)');
-  }
+  // Through the parser seam (xmlParse.ts): the browser's own DOMParser, as
+  // before, or the JS parser a Node/Workers entry installs. Same message.
+  const doc = parseXml(xml, 'Not a valid .ork file (XML parse error)');
   const rocketEl = doc.querySelector('openrocket > rocket');
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
 
@@ -357,7 +360,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // Carries the radius each name ACTUALLY got, not just the name: the fallback
   // is 25 mm for a centreline component and 5 mm for a mass object (see
   // autoDim below), and the note has to state the number this reader used.
-  const autoUnresolved: { el: Element; name: string; radius: number }[] = [];
+  const autoUnresolved: { el: XmlElement; name: string; radius: number }[] = [];
   /**
    * A dimension the desktop may write as a number, as `auto <lastvalue>`, or
    * as a BARE `auto`. The first two parse to the number the desktop itself had
@@ -369,8 +372,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    * defaults for a missing radius, so a 4-inch airframe would draw as a stub
    * (docs/testing/findings-2026-08-22-import-fidelity.md item 6).
    */
-  const autoDim = (el: Element, tag: string, fallback: number,
-      resolve: (el: Element) => number,
+  const autoDim = (el: XmlElement, tag: string, fallback: number,
+      resolve: (el: XmlElement) => number,
       // What an UNRESOLVABLE automatic radius becomes. Centreline components
       // take the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
       // object keeps this reader's existing fallback, so nothing moves for a
@@ -406,7 +409,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    * desktop resolved; a bare `auto` resolves to the cavity it sits in, as a
    * mass component's does, else the kernel's 12.5 mm.
    */
-  const readPackedSize = (el: Element, n: ComponentNode): void => {
+  const readPackedSize = (el: XmlElement, n: ComponentNode): void => {
     if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025);
     if (text(el, ':scope > packedradius') !== null) {
       n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
@@ -470,7 +473,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // or override block). With no declared configs, the first such child —
   // hand-rolled files may key <motor configid>s without declarations, and
   // first-in-document-order is the long-standing read for them.
-  const configScoped = (el: Element, tag: string): Element | null =>
+  const configScoped = (el: XmlElement, tag: string): XmlElement | null =>
     chosenConfigId === null
       ? el.querySelector(`:scope > ${tag}`)
       : Array.from(el.children).find(
@@ -482,7 +485,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    * and saving cannot rewrite config B's recovery settings (see
    * OrkFlightConfig.deployments).
    */
-  const captureDeployments = (el: Element, node: ComponentNode): void => {
+  const captureDeployments = (el: XmlElement, node: ComponentNode): void => {
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'deploymentconfiguration' && x.getAttribute('configid') === c.id);
@@ -508,7 +511,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    * bare tags, so a configuration that declares no block of its own carries the
    * value it actually flies with rather than "nothing".
    */
-  const captureSeparations = (el: Element, node: ComponentNode): void => {
+  const captureSeparations = (el: XmlElement, node: ComponentNode): void => {
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'separationconfiguration' && x.getAttribute('configid') === c.id);
@@ -544,7 +547,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const unreadDelays = new Set<string>();
   /** Each plugged motor's note: where it sits in `notes`, and how many mounts carry it. */
   const pluggedNotes = new Map<string, { at: number; mounts: number }>();
-  const readMotor = (el: Element, node: ComponentNode) => {
+  const readMotor = (el: XmlElement, node: ComponentNode) => {
     const mountEl = el.querySelector(':scope > motormount');
     if (!mountEl) return;
     // Any tube with a <motormount> IS a mount — an inner tube, or a body tube
@@ -558,7 +561,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // ejection charge): the desktop writes the literal string "none"
     // (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel treats a
     // +Inf ejection delay as "never fires", matching the desktop.
-    const resolveRef = (motorEl: Element, igEl: Element): OrkMotorRef => {
+    const resolveRef = (motorEl: XmlElement, igEl: XmlElement): OrkMotorRef => {
       const delayText = text(motorEl, ':scope > delay');
       // Pre-1.4 digests use the old algorithm — never carry them (see
       // digestsTrusted above). <type>/<manufacturer> are version-independent.
@@ -657,7 +660,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   };
 
-  const convertElement = (el: Element): ComponentNode | null => {
+  const convertElement = (el: XmlElement): ComponentNode | null => {
     const tag = el.tagName;
     const base = (type: ComponentType, withPosition: boolean): ComponentNode => {
       const node: ComponentNode = { type, id: freshId() };
@@ -1147,7 +1150,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // ones are left out, with a note (see MAX_NESTING; the .rkt importer caps
   // the same way).
   let tooDeep = false;
-  const convertChildren = (parentEl: Element, depth = 1): ComponentNode[] => {
+  const convertChildren = (parentEl: XmlElement, depth = 1): ComponentNode[] => {
     const out: ComponentNode[] = [];
     const wrap = parentEl.querySelector(':scope > subcomponents');
     if (!wrap) return out;
@@ -1449,7 +1452,7 @@ const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
  * last direction stated; a negative speed with no direction after it is the
  * case where it is not (review of 2026-09-23).
  */
-function averageWindFromRad(condEl: Element): number {
+function averageWindFromRad(condEl: XmlElement): number {
   let dir = Math.PI / 2;
   const turn = (v: number) => { if (v < 0) dir += Math.PI; };
   const set = (v: number) => { if (Number.isFinite(v)) dir = v; };
@@ -1470,7 +1473,7 @@ function averageWindFromRad(condEl: Element): number {
 
 /** Fly the selected desktop profile; retain below-pad levels for interpolation.
  * Register: Winds aloft in the app (Eric's weather item 5). */
-function readWindProfile(cond: Element, launch: Partial<LaunchConditions>, notes: string[]): number {
+function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, notes: string[]): number {
   const block = Array.from(cond.querySelectorAll(':scope > wind'))
     .filter((w) => w.getAttribute('model')?.toLowerCase() === 'multilevel').pop();
   const rows = Array.from(block?.querySelectorAll(':scope > windlevel') ?? []);
@@ -1517,7 +1520,7 @@ function readWindProfile(cond: Element, launch: Partial<LaunchConditions>, notes
 }
 
 function readLaunchConditions(
-  doc: Document, notes: string[], chosenConfigId?: string | null,
+  doc: XmlDocument, notes: string[], chosenConfigId?: string | null,
 ): Partial<LaunchConditions> | undefined {
   // A .ork carries one <simulation> per flight configuration, and they are NOT
   // in configuration order. Taking the first one applied whichever site that
@@ -3185,7 +3188,7 @@ export function exportOrk({
  * imported 0.7346 kg — 8.9 % heavy, CG 31 mm aft, for a reason nothing on
  * screen could explain.
  */
-function readOverrides(el: Element, node: ComponentNode): void {
+function readOverrides(el: XmlElement, node: ComponentNode): void {
   const om = num(el, 'overridemass', NaN);
   if (!Number.isNaN(om)) node['overrideMass'] = om;
   const ocg = num(el, 'overridecg', NaN);
@@ -3216,7 +3219,7 @@ function readOverrides(el: Element, node: ComponentNode): void {
  * becomes the fallback, which is how every explicit ring radius in a .ork was
  * being thrown away on import.
  */
-function autoNum(el: Element, tag: string): number | undefined {
+function autoNum(el: XmlElement, tag: string): number | undefined {
   const t = text(el, `:scope > ${tag}`);
   if (!t || t.trim().toLowerCase() === 'auto') return undefined;
   const v = parseDecimal(t.split(/\s+/).pop()); // decimal only, as num() below
@@ -3272,13 +3275,13 @@ const UNRESOLVED = -1;
 
 interface AutoRadii {
   /** `BodyTube.getAutoOuterRadius()`. */
-  bodyTube(el: Element): number;
+  bodyTube(el: XmlElement): number;
   /** `Transition.getAutoAftRadius()` — and a nose cone's automatic BASE radius. */
-  aft(el: Element): number;
+  aft(el: XmlElement): number;
   /** `Transition.getAutoForeRadius()`. */
-  fore(el: Element): number;
+  fore(el: XmlElement): number;
   /** `MassObject.getMaxParentRadius()` — the cavity the mass sits in. */
-  packed(el: Element): number;
+  packed(el: XmlElement): number;
 }
 
 /**
@@ -3327,17 +3330,17 @@ interface AutoRadii {
  * component. This reader answers `UNRESOLVED` for both, which becomes
  * DEFAULT_AUTO_RADIUS and the "no neighbour" note instead.
  */
-function makeAutoRadii(rocketEl: Element): AutoRadii {
+function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   // Centreline chains. The rocket's axial stages share ONE chain — desktop's
   // getPreviousSymmetricComponent walks across stage boundaries — while a
   // parallel stage or pod set gets its own, with the body tube it hangs off
   // standing in for the component ahead of its first child.
-  const pos = new Map<Element, { chain: Element[]; i: number; owner: Element | null }>();
-  const symChildren = (asm: Element): Element[] => {
+  const pos = new Map<XmlElement, { chain: XmlElement[]; i: number; owner: XmlElement | null }>();
+  const symChildren = (asm: XmlElement): XmlElement[] => {
     const wrap = asm.querySelector(':scope > subcomponents');
     return wrap ? Array.from(wrap.children).filter((c) => SYMMETRIC_TAGS.has(c.tagName)) : [];
   };
-  const register = (chain: Element[], owner: Element | null): void => {
+  const register = (chain: XmlElement[], owner: XmlElement | null): void => {
     chain.forEach((el, i) => pos.set(el, { chain, i, owner }));
   };
   register(
@@ -3351,12 +3354,12 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
       grandparent && SYMMETRIC_TAGS.has(grandparent.tagName) ? grandparent : null);
   }
 
-  const prevOf = (el: Element): Element | null => {
+  const prevOf = (el: XmlElement): XmlElement | null => {
     const p = pos.get(el);
     if (!p) return null;
     return p.i > 0 ? p.chain[p.i - 1]! : p.owner;
   };
-  const nextOf = (el: Element): Element | null => {
+  const nextOf = (el: XmlElement): XmlElement | null => {
     const p = pos.get(el);
     if (!p) return null;
     return p.i + 1 < p.chain.length ? p.chain[p.i + 1]! : null;
@@ -3368,7 +3371,7 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
    * had just resolved, so trusting it reproduces the desktop exactly and keeps
    * every 23.09+ file importing bit-identically to before this existed.
    */
-  const stated = (el: Element, tag: string): number | null => {
+  const stated = (el: XmlElement, tag: string): number | null => {
     const t = text(el, `:scope > ${tag}`);
     if (t === null) return null;
     // parseDecimal, like num() below: the neighbour's radius must read the
@@ -3388,14 +3391,14 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
   // each element's answer is computed once and reused by every later walk
   // that passes it. `seen` stays as the cycle guard it always was, and a walk
   // that ends on it is not memoised, so the memo never outlives its caller.
-  const frontMemo = new Map<Element, number>();
-  const rearMemo = new Map<Element, number>();
-  const walk = (start: Element, seen: Set<Element>, memo: Map<Element, number>,
-      step: (el: Element) => Element | null, answer: (el: Element) => number | null): number => {
-    const path: Element[] = [];
+  const frontMemo = new Map<XmlElement, number>();
+  const rearMemo = new Map<XmlElement, number>();
+  const walk = (start: XmlElement, seen: Set<XmlElement>, memo: Map<XmlElement, number>,
+      step: (el: XmlElement) => XmlElement | null, answer: (el: XmlElement) => number | null): number => {
+    const path: XmlElement[] = [];
     let r = UNRESOLVED;
     let cyclic = false;
-    for (let el: Element | null = start; el; el = step(el)) {
+    for (let el: XmlElement | null = start; el; el = step(el)) {
       const known = memo.get(el);
       if (known !== undefined) { r = known; break; }
       if (seen.has(el)) { cyclic = true; break; } // cyclic auto chain — desktop's refComp guard
@@ -3412,11 +3415,11 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
    * A TAIL CONE (`<isflipped>true`): its <aftradius> is still its BASE, but the
    * base faces FORWARD and the point aft (NoseCone.setFlipped).
    */
-  const flippedNose = (el: Element): boolean =>
+  const flippedNose = (el: XmlElement): boolean =>
     el.tagName === 'nosecone' && text(el, ':scope > isflipped') === 'true';
 
   /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
-  const front = (el: Element, seen: Set<Element>): number => walk(el, seen, frontMemo, prevOf,
+  const front = (el: XmlElement, seen: Set<XmlElement>): number => walk(el, seen, frontMemo, prevOf,
     // A body tube states its radius or defers to the one ahead (null: keep
     // walking); anything else answers with its aft face, stated or not — a
     // tail cone's being its POINT, no face to take a radius from (the answer
@@ -3426,8 +3429,8 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
         : stated(e, 'aftradius') ?? UNRESOLVED);
 
   /** `getRearAutoRadius()` — the face this component shows to the one AHEAD of it. */
-  const rear = (el: Element, seen: Set<Element>): number => walk(el, seen, rearMemo, nextOf, rearFace);
-  function rearFace(el: Element): number | null {
+  const rear = (el: XmlElement, seen: Set<XmlElement>): number => walk(el, seen, rearMemo, nextOf, rearFace);
+  function rearFace(el: XmlElement): number | null {
     if (el.tagName === 'bodytube') return stated(el, 'radius');
     // A tail cone shows the part ahead of it its BASE.
     if (flippedNose(el)) return stated(el, 'aftradius') ?? UNRESOLVED;
@@ -3443,7 +3446,7 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     return stated(el, 'foreradius') ?? UNRESOLVED;
   }
 
-  const bodyTube = (el: Element): number => {
+  const bodyTube = (el: XmlElement): number => {
     const p = prevOf(el);
     const ahead = p ? front(p, new Set([el])) : UNRESOLVED;
     if (ahead > 0) return ahead;
@@ -3451,19 +3454,19 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
     const behind = n ? rear(n, new Set([el])) : UNRESOLVED;
     return behind > 0 ? behind : UNRESOLVED;
   };
-  const aft = (el: Element): number => {
+  const aft = (el: XmlElement): number => {
     const n = nextOf(el);
     const r = n ? rear(n, new Set([el])) : UNRESOLVED;
     return r > 0 ? r : UNRESOLVED;
   };
-  const fore = (el: Element): number => {
+  const fore = (el: XmlElement): number => {
     const p = prevOf(el);
     const r = p ? front(p, new Set([el])) : UNRESOLVED;
     return r > 0 ? r : UNRESOLVED;
   };
   const resolved = (v: number | null, fb: () => number): number =>
     v !== null ? v : fb();
-  const packed = (el: Element): number => {
+  const packed = (el: XmlElement): number => {
     const owner = el.parentElement?.parentElement ?? null;
     if (!owner) return UNRESOLVED;
     const inner = (r: number): number =>
@@ -3504,14 +3507,14 @@ function makeAutoRadii(rocketEl: Element): AutoRadii {
  * the field off). Anything else is dropped — `parseDecimal("auto 0.8")` is NaN,
  * and a NaN drag coefficient reaches the descent solver.
  */
-function readAutoCd(el: Element, node: ComponentNode): void {
+function readAutoCd(el: XmlElement, node: ComponentNode): void {
   const t = text(el, ':scope > cd');
   if (t === null || /^auto\b/i.test(t)) return;
   const v = parseDecimal(t);
   if (Number.isFinite(v) && v >= 0) node['cd'] = v;
 }
 
-function num(el: Element, tag: string, fallback: number): number {
+function num(el: XmlElement, tag: string, fallback: number): number {
   const t = text(el, `:scope > ${tag}`);
   // Values like "auto 0.012" carry an automatic flag + last value. Decimal
   // only: `Number` read "0x10" as 16 where the desktop's parseDouble refuses
@@ -3520,7 +3523,7 @@ function num(el: Element, tag: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
-function matDensity(el: Element): number | undefined {
+function matDensity(el: XmlElement): number | undefined {
   const m = el.querySelector(':scope > material');
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = parseDecimal(m.getAttribute('density'));
@@ -3528,7 +3531,7 @@ function matDensity(el: Element): number | undefined {
 }
 
 /** Material NAME if it's a real name (not the "custom" placeholder). */
-function matName_(el: Element, type: string, selector = ':scope > material'): string | undefined {
+function matName_(el: XmlElement, type: string, selector = ':scope > material'): string | undefined {
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== type) return undefined;
   const name = m.textContent?.trim();
@@ -3536,7 +3539,7 @@ function matName_(el: Element, type: string, selector = ':scope > material'): st
 }
 
 /** Surface/line material density+name for recovery devices and cords. */
-function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'line',
+function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' | 'line',
     densityKey: string, nameKey: string, selector = ':scope > material'): void {
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== kind) return;
@@ -3555,7 +3558,7 @@ function readSoftMaterial(el: Element, node: ComponentNode, kind: 'surface' | 'l
  * `<innerradius>auto</innerradius>` next to an explicit outer radius became a
  * solid disk. Saving then wrote `auto` back over the author's numbers.
  */
-function readRingRadii(el: Element, node: ComponentNode): void {
+function readRingRadii(el: XmlElement, node: ComponentNode): void {
   const or = autoNum(el, 'outerradius');
   if (or !== undefined && or > 0) node['outerRadius'] = or;
   const ir = autoNum(el, 'innerradius');
@@ -3575,7 +3578,7 @@ function readRingRadii(el: Element, node: ComponentNode): void {
  * still PASS-THROUGH — the app simulates and draws ONE — and the import note
  * says so rather than letting the difference stay silent.
  */
-function readInstances(el: Element, node: ComponentNode): void {
+function readInstances(el: XmlElement, node: ComponentNode): void {
   const count = Math.round(num(el, 'instancecount', 1));
   if (count > 1) node['instanceCount'] = count;
   const sep = num(el, 'instanceseparation', 0);
@@ -3587,7 +3590,7 @@ function readInstances(el: Element, node: ComponentNode): void {
  * desktop loader warns on unknown elements and continues, so files stay
  * openable there). Absent tags leave the classic cross-section behavior.
  */
-function readAirfoil(el: Element, node: ComponentNode): void {
+function readAirfoil(el: XmlElement, node: ComponentNode): void {
   const section = text(el, ':scope > airfoilsection');
   if (section) node['airfoilSection'] = section;
   const led = num(el, 'airfoillediamond', 0);
@@ -3611,7 +3614,7 @@ function readAirfoil(el: Element, node: ComponentNode): void {
  * (FinSet.setFilletRadius / setFilletMaterial), so the epoxy counts in mass and
  * CG as desktop counts it, and the import note that said it did not is gone.
  */
-function readFillet(el: Element, node: ComponentNode): void {
+function readFillet(el: XmlElement, node: ComponentNode): void {
   const r = num(el, 'filletradius', 0);
   if (!(r > 0)) return;
   node['filletRadius'] = r;
@@ -3644,7 +3647,7 @@ function readFillet(el: Element, node: ComponentNode): void {
  * the sentinel would have turned a deliberate 0 into a flown 180 — the exact
  * inverse of the v0.087 bug above, and silently.
  */
-function readMountAngle(el: Element, node: ComponentNode): void {
+function readMountAngle(el: XmlElement, node: ComponentNode): void {
   const deg = num(el, 'angleoffset', NaN);
   if (Number.isFinite(deg)) node['angleOffset'] = (deg * Math.PI) / 180;
 }
@@ -3656,7 +3659,7 @@ function readMountAngle(el: Element, node: ComponentNode): void {
  * its own radius and angle, so dropping these collapsed the whole cluster
  * onto the centreline — and re-writing them as 0.0 destroyed the user's file.
  */
-function readRadialPlacement(el: Element, node: ComponentNode): void {
+function readRadialPlacement(el: XmlElement, node: ComponentNode): void {
   const pos = num(el, 'radialposition', 0);
   const dir = num(el, 'radialdirection', 0);
   if (pos !== 0) node['radialPosition'] = pos;
@@ -3664,7 +3667,7 @@ function readRadialPlacement(el: Element, node: ComponentNode): void {
 }
 
 /** Fin-set rotation about the body axis (.ork stores DEGREES; we keep rad). */
-function readFinRotation(el: Element, node: ComponentNode): void {
+function readFinRotation(el: XmlElement, node: ComponentNode): void {
   const deg = num(el, 'rotation', 0);
   if (deg !== 0) node['rotation'] = (deg * Math.PI) / 180;
 }
@@ -3674,7 +3677,7 @@ function readFinRotation(el: Element, node: ComponentNode): void {
  * files carry TWO tabposition elements (legacy front/center/end + modern
  * top/middle/bottom) — like the desktop reader, the last one wins.
  */
-function readFinTabs(el: Element, node: ComponentNode): void {
+function readFinTabs(el: XmlElement, node: ComponentNode): void {
   const h = num(el, 'tabheight', 0);
   const len = num(el, 'tablength', 0);
   if (h <= 0 || len <= 0) return;
@@ -3699,7 +3702,7 @@ function readFinTabs(el: Element, node: ComponentNode): void {
  * them PER FIELD — the desktop handler clones the default and applies only
  * the fields the block carries.
  */
-function readDeployment(el: Element, node: ComponentNode, configEl: Element | null = null): void {
+function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElement | null = null): void {
   for (const src of configEl ? [el, configEl] : [el]) {
     const event = text(src, ':scope > deployevent');
     if (event) node['deployEvent'] = event;
@@ -3715,7 +3718,7 @@ function readDeployment(el: Element, node: ComponentNode, configEl: Element | nu
 /** The axial-position methods an .ork carries — the exporter's closed set for `method=`/`type=`. */
 const AXIAL_METHODS: readonly string[] = ['top', 'middle', 'bottom', 'absolute'];
 
-function readPosition(el: Element): ComponentPosition | undefined {
+function readPosition(el: XmlElement): ComponentPosition | undefined {
   // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
   // only <position type="..."> — fall back to it or old files lose every
   // fin/lug/inner-tube offset.

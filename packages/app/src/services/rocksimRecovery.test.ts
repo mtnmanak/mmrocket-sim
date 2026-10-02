@@ -186,7 +186,13 @@ describe('RockSim recovery and cluster export', () => {
     if (difference === 'overhang') t.querySelector(':scope > EngineOverhang')!.textContent = '8';
     if (difference === 'preset') {
       for (const [tag, value] of [['PartMfg', 'Example'], ['PartNo', 'Different block']]) {
-        const el = doc.createElement(tag!); el.textContent = value!; t.querySelector('Ring')!.append(el);
+        // createElementNS(null, …), not createElement: happy-dom's createElement
+        // makes an XHTML element even in an XML document and writes it out as
+        // `<partmfg xmlns="http://www.w3.org/1999/xhtml">`, which only happy-dom's
+        // case-insensitive selectors read as <PartMfg>. Chrome — and the JS
+        // parser this file also runs under (scripts/xml-js-suites.mjs) — would
+        // not, and the test would pass for the wrong reason (2026-10-01).
+        const el = doc.createElementNS(null, tag!); el.textContent = value!; t.querySelector('Ring')!.append(el);
       }
     }
     if (difference === 'recovery') {

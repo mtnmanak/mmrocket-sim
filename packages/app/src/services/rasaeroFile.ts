@@ -17,6 +17,7 @@ import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverri
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
 } from './statedLaunchWeight.js';
+import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -250,7 +251,7 @@ export type MachAltTable = [number, number][];
  * not tidiness — the engine's interpolator walks the rows assuming each Mach
  * appears once and ascending. First row wins for a repeated Mach.
  */
-function readMachAltTable(doc: Document): MachAltTable | undefined {
+function readMachAltTable(doc: XmlDocument): MachAltTable | undefined {
   const el = doc.querySelector('RASAeroDocument > MachAlt');
   if (!el) return undefined;
   const byMach = new Map<number, number>();
@@ -287,10 +288,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(new Uint8Array(data));
   const xml = decoded.xml.replace(/^﻿?/, '');
-  const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  if (doc.querySelector('parsererror')) {
-    throw new Error('Not a valid RASAero file (XML parse error)');
-  }
+  // Through the parser seam (xmlParse.ts); same message as before it.
+  const doc = parseXml(xml, 'Not a valid RASAero file (XML parse error)');
   const design = doc.querySelector('RASAeroDocument > RocketDesign');
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
@@ -319,7 +318,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    * unreadable is collected here and reported once per tag at the end, the
    * same `notes` mechanism every other lossy branch in this importer uses.
    */
-  const num = (el: Element, tag: string, fb: number): number => {
+  const num = (el: XmlElement, tag: string, fb: number): number => {
     const raw = text(el, `:scope > ${tag}`);
     // parseDecimal, the parser xmlNum itself uses: with `Number(raw)` here a
     // "0x10" would pass this test and still fall back below, silently.
@@ -337,7 +336,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     notes.push(`Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
   }
 
-  const readFin = (parentEl: Element, parentNode: ComponentNode) => {
+  const readFin = (parentEl: XmlElement, parentNode: ComponentNode) => {
     const finEl = parentEl.querySelector(':scope > Fin');
     if (!finEl) return;
     const rootChord = num(finEl, 'Chord', 4) / IN;
@@ -417,7 +416,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
    * gets the same side: a cube-ish bump that draws sensibly and round-trips the
    * area exactly.
    */
-  const readProtuberances = (el: Element, tube: ComponentNode, name: string): void => {
+  const readProtuberances = (el: XmlElement, tube: ComponentNode, name: string): void => {
     const IN2 = IN * IN; // in² per m²
     const add = (areaIn2: number, dragClass: string, angleDeg: number, label: string) => {
       if (!(areaIn2 > 0)) return;
@@ -451,7 +450,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
     }
   };
 
-  const mkTube = (el: Element, name: string): ComponentNode => {
+  const mkTube = (el: XmlElement, name: string): ComponentNode => {
     const tube: ComponentNode = {
       type: 'bodytube',
       id: freshId(),
@@ -954,8 +953,8 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   const designNozzleIn = NOZZLE_TAGS.map((t) => Math.max(0, num(design, t.design, 0)));
   /** Per config id, per stage index: where its nozzle came from — for the ONE note. */
   const nozzleSource = new Map<string, ('sim' | 'design' | null)[]>();
-  const carriesNozzle = (sim: Element): boolean => NOZZLE_TAGS.some((t) => num(sim, t.sim, 0) > 0);
-  const readNozzles = (sim: Element | null, cfgId: string): Record<string, number | null> => {
+  const carriesNozzle = (sim: XmlElement): boolean => NOZZLE_TAGS.some((t) => num(sim, t.sim, 0) > 0);
+  const readNozzles = (sim: XmlElement | null, cfgId: string): Record<string, number | null> => {
     const out: Record<string, number | null> = {};
     const sources: ('sim' | 'design' | null)[] = [];
     for (const [stageIdx, t] of NOZZLE_TAGS.entries()) {
@@ -1269,7 +1268,7 @@ export function importCdx1(data: ArrayBuffer | string): Cdx1ImportResult {
   // the first simulation (see the flyable-configuration pick above). Only
   // when NO simulation carries motors at all does the first simulation with
   // numbers win, and there is nothing to back out then.
-  const carriesWeights = (sim: Element): boolean =>
+  const carriesWeights = (sim: XmlElement): boolean =>
     ['SustainerLaunchWt', 'SustainerCG', 'Booster1LaunchWt', 'Booster1CG',
       'Booster2LaunchWt', 'Booster2CG'].some((tag) => num(sim, tag, 0) !== 0);
   const chosenSimNr = chosen ? simNumbers.get(chosen.id) : undefined;
