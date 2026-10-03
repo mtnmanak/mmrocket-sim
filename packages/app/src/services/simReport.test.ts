@@ -1055,12 +1055,12 @@ describe('runsToCsv', () => {
     const [header, row] = runsToCsv([run]).split('\n');
     const hc = cells(header!);
     // Trailing on purpose: existing spreadsheet imports keep their columns.
-    // The one column after it is the density altitude (weather build,
-    // 2026-09-22), appended behind it by the same rule, so every column up to
-    // and including this one keeps its position.
-    expect(hc[hc.length - 3]).toBe('Flight config');
-    expect(hc[hc.length - 2]).toMatch(/^Density altitude/);
-    expect(hc[hc.length - 1]).toBe('Winds aloft (levels)');
+    // Density altitude, winds aloft and rail needed were appended behind it
+    // by the same rule: every existing column keeps its absolute position.
+    expect(hc[hc.length - 4]).toBe('Flight config');
+    expect(hc[hc.length - 3]).toMatch(/^Density altitude/);
+    expect(hc[hc.length - 2]).toBe('Winds aloft (levels)');
+    expect(hc[hc.length - 1]).toBe('Rail for 15.0 m/s (m)');
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

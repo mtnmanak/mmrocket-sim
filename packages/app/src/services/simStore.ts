@@ -1,5 +1,6 @@
 import { csvCell } from './csvUtil.js';
-import { deploymentVerdict, openingVerdict, type SimRun } from './simReport.js';
+import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
+import { railNeeded, railNeededCell, railNeededHeader } from './railNeeded.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
@@ -222,7 +223,7 @@ const G_MS2 = 9.80665;
  * user's selected units (with the unit in each header) when a UnitSelection
  * is passed; without one they stay SI (tests, back-compat).
  */
-function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | number][] {
+function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): [string, (r: SimRun) => string | number][] {
   // Convert an SI value to the user's unit for `quantity` (SI when no prefs).
   const cv = (quantity: Quantity, si: number | null | undefined, digits = 2): string | number => {
     if (si == null || !Number.isFinite(si)) return '';
@@ -334,6 +335,12 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   [`Density altitude (${sym('distance', 'm')})`,
     (r) => cv('distance', r.densityAltitudeM)],
   ['Winds aloft (levels)', (r) => r.windLevels?.length ?? 0],
+  // Append to preserve existing spreadsheet column positions.
+  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => {
+    const needed = railNeeded(r.railProfile, railThreshold);
+    return needed?.status === 'reached' ? cv('length', needed.railM, 3)
+      : railNeededCell(r.railProfile, railThreshold, sym('length', 'm'));
+  }],
   ];
 }
 
@@ -362,8 +369,8 @@ function flag(v: boolean | null): string {
  * preferred units (headers carry the unit); omitted = SI detail columns.
  * The 14 flight-day lead columns are fixed ft/mph/Gs/g either way.
  */
-export function runsToCsv(runs: SimRun[], units?: UnitSelection): string {
-  const cols = buildColumns(units);
+export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): string {
+  const cols = buildColumns(units, railThreshold);
   const header = cols.map(([label]) => csvCell(label)).join(',');
   const rows = runs.map((r) => cols.map(([, f]) => csvCell(f(r))).join(','));
   return [header, ...rows].join('\n');
@@ -373,10 +380,10 @@ export function runsToCsv(runs: SimRun[], units?: UnitSelection): string {
  * Same catalog as the CSV, but typed: numbers stay numbers so a spreadsheet
  * never reinterprets them (feeds the .xlsx export).
  */
-export function runsToTable(runs: SimRun[], units?: UnitSelection): {
+export function runsToTable(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): {
   headers: string[]; rows: (string | number)[][];
 } {
-  const cols = buildColumns(units);
+  const cols = buildColumns(units, railThreshold);
   return {
     headers: cols.map(([label]) => label),
     rows: runs.map((r) => cols.map(([, f]) => f(r))),

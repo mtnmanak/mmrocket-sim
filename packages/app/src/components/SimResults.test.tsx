@@ -112,6 +112,18 @@ afterEach(() => {
 });
 
 describe('SimRunDetails — where the raw flight data went', () => {
+  it('reports guide travel and physical rail beside exit speed, without changing the safety check', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft', velocity: 'm/s' } }));
+    const r = run();
+    r.railProfile = { segments: [[0, 20, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, thrustEnded: false };
+    render(<SimRunDetails run={r} />);
+    act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show all details'))!.click(); });
+    const exit = [...host.querySelectorAll('tr')].find((tr) => tr.textContent?.includes('Velocity at launch guide exit'))!;
+    expect(exit.nextElementSibling?.textContent).toBe('Rail neededReaches 15.0 m/s after 4.9 ft of guide travel (6.6 ft of rail, allowing for where the launch lugs/rail buttons sit).');
+    expect(r.safeLiftoffSpeed).toBe(true);
+    render(<SimRunDetails run={{ ...r, railProfile: undefined }} />);
+    expect(host.textContent).not.toContain('Rail needed');
+  });
   it('points down to the plots when this flight’s series are in memory', () => {
     render(<SimRunDetails run={run()} hasSeries />);
     expect(host.querySelector('.download-caption')?.textContent)

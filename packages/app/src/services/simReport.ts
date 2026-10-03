@@ -1,4 +1,5 @@
 import type { DelayResolution } from './autoDelaySolver.js';
+import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
@@ -436,6 +437,7 @@ export interface SimRun extends WindProfileConditions {
   timeToBurnout: number | null;
   timeToRodDeparture: number | null;
   rodExitVelocity: number | null;
+  railProfile?: RailProfile;
   guidedLengthM?: number;
   enteredRodLengthM?: number;
   launchGuideReason?: FlightResult['launchGuideReason'];
@@ -2141,6 +2143,7 @@ export function buildSimRun(input: {
     timeToBurnout: tBurnout,
     timeToRodDeparture: tRodExit,
     rodExitVelocity,
+    railProfile: railProfileFromFlight(result, launch),
     guidedLengthM: guideLength,
     enteredRodLengthM: launch.launchRodLengthM,
     launchGuideReason: result.launchGuideReason,

@@ -10,7 +10,8 @@ import {
   classLabel, classesFittingMount, filterMotors, manufacturersForMount, sortMotors, type MotorDbEntry,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import { runStoppedEarly, type SimRun } from '../services/simReport.js';
+import { runStoppedEarly, SAFETY, type SimRun } from '../services/simReport.js';
+import { railNeededCell, railNeededHeader } from '../services/railNeeded.js';
 import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from '../services/simStore.js';
@@ -529,9 +530,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   const { prefs } = usePrefs();
   const dist = prefs.units.distance;
   const vel = prefs.units.velocity;
+  const len = prefs.units.length;
   const massSym = prefs.units.mass;
 
   const [criteria, setCriteriaRaw] = useState<Criteria>(loadCriteria);
+  const railThreshold = criteria.minRodExit ?? SAFETY.minRodExitVelocity;
   // Batch-local aero model. Auto is the sensible default: a candidate list
   // routinely spans subsonic to supersonic flights, and one fixed model
   // would be wrong at one end or the other.
@@ -748,20 +751,20 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   };
   const downloadCsv = () => {
     // BOM: unit headers can carry non-ASCII; Excel needs it to decode UTF-8.
-    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units)], { type: 'text/csv' }), 'csv');
+    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units, railThreshold)], { type: 'text/csv' }), 'csv');
   };
   const downloadXlsx = () => {
     const all = exportRuns();
     const configs = [...new Set(all.map((r) => r.motorConfig ?? ''))].filter((c) => c.startsWith('mixed'));
     // Combination batches get one tab per config PLUS an everything tab.
     const sheets: Sheet[] = configs.length === 0
-      ? [{ name: 'Batch', ...runsToTable(all, prefs.units) }]
+      ? [{ name: 'Batch', ...runsToTable(all, prefs.units, railThreshold) }]
       : [
-        { name: 'All results', ...runsToTable(all, prefs.units) },
-        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units) },
+        { name: 'All results', ...runsToTable(all, prefs.units, railThreshold) },
+        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units, railThreshold) },
         ...configs.map((c) => ({
           name: `Mixed ${c.replace('mixed ', '')}`,
-          ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units),
+          ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units, railThreshold),
         })),
       ];
     downloadAs(new Blob([sheetsToXlsx(sheets) as BlobPart], { type: XLSX_MIME }), 'xlsx');
@@ -1145,6 +1148,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                   <th>Delay</th>
                   <th>Apogee (<UnitChip quantity="distance" />)</th>
                   <th>Rod exit (<UnitChip quantity="velocity" />)</th>
+                  <th>{railNeededHeader(railThreshold, vel, len)}</th>
                   <th>T:W</th>
                   <th>Opt. delay</th>
                   <th>Verdict</th>
@@ -1183,6 +1187,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                     </td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
+                    <td>{run ? railNeededCell(run.railProfile, railThreshold, len) : ''}</td>
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>
                     <td>{run?.optimumDelayS != null ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>

@@ -139,6 +139,24 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('rail-needed sweep timing control: three fixed-delay motors, one flight each', async () => {
+  const inp = input(rocket(), {
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5'), entry('c', 'Acme', 'E24', '5')],
+    autoDelay: false,
+    launch: { ...DEFAULT_CONDITIONS, launchRodLengthM: 3 },
+  });
+  const flights = vi.spyOn(OrkRocket.prototype, 'simulate');
+  const start = performance.now();
+  const result = await sweep(inp, {
+    fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22', 1.1), c: curve('E24', 1.2) }),
+    nozzleFor: nozzles({}),
+  });
+  console.log(`Rail-needed sweep: ${(performance.now() - start).toFixed(1)} ms; ${flights.mock.calls.length} flights`);
+  expect(result.rows).toHaveLength(3);
+  expect(result.rows.every((r) => r.run && !r.error)).toBe(true);
+  expect(flights).toHaveBeenCalledTimes(3);
+}, 30000);
+
 describe('per-mount policy plumbing', () => {
   function fakeTelemetry() {
     const baseline = OrkRocket.buildTree(engineTree(rocket()));

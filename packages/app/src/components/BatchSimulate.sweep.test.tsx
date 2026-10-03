@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { StrictMode, act } from 'react';
+import { strFromU8, unzipSync } from 'fflate';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -485,6 +486,39 @@ describe('verdicts', () => {
 });
 
 describe('the table', () => {
+  it('shows rail needed beside rod exit and exports the current threshold in CSV and XLSX', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft', velocity: 'm/s' } }));
+    const reached = row('a', 'Acme E20', 300);
+    reached.run!.railProfile = { segments: [[0, 20, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, thrustEnded: false };
+    const short = row('b', 'Acme E22', 200);
+    short.run!.railProfile = { ...reached.run!.railProfile, segments: [[0, 10, 0, 2]] };
+    sweep.mockResolvedValue({ rows: [reached, short, failedRow('x', 'Acme bad')], stopped: false });
+    mount();
+    await start();
+    const headers = () => [...host.querySelectorAll('.motor-table th')].map((x) => x.textContent);
+    expect(headers()[4]).toBe('Rail for 15.0 m/s (ft)');
+    expect(bodyRows()[0]!.children[4]!.textContent).toBe('6.6');
+    expect(bodyRows()[1]!.children[4]!.textContent).toBe('Not reached within 13.1 ft');
+    expect(bodyRows()[2]!.children[4]!.textContent).toBe('');
+    // The field is editable after the sweep: no new flight, and all exports follow it.
+    type(field('Minimum rod-exit velocity'), '20');
+    expect(headers()[4]).toBe('Rail for 20.0 m/s (ft)');
+    expect(bodyRows()[0]!.children[4]!.textContent).toBe('8.2');
+    expect(sweep).toHaveBeenCalledOnce();
+    act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
+    const csv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
+    expect(csv.split('\n')[0]).toContain('Rail for 20.0 m/s (ft)');
+    expect(csv.split('\n')[1]!.split(',').at(-1)).toBe('8.202');
+    expect(csv).toContain('Not reached within 13.1 ft');
+    act(() => { buttons().find((b) => b.textContent === '⬇ XLSX')!.click(); });
+    const bytes = new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer());
+    const xml = strFromU8(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
+    expect(xml).toContain('Rail for 20.0 m/s (ft)');
+    expect(xml).toContain('<v>8.202</v>');
+    expect(xml).toContain('Not reached within 13.1 ft');
+    type(field('Minimum rod-exit velocity'), '');
+    expect(headers()[4]).toBe('Rail for 15.0 m/s (ft)');
+  });
   /**
    * CAPPED (audit 2026-09-22): every row was drawn and re-drawn after every
    * flight, and a mixed-cluster sweep reaches tens of thousands of rows — a

@@ -1,4 +1,5 @@
 import { MountDelayReport } from './MountDelayReport.js';
+import { railNeededLine } from '../services/railNeeded.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -8,7 +9,7 @@ import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
   launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
-  ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
@@ -204,6 +205,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
   const safeDeployment = deploymentVerdict(run);
+  const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel);
 
   return (
     <div className="panel" style={{ marginTop: 10 }}>
@@ -362,6 +364,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               <Row label="Velocity at launch guide exit"
                 value={run.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, run.rodExitVelocity)}
                 quantity="velocity" bad={run.safeLiftoffSpeed === false} />
+              {railLine && <Row label="Rail needed" value={railLine} />}
               <Row label="Thrust : weight at departure" value={run.thrustToWeightAtRod === null ? '—' : `${s(run.thrustToWeightAtRod, 1)} : 1`}
                 bad={run.safeThrustToWeight === false} />
               <Row label="Launch mass"

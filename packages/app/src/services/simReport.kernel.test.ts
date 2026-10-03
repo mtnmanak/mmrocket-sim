@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { railNeeded } from './railNeeded.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { FlightSeries } from '@online-openrocket/engine';
 import { buildSimRun, extractLandingDrift, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
@@ -39,6 +40,38 @@ const tree = (withChute: boolean): RocketTree => ({
     } as ComponentNode,
   ],
 });
+
+it('re-flies exactly the computed rail and exits within 0.1 m/s of the target', async () => {
+  const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+  resetEngine();
+  const design = tree(true);
+  const body = design.components[1]!;
+  body.children![0] = {
+    type: 'freeformfinset', finCount: 3, thickness: 0.003, crossSection: 'rounded',
+    points: [[0, 0], [0.02, 0.03], [0.05, 0.03], [0.05, 0]],
+  } as ComponentNode;
+  body.children!.push({ type: 'launchlug', length: 0.02, outerRadius: 0.003,
+    thickness: 0.001, position: { method: 'top', offset: 0.1 } } as ComponentNode);
+  const rocket = OrkRocket.buildTree(design);
+  rocket.setMotorById('mount', C6);
+  const fly = (length: number, allowance: boolean) => {
+    const launch = { ...DEFAULT_CONDITIONS, launchRodLengthM: length, launchGuideAllowance: allowance };
+    const result = rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42 });
+    return buildSimRun({ result, info: rocket.staticInfo(), motor: C6, launch, rocketName: 'Rail test', execMs: 0 });
+  };
+  for (const allowance of [true, false]) {
+    const original = fly(3, allowance);
+    const needed = railNeeded(original.railProfile, 15);
+    expect(needed?.status).toBe('reached');
+    if (needed?.status !== 'reached') throw new Error('No measured crossing');
+    if (allowance) expect(needed.railM).toBeGreaterThan(needed.travelM);
+    else expect(needed.railM).toBe(needed.travelM);
+    const reflown = fly(needed.railM, allowance);
+    expect(reflown.rodExitVelocity).not.toBeNull();
+    expect(Math.abs(reflown.rodExitVelocity! - 15)).toBeLessThan(0.1);
+    console.log({ allowance, travelM: needed.travelM, railM: needed.railM, exitMps: reflown.rodExitVelocity });
+  }
+}, 30000);
 
 describe('kernel warnings + drift, end-to-end', () => {
   it.each(['burnout', 'ejection'])('reads a separated booster\'s recovery weight from its own landing mass (%s)', async (separationEvent) => {
@@ -477,7 +510,7 @@ describe('winds aloft through app launch conditions', () => {
     expect(stronger.run.landingDistanceM!).toBeGreaterThan(single.run.landingDistanceM!);
     expect(uniform.run.windLevels).toEqual(levels);
     expect(uniform.run.windLevels).not.toBe(levels);
-    expect(runsToCsv([uniform.run]).split('\n')[0]).toMatch(/Winds aloft \(levels\)\r?$/);
+    expect(runsToCsv([uniform.run]).split('\n')[0]!.split(',')).toContain('Winds aloft (levels)');
     const again = fly({ ...launch, windLevels: uniform.run.windLevels!.map((l) => ({ ...l, standardDeviation: l.standardDeviation ?? 0 })) });
     expect(again.result.series).toEqual(uniform.result.series);
   }, 60000);

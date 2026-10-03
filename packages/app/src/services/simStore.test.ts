@@ -402,10 +402,10 @@ describe('the density-altitude column', () => {
     // The 4,000 ft / 95 °F worked example, as buildSimRun stores it.
     const da = densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null });
     const { headers, rows } = runsToTable([mkRun('a', { densityAltitudeM: da })], IMPERIAL_UNITS);
-    expect(headers.at(-2)).toBe('Density altitude (ft)');
+    expect(headers.at(-3)).toBe('Density altitude (ft)');
     // 2,170.810 m is 7,122.08 ft (the build spec said 7,122.07; re-measured).
-    expect(rows[0]!.at(-2)).toBe(7122.08);
-    expect(headers.at(-3)).toBe('Flight config');
+    expect(rows[0]!.at(-3)).toBe(7122.08);
+    expect(headers.at(-4)).toBe('Flight config');
   });
 
   it('is an empty cell for a run flown before the field, and for a stored value that is not a number', () => {
@@ -413,8 +413,8 @@ describe('the density-altitude column', () => {
       mkRun('old'),
       mkRun('bad', { densityAltitudeM: 'x' as unknown as number }),
     ], IMPERIAL_UNITS);
-    expect(rows[0]!.at(-2)).toBe('');
-    expect(rows[1]!.at(-2)).toBe('');
+    expect(rows[0]!.at(-3)).toBe('');
+    expect(rows[1]!.at(-3)).toBe('');
   });
 });
 
@@ -436,12 +436,13 @@ describe('K16 Safe deployment export', () => {
         expect(headers[at - 1]).toBe('Thrust:weight OK');
         expect(headers[at + 1]).toBe('Static margin OK');
         expect(rows[0]![at]).toBe(expected);
-        expect(headers.slice(-3)).toEqual(['Flight config', 'Density altitude (m)', 'Winds aloft (levels)']);
-        expect(rows[0]!.at(-1)).toBe(2);
+        expect(headers.slice(-4, -1)).toEqual(['Flight config', 'Density altitude (m)', 'Winds aloft (levels)']);
+        expect(headers.at(-1)).toBe('Rail for 15.0 m/s (m)');
+        expect(rows[0]!.at(-2)).toBe(2);
         const csv = runsToCsv([saved]).trim().split(/\r?\n/);
         expect(csv[1]!.split(',')[at]).toBe(expected);
-        expect(csv[0]!.split(',').at(-1)).toBe('Winds aloft (levels)');
-        expect(csv[1]!.split(',').at(-1)).toBe('2');
+        expect(csv[0]!.split(',').at(-2)).toBe('Winds aloft (levels)');
+        expect(csv[1]!.split(',').at(-2)).toBe('2');
         if (!booster && expected === 'caution') expect(rows[0]!.join(' ')).toContain('(caution)');
       }
     });
@@ -451,7 +452,7 @@ describe('K16 Safe deployment export', () => {
   });
 });
 
-it('persists wind levels and provenance, and appends the profile column after every existing column', () => {
+it('persists wind levels and provenance, keeping the wind column before the appended rail column', () => {
   const windLevels = [{ altitude: 10.123456789, speed: 4, direction: 0 }, { altitude: 200, speed: 8, direction: 0.2, standardDeviation: 0.4 }];
   const windProfileSource = { kind: 'ork' as const };
   addRun(mkRun('profile', { windLevels, windProfileSource }));
@@ -459,6 +460,6 @@ it('persists wind levels and provenance, and appends the profile column after ev
   expect(loaded.windLevels).toEqual(windLevels);
   expect(loaded.windProfileSource).toEqual(windProfileSource);
   const { headers, rows } = runsToTable([loaded, mkRun('single')]);
-  expect(headers.at(-1)).toBe('Winds aloft (levels)');
-  expect(rows.map((r) => r.at(-1))).toEqual([2, 0]);
+  expect(headers.at(-2)).toBe('Winds aloft (levels)');
+  expect(rows.map((r) => r.at(-2))).toEqual([2, 0]);
 });
