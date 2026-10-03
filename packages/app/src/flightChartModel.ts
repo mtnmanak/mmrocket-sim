@@ -28,6 +28,8 @@ export function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
+    { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', color: C[3]!, f: (v) => siToUi('pressure', u.pressure, v) },
+    { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, color: C[4]!, f: (v) => siToUi('pressure', u.pressure, v) },
   ];
 }
 

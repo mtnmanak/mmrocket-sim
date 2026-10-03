@@ -363,6 +363,8 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
 
   it('Show charts after an auto-delay Launch reproduces the stored 9 s flight, not the 7 s one', async () => {
     const runA = await flyLaunch(rocket, motors(false)); // auto off: flies the spec
+    expect(runA.result.series['ρ']?.some(v => v != null && v > 0)).toBe(true);
+    expect(runA.result.series['dynamicPressure']?.some(v => v != null && v > 0)).toBe(true);
     const runB = await flyLaunch(rocket, motors(true)); // auto on: flies the optimum
     expect(runA.flownDelayS).toBe(9);
     expect(runB.flownDelayS).toBe(runB.delayResolution.mounts[0]!.recommendedDelay);
@@ -373,6 +375,7 @@ describe('flight runner — a stored run re-flies at the delay it flew (real ker
       simOptions: kernelSimOptions(DEFAULT_CONDITIONS), fly: classic, restore: classic,
     });
     expect(refly.summary).toEqual(runA.result.summary);
+    expect(refly.series['dynamicPressure']).toEqual(runA.result.series['dynamicPressure']);
   }, 60_000);
 
   it('a stored 9 s run re-flies at 9 s whatever delay the handle was left carrying', async () => {

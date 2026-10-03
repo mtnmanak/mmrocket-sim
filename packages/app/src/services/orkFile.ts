@@ -1,3 +1,4 @@
+import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG, baseDragImportNotes } from './baseDragImportNotes.js';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
@@ -667,6 +668,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     const tag = el.tagName;
     const base = (type: ComponentType, withPosition: boolean): ComponentNode => {
       const node: ComponentNode = { type, id: freshId() };
+      if (text(el, `:scope > ${BASE_DRAG_DECLARATION_TAG}`) === 'true') {
+        node[BASE_DRAG_DECLARATION] = true;
+      }
       const nm = text(el, ':scope > name');
       if (nm) node.name = nm;
       // <preset type manufacturer partno digest/> - desktop's RocketComponentSaver
@@ -1393,6 +1397,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // boundary (this path included, with nothing left to do).
   notes.push(...outsideTreeEnums.values());
   const tree = sanitizeTree({ name, components }, notes);
+  notes.push(...baseDragImportNotes(tree));
 
   return {
     name, tree, motors, configs, chosenConfigId,
@@ -2484,6 +2489,12 @@ export function exportOrk({
     const t = node.type as ComponentType | 'protuberance';
     const open = (tag: string) => emit(depth, `<${tag}>`);
     const close = (tag: string) => {
+      // Extension parameter, directly under the component (not subcomponents).
+      // Desktop 24.12 ComponentParameterHandler warns and ignores unknown
+      // parameters. This preserves provenance only, never a physics setting.
+      if (node[BASE_DRAG_DECLARATION] === true) {
+        emit(depth + 1, `<${BASE_DRAG_DECLARATION_TAG}>true</${BASE_DRAG_DECLARATION_TAG}>`);
+      }
       emitChildren(node, depth + 1);
       emit(depth, `</${tag}>`);
     };

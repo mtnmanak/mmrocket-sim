@@ -9,6 +9,7 @@ import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
 import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { flightLoads, type FlightLoads } from './flightLoads.js';
 import { affectsRollInertia, hasRollForcing } from './revisionInertia.js';
 import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 
@@ -530,6 +531,8 @@ export interface SimRun extends WindProfileConditions {
   landingBearingDeg?: number | null;
   /** Peak |roll rate| over the flight (rad/s, from dΦ). Same absence rules. */
   maxRollRateRadS?: number | null;
+  /** Sampled ascent peaks (Pa and Pa·rad); absent on older stored runs. */
+  loads?: FlightLoads;
 
   windAvg: number;
   /**
@@ -2184,6 +2187,7 @@ export function buildSimRun(input: {
     landingDistanceM: drift.distanceM,
     landingBearingDeg: drift.bearingDeg,
     maxRollRateRadS,
+    loads: flightLoads(result),
     windAvg: launch.windAverage,
     ...(launch.windLevels?.length ? { windLevels: launch.windLevels.map((l) => ({ ...l })),
       windProfileSource: launch.windProfileSource } : {}),

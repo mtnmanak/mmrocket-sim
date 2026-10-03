@@ -230,6 +230,10 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
     return Number(v.toFixed(digits));
   };
   const sym = (quantity: Quantity, siLabel: string) => (u ? u[quantity] : siLabel);
+  // Pressure-times-angle can be very small in bar/atm. A fixed decimal count
+  // would turn a real nonzero load into zero; retain the converted value.
+  const loadPressure = (si: number | null | undefined): string | number =>
+    si == null || !Number.isFinite(si) ? '' : u ? siToUi('pressure', u.pressure, si) : si;
   return [
   ['Designation', (r) => r.motor],
   ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
@@ -334,6 +338,16 @@ function buildColumns(u?: UnitSelection): [string, (r: SimRun) => string | numbe
   [`Density altitude (${sym('distance', 'm')})`,
     (r) => cv('distance', r.densityAltitudeM)],
   ['Winds aloft (levels)', (r) => r.windLevels?.length ?? 0],
+  [`Max dynamic pressure (${sym('pressure', 'Pa')})`, r => loadPressure(r.loads?.maxQ?.value)],
+  ['Time at max Q (s)', r => round(r.loads?.maxQ?.time ?? null, 4)],
+  [`Altitude at max Q (${sym('distance', 'm')})`, r => cv('distance', r.loads?.maxQ?.altitude)],
+  [`Max q·α (${sym('pressure', 'Pa')}·rad)`, r => loadPressure(r.loads?.maxQAlpha?.value)],
+  [`Max q·α (${sym('pressure', 'Pa')}·deg)`, r => loadPressure(r.loads?.maxQAlpha ? r.loads.maxQAlpha.value * 180 / Math.PI : null)],
+  ['Time at max q·α (s)', r => round(r.loads?.maxQAlpha?.time ?? null, 4)],
+  [`Altitude at max q·α (${sym('distance', 'm')})`, r => cv('distance', r.loads?.maxQAlpha?.altitude)],
+  ['Mach at max q·α', r => round(r.loads?.maxQAlpha?.mach ?? null, 4)],
+  ['Angle of attack at max q·α (rad)', r => round(r.loads?.maxQAlpha?.aoa ?? null, 6)],
+  ['Angle of attack at max q·α (deg)', r => round(r.loads?.maxQAlpha?.aoa == null ? null : r.loads.maxQAlpha.aoa * 180 / Math.PI, 4)],
   ];
 }
 

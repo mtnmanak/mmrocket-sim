@@ -63,6 +63,16 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it('stores ascent load peaks with the flight report', () => {
+  const result = fakeResult();
+  result.series['ρ'] = result.series.time.map(() => 1.2);
+  result.series['Vs'] = result.series.time.map(() => 340);
+  const run = buildSimRun({ result, info, motor, meta: { label: 'C6' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  expect(run.loads?.maxQ?.value).toBeGreaterThan(0);
+  expect(run.loads?.maxQAlpha?.time).toBeLessThan(7);
+});
+
 describe('recommendDelay', () => {
   it('rounds to the nearest whole second (delays get drilled, not bought)', () => {
     // the owner's example: prescribed 0/6/8/10/14 but optimal 12.7 → drill to 13.
@@ -1058,9 +1068,11 @@ describe('runsToCsv', () => {
     // The one column after it is the density altitude (weather build,
     // 2026-09-22), appended behind it by the same rule, so every column up to
     // and including this one keeps its position.
-    expect(hc[hc.length - 3]).toBe('Flight config');
-    expect(hc[hc.length - 2]).toMatch(/^Density altitude/);
-    expect(hc[hc.length - 1]).toBe('Winds aloft (levels)');
+    // Load columns are appended after these; none of the earlier slots move.
+    const configAt = hc.indexOf('Flight config');
+    expect(hc[configAt - 1]).toBe('Comments');
+    expect(hc[configAt + 1]).toMatch(/^Density altitude/);
+    expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

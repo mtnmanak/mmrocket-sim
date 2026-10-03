@@ -23,6 +23,7 @@
  */
 export const XML_JS_SUITES = [
   'src/services/addComponent.test.ts',
+  'src/services/baseDragImportNotes.test.ts',
   'src/services/autosaveBackup.test.ts',
   'src/services/exMotors.test.ts',
   'src/services/importApply.repick.test.ts',
