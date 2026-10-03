@@ -1,5 +1,5 @@
 {
-  "version": "0.153",
-  "released": "2026-10-02",
-  "note": "A fifth aerodynamics choice, Hybrid (experimental): Rogers Kbf below Mach 0.8, the Supersonic model above Mach 1.2, blended by Mach in between. The other four choices are unchanged, and Rogers Kbf stays the default."
+  "version": "0.154",
+  "released": "2026-10-03",
+  "note": "Rail needed in the launch report and as a Batch Simulate column; max dynamic pressure and max q·α in the flight statistics; an import note when a design seems to carry a base-drag-model part; app-saved .ork files record which aerodynamics model flew each stored run and bring those runs back to Saved simulations as read-only summaries."
 }
