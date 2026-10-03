@@ -32,6 +32,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.155",
+    "date": "2026-10-03",
+    "title": "Rail needed now gives the travel to measure at the pad, from your rail button or launch lug, as well as the rail length",
+    "items": [
+      "RAIL NEEDED, NOW WITH THE NUMBER TO MEASURE AT THE PAD. At a launch you cannot know the usable length of the rail you are given: it may not be exactly 8 feet, and a stop may hold the rocket above the blast plate. So the launch report now names the point to measure from for the guide travel the flight needs to reach 15 m/s, measured from the point that keeps the rocket straight on the rail - the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket), or the bottom of the lowest launch lug - for example: \"Reaches 15.0 m/s after 6.2 ft of travel, measured from the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)\". At the pad, measure from that point to the end of the rail and compare; the user guide explains which button counts on a rocket with more than two. The rail length it implies, if the tail sits at the bottom of the rail, still follows in brackets. Batch Simulate now has two columns, Travel for and Rail for, using your Min rod-exit speed, or 15 m/s when it is unset, and its CSV and XLSX exports carry both. With no launch guide modelled, or the guide-position allowance off, both figures are the travel of the rocket itself. Nothing about the flight itself changes."
+    ]
+  },
+  {
     "version": "0.154",
     "date": "2026-10-03",
     "title": "Rail needed in the launch report and Batch Simulate; max dynamic pressure and max q·α; a note for a base-drag-model part; and app-saved .ork files keep which aerodynamics model flew each stored run",

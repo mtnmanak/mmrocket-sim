@@ -69,7 +69,7 @@ it.each([false, true])('names the guiding rail line with three button stations (
   expect(result.effectiveLaunchRodLength).toBeCloseTo(0.4, 9);
   expect(run.railProfile?.offsetM).toBeCloseTo(0.6, 9);
   const line = railNeededLine(run.railProfile, 15, 'm', 'm/s');
-  expect(line).toContain('the lower edge of the second button station up the guiding rail line');
+  expect(line).toContain('the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)');
   expect(line).toContain('from that button edge to the end of the rail');
   if (withLug) expect(line).toContain('the app used the shorter travel (buttons)');
 }, 30000);

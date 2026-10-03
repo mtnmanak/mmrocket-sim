@@ -1,5 +1,5 @@
 {
-  "version": "0.154",
+  "version": "0.155",
   "released": "2026-10-03",
-  "note": "Rail needed in the launch report and as a Batch Simulate column; max dynamic pressure and max q·α in the flight statistics; an import note when a design seems to carry a base-drag-model part; app-saved .ork files record which aerodynamics model flew each stored run and bring those runs back to Saved simulations as read-only summaries."
+  "note": "Rail needed now gives the guide travel to measure at the pad, from your rail button or launch lug, as well as the rail length; Batch Simulate shows both as columns and exports both."
 }

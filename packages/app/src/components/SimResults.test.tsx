@@ -120,7 +120,7 @@ describe('SimRunDetails — where the raw flight data went', () => {
     render(<SimRunDetails run={r} />);
     act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show all details'))!.click(); });
     const exit = [...host.querySelectorAll('tr')].find((tr) => tr.textContent?.includes('Velocity at launch guide exit'))!;
-    expect(exit.nextElementSibling?.textContent).toBe('Rail neededReaches 15.0 m/s after 4.9 ft of travel, measured from the lower edge of the second button station up the guiding rail line (6.6 ft of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
+    expect(exit.nextElementSibling?.textContent).toBe('Rail neededReaches 15.0 m/s after 4.9 ft of travel, measured from the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket) (6.6 ft of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
     expect(r.safeLiftoffSpeed).toBe(true);
     render(<SimRunDetails run={{ ...r, launchGuideReason: 'lug', railProfile: { ...r.railProfile, guideKind: undefined } }} />);
     expect(host.textContent).toContain('measured from the bottom of the lowest launch lug');

@@ -122,7 +122,7 @@ export function railNeededLine(profile: RailProfile | undefined, threshold: numb
   const lug = kind === 'lug' || kind === 'mixed-lug';
   // SimulationStatus.buttonGuidePosition / secondStation selects the aft edge
   // of the second-from-aft station on the chosen rail line, not among all buttons.
-  const point = buttons ? 'the lower edge of the second button station up the guiding rail line'
+  const point = buttons ? 'the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)'
     : lug ? 'the bottom of the lowest launch lug' : 'the guide point recorded for this flight';
   const reference = rocketTravel ? 'of travel of the rocket itself' : `of travel, measured from ${point}`;
   const pad = rocketTravel

@@ -133,7 +133,7 @@ describe('rail travel from the existing flight', () => {
   it('adds the design offset only with allowance on and says which in the report', () => {
     const on = extract();
     expect(railNeededLine(on, 15, 'ft', 'm/s')).toBe(
-      'Reaches 15.0 m/s after 0.7 ft of travel, measured from the lower edge of the second button station up the guiding rail line '
+      'Reaches 15.0 m/s after 0.7 ft of travel, measured from the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket) '
       + '(1.3 ft of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
     const f = flight(); f.effectiveLaunchRodLength = 1;
     const off = railProfileFromFlight(f, { ...launch, launchGuideAllowance: false });
@@ -149,7 +149,7 @@ describe('rail travel from the existing flight', () => {
       f.effectiveLaunchRodLength = guideKind === 'single-button' ? 0 : guideKind === 'none' || guideKind === 'off' ? 1 : 0.8;
       const profile = extract(f)!;
       expect(profile.guideKind).toBe(guideKind);
-      const point = guideKind.includes('buttons') ? 'lower edge of the second button station up the guiding rail line'
+      const point = guideKind.includes('buttons') ? 'bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)'
         : guideKind.includes('lug') ? 'bottom of the lowest launch lug' : 'travel of the rocket itself';
       const lines = guideKind === 'single-button' ? [railNeededLine(profile, 15, 'm', 'm/s')!]
         : [railNeededLine(profile, 15, 'm', 'm/s')!, railNeededLine(profile, 30, 'm', 'm/s')!,
@@ -177,9 +177,9 @@ describe('rail travel from the existing flight', () => {
     });
 
   it.each([
-    ['buttons', 'the lower edge of the second button station up the guiding rail line', 'rail', 'button'],
+    ['buttons', 'the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)', 'rail', 'button'],
     ['lug', 'the bottom of the lowest launch lug', 'rod', 'lug'],
-    ['mixed-buttons', 'the lower edge of the second button station up the guiding rail line', 'rail', 'button'],
+    ['mixed-buttons', 'the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)', 'rail', 'button'],
     ['mixed-lug', 'the bottom of the lowest launch lug', 'rod', 'lug'],
   ] as const)('names the guide point when %s travel clamps to zero', (guideKind, point, launcher, edge) => {
     const f = flight();
