@@ -1077,7 +1077,7 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-2)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)']);
+    expect(hc.slice(-3)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

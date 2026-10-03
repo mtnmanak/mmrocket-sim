@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { railNeeded } from './railNeeded.js';
+import { railNeeded, railNeededLine } from './railNeeded.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { FlightSeries } from '@online-openrocket/engine';
 import { buildSimRun, extractLandingDrift, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
@@ -41,6 +41,39 @@ const tree = (withChute: boolean): RocketTree => ({
   ],
 });
 
+it.each([false, true])('names the guiding rail line with three button stations (mixed lugs: %s)', async (withLug) => {
+  const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+  resetEngine();
+  const design = tree(true);
+  const body = design.components[1]!;
+  body.length = 0.8;
+  // Aft edges are 0.1/0.3/0.6 m from the tail. Only 0.1 and 0.6
+  // share a rail line; the globally second-from-aft station cannot guide it.
+  for (const [gap, angleOffset] of [[0.1, 0], [0.3, Math.PI], [0.6, 0]] as const) {
+    body.children!.push({ type: 'railbutton', outerDiameter: 0.01,
+      instanceCount: 1, angleOffset,
+      position: { method: 'top', offset: 0.8 - gap - 0.005 } });
+  }
+  if (withLug) body.children!.push({ type: 'launchlug', length: 0.02,
+    outerRadius: 0.003, thickness: 0.001,
+    position: { method: 'top', offset: 0.8 - 0.2 - 0.02 } });
+  const rocket = OrkRocket.buildTree(design);
+  rocket.setMotorById('mount', C6);
+  const launch = { ...DEFAULT_CONDITIONS, launchRodLengthM: 1 };
+  const result = rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42 });
+  const run = buildSimRun({ result, info: rocket.staticInfo(), motor: C6, launch,
+    rocketName: 'Three stations on two rail lines', execMs: 0 });
+  expect(run.railProfile?.guideKind).toBe(withLug ? 'mixed-buttons' : 'buttons');
+  // Nanometre tolerance allows floating-point geometry noise, but distinguishes
+  // the 0.6 m aft edge from its centre (0.605 m) and the other station (0.3 m).
+  expect(result.effectiveLaunchRodLength).toBeCloseTo(0.4, 9);
+  expect(run.railProfile?.offsetM).toBeCloseTo(0.6, 9);
+  const line = railNeededLine(run.railProfile, 15, 'm', 'm/s');
+  expect(line).toContain('the lower edge of the second button station up the guiding rail line');
+  expect(line).toContain('from that button edge to the end of the rail');
+  if (withLug) expect(line).toContain('the app used the shorter travel (buttons)');
+}, 30000);
+
 it('re-flies exactly the computed rail and exits within 0.1 m/s of the target', async () => {
   const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
   resetEngine();
@@ -61,6 +94,7 @@ it('re-flies exactly the computed rail and exits within 0.1 m/s of the target', 
   };
   for (const allowance of [true, false]) {
     const original = fly(3, allowance);
+    expect(original.railProfile?.guideKind).toBe(allowance ? 'lug' : 'off');
     const needed = railNeeded(original.railProfile, 15);
     expect(needed?.status).toBe('reached');
     if (needed?.status !== 'reached') throw new Error('No measured crossing');
@@ -511,8 +545,8 @@ describe('winds aloft through app launch conditions', () => {
     expect(uniform.run.windLevels).toEqual(levels);
     expect(uniform.run.windLevels).not.toBe(levels);
     expect(runsToCsv([uniform.run]).split('\n')[0]!.split(',')).toContain('Winds aloft (levels)');
-    expect(runsToCsv([uniform.run]).split('\n')[0]!.split(',').slice(-2)).toEqual([
-      'Hybrid band lower (Mach)', 'Hybrid band upper (Mach)',
+    expect(runsToCsv([uniform.run]).split('\n')[0]!.trim().split(',').slice(-3)).toEqual([
+      'Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)',
     ]);
     const again = fly({ ...launch, windLevels: uniform.run.windLevels!.map((l) => ({ ...l, standardDeviation: l.standardDeviation ?? 0 })) });
     expect(again.result.series).toEqual(uniform.result.series);

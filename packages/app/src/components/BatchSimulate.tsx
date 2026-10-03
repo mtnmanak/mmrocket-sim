@@ -1148,6 +1148,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                   <th>Delay</th>
                   <th>Apogee (<UnitChip quantity="distance" />)</th>
                   <th>Rod exit (<UnitChip quantity="velocity" />)</th>
+                  <th>{railNeededHeader(railThreshold, vel, len, 'travel')}</th>
                   <th>{railNeededHeader(railThreshold, vel, len)}</th>
                   <th>T:W</th>
                   <th>Opt. delay</th>
@@ -1187,7 +1188,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                     </td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
-                    <td>{run ? railNeededCell(run.railProfile, railThreshold, len) : ''}</td>
+                    <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len, 'travel') : ''}</td>
+                    <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len) : ''}</td>
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>
                     <td>{run?.optimumDelayS != null ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>

@@ -10,6 +10,8 @@ export interface RailProfile {
   /** Null when the effective guide was clamped to zero: the offset is unknown. */
   offsetM: number | null;
   allowance: boolean;
+  /** The kernel's flown guide decision; absent on older saved profiles. */
+  guideKind?: FlightResult['launchGuideReason'];
   thrustEnded: boolean;
 }
 
@@ -33,7 +35,7 @@ export function railProfileFromFlight(result: FlightResult, launch: LaunchCondit
     || guideM < 0 || guideM > railM || result.events.some((e) => e.type === 'SIM_ABORT')
     || result.branches?.some((b) => b.events.some((e) => e.type === 'SIM_ABORT'))) return undefined;
   if (guideM === 0) return { segments: [], railM, offsetM: null,
-    allowance: launch.launchGuideAllowance !== false, thrustEnded: false };
+    allowance: launch.launchGuideAllowance !== false, guideKind: result.launchGuideReason, thrustEnded: false };
   const s = result.series;
   const rod = result.events.find((e) => e.type === 'LAUNCHROD')?.time ?? Infinity;
   const apogee = result.events.find((e) => e.type === 'APOGEE')?.time ?? Infinity;
@@ -68,7 +70,7 @@ export function railProfileFromFlight(result: FlightResult, launch: LaunchCondit
     && s.thrust.every((v, i) => s.time[i]! <= lastBurnout || (Number.isFinite(v) && v <= 0))
     && !result.events.some((e) => e.type === 'IGNITION' && e.time > lastBurnout);
   return { segments, railM, offsetM: launch.launchGuideAllowance === false ? 0 : railM - guideM,
-    allowance: launch.launchGuideAllowance !== false, thrustEnded };
+    allowance: launch.launchGuideAllowance !== false, guideKind: result.launchGuideReason, thrustEnded };
 }
 
 export function railNeeded(profile: RailProfile | undefined, threshold: number): RailNeeded | undefined {
@@ -89,26 +91,56 @@ export function railNeeded(profile: RailProfile | undefined, threshold: number):
   return { status: profile.thrustEnded ? 'thrust-ended' : 'not-reached', railM: profile.railM };
 }
 
-export function railNeededCell(profile: RailProfile | undefined, threshold: number, lengthUnit: string): string {
+export function railNeededCell(profile: RailProfile | undefined, threshold: number, lengthUnit: string,
+  measure: 'rail' | 'travel' = 'rail'): string {
   const needed = railNeeded(profile, threshold);
   if (!needed) return '';
-  if (needed.status === 'reached') return fmtSi('length', lengthUnit, needed.railM, 1);
+  if (needed.status === 'reached') return fmtSi('length', lengthUnit, measure === 'travel' ? needed.travelM : needed.railM, 1);
+  const limitM = measure === 'travel' ? availableTravel(profile!) : needed.railM;
   return needed.status === 'thrust-ended' ? 'Cannot reach: thrust ended'
-    : `Not reached within ${fmtSi('length', lengthUnit, needed.railM, 1)} ${lengthUnit}`;
+    : `Not reached within ${fmtSi('length', lengthUnit, limitM, 1)} ${lengthUnit}`;
 }
 
-export function railNeededHeader(threshold: number, velocityUnit: string, lengthUnit: string): string {
-  return `Rail for ${fmtSi('velocity', velocityUnit, threshold)} ${velocityUnit} (${lengthUnit})`;
+export function railNeededHeader(threshold: number, velocityUnit: string, lengthUnit: string,
+  measure: 'rail' | 'travel' = 'rail'): string {
+  return `${measure === 'travel' ? 'Travel' : 'Rail'} for ${fmtSi('velocity', velocityUnit, threshold)} ${velocityUnit} (${lengthUnit})`;
 }
 
-export function railNeededLine(profile: RailProfile | undefined, threshold: number, lengthUnit: string, velocityUnit: string): string | null {
+function availableTravel(profile: RailProfile): number {
+  return profile.offsetM === null ? 0 : profile.railM - profile.offsetM;
+}
+
+export function railNeededLine(profile: RailProfile | undefined, threshold: number, lengthUnit: string, velocityUnit: string,
+  legacyGuideKind?: FlightResult['launchGuideReason']): string | null {
   const needed = railNeeded(profile, threshold);
-  if (!needed) return null;
+  if (!needed || !profile) return null;
   const speed = `${fmtSi('velocity', velocityUnit, threshold)} ${velocityUnit}`;
   const length = (m: number) => `${fmtSi('length', lengthUnit, m, 1)} ${lengthUnit}`;
-  const allowance = `Guide-position allowance ${profile!.allowance ? 'on' : 'off'}.`;
-  if (needed.status === 'thrust-ended') return `Cannot reach ${speed} on the guide: thrust ended before reaching that speed. ${allowance}`;
-  if (needed.status === 'not-reached') return `Did not reach ${speed} within ${length(needed.railM)} of rail; a longer rail has not been simulated. ${allowance}`;
-  return `Reaches ${speed} after ${length(needed.travelM)} of guide travel (${length(needed.railM)} of rail, `
-    + (profile!.allowance ? 'allowing for where the launch lugs/rail buttons sit).' : 'guide-position allowance off).');
+  const kind = profile.allowance ? profile.guideKind ?? legacyGuideKind : 'off';
+  const rocketTravel = kind === 'off' || kind === 'none' || kind === 'single-button';
+  const buttons = kind === 'buttons' || kind === 'mixed-buttons';
+  const lug = kind === 'lug' || kind === 'mixed-lug';
+  // SimulationStatus.buttonGuidePosition / secondStation selects the aft edge
+  // of the second-from-aft station on the chosen rail line, not among all buttons.
+  const point = buttons ? 'the lower edge of the second button station up the guiding rail line'
+    : lug ? 'the bottom of the lowest launch lug' : 'the guide point recorded for this flight';
+  const reference = rocketTravel ? 'of travel of the rocket itself' : `of travel, measured from ${point}`;
+  const pad = rocketTravel
+    ? `${kind === 'off' ? 'Guide-position allowance is off.' : kind === 'none' ? 'No launch guide is fitted.'
+      : 'A single button station cannot hold the rocket straight.'} The rail figure equals the travel of the rocket itself.`
+    : `At the pad, measure the usable ${lug ? 'rod' : 'rail'} from ${buttons ? 'that button edge' : lug ? 'that lug edge' : 'that guide point'} to the end of the ${lug ? 'rod' : 'rail'}.`
+      + (kind === 'mixed-lug' || kind === 'mixed-buttons' ? ` With both lugs and buttons fitted, the app used the shorter travel (${lug ? 'lug' : 'buttons'}).` : '')
+      + (!kind ? ' This older run did not record the guide kind; re-launch to identify the measuring point.' : '');
+  if (needed.status === 'thrust-ended') return `Cannot reach ${speed}: thrust ended before reaching that speed while still guided. `
+    + `The simulated limit was ${length(availableTravel(profile))} ${reference} (${length(profile.railM)} of rail if the tail sits at the bottom of the rail). ${pad}`;
+  if (needed.status === 'not-reached') {
+    // A zero effective length cannot reveal the guide-to-tail offset. In
+    // particular a single station provides no guided crossing to measure.
+    if (profile.offsetM === null) return `Did not reach ${speed}: the simulation provided no guided travel on the entered ${length(profile.railM)} rail${rocketTravel ? '' : `, measured from ${point}`}. `
+      + `No required travel or rail length can be determined. ${pad}`;
+    return `Did not reach ${speed} within ${length(availableTravel(profile))} ${reference} `
+      + `(${length(needed.railM)} of rail if the tail sits at the bottom of the rail); a longer rail has not been simulated. ${pad}`;
+  }
+  return `Reaches ${speed} after ${length(needed.travelM)} ${reference} `
+    + `(${length(needed.railM)} of rail if the tail sits at the bottom of the rail). ${pad}`;
 }

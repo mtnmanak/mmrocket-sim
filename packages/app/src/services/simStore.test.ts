@@ -356,6 +356,26 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
  * used the same unguarded product.
  */
 describe('the flight-day lead columns', () => {
+  it('exports distinct travel and rail lengths in SI and chosen units, with unavailable runs blank', () => {
+    const r = mkRun('rail', { railProfile: {
+      segments: [[0, 20, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, guideKind: 'buttons', thrustEnded: false,
+    } });
+    for (const units of [undefined, IMPERIAL_UNITS]) {
+      const table = runsToTable([r, mkRun('old'), { ...r, importedSummary: true }], units);
+      const speed = units ? '49.2 ft/s' : '15.0 m/s';
+      const len = units ? 'in' : 'm';
+      const travelAt = table.headers.indexOf(`Travel for ${speed} (${len})`);
+      const railAt = table.headers.indexOf(`Rail for ${speed} (${len})`);
+      expect(travelAt).toBeGreaterThan(-1);
+      expect(railAt).toBeGreaterThan(-1);
+      expect(table.rows[0]![travelAt]).toBe(units ? 59.055 : 1.5);
+      expect(table.rows[0]![railAt]).toBe(units ? 78.74 : 2);
+      for (const row of table.rows.slice(1)) {
+        expect(row[travelAt]).toBe('');
+        expect(row[railAt]).toBe('');
+      }
+    }
+  });
   const cell = (r: SimRun, header: string): string | number => {
     const { headers, rows } = runsToTable([r]);
     return rows[0]![headers.indexOf(header)]!;

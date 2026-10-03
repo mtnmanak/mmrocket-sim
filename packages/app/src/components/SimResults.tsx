@@ -206,7 +206,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
   const safeDeployment = deploymentVerdict(run);
-  const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel);
+  const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel, run.launchGuideReason);
 
   return (
     <div className="panel" style={{ marginTop: 10 }}>

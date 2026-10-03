@@ -404,6 +404,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Winds aloft (levels)', (r) => r.windLevels?.length ?? ''],
   // Append to preserve existing spreadsheet column positions.
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => {
+    if (r.importedSummary) return '';
     const needed = railNeeded(r.railProfile, railThreshold);
     return needed?.status === 'reached' ? cv('length', needed.railM, 3)
       : railNeededCell(r.railProfile, railThreshold, sym('length', 'm'));
@@ -420,6 +421,13 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Angle of attack at max q·α (deg)', r => round(r.loads?.maxQAlpha?.aoa == null ? null : r.loads.maxQAlpha.aoa * 180 / Math.PI, 4)],
   ['Hybrid band lower (Mach)', (r) => round(r.hybridBand?.[0] ?? null, 3)],
   ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
+  // Append travel too, keeping all previously exported column positions stable.
+  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => {
+    if (r.importedSummary) return '';
+    const needed = railNeeded(r.railProfile, railThreshold);
+    return needed?.status === 'reached' ? cv('length', needed.travelM, 3)
+      : railNeededCell(r.railProfile, railThreshold, sym('length', 'm'), 'travel');
+  }],
   ];
 }
 

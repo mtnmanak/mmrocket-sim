@@ -14,6 +14,7 @@ import {
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
+import { importedSummaryRuns } from '../services/orkFlightData.js';
 
 /**
  * THE DIALOG AROUND A SWEEP — what BatchSimulate does with the rows, the
@@ -486,41 +487,76 @@ describe('verdicts', () => {
 });
 
 describe('the table', () => {
-  it('shows rail needed beside rod exit and exports the current threshold in CSV and XLSX', async () => {
+  it('shows travel and rail beside rod exit and exports both at the current threshold in CSV and XLSX', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft', velocity: 'm/s' } }));
     const reached = row('a', 'Acme E20', 300);
     reached.run!.railProfile = { segments: [[0, 20, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, thrustEnded: false };
     const short = row('b', 'Acme E22', 200);
     short.run!.railProfile = { ...reached.run!.railProfile, segments: [[0, 10, 0, 2]] };
-    sweep.mockResolvedValue({ rows: [reached, short, failedRow('x', 'Acme bad')], stopped: false });
+    const ended = row('c', 'Acme E23', 100);
+    ended.run!.railProfile = { ...short.run!.railProfile, thrustEnded: true };
+    const imported = row('d', 'Acme imported', 50);
+    imported.run = importedSummaryRuns({ name: 'Imported', storedSimulations: [{ name: 'Stored', configId: null, windAverage: 0,
+      data: { maxAltitude: 50 } }] })[0]!;
+    // Even a stale/foreign profile must not turn a read-only summary into a measurement.
+    imported.run.railProfile = reached.run!.railProfile;
+    sweep.mockResolvedValue({ rows: [reached, short, ended, imported, failedRow('x', 'Acme bad')], stopped: false });
     mount();
     await start();
     const headers = () => [...host.querySelectorAll('.motor-table th')].map((x) => x.textContent);
-    expect(headers()[4]).toBe('Rail for 15.0 m/s (ft)');
-    expect(bodyRows()[0]!.children[4]!.textContent).toBe('6.6');
-    expect(bodyRows()[1]!.children[4]!.textContent).toBe('Not reached within 13.1 ft');
-    expect(bodyRows()[2]!.children[4]!.textContent).toBe('');
+    expect(headers().slice(4, 6)).toEqual(['Travel for 15.0 m/s (ft)', 'Rail for 15.0 m/s (ft)']);
+    const lengths = (index: number) => [4, 5].map(i => bodyRows()[index]!.children[i]!.textContent);
+    expect(lengths(0)).toEqual(['4.9', '6.6']);
+    expect(lengths(1)).toEqual(['Not reached within 11.5 ft', 'Not reached within 13.1 ft']);
+    expect(lengths(2)).toEqual(['Cannot reach: thrust ended', 'Cannot reach: thrust ended']);
+    expect(lengths(3)).toEqual(['', '']);
+    expect(lengths(4)).toEqual(['', '']);
     // The field is editable after the sweep: no new flight, and all exports follow it.
     type(field('Minimum rod-exit velocity'), '20');
-    expect(headers()[4]).toBe('Rail for 20.0 m/s (ft)');
-    expect(bodyRows()[0]!.children[4]!.textContent).toBe('8.2');
+    expect(headers().slice(4, 6)).toEqual(['Travel for 20.0 m/s (ft)', 'Rail for 20.0 m/s (ft)']);
+    expect(lengths(0)).toEqual(['6.6', '8.2']);
     expect(sweep).toHaveBeenCalledOnce();
     act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
     const csv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
     const exportHeaders = csv.split('\n')[0]!.split(',');
     const railAt = exportHeaders.indexOf('Rail for 20.0 m/s (ft)');
+    const travelAt = exportHeaders.indexOf('Travel for 20.0 m/s (ft)');
     expect(railAt).toBeGreaterThan(-1);
+    expect(travelAt).toBeGreaterThan(-1);
     expect(exportHeaders[railAt + 1]).toMatch(/^Max dynamic pressure/);
     expect(csv.split('\n')[1]!.split(',')[railAt]).toBe('8.202');
+    expect(csv.split('\n')[1]!.split(',')[travelAt]!.trim()).toBe('6.562');
     expect(csv).toContain('Not reached within 13.1 ft');
+    expect(csv).toContain('Not reached within 11.5 ft');
+    expect(csv).toContain('Cannot reach: thrust ended');
+    // The imported-summary comment contains quoted commas.
+    const importedCsv = csv.split('\n')[4]!.trim().split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    expect(importedCsv[railAt]).toBe('');
+    expect(importedCsv[travelAt]).toBe('');
     act(() => { buttons().find((b) => b.textContent === '⬇ XLSX')!.click(); });
     const bytes = new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer());
     const xml = strFromU8(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
     expect(xml).toContain('Rail for 20.0 m/s (ft)');
+    expect(xml).toContain('Travel for 20.0 m/s (ft)');
     expect(xml).toContain('<v>8.202</v>');
+    expect(xml).toContain('<v>6.562</v>');
     expect(xml).toContain('Not reached within 13.1 ft');
+    expect(xml).toContain('Not reached within 11.5 ft');
+    // Inspect by column, including the imported summary's empty XLSX cells.
+    const sheet = new DOMParser().parseFromString(xml, 'text/xml');
+    const xlsxRows = [...sheet.querySelectorAll('sheetData row')];
+    const xlsxCell = (r: number, c: number) => {
+      const ref = xlsxRows[0]!.querySelectorAll('c')[c]!.getAttribute('r')!.replace(/\d+$/, String(r + 1));
+      return xlsxRows[r]!.querySelector(`c[r="${ref}"]`)?.textContent ?? '';
+    };
+    expect(xlsxCell(1, travelAt)).toBe('6.562');
+    expect(xlsxCell(1, railAt)).toBe('8.202');
+    expect(xlsxCell(3, travelAt)).toBe('Cannot reach: thrust ended');
+    expect(xlsxCell(3, railAt)).toBe('Cannot reach: thrust ended');
+    expect(xlsxCell(4, travelAt)).toBe('');
+    expect(xlsxCell(4, railAt)).toBe('');
     type(field('Minimum rod-exit velocity'), '');
-    expect(headers()[4]).toBe('Rail for 15.0 m/s (ft)');
+    expect(headers().slice(4, 6)).toEqual(['Travel for 15.0 m/s (ft)', 'Rail for 15.0 m/s (ft)']);
   });
   /**
    * CAPPED (audit 2026-09-22): every row was drawn and re-drawn after every
