@@ -6,6 +6,7 @@ import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
 import { lookupTable } from './xmlUtil.js';
+import type { ImportedSummaryDocument } from './orkFlightData.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -18,6 +19,8 @@ const KEY = 'online-openrocket.session.v1';
 const DEBOUNCE_MS = 400;
 
 export interface SessionState {
+  /** The opened file's original summaries; never reconstructed from history. */
+  importedDocument?: ImportedSummaryDocument;
   tree: RocketTree;
   /** Per-mount motors (v0.009+). */
   mountMotors?: Record<string, MountMotor>;

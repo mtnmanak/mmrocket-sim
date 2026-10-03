@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite,
+  addRun, addRuns, appendImportedRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite, runsEvictedForUndoByLastWrite,
   runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
@@ -169,14 +169,14 @@ describe('runCapNote — the one wording of what the cap did', () => {
   });
 
   it('names the saved runs it removed', () => {
-    expect(runCapNote(1, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
-    expect(runCapNote(26, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 26 were removed to make room.');
+    expect(runCapNote(1, 0)).toBe('Saved simulations keeps up to 500 runs, so the oldest 1 was removed to make room.');
+    expect(runCapNote(26, 0)).toBe('Saved simulations keeps up to 500 runs, so the oldest 26 were removed to make room.');
   });
 
   it('names the new runs that never fit, apart from the saved ones', () => {
-    expect(runCapNote(100, 100)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 100 were removed'
+    expect(runCapNote(100, 100)).toBe('Saved simulations keeps up to 500 runs, so the oldest 100 were removed'
       + ' to make room, and 100 new runs did not fit and were not saved.');
-    expect(runCapNote(0, 1)).toBe('Saved simulations keeps the newest 500 runs, so 1 new run did not fit and was not saved.');
+    expect(runCapNote(0, 1)).toBe('Saved simulations keeps up to 500 runs, so 1 new run did not fit and was not saved.');
   });
 });
 
@@ -199,6 +199,22 @@ describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
     expect(restoreRun(b, null).map((r) => r.id)).toEqual(['a', 'b']);
   });
 
+  it.each([null, 'missing-neighbour'])('Undo protects a nonconflicting bottom row at capacity (%s)', (beforeId) => {
+    addRuns(Array.from({ length: 500 }, (_, i) => mkRun(`row-${i}`, { when: 500 - i })));
+    const bottom = loadRuns()[499]!;
+    deleteRun(bottom.id);
+    appendImportedRuns([mkRun('replacement', { importedSummary: true, when: 0 })]);
+    const restored = restoreRun(bottom, beforeId);
+    expect(restored).toHaveLength(500);
+    expect(restored[499]).toEqual(bottom);
+    expect(restored.map((r) => r.id)).toEqual(Array.from({ length: 500 }, (_, i) => `row-${i}`));
+    expect(loadRuns()).toEqual(restored);
+    expect(runsEvictedByLastWrite()).toBe(0);
+    expect(runsEvictedForUndoByLastWrite()).toBe(1);
+    expect(runCapNote(0, 0, runsEvictedForUndoByLastWrite()))
+      .toContain('Undo kept the restored run and any conflicting report and removed the oldest 1 other run in history');
+  });
+
   it('with its neighbour gone too, it goes back by its own time', () => {
     addRuns([mkRun('a', { when: 3 }), mkRun('b', { when: 2 }), mkRun('c', { when: 1 }), mkRun('z', { when: 0 })]);
     const b = loadRuns()[1]!;
@@ -213,6 +229,27 @@ describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
     addRuns([mkRun('a'), mkRun('b')]);
     const a = loadRuns()[0]!;
     expect(restoreRun(a, 'b').map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('a refused collision restore keeps the imported report and reports no eviction', () => {
+    const deleted = mkRun('X', { maxAltitude: 123 });
+    const imported = mkRun('X', { maxAltitude: 456, importedSummary: true, importedRunId: 'X' });
+    addRuns(Array.from({ length: 499 }, (_, i) => mkRun(`other-${i}`)));
+    appendImportedRuns([imported]);
+    const before = loadRuns();
+    jamWrites();
+    expect(restoreRun(deleted, null)).toEqual(before);
+    expect(persistFailed()).toBe(true);
+    expect(runsEvictedForUndoByLastWrite()).toBe(0);
+  });
+
+  it('a no-space import clears stale cap counts without writing or evicting history', () => {
+    addRuns(Array.from({ length: 501 }, (_, i) => mkRun(`old-${i}`)));
+    expect(runsUnsavedByLastWrite()).toBe(1);
+    const bytes = localStorage.getItem('online-openrocket.sim-runs.v1');
+    expect(appendImportedRuns([mkRun('imported')])).toHaveLength(500);
+    expect(localStorage.getItem('online-openrocket.sim-runs.v1')).toBe(bytes);
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite(), runsEvictedForUndoByLastWrite()]).toEqual([0, 0, 0]);
   });
 });
 
@@ -402,10 +439,10 @@ describe('the density-altitude column', () => {
     // The 4,000 ft / 95 °F worked example, as buildSimRun stores it.
     const da = densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null });
     const { headers, rows } = runsToTable([mkRun('a', { densityAltitudeM: da })], IMPERIAL_UNITS);
-    expect(headers.at(-2)).toBe('Density altitude (ft)');
+    expect(headers.at(-4)).toBe('Density altitude (ft)');
     // 2,170.810 m is 7,122.08 ft (the build spec said 7,122.07; re-measured).
-    expect(rows[0]!.at(-2)).toBe(7122.08);
-    expect(headers.at(-3)).toBe('Flight config');
+    expect(rows[0]!.at(-4)).toBe(7122.08);
+    expect(headers.at(-5)).toBe('Flight config');
   });
 
   it('is an empty cell for a run flown before the field, and for a stored value that is not a number', () => {
@@ -413,8 +450,8 @@ describe('the density-altitude column', () => {
       mkRun('old'),
       mkRun('bad', { densityAltitudeM: 'x' as unknown as number }),
     ], IMPERIAL_UNITS);
-    expect(rows[0]!.at(-2)).toBe('');
-    expect(rows[1]!.at(-2)).toBe('');
+    expect(rows[0]!.at(-4)).toBe('');
+    expect(rows[1]!.at(-4)).toBe('');
   });
 });
 
@@ -436,12 +473,12 @@ describe('K16 Safe deployment export', () => {
         expect(headers[at - 1]).toBe('Thrust:weight OK');
         expect(headers[at + 1]).toBe('Static margin OK');
         expect(rows[0]![at]).toBe(expected);
-        expect(headers.slice(-3)).toEqual(['Flight config', 'Density altitude (m)', 'Winds aloft (levels)']);
-        expect(rows[0]!.at(-1)).toBe(2);
+        expect(headers.slice(-5, -2)).toEqual(['Flight config', 'Density altitude (m)', 'Winds aloft (levels)']);
+        expect(rows[0]!.at(-3)).toBe(2);
         const csv = runsToCsv([saved]).trim().split(/\r?\n/);
         expect(csv[1]!.split(',')[at]).toBe(expected);
-        expect(csv[0]!.split(',').at(-1)).toBe('Winds aloft (levels)');
-        expect(csv[1]!.split(',').at(-1)).toBe('2');
+        expect(csv[0]!.split(',').at(-3)).toBe('Winds aloft (levels)');
+        expect(csv[1]!.split(',').at(-3)).toBe('2');
         if (!booster && expected === 'caution') expect(rows[0]!.join(' ')).toContain('(caution)');
       }
     });
@@ -459,6 +496,6 @@ it('persists wind levels and provenance, and appends the profile column after ev
   expect(loaded.windLevels).toEqual(windLevels);
   expect(loaded.windProfileSource).toEqual(windProfileSource);
   const { headers, rows } = runsToTable([loaded, mkRun('single')]);
-  expect(headers.at(-1)).toBe('Winds aloft (levels)');
-  expect(rows.map((r) => r.at(-1))).toEqual([2, 0]);
+  expect(headers.at(-3)).toBe('Winds aloft (levels)');
+  expect(rows.map((r) => r.at(-3))).toEqual([2, '']);
 });

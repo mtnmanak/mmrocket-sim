@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
+import { importedSummaryRuns } from '../services/orkFlightData.js';
 import { compassPoint } from '../services/openMeteo.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
@@ -112,6 +113,39 @@ afterEach(() => {
 });
 
 describe('SimRunDetails — where the raw flight data went', () => {
+  it('shows an imported model and blend band without inventing a delay, execution time or safety pass', () => {
+    const imported = importedSummaryRuns({ name: 'Imported', storedSimulations: [{ name: 'Hybrid', configId: null,
+      windAverage: 12, data: { maxAltitude: 123, groundHitVelocity: 13, deploymentVelocity: 1, optimumDelay: 5, aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.7, 1.4] } }] })[0]!;
+    render(<SimRunDetails run={imported} />);
+    act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click(); });
+    expect(host.textContent).toContain('Hybrid (experimental)');
+    expect(host.textContent).toContain('Mach 0.7–1.4');
+    expect(host.textContent).toContain('unknown delay');
+    expect(host.textContent).toContain('Unknown motor');
+    const cell = (label: string) => [...host.querySelectorAll('tr')]
+      .find((r) => r.querySelector('td')?.textContent === label)!.querySelectorAll('td')[1]!.textContent;
+    expect(cell('Landing descent rate')).toMatch(/^—/);
+    expect(cell('Ground-hit speed')).toMatch(/^13\.0/);
+    expect(cell('Wind average')).toMatch(/^—/);
+    expect(cell('Safe deployment')).toMatch(/^—/);
+    expect(host.textContent).toContain('Flown at an unknown time');
+    expect(host.textContent).toContain('This is a summary saved in the file.');
+    expect(host.textContent).toContain('The original flight data series is not in it');
+    expect(host.textContent).toContain('Pressing Launch re-flies the design on the current settings');
+    expect(host.textContent).not.toContain('Re-fly this design to download its raw flight data');
+    expect(host.textContent).not.toContain('NaN');
+    for (const label of ['Winds aloft', 'Motors', 'Execution time', 'Motor diameter']) {
+      const row = [...host.querySelectorAll('tr')].find((r) => r.querySelector('td')?.textContent === label)!;
+      expect(row.querySelectorAll('td')[1]!.textContent).toBe('—');
+    }
+    render(<SimHistory runs={[imported]} onRunsChange={() => {}} />);
+    openTable();
+    const row = host.querySelector('tbody tr')!;
+    expect(row.textContent).not.toContain('✓');
+    expect(row.querySelectorAll('td')[2]!.textContent).toBe('—');
+    expect(row.querySelectorAll('td')[7]!.textContent).toBe('—');
+    expect(row.querySelectorAll('td')[8]!.textContent).toBe('—');
+  });
   it('points down to the plots when this flight’s series are in memory', () => {
     render(<SimRunDetails run={run()} hasSeries />);
     expect(host.querySelector('.download-caption')?.textContent)

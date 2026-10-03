@@ -1,9 +1,25 @@
 import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { installedMounts } from './flightRunner.js';
-import type { OrkExportFlightData } from './orkFile.js';
+import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
 import { runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
+import { summaryOf, summaryFingerprint } from './storedRunIdentity.js';
+export { summaryOf } from './storedRunIdentity.js';
+import { MAX_RUNS } from './simStore.js';
+
+/** File-owned evidence, independent of the global history's dedup/cap/Undo.
+ * Array position and name identify the source simulation within this document.
+ * Keep this snapshot with the opened design, including across edits/reloads;
+ * replace it on every Open and clear it on New. Never infer it from history.
+ */
+export type ImportedSummaryDocument = Required<Pick<OrkImportResult, 'name' | 'storedSimulations'>>;
+
+export function summaryDocument(imported: Pick<OrkImportResult, 'name'>
+  & Partial<Pick<OrkImportResult, 'storedSimulations'>>): ImportedSummaryDocument | undefined {
+  return imported.storedSimulations?.length
+    ? structuredClone({ name: imported.name, storedSimulations: imported.storedSimulations }) : undefined;
+}
 
 /**
  * WHICH stored flight results are allowed into a saved `.ork`, and what they
@@ -21,30 +37,113 @@ import { lookupTable } from './xmlUtil.js';
  * from a stale run" affordance in that UI. So every refusal below is the same
  * judgement: an ABSENT number is honest and a stale one is not, and refusal is
  * the safe direction whenever a check cannot prove the run still describes the
- * design being written.
+ * design being written. Imported file summaries are a separate preservation
+ * path: the writer marks them OUTDATED, never up-to-date or replayable.
  */
 
 /**
- * The ten summary values desktop OpenRocket stores in `<flightdata>`.
- * No aero choice/provenance is serialized for any model, including Hybrid;
- * model matching below is an export eligibility check, not a file extension.
+ * Restore only what the file actually knows. No replay/design/kernel stamps:
+ * an imported summary cannot prove it matches the rebuilt rocket or motors.
+ * NaN numeric placeholders render as unknown and persist as null, like older
+ * run-history rows. In particular, the import time is NOT the flight time.
  */
-export function summaryOf(r: SimRun): OrkExportFlightData {
-  return {
-    maxAltitude: r.maxAltitude,
-    maxVelocity: r.maxVelocity,
-    maxAcceleration: r.maxAcceleration,
-    maxMach: r.maxMach,
-    timeToApogee: r.timeToApogee,
-    flightTime: r.totalFlightTime,
-    groundHitVelocity: r.groundHitVelocity,
-    launchRodVelocity: r.rodExitVelocity,
-    deploymentVelocity: r.velocityAtDeployment,
-    optimumDelay: r.optimumDelayS,
-  };
+export function importedSummaryRuns(imported: Pick<OrkImportResult, 'name'>
+  & Partial<Pick<OrkImportResult, 'storedSimulations' | 'configs'>>,
+existingRuns: readonly SimRun[] = []): SimRun[] {
+  return planSummaryImport(imported, existingRuns).runs;
+}
+
+interface SummaryImportPlan {
+  runs: SimRun[];
+  /** Local identity for each considered file row, including duplicate rows. */
+  summaryIds: string[];
+  total: number;
+}
+
+export function summaryImportCounts(plan: SummaryImportPlan, saved: readonly SimRun[]) {
+  const ids = new Set(saved.map((run) => run.id));
+  const added = plan.runs.filter((run) => ids.has(run.id)).length;
+  const kept = plan.summaryIds.filter((id) => ids.has(id)).length;
+  return { added, alreadySaved: kept - added, notKept: plan.total - kept };
+}
+
+export function planSummaryImport(imported: Pick<OrkImportResult, 'name'>
+  & Partial<Pick<OrkImportResult, 'storedSimulations' | 'configs'>>,
+existingRuns: readonly SimRun[] = []): SummaryImportPlan {
+  const ids = new Map<string, string>();
+  const identities = new Map<string, string>();
+  const fingerprints = new Map<string, string>();
+  const identity = (id: string, fingerprint: string) => JSON.stringify([id, fingerprint]);
+  for (const run of existingRuns) {
+    const fingerprint = summaryFingerprint(run.flightConfigId, summaryOf(run));
+    ids.set(run.id, fingerprint);
+    identities.set(identity(run.importedRunId ?? run.id, fingerprint), run.id);
+    fingerprints.set(fingerprint, run.id);
+  }
+  const simulations = imported.storedSimulations ?? [];
+  const summaryIds: string[] = [];
+  // Resolve identities in file order, then choose additions using free slots.
+  // Existing history never moves or loses a row to an import.
+  const runs = simulations.flatMap((sim): SimRun[] => {
+    const fd = sim.data;
+    const fingerprint = summaryFingerprint(sim.configId, fd);
+    const duplicate = fd.runId ? identities.get(identity(fd.runId, fingerprint))
+      ?? (ids.get(fd.runId) === fingerprint ? fd.runId : undefined)
+      : fingerprints.get(fingerprint);
+    if (duplicate !== undefined) {
+      summaryIds.push(duplicate);
+      return [];
+    }
+    let id = fd.runId ?? `ork-summary-v1:${fingerprint}`;
+    // IDs are file-supplied, not globally unique. Preserve both conflicting
+    // reports, and retain the source ID so subsequent opens recognize the pair.
+    if (ids.has(id)) {
+      const base = `ork-summary-conflict-v1:${identity(id, fingerprint)}`;
+      id = base;
+      for (let suffix = 1; ids.has(id); suffix++) id = `${base}:${suffix}`;
+    }
+    ids.set(id, fingerprint);
+    identities.set(identity(fd.runId ?? id, fingerprint), id);
+    fingerprints.set(fingerprint, id);
+    summaryIds.push(id);
+    const config = imported.configs?.find((c) => c.id === sim.configId);
+    // A configuration and its conditions describe the design on disk, not
+    // necessarily this historical flight. No per-run motor/conditions snapshot
+    // is stored in the tag, so leave those fields unknown, including on resave.
+    return [{
+      id, when: NaN, rocket: imported.name,
+      importedSummary: true,
+      ...(fd.runId ? { importedRunId: fd.runId } : {}),
+      motor: '', manufacturer: '', motorDiameterMm: NaN,
+      delayS: NaN,
+      flightConfig: config?.name ?? sim.name,
+      ...(sim.configId ? { flightConfigId: sim.configId } : {}),
+      aeroModel: fd.aeroModel,
+      ...(fd.rogersKbf !== undefined ? { rogersKbf: fd.rogersKbf } : {}),
+      ...(fd.hybridBand ? { hybridBand: fd.hybridBand } : {}),
+      maxAltitude: fd.maxAltitude ?? NaN, maxVelocity: fd.maxVelocity ?? NaN,
+      maxAcceleration: fd.maxAcceleration ?? NaN, maxMach: fd.maxMach ?? NaN,
+      timeToApogee: fd.timeToApogee ?? NaN, totalFlightTime: fd.flightTime ?? NaN,
+      groundHitVelocity: fd.groundHitVelocity ?? NaN,
+      rodExitVelocity: fd.launchRodVelocity ?? null,
+      velocityAtDeployment: fd.deploymentVelocity ?? null,
+      optimumDelayS: fd.optimumDelay ?? null, recommendedDelayS: null,
+      timeToBurnout: null, timeToRodDeparture: null, thrustToWeightAtRod: null,
+      launchMass: null, rodExitAoa: null, launchCG: null, launchCP: null,
+      launchStaticMarginCal: null, altitudeAtDeployment: null,
+      landingRate: null, safeLandingRate: null, safeLiftoffSpeed: null,
+      safeThrustToWeight: null, safeDeployment: null, staticMarginOk: null, weathercockRisk: null,
+      windAvg: NaN, execMs: NaN,
+      comments: 'Summary imported from .ork; historical motor, delay, launch conditions, flight date, safety assessment and replay evidence are unknown.',
+      commentLevels: ['info'],
+    }];
+  });
+  return { runs: runs.slice(0, Math.max(0, MAX_RUNS - existingRuns.length)), summaryIds, total: simulations.length };
 }
 
 export interface FlightDataForExportInput {
+  /** Historical fallback belongs exclusively to this opened document. */
+  importedDocument?: ImportedSummaryDocument;
   /** Newest first — the first qualifying run per configuration wins. */
   runs: readonly SimRun[];
   savedConfigs: readonly SavedConfig[];
@@ -194,6 +293,14 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
       if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
     }
     out[r.flightConfigId] = summaryOf(r);
+  }
+  // Preserve imported historical summaries only as a fallback for a surviving
+  // configuration. They establish no design/kernel match and no Auto delays.
+  // Eligible app flights above retain precedence, regardless of history order.
+  for (const sim of input.importedDocument?.storedSimulations ?? []) {
+    if (!sim.configId || out[sim.configId]
+      || !input.savedConfigs.some((c) => c.id === sim.configId)) continue;
+    out[sim.configId] = { ...sim.data, importedSummary: true };
   }
   return out;
 }

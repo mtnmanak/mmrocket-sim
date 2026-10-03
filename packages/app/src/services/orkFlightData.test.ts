@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
-import { flightDataForExport, flownAutoDelays, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
+import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
+import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
 import type { SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
@@ -73,21 +74,173 @@ const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
 describe('flightDataForExport — the baseline qualifies', () => {
+  const file = (name: string, altitude: number) => importOrk(exportOrk({ name,
+    tree: { name, components: [{ type: 'stage', children: [
+      { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+    ] }] }, launch: DEFAULT_CONDITIONS,
+    configs: [{ id: 'c1', name: 'Main', isDefault: true, motors: {} }], activeConfigId: 'c1',
+    flightData: { c1: { ...summaryOf(RUN), maxAltitude: altitude } },
+  }));
+
+  it('historical fallback belongs only to the opened document, never global history', () => {
+    const a = file('A', 123);
+    const b = file('B', 456);
+    const runsA = importedSummaryRuns(a);
+    const runs = [...runsA, ...importedSummaryRuns(b, runsA)];
+    // Same config AND source run ID, differing summaries. Edits invalidate app flights.
+    const input = base({ runs, designKey: 'edited', importedDocument: summaryDocument(b) });
+    expect(flightDataForExport(input)['c1']).toMatchObject({ maxAltitude: 456, runId: 'r1', importedSummary: true });
+    expect(flightDataForExport({ ...input, importedDocument: summaryDocument(a) })['c1']!.maxAltitude).toBe(123);
+    expect(flightDataForExport({ ...input, importedDocument: undefined })).toEqual({});
+    expect(flightDataForExport({ ...input, savedConfigs: [] })).toEqual({});
+  });
+
+  it.each([' c1 ', '\tc1\r\n'])('preserves exact configuration IDs through provenance and re-export (%j)', (paddedId) => {
+    const configs = [
+      { id: paddedId, name: 'Padded', isDefault: false, motors: {} },
+      { id: 'c1', name: 'Plain', isDefault: true, motors: {} },
+    ];
+    const xml = exportOrk({ name: 'Exact IDs', tree: file('Tree', 123).tree,
+      configs, activeConfigId: 'c1', launch: DEFAULT_CONDITIONS,
+      flightData: {
+        [paddedId]: { ...summaryOf(RUN), maxAltitude: 123, aeroModel: 'classic', rogersKbf: false },
+        c1: { ...summaryOf(RUN), maxAltitude: 456 },
+      },
+    }).replace(/<launchaltitude>[^<]*<\/launchaltitude>/g, (() => {
+      let index = 0;
+      return () => `<launchaltitude>${++index * 100}</launchaltitude>`;
+    })());
+    const imported = importOrk(xml);
+    expect(imported.configs.map((c) => c.id)).toEqual([paddedId, 'c1']);
+    expect(imported.launch?.launchAltitudeM).toBe(200); // Second simulation matches the default exactly.
+    expect(imported.storedSimulations?.map((s) => s.configId)).toEqual([paddedId, 'c1']);
+    const runs = importedSummaryRuns(imported);
+    expect(runs.map((r) => [r.flightConfigId, r.flightConfig, r.maxAltitude]))
+      .toEqual([[paddedId, 'Padded', 123], ['c1', 'Plain', 456]]);
+    // Identical source IDs and summaries still belong to distinct configurations.
+    const equalSummaries = { ...imported, storedSimulations: imported.storedSimulations!.map((s) => ({
+      ...s, data: imported.storedSimulations![0]!.data,
+    })) };
+    expect(importedSummaryRuns(equalSummaries)).toHaveLength(2);
+    expect(importedSummaryRuns(imported, runs)).toEqual([]);
+    const document = JSON.parse(JSON.stringify(summaryDocument(imported)));
+    const selected = flightDataForExport(base({ runs, savedConfigs: configs, importedDocument: document }));
+    expect(Object.keys(selected)).toEqual([paddedId, 'c1']);
+    expect(selected[paddedId]).toMatchObject({ maxAltitude: 123, aeroModel: 'classic', importedSummary: true });
+    expect(selected.c1).toMatchObject({ maxAltitude: 456, aeroModel: 'supersonic', importedSummary: true });
+    const reopened = importOrk(exportOrk({ name: imported.name, tree: imported.tree,
+      configs: imported.configs, activeConfigId: 'c1', launch: DEFAULT_CONDITIONS, flightData: selected }));
+    expect(reopened.configs.map((c) => c.id)).toEqual([paddedId, 'c1']);
+    expect(reopened.storedSimulations).toEqual(imported.storedSimulations);
+    expect(importedSummaryRuns(reopened, runs)).toEqual([]);
+  });
+
+  it.each(['dedup', 'undo'] as const)('preserves file provenance independently of the fuller report (%s)', (action) => {
+    localStorage.clear();
+    const original = { ...RUN, maxAltitude: 123 };
+    addRuns([original]);
+    if (action === 'undo') deleteRun(original.id);
+    const imported = file('Original file', 123);
+    const document = summaryDocument(imported);
+    const plan = planSummaryImport(imported, loadRuns());
+    expect(plan.runs).toHaveLength(action === 'undo' ? 1 : 0);
+    appendImportedRuns(plan.runs);
+    if (action === 'undo') restoreRun(original, null);
+    const runs = loadRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.importedSummary).toBeUndefined();
+    expect(runs[0]!.designKey).toBe('design-A');
+    const selected = flightDataForExport(base({ runs, designKey: 'edited', importedDocument: document }));
+    const xml = exportOrk({ name: imported.name, tree: { ...imported.tree, name: 'Edited name' },
+      launch: DEFAULT_CONDITIONS, configs: imported.configs, activeConfigId: 'c1', flightData: selected });
+    expect(xml).toContain('<simulation status="outdated">');
+    expect(xml).not.toContain('notsimulated');
+    expect(importOrk(xml).storedSimulations![0]!.data).toEqual(summaryOf(original));
+    expect(document!.name).toBe('Original file');
+    expect(document!.storedSimulations[0]!.name).toBe(imported.storedSimulations![0]!.name);
+    localStorage.clear();
+  });
+
+  it('historical summary metadata stays unknown after current motor, delay and conditions change', () => {
+    localStorage.clear();
+    const original = importOrk(exportOrk({
+      name: 'Historical metadata', tree: { name: 'Historical metadata', components: [{ type: 'stage', children: [
+        { type: 'bodytube', id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] },
+      launch: { ...DEFAULT_CONDITIONS, windAverage: 4.5 },
+      motors: { m1: { designation: 'B6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 4 } },
+      configs: [{ id: 'c1', name: 'Main', isDefault: true, motors: { m1: {
+        designation: 'B6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 4,
+      } } }], activeConfigId: 'c1', flightData: { c1: { ...summaryOf(RUN), maxAltitude: 123 } },
+    }));
+    expect(Object.values(original.configs[0]!.motors)[0]).toMatchObject({ designation: 'B6', delay: 4 });
+    expect(original.launch?.windAverage).toBe(4.5);
+    addRuns(importedSummaryRuns(original));
+    const historical = loadRuns();
+    const changedConfigs = original.configs.map((c) => ({ ...c, motors: Object.fromEntries(
+      Object.entries(c.motors).map(([id, m]) => [id, { ...m, designation: 'C6', delay: 7 }]),
+    ) }));
+    const reopened = importOrk(exportOrk({ name: original.name, tree: original.tree,
+      motors: changedConfigs[0]!.motors,
+      configs: changedConfigs, activeConfigId: 'c1', launch: { ...DEFAULT_CONDITIONS, windAverage: 12 },
+      flightData: flightDataForExport(base({ runs: historical, importedDocument: summaryDocument(original) })),
+    }));
+    expect(Object.values(reopened.configs[0]!.motors)[0]).toMatchObject({ designation: 'C6', delay: 7 });
+    expect(reopened.launch?.windAverage).toBe(12);
+    for (const run of [...historical, ...importedSummaryRuns(reopened)]) {
+      expect(run.id).toBe('r1');
+      expect(run.maxAltitude).toBe(123);
+      expect(run.motor).toBe('');
+      expect(Number.isFinite(run.delayS)).toBe(false);
+      expect(Number.isFinite(run.windAvg)).toBe(false);
+      expect(run.windLevels).toBeUndefined();
+      expect(run.conditionsKey).toBeUndefined();
+      expect(run.comments).toContain('historical motor, delay, launch conditions');
+    }
+    localStorage.clear();
+  });
+
+  it.each([2, 499, 500])('importing an old duplicate preserves history and export precedence (%s existing)', (count) => {
+    localStorage.clear();
+    const newer = { ...RUN, id: 'newer', when: 2, maxAltitude: 456 };
+    const older = { ...RUN, id: 'older', when: 1, maxAltitude: 123 };
+    const history = [newer, ...Array.from({ length: count - 2 }, (_, i) => ({ ...older, id: `old-${i}` })), older];
+    addRuns(history);
+    const before = loadRuns();
+    const selected = flightDataForExport(base({ runs: before }));
+    expect(selected['c1']!.maxAltitude).toBe(456);
+    const imported = { name: 'File', storedSimulations: [
+      ...history.slice(1).map((r) => ({ name: 'Duplicate', configId: 'c1', windAverage: 0, data: summaryOf(r) })),
+      ...(count === 500 ? ['first-new'] : ['first-new', 'second-new']).map((runId) => ({ name: 'New', configId: 'c1', windAverage: 0,
+        data: { ...summaryOf(older), runId } })),
+    ] };
+    const plan = planSummaryImport(imported, before);
+    const after = appendImportedRuns(plan.runs);
+    expect(after.slice(0, count)).toEqual(before);
+    expect(after.slice(count).map((r) => r.id)).toEqual(count === 500 ? [] : count === 499 ? ['first-new'] : ['first-new', 'second-new']);
+    expect(flightDataForExport(base({ runs: after }))).toEqual(selected);
+    expect(summaryImportCounts(plan, after)).toEqual({ added: Math.min(2, 500 - count), alreadySaved: count - 1, notKept: count >= 499 ? 1 : 0 });
+    expect(runCapNote(runsEvictedByLastWrite(), runsUnsavedByLastWrite())).toBe('');
+    const again = planSummaryImport(imported, loadRuns());
+    expect(again.runs).toEqual([]);
+    localStorage.clear();
+  });
+
   it.each([
     ['classic', false, 'classic', false],
     ['classic', true, 'classic', false],
     ['supersonic', true, 'supersonic', false],
-    ['auto-classic', true, 'auto', false],
+    ['classic', true, 'auto', false],
     ['auto-supersonic', true, 'auto', true],
     ['hybrid', true, 'hybrid', false],
-  ] as const)('saves/loads %s (Kbf=%s) with the existing model-neutral .ork contract',
+  ] as const)('saves/loads %s (Kbf=%s) with its aero provenance',
     (aeroModel, rogersKbf, aeroMode, autoSupersonic) => {
       const run = { ...RUN, aeroModel, rogersKbf } as SimRun;
       const flightData = flightDataForExport(base({
         runs: [run], model: { aeroMode, effectiveKbf: rogersKbf, autoSupersonic },
       }));
-      expect(flightData['c1']).toEqual(summaryOf(RUN));
-      expect(flightData['c1']).not.toHaveProperty('aeroModel');
+      expect(flightData['c1']).toEqual(summaryOf(run));
+      expect(flightData['c1']!.aeroModel).toBe(aeroModel);
       const xml = exportOrk({
         name: 'Save regression',
         tree: { name: 'Save regression', components: [{ type: 'stage', children: [
@@ -102,15 +255,32 @@ describe('flightDataForExport — the baseline qualifies', () => {
       expect(xml).toContain('<flightdata maxaltitude="1234.5" maxvelocity="210.1"'
         + ' maxacceleration="190.2" maxmach="0.62" timetoapogee="15.9" flighttime="88.4"'
         + ' groundhitvelocity="5.6" launchrodvelocity="19.3" deploymentvelocity="12.1" optimumdelay="7"/>');
-      expect(xml).not.toMatch(/hybrid|aeromodel|supersonic|rogers/i);
+      expect(xml).toContain(`>${aeroModel}</aeromodel>`);
       const loaded = importOrk(xml);
       expect(loaded.chosenConfigId).toBe('c1');
       expect(loaded.configs.map((c) => c.name)).toEqual(['Main']);
       expect(loaded.launch?.windAverage).toBe(4.5);
-      // The reader ignores summary results for EVERY model; it cannot recover
-      // selection/provenance the existing format never wrote in the first place.
+      // Run provenance stays separate from the current aero preference.
       expect(loaded).not.toHaveProperty('aeroModel');
-      expect(loaded).not.toHaveProperty('flightData');
+      expect(loaded.storedSimulations?.[0]?.data).toEqual(summaryOf(run));
+      expect(importedSummaryRuns(loaded, [run])).toEqual([]);
+      // A later Save goes through the actual selector, not just summaryOf.
+      const summaries = importedSummaryRuns(loaded);
+      const preserved = { runs: summaries, importedDocument: summaryDocument(loaded) };
+      const savedAgain = flightDataForExport(base(preserved));
+      expect(savedAgain['c1']).toEqual({ ...summaryOf(run), importedSummary: true });
+      const secondXml = exportOrk({ name: loaded.name, tree: loaded.tree,
+        launch: DEFAULT_CONDITIONS, configs: loaded.configs, activeConfigId: 'c1', flightData: savedAgain });
+      expect(secondXml).toContain('<simulation status="outdated">');
+      const reopened = importedSummaryRuns(importOrk(secondXml));
+      expect(summaryOf(reopened[0]!)).toEqual(summaryOf(summaries[0]!));
+      for (const key of ['designKey', 'conditionsKey', 'motorSetKey', 'nozzleStages', 'physicsRevision', 'delayResolution'] as const) {
+        expect(reopened[0]![key], key).toBeUndefined();
+        expect(summaries[0]![key], key).toBeUndefined();
+      }
+      expect(flownAutoDelays(base(preserved))).toEqual({});
+      expect(flightDataForExport(base({ ...preserved, savedConfigs: [] }))).toEqual({});
+      expect(flightDataForExport(base({ ...preserved, runs: [...summaries, RUN] }))['c1']).toEqual(summaryOf(RUN));
     });
 
   it('writes the run for a configuration whose design, conditions, model and motors all match', () => {
@@ -133,6 +303,9 @@ describe('flightDataForExport — the baseline qualifies', () => {
   it('writes the ten values desktop OpenRocket stores, in its units', () => {
     const out = flightDataForExport(base());
     expect(out['c1']).toEqual({
+      runId: 'r1',
+      aeroModel: 'supersonic',
+      rogersKbf: true,
       maxAltitude: 1234.5,
       maxVelocity: 210.1,
       maxAcceleration: 190.2,

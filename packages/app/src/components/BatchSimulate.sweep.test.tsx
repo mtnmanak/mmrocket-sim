@@ -418,7 +418,7 @@ describe('the 500-run cap (audit 2026-09-22)', () => {
     await start();
     expect(saved[0]).toHaveLength(500);
     expect(host.querySelector('.batch-finished')?.textContent)
-      .toContain('Saved simulations keeps the newest 500 runs, so the oldest 2 were removed to make room.');
+      .toContain('Saved simulations keeps up to 500 runs, so the oldest 2 were removed to make room.');
     expect(host.querySelector('.batch-finished')?.textContent).not.toContain('not saved');
   });
 
@@ -434,7 +434,7 @@ describe('the 500-run cap (audit 2026-09-22)', () => {
     expect(saved[0]).toHaveLength(500);
     expect(saved[0]!.some((r) => r.id.startsWith('old'))).toBe(false);
     expect(host.querySelector('.batch-finished')?.textContent).toContain(
-      'Saved simulations keeps the newest 500 runs, so the oldest 100 were removed to make room,'
+      'Saved simulations keeps up to 500 runs, so the oldest 100 were removed to make room,'
       + ' and 100 new runs did not fit and were not saved. The CSV and XLSX above still carry every accepted run');
   });
 
