@@ -1,3 +1,4 @@
+import { baseDragImportNotes } from './baseDragImportNotes.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -1926,6 +1927,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
   }
 
+  const tree = sanitizeTree({ name, components }, notes);
+  notes.push(...baseDragImportNotes(tree));
   return {
     name,
     // The limits table (audit 2026-09-22), applied where its notes still reach
@@ -1933,7 +1936,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // the whole app down, a <TubeCount> of 100000 held the 3D view for 19 s, and
     // a <ShroudLineCount> of 1000000 made a 540 kg parachute. Each repair is
     // named in one note.
-    tree: sanitizeTree({ name, components }, notes),
+    tree,
     motors,
     ignored: [...ignored],
     notes,

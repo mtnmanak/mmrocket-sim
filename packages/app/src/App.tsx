@@ -1,4 +1,5 @@
 import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
+import { FlightLoadStats } from './components/FlightLoadStats.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ComponentNode,
@@ -2677,6 +2678,7 @@ export function App() {
           ? assigned.map(([, mm]) => mm.label).join(' + ')
           : primaryLabel}
       />
+      {lastRun && <FlightLoadStats run={lastRun} />}
     </div>
   ) : null;
 

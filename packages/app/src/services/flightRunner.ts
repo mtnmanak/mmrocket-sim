@@ -4,6 +4,7 @@ import type {
 import type { MountMotor } from '../model/design.js';
 import { flownSpec, type HardwareMassResult } from './hardwareMass.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { withLoadSeries } from './flightLoads.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
 import { canReplayDelays, delayMountsOf, readDelay, solveAutoDelays, type DelayResolution } from './autoDelaySolver.js';
 
@@ -278,7 +279,9 @@ async function flyFromCleanHandle(
     for (const m of delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
     input.signal?.throwIfAborted();
     const t0 = now();
-    const result = rocket.simulate({ ...simOptions, delayProbe: false });
+    // Load metrics need the kernel's density and sound speed. Keep solver and
+    // Mach probes lean; only the reported flight pays for full serialization.
+    const result = withLoadSeries(rocket.simulate({ ...simOptions, delayProbe: false, series: 'full' }));
     execMs = now() - t0;
     // The final normal flight decides aero, not the ballistic probe's descent.
     // Recompute every target after an upgrade, within the SAME eight-probe budget.
@@ -346,7 +349,7 @@ export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult 
     rocket.setHybridAero(fly.hybrid ?? false);
     rocket.setSupersonicAero(fly.supersonic);
     rocket.setRogersModifiedBarrowman(fly.kbf);
-    return rocket.simulate(simOptions);
+    return withLoadSeries(rocket.simulate({ ...simOptions, series: 'full' }));
   } finally {
     // Hand the shared handle back as the design has it: the drag panel and the
     // component table read it too, and they follow the CURRENT model.

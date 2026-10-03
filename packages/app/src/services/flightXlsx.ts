@@ -2,6 +2,7 @@ import type { FlightResult } from '@online-openrocket/engine';
 import { SERIES } from '../chartTheme.js';
 import type { UnitSelection } from '../prefs/units.js';
 import { seriesColumns } from './flightDataCsv.js';
+import { withLoadSeries } from './flightLoads.js';
 import { sheetsToXlsx, type Cell, type ChartSeriesSpec, type ChartSpec, type Sheet } from './xlsx.js';
 
 /**
@@ -176,6 +177,7 @@ function pairRows(b: Branch, xCol: number, yCol: number): number {
 
 /** The whole flight as an .xlsx byte array (see module doc for the layout). */
 export function flightXlsx(result: FlightResult, units?: UnitSelection): Uint8Array {
+  result = withLoadSeries(result);
   const staged = (result.branches?.length ?? 0) >= 2;
   const branches: Branch[] = staged
     ? result.branches!.map((b) => ({ name: b.name, cols: seriesColumns(b.series, '', units) }))

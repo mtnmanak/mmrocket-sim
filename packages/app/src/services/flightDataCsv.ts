@@ -1,6 +1,7 @@
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell } from './csvUtil.js';
+import { withLoadSeries } from './flightLoads.js';
 
 /**
  * Per-timestep flight-data export: every series the kernel recorded, one row
@@ -23,6 +24,7 @@ interface ColSpec {
   name: string;
   si: string;
   quantity?: Quantity;
+  suffix?: string;
 }
 
 /** The friendly-named arrays the engine emits first. */
@@ -39,6 +41,8 @@ const FRIENDLY: [key: string, spec: ColSpec][] = [
   ['cpLocation', { name: 'CP location', si: 'm', quantity: 'length' }],
   ['cgLocation', { name: 'CG location', si: 'm', quantity: 'length' }],
   ['aoa', { name: 'Angle of attack', si: 'rad', quantity: 'angle' }],
+  ['dynamicPressure', { name: 'Dynamic pressure', si: 'Pa', quantity: 'pressure' }],
+  ['qAlpha', { name: 'q·α', si: 'Pa', quantity: 'pressure', suffix: '·rad' }],
 ];
 
 /**
@@ -120,7 +124,7 @@ interface Column {
 
 /** "Name (unit)" in the selected unit for the column's quantity, else SI. */
 function headerFor(spec: ColSpec, units?: UnitSelection): string {
-  const unit = units && spec.quantity ? units[spec.quantity] : spec.si;
+  const unit = (units && spec.quantity ? units[spec.quantity] : spec.si) + (spec.suffix ?? '');
   return unit ? `${spec.name} (${unit})` : spec.name;
 }
 
@@ -171,6 +175,7 @@ export function seriesColumns(series: FlightSeries, prefix = '', units?: UnitSel
  * NaN samples (kernel: undefined at that step) become empty cells.
  */
 export function flightDataCsv(result: FlightResult, units?: UnitSelection): string {
+  result = withLoadSeries(result);
   const cols = seriesColumns(result.series, '', units);
   for (const b of boosterBranches(result)) {
     cols.push(...seriesColumns(b.series, `${b.name} — `, units));

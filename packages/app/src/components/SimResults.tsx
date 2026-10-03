@@ -1,5 +1,6 @@
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
+import { FlightLoadStats } from './FlightLoadStats.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -325,6 +326,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       })}
       {open && (
         <div className="simdet-grid">
+          <FlightLoadStats run={run} />
           <div>
           <h3>Flight</h3>
           <table className="fin-table">

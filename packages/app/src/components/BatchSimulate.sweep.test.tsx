@@ -507,8 +507,11 @@ describe('the table', () => {
     expect(sweep).toHaveBeenCalledOnce();
     act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
     const csv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
-    expect(csv.split('\n')[0]).toContain('Rail for 20.0 m/s (ft)');
-    expect(csv.split('\n')[1]!.split(',').at(-1)).toBe('8.202');
+    const exportHeaders = csv.split('\n')[0]!.split(',');
+    const railAt = exportHeaders.indexOf('Rail for 20.0 m/s (ft)');
+    expect(railAt).toBeGreaterThan(-1);
+    expect(exportHeaders[railAt + 1]).toMatch(/^Max dynamic pressure/);
+    expect(csv.split('\n')[1]!.split(',')[railAt]).toBe('8.202');
     expect(csv).toContain('Not reached within 13.1 ft');
     act(() => { buttons().find((b) => b.textContent === '⬇ XLSX')!.click(); });
     const bytes = new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer());

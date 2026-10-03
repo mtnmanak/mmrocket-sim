@@ -1,3 +1,4 @@
+import { baseDragImportNotes, retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
@@ -1582,11 +1583,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
 
   const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
+  const tree = sanitizeTree({ name, components: stages }, notes);
+  retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
+  notes.push(...baseDragImportNotes(tree));
   return {
     // The limits table (audit 2026-09-22), applied where its notes still reach
     // the import banner — a fin <Count> had a floor of 1 and no ceiling, and a
     // negative <Span> failed the whole build. Each repair is named in one note.
-    name, tree: sanitizeTree({ name, components: stages }, notes),
+    name, tree,
     motors,
     ignored: [...ignored], notes,
     ...(launch ? { launch } : {}),

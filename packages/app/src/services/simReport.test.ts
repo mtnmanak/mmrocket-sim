@@ -63,6 +63,16 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it('stores ascent load peaks with the flight report', () => {
+  const result = fakeResult();
+  result.series['ρ'] = result.series.time.map(() => 1.2);
+  result.series['Vs'] = result.series.time.map(() => 340);
+  const run = buildSimRun({ result, info, motor, meta: { label: 'C6' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  expect(run.loads?.maxQ?.value).toBeGreaterThan(0);
+  expect(run.loads?.maxQAlpha?.time).toBeLessThan(7);
+});
+
 describe('recommendDelay', () => {
   it('rounds to the nearest whole second (delays get drilled, not bought)', () => {
     // the owner's example: prescribed 0/6/8/10/14 but optimal 12.7 → drill to 13.
@@ -1055,12 +1065,13 @@ describe('runsToCsv', () => {
     const [header, row] = runsToCsv([run]).split('\n');
     const hc = cells(header!);
     // Trailing on purpose: existing spreadsheet imports keep their columns.
-    // Density altitude, winds aloft and rail needed were appended behind it
-    // by the same rule: every existing column keeps its absolute position.
-    expect(hc[hc.length - 4]).toBe('Flight config');
-    expect(hc[hc.length - 3]).toMatch(/^Density altitude/);
-    expect(hc[hc.length - 2]).toBe('Winds aloft (levels)');
-    expect(hc[hc.length - 1]).toBe('Rail for 15.0 m/s (m)');
+    // Existing columns keep their positions; rail and load columns follow.
+    const configAt = hc.indexOf('Flight config');
+    expect(hc[configAt - 1]).toBe('Comments');
+    expect(hc[configAt + 1]).toMatch(/^Density altitude/);
+    expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
+    expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
+    expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({
