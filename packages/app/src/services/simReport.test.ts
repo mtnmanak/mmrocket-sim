@@ -253,6 +253,11 @@ describe('buildSimRun — staged branches (Release C)', () => {
 });
 
 describe('buildSimRun', () => {
+  it('stamps the kernel blend band on fresh Hybrid runs only', () => {
+    const input = { result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Band', execMs: 1 };
+    expect(buildSimRun({ ...input, aeroModel: 'hybrid' }).hybridBand).toEqual([0.8, 1.2]);
+    expect(buildSimRun({ ...input, aeroModel: 'classic' }).hybridBand).toBeUndefined();
+  });
   const run = buildSimRun({
     result: fakeResult(), info, motor,
     meta: { label: 'C6-5', manufacturer: 'Estes', availableDelays: [3, 5, 7] },
@@ -1072,6 +1077,7 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
+    expect(hc.slice(-2)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

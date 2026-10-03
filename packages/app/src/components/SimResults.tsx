@@ -212,7 +212,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
     <div className="panel" style={{ marginTop: 10 }}>
       <div className="panel-head">
         <h2 style={{ flex: 1 }}>
-          Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor}
+          Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor || (run.importedSummary ? 'Unknown motor' : '')}
           {run.manufacturer ? ` (${run.manufacturer})` : ''}
         </h2>
         {/* The report's own provenance, in its header, because this panel is
@@ -236,7 +236,9 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           Saved-simulations XLSX, which produces the run table, not flight
           data. A pointer stays behind, and says the true thing in each case. */}
       <p className="download-caption">
-        {hasSeries
+        {run.importedSummary
+          ? 'This is a summary saved in the file. The original flight data series is not in it and cannot be recovered from this summary. Pressing Launch re-flies the design on the current settings and produces a new flight.'
+          : hasSeries
           ? 'Raw per-timestep flight data downloads under Flight plots, below.'
           : 'Re-fly this design to download its raw flight data — time series aren’t saved with run history.'}
       </p>
@@ -249,7 +251,8 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           )}
           {' '}· flown with{' '}
           <strong>
-            {Number.isFinite(run.delayS) ? `${run.delayS} s` : 'plugged (no ejection charge)'}
+            {Number.isFinite(run.delayS) ? `${run.delayS} s`
+              : run.importedSummary && run.delayS !== Infinity ? 'unknown delay' : 'plugged (no ejection charge)'}
           </strong>
         </p>
       )}
@@ -355,7 +358,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               <Row label="Time to apogee" value={s(run.timeToApogee)} unit="s" />
               <Row label="Total flight time" value={s(run.totalFlightTime, 1)} unit="s" />
               <Row label="Aero model" value={aeroModelLabel(run.aeroModel, run.rogersKbf)} />
-              <Row label="Execution time" value={`${Math.round(run.execMs)} ms`} />
+              {run.aeroModel === 'hybrid' && run.hybridBand && (
+                <Row label="Hybrid blend band" value={`Mach ${run.hybridBand[0]}–${run.hybridBand[1]}`} />
+              )}
+              <Row label="Execution time" value={Number.isFinite(run.execMs) ? `${Math.round(run.execMs)} ms` : '—'} />
             </tbody>
           </table>
           </div>
@@ -407,9 +413,12 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 value={run.landingRate != null ? fmtSi('velocity', vel, run.landingRate)
                   // Pre-landingRate stored runs fall back to groundHitVelocity —
                   // guard it: landingRate is null exactly when it was non-finite.
-                  : Number.isFinite(run.groundHitVelocity) ? fmtSi('velocity', vel, run.groundHitVelocity)
+                  : !run.importedSummary && Number.isFinite(run.groundHitVelocity) ? fmtSi('velocity', vel, run.groundHitVelocity)
                   : '—'}
                 quantity="velocity" bad={run.safeLandingRate === false} />
+              {run.importedSummary && (
+                <Row label="Ground-hit speed" value={fmtSi('velocity', vel, run.groundHitVelocity)} quantity="velocity" />
+              )}
               {run.landingDistanceM != null && (
                 <Row label="Landing distance from pad"
                   value={fmtSi('distance', dist, run.landingDistanceM)} quantity="distance" />
@@ -447,7 +456,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               })()} />
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
-              <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : "Surface wind only"} />
+              <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : run.importedSummary ? '—' : "Surface wind only"} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
               {/* The air this run flew, as the Launch panel's readout showed it at
                   launch (SimRun.densityAltitudeM). Stored runs are untrusted
@@ -456,7 +465,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 <Row label="Density altitude" value={fmtAltitude(prefs.units.distance, run.densityAltitudeM)}
                   quantity="distance" />
               )}
-              <Row label="Motor diameter" value={`${run.motorDiameterMm} mm`} />
+              <Row label="Motor diameter" value={Number.isFinite(run.motorDiameterMm) ? `${run.motorDiameterMm} mm` : '—'} />
               <Row label="Manufacturer" value={run.manufacturer || '—'} />
               <Row label="Motor type" value={run.motorType || '—'} />
               <Row label="Propellant" value={run.propellant || '—'} />
@@ -464,7 +473,8 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {/* Every motor firing together — a cluster times any pod set or
                   strap-on ring (mountMotorCount). "(cluster)" read wrong once
                   the count took in the pods (audit 2026-09-22, row 351). */}
-              <Row label="Motors" value={(run.motorCount ?? 1) > 1 ? `${run.motorCount!} firing together` : '1'} />
+              <Row label="Motors" value={run.importedSummary && run.motorCount == null ? '—'
+                : (run.motorCount ?? 1) > 1 ? `${run.motorCount!} firing together` : '1'} />
             </tbody>
           </table>
           </div>
@@ -595,8 +605,10 @@ export function SimHistory({
           <h2>Delete all {runs.length} saved runs?</h2>
           <p>
             This deletes every run in the table — the comparison history, and the
-            flights a later Save .ork would write into the file. It cannot be
-            undone: download the run table first to keep the numbers.
+            flights a later Save .ork would write into the file. Results that came
+            from the .ork file you opened stay with that file and are written back
+            when you save it. It cannot be undone: download the run table first to
+            keep the numbers.
           </p>
           <div className="modal-actions">
             <button className="file-btn modal-danger"
@@ -660,15 +672,16 @@ export function SimHistory({
                   >
                     <td>{r.rocket || '—'}</td>
                     <td>{historyMotorLabel(r)}</td>
-                    <td>{Number.isFinite(r.delayS) ? `${r.delayS}s` : 'P'}</td>
+                    <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
+                      : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
                     <td>{fmtSi('velocity', vel, r.maxVelocity)}</td>
                     <td>{r.optimumDelayS === null ? '—' : `${r.optimumDelayS.toFixed(1)}s`}</td>
                     <td>{r.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, r.rodExitVelocity)}</td>
-                    <td className={unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
-                      {unsafe ? '⚠' : caution ? '△' : '✓'}
+                    <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
+                      {r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
-                    <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : "No"}</td>
+                    <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>
                     {/* Date AND time once it is not today's run: the time alone
                         made a three-day-old row identical to a fresh one. */}
                     <td style={{ whiteSpace: 'nowrap' }}>{formatRunWhen(r.when)}</td>

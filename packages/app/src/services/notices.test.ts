@@ -244,11 +244,14 @@ describe('designNotices', () => {
     const d = dismissers();
     const n = one({ runsCapped: { evicted: 1, unsaved: 0 } }, d);
     expect(n).toMatchObject({ id: 'runs-evicted', severity: 'warn' });
-    expect(n.text).toBe('Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.'
+    expect(n.text).toBe('Saved simulations keeps up to 500 runs, so the oldest 1 was removed to make room.'
       + ' Download the run table (Results) to keep a copy of the rest before more go.');
     n.onDismiss!();
     expect(d.runsCapped).toHaveBeenCalledOnce();
     expect(one({ runsCapped: { evicted: 0, unsaved: 3 } }).text).toContain('3 new runs did not fit');
+    const undo = one({ runsCapped: { evicted: 0, unsaved: 0, undoEvicted: 1 } });
+    expect(undo.text).toContain('Undo kept the restored run and any conflicting report and removed the oldest 1 other run in history');
+    expect(undo.text).not.toContain('the oldest 1 was removed');
   });
 
   /**

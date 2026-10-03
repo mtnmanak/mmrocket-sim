@@ -33,6 +33,22 @@ import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 const committed = () => readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
 
+it('file-saving and Saved simulation glossary explain tagged historical imports consistently', () => {
+  const markdown = readFileSync(SRC, 'utf8');
+  const fileSection = markdown.split('**Flight results travel too.**')[1].split('**Where the file goes.**')[0];
+  const glossary = markdown.split('| Saved simulation |')[1].split('\n')[0];
+  expect(fileSection).toContain('marked historical (`outdated`)');
+  expect(fileSection).toContain('file association survives edits and session restore');
+  expect(fileSection).toContain('results from other opened files are never used as this fallback');
+  expect(fileSection).toContain('reopening does not duplicate');
+  expect(fileSection).toContain('those remain unknown');
+  expect(fileSection).toContain('Ground-hit speed stays');
+  expect(glossary).toContain('appends recognised tagged summaries into free spaces');
+  expect(glossary).toContain('preferring a matching app flight over an imported historical summary');
+  expect(markdown).not.toContain('puts nothing into');
+  expect(glossary).not.toContain('leaves it untouched');
+});
+
 describe('glossary anchors', () => {
   const markdown = '<a id="glossary"></a>\n## Glossary\n\n### A–F\n\n**Alpha (A)** — One.\n\n**Fin** — Two.\n\n**Flutter** — Three.\n\n## Table\nNotes.\n\n**Bold prose** without an entry separator.\n';
   it('generates stable entry anchors and first-entry letter links, with disabled absent letters', () => {

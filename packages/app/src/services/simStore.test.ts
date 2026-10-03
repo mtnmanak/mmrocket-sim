@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addRun, addRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite,
+  addRun, addRuns, appendImportedRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite, runsEvictedForUndoByLastWrite,
   runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
@@ -169,14 +169,14 @@ describe('runCapNote — the one wording of what the cap did', () => {
   });
 
   it('names the saved runs it removed', () => {
-    expect(runCapNote(1, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
-    expect(runCapNote(26, 0)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 26 were removed to make room.');
+    expect(runCapNote(1, 0)).toBe('Saved simulations keeps up to 500 runs, so the oldest 1 was removed to make room.');
+    expect(runCapNote(26, 0)).toBe('Saved simulations keeps up to 500 runs, so the oldest 26 were removed to make room.');
   });
 
   it('names the new runs that never fit, apart from the saved ones', () => {
-    expect(runCapNote(100, 100)).toBe('Saved simulations keeps the newest 500 runs, so the oldest 100 were removed'
+    expect(runCapNote(100, 100)).toBe('Saved simulations keeps up to 500 runs, so the oldest 100 were removed'
       + ' to make room, and 100 new runs did not fit and were not saved.');
-    expect(runCapNote(0, 1)).toBe('Saved simulations keeps the newest 500 runs, so 1 new run did not fit and was not saved.');
+    expect(runCapNote(0, 1)).toBe('Saved simulations keeps up to 500 runs, so 1 new run did not fit and was not saved.');
   });
 });
 
@@ -199,6 +199,22 @@ describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
     expect(restoreRun(b, null).map((r) => r.id)).toEqual(['a', 'b']);
   });
 
+  it.each([null, 'missing-neighbour'])('Undo protects a nonconflicting bottom row at capacity (%s)', (beforeId) => {
+    addRuns(Array.from({ length: 500 }, (_, i) => mkRun(`row-${i}`, { when: 500 - i })));
+    const bottom = loadRuns()[499]!;
+    deleteRun(bottom.id);
+    appendImportedRuns([mkRun('replacement', { importedSummary: true, when: 0 })]);
+    const restored = restoreRun(bottom, beforeId);
+    expect(restored).toHaveLength(500);
+    expect(restored[499]).toEqual(bottom);
+    expect(restored.map((r) => r.id)).toEqual(Array.from({ length: 500 }, (_, i) => `row-${i}`));
+    expect(loadRuns()).toEqual(restored);
+    expect(runsEvictedByLastWrite()).toBe(0);
+    expect(runsEvictedForUndoByLastWrite()).toBe(1);
+    expect(runCapNote(0, 0, runsEvictedForUndoByLastWrite()))
+      .toContain('Undo kept the restored run and any conflicting report and removed the oldest 1 other run in history');
+  });
+
   it('with its neighbour gone too, it goes back by its own time', () => {
     addRuns([mkRun('a', { when: 3 }), mkRun('b', { when: 2 }), mkRun('c', { when: 1 }), mkRun('z', { when: 0 })]);
     const b = loadRuns()[1]!;
@@ -213,6 +229,27 @@ describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
     addRuns([mkRun('a'), mkRun('b')]);
     const a = loadRuns()[0]!;
     expect(restoreRun(a, 'b').map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('a refused collision restore keeps the imported report and reports no eviction', () => {
+    const deleted = mkRun('X', { maxAltitude: 123 });
+    const imported = mkRun('X', { maxAltitude: 456, importedSummary: true, importedRunId: 'X' });
+    addRuns(Array.from({ length: 499 }, (_, i) => mkRun(`other-${i}`)));
+    appendImportedRuns([imported]);
+    const before = loadRuns();
+    jamWrites();
+    expect(restoreRun(deleted, null)).toEqual(before);
+    expect(persistFailed()).toBe(true);
+    expect(runsEvictedForUndoByLastWrite()).toBe(0);
+  });
+
+  it('a no-space import clears stale cap counts without writing or evicting history', () => {
+    addRuns(Array.from({ length: 501 }, (_, i) => mkRun(`old-${i}`)));
+    expect(runsUnsavedByLastWrite()).toBe(1);
+    const bytes = localStorage.getItem('online-openrocket.sim-runs.v1');
+    expect(appendImportedRuns([mkRun('imported')])).toHaveLength(500);
+    expect(localStorage.getItem('online-openrocket.sim-runs.v1')).toBe(bytes);
+    expect([runsEvictedByLastWrite(), runsUnsavedByLastWrite(), runsEvictedForUndoByLastWrite()]).toEqual([0, 0, 0]);
   });
 });
 
@@ -466,5 +503,5 @@ it('persists wind levels and provenance, keeping the wind column before the appe
   expect(headers[at - 1]).toBe('Density altitude (m)');
   expect(headers[at + 1]).toBe('Rail for 15.0 m/s (m)');
   expect(headers[at + 2]).toBe('Max dynamic pressure (Pa)');
-  expect(rows.map((r) => r[at])).toEqual([2, 0]);
+  expect(rows.map((r) => r[at])).toEqual([2, '']);
 });

@@ -53,7 +53,7 @@ export interface NoticeInput {
   /** The file/transient note ("Loaded …", "Share link copied", an export failure). */
   fileNote: HeldNote | null;
   /** Saved runs the 500-run cap removed, and new ones that never fit. */
-  runsCapped: { evicted: number; unsaved: number };
+  runsCapped: { evicted: number; unsaved: number; undoEvicted?: number };
   /** A length in the user's unit ("31.8 mm") — the one part that needs prefs. */
   lengthText: (m: number) => string;
 }
@@ -208,11 +208,11 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   }
   // Saved runs the cap removed — its own entry, so it neither overwrites an
   // import note nor is overwritten by one. A warning: those runs are gone.
-  if (input.runsCapped.evicted > 0 || input.runsCapped.unsaved > 0) {
+  if (input.runsCapped.evicted > 0 || input.runsCapped.unsaved > 0 || (input.runsCapped.undoEvicted ?? 0) > 0) {
     out.push({
       id: 'runs-evicted',
       severity: 'warn',
-      text: `${runCapNote(input.runsCapped.evicted, input.runsCapped.unsaved)} Download the run table`
+      text: `${runCapNote(input.runsCapped.evicted, input.runsCapped.unsaved, input.runsCapped.undoEvicted)} Download the run table`
         + ' (Results) to keep a copy of the rest before more go.',
       onDismiss: dismiss.runsCapped,
     });

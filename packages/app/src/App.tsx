@@ -108,7 +108,7 @@ import {
 } from './services/simReport.js';
 import { formatWarning, formatWarningText } from './services/simWarnings.js';
 import {
-  addRun, loadRuns, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite,
+  addRun, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite, runsEvictedForUndoByLastWrite,
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
@@ -120,8 +120,9 @@ import {
 } from './tree/treeModel.js';
 import { num, numOrNull } from './tree/nodeNum.js';
 import {
-  flightDataForExport as flightDataForExportPure, flownAutoDelays, type FlightDataForExportInput,
+  flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument, type FlightDataForExportInput,
 } from './services/orkFlightData.js';
+import { sameStoredFlight } from './services/storedRunIdentity.js';
 import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
 import { motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
 import { MotorLengthField } from './components/MotorLengthField.js';
@@ -273,6 +274,7 @@ export function App() {
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
   // loadSession parses the whole tree — never re-run it on re-renders.
   const [session] = useState(loadSession);
+  const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
   // The autosave holds the PARSED design, not the file it came from, so a
   // design restored from a session another build wrote has never been through
   // this build's importer. Every file-reading fix we ship misses it silently.
@@ -510,6 +512,8 @@ export function App() {
    */
   const [result, setResult] = useState<{ runId: string; value: FlightResult } | null>(null);
   const [lastRun, setLastRun] = useState<SimRun | null>(null);
+  // File summaries are read-only inspections, never the current flight.
+  const [inspectedSummary, setInspectedSummary] = useState<SimRun | null>(null);
   /**
    * Re-flights of stored runs, keyed by run id. Small and insertion-ordered
    * (Map) so eviction is the oldest key; cleared by the physics-change reset
@@ -553,14 +557,17 @@ export function App() {
   // both counted (audit 2026-09-22: the cap evicted silently). Saved runs it
   // removed and new runs that never fit are counted apart: only a batch of
   // more than 500 can do the second, and they are not "the oldest" of anything.
-  const [runsCapped, setRunsCapped] = useState({ evicted: 0, unsaved: 0 });
+  const [runsCapped, setRunsCapped] = useState({ evicted: 0, unsaved: 0, undoEvicted: 0 });
   const recordRuns = useCallback((next: SimRun[]) => {
     setRuns(next);
+    setInspectedSummary((selected) => selected
+      ? next.find((r) => r.importedSummary && sameStoredFlight(r, selected)) ?? null : null);
     setRunsQuotaWarn(persistFailed());
     const evicted = runsEvictedByLastWrite();
     const unsaved = runsUnsavedByLastWrite();
-    if (evicted > 0 || unsaved > 0) {
-      setRunsCapped((n) => ({ evicted: n.evicted + evicted, unsaved: n.unsaved + unsaved }));
+    const undoEvicted = runsEvictedForUndoByLastWrite();
+    if (evicted > 0 || unsaved > 0 || undoEvicted > 0) {
+      setRunsCapped((n) => ({ evicted: n.evicted + evicted, unsaved: n.unsaved + unsaved, undoEvicted: n.undoEvicted + undoEvicted }));
     }
   }, []);
   // Session autosave happens inside a debounce, so its health is pushed, not
@@ -824,10 +831,12 @@ export function App() {
     setMountMotors({});
     setUnmatchedRefs({});
     setSavedConfigs([]);
+    setImportedDocument(undefined);
     setActiveConfigId(null);
     setSelectedId(null);
     setResult(null);
     setLastRun(null);
+    setInspectedSummary(null);
     setConfirmNew(false);
     // This tree was built by THIS build, so the stale-autosave warning no
     // longer describes what is on screen (and must not survive into the
@@ -1199,6 +1208,7 @@ export function App() {
   useEffect(() => {
     setResult(null);
     setLastRun(null);
+    setInspectedSummary(null);
     // Cached re-flights die with the design they were computed for — this
     // effect is the one place that owns that invariant, so a stale flight can
     // never outlive its geometry.
@@ -1464,7 +1474,7 @@ export function App() {
     timeStep: () => setTimeStepMigrated(false),
     padMassNote: () => setPadMassNote(null),
     fileNote: () => setFileNote(null),
-    runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0 }),
+    runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
   }),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
   [buildError, buildFailed, motorFailures, fileNoteState, setFileNote,
@@ -1689,6 +1699,7 @@ export function App() {
         // the history table come back to these charts.
         setResult({ runId: run.id, value: res });
         setLastRun(run);
+        setInspectedSummary(null);
         setLastSimCost({ ms: execMs, ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}) });
         // A flight is work even though it does not touch the design, and the
         // owner asked for it to count. Hooked HERE, at the one place a run is
@@ -1767,6 +1778,7 @@ export function App() {
    * buttons carry `disabled` for that instead.
    */
   const canShowCharts = useCallback((run: SimRun): boolean => {
+    if (run.importedSummary) return false;
     if (!currentMatchKey || !built || !primaryMountId) return false;
     if (reflightCache.has(run.id)) return false;
     // The mounts the run FLEW, as reflyRun will see them — a refused motor
@@ -1807,6 +1819,7 @@ export function App() {
     if (!built || !primaryMountId || flightHoldsHandle.current || !canShowCharts(run)) return;
     setReflying(run.id);
     setLastRun(run);
+    setInspectedSummary(null);
     // Let the busy state paint before the synchronous simulation blocks.
     await afterPaint();
     try {
@@ -1899,19 +1912,9 @@ export function App() {
   });
 
   /**
-   * Which configurations may carry computed results into an exported `.ork`,
-   * and what those results are — option (c) from the 2026-08-26 batch: write
-   * the flight WE computed, guarded, rather than copying the original file's
-   * blocks (which would show desktop a stale result computed from a design
-   * that no longer exists, with nothing on screen saying so) or writing
-   * nothing at all.
-   *
-   * A configuration qualifies only when the newest stored run that names it
-   * proves it was flown from THIS design, THIS motor set and THESE conditions.
-   * Anything else — a changed fin, a different delay, a run stored before the
-   * provenance keys existed — yields no entry, and that configuration stays
-   * `notsimulated`, which is exactly what desktop shows for a simulation it
-   * has not run.
+   * Prefer an app flight whose replay evidence still matches this design.
+   * Otherwise preserve this opened document's own summary as OUTDATED, with
+   * no inferred replay evidence. Global history is never a historical fallback.
    */
   /**
    * The stored results this design is allowed to write into a `.ork`.
@@ -1923,6 +1926,7 @@ export function App() {
    */
   const flightExportInput = useCallback((): FlightDataForExportInput => ({
       runs,
+      importedDocument,
       savedConfigs,
       activeConfigId,
       assigned,
@@ -1949,7 +1953,7 @@ export function App() {
       // Whose delay a run's `delayS` is: an auto-delay run is written only when
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
-  }), [runs, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
+  }), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
@@ -1974,6 +1978,7 @@ export function App() {
   useEffect(() => {
     saveSessionDebounced({
       ...designSnapshot,
+      importedDocument,
       motorLengthLimitsMigrated: true,
       // Not part of the design fingerprint, but the only copy of a
       // configuration-less import's unresolved motors (audit 2026-09-22).
@@ -1999,7 +2004,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [designSnapshot, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave]);
+  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2274,6 +2279,23 @@ export function App() {
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
     });
+    const storedCount = imported.storedSimulations?.length ?? 0;
+    setImportedDocument(summaryDocument(imported));
+    setInspectedSummary(null);
+    if (storedCount) {
+      const current = loadRuns();
+      const summaryPlan = planSummaryImport(imported, current);
+      let next = current;
+      if (summaryPlan.runs.length) {
+        next = appendImportedRuns(summaryPlan.runs);
+        recordRuns(next);
+      }
+      const { added, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
+      setFileNote([plan.note.text,
+        `Stored runs: ${added} added to Saved runs; ${alreadySaved} already in Saved runs; ${notKept} not kept.`,
+        `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.`,
+      ].filter(Boolean).join('\n'), plan.note.severity);
+    }
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.
     if (imported.launch) setWeather(null);
@@ -2578,6 +2600,7 @@ export function App() {
   const shownResult: FlightResult | null = !lastRun ? null
     : result?.runId === lastRun.id ? result.value
     : reflightCache.get(lastRun.id) ?? null;
+  const reportRun = inspectedSummary ?? lastRun;
 
   // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
   const lastApogee = shownResult?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
@@ -4071,7 +4094,7 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
-          {shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
+          {!inspectedSummary && shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
             <div className="file-note file-note-warn" role="alert">
               ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
               the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel
@@ -4094,7 +4117,7 @@ export function App() {
               </button>
             </div>
           )}
-          {(lastRun?.simWarnings ?? []).some((w) => w.priority === 'HIGH') && (
+          {!inspectedSummary && (lastRun?.simWarnings ?? []).some((w) => w.priority === 'HIGH') && (
             // The Launch flow lands here — a HIGH-priority kernel warning
             // (no recovery device, deployment on the guide, …) must not be
             // scrollable-past. Full list, cautions included, sits in the
@@ -4109,7 +4132,7 @@ export function App() {
                 .map((w) => formatWarning(w).label).join(' · ')}
             </div>
           )}
-          {shownResult && lastRun?.aeroModel === 'auto-supersonic' && (
+          {!inspectedSummary && shownResult && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
               {/* States what the flight DID, not what was predicted: the model can also be
                   chosen by the post-flight backstop, where the short probe projected
@@ -4121,7 +4144,7 @@ export function App() {
               subsonic flights of this design would fly classic).
             </div>
           )}
-          {modelMatch === false && lastRun && (
+          {!inspectedSummary && modelMatch === false && lastRun && (
             // States what the flight DID first, matching the auto-supersonic
             // note's precedent. This exists because a model switch no longer
             // destroys the flight: keeping it is only honest if the report
@@ -4134,7 +4157,7 @@ export function App() {
               re-fly this design on the current model.
             </div>
           )}
-          {lastRun && changedSinceNonModel.length > 0 && (
+          {!inspectedSummary && lastRun && changedSinceNonModel.length > 0 && (
             // States what the flight DID first, like the two notes above it.
             // No auxiliary verb: "the launch conditions HAS changed" is wrong,
             // and picking has/have from the list length gets that case backwards
@@ -4150,7 +4173,7 @@ export function App() {
               own boundary (audit 2026-09-22): a throw in one says so in place,
               and the rest of the tab — the run table included, where a bad
               run can be deleted — keeps working instead of the app going down. */}
-          {shownResult && lastRun ? (
+          {!inspectedSummary && shownResult && lastRun ? (
             <>
               <PanelBoundary what="This flight's report" resetKey={lastRun}>
                 <FlightStats run={lastRun} />
@@ -4172,16 +4195,17 @@ export function App() {
                   flightRunning={simulating} />
               </PanelBoundary>
             </>
-          ) : lastRun ? (
+          ) : reportRun ? (
             // A stored run whose series nobody has computed in this session —
             // after a reload, or a run flown before the design was edited.
             // The tiles and the report come from the stored scalars; the plots
             // need series, which run history does not carry.
             <>
-              <PanelBoundary what="This flight's report" resetKey={lastRun}>
-                <FlightStats run={lastRun} />
-                <SimRunDetails run={lastRun} changedSince={changedSince} />
+              <PanelBoundary what="This flight's report" resetKey={reportRun}>
+                <FlightStats run={reportRun} />
+                <SimRunDetails run={reportRun} changedSince={inspectedSummary ? null : changedSince} />
               </PanelBoundary>
+              {!inspectedSummary && lastRun && (
               <div className="panel placeholder empty-state">
                 <p><strong>Flight plots aren&apos;t saved with a run</strong></p>
                 <p>
@@ -4204,6 +4228,7 @@ export function App() {
                   </button>
                 )}
               </div>
+              )}
             </>
           ) : (
             <div className="panel placeholder empty-state">
@@ -4249,12 +4274,15 @@ export function App() {
             <SimHistory
               runs={runs}
               onRunsChange={recordRuns}
-              selectedId={lastRun?.id ?? null}
+              selectedId={reportRun?.id ?? null}
               // Selecting a row no longer destroys the in-memory flight: the
               // result carries the id of the run it belongs to, so the charts
               // decide for themselves whether they are showing this run. Coming
               // back to the run you just flew restores its charts for free.
-              onSelect={(r) => { if (r.id !== lastRun?.id) setLastRun(r); }}
+              onSelect={(r) => {
+                setInspectedSummary(r.importedSummary ? r : null);
+                if (!r.importedSummary && r.id !== lastRun?.id) setLastRun(r);
+              }}
               canShowCharts={canShowCharts}
               onShowCharts={(r) => { void showChartsFor(r); }}
               reflyingId={reflying}

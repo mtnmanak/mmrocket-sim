@@ -617,7 +617,7 @@ export const RESULT_TILE_METRICS: TileSpec[] = [
     render: (r, u) => ({
       value: Number.isFinite(r.landingRate)
         ? tileSi('velocity', u.vel, r.landingRate)
-        : tileSi('velocity', u.vel, r.groundHitVelocity),
+        : tileSi('velocity', u.vel, r.importedSummary ? null : r.groundHitVelocity),
       quantity: 'velocity',
     }),
   },

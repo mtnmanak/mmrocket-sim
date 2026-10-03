@@ -1,3 +1,4 @@
+import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { DelayResolution } from './autoDelaySolver.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import type { WindProfileConditions } from './windProfile.js';
@@ -267,7 +268,10 @@ export function openingVerdict(velocity: number | null | undefined): DeploymentV
 }
 
 /** Re-grade recorded speeds so saved runs also follow K16, including boosters. */
-export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' | 'velocityAtDeployment'>): DeploymentVerdict {
+export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' | 'velocityAtDeployment' | 'importedSummary'>): DeploymentVerdict {
+  // .ork summaries record one scalar speed, not every device/branch opening.
+  // It cannot establish an aggregate verdict, even when that speed is safe.
+  if (run.importedSummary) return null;
   const states = (run.deployments?.length
     ? run.deployments.map((d) => openingVerdict(d.velocityAtDeployment))
     : [openingVerdict(run.velocityAtDeployment)])
@@ -404,7 +408,11 @@ export interface BranchReport {
   recoveryMass?: number | null;
 }
 
-export interface SimRun extends WindProfileConditions {
+export interface SimRun extends WindProfileConditions, AeroProvenance {
+  /** Imported summary only: no series, safety assessment or replay stamps. */
+  importedSummary?: boolean;
+  /** File-supplied identity, retained when a collision requires a new local ID. */
+  importedRunId?: string;
   /** Complete flown mount vector and independent delay-policy provenance. */
   delayResolution?: DelayResolution;
   id: string;
@@ -1004,7 +1012,8 @@ export function aeroModelLabel(
     // Preferences gives it (audit 2026-09-22): "Classic Extended Barrowman +
     // Rogers Kbf" read as the parity model plus one term, so a reader put the
     // whole difference from desktop 24.12 down to Kbf.
-    case 'classic': return rogersKbf ? 'Rogers Modified Barrowman (Kbf)' : 'Classic Extended Barrowman';
+    case 'classic': return typeof rogersKbf !== 'boolean' ? 'Classic (Kbf not recorded)'
+      : rogersKbf ? 'Rogers Modified Barrowman (Kbf)' : 'Classic Extended Barrowman';
     default: return '—';
   }
 }
@@ -1162,12 +1171,14 @@ export function runCarriesPhysicsRevision(
  * accusing old runs of a difference it cannot see.
  */
 export function runMatchesModel(
-  run: Pick<SimRun, 'aeroModel' | 'rogersKbf'>,
+  run: Pick<SimRun, 'aeroModel' | 'rogersKbf' | 'hybridBand'>,
   cur: { aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid'; effectiveKbf: boolean; autoSupersonic: boolean },
 ): boolean | null {
   if (!run.aeroModel) return null;
   if (run.aeroModel === 'hybrid' || cur.aeroMode === 'hybrid') {
-    return run.aeroModel === 'hybrid' && cur.aeroMode === 'hybrid';
+    return run.aeroModel === 'hybrid' && cur.aeroMode === 'hybrid'
+      && (!run.hybridBand || (validHybridBand(run.hybridBand)
+        && run.hybridBand.every((v, i) => v === APP_HYBRID_BAND[i])));
   }
   // 'supersonic' and 'auto-supersonic' are the SAME physics — the second only
   // records that Auto chose it rather than the user. Treating them as
@@ -2197,6 +2208,7 @@ export function buildSimRun(input: {
     ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}),
     execMs,
     aeroModel,
+    ...(aeroModel === 'hybrid' ? { hybridBand: APP_HYBRID_BAND } : {}),
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),
     ...(motorConfig !== undefined ? { motorConfig } : {}),
     ...(flightConfig !== undefined ? { flightConfig } : {}),

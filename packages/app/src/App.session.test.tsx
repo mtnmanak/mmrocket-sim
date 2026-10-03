@@ -12,7 +12,7 @@ import { probeFlight } from './services/autoDelay.testSupport.js';
 import type { DelayResolution } from './services/autoDelaySolver.js';
 import { findNode, findParent, motorMounts } from './tree/treeModel.js';
 import type { SessionState } from './services/session.js';
-import { exportOrk } from './services/orkFile.js';
+import { exportOrk, importOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
 import { designFingerprint, type DesignSnapshot } from './services/dirtyState.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
@@ -20,6 +20,8 @@ import { APP_VERSION } from './version.js';
 import { sanitizeTree } from './tree/sanitize.js';
 import { motorLengthLimit } from './tree/motorLength.js';
 import { MOTOR_DB, filterMotors } from './services/motorDb.js';
+import { importedSummaryRuns } from './services/orkFlightData.js';
+import { addRuns, loadRuns } from './services/simStore.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -195,6 +197,12 @@ function button(host: HTMLElement, text: string): HTMLButtonElement {
   return b;
 }
 
+async function openSavedRuns(host: HTMLElement): Promise<void> {
+  const panel = [...host.querySelectorAll('h2')].find((h) => h.textContent?.startsWith('Saved simulations'))!.closest('.panel')!;
+  const show = [...panel.querySelectorAll('button')].find((b) => b.textContent === 'Show');
+  if (show) await act(async () => { show.click(); });
+}
+
 /** Starter motor present in the stored session — the async C6 has landed and been autosaved. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
 
@@ -227,6 +235,254 @@ afterEach(async () => {
 });
 
 describe('a SOLID motor mount on Motors & Launch', () => {
+  it('saves only the opened document historical result through edits and session restore', async () => {
+    const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    try {
+      let host = await mountApp();
+      await waitFor(starterStored, 'starter motor');
+      const open = async (name: string, altitude?: number) => {
+        const xml = exportOrk({ name,
+          tree: { name, components: [{ type: 'stage', children: [
+            { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+          ] }] }, launch: DEFAULT_CONDITIONS,
+          configs: [{ id: 'c1', name: 'Main', isDefault: true, motors: {} }], activeConfigId: 'c1',
+          flightData: altitude === undefined ? {} : { c1: { runId: 'same-id', maxAltitude: altitude,
+            aeroModel: altitude === 123 ? 'classic' : 'hybrid', rogersKbf: true, hybridBand: [0.7, 1.4] } },
+        });
+        const picker = input(host, 'Open a design file');
+        Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], `${name}.ork`)] });
+        await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+        const discard = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+        if (discard) await act(async () => { discard.click(); });
+        await waitFor(() => storedSession()?.tree.name === name, `opened ${name}`);
+      };
+      const save = async () => {
+        vi.mocked(exportOrk).mockClear();
+        await act(async () => { button(host, 'Save As / Export').click(); });
+        await act(async () => { button(host, 'Save .ork — OpenRocket design').click(); });
+        await settle(50);
+        const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+        return importOrk(xml);
+      };
+      await open('A', 123);
+      await open('B', 456);
+      expect(loadRuns().map((r) => r.maxAltitude)).toEqual([123, 456]);
+      expect((await save()).storedSimulations![0]!.data).toMatchObject({ maxAltitude: 456, aeroModel: 'hybrid' });
+      await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited B');
+      await settle(600);
+      expect(storedSession()!.importedDocument!.name).toBe('B');
+      await unmountAll();
+      host = await mountApp();
+      await settle(600);
+      expect(storedSession()!.tree.name).toBe('Edited B');
+      const saved = await save();
+      expect(saved.storedSimulations).toHaveLength(1);
+      expect(saved.storedSimulations![0]!.data).toMatchObject({ runId: 'same-id', maxAltitude: 456,
+        aeroModel: 'hybrid', hybridBand: [0.7, 1.4] });
+      // Every open replaces the snapshot, including files without tagged results.
+      await open('C');
+      expect(storedSession()!.importedDocument).toBeUndefined();
+      expect((await save()).storedSimulations).toBeUndefined();
+      await open('B', 456);
+      await act(async () => { button(host, 'New').click(); });
+      await settle(600);
+      expect(storedSession()!.importedDocument).toBeUndefined();
+    } finally {
+      made.mockRestore();
+      revoked.mockRestore();
+    }
+  }, 30000);
+
+  it.each(['delete', 'clear'])('clears an inspected summary when history is removed by %s', async (action) => {
+    addRuns(importedSummaryRuns({ name: 'Inspection removal', storedSimulations: [{ name: 'Stored', configId: null,
+      windAverage: 0, data: { runId: 'inspection', maxAltitude: 123, aeroModel: 'classic' } }] }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await act(async () => { button(host, 'Results').click(); });
+    await openSavedRuns(host);
+    const row = host.querySelector<HTMLTableRowElement>('tr.motor-row')!;
+    await act(async () => { row.click(); });
+    expect(host.textContent).toContain('This is a summary saved in the file.');
+    await act(async () => { button(host, 'Show all details').click(); });
+    expect(host.textContent).toContain('Classic (Kbf not recorded)');
+    if (action === 'delete') {
+      await act(async () => { row.querySelector<HTMLButtonElement>('[title="Delete run"]')!.click(); });
+    } else {
+      await act(async () => { button(host, 'Clear all').click(); });
+      await act(async () => { button(document.body, 'Delete all 1').click(); });
+    }
+    expect(loadRuns()).toEqual([]);
+    expect(host.textContent).not.toContain('This is a summary saved in the file.');
+    expect(host.querySelector('.motor-row-picked')).toBeNull();
+    if (action === 'delete') {
+      await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Undo: put back run"]')!.click(); });
+      expect(loadRuns()).toHaveLength(1);
+      expect(host.textContent).not.toContain('This is a summary saved in the file.');
+      await act(async () => { host.querySelector<HTMLTableRowElement>('tr.motor-row')!.click(); });
+      expect(host.textContent).toContain('This is a summary saved in the file.');
+    }
+  }, 30000);
+
+  it.each([false, true])('reconciles inspected summary after Undo (same flight=%s)', async (same) => {
+    const original = importedSummaryRuns({ name: 'Original A', storedSimulations: [{ name: 'Stored', configId: 'c1',
+      windAverage: 0, data: { runId: 'X', maxAltitude: 123, aeroModel: 'classic' } }] })[0]!;
+    addRuns([{ ...original, importedSummary: undefined, designKey: 'original-evidence' }]);
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await act(async () => { button(host, 'Results').click(); });
+    await openSavedRuns(host);
+    await act(async () => { host.querySelector<HTMLButtonElement>('[title="Delete run"]')!.click(); });
+    const xml = exportOrk({ name: 'Imported B',
+      tree: { name: 'Imported B', components: [{ type: 'stage', children: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] }, launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
+      flightData: { c1: { runId: 'X', maxAltitude: same ? 123 : 456, aeroModel: 'classic' } },
+    });
+    const picker = input(host, 'Open a design file');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'inspection.ork')] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+    if (past) await act(async () => { past.click(); });
+    await waitFor(() => loadRuns().some((r) => r.rocket === 'Imported B'), 'imported report');
+    await act(async () => { button(host, 'Results').click(); });
+    await openSavedRuns(host);
+    const importedRow = host.querySelector<HTMLTableRowElement>('tr.motor-row')!;
+    await act(async () => { importedRow.click(); });
+    expect(host.textContent).toContain('This is a summary saved in the file.');
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Undo: put back run"]')!.click(); });
+    if (same) {
+      expect(loadRuns()).toHaveLength(1);
+      expect(host.textContent).not.toContain('This is a summary saved in the file.');
+      expect(host.querySelector('.motor-row-picked')).toBeNull();
+    } else {
+      expect(loadRuns()).toHaveLength(2);
+      expect(host.querySelector('.motor-row-picked')?.textContent).toContain('Imported B');
+      expect(host.querySelector('.motor-row-picked')?.textContent).not.toContain('Original A');
+      expect(host.textContent).toContain('This is a summary saved in the file.');
+      await act(async () => { host.querySelector<HTMLButtonElement>('.motor-row-picked [title="Delete run"]')!.click(); });
+      expect(host.textContent).not.toContain('This is a summary saved in the file.');
+    }
+  }, 30000);
+
+  it.each([1, 501])('opens %s stored summaries without changing the preference or session override', async (count) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, aeroModel: 'classic', rogersKbf: false }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const aero = host.querySelector<HTMLSelectElement>('select[aria-label="Aerodynamics model (this session)"]')!;
+    expect(aero.value).toBe('eb');
+    await act(async () => {
+      aero.value = 'supersonic';
+      aero.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const before = localStorage.getItem('online-openrocket.prefs.v1');
+    const single = exportOrk({ name: 'Imported Hybrid',
+      tree: { name: 'Imported Hybrid', components: [{ type: 'stage', children: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] },
+      launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'c1', name: 'Stored Hybrid', isDefault: true, motors: {} }],
+      activeConfigId: 'c1', flightData: { c1: { runId: 'stored-hybrid', maxAltitude: 321, aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.8, 1.2] } },
+    });
+    const simulation = single.match(/<simulation status=[\s\S]*?<\/simulation>/)![0];
+    const xml = single.replace(simulation, Array.from({ length: count }, (_, i) =>
+      simulation.replace('runid="stored-hybrid"', `runid="stored-hybrid-${i}"`)).join('\n'));
+    const kept = Math.min(count, 500);
+    const picker = input(host, 'Open a design file');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'hybrid.ork')] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+    if (past) await act(async () => { past.click(); });
+    const stored = () => JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1') ?? '[]') as
+      { aeroModel?: string; rogersKbf?: boolean; hybridBand?: number[]; maxAltitude: number }[];
+    await waitFor(() => stored().some((r) => r.maxAltitude === 321), 'imported summary in Saved simulations');
+    expect(stored()[0]).toMatchObject({ aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.8, 1.2] });
+    expect(aero.value).toBe('supersonic');
+    expect(localStorage.getItem('online-openrocket.prefs.v1')).toBe(before);
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    expect(host.textContent).toContain(`Stored runs: ${kept} added to Saved runs; 0 already in Saved runs; ${count - kept} not kept.`);
+    expect(host.textContent).toContain('Imports fill available spaces up to the 500-run limit in file order; no existing runs were removed or reordered.');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'hybrid.ork')] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => !!host.textContent?.includes(`Stored runs: 0 added to Saved runs; ${kept} already in Saved runs; ${count - kept} not kept.`),
+      'duplicate-open note');
+    expect(stored()).toHaveLength(kept);
+    await act(async () => { button(host, 'Results').click(); });
+    const strip = host.querySelector('.vitals-strip')!;
+    const stripBefore = strip.textContent;
+    await openSavedRuns(host);
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tr.motor-row')]
+      .find((r) => r.textContent?.includes('Imported Hybrid'))!;
+    await act(async () => { row.click(); });
+    expect(row.classList.contains('motor-row-picked')).toBe(true);
+    expect(strip.textContent).toBe(stripBefore);
+    expect(host.textContent).toContain('This is a summary saved in the file.');
+    expect(host.textContent).not.toContain('These numbers were');
+    expect(host.textContent).not.toContain('This run no longer matches the design');
+    expect(host.textContent).not.toContain('The report above is stored in full');
+    expect([...row.querySelectorAll('button')].some((b) => b.textContent?.includes('Charts'))).toBe(false);
+  }, 30000);
+
+  it('a full history with 499 old duplicates keeps the newest unrelated flight and reports one import not kept', async () => {
+    const single = exportOrk({ name: 'Cap regression',
+      tree: { name: 'Cap regression', components: [{ type: 'stage', children: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] }, launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
+      flightData: { c1: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' } },
+    });
+    const run = importedSummaryRuns({ name: 'Cap regression', storedSimulations: [{
+      name: 'Stored', configId: 'c1', windAverage: 0, data: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' },
+    }] })[0]!;
+    addRuns([{ ...run, id: 'newest-unrelated', importedRunId: undefined, maxAltitude: 456 },
+      ...Array.from({ length: 499 }, (_, i) => ({ ...run, id: `old-${i}`, importedRunId: `old-${i}` }))]);
+    const before = localStorage.getItem('online-openrocket.sim-runs.v1');
+    const simulation = single.match(/<simulation status=[\s\S]*?<\/simulation>/)![0];
+    const xml = single.replace(simulation, Array.from({ length: 500 }, (_, i) =>
+      simulation.replace('runid="old"', `runid="${i === 499 ? 'new-import' : `old-${i}`}"`)).join('\n'));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const picker = input(host, 'Open a design file');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'cap.ork')] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+    if (past) await act(async () => { past.click(); });
+    await waitFor(() => host.textContent?.includes('Cap regression') ?? false, 'opened capped file');
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    expect(host.textContent).toContain('Stored runs: 0 added to Saved runs; 499 already in Saved runs; 1 not kept.');
+    expect(host.textContent).toContain('no existing runs were removed or reordered');
+    expect(host.textContent).not.toContain('the oldest 1 was removed');
+    expect(localStorage.getItem('online-openrocket.sim-runs.v1')).toBe(before);
+  }, 30000);
+
+  it('inspects an imported summary without replacing a live flight and Launch returns to live results', async () => {
+    addRuns(importedSummaryRuns({ name: 'File summary', storedSimulations: [{ name: 'Stored', configId: null,
+      windAverage: 0, data: { runId: 'file-summary', maxAltitude: 987654, aeroModel: 'supersonic' } }] }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const launch = () => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+    await act(async () => { launch(); });
+    await waitFor(() => loadRuns().length === 2, 'live flight');
+    await settle(50);
+    const strip = host.querySelector('.vitals-strip')!;
+    const before = strip.textContent;
+    await openSavedRuns(host);
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tr.motor-row')]
+      .find((r) => r.textContent?.includes('File summary'))!;
+    await act(async () => { row.click(); });
+    expect(strip.textContent).toBe(before);
+    expect(host.textContent).toContain('This is a summary saved in the file.');
+    expect(host.textContent).not.toContain('These numbers were');
+    expect(host.querySelector('.charts-grid')).toBeNull();
+    await act(async () => { launch(); });
+    await waitFor(() => loadRuns().length === 3, 'new live flight');
+    expect(host.textContent).not.toContain('This is a summary saved in the file.');
+    expect(host.textContent).toContain('Raw per-timestep flight data downloads');
+  }, 30000);
+
   it('says the mount has no bore, not to check its length, position and overhang', async () => {
     // Solid (filled) leaves no bore (BodyTube.getMotorMountDiameter is 0), so
     // there is no motor room to estimate — and the card's hint named three
@@ -424,7 +680,7 @@ describe('the 500-run cap is reported (audit 2026-09-22)', () => {
       .some((r) => !r.id.startsWith('old')), 'the flight to be saved');
     await settle(50);
     expect(document.body.textContent).toContain(
-      'Saved simulations keeps the newest 500 runs, so the oldest 1 was removed to make room.');
+      'Saved simulations keeps up to 500 runs, so the oldest 1 was removed to make room.');
   }, 30000);
 });
 

@@ -122,6 +122,15 @@ describe('RESULT_TILE_METRICS — a flight the kernel could not compute', () => 
     expect(tile.render(nan, U).value).toBe('16.7');
   });
 
+  it('imported ground-hit speed never supplies the landing descent tile', () => {
+    const imported = { ...GOOD, importedSummary: true, deployments: [], landingRate: null, groundHitVelocity: 13 };
+    const landing = RESULT_TILE_METRICS.find((m) => m.id === 'landingRate')!;
+    const ground = RESULT_TILE_METRICS.find((m) => m.id === 'groundSpeed')!;
+    expect(landing.render(imported, U).value).toBe('—');
+    expect(ground.label).toBe('Ground speed at landing');
+    expect(ground.render(imported, U).value).toBe('42.7');
+  });
+
   it('Max Mach reads the number when there is one', () => {
     const tile = RESULT_TILE_METRICS.find((m) => m.id === 'maxMach')!;
     expect(tile.render(GOOD, U).value).toBe('0.35');

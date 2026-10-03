@@ -1,13 +1,14 @@
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededCell, railNeededHeader } from './railNeeded.js';
+import { sameStoredFlight } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
  * simulate many motors, compare, download the table as CSV. Runs survive
- * reloads; capped to the newest MAX_RUNS.
+ * reloads; capped to MAX_RUNS. Fresh flights prepend; imports fill free slots.
  */
 
 const KEY = 'online-openrocket.sim-runs.v1';
@@ -79,15 +80,21 @@ export function loadRuns(): SimRun[] {
 }
 
 // Set when a write is refused (quota), cleared by the next write that sticks.
-// Every mutation goes through addRun/addRuns/deleteRun/restoreRun/clearRuns
+// Every mutation goes through addRun/addRuns/appendImportedRuns/deleteRun/restoreRun/clearRuns
 // synchronously, so a getter the caller checks after each mutation is enough —
 // no subscription machinery in a plain module.
 let lastPersistFailed = false;
 // What the MAX_RUNS cap cut from the latest mutation — same getter pattern,
-// same funnel. Two counts, because a write can cut two different things: runs
-// that were already saved, and runs it was asked to add that never fit.
+// same funnel. Separate ordinary oldest-row eviction, unsaved batch additions,
+// and Undo's oldest-other-row eviction when protecting a conflicting pair.
 let lastEvicted = 0;
 let lastUnsaved = 0;
+let lastUndoEvicted = 0;
+
+/** Oldest other rows removed while Undo protected the restored run and any conflict. */
+export function runsEvictedForUndoByLastWrite(): number {
+  return lastUndoEvicted;
+}
 
 /**
  * True when the latest mutation could not be written: the returned table is
@@ -126,15 +133,16 @@ export function runsUnsavedByLastWrite(): number {
  * What the cap did on a write, in words — the batch's finished line and App's
  * notice both say it, so they say it the same way. '' when it did nothing.
  */
-export function runCapNote(evicted: number, unsaved: number): string {
+export function runCapNote(evicted: number, unsaved: number, undoEvicted = 0): string {
   const were = (n: number) => (n === 1 ? 'was' : 'were');
   const parts = [
     ...(evicted > 0 ? [`the oldest ${evicted} ${were(evicted)} removed to make room`] : []),
     ...(unsaved > 0
       ? [`${unsaved} new ${unsaved === 1 ? 'run' : 'runs'} did not fit and ${were(unsaved)} not saved`]
       : []),
+    ...(undoEvicted > 0 ? [`Undo kept the restored run and any conflicting report and removed the oldest ${undoEvicted} other ${undoEvicted === 1 ? 'run' : 'runs'} in history`] : []),
   ];
-  return parts.length === 0 ? '' : `Saved simulations keeps the newest ${MAX_RUNS} runs, so ${parts.join(', and ')}.`;
+  return parts.length === 0 ? '' : `Saved simulations keeps up to ${MAX_RUNS} runs, so ${parts.join(', and ')}.`;
 }
 
 /**
@@ -142,10 +150,14 @@ export function runCapNote(evicted: number, unsaved: number): string {
  * adds (addRun/addRuns put them first) — so the cut at MAX_RUNS can say which
  * of what it removed had been saved and which never were.
  */
-function persist(runs: SimRun[], fresh = 0): SimRun[] {
-  const kept = runs.slice(0, MAX_RUNS);
+function persist(runs: SimRun[], fresh = 0, undoPair?: ReadonlySet<string>): SimRun[] {
+  let slots = MAX_RUNS - (undoPair?.size ?? 0);
+  const kept = undoPair
+    ? runs.filter((run) => undoPair.has(run.id) || slots-- > 0)
+    : runs.slice(0, MAX_RUNS);
   lastEvicted = 0;
   lastUnsaved = 0;
+  lastUndoEvicted = 0;
   try {
     // JSON has no Infinity — JSON.stringify(Infinity) is null, which silently
     // corrupted stored plugged runs. Round-trip it as a string instead.
@@ -161,6 +173,10 @@ function persist(runs: SimRun[], fresh = 0): SimRun[] {
   lastPersistFailed = false;
   lastUnsaved = Math.max(0, fresh - MAX_RUNS);
   lastEvicted = runs.length - kept.length - lastUnsaved;
+  if (undoPair) {
+    lastUndoEvicted = lastEvicted;
+    lastEvicted = 0;
+  }
   // Return what was stored, so the in-memory table matches the next reload.
   return kept;
 }
@@ -172,6 +188,20 @@ export function addRun(run: SimRun): SimRun[] {
 
 export function addRuns(newRuns: SimRun[]): SimRun[] {
   return persist([...newRuns, ...loadRuns()], newRuns.length);
+}
+
+/** Imported summaries fill free slots, in file order, after existing history. */
+export function appendImportedRuns(newRuns: SimRun[]): SimRun[] {
+  const existing = loadRuns();
+  const additions = newRuns.slice(0, Math.max(0, MAX_RUNS - existing.length));
+  if (!additions.length) {
+    lastPersistFailed = false;
+    lastEvicted = 0;
+    lastUnsaved = 0;
+    lastUndoEvicted = 0;
+    return existing;
+  }
+  return persist([...existing, ...additions]);
 }
 
 export function deleteRun(id: string): SimRun[] {
@@ -186,11 +216,40 @@ export function deleteRun(id: string): SimRun[] {
  * time, and a run already present is not doubled.
  */
 export function restoreRun(run: SimRun, beforeId: string | null): SimRun[] {
-  const list = loadRuns().filter((r) => r.id !== run.id);
+  const list = loadRuns();
+  const same = list.findIndex((r) => sameStoredFlight(r, run));
+  if (same !== -1) {
+    // Reopening a deleted flight restores only its summary. Undo upgrades that
+    // row to the original report, keeping its local ID and every unrelated row.
+    const existing = list[same]!;
+    if (existing.importedSummary && !run.importedSummary) {
+      list[same] = { ...run, id: existing.id,
+        ...(existing.id !== run.id ? { importedRunId: run.importedRunId ?? run.id } : {}) };
+      return persist(list);
+    }
+    lastPersistFailed = false;
+    lastEvicted = 0;
+    lastUnsaved = 0;
+    lastUndoEvicted = 0;
+    return list;
+  }
+  const undoPair = new Set([run.id]);
+  const collision = list.findIndex((r) => r.id === run.id);
+  if (collision !== -1) {
+    // The identity check above ruled out the same flight. This reused local
+    // ID belongs to a different report, which must retain its own row.
+    const occupied = list[collision]!;
+    const ids = new Set(list.map((r) => r.id));
+    const base = `restored-conflict:${run.id}`;
+    let id = base;
+    for (let suffix = 1; ids.has(id); suffix++) id = `${base}:${suffix}`;
+    list[collision] = { ...occupied, id, importedRunId: occupied.importedRunId ?? occupied.id };
+    undoPair.add(id);
+  }
   let at = beforeId === null ? list.length : list.findIndex((r) => r.id === beforeId);
   if (at === -1) at = list.findIndex((r) => r.when < run.when);
   list.splice(at === -1 ? list.length : at, 0, run);
-  return persist(list);
+  return persist(list, 0, undoPair);
 }
 
 export function clearRuns(): SimRun[] {
@@ -199,6 +258,7 @@ export function clearRuns(): SimRun[] {
   // loadRuns() reads a missing key as [] — same result as storing "[]".
   lastEvicted = 0;
   lastUnsaved = 0;
+  lastUndoEvicted = 0;
   try {
     localStorage.removeItem(KEY);
     lastPersistFailed = false;
@@ -240,14 +300,15 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
   ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
-  ['Diameter (mm)', (r) => r.motorDiameterMm],
+  ['Diameter (mm)', (r) => Number.isFinite(r.motorDiameterMm) ? r.motorDiameterMm : ''],
   ['Type', (r) => r.motorType ?? ''],
   ['Propellant', (r) => r.propellant ?? ''],
   ['Case', (r) => r.motorCase ?? ''],
   ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
   ['Guide (mph)', (r) => round(r.rodExitVelocity === null ? null : r.rodExitVelocity * MPH, 1)],
   ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
-  ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS : 'P')],
+  ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS
+    : r.importedSummary && r.delayS !== Infinity ? '' : 'P')],
   ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
   ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
   // `toISOString()` throws RangeError on an Invalid Date, and BOTH exports are
@@ -299,7 +360,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);
     return cv('velocity', drogue?.descentRate ?? null);
   }],
-  [`Landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.landingRate ?? r.groundHitVelocity)],
+  [`Landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.landingRate ?? (r.importedSummary ? null : r.groundHitVelocity))],
   ['Landing rate OK', (r) => flag(r.safeLandingRate ?? null)],
   [`Landing distance (${sym('distance', 'm')})`, (r) => cv('distance', r.landingDistanceM ?? null, 1)],
   ['Landing bearing (deg from N)', (r) => round(r.landingBearingDeg ?? null, 0)],
@@ -312,7 +373,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
   ['Static margin OK', (r) => flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
-  ['Motors (cluster)', (r) => r.motorCount ?? 1],
+  ['Motors (cluster)', (r) => r.motorCount ?? (r.importedSummary ? '' : 1)],
   ['Motor config', (r) => r.motorConfig ?? ''],
   ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('distance', 'm')})`, (r) => cv('distance', r.branches?.[0]?.apogee ?? null)],
@@ -321,8 +382,10 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [`Wind avg (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windAvg, 1)],
   // Under Auto, different rows can have flown different models — without this
   // column the comparison table can't tell them apart.
-  ['Aero model', (r) => `${r.aeroModel ?? 'classic'}${r.rogersKbf ? '+kbf' : ''}`],
-  ['Execution time (ms)', (r) => Math.round(r.execMs)],
+  ['Aero model', (r) => r.aeroModel === undefined ? ''
+    : r.aeroModel === 'classic' && typeof r.rogersKbf !== 'boolean' ? 'classic (Kbf not recorded)'
+      : `${r.aeroModel}${r.rogersKbf ? '+kbf' : ''}`],
+  ['Execution time (ms)', (r) => round(r.execMs, 0)],
   // Machine keys, not prose — greppable/filterable in a spreadsheet; the
   // report renders the plain-language version (simWarnings.ts).
   ['Sim warnings', (r) => warningKeysCell(r.simWarnings)],
@@ -338,7 +401,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // that stood in front of it, the shape eslint.config.mjs now refuses).
   [`Density altitude (${sym('distance', 'm')})`,
     (r) => cv('distance', r.densityAltitudeM)],
-  ['Winds aloft (levels)', (r) => r.windLevels?.length ?? 0],
+  ['Winds aloft (levels)', (r) => r.windLevels?.length ?? ''],
   // Append to preserve existing spreadsheet column positions.
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => {
     const needed = railNeeded(r.railProfile, railThreshold);
@@ -355,6 +418,8 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Mach at max q·α', r => round(r.loads?.maxQAlpha?.mach ?? null, 4)],
   ['Angle of attack at max q·α (rad)', r => round(r.loads?.maxQAlpha?.aoa ?? null, 6)],
   ['Angle of attack at max q·α (deg)', r => round(r.loads?.maxQAlpha?.aoa == null ? null : r.loads.maxQAlpha.aoa * 180 / Math.PI, 4)],
+  ['Hybrid band lower (Mach)', (r) => round(r.hybridBand?.[0] ?? null, 3)],
+  ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
   ];
 }
 
@@ -375,7 +440,7 @@ function scaled(v: number | null | undefined, k: number): number | null {
 }
 
 function flag(v: boolean | null): string {
-  return v === null ? '' : v ? 'yes' : 'NO';
+  return typeof v !== 'boolean' ? '' : v ? 'yes' : 'NO';
 }
 
 /**

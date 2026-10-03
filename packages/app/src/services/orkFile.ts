@@ -1,4 +1,5 @@
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG, baseDragImportNotes } from './baseDragImportNotes.js';
+import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
@@ -229,6 +230,8 @@ export interface OrkDeployOverride {
  * offer a picker and re-import with `{ configId }`.
  */
 export interface OrkImportResult extends OrkTreeImportResult {
+  /** Only simulations carrying a recognised app provenance tag and summary. */
+  storedSimulations?: OrkStoredSimulation[];
   /** Declared flight configurations in file order (empty when none). */
   configs: OrkFlightConfig[];
   /**
@@ -1399,8 +1402,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const tree = sanitizeTree({ name, components }, notes);
   notes.push(...baseDragImportNotes(tree));
 
+  const storedSimulations = readStoredSimulations(simEls);
   return {
     name, tree, motors, configs, chosenConfigId,
+    ...(storedSimulations.length ? { storedSimulations } : {}),
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
@@ -1538,6 +1543,11 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
   return referenceFrom;
 }
 
+/** IDs are opaque keys: whitespace distinguishes configurations, as in attributes. */
+function simulationConfigId(sim: XmlElement): string | null {
+  return sim.querySelector(':scope > conditions > configid')?.textContent || null;
+}
+
 function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // A .ork carries one <simulation> per flight configuration, and they are NOT
   // in configuration order. Taking the first one applied whichever site that
@@ -1547,7 +1557,7 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // keep the first as the fallback for files that name no configid.
   const simEls = Array.from(doc.querySelectorAll('openrocket > simulations > simulation'));
   const forChosen = chosenConfigId
-    ? simEls.find((s) => text(s, ':scope > conditions > configid') === chosenConfigId)
+    ? simEls.find((s) => simulationConfigId(s) === chosenConfigId)
     : undefined;
   const simEl = forChosen ?? simEls[0];
   return { simEls, simEl };
@@ -2038,7 +2048,11 @@ export interface OrkTreeExportInput {
  * branch-less `<flightdata>` builds a summary-only `FlightData`, fills every
  * column of the simulation table, and correctly refuses to plot.
  */
-export interface OrkExportFlightData {
+export interface OrkExportFlightData extends AeroProvenance {
+  /** Identity of the app run that supplied this summary. */
+  runId?: string;
+  /** Historical file summary; no assertion that it matches today's design. */
+  importedSummary?: boolean;
   maxAltitude?: number | null;
   maxVelocity?: number | null;
   maxAcceleration?: number | null;
@@ -2052,7 +2066,7 @@ export interface OrkExportFlightData {
 }
 
 /** Attribute name on disk → field, in the desktop writer's own order. */
-const FLIGHTDATA_ATTRS: [string, keyof OrkExportFlightData][] = [
+const FLIGHTDATA_ATTRS: [string, Exclude<keyof OrkExportFlightData, keyof AeroProvenance | 'runId' | 'importedSummary'>][] = [
   ['maxaltitude', 'maxAltitude'],
   ['maxvelocity', 'maxVelocity'],
   ['maxacceleration', 'maxAcceleration'],
@@ -2064,6 +2078,41 @@ const FLIGHTDATA_ATTRS: [string, keyof OrkExportFlightData][] = [
   ['deploymentvelocity', 'deploymentVelocity'],
   ['optimumdelay', 'optimumDelay'],
 ];
+
+export interface OrkStoredSimulation {
+  name: string;
+  configId: string | null;
+  data: OrkExportFlightData;
+  windAverage: number;
+}
+
+/** Untagged files keep their existing behaviour; unknown extensions are ignored. */
+function readStoredSimulations(simEls: XmlElement[]): OrkStoredSimulation[] {
+  const stored: OrkStoredSimulation[] = [];
+  for (const sim of simEls) {
+    const tag = sim.querySelector(':scope > aeromodel');
+    const aeroModel = tag?.textContent?.trim();
+    const summary = sim.querySelector(':scope > flightdata');
+    if (!isAeroModel(aeroModel) || !tag || !summary) continue;
+    const data: OrkExportFlightData = { aeroModel };
+    const runId = tag.getAttribute('runid');
+    if (runId) data.runId = runId;
+    for (const [attr, key] of FLIGHTDATA_ATTRS) {
+      const value = parseDecimal(summary.getAttribute(attr));
+      if (Number.isFinite(value)) data[key] = value;
+    }
+    if (!flightDataAttrs(data)) continue;
+    const kbf = tag.getAttribute('kbf');
+    if (kbf === 'true' || kbf === 'false') data.rogersKbf = kbf === 'true';
+    const band = tag.getAttribute('band')?.trim().split(/\s+/).map((v) => parseDecimal(v));
+    if (aeroModel === 'hybrid' && validHybridBand(band)) data.hybridBand = band;
+    const cond = sim.querySelector(':scope > conditions');
+    stored.push({ name: text(sim, ':scope > name') ?? '',
+      configId: simulationConfigId(sim), data,
+      windAverage: cond ? num(cond, 'wind > speed', num(cond, 'windaverage', NaN)) : NaN });
+  }
+  return stored;
+}
 
 /**
  * The `<flightdata .../>` attribute string, or null when there is nothing
@@ -3084,20 +3133,27 @@ export function exportOrk({
     const aimDeg = canonicalRodAimDeg(launch.launchRodAimDeg ?? NaN);
     const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
     writeConfigs.forEach((c, i) => {
-      // "uptodate" only when we are actually writing results — and the caller
-      // has already vouched that the design, motors and conditions have not
-      // moved since the run. Desktop normalizes it to LOADED on read either
-      // way; what matters is that a configuration with nothing to say still
-      // says notsimulated rather than claiming a result it does not have.
-      const fdAttrs = flightDataAttrs(
-        (flightData && Object.hasOwn(flightData, c.id) ? flightData[c.id] : undefined) // own keys: ids are file text
-          ?? (c.id === defaultId ? flightDataDefault : undefined));
-      emit(2, `<simulation status="${fdAttrs ? 'uptodate' : 'notsimulated'}">`);
+      // App flights have passed the caller's design/motor/conditions checks.
+      // Imported historical summaries retain OUTDATED in desktop's loader:
+      // preserving numbers does not assert they match the current design.
+      const fd = (flightData && Object.hasOwn(flightData, c.id) ? flightData[c.id] : undefined)
+        ?? (c.id === defaultId ? flightDataDefault : undefined);
+      const fdAttrs = flightDataAttrs(fd);
+      emit(2, `<simulation status="${fdAttrs ? fd?.importedSummary ? 'outdated' : 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".
       emit(3, `<name>${escapeXml(c.name ?? `Simulation ${i + 1}`)}</name>`);
       emit(3, '<simulator>RK4Simulator</simulator>');
       emit(3, '<calculator>BarrowmanCalculator</calculator>');
+      // Extension tag (desktop warns-and-ignores): SingleSimulationHandler
+      // openElement returns null for unknown children; flightdata stays intact.
+      if (fdAttrs && isAeroModel(fd?.aeroModel)) {
+        const kbf = typeof fd.rogersKbf === 'boolean' ? ` kbf="${String(fd.rogersKbf)}"` : '';
+        const band = fd.aeroModel === 'hybrid' && validHybridBand(fd.hybridBand)
+          ? ` band="${fd.hybridBand.join(' ')}"` : '';
+        const runId = fd.runId ? ` runid="${escapeXmlAttr(fd.runId)}"` : '';
+        emit(3, `<aeromodel${kbf}${band}${runId}>${fd.aeroModel}</aeromodel>`);
+      }
       emit(3, '<conditions>');
       emit(4, `<configid>${escapeXml(c.id)}</configid>`);
       emit(4, `<launchrodlength>${launch.launchRodLengthM}</launchrodlength>`);
