@@ -4,7 +4,7 @@ import {
   EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, addExMotors, exToDbEntry, exitDiameterFromRse,
   getExMotor, impulseClassOf, parseEng, parseRse,
 } from './exMotors.js';
-import { defaultDelay, delayOptions } from './thrustcurve.js';
+import { defaultDelay, delayOptions, fetchMotorSpec, fileImpulseNs } from './thrustcurve.js';
 
 const ENG = `; AeroTech K550W
 ; converted from TMT test stand data
@@ -43,6 +43,51 @@ const RSE = `<engine-database>
   </engine>
  </engine-list>
 </engine-database>`;
+
+describe('B5b EX motor regressions', () => {
+  afterEach(() => localStorage.clear());
+  const xml = (masses: number[], times = [0, 0.5, 1], auto = '0') =>
+    `<engine-database><engine-list><engine code="B5B" mfg="Home" dia="29" len="100"
+      initWt="100" propWt="50" auto-calc-mass="${auto}"><data>`
+    + times.map((t, i) => `<eng-data t="${t}" f="${i === times.length - 1 ? 0 : 10}" m="${masses[i]}"/>`).join('')
+    + '</data></engine></engine-list></engine-database>';
+
+  it('S1c-4 skips non-positive RASP dimensions and retains valid siblings', () => {
+    for (const dims of ['0 100', '29 0', '-29 100', '29 -100']) {
+      const bad = `BAD ${dims} P 0.01 0.02 Home\n0 0\n0.5 10\n1 0\n`;
+      const notes: string[] = [];
+      expect(parseEng(bad + ENG, notes).map((m) => m.designation)).toEqual(['K550W']);
+      expect(notes.join(' ')).toContain('BAD: diameter/length missing or not a positive number');
+      expect(() => parseEng(bad)).toThrow(/diameter\/length/);
+    }
+  });
+
+  it('S1c-5 rejects later masses outside the stated case and loaded mass bounds', () => {
+    for (const masses of [[100, 75, 1], [100, 110, 50], [50, 60, 0]]) {
+      const notes: string[] = [];
+      expect(parseRse(xml(masses), notes)[0]!.sampleMassesKg).toBeUndefined();
+      expect(notes.join(' ')).toMatch(/B5B: .*contradicting.*in proportion to impulse/);
+    }
+    // The stated 1% rounding tolerance still accepts a rounded case mass.
+    expect(parseRse(xml([100, 75, 49.6]))[0]!.sampleMassesKg).toEqual([0.1, 0.075, 0.0496]);
+  });
+
+  it('S1c-6 lists the same impulse and class that a repaired late-start curve flies', async () => {
+    for (const auto of ['0', '1']) {
+      for (const times of [[1, 2], [2, 1, 3]]) {
+        const [m] = parseRse(xml(times.map((_, i) => 100 - i * 25), times, auto));
+        addExMotors([m!]);
+        const row = exToDbEntry(m!);
+        const spec = await fetchMotorSpec(row, 0);
+        const impulse = fileImpulseNs({ samples: spec.times.map((time, i) => ({ time, thrust: spec.thrusts[i]! })) });
+        expect(row.totImpulseNs).toBeCloseTo(impulse, 12);
+        expect(row.impulseClass).toBe(impulseClassOf(impulse));
+        expect(row.avgThrustN).toBeCloseTo(impulse / spec.times.at(-1)!, 12);
+        if (times.length === 2) expect(row.impulseClass).toBe('C');
+      }
+    }
+  });
+});
 
 describe('parseEng (RASP)', () => {
   it('parses a single motor with header metadata', () => {

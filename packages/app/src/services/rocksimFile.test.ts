@@ -2657,7 +2657,8 @@ describe('RockSim nose cone base extension', () => {
   }, 60000);
 
   it('refuses to fold a tube the user has edited', () => {
-    for (const edit of [{ outerRadius: 0.09 }, { thickness: 0.009 }]) {
+    for (const edit of [{ outerRadius: 0.09 }, { thickness: 0.009 },
+      { density: 2000 }, { materialName: 'Edited material' }, { finish: 'smooth' }]) {
       const r = importRkt(fixture('rocksimTestRocket1.rkt'));
       const chain = r.tree.components[0]!.children!;
       Object.assign(ext(chain)!, edit);
@@ -3772,5 +3773,100 @@ describe('RockSim export — a part with no position', () => {
     const back = flatten(importRkt(xml).tree.components).find((c) => c.type === 'tubecoupler')!;
     expect(back.position!.method).toBe('bottom');
     expect(back.position!.offset).toBeCloseTo(0, 12);
+  });
+});
+
+describe('B5b RockSim regressions', () => {
+  const wrap = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+    <Name>Regression</Name><StageCount>1</StageCount><Stage3Parts>${parts}</Stage3Parts>
+    <Stage2Parts/><Stage1Parts/></RocketDesign></DesignInformation></RockSimDocument>`;
+  const paired = (id: number, density: number, material: string) => wrap(
+    `<BodyTube><Name>Body</Name><Len>300</Len><OD>80</OD><ID>78</ID><AttachedParts>`
+    + [0, 1].map((i) => `<BodyTube><Name>Inner ${i}</Name><Len>100</Len><OD>27</OD>
+      <ID>${i ? id : 25.05}</ID><Density>${i ? density : 1000}</Density>
+      <Material>${i ? material : 'Paper'}</Material><RadialLoc>13.5</RadialLoc>
+      <RadialAngle>${i * Math.PI}</RadialAngle></BodyTube>`).join('')
+    + '</AttachedParts></BodyTube>');
+
+  it('S1b-2 keeps tubes with different construction separate but tolerates wall rounding', () => {
+    for (const [id, density, material] of [[25.05, 2000, 'Paper'], [23, 1000, 'Paper'],
+      [25.05, 1000, 'Fiberglass']] as const) {
+      const r = importRkt(paired(id, density, material));
+      const tubes = flatten(r.tree.components).filter((n) => n.type === 'innertube');
+      expect(tubes).toHaveLength(2);
+      expect(tubes.every((n) => n['cluster'] === undefined)).toBe(true);
+      expect(tubes[1]!['density']).toBe(density);
+      expect(tubes[1]!['materialName']).toBe(material);
+      expect(tubes[1]!['thickness']).toBeCloseTo((27 - id) / 2000, 12);
+      expect(r.notes.join(' ')).toContain('wall thicknesses or materials');
+    }
+    const rounded = flatten(importRkt(paired(25.07, 1000, 'Paper')).tree.components)
+      .filter((n) => n.type === 'innertube');
+    expect(rounded).toHaveLength(1);
+    expect(rounded[0]!['cluster']).toBe('double');
+  });
+
+  it('S1b-7 preserves material and finish edits on either side of a base extension', () => {
+    for (const target of ['nosecone', 'bodytube']) {
+      for (const edit of [{ density: 2000 }, { materialName: 'Edited' }, { finish: 'polished' }]) {
+        const r = importRkt(wrap(`<NoseCone><Name>Cone</Name><Len>100</Len><BaseDia>50</BaseDia>
+          <WallThickness>2</WallThickness><ConstructionType>1</ConstructionType><BaseExtensionLen>50</BaseExtensionLen>
+          <Density>1000</Density><Material>Paper</Material></NoseCone>`));
+        const n = flatten(r.tree.components).find((c) => c.type === target)!;
+        Object.assign(n, edit);
+        const xml = exportRkt({ name: r.name, tree: r.tree });
+        expect(xml).toContain('<BaseExtensionLen>0</BaseExtensionLen>');
+        const round = flatten(importRkt(xml).tree.components).find((c) => c.type === target)!;
+        expect(round).toMatchObject(edit);
+      }
+    }
+  });
+
+  it('S1b-8 preserves an explicit zero transition mass through export and reopen', () => {
+    const tree = { components: [{ type: 'stage', id: 's', children: [
+      { type: 'transition', id: 't', name: 'Virtual disk', length: 0.005, foreRadius: 0.02,
+        aftRadius: 0.03, thickness: 0.002, density: 1000, overrideMass: 0 },
+    ] }] } as never;
+    const xml = exportRkt({ name: 'Zero', tree });
+    expect(xml).toMatch(/<Transition>[\s\S]*?<UseKnownMass>1<\/UseKnownMass>/);
+    expect(flatten(importRkt(xml).tree.components).find((c) => c.type === 'transition')!['overrideMass']).toBe(0);
+  });
+
+  it('S1b-8 requires an explicit zero and mass flag, leaving bare RockSim zeros computed', () => {
+    for (const [fields, expected] of [
+      ['<KnownMass>0</KnownMass><UseKnownMass>1</UseKnownMass>', 0],
+      ['<KnownMass>0</KnownMass><UseKnownCG>1</UseKnownCG>', undefined],
+      ['<UseKnownMass>1</UseKnownMass>', undefined],
+      ['<KnownMass/><UseKnownMass>1</UseKnownMass>', undefined],
+      ['<KnownMass>-1</KnownMass><UseKnownMass>1</UseKnownMass>', undefined],
+    ] as const) {
+      const r = importRkt(wrap(`<BodyTube><Len>100</Len><OD>24</OD><ID>22</ID>${fields}</BodyTube>`));
+      expect(flatten(r.tree.components).find((c) => c.type === 'bodytube')!['overrideMass']).toBe(expected);
+    }
+  });
+
+  it('S1b-9 exports relative pod radius using only a body tube parent and no radius floor', () => {
+    for (const type of ['podset', 'parallelstage'] as const) {
+      for (const [parentType, radius, expected] of [
+        ['bodytube', 0.009, 12], ['bodytube', undefined, 15], ['nosecone', 0.02, 3],
+      ] as const) {
+        const xml = exportRkt({ name: 'Pod', tree: { components: [{ type: 'stage', id: 's', children: [{
+          type: parentType, id: 'parent', length: 0.1, outerRadius: radius,
+          ...(parentType === 'nosecone' ? { aftRadius: radius } : {}),
+          children: [{ type, id: 'pod', instanceCount: 1, radiusMethod: 'relative', radiusOffset: 0,
+            children: [{ type: 'bodytube', id: 'pb', length: 0.05, outerRadius: 0.003 }] }],
+        }] }] } as never });
+        expect(Number(xml.match(/<ExternalPod>[\s\S]*?<RadialLoc>([^<]+)/)![1])).toBeCloseTo(expected, 9);
+      }
+    }
+  });
+
+  it('S1b-10 reports empty and whitespace numeric elements while absent stays silent', () => {
+    for (const field of ['<OD/>', '<OD>   </OD>', '']) {
+      const r = importRkt(wrap(`<BodyTube><Len>100</Len>${field}</BodyTube>`));
+      const note = r.notes.find((n) => n.startsWith('Could not read'));
+      if (field) expect(note).toContain('<OD> “(blank)”');
+      else expect(note).toBeUndefined();
+    }
   });
 });

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { applyStageNozzles } from '../tree/treeModel.js';
-import { CDX1_ENGINE_EXPORT, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { CDX1_ENGINE_EXPORT, cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
@@ -1780,6 +1780,17 @@ describe('RASAero export — dual-deploy recovery slot order', () => {
  * wrong with the banner saying nothing.
  */
 describe('RASAero import — unreadable numbers are reported, not swallowed', () => {
+  it('B5b S1b-10 reports empty and whitespace numeric elements while absent stays silent', () => {
+    for (const field of ['<Diameter/>', '<Diameter>  </Diameter>', '']) {
+      const r = importCdx1(`<RASAeroDocument><FileVersion>2</FileVersion><RocketDesign>
+        <NoseCone><Length>4</Length><Diameter>1</Diameter><Shape>Tangent Ogive</Shape></NoseCone>
+        <BodyTube><Length>10</Length>${field}</BodyTube></RocketDesign></RASAeroDocument>`);
+      const note = r.notes.find((n) => n.startsWith('Could not read'));
+      if (field) expect(note).toContain('<Diameter> “(blank)”');
+      else expect(note).toBeUndefined();
+    }
+  });
+
   const commaDecimal = `<RASAeroDocument>
   <FileVersion>2</FileVersion>
   <RocketDesign>
@@ -2456,6 +2467,43 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
     expect(xml).toContain('<Altitude1>656.168</Altitude1>'); // 200 m in ft
     expect(xml).toContain('<Size1>11.811</Size1>'); // 0.3 m in in
     expect(xml).toContain('<CD1>0.8</CD1>');
+  });
+
+  it('B5b S1b-5 exports vent-adjusted Cd including the clamp and blank diameter default', () => {
+    for (const [diameter, hole, expected] of [
+      [0.3048, 0.06096, 1.44], [0.3, 1, 1.5 * (1 - 0.95 ** 2)],
+      [undefined, 0.06, 1.44], [0.3, 0, 1.5], [0, 0.06, 1.5],
+    ] as const) {
+      const d = structuredClone(bare);
+      const c = flatten(d.tree.components).find((n) => n.type === 'parachute')!;
+      Object.assign(c, { diameter, spillHoleDiameter: hole, cd: 1.5 });
+      const xml = exportCdx1(d);
+      // CDX1 serializes four decimal places; compare the serialized coefficient.
+      expect(Number(xml.match(/<CD1>([^<]+)/)![1])).toBe(Number(expected.toFixed(4)));
+      const round = flatten(importCdx1(xml).tree.components).find((n) => n.type === 'parachute')!;
+      expect(round['cd']).toBe(Number(expected.toFixed(4)));
+      expect(round['spillHoleDiameter']).toBeUndefined();
+    }
+  });
+
+  it('B5b S1b-6 names delayed exported chutes and explains the earlier deployment', () => {
+    const d = structuredClone(bare);
+    const tube = d.tree.components[0]!.children[1]! as ComponentNode;
+    tube.children = [tube.children![0]!,
+      { type: 'parachute', name: 'Main', deployEvent: 'altitude', deployDelay: 3 } as ComponentNode,
+      { type: 'parachute', name: 'Drogue', deployEvent: 'apogee', deployDelay: 2 } as ComponentNode,
+      { type: 'parachute', name: 'Not exported', deployDelay: 4 } as ComponentNode];
+    const note = cdx1RecoveryDelayNote(d.tree);
+    expect(note).toContain('Main (3 s), Drogue (2 s)');
+    expect(note).toContain('at the deployment event with no delay, earlier than in the app');
+    expect(note).not.toContain('Not exported');
+    tube.children[1]!['deployDelay'] = 0;
+    tube.children[2]!['deployEvent'] = 'none';
+    expect(cdx1RecoveryDelayNote(d.tree)).toBeNull();
+    // Guard the save-path wiring as well as the helper's text.
+    const app = readFileSync(join(here, '../App.tsx'), 'utf8');
+    expect(app.slice(app.indexOf('const onSaveCdx1 ='), app.indexOf('const onSaveCdx1 =') + 6500))
+      .toContain('cdx1RecoveryDelayNote(tree)');
   });
 
   it('re-opens at the altitude, size and Cd it flew', () => {

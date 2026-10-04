@@ -468,7 +468,7 @@ export function fileImpulseNs(file: TcSimFile): number {
  * the picker's impulse gate measures it, so the curve compared with the
  * certification is the one the app flies (audit 2026-09-30).
  */
-function flownCurve(samples: readonly TcSample[]): { samples: TcSample[]; repairs: string[] } {
+export function flownCurve(samples: readonly TcSample[]): { samples: TcSample[]; repairs: string[] } {
   const repaired = repairSamples(samples);
   const pts = repaired.samples;
   if (pts.length > 0 && pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });

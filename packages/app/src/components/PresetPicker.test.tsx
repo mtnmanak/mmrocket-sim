@@ -121,6 +121,16 @@ afterEach(() => {
 });
 
 describe('PresetPicker — CSV import', () => {
+  it('B5b S1c-7 S3c-2 reports a refused replacement instead of claiming the old row is updated', async () => {
+    await render();
+    await importCsv(CSV);
+    spyOnSetItem().mockImplementation(() => { throw new DOMException('QuotaExceededError'); });
+    await importCsv(CSV.replace('BULK,680', 'BULK,1250'));
+    expect(text()).toContain('Could not store 1 of 1 preset(s)');
+    expect(text()).not.toContain('Imported 1 preset(s)');
+    expect(loadCustomPresets()[0]!.material!.density).toBe(680);
+  });
+
   it('imports the sound row and skips the one whose density is not a number', async () => {
     await render();
     await importCsv(CSV);

@@ -94,7 +94,7 @@ import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
-import { cdx1RodAimNote, exportCdx1 } from './services/rasaeroFile.js';
+import { cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1 } from './services/rasaeroFile.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -2184,7 +2184,7 @@ export function App() {
         motors: exportMotorsMap(),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
+      }), 'CDX1', '', [...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), cdx1RecoveryDelayNote(tree), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }

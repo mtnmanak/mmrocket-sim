@@ -1,7 +1,9 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentCsv, componentTable } from './componentTable.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
+import { importRkt } from './rocksimFile.js';
 
 const tree: RocketTree = {
   name: 'Test Rocket',
@@ -29,6 +31,27 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it('B5b S7bg-5 exports per-type defaults and migrated shroud ends without filling unrelated cells', () => {
+    const imported = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><StageCount>1</StageCount>
+      <Stage3Parts><BodyTube><Name>Imported</Name><Len>100</Len><OD>24</OD><ID>22</ID>
+      <FinishCode>2</FinishCode></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`).tree;
+    imported.components[0]!.children!.push(
+      { type: 'fairing', name: 'Old shroud' } as ComponentNode,
+      { type: 'fairing', name: 'Legacy shroud', fairingShape: 'box', conformal: false } as ComponentNode,
+      { type: 'nosecone', name: 'Nose', shape: 'ogive' } as ComponentNode,
+    );
+    const table = componentTable(imported, prefs);
+    const cell = (name: string, label: string) => table.rows.find((r) => r[0] === name)![table.headers.indexOf(label)];
+    expect(cell('Imported', 'Surface finish')).toBe('Regular paint (60 µm)');
+    expect(cell('Old shroud', 'Conformal to body tube?')).toBe('yes');
+    expect(cell('Legacy shroud', 'Conformal to body tube?')).toBe('no');
+    expect(cell('Imported', 'Conformal to body tube?')).toBe('');
+    expect(cell('Nose', 'Conformal to body tube?')).toBe('');
+    expect(cell('Old shroud', 'Fore end (toward the nose)')).toBe('Domed / half-round');
+    expect(cell('Legacy shroud', 'Aft end (toward the tail)')).toBe('Flat / blunt');
+    expect(cell('Imported', 'Fore end (toward the nose)')).toBe('');
+  });
+
   const t = componentTable(tree, prefs, infoFor);
 
   it('one row per component (stages excluded), tree order', () => {

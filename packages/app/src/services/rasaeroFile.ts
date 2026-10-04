@@ -9,6 +9,7 @@ import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { isTailCone } from '../tree/tailCone.js';
 import { isAssembly } from '../tree/assembly.js';
+import { ventLimit } from '../tree/canopyVent.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -323,11 +324,13 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
    * same `notes` mechanism every other lossy branch in this importer uses.
    */
   const num = (el: XmlElement, tag: string, fb: number): number => {
-    const raw = text(el, `:scope > ${tag}`);
+    const element = el.querySelector(`:scope > ${tag}`);
+    if (!element) return fb;
+    const raw = element.textContent?.trim() ?? '';
     // parseDecimal, the parser xmlNum itself uses: with `Number(raw)` here a
     // "0x10" would pass this test and still fall back below, silently.
-    if (raw !== null && !Number.isFinite(parseDecimal(raw)) && !unreadable.has(tag)) {
-      unreadable.set(tag, raw.slice(0, 40));
+    if (!Number.isFinite(parseDecimal(raw)) && !unreadable.has(tag)) {
+      unreadable.set(tag, raw.slice(0, 40) || '(blank)');
     }
     return xmlNum(el, tag, fb);
   };
@@ -1654,6 +1657,28 @@ export function cdx1RodAimNote(launch: Pick<LaunchConditions, 'launchRodAimDeg' 
       + `Rod aim (${Number(aim.toPrecision(6))}°) was not saved.`;
 }
 
+/** Tree order chooses the two recovery devices the format can carry. */
+function cdx1Chutes(tree: RocketTree): ComponentNode[] {
+  const chutes: ComponentNode[] = [];
+  const walk = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n.type === 'parachute' && chutes.length < 2) chutes.push(n);
+      walk(n.children ?? []);
+    }
+  };
+  walk(asStageNodes(tree));
+  return chutes;
+}
+
+export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
+  const delayed = cdx1Chutes(tree).filter((c) =>
+    ['apogee', 'altitude'].includes(String(c['deployEvent'] ?? 'apogee')) && nnum(c, 'deployDelay', 0) !== 0);
+  return delayed.length === 0 ? null
+    : `RASAero cannot store deployment delays: ${delayed.map((c) =>
+      `${c.name ?? 'Parachute'} (${nnum(c, 'deployDelay', 0)} s)`).join(', ')}. `
+      + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
+}
+
 export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt }: Cdx1ExportInput): string {
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
@@ -2214,14 +2239,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
 
   // Recovery: the first two parachutes anywhere in the design, then ordered by
   // deploy event (see below) — tree position decides WHICH two, never which slot.
-  const chutes: ComponentNode[] = [];
-  const findChutes = (nodes: ComponentNode[]) => {
-    for (const n of nodes) {
-      if (n.type === 'parachute' && chutes.length < 2) chutes.push(n);
-      findChutes(n.children ?? []);
-    }
-  };
-  findChutes(stagesIn);
+  const chutes = cdx1Chutes(tree);
   /*
    * RASAero's two recovery slots are ORDERED BY WHEN THEY FIRE, not
    * interchangeable: slot 1 is the first event of the descent and slot 2 the
@@ -2266,13 +2284,16 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const c = chutes[slot - 1];
     const ev = c ? String(c['deployEvent'] ?? 'apogee') : 'none';
     const evType = ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None';
+    const vent = c ? ventLimit(c) : null;
+    const hole = c ? nnum(c, 'spillHoleDiameter', 0) : 0;
+    const ventFactor = vent && hole > 0 ? 1 - (Math.min(hole, vent.maxHole) / vent.diameter) ** 2 : 1;
     return {
       altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) * FT : 0),
       deviceType: c ? 'Parachute' : 'None',
       event: c && evType !== 'None' ? 'True' : 'False',
       size: fmt(c ? nnum(c, 'diameter', KERNEL_CHUTE_DIAMETER_M) * IN : 0),
       eventType: c ? evType : 'None',
-      cd: fmt(c ? nnum(c, 'cd', KERNEL_CHUTE_CD) : 0),
+      cd: fmt(c ? nnum(c, 'cd', KERNEL_CHUTE_CD) * ventFactor : 0),
     };
   });
   emit('<Recovery>');

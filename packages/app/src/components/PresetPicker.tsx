@@ -138,11 +138,11 @@ export function PresetPicker({ type, node, onApply, onClose }: {
       // in-memory copy — so on a QuotaExceededError (a re-imported ~1,300-row
       // tube list, a private window, blocked site data) the table quietly
       // reloads the OLD rows while the note claims the new ones were stored.
-      const stored = new Set(loadCustomPresets().map(key));
-      const missing = good.filter((p) => !stored.has(key(p))).length;
+      const stored = new Set(loadCustomPresets().map((p) => JSON.stringify(p)));
+      const missing = good.filter((p) => !stored.has(JSON.stringify(p))).length;
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
-          + ` is full or blocked, so they are not in the list.${droppedNote}`
+          + ` is full or blocked, so the new values were not saved.${droppedNote}`
         : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`;
       // The reload had no catch (audit 2026-09-22): a failure was an unhandled
       // rejection that left `all` null under the note above — and a note hides
