@@ -824,7 +824,7 @@ describe('B6 imported geometry matches the implicit kernel dimensions', () => {
       .toEqual(explicitPieces.map((p) => Array.from(p.geometry.getAttribute('position').array)));
     [...autoPieces, ...explicitPieces].forEach((p) => p.geometry.dispose());
   });
-  it('warns and draws a placeholder for a tag-less transition after a flush inline sleeve', () => {
+  it('prints and draws a tag-less transition after a flush inline sleeve at the sleeve radius', () => {
     const { tree } = importOrk(orkXml('<bodytube><length>0.2</length><radius>0.02</radius><subcomponents>'
       + '<podset><radiusoffset method="free">0</radiusoffset><instancecount>1</instancecount>'
       + '<axialoffset method="bottom">0</axialoffset><subcomponents>'
@@ -834,15 +834,24 @@ describe('B6 imported geometry matches the implicit kernel dimensions', () => {
     const tr = flatten(tree.components).find((n) => n.type === 'transition')!;
     expect(tr['foreRadius']).toBeUndefined();
     const ctx = solidContextFor(tree, tr);
-    expect.soft(ctx.foreRadius).toBeUndefined();
-    expect.soft(componentLoop(tr, ctx)!.sizeAssumed).toBe(true);
-    expect.soft(componentLoop(tr, ctx)!.label).toContain('assumed size');
-    expect.soft(printOffer(tr, ctx, null).tone).toBe('warn');
+    expect(ctx.foreRadius).toBeCloseTo(0.05, 12);
+    expect(componentLoop(tr, ctx)!.sizeAssumed).toBeUndefined();
+    expect(componentLoop(tr, ctx)!.label).toBe('Transition');
+    expect(componentLoop(tr, ctx)!.loop[0]![1]).toBeCloseTo(0.05, 12);
+    expect(printOffer(tr, ctx, null).tone).toBe('none');
     const opts = { scale: 1000, cy: 100, x0: 10, roll: 0, idPrefix: 'test' };
     const path = layoutSchematic(tree, opts).shapes.find((s) => s.key === `${tr.id}:transition`)!;
-    // The unresolved fore end uses the renderer's placeholder, not the tube's 20 mm.
     const coords = String(path.attrs['d']).match(/-?\d+(?:\.\d+)?/g)!.map(Number);
-    expect(Math.abs(coords[1]! - opts.cy) / opts.scale).not.toBeCloseTo(0.02, 12);
-    expect(Math.abs(coords[1]! - opts.cy) / opts.scale).toBeCloseTo(0.012, 12);
+    expect(Math.abs(coords[1]! - opts.cy) / opts.scale).toBeCloseTo(0.05, 12);
+    const explicit = { ...tree, components: tree.components.map((stage) => ({ ...stage,
+      children: stage.children!.map((n) => n === tr ? { ...tr, foreRadius: 0.05 } : n),
+    })) };
+    expect(layoutSchematic(tree, opts)).toEqual(layoutSchematic(explicit, opts));
+    const frame = { cw: 640, chPx: 480, maxHeight: 480, rulers: true, rollW: 26, rollBar: 0, lanes: true, topReserve: 0 };
+    expect(schematicFrame(tree, frame)).toEqual(schematicFrame(explicit, frame));
+    const autoPieces = buildPieces(tree).pieces, explicitPieces = buildPieces(explicit).pieces;
+    expect(autoPieces.map((p) => Array.from(p.geometry.getAttribute('position').array)))
+      .toEqual(explicitPieces.map((p) => Array.from(p.geometry.getAttribute('position').array)));
+    [...autoPieces, ...explicitPieces].forEach((p) => p.geometry.dispose());
   });
 });
