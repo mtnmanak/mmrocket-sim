@@ -1,5 +1,6 @@
-import type { ComponentNode, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
+import type { ComponentNode, FlightEvent, FlightResult, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { num } from '../tree/nodeNum.js';
+import { fmtSi } from '../prefs/units.js';
 import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
@@ -53,7 +54,7 @@ import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } fro
 /** What to put on screen. Never a bare number: the absent cases have reasons. */
 export type RecoveryMass =
   /** A motor is loaded and the number is trustworthy. `mass` is kg. */
-  | { state: 'ok'; mass: number; multiStage: boolean }
+  | { state: 'ok'; mass: number; multiStage: boolean; note?: string; estimate?: true }
   /** No motor anywhere — the owner's explicit rule: show no figure at all. */
   | { state: 'no-motor' }
   /** We know the number would be the mass of no real object. `reason` is UI copy. */
@@ -136,6 +137,10 @@ function holdsInstanced(nodes: readonly ComponentNode[]): boolean {
 }
 
 export interface RecoveryMassInput {
+  /** Display unit for separation-altitude assumptions. */
+  distanceUnit?: string;
+  /** Events from a completed flight matching the current design and conditions. */
+  flightEvents?: readonly FlightEvent[];
   tree: RocketTree;
   /** Whole-rocket static analysis for the CURRENT motor set. */
   info: Pick<StaticInfo, 'mass' | 'massEmpty'>;
@@ -151,6 +156,19 @@ export interface RecoveryMassInput {
    * caller owns the kernel handle and its try/catch.
    */
   sectionMass: (componentId: string) => number | null;
+}
+
+/** An unfinished branch cannot prove that a scheduled separation never happened. */
+export function completedRecoveryEvents(result: FlightResult): FlightEvent[] | undefined {
+  const branches = [result, ...(result.branches ?? [])];
+  if (branches.some((b) => !b.events.some((e) => e.type === 'GROUND_HIT')
+    || b.events.some((e) => e.type === 'SIM_ABORT'))) return undefined;
+  const events = branches.flatMap((b) => b.events).filter((e) =>
+    e.type === 'STAGE_SEPARATION' || e.type === 'BURNOUT');
+  if (events.some((e) => e.type === 'STAGE_SEPARATION' ? !e.sourceId : !(e.motorMountId ?? e.sourceId))) {
+    return undefined;
+  }
+  return events;
 }
 
 /**
@@ -187,13 +205,16 @@ function separatesFromStackAbove(stage: ComponentNode): boolean {
  * Empty for a legacy flat tree that has no stage nodes at all; callers fall
  * back to the whole tree, which is what such a tree means.
  */
-export function recoveryGroups(tree: RocketTree): ComponentNode[][] {
+export function recoveryGroups(tree: RocketTree, flightEvents?: readonly FlightEvent[]): ComponentNode[][] {
   const stageList = stages(tree);
   if (stageList.length === 0) return [];
   const groups: ComponentNode[][] = [[stageList[0]!]];
   for (let i = 1; i < stageList.length; i++) {
     const stage = stageList[i]!;
-    if (separatesFromStackAbove(stage)) groups.push([stage]);
+    const separated = flightEvents
+      ? flightEvents.some((e) => e.type === 'STAGE_SEPARATION' && e.sourceId === stage.id)
+      : separatesFromStackAbove(stage);
+    if (separated) groups.push([stage]);
     else groups[groups.length - 1]!.push(stage);
   }
   return groups;
@@ -273,6 +294,23 @@ export type RecoveryByStage =
  */
 export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const { tree, info, motors, sectionMass } = input;
+  const flightEvents = input.flightEvents;
+  const unburned = (id: string, mm: RecoveryMassInput['motors'][number][1]): boolean => flightEvents
+    ? !flightEvents.some((e) => e.type === 'BURNOUT' && (e.motorMountId ?? e.sourceId) === id)
+    : neverLights(mm);
+  const separating = stages(tree).slice(1).filter(separatesFromStackAbove);
+  const assumptions = separating.map((s) => {
+    const trigger = s['separationEvent'];
+    return trigger === 'altitudeascending' || trigger === 'altitudedescending'
+      ? `${s.name ?? 'Booster'} separation at ${fmtSi('distance', input.distanceUnit ?? 'm', num(s, 'separationAltitude', 200))} ${input.distanceUnit ?? 'm'} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
+      : `${s.name ?? 'Booster'} separation on its configured trigger and delay`;
+  });
+  const estimate = !flightEvents && separating.length > 0;
+  const note = separating.length === 0 ? undefined : flightEvents
+    ? 'Uses the separations and motor burnouts recorded in the matching flight.'
+    : assumptions.length > 0
+      ? `Estimate assuming ${assumptions.join('; ')} and ignition as configured. If stages stay attached, the canopy must carry the larger stack. Launch to confirm.`
+      : undefined;
   if (motors.length === 0) return { state: 'no-motor' };
   if (!Number.isFinite(info.mass) || !Number.isFinite(info.massEmpty)) {
     return { state: 'unavailable', reason: 'the design has no mass yet' };
@@ -299,9 +337,8 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
    */
   const countAt = (mountId: string): number => mountMotorCount(tree, mountId);
 
-  // Refuse motor triggers that cannot fire. Altitude triggers retain the static
-  // estimate's assumption of separation: these inputs contain no flight apogee.
-  for (const [i, stage] of stages(tree).entries()) {
+  // Without flight evidence, refuse motor triggers that cannot fire.
+  for (const [i, stage] of (flightEvents ? [] : stages(tree)).entries()) {
     if (i === 0) continue;
     const trigger = typeof stage['separationEvent'] === 'string' ? stage['separationEvent'] : 'ejection';
     const triggerStage = trigger === 'upperignition' ? i - 1 : i;
@@ -314,7 +351,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     }
   }
 
-  const groups = recoveryGroups(tree);
+  const groups = recoveryGroups(tree, flightEvents);
   const label = (g: ComponentNode[]): Pick<StageRecovery, 'stageIds' | 'stageNames'> => ({
     stageIds: g.map((s) => s.id ?? ''),
     stageNames: g.map((s) => s.name ?? ''),
@@ -325,7 +362,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     // motor on Never burns nothing (`neverLights`).
     let mass = info.mass;
     for (const [mountId, mm] of motors) {
-      if (neverLights(mm)) continue;
+      if (unburned(mountId, mm)) continue;
       mass -= motorPropellantMass(mm.spec) * countAt(mountId);
     }
     // Cannot come down lighter than the bare structure. This is the guard for
@@ -339,7 +376,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     const only = groups[0] ?? [];
     return {
       state: 'ok',
-      groups: [{ ...label(only), isSustainer: true, mass: finish(mass, info, false) }],
+      groups: [{ ...label(only), isSustainer: true, mass: finish(mass, info, false, note, estimate) }],
     };
   }
 
@@ -354,7 +391,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     let sum = 0;
     for (const [mountId, mm] of motors) {
       if (!stageIdx.has(stageIndexOf(tree, mountId))) continue;
-      const burnout = neverLights(mm) ? motorLoadedMass(mm.spec) : motorBurnoutMass(mm.spec);
+      const burnout = unburned(mountId, mm) ? motorLoadedMass(mm.spec) : motorBurnoutMass(mm.spec);
       if (burnout === null) return null;
       sum += burnout * countAt(mountId);
     }
@@ -442,7 +479,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
       continue;
     }
 
-    out.push({ ...label(group), isSustainer, mass: finish(dry + burnout, info, true) });
+    out.push({ ...label(group), isSustainer, mass: finish(dry + burnout, info, true, note, estimate) });
   }
   return { state: 'ok', groups: out };
 }
@@ -469,12 +506,12 @@ export function recoveryMass(input: RecoveryMassInput): RecoveryMass {
  * nothing rather than a figure a user would size hardware against.
  */
 function finish(
-  mass: number, info: Pick<StaticInfo, 'mass'>, multiStage: boolean,
+  mass: number, info: Pick<StaticInfo, 'mass'>, multiStage: boolean, note?: string, estimate = false,
 ): RecoveryMass {
   if (!Number.isFinite(mass) || mass <= 0 || mass > info.mass + 1e-9) {
     return { state: 'unavailable', reason: 'the masses in this design do not add up' };
   }
-  return { state: 'ok', mass, multiStage };
+  return { state: 'ok', mass, multiStage, ...(note ? { note } : {}), ...(estimate ? { estimate: true } : {}) };
 }
 
 /**
@@ -488,16 +525,18 @@ export function recoveryMassTitle(r: RecoveryMass): string {
         + 'so it cannot be known until the motor is chosen.';
     case 'unavailable':
       return `Recovery weight is unavailable: ${r.reason}.`;
-    default:
+    default: {
       // `multiStage` now means "something separates", not "there is more than
       // one stage node" — a booster set to Never comes down attached, and the
       // single-object wording is the true one for it.
-      return r.multiStage
+      const guidance = r.multiStage
         ? 'What comes down under the SUSTAINER’s recovery device: its dry mass plus its own '
           + 'motor casing at burnout. Every stage that separates comes down under its own chute '
           + 'and has its own weight — size those separately. Size this chute on this figure, '
           + 'not on pad weight.'
         : 'What comes down under the recovery device: the dry rocket plus the spent motor casing '
           + '(the propellant is gone by apogee). Size the chute on this, not on pad weight.';
+      return r.note ? `${guidance} ${r.note}` : guidance;
+    }
   }
 }

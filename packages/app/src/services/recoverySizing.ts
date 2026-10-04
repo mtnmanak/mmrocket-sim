@@ -6,10 +6,13 @@ import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 import { mfrKey } from '../../scripts/manufacturers.mjs';
 import type { LaunchConditions } from './launchConditions.js';
 import { mountBore } from '../tree/scaleRocket.js';
+import { absoluteStations, axialLength, positionOf, startFromPosition } from '../tree/position.js';
+import { profileRadius } from '../tree/shapeProfile.js';
+import { noseEnds } from '../tree/tailCone.js';
 import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
 import {
-  findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, suppressingAncestor,
+  findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, stageIndexOf, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { padAir, R_AIR } from './atmosphere.js';
 import type { Preset } from './presets.js';
@@ -366,14 +369,14 @@ export function recoveryBayBore(
         // constrain the canopy even when the stored shoulder is oversized.
         const effectiveShoulder = hasAftRadius ? Math.min(shoulder, aftRadius) : shoulder;
         const shoulderBore = effectiveShoulder - Math.min(effectiveShoulder,
-          nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', 0));
+          nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', nnum(parent, 'thickness', 0.002)));
         radius = hasAftRadius ? Math.min(shoulderBore, baseBore) : shoulderBore;
       }
       return radius > 0 ? 2 * radius : null;
     }
     if (parent && parent !== 'stage' && TUBES.has(parent.type)) {
-      const bore = mountBore(parent);
-      if (bore > 0) return bore;
+      const bore = packingBore(tree, parent);
+      return bore !== null && bore > 0 ? bore : null;
     }
   }
   let widest = 0;
@@ -386,6 +389,296 @@ export function recoveryBayBore(
   };
   walk(scope ?? tree.components);
   return widest > 0 ? widest : null;
+}
+
+const BAY_TYPES = new Set(['bodytube', 'innertube', 'tubecoupler', 'nosecone', 'transition']);
+const PACKED_TYPES = new Set(['parachute', 'streamer', 'shockcord']);
+const OBSTRUCTION_TYPES = new Set(['bulkhead', 'engineblock', 'centeringring', 'innertube', 'tubecoupler']);
+
+/** Keep the actual container even when it is solid; otherwise try every eligible tube. */
+function recoveryBays(tree: RocketTree, device: ComponentNode | null, scope: readonly ComponentNode[]): ComponentNode[] {
+  if (device?.id) {
+    const parent = findParent(tree, device.id);
+    if (parent && parent !== 'stage' && BAY_TYPES.has(parent.type)) return [parent];
+  }
+  const bays: ComponentNode[] = [];
+  const walk = (nodes: readonly ComponentNode[]): void => {
+    for (const node of nodes) {
+      if (isSeparatingParallelStage(node)) continue;
+      if (node.type === 'bodytube' && node['filled'] !== true && mountBore(node) > 0) bays.push(node);
+      walk(node.children ?? []);
+    }
+  };
+  walk(scope);
+  return bays.sort((a, b) => mountBore(b) - mountBore(a));
+}
+
+export interface RecoveryFit { fits: boolean; known: boolean; reason: string; checked?: true; packingNote?: string }
+
+/** Couplers inherit their parent's bore; mountBore's placeholder is not fit evidence. */
+function packingBore(tree: RocketTree, node: ComponentNode): number | null {
+  if (node['filled'] === true) return 0;
+  if (node.type !== 'tubecoupler' || numOrNull(node, 'outerRadius') !== null) return mountBore(node);
+  const parent = node.id ? findParent(tree, node.id) : null;
+  if (!parent || parent === 'stage' || !['bodytube', 'innertube', 'tubecoupler'].includes(parent.type)) return null;
+  const bore = packingBore(tree, parent);
+  return bore === null ? null : Math.max(0, bore - 2 * nnum(node, 'thickness', 0.0005));
+}
+
+/** Find a packing span; mass-placement anchors are not packing plans. */
+export function recoveryFit(
+  tree: RocketTree, device: ComponentNode | null, preset: Preset,
+  scope: readonly ComponentNode[] = sustainerScope(tree),
+): RecoveryFit {
+  const bays = recoveryBays(tree, device, scope);
+  if (!bays.length) return { fits: true, known: false, reason: 'No recovery bay is modelled.' };
+  let unverified: RecoveryFit | undefined;
+  let exclusion: RecoveryFit | undefined;
+  for (const bay of bays) {
+    const fit = recoveryFitInBay(tree, device, preset, scope, bay);
+    if (fit.known && fit.fits) return fit;
+    if (!fit.known) unverified ??= fit;
+    else exclusion ??= fit;
+  }
+  return (unverified ?? exclusion)!;
+}
+
+function recoveryFitInBay(
+  tree: RocketTree, device: ComponentNode | null, preset: Preset,
+  scope: readonly ComponentNode[], bay: ComponentNode,
+): RecoveryFit {
+  let checked = false;
+  const sharedItems = new Set<string>();
+  const note = (): { packingNote?: string } => sharedItems.size
+    ? { packingNote: `Allow room for ${[...sharedItems].join(', ')} sharing this bay.` } : {};
+  const unknown = (reason: string): RecoveryFit => ({ fits: true, known: false, reason, ...note(), ...(checked ? { checked: true } : {}) });
+  const no = (reason: string): RecoveryFit => ({ fits: false, known: true, reason, ...note(), ...(checked ? { checked: true } : {}) });
+  if (bay['filled'] === true) return no('The recovery bay is solid.');
+  const cavity = bay.type === 'nosecone' || bay.type === 'transition';
+  const transition = bay.type === 'transition';
+  const bore = cavity ? recoveryBayBore(tree, device, scope) : packingBore(tree, bay);
+  if (!cavity && bore !== null && bore <= 0) return no('The recovery bay has no usable bore.');
+  const diameter = numOrNull(preset, 'packedDiameter');
+  const length = numOrNull(preset, 'packedLength');
+  if (!transition && diameter !== null && diameter > 0 && bore !== null) {
+    checked = true;
+    if (diameter > bore + 1e-9) return no('The packed diameter exceeds the bay opening.');
+  }
+  if (length === null || !(length > 0)) return unknown('Packed length is unpublished.');
+  checked = true;
+  const bayLength = axialLength(bay);
+  const nose = bay.type === 'nosecone';
+  const flipped = nose && bay['flipped'] === true;
+  const foreExtension = !cavity ? 0 : nose ? (flipped ? nnum(bay, 'shoulderLength', 0) : 0) : nnum(bay, 'foreShoulderLength', 0);
+  const aftExtension = !cavity ? 0 : nose ? (flipped ? 0 : nnum(bay, 'shoulderLength', 0)) : nnum(bay, 'aftShoulderLength', 0);
+  let bayMin = -foreExtension;
+  const bayMax = bayLength + aftExtension;
+  const stations = absoluteStations(tree);
+  const bayStart = bay.id ? stations.get(bay.id)?.start : undefined;
+  const bayStage = stageIndexOf(tree, bay.id ?? '');
+  const lineage = (node: ComponentNode): ComponentNode[] => {
+    const result: ComponentNode[] = [];
+    let current: ComponentNode | null = node;
+    while (current) {
+      result.push(current);
+      const parent: ComponentNode | 'stage' | null = current.id
+        ? stations.get(current.id)?.parent ?? findParent(tree, current.id) : null;
+      current = parent && parent !== 'stage' ? parent : null;
+    }
+    return result;
+  };
+  const column = (chain: ComponentNode[]): ComponentNode | undefined =>
+    chain.find((node) => node.type === 'podset' || node.type === 'parallelstage');
+  const chainMember = (chain: ComponentNode[]): ComponentNode | undefined =>
+    chain.find((node) => ['bodytube', 'nosecone', 'transition'].includes(node.type));
+  const bayChain = lineage(bay);
+  const bayColumn = column(bayChain);
+  const bayMember = chainMember(bayChain);
+  const nestedTube = bay.type === 'innertube' || bay.type === 'tubecoupler';
+  const sameColumn = (node: ComponentNode): boolean => {
+    const chain = lineage(node);
+    if (column(chain) !== bayColumn) return false;
+    // Rings around a payload tube are outside it; adjacent chain members can
+    // still send hardware through its ends.
+    return !nestedTube || chainMember(chain) !== bayMember || chain.includes(bay);
+  };
+  let forwardCavity: { start: number; boreAt: ((x: number) => number) | null; opening: number | null } | undefined;
+  if (bay.type === 'bodytube' && bayStart !== undefined) {
+    for (const station of stations.values()) {
+      const part = station.node;
+      if (!sameColumn(part) || stageIndexOf(tree, part.id ?? '') !== bayStage
+        || (part.type !== 'nosecone' && part.type !== 'transition')
+        || Math.abs(station.end - bayStart) > 1e-9 || part['filled'] === true) continue;
+      const isNose = part.type === 'nosecone';
+      if (isNose && part['flipped'] === true) continue;
+      const prefix = isNose ? 'shoulder' : 'aftShoulder';
+      if (!(nnum(part, `${prefix}Length`, 0) > 0) || part[`${prefix}Capped`] === true) continue;
+      const shoulderRadius = numOrNull(part, `${prefix}Radius`);
+      if (shoulderRadius !== null && shoulderRadius <= 0) continue;
+      const aft = numOrNull(part, 'aftRadius');
+      const fore = isNose ? 0 : numOrNull(part, 'foreRadius');
+      const partLength = axialLength(part);
+      if (!(partLength > 0)) continue;
+      const radius = aft === null || fore === null ? null : profileRadius(
+        String(part['shape'] ?? (isNose ? 'ogive' : 'conical')),
+        numOrNull(part, 'shapeParameter') ?? undefined, partLength, fore, aft,
+        typeof part['clipped'] === 'boolean' ? part['clipped'] : undefined);
+      forwardCavity = {
+        start: station.start - bayStart,
+        boreAt: radius === null ? null : (x) => 2 * (radius(x + partLength) - nnum(part, 'thickness', 0.002)),
+        opening: shoulderRadius === null || aft === null ? null
+          : 2 * (Math.min(shoulderRadius, aft) - nnum(part, `${prefix}Thickness`, nnum(part, 'thickness', 0.002))),
+      };
+      bayMin = forwardCavity.start;
+      break;
+    }
+  }
+  if (length > bayMax - bayMin + 1e-9) return no('The packed length exceeds the bay length.');
+  const obstacles: [number, number][] = [];
+  const openings: [number, number, number | null][] = [];
+  let adjacentIntrusion = false;
+  let uncertain = false;
+  const ancestors = new Set<ComponentNode>([bay]);
+  let parent = bay.id ? findParent(tree, bay.id) : null;
+  while (parent && parent !== 'stage') {
+    ancestors.add(parent);
+    parent = parent.id ? findParent(tree, parent.id) : null;
+  }
+  const intersects = (a: number, b: number): boolean => a < bayMax - 1e-9 && b > bayMin + 1e-9;
+  const addObstacle = (a: number, b: number, child: ComponentNode): void => {
+    obstacles.push([a, b]);
+    let owner = child.id ? stations.get(child.id)?.parent ?? null : null;
+    while (owner && owner !== bay) owner = owner.id ? stations.get(owner.id)?.parent ?? null : null;
+    if (owner !== bay) adjacentIntrusion = true;
+  };
+  for (const station of stations.values()) {
+    const child = station.node;
+    if (child === device || ancestors.has(child) || !sameColumn(child)) continue;
+    if (bayStart === undefined) { uncertain = true; continue; }
+    const a = station.start - bayStart;
+    const b = station.end - bayStart;
+    if (intersects(a, b)) {
+      if (OBSTRUCTION_TYPES.has(child.type)) {
+        if (child.type === 'tubecoupler' && child['filled'] !== true) {
+          openings.push([a, b, packingBore(tree, child)]);
+          if (stageIndexOf(tree, child.id ?? '') !== bayStage) adjacentIntrusion = true;
+        } else {
+          addObstacle(a, b, child);
+        }
+      }
+      if (PACKED_TYPES.has(child.type) || child.type === 'masscomponent') {
+        sharedItems.add(child.name || ({ shockcord: 'shock cord', streamer: 'streamer', parachute: 'another parachute',
+          masscomponent: 'mass component' } as Record<string, string>)[child.type]!);
+      }
+      if (child['filled'] === true && !OBSTRUCTION_TYPES.has(child.type)
+        && !PACKED_TYPES.has(child.type) && child.type !== 'masscomponent') addObstacle(a, b, child);
+    }
+    if (child.type === 'nosecone' || child.type === 'transition') {
+      const isNose = child.type === 'nosecone';
+      const isFlipped = isNose && child['flipped'] === true;
+      const fore = isNose ? (isFlipped ? nnum(child, 'shoulderLength', 0) : 0) : nnum(child, 'foreShoulderLength', 0);
+      const aft = isNose ? (isFlipped ? 0 : nnum(child, 'shoulderLength', 0)) : nnum(child, 'aftShoulderLength', 0);
+      const shoulder = (start: number, end: number, side: 'fore' | 'aft'): void => {
+        if (end <= start || !intersects(start, end)) return;
+        const prefix = isNose ? 'shoulder' : `${side}Shoulder`;
+        if (child['filled'] === true || child[`${prefix}Capped`] === true) {
+          addObstacle(start, end, child);
+          return;
+        }
+        const r = numOrNull(child, `${prefix}Radius`);
+        const base = numOrNull(child, isNose ? 'aftRadius' : `${side}Radius`);
+        const outer = r === null ? null : base === null ? r : Math.min(r, base);
+        openings.push([start, end, outer === null ? null
+          : Math.max(0, 2 * (outer - nnum(child, `${prefix}Thickness`, nnum(child, 'thickness', 0.002))))]);
+        if (stageIndexOf(tree, child.id ?? '') !== bayStage) adjacentIntrusion = true;
+      };
+      shoulder(a - fore, a, 'fore');
+      shoulder(b, b + aft, 'aft');
+    }
+  }
+  const ownBay = device?.id && findParent(tree, device.id) === bay;
+  const pos = device ? positionOf(device) : null;
+  const anchor = ownBay && pos
+    ? pos.method === 'absolute' && bayStart !== undefined ? pos.offset - bayStart : startFromPosition(pos, length, bayLength)
+    : undefined;
+  const starts = [...(anchor === undefined ? [] : [anchor]), bayMin, bayMax - length,
+    ...(forwardCavity ? [0, -length] : []),
+    ...(transition ? [0, bayLength - length] : []),
+    ...[...obstacles, ...openings].flatMap(([a, b]) => [b, a - length])];
+  const overlaps = (x: number, a: number, b: number): boolean => x < b - 1e-9 && x + length > a + 1e-9;
+  const clears = (x: number): boolean => x >= bayMin - 1e-9 && x + length <= bayMax + 1e-9
+    && !obstacles.some(([a, b]) => overlaps(x, a, b))
+    && !openings.some(([a, b, opening]) => opening !== null && diameter !== null
+      && diameter > opening + 1e-9 && overlaps(x, a, b));
+  let freeStarts = starts.filter(clears);
+  if (!freeStarts.length) return adjacentIntrusion
+    ? unknown('A rigid part from an adjacent bay leaves no free packing span; check the physical assembly.')
+    : no('No uninterrupted span clears the modelled rigid internals, narrowed openings and bay ends.');
+  if (diameter === null || !(diameter > 0)) return unknown('Packed diameter is unpublished.');
+  if (forwardCavity) {
+    const { boreAt, opening } = forwardCavity;
+    freeStarts = freeStarts.filter((start) => start >= 0
+      || ((opening === null || diameter <= opening + 1e-9)
+        && (boreAt === null || diameter <= Math.min(boreAt(start), boreAt(0)) + 1e-9)));
+    if (!freeStarts.length) return no('The packed bundle exceeds the adjoining cavity taper or shoulder opening.');
+  }
+  if (cavity) {
+    const aft = nnum(bay, 'aftRadius', nose ? 0.012 : NaN);
+    const fore = nnum(bay, 'foreRadius', NaN);
+    const ends = nose ? noseEnds(bay, aft) : { fore, aft };
+    if (!Number.isFinite(ends.fore) || !Number.isFinite(ends.aft)) return unknown('The cavity taper is automatic or unknown.');
+    const radius = profileRadius(String(bay['shape'] ?? (nose ? 'ogive' : 'conical')),
+      numOrNull(bay, 'shapeParameter') ?? undefined, bayLength, ends.fore, ends.aft,
+      typeof bay['clipped'] === 'boolean' ? bay['clipped'] : undefined);
+    const innerRadius = (x: number): number => {
+      if (x < 0 || x > bayLength) {
+        const prefix = nose ? 'shoulder' : x < 0 ? 'foreShoulder' : 'aftShoulder';
+        return nnum(bay, `${prefix}Radius`, 0) - nnum(bay, `${prefix}Thickness`, nnum(bay, 'thickness', 0.002));
+      }
+      return radius(x) - nnum(bay, 'thickness', 0.002);
+    };
+    if (transition) {
+      const endOpening = (side: 'fore' | 'aft', base: number): number | null => {
+        const prefix = `${side}Shoulder`;
+        if (nnum(bay, `${prefix}Length`, 0) > 0) {
+          if (bay[`${prefix}Capped`] === true) return 0;
+          const shoulderR = numOrNull(bay, `${prefix}Radius`);
+          if (shoulderR === null) return null;
+          if (shoulderR > 0) return 2 * (Math.min(shoulderR, base)
+            - nnum(bay, `${prefix}Thickness`, nnum(bay, 'thickness', 0.002)));
+        }
+        return 2 * (base - nnum(bay, 'thickness', 0.002));
+      };
+      const foreOpening = endOpening('fore', fore);
+      const aftOpening = endOpening('aft', aft);
+      if (foreOpening === null || aftOpening === null) return unknown('A cavity opening is automatic or unknown.');
+      // Profiles are monotonic; endpoints and shoulder steps bound the entire
+      // insertion path, not just the diameter where the bundle finally sits.
+      const rangeBore = (start: number, end: number): number => Math.min(
+        ...(start < 0 ? [foreOpening] : []), ...(end > bayLength ? [aftOpening] : []),
+        ...(end >= 0 && start <= bayLength
+          ? [2 * innerRadius(Math.max(0, start)), 2 * innerRadius(Math.min(bayLength, end))] : []),
+      );
+      freeStarts = freeStarts.filter((start) => diameter <= rangeBore(start, start + length) + 1e-9
+        && ((diameter <= foreOpening + 1e-9 && diameter <= rangeBore(bayMin, start + length) + 1e-9)
+          || (diameter <= aftOpening + 1e-9 && diameter <= rangeBore(start, bayMax) + 1e-9)));
+      if (!freeStarts.length) return no('No open transition end reaches a span that clears the packed bundle and cavity taper.');
+    } else {
+      const spanBore = (start: number): number => 2 * Math.min(...[start, start + length, 0, bayLength]
+        .filter((x) => x >= start && x <= start + length).map(innerRadius));
+      freeStarts = freeStarts.filter((start) => diameter <= spanBore(start) + 1e-9);
+      if (!freeStarts.length) return no('The packed bundle exceeds the cavity taper over its length.');
+    }
+  }
+  if (!transition && bore === null) return unknown('The bay opening is closed or unknown.');
+  if (!freeStarts.some((x) => !openings.some(([a, b, opening]) => opening === null && overlaps(x, a, b))
+    && (x >= 0 || !forwardCavity || (forwardCavity.boreAt !== null && forwardCavity.opening !== null)))) uncertain = true;
+  if (uncertain) return unknown('An internal opening or position is automatic or unknown.');
+  // Clearing the minimum bore throughout this uninterrupted span also bounds
+  // pi * packedDiameter^2 * packedLength / 4 by the usable cavity volume.
+  return { fits: true, known: true, checked: true, ...note(), reason: anchor !== undefined && !clears(anchor)
+    ? "The chute's modelled position overlaps a part or bay end; another span clears. Allow extra room for wadding and deployment."
+    : 'Cylindrical bundle clears the modelled bay and rigid internals; allow extra room for wadding and deployment.' };
 }
 
 // -------------------------------------------------------------------- result
@@ -416,6 +709,8 @@ export interface Candidate {
    * to measure against. Never a reason to drop a canopy silently.
    */
   fit: 'fits' | 'unverified';
+  fitReason: string;
+  packingNote?: string;
   /** Above the band's preferred rate — the report's caution tier (drogues only). */
   flagged: boolean;
   /**
@@ -468,6 +763,9 @@ export interface BandAdvice {
   inBand: number;
   /** Of those, how many were dropped because their packed size will not fit. */
   excludedForFit: number;
+  /** In-band rows with published dimensions on which a packing check ran. */
+  checkedFits: number;
+  excludedFitReasons: string[];
   /** Of those, how many were folded into another line as the same canopy. */
   mergedVariants: number;
 }
@@ -696,6 +994,7 @@ function bandAdvice(
     /** Canopies this slot deploys at once — see `deviceInstances`. */
     instances: number;
     canopies: readonly Preset[];
+    fitFor: (preset: Preset) => RecoveryFit;
   },
 ): BandAdvice {
   const { massKg, rho, boreM, device, otherDevice, currentMass, massPinned, instances, canopies } = opts;
@@ -750,7 +1049,7 @@ function bandAdvice(
   const diameter = diameterForRate(massKg / instances, cd, rho, band.target);
 
   // --- the candidates ------------------------------------------------------
-  interface Scored { p: Preset; rate: number; fits: boolean; known: boolean }
+  interface Scored extends RecoveryFit { p: Preset; rate: number }
   const scored: Scored[] = [];
   for (const p of canopies) {
     const cdA = canopyCdA(p);
@@ -763,9 +1062,7 @@ function bandAdvice(
     if (!(m > 0)) continue;
     const rate = descentRate(m, instances * cdA, rho);
     if (!Number.isFinite(rate) || rate < band.min || rate > band.max) continue;
-    const packed = numOrNull(p, 'packedDiameter');
-    const known = packed !== null && packed > 0 && boreM !== null;
-    scored.push({ p, rate, fits: !known || packed! <= boreM! + 1e-9, known });
+    scored.push({ p, rate, ...opts.fitFor(p) });
   }
   const inBand = scored.length;
   const kept = scored.filter((s) => s.fits);
@@ -838,6 +1135,8 @@ function bandAdvice(
     packedLength: numOrNull(best.p, 'packedLength'),
     rate: best.rate,
     fit: best.known ? 'fits' : 'unverified',
+    fitReason: best.reason,
+    packingNote: best.packingNote,
     flagged: band.warnAbove !== null && best.rate > band.warnAbove,
     variants: count,
   }));
@@ -845,6 +1144,8 @@ function bandAdvice(
   return {
     role, boreM, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
     candidates, inBand, excludedForFit, mergedVariants,
+    checkedFits: scored.filter((s) => s.checked).length,
+    excludedFitReasons: [...new Set(scored.filter((s) => !s.fits).map((s) => s.reason))],
   };
 }
 
@@ -887,11 +1188,13 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     boreM,
     main: bandAdvice('main', MAIN_BAND, {
       massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
+      fitFor: (p) => recoveryFit(tree, main, p, scope),
       currentMass: main ? deviceMass(main) : 0,
       massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
       massKg: recovery.mass, rho, boreM: drogueBoreM, device: drogue, otherDevice: main,
+      fitFor: (p) => recoveryFit(tree, drogue, p, scope),
       currentMass: drogue ? deviceMass(drogue) : 0,
       massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
     }),

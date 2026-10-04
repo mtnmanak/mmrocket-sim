@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { FlightStats, RESULT_TILE_METRICS } from './StatTiles.js';
+import { DesignStats, FlightStats, RESULT_TILE_METRICS } from './StatTiles.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { DeploymentReport, SimRun } from '../services/simReport.js';
 
@@ -191,4 +191,17 @@ describe('FlightStats — the aborted flight must not unmount the app', () => {
     expect(host.querySelectorAll('.stat-tile').length).toBe(6);
     expect(host.textContent).not.toContain('NaN');
   });
+});
+
+it('K1 labels an unflown Design recovery estimate', () => {
+  const host = document.createElement('div'); const root = createRoot(host);
+  try {
+    act(() => root.render(<PrefsProvider><DesignStats info={{ length: 1, refDiameter: 0.1,
+      mass: 1, massEmpty: 0.9, cg: 0.5, cgEmpty: 0.5, cp: 0.6, cna: 1, stabilityCalibers: 1,
+      rotationalInertia: 1, longitudinalInertia: 1, rotationalInertiaEmpty: 1, longitudinalInertiaEmpty: 1,
+      warnings: 0, warningTexts: [] }} recovery={{ state: 'ok', mass: 1, multiStage: true,
+      estimate: true, note: 'Separation is assumed; confirm with a flight.' }} /></PrefsProvider>));
+    expect(host.textContent).toContain('Recovery weight (estimate)');
+    expect(host.innerHTML).toContain('Separation is assumed; confirm with a flight.');
+  } finally { act(() => root.unmount()); }
 });

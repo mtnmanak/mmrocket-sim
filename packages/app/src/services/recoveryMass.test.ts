@@ -856,3 +856,90 @@ it('ROUND2 S7b-1: upperignition does not need a motor on the separating stage', 
   const { answer } = await onKernel(tree, { m1: C6() }, { m1: 'launch' });
   expect(answer.state).toBe('ok');
 }, 60000);
+
+
+describe('K1 matching flight recovery', () => {
+  const input = () => ({ tree: twoStage(), info: { mass: 0.342, massEmpty: 0.3 },
+    motors: [['m1', { spec: C6() }], ['m2', { spec: C6() }]] as const,
+    sectionMass: (id: string) => id === 's1' ? 0.2 : 0.1 });
+  const burned = [{ type: 'BURNOUT', time: 2, motorMountId: 'm2' },
+    { type: 'BURNOUT', time: 4, motorMountId: 'm1' }];
+
+  it('uses reached separation events and keeps unreached altitude stages attached', () => {
+    const i = input();
+    Object.assign(i.tree.components[1]!, { separationEvent: 'altitudeascending', separationAltitude: 200 });
+    const reached = recoveryMassByStage({ ...i, flightEvents: [...burned,
+      { type: 'STAGE_SEPARATION', time: 3, sourceId: 's2' }] });
+    expect(groupMass(reached, 'Sustainer')).toBeCloseTo(0.209, 10);
+    const missed = recoveryMassByStage({ ...i, flightEvents: burned });
+    expect(missed.state).toBe('ok');
+    if (missed.state !== 'ok') return;
+    expect(missed.groups.map((g) => g.stageIds)).toEqual([['s1', 's2']]);
+    expect(missed.groups[0]!.mass).toMatchObject({ mass: expect.closeTo(0.318, 10) });
+  });
+
+  it('keeps automatic ignition failures loaded and delayed separation attached', () => {
+    const i = input();
+    Object.assign(i.tree.components[1]!, { separationEvent: 'burnout', separationDelay: 1000 });
+    i.motors[1][1].spec.ejectionDelay = Infinity;
+    const r = recoveryMass({ ...i, flightEvents: [burned[0]!] });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(0.33, 10), multiStage: false });
+  });
+
+  it('states altitude assumptions and Launch to confirm when no flight exists', () => {
+    const i = input();
+    Object.assign(i.tree.components[1]!, { separationEvent: 'altitudedescending', separationAltitude: 1234 });
+    const r = recoveryMass(i);
+    expect(recoveryMassTitle(r).replaceAll(',', '')).toContain('1234 m above the pad (descending)');
+    expect(recoveryMassTitle(r)).toContain('Launch to confirm');
+    expect(r).toMatchObject({ estimate: true });
+  });
+
+  it('ROUND2 formats separation altitude using the preferred distance unit', () => {
+    const i = input();
+    Object.assign(i.tree.components[1]!, { separationEvent: 'altitudeascending', separationAltitude: 376.1232 });
+    const title = recoveryMassTitle(recoveryMass({ ...i, distanceUnit: 'ft' }));
+    expect(title.replaceAll(',', '')).toContain('1234 ft above the pad');
+    expect(title).not.toContain('376.1232');
+  });
+
+  it.each(['single', 'never'])('ROUND2 keeps flown %s object guidance without a separation hint', (kind) => {
+    const i = input();
+    if (kind === 'single') i.tree.components.pop();
+    else i.tree.components[1]!['separationEvent'] = 'never';
+    const r = recoveryMass({ ...i, motors: [i.motors[0]], flightEvents: [burned[1]!] });
+    expect(r).toMatchObject({ state: 'ok' });
+    expect(r).not.toHaveProperty('note');
+    expect(r).not.toHaveProperty('estimate');
+    expect(recoveryMassTitle(r)).toContain('not on pad weight');
+    expect(recoveryMassTitle(r)).not.toContain('separations');
+  });
+
+  it('ROUND2 appends flight evidence to multistage sizing guidance', () => {
+    const r = recoveryMass({ ...input(), flightEvents: [...burned,
+      { type: 'STAGE_SEPARATION', time: 3, sourceId: 's2' }] });
+    const title = recoveryMassTitle(r);
+    expect(title).toContain('not on pad weight');
+    expect(title).toContain('size those separately');
+    expect(title).toContain('Uses the separations and motor burnouts recorded');
+    expect(r).not.toHaveProperty('estimate');
+  });
+
+  it.each([1, 100000])('matches a real completed flight with altitude trigger %s m', async (altitude) => {
+    const tree = twoStage();
+    Object.assign(tree.components[1]!, { separationEvent: 'altitudeascending', separationAltitude: altitude });
+    tree.components[1]!.children![0]!.children!.push({ type: 'trapezoidfinset', id: 'bf', finCount: 3,
+      rootChord: 0.1, tipChord: 0.05, height: 0.05, thickness: 0.003 } as ComponentNode);
+    const { rocket, info, sectionMass } = await onKernel(tree, { m1: C6(), m2: C6() }, { m1: 'launch' });
+    const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+    const { completedRecoveryEvents } = await import('./recoveryMass.js');
+    const result = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    const flightEvents = completedRecoveryEvents(result);
+    expect(flightEvents).toBeDefined();
+    expect(flightEvents!.some((e) => e.type === 'STAGE_SEPARATION')).toBe(altitude === 1);
+    const r = recoveryMass({ tree, info, sectionMass, flightEvents,
+      motors: [['m1', { spec: C6() }], ['m2', { spec: C6() }]] });
+    expect(r.state).toBe('ok');
+    if (r.state === 'ok') expect(r.mass).toBeCloseTo(result.series.mass.at(-1)!, 8);
+  }, 60000);
+});

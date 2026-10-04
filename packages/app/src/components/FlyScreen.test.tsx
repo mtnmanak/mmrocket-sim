@@ -51,6 +51,12 @@ describe('FlyScreen', () => {
     localStorage.clear();
   });
 
+  it('K1 marks an unflown recovery weight as an estimate', () => {
+    mount({ recovery: { state: 'ok', mass: 1, multiStage: true, estimate: true, note: 'Separation is assumed; confirm with a flight.' } });
+    expect(host.textContent).toContain('Recovery weight (estimate)');
+    expect(host.innerHTML).toContain('Separation is assumed; confirm with a flight.');
+  });
+
   it.each([true, false])('shares Rod length help with allowance %s', (allowance) => {
     mount({ tree: { components: [{ type: 'railbutton' }] }, launch: { ...DEFAULT_CONDITIONS, launchGuideAllowance: allowance } });
     expect(host.textContent).toContain(rodLengthHelp(true, allowance));

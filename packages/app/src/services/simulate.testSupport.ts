@@ -22,8 +22,9 @@ export function comparable(run: FreshSimRun) {
 /**
  * `comparable`, less the fields that carry a node id: the design, motor-set,
  * whole-set and per-mount motor-data keys, and each delay row's mount id.
- * Ids are minted per parse (treeModel's freshId, a module-level counter), so
- * two parses of the same bytes number the
+ * Recovery-event ids are renumbered while preserving their relationships and
+ * every event payload. Ids are minted per parse (treeModel's freshId, a
+ * module-level counter), so two parses of the same bytes number the
  * same parts differently — this is how a run from `simulateFile` (its own
  * parse) is compared with one from another parse of the same file. Every other
  * field must still match exactly. (Moved here from simulateFile.test.ts,
@@ -34,8 +35,18 @@ export function idFree(run: FreshSimRun) {
   const {
     designKey: _d, motorSetKey: _m, motorDataKey: _md, motorDataKeys: _mds, delayResolution, ...rest
   } = comparable(run);
+  const ids = new Map<string, number>();
+  const renumber = (id: string): number => {
+    if (!ids.has(id)) ids.set(id, ids.size);
+    return ids.get(id)!;
+  };
   return {
     ...rest,
+    ...(rest.recoveryEvents ? { recoveryEvents: rest.recoveryEvents.map((event) => ({
+      ...event,
+      ...(event.sourceId === undefined ? {} : { sourceId: renumber(event.sourceId) }),
+      ...(event.motorMountId === undefined ? {} : { motorMountId: renumber(event.motorMountId) }),
+    })) } : {}),
     delayResolution: delayResolution
       && { ...delayResolution, mounts: delayResolution.mounts.map(({ mountId: _id, ...m }) => m) },
   };

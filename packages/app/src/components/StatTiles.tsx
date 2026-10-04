@@ -99,7 +99,7 @@ export function DesignStats({ info, motorLabel, cd, recovery }: {
         */}
         {recovery && (
           <Tile
-            label="Recovery weight"
+            label={recovery.state === 'ok' && recovery.estimate ? 'Recovery weight (estimate)' : 'Recovery weight'}
             value={recovery.state === 'ok'
               ? fmtSi('mass', mass, recovery.mass)
               : recovery.state === 'no-motor' ? 'load a motor' : '—'}

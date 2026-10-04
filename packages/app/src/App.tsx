@@ -1,3 +1,4 @@
+import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1141,17 +1142,6 @@ export function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }, [built, tree.components, assigned]);
-  const recovery = useMemo((): RecoveryMass => (
-    recoveryInput ? recoveryMass(recoveryInput) : { state: 'no-motor' }
-  ), [recoveryInput]);
-  /**
-   * One weight per object that comes down (v0.112 arithmetic; v0.115 panel).
-   * Same input, same partition, so the panel's per-stage sections can never
-   * disagree with the tile above them about the sustainer.
-   */
-  const recoveryByStage = useMemo((): RecoveryByStage => (
-    recoveryInput ? recoveryMassByStage(recoveryInput) : { state: 'no-motor' }
-  ), [recoveryInput]);
 
   /**
    * What the app thinks the rocket weighs on the pad with NO hardware
@@ -1760,6 +1750,22 @@ export function App() {
     physicsKey, tree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
+  const recoveryEvents = useMemo(() => matchingRecoveryEvents(runs, provenanceKey,
+    (id) => result?.runId === id ? result.value : reflightCache.get(id)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Show charts fills the ref-backed cache before clearing reflying
+  [runs, provenanceKey, result, reflightCache, reflying]);
+  const recovery = useMemo((): RecoveryMass => (
+    recoveryInput ? recoveryMass({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.distance }) : { state: 'no-motor' }
+  ), [recoveryInput, recoveryEvents, prefs.units.distance]);
+  /**
+   * One weight per object that comes down (v0.112 arithmetic; v0.115 panel).
+   * Same input, same partition, so the panel's per-stage sections can never
+   * disagree with the tile above them about the sustainer.
+   */
+  const recoveryByStage = useMemo((): RecoveryByStage => (
+    recoveryInput ? recoveryMassByStage({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.distance }) : { state: 'no-motor' }
+  ), [recoveryInput, recoveryEvents, prefs.units.distance]);
+
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
   const currentMatchKey = useMemo<DesignMatchKey | null>(
     () => (built && primaryMountId ? provenanceKey : null),
@@ -3286,7 +3292,7 @@ export function App() {
                 <span className="vitals-label">Recovery</span>
                 <span className="vitals-value">
                   {recovery.state === 'ok'
-                    ? <>{fmtSi('mass', prefs.units.mass, recovery.mass)}&nbsp;<UnitChip quantity="mass" /></>
+                    ? <>{fmtSi('mass', prefs.units.mass, recovery.mass)}&nbsp;<UnitChip quantity="mass" />{recovery.estimate && ' · estimate'}</>
                     : (
                       <span className="vitals-none">
                         {recovery.state === 'no-motor' ? 'load a motor' : 'n/a'}
