@@ -55,6 +55,8 @@ export function useNozzleFollow(opts: {
 }): {
   /** Per stage id: the nozzle this cleared, and whose it was. */
   cleared: Record<string, NozzleCleared>;
+  /** The current loadout still carries a nozzle decided for older motors. */
+  pending: boolean;
   /**
    * Record these stages' loadouts as already SEEN — called before writing a
    * change that brings its own nozzle, so the change is not taken for a motor
@@ -84,6 +86,7 @@ export function useNozzleFollow(opts: {
    */
   const stamps = useRef(new WeakMap<RocketTree, ReadonlyMap<string, Seen>>());
   const [cleared, setCleared] = useState<Record<string, NozzleCleared>>({});
+  const [, refreshDecision] = useState(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -202,6 +205,7 @@ export function useNozzleFollow(opts: {
           return next;
         });
       }
+      refreshDecision((n) => n + 1);
     })();
     // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
   }, [loadout, treeRef, writeTree, lookup]);
@@ -255,5 +259,9 @@ export function useNozzleFollow(opts: {
     }
     decided.current = next;
   }, []);
-  return { cleared, seed, restoring };
+  const pending = loadout.some((s) => {
+    const was = decided.current.get(s.stageId);
+    return was !== undefined && was.key !== stageMotorKey(s);
+  });
+  return { cleared, pending, seed, restoring };
 }

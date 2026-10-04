@@ -1053,7 +1053,7 @@ export async function fetchMotorSpec(
       + ' this run reads only the curves bundled with the app.');
   }
   if (motor.motorId.startsWith('ex:')) {
-    const { getExMotor } = await import('./exMotors.js');
+    const { getExMotor, exToDbEntry } = await import('./exMotors.js');
     const ex = getExMotor(motor.motorId);
     if (!ex) throw new Error(`Imported motor ${motor.designation} is no longer stored`);
     if (ex.sampleMassesKg && ex.sampleMassesKg.length === ex.samples.length) {
@@ -1079,7 +1079,7 @@ export async function fetchMotorSpec(
         ...(repaired.repairs.length ? { curveRepairs: repaired.repairs } : {}),
       };
     }
-    return samplesToMotorSpec(motor, ex.samples, ejectionDelay);
+    return samplesToMotorSpec(exToDbEntry(ex), ex.samples, ejectionDelay);
   }
 
   const cacheKey = CACHE_PREFIX + motor.motorId;

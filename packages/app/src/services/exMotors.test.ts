@@ -570,3 +570,21 @@ describe('the EX library on a full storage', () => {
     expect(spec.designation).toBe('K550W');
   });
 });
+
+it('fetches current EX masses and geometry even with a stale catalogue row', async () => {
+  vi.resetModules();
+  const { addExMotors } = await import('./exMotors.js');
+  const original = parseEng('H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n')[0]!;
+  const row = exToDbEntry(original);
+  addExMotors([original]);
+  addExMotors([{ ...original, totalWeightG: 350, propWeightG: 200, diameter: 38, length: 250 }]);
+  try {
+    const { fetchMotorSpec } = await import('./thrustcurve.js');
+    const spec = await fetchMotorSpec(row, 6);
+    expect(spec.masses[0]).toBeCloseTo(0.35, 9);
+    expect(spec.masses.at(-1)).toBeCloseTo(0.15, 9);
+    expect(spec.diameter).toBeCloseTo(0.038, 9);
+    expect(spec.length).toBeCloseTo(0.25, 9);
+    expect(spec.cgX).toBeCloseTo(0.125, 9);
+  } finally { localStorage.clear(); }
+});

@@ -1,3 +1,4 @@
+import { expect } from 'vitest';
 import type { FreshSimRun } from './simReport.js';
 
 /**
@@ -19,7 +20,7 @@ export function comparable(run: FreshSimRun) {
 }
 
 /**
- * `comparable`, less the fields that carry a node id: the design and motor-set
+ * `comparable`, less the fields that carry a node id: the design, motor-set and motor-data
  * keys and each delay row's mount id. Ids are minted per parse (treeModel's
  * freshId, a module-level counter), so two parses of the same bytes number the
  * same parts differently — this is how a run from `simulateFile` (its own
@@ -28,7 +29,8 @@ export function comparable(run: FreshSimRun) {
  * 2026-10-01, when the agreement test began calling simulateFile too.)
  */
 export function idFree(run: FreshSimRun) {
-  const { designKey: _d, motorSetKey: _m, delayResolution, ...rest } = comparable(run);
+  expect(typeof run.motorDataKey).toBe('string');
+  const { designKey: _d, motorSetKey: _m, motorDataKey: _md, delayResolution, ...rest } = comparable(run);
   return {
     ...rest,
     delayResolution: delayResolution

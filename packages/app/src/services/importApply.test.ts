@@ -505,10 +505,23 @@ describe('the open sequence', () => {
   });
 
   const deps = (seq: ReturnType<typeof createSequencer>, read: () => Promise<ImportedDesign>, offer = false) => ({
-    openSeq: seq, read, offer,
+    openSeq: seq, read, shouldOffer: () => offer,
     onOffer: vi.fn(), apply: vi.fn(async () => {}), onError: vi.fn(),
   });
   const linked: ImportedDesign = { name: 'linked', tree: podTree(), notes: [], motors: {} };
+
+  it('a share link evaluates unsaved work after decoding', async () => {
+    const seq = createSequencer();
+    let dirty = false;
+    let finish!: (d: ImportedDesign) => void;
+    const d = { ...deps(seq, () => new Promise<ImportedDesign>((r) => { finish = r; })), shouldOffer: () => dirty };
+    const done = openShareLink('#d=x', d);
+    dirty = true;
+    finish(linked);
+    await done;
+    expect(d.onOffer).toHaveBeenCalledWith(linked);
+    expect(d.apply).not.toHaveBeenCalled();
+  });
 
   it('a share link claims the sequence before its first await', () => {
     const seq = createSequencer();

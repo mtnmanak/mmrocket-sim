@@ -2,7 +2,7 @@ import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.j
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { installedMounts } from './flightRunner.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
-import { runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
+import { motorDataKeyOf, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
 import { summaryOf, summaryFingerprint } from './storedRunIdentity.js';
 export { summaryOf } from './storedRunIdentity.js';
@@ -251,6 +251,7 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   // hardware, and refusal is the safe direction for numbers written into a
   // file — the same rule the model check above applies to UNKNOWN.
   if (r.motorSetKey !== motorSetKeyOf(cfgMotors, active ? hardwareDeltaKg : 0)) return null;
+  if (r.motorDataKey !== undefined && r.motorDataKey !== motorDataKeyOf(cfgMotors)) return null;
   return { motors: cfgMotors, flown: installedMounts(cfgMotors, active ? input.refusedMountIds : undefined) };
 }
 

@@ -51,11 +51,13 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
   const writeTree = (t: RocketTree) => { treeRef.current = t; writes.push(t); };
   const out = {
     cleared: {} as Record<string, NozzleCleared>,
+    pending: false,
     seed: (() => {}) as (s: readonly StageMotors[]) => void,
   };
   function Probe({ l }: { l: StageMotors[] }) {
     const nf = useNozzleFollow({ loadout: l, treeRef, writeTree, lookup: look });
     out.cleared = nf.cleared;
+    out.pending = nf.pending;
     out.seed = nf.seed;
     return null;
   }
@@ -71,6 +73,27 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('keeps the current nozzle decision pending across edits and superseded lookups', async () => {
+    const releases = new Map<string, () => void>();
+    const slow: NozzleLookup = async (id) => {
+      await new Promise<void>((r) => releases.set(id!, r));
+      return lookup(id);
+    };
+    const h = harness(tree(0.012), slow);
+    await h.show(loadout('J1'));
+    expect(h.out.pending).toBe(false);
+    await h.show(loadout('K1'));
+    expect(h.out.pending).toBe(true);
+    await h.show(loadout('K1'));
+    expect(h.out.pending).toBe(true);
+    await h.show(loadout('X9'));
+    await act(async () => { releases.get('K1')!(); });
+    expect(h.out.pending).toBe(true);
+    await act(async () => { releases.get('X9')!(); });
+    expect(h.out.pending).toBe(false);
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+  });
+
   it('preserves explicit OFF across swaps, unloads and a pending lookup', async () => {
     const h = harness(tree(0));
     await h.show(loadout('J1'));

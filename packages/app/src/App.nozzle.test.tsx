@@ -15,7 +15,9 @@ import { exportOrk } from './services/orkFile.js';
 import type { SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { PHYSICS_REVISION, type SimRun } from './services/simReport.js';
+import { nozzleForMotorId } from './services/nozzleDb.js';
 import { reflyRun } from './services/flightRunner.js';
+import type { MotorPicker } from './components/MotorPicker.js';
 import type { FlightCharts } from './components/FlightCharts.js';
 import type { SimHistory } from './components/SimResults.js';
 import { addChild, addStage, defaultTree, findNode, motorMounts } from './tree/treeModel.js';
@@ -52,6 +54,14 @@ vi.mock('./services/orkFile.js', async (importOriginal) => {
 
 // Capture the real component callbacks to test their own refusal boundaries,
 // including a stale caller that bypasses the disabled/absent button.
+let pickerProps: ComponentProps<typeof MotorPicker>;
+vi.mock('./components/MotorPicker.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./components/MotorPicker.js')>();
+  return { ...real, MotorPicker: (props: ComponentProps<typeof MotorPicker>) => {
+    pickerProps = props;
+    return createElement(real.MotorPicker, props);
+  } };
+});
 let chartProps: ComponentProps<typeof FlightCharts>;
 let historyProps: ComponentProps<typeof SimHistory>;
 vi.mock('./components/FlightCharts.js', async (importOriginal) => {
@@ -71,6 +81,11 @@ vi.mock('./components/SimResults.js', async (importOriginal) => {
 vi.mock('./services/flightRunner.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/flightRunner.js')>();
   return { ...real, reflyRun: vi.fn(real.reflyRun) };
+});
+
+vi.mock('./services/nozzleDb.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/nozzleDb.js')>();
+  return { ...real, nozzleForMotorId: vi.fn(real.nozzleForMotorId) };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -521,3 +536,27 @@ describe('K9/K15 upgrade with an unchanged design, motor and conditions', () => 
     }, 30000,
   );
 });
+
+it('blocks Launch while a motor swap is waiting for its nozzle lookup', async () => {
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!;
+  seedSession(tree, { [mount.id!]: await c6() });
+  const host = await mountApp();
+  await openTab(host, 'Motors & Launch');
+  await type(input(host, 'Nozzle exit diameter for Sustainer'), '5');
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.mocked(nozzleForMotorId).mockImplementation(async () => { await gate; return null; });
+  try {
+    const a8 = (await loadCatalogueMotor('Estes', 'A8', 3))!;
+    await act(async () => { pickerProps.onSelect(a8.label, a8.spec, a8.meta); });
+    await waitFor(() => host.textContent?.includes(a8.label) === true, 'the motor swap');
+    const launchButton = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+    expect(launchButton.disabled).toBe(true);
+    await act(async () => { launchButton.click(); });
+    expect(storedRuns()).toHaveLength(0);
+    await act(async () => { release(); await gate; });
+    await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'the nozzle decision');
+    expect(input(host, 'Nozzle exit diameter for Sustainer').value).toBe('');
+  } finally { vi.mocked(nozzleForMotorId).mockRestore(); }
+}, 30000);

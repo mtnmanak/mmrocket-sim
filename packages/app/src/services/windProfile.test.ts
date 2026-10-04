@@ -526,9 +526,9 @@ describe('profile persistence', () => {
     expect(flown.series).not.toEqual(rocket.simulate({ ...opts, windLevels: undefined }).series);
     expect(rocket.simulate(opts).series).toEqual(flown.series);
     const run = buildSimRun({ result: flown, info: rocket.staticInfo(), motor, launch,
-      rocketName: read.tree.name!, execMs: 1, designKey: 'same rocket', motorSetKey: 'same motor', aeroModel: 'classic', rogersKbf: false });
+      rocketName: read.tree.name!, execMs: 1, designKey: 'same rocket', motorSetKey: 'same motor', motorDataKey: 'same data', aeroModel: 'classic', rogersKbf: false });
     const reopened = { ...DEFAULT_CONDITIONS, ...importOrk(exportOrk({ tree: read.tree, name: 'Small wind test', launch })).launch };
-    const current = { designKey: run.designKey!, motorSetKey: run.motorSetKey!, conditionsKey: conditionsKeyOf(reopened),
+    const current = { designKey: run.designKey!, motorSetKey: run.motorSetKey!, motorDataKey: run.motorDataKey!, conditionsKey: conditionsKeyOf(reopened),
       aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false };
     expect(reopened.windLevels).toEqual(launch.windLevels);
     addRun(run);

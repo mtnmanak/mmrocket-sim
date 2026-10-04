@@ -65,6 +65,30 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('keeps and downloads the latest design when storage refuses the write after a crash', async () => {
+    const storage = localStorage;
+    saveSessionDebounced({ tree: { ...defaultTree(), name: 'Latest B' }, mountMotors: {}, launch: DEFAULT_CONDITIONS });
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.getItem(key),
+      setItem: () => { throw new Error('quota'); },
+      get length() { return 0; },
+    });
+    try {
+      renderCrashed();
+      act(() => { vi.runAllTimers(); });
+      expect(host.querySelector('[role="alert"] p')!.textContent).toContain('latest write could not be stored');
+      const leaving = () => {
+        const e = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(e);
+        return e.defaultPrevented;
+      };
+      expect(leaving()).toBe(true);
+      await act(async () => { button('Download the autosaved design').click(); });
+      expect(String(vi.mocked(saveFile).mock.calls[0]![0])).toContain('<name>Latest B</name>');
+      expect(leaving()).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('renders its children untouched when nothing throws', () => {
     act(() => root.render(<AppBoundary><p>the app</p></AppBoundary>));
     expect(host.textContent).toBe('the app');
@@ -156,6 +180,8 @@ describe('AppBoundary — this tab’s changes held back by another tab', () => 
     holdAnEdit();
     renderCrashed();
     const lead = host.querySelector('[role="alert"] p')!.textContent!;
+    expect(lead).toContain('another tab holds the autosave');
+    expect(lead).not.toContain('latest write could not be stored');
     expect(lead).not.toContain('still in this browser');
     expect(lead).toContain('not in this browser’s autosave');
     expect(leaving()).toBe(true);

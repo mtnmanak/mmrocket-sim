@@ -206,6 +206,19 @@ describe('useDesignDirty — a save and a flight', () => {
     expect(h.current.flownSinceSave.current).toBe(false);
   });
 
+  it('keeps a flight completed behind a Save-As picker unsaved', () => {
+    const s = snap(tree('Rocket'));
+    const h = mount(s, null);
+    const mark = designFingerprint(s);
+    const count = h.current.flightCount.current;
+    act(() => h.current.markFlown());
+    act(() => h.current.markSaved(mark, count));
+    expect(h.current.dirty).toBe(true);
+    expect(h.current.flownSinceSave.current).toBe(true);
+    act(() => h.current.markSaved(mark, h.current.flightCount.current));
+    expect(h.current.dirty).toBe(false);
+  });
+
   it('hands out ONE markSaved, ONE markFlown and the same two refs for the life of the design', () => {
     // The refs too: App's autosave names them as dependencies, which costs no
     // runs only while they are the same objects every render.

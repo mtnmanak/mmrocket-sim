@@ -15,8 +15,8 @@ import { flushSession, heldSession, peekSession, sessionPayload, type SessionSta
  * motors. The root error boundary (components/AppBoundary.tsx) offers this
  * download before it offers to start fresh.
  *
- * It builds the .ork from the STORED session (or, while another tab holds the
- * slot, the write this tab is holding back), with none of App's state — App
+ * It builds the .ork from the stored session (or the newer write this tab
+ * holds after a conflict or storage failure), with none of App's state — App
  * is what just failed. Its motors go through the mapping App's Save uses
  * (services/orkExportMotors.ts), which imports nothing of App's: it kept a
  * copy of its own until audit 2026-09-30 (item 23), and the copy drifted.

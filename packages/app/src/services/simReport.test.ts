@@ -446,11 +446,11 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
   // every visible column matched. Two investigations in one day turned on
   // "is this report stale?", which nothing on screen could answer.
   const KEY: DesignMatchKey = {
-    designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1',
+    designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1',
     aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
   };
   const runWith = (over: Partial<SimRun>): SimRun =>
-    ({ designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1', ...over }) as SimRun;
+    ({ designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', ...over }) as SimRun;
 
   it('says nothing changed when nothing has', () => {
     expect(changedSinceRun(runWith({}), KEY)).toEqual([]);
@@ -1348,7 +1348,7 @@ describe('SIM_ABORT surfacing', () => {
  */
 describe('storedSimCost', () => {
   /** The design on screen and its motors, as App's provenance key names them. */
-  const design = { designKey: 'design-A', motorSetKey: 'motors-1' };
+  const design = { designKey: 'design-A', motorSetKey: 'motors-1', motorDataKey: 'curve-1' };
   const stored = (
     rocket: string, execMs: number, timeStepS?: number,
     keys: { designKey?: string; motorSetKey?: string } = design,
@@ -1356,6 +1356,15 @@ describe('storedSimCost', () => {
     result: fakeResult(), info, motor, meta: { label: 'C6-5' },
     launch: { ...DEFAULT_CONDITIONS, ...(timeStepS !== undefined ? { timeStepS } : {}) },
     rocketName: rocket, execMs, ...keys,
+  });
+
+  it('checks motor data for new cost measurements and keeps legacy measurements', () => {
+    const run = stored('Alpha', 900);
+    expect(storedSimCost([run], design, 'Alpha')).toEqual({ ms: 900 });
+    expect(storedSimCost([{ ...run, motorDataKey: 'old curve' }], design, 'Alpha')).toBeNull();
+    const legacy = { ...run };
+    delete legacy.motorDataKey;
+    expect(storedSimCost([legacy], design, 'Alpha')).toEqual({ ms: 900 });
   });
 
   it('reads the newest run of THIS design and motors, with the step it was measured at', () => {
@@ -1440,7 +1449,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
    */
   const KEY = {
     designKey: 'd1',
-    motorSetKey: 'm1',
+    motorSetKey: 'm1', motorDataKey: 'data1',
     conditionsKey: 'c1',
     aeroMode: 'classic' as const,
     effectiveKbf: true,
@@ -1451,7 +1460,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
       result: fakeResult(), info, motor, meta: { label: 'C6-5' },
       launch: DEFAULT_CONDITIONS, rocketName: 'Alpha', execMs: 100,
       aeroModel: 'classic', rogersKbf: true,
-      designKey: 'd1', motorSetKey: 'm1',
+      designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
     }),
     conditionsKey: 'c1',
     ...over,
@@ -1519,7 +1528,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
       expect(runMatchesDesign(run({ nozzleStages: undefined }), NOZ)).toBe(false);
       expect(runCarriesNozzleStamp({}, NOZ)).toBe(false);
       expect(changedSinceRun(
-        { designKey: 'd1', motorSetKey: 'm1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun,
+        { designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun,
         NOZ,
       )).toEqual([PRESSURE_THRUST_CHANGED]);
     });
@@ -1686,12 +1695,12 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
 
   it('THE VISIBLE SYMPTOM: the just-flown run is no longer called stale', () => {
     const cur: DesignMatchKey = {
-      designKey: 'd1', motorSetKey: 'm1',
+      designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
       conditionsKey: conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: null }),
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     };
     const run = {
-      designKey: 'd1', motorSetKey: 'm1', aeroModel: 'classic', rogersKbf: false,
+      designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', aeroModel: 'classic', rogersKbf: false,
       conditionsKey: conditionsKeyOf(DEFAULT_CONDITIONS),
     } as SimRun;
     // Before: ['the launch conditions'] — the precise accusation changedSinceRun
@@ -1741,11 +1750,11 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
       ...DEFAULT_CONDITIONS, launchAltitudeM: 1190, latitudeDeg: 40.844967, timeStepS: 0.05,
     };
     const run = {
-      designKey: 'd1', motorSetKey: 'm1', aeroModel: 'classic', rogersKbf: false,
+      designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', aeroModel: 'classic', rogersKbf: false,
       conditionsKey: conditionsKeyOf(site),
     } as SimRun;
     const cur: DesignMatchKey = {
-      designKey: 'd1', motorSetKey: 'm1',
+      designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
       conditionsKey: conditionsKeyOf({ ...site, longitudeDeg: -119.11217 }),
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     };

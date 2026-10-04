@@ -2,7 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile } from '../services/saveFile.js';
 import {
-  autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange,
+  autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange,
 } from '../services/session.js';
 
 /** The persisted workspace tab (App's own key): a crash tied to one tab re-opens on it. */
@@ -49,7 +49,7 @@ export class AppBoundary extends Component<
 > {
   override state = { error: null as string | null, note: null as string | null, confirming: false, held: false };
 
-  /** The conflict subscription, while the panel is up. */
+  /** The conflict and storage-failure subscriptions, while the panel is up. */
   private unsubscribe: (() => void) | null = null;
   /** This tab's held design has been handed to the user as a file: it is no longer only in memory. */
   private handedOver = false;
@@ -63,7 +63,10 @@ export class AppBoundary extends Component<
     console.error('The app stopped on an error:', err, info.componentStack);
     if (this.unsubscribe === null) {
       window.addEventListener('beforeunload', this.onBeforeUnload);
-      this.unsubscribe = onSessionConflictChange(() => this.setState({ held: heldSession() !== null }));
+      const changed = () => this.setState({ held: heldSession() !== null });
+      const offConflict = onSessionConflictChange(changed);
+      const offSaving = onSessionSaveStateChange(changed);
+      this.unsubscribe = () => { offConflict(); offSaving(); };
       this.setState({ held: heldSession() !== null });
     }
   }
@@ -82,8 +85,8 @@ export class AppBoundary extends Component<
   };
 
   private download = async () => {
-    const held = heldSession() !== null;
     const file = autosavedDesignFile();
+    const held = heldSession() !== null;
     if (!file) {
       this.setState({ note: 'There is no autosaved design in this browser to download.' });
       return;
@@ -124,7 +127,9 @@ export class AppBoundary extends Component<
         {held ? (
           <p>
             The app hit an error it could not draw past, so it stopped. This tab&rsquo;s design is
-            not in this browser&rsquo;s autosave &mdash; another tab has written there since &mdash;
+            not in this browser&rsquo;s autosave &mdash; {autosaveIsAnotherTabs()
+              ? 'another tab holds the autosave'
+              : 'the latest write could not be stored'} &mdash;
             so it exists only in this tab: download it before you close or reload it.
           </p>
         ) : (

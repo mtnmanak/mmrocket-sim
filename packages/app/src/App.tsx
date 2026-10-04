@@ -356,6 +356,13 @@ export function App() {
   // the effect below, the catalogue's Estes C6 with its published curve, which
   // the shipped bundle answers with no network.
   const [mountMotors, setMountMotors] = useState<Record<string, MountMotor>>(restored.state.mountMotors);
+  const motorChoices = useRef(new Map<string, object>());
+  const beginMotorChoice = (mountId: string) => {
+    const token = {};
+    motorChoices.current.set(mountId, token);
+    return () => motorChoices.current.get(mountId) === token
+      && motorMounts(treeRef.current).some((m) => m.id === mountId);
+  };
   // A previous "check thrustcurve.org for newer motors" left its delta in this
   // browser; install it before anything looks a motor up, so an imported file
   // naming a motor that exists only in the overlay still resolves. It discards
@@ -794,7 +801,7 @@ export function App() {
    * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
-    dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick,
+    dirty, markSaved, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore);
 
   // The autosave effect itself sits below `flownAutoDelaysNow`: it carries
@@ -821,6 +828,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    motorChoices.current.clear();
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
     // planNewDesign says why that matters). Pressing ✕ New twice used to raise
     // "Start a new design?" on an empty design, which is the always-fires
@@ -967,7 +975,7 @@ export function App() {
   // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
   const stageMotorLoadout = useMemo(() => stageMotors(tree, assigned), [tree, assigned]);
   const {
-    cleared: nozzleCleared, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
+    cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
   } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
   // The PRIMARY mount drives the report's lead columns, auto-delay and the
   // weighed pad mass: the topmost-stage mount with a motor (the sustainer's).
@@ -1483,6 +1491,7 @@ export function App() {
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
+    motorChoices.current.delete(targetMountId);
     // THE LIVE TREE, not this render's (2026-09-08, from review). Both motor
     // pickers call `onSelect` only after an AWAITED thrust-curve fetch, so the
     // `tree` this closure captured can be several renders old by the time the
@@ -1639,7 +1648,7 @@ export function App() {
   };
 
   const onLaunch = () => {
-    if (!built || !primaryMountId || simulating || flightHoldsHandle.current) return;
+    if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     // The design this flight flies: this render's, the one `built` was built
     // from. Everything it computed lands after an await, and only while that
@@ -2108,6 +2117,7 @@ export function App() {
       // active configuration — is written back into it FIRST and the mark taken
       // over the synced set (importApply.planOrkSave says why).
       const { savedConfigs: synced, mark } = planOrkSave(snapshotNow(), unmatchedRefs);
+      const flightsAtSnapshot = flightCount.current;
       if (synced !== savedConfigs) setSavedConfigs(synced);
       // Every Auto mount at the delay it flew, and a line for each the file
       // cannot carry that way (autoDelaySaveNote) — once per motor, though the
@@ -2127,7 +2137,7 @@ export function App() {
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
-      if (out.kind !== 'cancelled') markSaved(mark);
+      if (out.kind !== 'cancelled') markSaved(mark, flightsAtSnapshot);
       return out;
     } catch (e) {
       setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -2271,6 +2281,7 @@ export function App() {
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
+    motorChoices.current.clear();
     applyImportPlan(plan, {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setLaunch, setMeasured,
@@ -2317,6 +2328,7 @@ export function App() {
    * back and what it carries across.
    */
   const applyConfig = (requested: SavedConfig) => {
+    motorChoices.current.clear();
     const plan = planConfigSwitch(
       { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);
     // The history starts over from the switched design (applyConfigSwitchPlan
@@ -2331,6 +2343,7 @@ export function App() {
 
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
+    motorChoices.current.clear();
     // The working set — and what the tree holds for the configuration — goes
     // back into it before it is emptied, for the same reason applyConfig does
     // it: "None" is a switch, not a discard, and the configuration must still
@@ -2402,6 +2415,8 @@ export function App() {
   // Every failure lands in the file-note with the current design untouched;
   // a bad link must never blank the app.
   const shareHandled = useRef(false);
+  const shareShouldOffer = useRef(false);
+  shareShouldOffer.current = dirty || !isPristineDefault(tree);
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
@@ -2422,10 +2437,8 @@ export function App() {
         }
         return importOrk(await decodeShareFragment(h), { presets: await loadPresets() });
       },
-      // A restored session still holding the untouched starter rocket is
-      // replaced silently; a design the user actually worked on gets a
-      // confirm dialog (declining keeps it — the link is simply dropped).
-      offer: session !== null && !isPristineDefault(initialTree),
+      // Include non-tree edits and work done while the link was decoding.
+      shouldOffer: () => shareShouldOffer.current,
       onOffer: setShareOffer,
       apply: applyImported,
       // 'warn', not the default 'info'. The message is 165 characters before the
@@ -3361,8 +3374,9 @@ export function App() {
             className="launch-btn vitals-launch"
             data-tour="launch"
             onClick={onLaunch}
-            disabled={!built || !primaryMountId || simulating}
-            title={!primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
+            disabled={!built || !primaryMountId || simulating || nozzlePending}
+            title={nozzlePending ? 'Updating the nozzle for this motor before launch'
+              : !primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
           >
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>
@@ -3413,7 +3427,7 @@ export function App() {
             onLaunch={onLaunch}
             simulating={simulating}
             recovery={recovery}
-            canLaunch={!!built && !!primaryMountId}
+            canLaunch={!!built && !!primaryMountId && !nozzlePending}
             onChangeMotor={() => setTab('motors')}
             onCompare={() => setShowBatch(true)}
             canCompare={!!built && !!primaryMountId && !isStaged}
@@ -3844,6 +3858,7 @@ export function App() {
                         // Named, not "multiplication x" (audit 2026-09-22).
                         aria-label={`Remove ${mm.label} from ${m.name ?? 'Motor mount'}`}
                         onClick={() => {
+                          motorChoices.current.delete(m.id!);
                           setMountMotors((prev) => {
                             const next = { ...prev };
                             delete next[m.id!];
@@ -3865,6 +3880,7 @@ export function App() {
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
+                    beginSelection={() => beginMotorChoice(m.id!)}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer }))}
                     showQuickPicks={quickPicksOffered}
@@ -4065,7 +4081,7 @@ export function App() {
 
           <LaunchPanel hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             longitudeReview={longitudeReview} onLongitudeReview={setLongitudeReview}
-            canLaunch={!!built && !!primaryMountId}
+            canLaunch={!!built && !!primaryMountId && !nozzlePending}
             lastRun={simCostRef}
             weather={weather} onGetWeather={() => setShowWeather('get')}
             onWeatherFetchAgain={() => setShowWeather('again')}
