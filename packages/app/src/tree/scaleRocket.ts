@@ -171,6 +171,8 @@ const MASS_EXPONENT: Record<string, number> = lookupTable({
 });
 
 export interface ScaleResult {
+  /** Applied factor, also used for inactive configuration snapshots. */
+  factor: number;
   tree: RocketTree;
   /** Notice lines, headline first (NoticeBar shows only line 1 collapsed). */
   notes: string[];
@@ -660,7 +662,7 @@ export function scaleRocket(
 ): ScaleResult {
   const k = factor;
   if (!(k > 0) || !Number.isFinite(k) || k === 1) {
-    return { tree, notes: [], needsAttention: false };
+    return { tree, factor: 1, notes: [], needsAttention: false };
   }
 
   const fixedSeen = new Set<string>();
@@ -898,5 +900,5 @@ export function scaleRocket(
   // folded into a collapsed bar.
   const needsAttention = statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
     || m.verdict === 'airframe-left' || m.verdict === 'off-class' || m.verdict === 'solid');
-  return { tree: next, notes, needsAttention };
+  return { tree: next, factor, notes, needsAttention };
 }

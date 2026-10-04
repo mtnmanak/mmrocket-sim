@@ -22,6 +22,7 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/rasaeroConfigMass.test.tsx',
   'src/services/addComponent.test.ts',
   'src/services/baseDragImportNotes.test.ts',
   'src/services/componentTable.test.ts',

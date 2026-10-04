@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { normalizeTree } from '../tree/treeModel.js';
+import { normalizeTree, freshId, addStage } from '../tree/treeModel.js';
+import { applyStageMass, captureStageMass } from './stageMassOverrides.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { OrkMotorRef } from './orkFile.js';
 import type { SessionState } from './session.js';
@@ -47,6 +48,37 @@ const session = (over: Partial<SessionState>): SessionState => ({
 });
 
 describe('designStateFromSession', () => {
+  it('round 2: deleted stage snapshots cannot land on newly created stages after reload', () => {
+    const deletedNumber = Number(freshId().slice(1)) + 100;
+    const deletedId = `c${deletedNumber}`;
+    const c: SavedConfig = { id: 'B', name: 'B', isDefault: false, motors: {},
+      stageMassOverrides: { [deletedId]: { overrideMass: 31, overrideCGX: 1.2 } } };
+    const surviving = { ...PODS, components: [{ ...PODS.components[0]!, id: `c${deletedNumber - 1}` }] };
+    const restored = designStateFromSession(session({ tree: surviving, savedConfigs: [c] }), NO_LIMIT).state;
+    const { tree, newId } = addStage(restored.tree);
+    expect(captureStageMass(applyStageMass(tree, restored.savedConfigs[0]!.stageMassOverrides)
+      .components.at(-1)!)).toEqual({});
+    expect(newId).not.toBe(deletedId);
+    expect(restored.savedConfigs[0]!.stageMassOverrides).toEqual({});
+  });
+
+  it('round 2: restore reserves every retained configuration node reference before minting ids', () => {
+    const base = Number(freshId().slice(1)) + 100;
+    const keys = ['motors', 'unmatchedRefs', 'deployments', 'separations', 'nozzles',
+      'stageActiveness', 'stageMassOverrides'] as const;
+    for (const [i, key] of keys.entries()) {
+      const id = `c${base + i * 100}`;
+      const c = { id: 'B', name: 'B', isDefault: false, motors: {},
+        [key]: { [id]: key === 'motors' ? motor('C6') : {} } } as SavedConfig;
+      designStateFromSession(session({ savedConfigs: [c] }), NO_LIMIT);
+      expect(Number(freshId().slice(1)), key).toBeGreaterThan(Number(id.slice(1)));
+    }
+    const referencedOnlyInWeighing = `c${base + 1000}`;
+    designStateFromSession(session({ savedConfigs: [{ id: 'B', name: null, isDefault: true,
+      motors: { core: motor('C6', { kg: 1, key: JSON.stringify([[referencedOnlyInWeighing, 'C6', 1]]) }) },
+    }] }), NO_LIMIT);
+    expect(Number(freshId().slice(1))).toBeGreaterThan(Number(referencedOnlyInWeighing.slice(1)));
+  });
   it('no session: the starter rocket, no motors, the default conditions and an empty Measured box', () => {
     const r = designStateFromSession(null, NO_LIMIT);
     expect(r.state.tree.name).toBe('My Rocket');

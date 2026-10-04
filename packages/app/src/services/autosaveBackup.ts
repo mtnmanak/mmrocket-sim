@@ -80,6 +80,7 @@ export function autosaveToOrk(s: SessionState): string {
       motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
       ...(c.deployments ? { deployments: c.deployments } : {}),
       ...(c.separations ? { separations: c.separations } : {}),
+      ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
     })),
     activeConfigId: s.activeConfigId ?? null,
     ...(s.measured ? { measured: s.measured } : {}),

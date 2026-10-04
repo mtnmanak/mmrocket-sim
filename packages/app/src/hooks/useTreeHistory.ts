@@ -13,7 +13,9 @@ import { openModalCount } from '../components/useDialog.js';
  * assumed neither existed; the response doc corrects the record with the
  * v0.013/v0.031/v0.033 provenance.)
  *
- * WHAT IT HOLDS IS THE TREE ALONE. Motors, flight configurations, launch
+ * The tree can carry an immutable companion through capture/restore callbacks
+ * (App uses this for configuration stage-mass snapshots when scaling). Motors,
+ * the rest of the flight configurations, launch
  * conditions and the measured figures live outside it, so a history that
  * outlives the design it recorded restores an airframe under somebody else's
  * motors and conditions (audit 2026-09-22): Ctrl+Z after an Open put the old
@@ -35,7 +37,10 @@ export const HISTORY_COALESCE_MS = 800;
 /** Undo steps kept; the oldest goes first. */
 export const HISTORY_CAP = 50;
 
-export interface TreeHistoryOptions {
+export interface TreeHistoryOptions<T = undefined> {
+  /** Optional immutable data which must travel with each tree undo step. */
+  captureCompanion?: () => T;
+  restoreCompanion?: (value: T) => void;
   /**
    * Applied to a tree coming BACK off either stack before it is written — App's
    * nozzle re-decision and stated-launch-weight reconcile, which a restored tree
@@ -99,18 +104,19 @@ const TYPED_INPUT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /** Push onto an undo stack, dropping the oldest step past {@link HISTORY_CAP}. */
-function pushCapped(stack: RocketTree[], t: RocketTree): void {
+function pushCapped<T>(stack: T[], t: T): void {
   stack.push(t);
   if (stack.length > HISTORY_CAP) stack.shift();
 }
 
-export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions = {}): TreeHistory {
+export function useTreeHistory<T = undefined>(initial: RocketTree, options: TreeHistoryOptions<T> = {}): TreeHistory {
   const [tree, setTreeRaw] = useState<RocketTree>(initial);
   // The stacks are REFS — they must not re-render the whole App on every push —
   // so a tiny version counter is bumped wherever they change, and THAT is what
   // the buttons' disabled state renders from.
-  const history = useRef<RocketTree[]>([]);
-  const future = useRef<RocketTree[]>([]);
+  type Entry = { tree: RocketTree; companion?: T };
+  const history = useRef<Entry[]>([]);
+  const future = useRef<Entry[]>([]);
   const lastEditAt = useRef(0);
   const [, bumpHist] = useReducer((x: number) => x + 1, 0);
   const optionsRef = useRef(options);
@@ -134,13 +140,21 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
     setTreeRaw(next);
   }, []);
 
+  const capture = useCallback((): Entry => ({
+    tree: treeRef.current, companion: optionsRef.current.captureCompanion?.(),
+  }), []);
+  const restore = useCallback((entry: Entry) => {
+    if (entry.companion !== undefined) optionsRef.current.restoreCompanion?.(entry.companion);
+    writeTree(optionsRef.current.onRestore?.(entry.tree) ?? entry.tree);
+  }, [writeTree]);
+
   const setTree = useCallback((next: RocketTree) => {
     // Coalesce rapid-fire edits (slider moves, keystrokes) into ONE undo step
     // — otherwise a 2 s slider drag floods the 50-entry buffer and Ctrl+Z
     // steps back a pixel at a time. (The 2D view's axial drag no longer needs
     // this: it previews locally and writes once, on release — useAxialDrag.)
     const now = Date.now();
-    if (now - lastEditAt.current > HISTORY_COALESCE_MS) pushCapped(history.current, treeRef.current);
+    if (now - lastEditAt.current > HISTORY_COALESCE_MS) pushCapped(history.current, capture());
     lastEditAt.current = now;
     // EVERY user edit forks the timeline, coalesced or not. Clearing the redo
     // stack only inside the push branch would leave a stale future that a
@@ -148,19 +162,19 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
     future.current = [];
     bumpHist();
     writeTree(next);
-  }, [writeTree]);
+  }, [writeTree, capture]);
   const undo = useCallback(() => {
     if (optionsRef.current.blocked?.()) return;
     const prev = history.current.pop();
     if (!prev) return;
-    future.current.push(treeRef.current);
+    future.current.push(capture());
     // Never coalesce ACROSS an undo: without this, an edit within 800 ms of
     // the last pre-undo edit skips the history push and the state the user
     // just restored becomes unrecoverable.
     lastEditAt.current = 0;
     bumpHist();
-    writeTree(optionsRef.current.onRestore?.(prev) ?? prev);
-  }, [writeTree]);
+    restore(prev);
+  }, [capture, restore]);
   const redo = useCallback(() => {
     if (optionsRef.current.blocked?.()) return;
     const next = future.current.pop();
@@ -168,11 +182,11 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
     // Push UNCONDITIONALLY — bypassing the 800 ms coalesce test — and reset
     // the clock so the next real edit cannot merge into the redone state.
     // The same bug class the v0.031 no-coalesce-across-undo fix closed.
-    pushCapped(history.current, treeRef.current);
+    pushCapped(history.current, capture());
     lastEditAt.current = 0;
     bumpHist();
-    writeTree(optionsRef.current.onRestore?.(next) ?? next);
-  }, [writeTree]);
+    restore(next);
+  }, [capture, restore]);
   /**
    * `setTree`'s 800 ms coalescing window is right for a drag and wrong for a
    * one-shot transform: press Scale within 800 ms of typing in a field and the
@@ -182,12 +196,12 @@ export function useTreeHistory(initial: RocketTree, options: TreeHistoryOptions 
    * reason.
    */
   const commitStep = useCallback((next: RocketTree) => {
-    pushCapped(history.current, treeRef.current);
+    pushCapped(history.current, capture());
     future.current = [];
     lastEditAt.current = 0;
     bumpHist();
     writeTree(next);
-  }, [writeTree]);
+  }, [writeTree, capture]);
   const reset = useCallback((next?: RocketTree) => {
     history.current = [];
     future.current = [];
