@@ -73,7 +73,7 @@ export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
   activeConfigId: string | null;
   savedConfigs: SavedConfig[];
   /** App passes its `provenanceKey` memo, the key every comparison uses; never recomputed here. */
-  provenance: Pick<DesignMatchKey, 'designKey' | 'motorSetKey' | 'motorDataKey'>;
+  provenance: Pick<DesignMatchKey, 'designKey' | 'motorSetKey' | 'motorDataKey' | 'motorDataKeys'>;
   /** App: `() => { if (stillFlown()) setAutoSupersonic(true); }`. Called after the last await. */
   onSupersonicUpgrade: () => void;
   /** App passes none, and that must not change: a Launch has no Stop. */
@@ -172,6 +172,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     designKey: provenance.designKey,
     motorSetKey: provenance.motorSetKey,
     motorDataKey: provenance.motorDataKey,
+    motorDataKeys: provenance.motorDataKeys,
     // What the kernel was handed for each chute — so the report can state
     // the coefficient the verdict rests on, not just the device's name.
     flownRecovery: built.flownRecovery,

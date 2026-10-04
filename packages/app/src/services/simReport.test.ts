@@ -529,13 +529,9 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
     )).toEqual(['the design']);
   });
 
-  it('NEVER CLEARS A RUN IT CANNOT FULLY COMPARE — a batch run must not read as current', () => {
-    // The trap: buildSimRun always stamps conditionsKey, but BatchSimulate
-    // stamps neither designKey nor motorSetKey, and `launch` survives a design
-    // switch — so a one-matching-key rule would print "matches the design as it
-    // stands" on a batch row from a different rocket entirely. Silence and a
-    // clean bill of health are different claims, and only the second can be
-    // wrong. Clearing requires ALL THREE keys.
+  it('NEVER CLEARS A RUN IT CANNOT FULLY COMPARE — a legacy conditions-only run must not read as current', () => {
+    // Legacy batch rows carried conditions only; current batch rows carry
+    // design and motor keys too. Unknown legacy provenance stays unknown.
     const batch = runWith({ designKey: undefined, motorSetKey: undefined }); // conditionsKey matches
     expect(changedSinceRun(batch, KEY)).toBeNull();
     // …but a partial run that does differ is still reported, not swallowed.
@@ -1432,7 +1428,7 @@ describe('storedSimCost', () => {
     expect(storedSimCost([legacy as SimRun], design, 'Beta')).toBeNull();
   });
 
-  it('but never a batch row: it carries the conditions, and nothing that names its design or motor', () => {
+  it('rejects a legacy batch row carrying only conditions', () => {
     const batch = stored('Alpha', 900, undefined, {});
     expect(batch.conditionsKey).toBeDefined();
     expect(storedSimCost([batch], design, 'Alpha')).toBeNull();
@@ -1554,10 +1550,8 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
       )).toEqual([PRESSURE_THRUST_CHANGED]);
     });
 
-    it('leaves a batch row alone — no designKey means "unknown", as it always did', () => {
-      // A batch row carries conditionsKey only, and it flew with the nozzle
-      // STRIPPED on purpose. Naming a physics change on it would be attributing
-      // it to a design it was never stamped against.
+    it('leaves a legacy conditions-only row unknown without a designKey', () => {
+      // Without a design key, legacy rows cannot be attributed to this tree.
       expect(changedSinceRun(
         { conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun, NOZ,
       )).toBeNull();

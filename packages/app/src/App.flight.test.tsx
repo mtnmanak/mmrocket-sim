@@ -751,3 +751,109 @@ describe('the Auto-delay card under a motor', () => {
     expect(card()).toMatch(/^Previous flight: Auto flew \d+ s · ballistic optimum/);
   }, 30000);
 });
+
+
+it('Auto-delay Previous flight accepts a legacy design-page run without motorDataKey', async () => {
+  let host = await mountApp();
+  await waitFor(starterStored, 'the starter motor');
+  await launch(host);
+  await waitFor(() => runs() === 1, 'the reference flight');
+  await unmountAll();
+  const saved = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+  const run = saved[0]!;
+  const session = storedSession()!;
+  const mount = motorMounts(session.tree)[0]!.id!;
+  delete run.motorDataKey;
+  delete run.motorDataKeys;
+  const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
+  run.delayResolution = testResolution([[mount, autoMotor]], [7]);
+  localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
+  const mm = session.mountMotors![mount]!;
+  mm.meta = { ...mm.meta, autoDelay: true };
+  session.launch = { ...session.launch!, windAverage: 8 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  host = await mountApp();
+  await settle(50);
+  await openTab(host, 'Motors & Launch');
+  const card = [...host.querySelectorAll('.mount-card p.field-hint')]
+    .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
+  expect(card).toMatch(/^Previous flight: Auto flew 7 s/);
+}, 30000);
+
+it.each(['motorIdentity', 'motorDataKey', 'motorDataKeys'] as const)(
+  'Auto-delay Previous flight ignores a batch candidate with a different %s', async (key) => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the reference flight');
+    await unmountAll();
+    const saved = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+    const run = saved[0]!;
+    const session = storedSession()!;
+    const mount = motorMounts(session.tree)[0]!.id!;
+    // Single-candidate batches need not carry motorConfig. Same geometry and
+    // mount id still cannot make another candidate this loaded motor's flight.
+    delete run.motorConfig;
+    const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
+    run.conditionsKey = 'previous conditions';
+    run.delayResolution = testResolution([[mount, autoMotor]], [7]);
+    if (key === 'motorIdentity') run.delayResolution.mounts[0]!.motorIdentity = 'another batch candidate';
+    else if (key === 'motorDataKeys') run.motorDataKeys = { [mount]: 'another curve' };
+    else {
+      delete run.motorDataKeys; // A saved run before per-mount curve fingerprints.
+      run.motorDataKey = 'another curve';
+    }
+    localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
+    const mm = session.mountMotors![mount]!;
+    mm.meta = { ...mm.meta, autoDelay: true };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    const card = [...host.querySelectorAll('.mount-card p.field-hint')]
+      .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
+    expect(card).toBe('Auto delay not yet calculated.');
+  }, 30000,
+);
+
+
+it.each(['pad mass', 'other motor', 'other delay'] as const)(
+  'Auto-delay Previous flight survives a changed %s', async (change) => {
+    const tree = podTree(defaultTree());
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: { ...c6, meta: { ...c6.meta, autoDelay: true } }, 'pod-mmt': c6 },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    let host = await mountApp();
+    await settle(50);
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the reference flight');
+    await unmountAll();
+    const saved = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+    const run = saved[0]!;
+    const session = storedSession()!;
+    const mm = session.mountMotors![mount]!;
+    expect(run.motorDataKeys?.[mount]).toBeDefined();
+    const record = run.delayResolution!.mounts.find((d) => d.mountId === mount)!;
+    expect(record.mode).toBe('auto');
+    if (change === 'pad mass') {
+      expect(run.launchMass).not.toBeNull();
+      mm.padMassKg = run.launchMass! + 0.01;
+      mm.padMassWeighedWith = padMassSetKey(session.tree, session.mountMotors!);
+    } else if (change === 'other motor') {
+      session.mountMotors!['pod-mmt'] = (await loadCatalogueMotor('Estes', 'B6', 4))!;
+    } else {
+      const other = session.mountMotors!['pod-mmt']!;
+      other.spec = { ...other.spec, ejectionDelay: 7 };
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    const card = [...host.querySelectorAll('.mount-card p.field-hint')]
+      .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
+    expect(card).toContain('Previous flight: Auto flew ' + record.flownDelay + ' s');
+  }, 30000,
+);

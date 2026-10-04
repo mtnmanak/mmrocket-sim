@@ -88,7 +88,7 @@ const DIALOGS: [string, () => ReactElement][] = [
     <PrefsProvider>
       <BatchSimulate tree={BATCH_TREE} info={{} as never}
         mounts={[{ id: 'mount', label: '24 mm', diameterMm: 24, motorCount: 1, maxMotorLengthM: null }]}
-        initialMountId="mount" assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
+        initialMountId="mount" assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={DEFAULT_CONDITIONS} rocketName="R" onRunsChange={() => {}}
         onClose={() => { closed++; }} />
     </PrefsProvider>

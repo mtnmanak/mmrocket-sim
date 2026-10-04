@@ -244,6 +244,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       designKey: input.provenance.designKey,
       motorSetKey: input.provenance.motorSetKey,
       motorDataKey: input.provenance.motorDataKey,
+      motorDataKeys: input.provenance.motorDataKeys,
       flownRecovery: built.flownRecovery,
       nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
     };
@@ -340,6 +341,8 @@ async function referenceLaunch(x: {
     designKey: provenanceKey.designKey,
     motorSetKey: provenanceKey.motorSetKey,
     motorDataKey: provenanceKey.motorDataKey,
+    // ROUND-F adds per-mount evidence to Launch; the flight-number oracle is unchanged.
+    motorDataKeys: provenanceKey.motorDataKeys,
     flownRecovery: built.flownRecovery,
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
   });

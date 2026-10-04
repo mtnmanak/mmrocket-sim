@@ -3082,6 +3082,7 @@ export function App() {
           // The mount with a motor when there is one; otherwise the first mount,
           // because a design with nothing loaded is the normal starting point.
           initialMountId={primaryMountId ?? mounts[0]!.id!}
+          assignedMountMotors={mountMotors}
           // Flown specs, not catalogue: a weighed motor on a NON-target mount
           // keeps its hardware through the batch's applyOthers; the batch
           // itself shifts only the target mount's matching candidate (weighed).
@@ -3839,15 +3840,21 @@ export function App() {
               // Every loaded mount has its own Auto policy and flown evidence.
               const autoBox = autoDelayBox(tree, m.id!);
               // The fallback — an earlier flight's Auto delay on this mount — is
-              // THIS design's alone. The run list is global and mount ids are
+              // THIS design and mount's motor alone, including saved batch candidates.
+              // The run list is global and mount ids are
               // counter values every load mints afresh, so a match on the id put
               // another design's "Previous flight" under this motor (audit
               // 2026-09-30).
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
                 && resolutionMatches(r.delayResolution, flownDelayMounts))
                 ?? runs.find((r) => r.designKey === provenanceKey.designKey
+                  && (r.motorDataKeys !== undefined
+                    ? r.motorDataKeys[m.id!] !== undefined
+                      && r.motorDataKeys[m.id!] === provenanceKey.motorDataKeys?.[m.id!]
+                    : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
                   && validDelayResolution(r.delayResolution)
-                  && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'));
+                  && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
+                    && d.motorIdentity === flownDelayMounts.find((mount) => mount.mountId === m.id)?.motorIdentity));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
                 && resolutionMatches(delayRun.delayResolution, flownDelayMounts);
               return (

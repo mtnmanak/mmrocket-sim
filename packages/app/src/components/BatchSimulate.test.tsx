@@ -185,7 +185,7 @@ describe('the batch dialog', () => {
           info={{} as never}
           mounts={extra.mounts ?? MOUNTS}
           initialMountId="mount"
-          assignedMotors={extra.assignedMotors ?? {}} assignedMotorIds={{}}
+          assignedMountMotors={{}} assignedMotors={extra.assignedMotors ?? {}} assignedMotorIds={{}}
           assignedIgnitions={extra.assignedIgnitions ?? {}}
           weighed={extra.weighed}
           launch={{ ...DEFAULT_CONDITIONS, ...launchOver }}
