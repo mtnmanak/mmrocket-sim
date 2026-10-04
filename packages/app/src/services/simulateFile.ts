@@ -8,7 +8,7 @@ import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { loadBundledPresets, type Preset } from './presets.js';
 import {
-  refuseIfAborted, simulateDesign, SimulateDesignError, type SimulateDesignOptions, type SimulateDesignResult,
+  APP_DEFAULT_AERO, refuseIfAborted, simulateDesign, SimulateDesignError, type SimulateDesignOptions, type SimulateDesignResult,
 } from './simulateDesign.js';
 import { bundledOnlyFetchSpec, fetchMotorSpec } from './thrustcurve.js';
 import { statedWeightTextFor } from './unitText.js';
@@ -79,7 +79,9 @@ export async function simulateFile(
   const presets = opts.presets ?? await loadBundledPresets();
   let imported: ImportedDesign;
   try {
+    const aero = opts.aero ?? APP_DEFAULT_AERO;
     imported = openDesignFile(buffer, fileName, { presets, distanceUnit: (opts.units ?? INITIAL_UNITS).distance,
+      aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB });
   } catch (e) {
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });

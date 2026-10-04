@@ -2411,7 +2411,8 @@ export function App() {
       // reader, whose note quotes each configuration's deployment altitude),
       // and a generically-named design takes its file's name.
       const presets = await loadPresets();
-      const imported = openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance });
+      const imported = openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance,
+        aeroChoice: aeroOverride ?? aeroChoiceOf(prefs) });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
       // was the FIRST thing a new user saw, and it listed configurations by

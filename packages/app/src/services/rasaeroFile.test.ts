@@ -9,9 +9,47 @@ import { CDX1_ENGINE_EXPORT, cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1, 
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
+import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
+
+describe('RASAero Modified Barrowman import note', () => {
+  const xml = (value?: string) => `<RASAeroDocument><RocketDesign>
+    <BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>
+    ${value === undefined ? '' : `<ModifiedBarrowman>${value}</ModifiedBarrowman>`}
+    </RocketDesign></RASAeroDocument>`;
+  const modelNotes = (value: string | undefined, aeroChoice?: AeroChoice) =>
+    importCdx1(xml(value), { aeroChoice }).notes.filter((note) => note.includes('Modified Barrowman'));
+
+  it.each(['kbf', 'auto', 'supersonic', 'hybrid'] as const)('False + %s gives exactly one historical note', (choice) => {
+    expect(modelNotes('False', choice)).toEqual([
+      'The file’s author turned Modified Barrowman off. '
+      + `When this import began, the app’s aerodynamics model was ${AERO_SHORT[choice]}. `
+      + 'Choose Classic Extended Barrowman to match the author’s setting; importing changes no aerodynamics setting.',
+    ]);
+  });
+
+  it('False + Classic gives no note', () => {
+    expect(modelNotes('False', 'eb')).toEqual([]);
+  });
+
+  it.each(['True', undefined, '', '0', 'not-a-boolean', 'False-ish'])('%s gives no note and imports safely', (value) => {
+    for (const choice of ['eb', 'kbf', 'auto', 'supersonic', 'hybrid'] as const) {
+      expect(modelNotes(value, choice)).toEqual([]);
+    }
+  });
+
+  it('does not guess the model when the caller supplies no choice', () => {
+    expect(modelNotes('False')).toEqual([]);
+  });
+
+  it('accepts whitespace/case variations and ignores a flag nested in a component', () => {
+    expect(modelNotes(' false ', 'kbf')).toHaveLength(1);
+    const nested = xml().replace('</BodyTube>', '<ModifiedBarrowman>False</ModifiedBarrowman></BodyTube>');
+    expect(importCdx1(nested, { aeroChoice: 'kbf' }).notes.join(' ')).not.toContain('Modified Barrowman');
+  });
+});
 
 function flatten(nodes: ComponentNode[]): ComponentNode[] {
   const out: ComponentNode[] = [];
