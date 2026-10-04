@@ -247,6 +247,41 @@ function prefs(aero: AeroState): void {
   }));
 }
 
+describe('RASAero import note uses the effective choice', () => {
+  it.each([
+    { stored: CLASSIC, override: 'supersonic', label: 'Supersonic' },
+    { stored: CLASSIC, override: 'eb', label: null },
+    { stored: KBF_OFF, override: 'hybrid', label: 'Hybrid (experimental)' },
+    { stored: SUPERSONIC, override: null, label: 'Supersonic' },
+  ])('stored $stored.aeroMode / session $override', async ({ stored, override, label }) => {
+    prefs(stored);
+    const host = await mountApp();
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="Aerodynamics model (this session)"]')!;
+    if (override) await act(async () => {
+      select.value = override;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const storedBefore = localStorage.getItem('online-openrocket.prefs.v1');
+    const selectedBefore = select.value;
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';
+    await pick(host, new File([xml], 'Aero note.CDX1'));
+    await waitFor(() => shownName(host) === 'Aero note', 'RASAero open');
+    const note = notes.fileNote?.text ?? '';
+    if (label) {
+      expect(note.match(/author turned Modified Barrowman off/g)).toHaveLength(1);
+      expect(note).toContain(`When this import began, the app’s aerodynamics model was ${label}.`);
+    } else expect(note).not.toContain('Modified Barrowman');
+    expect(select.value).toBe(selectedBefore);
+    expect(localStorage.getItem('online-openrocket.prefs.v1')).toBe(storedBefore);
+    await act(async () => {
+      select.value = 'auto';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(notes.fileNote?.text).toBe(note);
+  }, 30000);
+});
+
 /** What App's Launch flew and what it handed the shared path, read before App is unmounted. */
 interface AppSide {
   out: Awaited<ReturnType<typeof flyBuiltDesign>>;

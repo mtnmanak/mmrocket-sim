@@ -67,6 +67,24 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  it.each([
+    { aeroMode: 'classic', effectiveKbf: true, label: 'Rogers Kbf' },
+    { aeroMode: 'classic', effectiveKbf: false, label: null },
+    { aeroMode: 'hybrid', effectiveKbf: true, label: 'Hybrid (experimental)' },
+  ] as const)('carries the $aeroMode / Kbf $effectiveKbf choice into a RASAero import note', async ({ aeroMode, effectiveKbf, label }) => {
+    // No motor: the normal refusal still carries the completed import note,
+    // so this tests the actual file door without simulating a flight.
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';
+    const error: unknown = await simulateFile(new TextEncoder().encode(xml), 'aero.CDX1', {
+      presets: [], aero: { aeroMode, effectiveKbf, autoSupersonic: false },
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SimulateDesignError);
+    const note = (error as SimulateDesignError).importNote?.text;
+    expect(note).toBeDefined();
+    if (label) expect(note).toContain(`model was ${label}.`);
+    else expect(note).not.toContain('Modified Barrowman');
+  });
   // A committed recovery case keeps the unit wire covered in CI (2026-10-01):
   // the local corpus is optional, and a hard-coded ft otherwise goes unseen.
   it('quotes an altitude deployment in the requested feet or metres', async () => {

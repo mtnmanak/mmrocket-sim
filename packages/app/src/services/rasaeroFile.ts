@@ -1,4 +1,5 @@
 import { captureStageMass } from './stageMassOverrides.js';
+import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
@@ -289,6 +290,8 @@ export interface Cdx1ImportResult extends OrkImportResult {
 export function importCdx1(data: ArrayBuffer | string, opts?: {
   /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
   catalogue?: MotorDbEntry[];
+  /** Choice when the import began, including a session override. Omit when unknown. */
+  aeroChoice?: AeroChoice;
 }): Cdx1ImportResult {
   // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22).
   const decoded: { xml: string; note?: string } =
@@ -300,6 +303,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
   const notes: string[] = decoded.note ? [decoded.note] : [];
+  // Only an explicit False states the author's intent; missing or malformed
+  // values must not be mistaken for switching the model off.
+  if (text(design, ':scope > ModifiedBarrowman')?.toLowerCase() === 'false'
+      && opts?.aeroChoice !== undefined && opts.aeroChoice !== 'eb') {
+    notes.push('The file’s author turned Modified Barrowman off. '
+      + `When this import began, the app’s aerodynamics model was ${AERO_SHORT[opts.aeroChoice]}. `
+      + 'Choose Classic Extended Barrowman to match the author’s setting; importing changes no aerodynamics setting.');
+  }
   const ignored = new Set<string>();
   /**
    * Tag → the first raw text under it we could not turn into a number. One
@@ -762,7 +773,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       case 'Surface': case 'CD': case 'ModifiedBarrowman': case 'Turbulence':
       case 'SustainerNozzle': case 'Booster1Nozzle': case 'Booster2Nozzle':
       case 'UseBooster1': case 'UseBooster2': case 'Comments':
-        // Scalar design fields — Surface handled above, the three Design-tab
+        // Scalar design fields — Surface and ModifiedBarrowman handled above, the three Design-tab
         // nozzles read in the simulation block below (they are the FALLBACK
         // behind each <Simulation>'s own nozzle), the rest N/A.
         break;

@@ -88,6 +88,16 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  it('passes the selected aero model to the RASAero import note', () => {
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';
+    const data = new TextEncoder().encode(xml).buffer;
+    const imported = openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'hybrid' });
+    expect(imported.notes.filter((n) => n.includes('Modified Barrowman'))).toHaveLength(1);
+    expect(imported.notes.join(' ')).toContain('model was Hybrid (experimental)');
+    expect(openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'eb' }).notes.join(' '))
+      .not.toContain('Modified Barrowman');
+  });
   it('dispatch by format: a RASAero file through the .CDX1 reader, named only by openDesignFile', () => {
     // A RASAero file with no <Comments> has no name of its own.
     const parsed = parseDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
