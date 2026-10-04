@@ -1,13 +1,13 @@
 import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type ComponentNode,
-  type ComponentType,
-  type FlightResult,
-  type IgnitionEvent,
-  type MotorSpec,
-  type RocketTree,
+import type {
+  ComponentNode,
+  ComponentType,
+  FlightResult,
+  IgnitionEvent,
+  MotorSpec,
+  RocketTree,
 } from '@online-openrocket/engine';
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';

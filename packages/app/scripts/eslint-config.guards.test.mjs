@@ -65,6 +65,25 @@ const GLOBALS = ['no-restricted-globals'];
 const READER = ['no-restricted-syntax'];
 
 describe('eslint.config.mjs — the browser-source guards resolve and fire', () => {
+  it('refuses all-inline type imports but permits erased and mixed imports', async () => {
+    const rule = '@typescript-eslint/no-import-type-side-effects';
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/App.session.test.tsx',
+      'packages/engine/src/index.ts', 'packages/app/vite.config.ts']) {
+      const rules = await rulesFor(rel, [rule]);
+      const messages = new Linter().verify([
+        "import { type ComponentNode, type RocketTree } from '@online-openrocket/engine';",
+        "import type { MotorSpec } from '@online-openrocket/engine';",
+        "import { lazy, type ReactNode } from 'react';",
+      ].join('\n'), [{
+        files: ['**/*.ts'],
+        languageOptions: { parser: tseslint.parser },
+        plugins: { '@typescript-eslint': tseslint.plugin },
+        rules,
+      }], 'probe.ts');
+      expect(messages.map((m) => `${m.ruleId}@${m.line}`), rel).toEqual([`${rule}@1`]);
+    }
+  });
+
   it('refuses Node-only and coercing globals in shipped source', async () => {
     const rules = await rulesFor('packages/app/src/services/shareLink.ts', GLOBALS);
     expect(lint([

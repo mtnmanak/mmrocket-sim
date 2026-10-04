@@ -27,6 +27,13 @@ const pkg = JSON.parse(read('package.json'));
 const lock = JSON.parse(read('package-lock.json'));
 const ENGINES = pkg.engines?.node;
 
+describe('test dependencies', () => {
+  it.each(['semver', 'workbox-core'])('declares %s in the app workspace at its locked version', (name) => {
+    const app = JSON.parse(read('packages/app/package.json'));
+    expect(app.devDependencies[name]).toBe(lock.packages[`node_modules/${name}`].version);
+  });
+});
+
 /** Every package npm installs on every platform (optional ones are per-platform) that states a Node range. */
 const RANGES = Object.entries(lock.packages)
   .filter(([path, p]) => path && !p.optional && p.engines?.node)

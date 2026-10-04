@@ -176,6 +176,7 @@ export default tseslint.config(
     // use of that name, not dead code.
     rules: {
       'no-unused-vars': 'off',
+      '@typescript-eslint/no-import-type-side-effects': 'error',
       '@typescript-eslint/no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_',
