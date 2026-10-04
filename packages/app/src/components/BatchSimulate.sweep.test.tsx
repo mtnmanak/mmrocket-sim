@@ -10,7 +10,7 @@ import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../se
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
 import {
-  mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks,
+  mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { addRuns } from '../services/simStore.js';
@@ -104,15 +104,15 @@ const CLUSTER_TREE: RocketTree = {
 };
 const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS }: {
-  strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[];
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed }: {
+  strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[]; weighed?: BatchWeighed;
 } = {}) {
   const dialog = (
     <PrefsProvider>
       <BatchSimulate
         tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
         assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
-        launch={launch} rocketName="Sweep bird"
+        launch={launch} rocketName="Sweep bird" weighed={weighed}
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}
       />
@@ -665,4 +665,24 @@ it('hands the full profile to the batch sweep', async () => {
   await start();
   expect(sweep).toHaveBeenCalledOnce();
   expect(sweep.mock.calls[0]![0].launch.windLevels).toEqual(windLevels);
+});
+
+it.each(['auto', 'eb'] as const)('S3a-9: finished %s badges follow the flown model and mount', async (model) => {
+  const flown = row('motor', 'C6', 100);
+  Object.assign(flown.run!, { aeroModel: model === 'eb' ? 'classic' : 'auto', rogersKbf: false,
+    nozzleStages: [{ stageId: 'st0', stageName: 'Sustainer', exitDiameterM: 0.01 }] });
+  sweep.mockResolvedValue({ rows: [flown], stopped: false });
+  mount({ mounts: [...MOUNTS, { ...MOUNTS[0]!, id: 'other', label: 'Other mount' }],
+    weighed: { mountId: 'mount', identity: 'Acme/C6', pinned: false, name: 'C6', perMotorShiftKg: 0.01 } });
+  const select = (value: string) => [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === value))!;
+  const pick = (el: HTMLSelectElement, value: string) => act(() => { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); });
+  pick(select('eb'), model);
+  await act(async () => primary().click());
+  expect(bodyRows()[0]!.textContent).toContain('· weighed');
+  pick(select('other'), 'other');
+  pick(select('eb'), model === 'eb' ? 'auto' : 'eb');
+  expect.soft(bodyRows()[0]!.textContent).toContain('· weighed');
+  expect.soft(bodyRows()[0]!.textContent?.includes('· nozzle')).toBe(model === 'auto');
+  expect.soft(host.querySelector('.batch-nozzle') !== null).toBe(model === 'auto');
+  expect(sweep).toHaveBeenCalledOnce();
 });

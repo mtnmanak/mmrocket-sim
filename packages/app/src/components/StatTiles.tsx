@@ -440,6 +440,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
         // though: the position it would record is only where the chip is
         // drawn, which may be a narrow window's clamp of the user's own.
         if (chip.folded) {
+          autoFolded.current = false;
           setChip((c) => ({ ...c, folded: false }));
           persist({ ...placed.current, folded: false });
         }
@@ -512,6 +513,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
         onClick={() => {
           // The fold is the only thing this changes — the position stored is
           // the user's own, not wherever a narrow window has clamped it to.
+          autoFolded.current = false;
           const folded = !chip.folded;
           setChip((c) => ({ ...c, folded }));
           persist({ ...placed.current, folded });

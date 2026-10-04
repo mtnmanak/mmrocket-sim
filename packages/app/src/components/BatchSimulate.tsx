@@ -584,6 +584,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
   /** The halves box's words — on the box, and in the refusal that tells you to untick it. */
   const halvesName = clusterSplit ? `mixed ${clusterSplit.groupSize}+${clusterSplit.groupSize}` : '';
   const [rows, setRows] = useState<BatchRow[]>([]);
+  const [sweepMountId, setSweepMountId] = useState(mountId);
   const [running, setRunning] = useState(false);
   /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
   const [confirming, setConfirming] = useState(false);
@@ -670,6 +671,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     setFinished(null);
     setFailure(null);
     setRows([]);
+    setSweepMountId(mountId);
     const ctrl = new AbortController();
     abort.current = ctrl;
     const splits: ClusterSplit[] = [
@@ -717,7 +719,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
 
   /** Did any row actually fly a published nozzle? Drives the note below. */
   const anyRowFlewNozzle = useMemo(
-    () => rows.some((r) => (r.run?.nozzleStages?.length ?? 0) > 0), [rows]);
+    () => rows.some((r) => r.run && !(r.run.aeroModel === 'classic' && !r.run.rogersKbf)
+      && (r.run.nozzleStages?.length ?? 0) > 0), [rows]);
 
   // Graded here, against the criteria on screen (see gradeBatchRun), then
   // sorted: accepted first, then by apogee; rows that never flew go last.
@@ -1045,7 +1048,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
             noise about a field it has never touched. Its own line, beside the
             weighed-mass note rather than folded into it: the two are separate
             facts and either can be present without the other. */}
-        {batchModel !== 'eb' && (nozzleStages.length > 0 || anyRowFlewNozzle) && (
+        {(anyRowFlewNozzle || (rows.length === 0 && batchModel !== 'eb' && nozzleStages.length > 0)) && (
           <p className="comp-stats batch-nozzle" style={{ margin: '4px 0 0' }}>
             {'Nozzle exit diameter: each candidate flies its OWN published exit where the app has '
               + 'one, so a motor reads the same here as it does on the design page. Rows that flew '
@@ -1164,7 +1167,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                     <td>
                       {label}
                       {/* The one single-motor row that flew with the weighed hardware on. */}
-                      {!combo && weighed && mountId === weighed.mountId && isWeighedCandidate(entry, weighed)
+                      {!combo && run && weighed && sweepMountId === weighed.mountId && isWeighedCandidate(entry, weighed)
                         && <span className="motor-db-meta"> · weighed</span>}
                       {/*
                         Which rows flew a published nozzle exit. Only about a
@@ -1179,7 +1182,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                         stamps it unconditionally as well (App.tsx), and both
                         of its consumers gate on the model themselves.
                       */}
-                      {batchModel !== 'eb' && (run?.nozzleStages?.length ?? 0) > 0
+                      {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
                     <td>

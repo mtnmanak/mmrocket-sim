@@ -57,6 +57,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         id={idFor(`printer-${axis}`)}
         value={printer ? toUi(printer[axis]) : undefined}
         step={niceStep(toUi(0.001))}
+        min={toUi(0.001)}
         onCommit={(v) => { if (v !== null && v > 0) setAxis(axis, uiToSi('length', lengthSym, v)); }}
       />
     </div>

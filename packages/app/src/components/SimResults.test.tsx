@@ -721,3 +721,16 @@ it('Amendment 1 renders the ignored-button note saved with a lug report', () => 
   act(() => expand.click());
   expect(host.textContent).toContain('Rail buttons without two stations on one line were not counted.');
 });
+
+it.each(['opening', 'descent'] as const)('S3a-4: marks an unknown %s check as not measured', (missing) => {
+  const r = run();
+  r.deployments = [{ ...preV099Deployment, groundSpeed: null,
+    velocityAtDeployment: missing === 'opening' ? null : 4.2,
+    descentRate: missing === 'descent' ? null : 3.4,
+    descentOk: missing === 'descent' ? null : true }];
+  render(<SimRunDetails run={r} />);
+  act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click(); });
+  const row = [...host.querySelectorAll('tr')].find((tr) => tr.firstElementChild?.textContent === 'Parachute (landing)')!;
+  expect(row.lastElementChild?.textContent).toBe('— not measured');
+  expect(row.lastElementChild?.className).not.toContain('stability-good');
+});

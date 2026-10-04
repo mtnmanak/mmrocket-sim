@@ -1085,3 +1085,83 @@ describe('the size line carries the design chute’s spill hole', () => {
     }
   });
 });
+
+it.each([[0.1, 0.03], [0.03, 0.1]])('S7b-4: filters drogue candidates against their own bay (%s m main, %s m drogue)', (mainBore, drogueBore) => {
+  const drogue = { type: 'parachute', id: 'drogue', diameter: 0.5, deployEvent: 'apogee' } as ComponentNode;
+  const t = tube(mainBore, [{ id: 'main', diameter: 1, deployEvent: 'altitude' }]);
+  t.components[0]!.children![0]!.children!.push({ type: 'innertube', id: 'bay', outerRadius: drogueBore / 2 + 0.001,
+    thickness: 0.001, children: [drogue] } as ComponentNode);
+  const preset = { kind: 'Parachute', manufacturer: 'Test', partNo: 'D', description: 'Test drogue',
+    diameter: diameterForRate(WILDMAN_KG, 1, SEA_LEVEL_DENSITY, DROGUE_BAND.target),
+    dragCoefficient: 1, packedDiameter: 0.04 } as Preset;
+  const r = ok(sizing({ tree: t, presets: [preset] }));
+  expect(r.main.boreM).toBeCloseTo(mainBore, 9);
+  expect.soft(r.drogue.boreM).toBeCloseTo(drogueBore, 9);
+  expect(r.drogue.inBand).toBe(1);
+  expect.soft(r.drogue.excludedForFit).toBe(drogueBore < 0.04 ? 1 : 0);
+  expect(r.drogue.candidates.map((c) => c.fit)).toEqual(drogueBore < 0.04 ? [] : ['fits']);
+});
+
+it.each(['nosecone', 'transition'])('S7bg-7: uses the %s cavity for a directly contained chute', (type) => {
+  const chute = { type: 'parachute', id: 'chute', diameter: 1 } as ComponentNode;
+  const t = tube(0.1);
+  const parent = { type, id: 'cavity', aftRadius: 0.02, thickness: 0.002, children: [chute] } as ComponentNode;
+  t.components[0]!.children!.unshift(parent);
+  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.036, 9);
+  const preset = { kind: 'Parachute', manufacturer: 'Test', partNo: 'M', description: 'Test main',
+    diameter: diameterForRate(WILDMAN_KG, 1, SEA_LEVEL_DENSITY, MAIN_BAND.target),
+    dragCoefficient: 1, packedDiameter: 0.04 } as Preset;
+  const advice = ok(sizing({ tree: t, presets: [preset] })).main;
+  expect(advice.inBand).toBe(1);
+  expect(advice.excludedForFit).toBe(1);
+  expect(advice.candidates).toEqual([]);
+  const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+  Object.assign(parent, { [prefix + 'Radius']: 0.018, [prefix + 'Length']: 0.02, [prefix + 'Thickness']: 0.001 });
+  expect(recoveryBayBore(t, chute)).toBeCloseTo(0.034, 9);
+  parent['filled'] = true;
+  expect(recoveryBayBore(t, chute)).toBeNull();
+});
+
+it.each(['nosecone', 'transition'])('ROUND2 S7bg-7: clamps the %s shoulder and checks both openings', (type) => {
+  const chute = { type: 'parachute', id: 'chute', diameter: 1 } as ComponentNode;
+  const t = tube(0.1);
+  const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+  const parent = { type, id: 'cavity', aftRadius: 0.02, thickness: 0.001, children: [chute],
+    [prefix + 'Radius']: 0.04, [prefix + 'Length']: 0.02, [prefix + 'Thickness']: 0.001 } as ComponentNode;
+  t.components[0]!.children!.unshift(parent);
+  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.038, 9);
+  const preset = { kind: 'Parachute', manufacturer: 'Test', partNo: 'M', description: 'Test main',
+    diameter: diameterForRate(WILDMAN_KG, 1, SEA_LEVEL_DENSITY, MAIN_BAND.target),
+    dragCoefficient: 1, packedDiameter: 0.05 } as Preset;
+  const advice = ok(sizing({ tree: t, presets: [preset] })).main;
+  expect(advice.inBand).toBe(1);
+  expect.soft(advice.excludedForFit).toBe(1);
+  expect.soft(advice.candidates).toEqual([]);
+  parent[prefix + 'Thickness'] = 0.006;
+  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.028, 9);
+  parent[prefix + 'Thickness'] = 0.001;
+  parent['thickness'] = 0.005;
+  expect.soft(recoveryBayBore(t, chute)).toBeCloseTo(0.03, 9);
+  parent[prefix + 'Thickness'] = 0.05;
+  expect.soft(recoveryBayBore(t, chute)).toBeNull();
+  parent[prefix + 'Thickness'] = 0.001;
+  parent[prefix + 'Capped'] = true;
+  expect.soft(recoveryBayBore(t, chute)).toBeNull();
+  parent[prefix + 'Capped'] = false;
+  parent['filled'] = true;
+  expect.soft(recoveryBayBore(t, chute)).toBeNull();
+  parent['filled'] = false;
+  parent['aftRadius'] = 0;
+  expect(recoveryBayBore(t, chute)).toBeNull();
+});
+
+it('ROUND2 S7bg-7: uses the shoulder alone when a transition aft radius is automatic', () => {
+  const chute = { type: 'parachute', id: 'chute' } as ComponentNode;
+  const parent = { type: 'transition', id: 'cavity', children: [chute], aftShoulderRadius: 0.02,
+    aftShoulderLength: 0.02, aftShoulderThickness: 0.001 } as ComponentNode;
+  const t = tube(0.1);
+  t.components[0]!.children!.unshift(parent);
+  expect(recoveryBayBore(t, chute)).toBeCloseTo(0.038, 9);
+  parent['aftShoulderLength'] = 0;
+  expect(recoveryBayBore(t, chute)).toBeNull();
+});

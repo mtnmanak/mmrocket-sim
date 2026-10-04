@@ -10,6 +10,7 @@ import {
   maxBodyDiameter, previewMounts, rocketLength, scaleRocket,
   type MountChoice, type MountPreview, type ScaleResult,
 } from '../tree/scaleRocket.js';
+import { lookupTable } from '../services/xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 
 /** The factor box's range, which every other way of setting the factor now honours too. */
@@ -135,9 +136,9 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
    * which is the shape the owner asked for: "keep the snap to nearest motor
    * size toggle for people who do not know what they want."
    */
-  const [choices, setChoices] = useState<Record<string, MountChoice>>({});
+  const [choices, setChoices] = useState<Record<string, MountChoice>>(() => lookupTable({}));
   /** The typed Custom bore per mount (mm), while its Custom… row is showing. */
-  const [custom, setCustom] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<Record<string, string>>(() => lookupTable({}));
 
   /** Which option the pulldown is sitting on for this mount. */
   const choiceValue = (m: MountPreview): string => {
@@ -159,13 +160,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
     const seed = m.maxBoreMm === null || fitsRoom(m, today) || m.maxBoreMm < 1
       ? today : Math.floor(m.maxBoreMm);
     setCustom((prev) => {
-      const next = { ...prev };
+      const next = lookupTable(prev);
       if (value === 'custom') next[m.id] = String(seed);
       else delete next[m.id];
       return next;
     });
     setChoices((prev) => {
-      const next = { ...prev };
+      const next = lookupTable(prev);
       if (value === 'custom') { if (goodBore(m, seed)) next[m.id] = { boreMm: seed }; }
       else if (value.startsWith('c')) next[m.id] = { boreMm: Number(value.slice(1)) };
       else next[m.id] = value as MountChoice;
@@ -196,13 +197,13 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const noRoomWhy = (m: MountPreview) => (m.inSolidTube ? 'is solid (filled)' : 'has no room left inside it');
 
   const onCustomBore = (m: MountPreview, raw: string) => {
-    setCustom((prev) => ({ ...prev, [m.id]: raw }));
+    setCustom((prev) => lookupTable({ ...prev, [m.id]: raw }));
     const mm = Number(raw);
     // An empty, nonsense or oversized box must not resize anything; hold the
     // last good value rather than snapping the preview back to the scaled size
     // mid-type. The box is marked invalid instead (`customBad`).
     if (goodBore(m, mm)) {
-      setChoices((prev) => ({ ...prev, [m.id]: { boreMm: mm } }));
+      setChoices((prev) => lookupTable({ ...prev, [m.id]: { boreMm: mm } }));
     }
   };
 

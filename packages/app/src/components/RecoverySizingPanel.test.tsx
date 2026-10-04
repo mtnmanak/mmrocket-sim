@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
+import * as presetService from '../services/presets.js';
 import { loadPresets } from '../services/presets.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { RecoverySizingPanel } from './RecoverySizingPanel.js';
@@ -47,6 +48,7 @@ describe('RecoverySizingPanel', () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    vi.restoreAllMocks();
     localStorage.clear();
   });
 
@@ -76,6 +78,30 @@ describe('RecoverySizingPanel', () => {
       await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     }
   };
+
+  it('S3b-7: reports a failed catalogue load and retries without losing size advice', async () => {
+    const load = vi.spyOn(presetService, 'loadPresets').mockRejectedValueOnce(new Error('offline'));
+    await mount();
+    expect(text()).toContain('Parts catalogue could not be loaded');
+    expect(text()).not.toContain('Looking through');
+    expect(sizeLine(0)).not.toBe('');
+    const retry = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;
+    await act(async () => retry.click());
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(text()).not.toContain('Parts catalogue could not be loaded');
+    expect(text()).not.toContain('Looking through');
+    expect(rows(0).length).toBeGreaterThan(0);
+  });
+
+  it('S7b-4: the drogue fit footer names its own narrower bay', async () => {
+    const t = tree([{ id: 'main', diameter: 2, deployEvent: 'altitude' }]);
+    t.components[0]!.children![0]!.children!.push({ type: 'innertube', id: 'drogue-bay',
+      outerRadius: 0.016, thickness: 0.001,
+      children: [{ type: 'parachute', id: 'drogue', diameter: 0.6, deployEvent: 'apogee' }],
+    } as ComponentNode);
+    await mount({ tree: t });
+    expect(bands()[1]!.querySelector('.recovery-band-foot')!.textContent).toContain('1.18 in bore');
+  });
 
   const text = () => host.textContent ?? '';
   const bands = () => Array.from(host.querySelectorAll('.recovery-band'));

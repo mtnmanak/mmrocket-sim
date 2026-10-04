@@ -609,3 +609,16 @@ describe('ScaleDialog', () => {
       .toBe(false);
   });
 });
+
+it.each(['constructor', '__proto__', 'toString'])('S3b-1: renders and edits a restored mount named %s', async (id) => {
+  const design = tree();
+  design.components[0]!.children![1]!.children![0]!.id = id;
+  await render({}, design);
+  expect(text()).not.toContain('NaN');
+  const select = [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'custom'))!;
+  expect(select.value).not.toBe('custom');
+  act(() => { select.value = 'custom'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  act(() => { select.value = 'scaled'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(select.value).toBe('scaled');
+  expect(applyButton().disabled).toBe(false);
+});

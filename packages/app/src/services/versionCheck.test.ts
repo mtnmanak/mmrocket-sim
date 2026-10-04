@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchLatestVersion } from './versionCheck.js';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { fetchLatestVersion, setSwRegistration, useVersionCheck } from './versionCheck.js';
 import { versionEarlierThan } from './session.js';
 
 /**
@@ -92,4 +94,38 @@ describe('the staleness decision', () => {
     expect(versionEarlierThan('0.100', '0.71')).toBe(false);
     expect(versionEarlierThan('0.999', '1.0.0')).toBe(true);
   });
+});
+
+it.each(['fetch', 'body', 'worker'] as const)('S1c-8: times out a stalled %s and allows a fresh retry', async (stall) => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  let check: ReturnType<typeof useVersionCheck>;
+  let signal: AbortSignal | null | undefined;
+  const pending = new Promise<never>(() => {});
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+    signal = init?.signal;
+    return stall === 'fetch' ? pending : Promise.resolve({ ok: true, json: () => pending } as Response);
+  });
+  function Probe() { check = useVersionCheck(); return createElement('span', null, check.state.kind); }
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    if (stall === 'worker') {
+      setSwRegistration({ update: () => pending } as unknown as ServiceWorkerRegistration);
+      await act(async () => check.recheck());
+    }
+    await act(async () => vi.advanceTimersByTimeAsync(10000));
+    expect(check!.state.kind).toBe('unknown');
+    expect(check!.checking).toBe(false);
+    if (stall !== 'worker') expect(signal?.aborted).toBe(true);
+    setSwRegistration(undefined);
+    fetch.mockResolvedValue(jsonRes({ version: '0.001' }));
+    await act(async () => check.recheck());
+    expect(check!.state.kind).toBe('current');
+  } finally {
+    act(() => root.unmount());
+    setSwRegistration(undefined);
+    vi.useRealTimers();
+  }
 });

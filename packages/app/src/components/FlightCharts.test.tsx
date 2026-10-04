@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlightResult } from '@online-openrocket/engine';
@@ -278,4 +278,19 @@ it('constructs all comparisons with real uPlot options (canvas calls stubbed)', 
     expect(panel.querySelector('canvas[role="img"]')?.getAttribute('aria-label')).toContain(option.textContent);
     expect(panel.querySelectorAll('.u-series').length).toBeGreaterThanOrEqual(3);
   }
+});
+
+it.each([false, true])('S3b-3: StrictMode clears export busy after rejection=%s', async (reject) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:strict');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const full = vi.fn(() => reject ? Promise.reject(new Error('export failed')) : Promise.resolve(fakeResult()));
+  await act(async () => root.render(<StrictMode><PrefsProvider>
+    <FlightCharts result={fakeResult()} onFullSeries={full} designName="Strict bird" />
+  </PrefsProvider></StrictMode>));
+  const csv = labelled('Flight data (.csv)')!;
+  await act(async () => { csv.click(); });
+  expect(full).toHaveBeenCalledOnce();
+  expect(csv.disabled).toBe(false);
+  if (reject) expect(host.textContent).toContain('export failed');
 });

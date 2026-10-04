@@ -428,3 +428,14 @@ describe('Preferences → CG / CP markers in 3D', () => {
     expect(stored().markers3d).toBe('callout');
   });
 });
+
+it.each(['Bed X', 'Bed Y', 'Maximum Z'])('S3cg-4: marks zero %s invalid without changing the stored size', (label) => {
+  mount();
+  pick(printerSelect(), 'prusa-mk4s');
+  const before = stored().printer;
+  const input = axis(label)!;
+  act(() => input.focus());
+  type(input, '0');
+  expect(input.getAttribute('aria-invalid')).toBe('true');
+  expect(stored().printer).toEqual(before);
+});

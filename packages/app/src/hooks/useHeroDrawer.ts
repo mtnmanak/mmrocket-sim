@@ -187,9 +187,11 @@ export function useHeroDrawer(): HeroDrawer {
    * statsDrawerDefault.test.ts to behaviour). So the rule is not consulted.
    */
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
+  const [tight, setTight] = useState(false);
   useEffect(() => {
-    if (!stageEl || !wide) return;
+    if (!stageEl || !wide) { setTight(false); return; }
     const check = () => {
+      setTight(stageEl.clientHeight < DRAWER_CLOSE_BELOW_PX);
       // The stage must reflect THIS drawer state before judging its height
       // (open-items: 18–19 Sep, quarter-screen canvas; backlog Tier 0 row 31).
       // Opening first mounts/measures the drawer, then commits its clearance;
@@ -216,7 +218,7 @@ export function useHeroDrawer(): HeroDrawer {
     setByUser,
     focusRef: focus.refFor,
     wide,
-    tight: wide && (stageEl?.clientHeight ?? Infinity) < DRAWER_CLOSE_BELOW_PX,
+    tight,
     drawerRef: setDrawerEl,
     stageRef: setStageEl,
     clearance,

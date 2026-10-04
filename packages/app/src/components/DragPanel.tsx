@@ -196,15 +196,17 @@ type MachAlt = [number, number][];
 function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, distUnit: string): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
   // row would print as "0.000". Zero is just zero.
+  const ceilingNote = (max: number) => max > 84500
+    ? ' (atmosphere conditions above 84.5 km are held at that layer)' : '';
   const fmtAlt = (v: number) => (v === 0 ? '0' : fmtSi('distance', distUnit, v));
   if (mode === 'file' && table && table.length > 0) {
     const machs = table.map(([m]) => m);
     const alts = table.map(([, a]) => a);
     return `file Mach-Alt table — ${table.length} points from Mach ${Math.min(...machs)} to ${Math.max(...machs)}`
-      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))} ${distUnit} ISA)`;
+      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))} ${distUnit} ISA)` + ceilingNote(Math.max(...alts));
   }
   if (mode === 'altitude' && altM > 0) {
-    return `ISA at ${fmtAlt(altM)} ${distUnit}`;
+    return `ISA at ${fmtAlt(altM)} ${distUnit}` + ceilingNote(altM);
   }
   return 'sea level (101325 Pa; 20 °C — the kernel default)';
 }

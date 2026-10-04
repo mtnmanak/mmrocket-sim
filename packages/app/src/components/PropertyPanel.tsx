@@ -514,8 +514,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
    */
   const limitCatalogue = (patch: Partial<ComponentNode>): Partial<ComponentNode> => {
     const out = limitPatch(node, patch);
-    const vent = out['spillHoleDiameter'];
-    const cap = typeof vent === 'number' && node.type === 'parachute' ? ventLimit(node)?.maxHole : undefined;
+    const next = { ...node, ...out };
+    const vent = next['spillHoleDiameter'];
+    const cap = typeof vent === 'number' && node.type === 'parachute' ? ventLimit(next)?.maxHole : undefined;
     return cap !== undefined && (vent as number) > cap ? { ...out, spillHoleDiameter: cap } : out;
   };
   /** A canopy's or a line's material marker: the select's own edit, name and density together. */
@@ -850,7 +851,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
       // NumField's validate check also flags the refused draft (register:
       // "Typed one key at a time, an overflowing density...").
       if (!Number.isFinite(next)) return;
-      const patch: Partial<ComponentNode> = { ...limitCatalogue(partner), [f.key]: next };
+      const patch: Partial<ComponentNode> = limitCatalogue({ ...partner, [f.key]: next });
       // A hand-typed density is no longer the named material's density.
       if (f.key === 'density' && !('materialName' in partner)) patch['materialName'] = undefined;
       onPatch(patch);
@@ -1475,6 +1476,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         const flat = Math.max(0, W) * Math.max(0, H);
         const bodyR = mountRadiusOf(parent === 'stage' ? null : (parent as ComponentNode | null));
         const crescent = area - flat;
+        const body = bodyDragReference(tree);
+        const followsBody = body.measured && Number.isFinite(body.withBase) && body.withBase > 1e-9;
         // An ancestor with "Use instead of everything inside" ticked on its Cd
         // replaces this component's contribution wholesale — the kernel skips a
         // covered component in the friction, pressure and base loops alike. So
@@ -1490,7 +1493,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
             {(area * 1e6).toFixed(0)} mm² frontal
             {' × '}Cd {fairingCd(node).toFixed(3)}
             {' = '}<strong>+{fairingDeliveredCd(tree, node).toFixed(5)}</strong> on the
-            rocket&rsquo;s CD, at every Mach.
+            rocket&rsquo;s CD{followsBody ? <> at Mach {body.mach}. In flight the shroud’s drag scales with the body’s Mach curve.</> : ', at every Mach.'}
             {crescent > 1e-12 && bodyR > 0 ? (
               <>
                 {' '}The area is measured from the <em>tube surface</em>, not from the

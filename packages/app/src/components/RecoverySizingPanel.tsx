@@ -65,13 +65,14 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
    * was about to open the preset picker anyway.
    */
   const [presets, setPresets] = useState<Preset[] | null>(null);
+  const [catalogueFailed, setCatalogueFailed] = useState(false);
   const wanted = recovery.state === 'ok';
   useEffect(() => {
-    if (!wanted || presets !== null) return;
+    if (!wanted || presets !== null || catalogueFailed) return;
     let live = true;
-    void loadPresets().then((p) => { if (live) setPresets(p); }).catch(() => { /* size line still works */ });
+    void loadPresets().then((p) => { if (live) setPresets(p); }).catch(() => { if (live) setCatalogueFailed(true); });
     return () => { live = false; };
-  }, [wanted, presets]);
+  }, [wanted, presets, catalogueFailed]);
 
   /**
    * The objects to size, in landing order: the sustainer's group first, then
@@ -147,12 +148,18 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
 
   return (
     <Shell summary={summary}>
+      {catalogueFailed && (
+        <p className="recovery-sizing-hint" role="status">
+          Parts catalogue could not be loaded. <button type="button" onClick={() => setCatalogueFailed(false)}>Retry</button>
+        </p>
+      )}
       {objects.map((o, i) => (
         <ObjectSection
           key={o.label || 'rocket'}
           label={objects.length > 1 ? o.label : null}
           sizing={sizings[i]!}
           catalogueReady={presets !== null}
+          catalogueFailed={catalogueFailed}
           fmt={fmt}
         />
       ))}
@@ -165,10 +172,11 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
  * drogue. With `label` null (a single-stage design) it renders without a
  * heading — byte-for-byte the pre-v0.115 panel body.
  */
-function ObjectSection({ label, sizing, catalogueReady, fmt }: {
+function ObjectSection({ label, sizing, catalogueReady, catalogueFailed, fmt }: {
   label: string | null;
   sizing: RecoverySizing;
   catalogueReady: boolean;
+  catalogueFailed: boolean;
   fmt: Fmt;
 }) {
   const { roughLength, rate, lenSym, velSym, massSym, distSym } = fmt;
@@ -223,7 +231,8 @@ function ObjectSection({ label, sizing, catalogueReady, fmt }: {
           key={advice.role}
           advice={advice}
           catalogueReady={catalogueReady}
-          boreM={sizing.boreM}
+          catalogueFailed={catalogueFailed}
+          boreM={advice.boreM}
           roughLength={roughLength}
           rate={rate}
           lenSym={lenSym}
@@ -294,10 +303,11 @@ function Shell({ summary, children }: { summary: string; children: React.ReactNo
 }
 
 function BandSection({
-  advice, catalogueReady, boreM, roughLength, rate, lenSym, velSym, massSym,
+  advice, catalogueReady, catalogueFailed, boreM, roughLength, rate, lenSym, velSym, massSym,
 }: {
   advice: BandAdvice;
   catalogueReady: boolean;
+  catalogueFailed: boolean;
   boreM: number | null;
   roughLength: (si: number) => string;
   rate: (si: number) => string;
@@ -372,7 +382,7 @@ function BandSection({
         </ul>
       ) : (
         <p className="recovery-sizing-hint">
-          {!catalogueReady
+          {catalogueFailed ? 'Catalogue suggestions are unavailable; the size above still applies.' : !catalogueReady
             ? 'Looking through the parts catalogue…'
             : advice.inBand === 0
               ? `No canopy in the catalogue lands this rocket inside the ${title.toLowerCase()} band.`
