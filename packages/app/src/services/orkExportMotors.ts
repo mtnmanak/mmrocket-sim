@@ -2,6 +2,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { motorMounts, primaryMountOf } from '../tree/treeModel.js';
 import type { ExMotor } from './exMotors.js';
+import type { RepairedMotorSpec } from './thrustcurve.js';
 import { refToExportMotor } from './motorMatch.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 
@@ -46,22 +47,24 @@ function flownDelay(flown: FlownAutoDelays | undefined, configKey: string, mount
   return typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : undefined;
 }
 
-/** An EX motor's manufacturer as its own .eng/.rse named it; undefined when that is unknown. */
-function exManufacturer(mm: MountMotor, exLibrary: ExLibrary): string | undefined {
+/** An EX motor's library id and original manufacturer; omit an unknown manufacturer. */
+function exIdentity(mm: MountMotor, exLibrary: ExLibrary): Pick<OrkExportMotor, 'manufacturer' | 'exMotorId'> {
   const lib = exLibrary();
   // The exact library entry (meta.exMotorId, pinned at pick time) wins over
   // the designation-only find: two vendors' same-designation curves coexist
   // (motorId = slug(manufacturer+designation)), and the designation find
   // wrote whichever vendor imported first into the file.
-  const raw = (
+  const entry = (mm.spec as RepairedMotorSpec | undefined)?.exDefinition ?? (
     (mm.meta.exMotorId ? lib.find((m) => m.motorId === mm.meta.exMotorId) : undefined)
-    ?? lib.find((m) => m.designation === mm.spec.designation)
-  )?.realManufacturer;
+    ?? lib.find((m) => m.designation === mm.spec?.designation)
+  );
+  const raw = entry?.realManufacturer;
   // An .rse with no mfg attribute carries the 'EX' sentinel — a display
   // badge, not a manufacturer. Omit it from the file: no desktop motor is
   // literally named EX (the match would always fail), while omission lets
   // the designation-only description tier still find the motor.
-  return raw && raw !== 'EX' ? raw : undefined;
+  return { manufacturer: raw && raw !== 'EX' ? raw : undefined,
+    exMotorId: mm.meta.exMotorId ?? entry?.motorId ?? 'ex:snapshot' };
 }
 
 /**
@@ -90,16 +93,19 @@ export function toOrkMotor(mm: MountMotor, flownS: number | undefined, exLibrary
       : mm.meta?.type === 'hybrid' ? 'hybrid'
       : undefined);
   return {
-    designation: mm.spec.designation,
+    designation: mm.spec?.designation ?? mm.label ?? 'Unknown EX motor',
+    ...(ex ? { exMotorSpec: mm.spec,
+      ...(mm.meta.availableDelays ? { exDelays: mm.meta.availableDelays.map(d => Number.isFinite(d) ? String(d) : 'P').join(',') } : {}),
+    } : {}),
     // The file identity wins over the display abbreviation — but the
     // thrustcurve abbrevs (AeroTech/Cesaroni/Estes…) are registered desktop
     // alternate names, so a database-picked motor still matches.
-    manufacturer: ex ? exManufacturer(mm, exLibrary) : mm.meta?.orkManufacturer ?? mm.meta?.manufacturer,
+    ...(ex ? exIdentity(mm, exLibrary) : { manufacturer: mm.meta?.orkManufacturer ?? mm.meta?.manufacturer }),
     ...(type ? { type } : {}),
     ...(!ex && mm.meta?.orkDigest ? { digest: mm.meta.orkDigest } : {}),
-    diameter: mm.spec.diameter,
-    length: mm.spec.length,
-    delay: (auto ? flownS : undefined) ?? mm.spec.ejectionDelay,
+    diameter: mm.spec?.diameter ?? 0,
+    length: mm.spec?.length ?? 0,
+    delay: (auto ? flownS : undefined) ?? mm.spec?.ejectionDelay ?? Infinity,
     ...(auto ? { autoDelay: true as const } : {}),
     ...(auto ? { autoDelayFrom: flownS !== undefined ? 'flown' as const : 'provisional' as const } : {}),
     ignitionEvent: mm.ignition?.event,

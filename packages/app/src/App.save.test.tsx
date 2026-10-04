@@ -13,7 +13,8 @@ import type { MountMotor } from './model/design.js';
 import type { StageMassOverride } from './services/stageMassOverrides.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
-import { loadCatalogueMotor } from './services/motorMatch.js';
+import { loadCatalogueMotor, mountMotorFromDb } from './services/motorMatch.js';
+import { exToDbEntry, exToMotorSpec, type ExMotor } from './services/exMotors.js';
 import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
@@ -321,6 +322,38 @@ describe('lane C2 save and share fidelity', () => {
       await waitFor(() => writeText.mock.calls.length === 1, 'stage overrides share copy');
       check(await decodeShareFragment(new URL(writeText.mock.calls.at(-1)![0]).hash));
     } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it.each([false, true])('share shows the EX snapshot save note, including clipboard fallback %s', async fallback => {
+    const ex: ExMotor = { motorId: 'ex:share', designation: 'C6', realManufacturer: 'Share Test',
+      diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+      source: 'eng', addedAt: 1 };
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const loaded = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+      { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: loaded },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await settle(50);
+    const writeText = vi.fn(async (_url: string) => { if (fallback) throw new Error('clipboard denied'); });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const prompt = vi.fn(() => null);
+    const originalPrompt = Object.getOwnPropertyDescriptor(window, 'prompt');
+    Object.defineProperty(window, 'prompt', { configurable: true, value: prompt });
+    try {
+      await saveAs(host, 'Copy share link');
+      await waitFor(() => writeText.mock.calls.length === 1, 'EX share copy');
+      await settle();
+      expect(host.textContent).toContain('EX motor C6: its library definition is missing or invalid; saved the loaded snapshot.');
+      const xml = await decodeShareFragment(new URL(writeText.mock.calls[0]![0]).hash);
+      expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
+      expect(prompt).toHaveBeenCalledTimes(fallback ? 1 : 0);
+    } finally {
+      if (originalPrompt) Object.defineProperty(window, 'prompt', originalPrompt);
+      else Reflect.deleteProperty(window, 'prompt');
       delete (navigator as { clipboard?: unknown }).clipboard;
     }
   });
@@ -695,7 +728,8 @@ describe('what a Save .ork hands the writer for each motor', () => {
       autoDelay: true, autoDelayFrom: 'provisional', ...ignition,
     };
     // Loki's, by the pinned library id; no digest, which is over desktop's own file.
-    const exOut = { designation: 'X99', manufacturer: 'Loki', type: 'reload', ...size, delay: 4, ...ignition };
+    const exOut = { designation: 'X99', manufacturer: 'Loki', type: 'reload', ...size, delay: 4, ...ignition,
+      exMotorId: 'ex:loki-x99', exMotorSpec: ex.spec };
     expect(written.motors).toEqual({ [core]: autoOut, 'pod-mmt': exOut });
     expect(written.configs).toEqual([
       { id: 'A', name: null, isDefault: true, motors: { [core]: autoOut, 'pod-mmt': exOut } },

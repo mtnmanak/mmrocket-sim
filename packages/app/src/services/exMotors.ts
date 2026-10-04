@@ -1,7 +1,18 @@
 import type { MotorDbEntry } from './motorDb.js';
-import { clearCurveCache, flownCurve } from './thrustcurve.js';
+import { clearCurveCache, flownCurve, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
+import { EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import type { MotorSpec } from '@online-openrocket/engine';
+
+/** Delay belongs to each mount; this is the exact curve the design loaded. */
+export type ExFlightSnapshot = Omit<MotorSpec, 'ejectionDelay'>;
+export const MAX_EX_MOTOR_ID_LENGTH = 1024;
+
+/** Preserve a readable prefix while reserving room for any collision suffix. */
+export function boundedExId(id: string, suffix = ''): string {
+  return id.slice(0, MAX_EX_MOTOR_ID_LENGTH - suffix.length) + suffix;
+}
 
 /**
  * User-imported (EX / experimental) motors from RASP .eng or RockSim .rse
@@ -16,6 +27,8 @@ const KEY = 'online-openrocket.ex-motors.v1';
 export interface ExMotor {
   /** "ex:" + slug — namespaced so the loader knows curves are local. */
   motorId: string;
+  /** Original library identity, when a file assigns a distinct snapshot id. */
+  libraryMotorId?: string;
   designation: string;
   /** Manufacturer string from the file (shown as detail; filter shows "EX"). */
   realManufacturer: string;
@@ -45,8 +58,10 @@ export interface ExMotor {
    * thrown away and they had to type it back by hand (Eric, 2026-09-21).
    */
   exitDiameterM?: number;
-  source: 'eng' | 'rse';
+  source: 'eng' | 'rse' | 'snapshot';
   addedAt: number;
+  /** Exact loaded data when it differs from the original source definition. */
+  flightSnapshot?: ExFlightSnapshot;
 }
 
 /**
@@ -157,6 +172,39 @@ function persist(motors: ExMotor[]): ExLibraryWrite {
   return { motors, stored: false };
 }
 
+/** Identity is every named motor/flight field; storage id, import date and source format are metadata. */
+export function exMotorIdentity(m: ExMotor): string {
+  return JSON.stringify([
+    m.designation, m.realManufacturer, m.diameter, m.length, m.totalWeightG, m.propWeightG,
+    m.delays, m.samples.map(s => [s.time, s.thrust]), m.sampleMassesKg ?? null, m.exitDiameterM ?? null,
+    m.flightSnapshot ? flightIdentity(m.flightSnapshot) : null,
+  ]);
+}
+
+/** Design archives never replace a library motor, even on an id collision. */
+export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map<string, string> {
+  const library = [...loadExMotors()];
+  const ids = new Map<string, string>();
+  let changed = false;
+  for (const motor of added) {
+    const identity = exMotorIdentity(motor);
+    const same = library.find(m => exMotorIdentity(m) === identity);
+    if (same) { ids.set(motor.motorId, same.motorId); continue; }
+    let id = motor.motorId;
+    for (let n = 2; library.some(m => m.motorId === id); n++) id = boundedExId(motor.motorId, `~${n}`);
+    if (library.some(m => m.designation === motor.designation)) {
+      notes.push(`Embedded EX motor ${motor.designation}: a different library motor has the same name; both were kept.`);
+    }
+    library.push({ ...motor, motorId: id });
+    ids.set(motor.motorId, id);
+    changed = true;
+  }
+  if (changed && !persist(library).stored) {
+    notes.push('Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
+  }
+  return ids;
+}
+
 /** An import's write, and what it did to motors that share a maker and name. */
 export interface ExImport extends ExLibraryWrite {
   /** Designations that replaced a library entry with the same id — a re-import, usually. */
@@ -249,6 +297,37 @@ export function exToDbEntry(m: ExMotor): MotorDbEntry {
   };
 }
 
+/** The same pure EX conversion for loading a motor and checking a design archive. */
+export function exToMotorSpec(ex: ExMotor, ejectionDelay: number): RepairedMotorSpec {
+  const spec = ex.flightSnapshot ? { ...structuredClone(ex.flightSnapshot), ejectionDelay }
+    : sourceMotorSpec(ex, ejectionDelay);
+  // Capture at load time, including for MotorBrowser and session recovery.
+  return { ...spec, exDefinition: structuredClone(ex) };
+}
+
+export function flightIdentity(s: ExFlightSnapshot): string {
+  return JSON.stringify([s.designation, s.diameter, s.length, s.times, s.thrusts, s.masses, s.cgX]);
+}
+
+function sourceMotorSpec(ex: ExMotor, ejectionDelay: number): RepairedMotorSpec {
+  if (ex.sampleMassesKg && ex.sampleMassesKg.length === ex.samples.length) {
+    const repaired = repairSamples(ex.samples);
+    const samples = [...repaired.samples];
+    const masses = repaired.keptIndices.map((i) => ex.sampleMassesKg![i]!);
+    if (samples[0]!.time > 0) {
+      samples.unshift({ time: 0, thrust: 0 });
+      masses.unshift(ex.totalWeightG / 1000);
+    }
+    return {
+      designation: ex.designation, diameter: ex.diameter / 1000, length: ex.length / 1000,
+      times: samples.map(s => s.time), thrusts: samples.map(s => s.thrust), masses,
+      cgX: ex.length / 2000, ejectionDelay,
+      ...(repaired.repairs.length ? { curveRepairs: repaired.repairs } : {}),
+    };
+  }
+  return samplesToMotorSpec(exToDbEntry(ex), ex.samples, ejectionDelay);
+}
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 /**
@@ -318,6 +397,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     while (last > 0 && pts[last]!.thrust === 0 && pts[last - 1]!.thrust === 0) last--;
     pts.length = last + 1;
     if (pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
+    if (pts.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`${name}: ${EX_SAMPLE_LIMIT_NOTE}`); return; }
     const problem = massProblem(Number(propKg) * 1000, Number(totKg) * 1000);
     if (problem) { skipped.push(`${name}: ${problem}`); return; }
     motors.push({
@@ -369,6 +449,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     }
     if (!header) throw new Error(`Not a RASP header line: "${line.slice(0, 60)}"`);
     if (refused) continue; // a skipped motor's data lines are read past to the next header
+    if (samples.length >= MAX_EX_MOTOR_SAMPLES) { refused = `${header[0]!}: ${EX_SAMPLE_LIMIT_NOTE}`; continue; }
     const [t, f] = tok.map(Number);
     if (!Number.isFinite(t) || !Number.isFinite(f)) {
       throw new Error(`Bad data line: "${line.slice(0, 60)}"`);
@@ -477,6 +558,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
     }
     const mfr = attr('mfg') || 'EX';
     const data = Array.from(el.querySelectorAll('data > eng-data'));
+    if (data.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`Motor ${name}: ${EX_SAMPLE_LIMIT_NOTE}`); continue; }
     // Every point's time and thrust, or the motor is skipped with the point
     // named. Desktop refuses the file ("Illegal motor data point encountered");
     // a point read as 0 — `Number(null)` — put a zero-thrust dip in the curve,

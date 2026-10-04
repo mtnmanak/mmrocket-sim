@@ -30,7 +30,8 @@ import { statedWeightTextFor } from './unitText.js';
  * browser's custom presets as well as the shipped catalogue, and reads a
  * motor's curve from this browser's cache before the shipped bundle,
  * downloading what the bundle lacks. A headless run reads the bundled presets
- * and the bundled curves only (`network: 'forbid'`), so its answer does not
+ * and the bundled external curves (`network: 'forbid'`), plus this file's
+ * validated embedded EX snapshots without writing any browser library. Its answer does not
  * depend on which browser ran it; a motor the bundle cannot fly is reported
  * unloaded in the import note, as the app reports one it cannot download.
  * Catalogue rows are shipped too (2026-10-01): live dimensions change the
@@ -50,8 +51,8 @@ export interface SimulateFileOptions extends SimulateDesignOptions {
   /** The parts catalogue a file's parts link against. Default: the shipped presets only (`loadBundledPresets`). */
   presets?: readonly Preset[];
   /**
-   * 'forbid' (default): a motor's curve comes from the shipped bundle or not at
-   * all — no request is made, and this browser's curve cache is not read.
+   * 'forbid' (default): external curves come from the shipped bundle only;
+   * embedded EX snapshots come directly from the file. No request or cache read.
    * 'allow': the app's own path (cache, bundle, then thrustcurve.org).
    */
   network?: 'forbid' | 'allow';
