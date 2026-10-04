@@ -1471,6 +1471,9 @@ export function App() {
    * dismissals call.
    */
   const buildFailed = 'error' in buildResult;
+  // The legacy check changes on dismissal without changing components; a
+  // Rocket name edit preserves both inputs the notice rules read from tree.
+  const legacyPositionCheck = 'legacyPositionCheck' in tree ? tree.legacyPositionCheck : undefined;
   const notices = useMemo((): Notice[] => designNotices({
     error: buildError,
     buildFailed,
@@ -1493,9 +1496,10 @@ export function App() {
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
     legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
   }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
   [buildError, buildFailed, motorFailures, fileNoteState, setFileNote,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
-    tree, treeRef, writeTree, assigned, prefs.units.length]);
+    tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
