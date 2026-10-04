@@ -32,6 +32,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.158",
+    "date": "2026-10-04",
+    "title": "RASAero configurations keep their own weight; the base-drag note covers designs built in the app",
+    "items": [
+      "RASAERO FILES: EACH CONFIGURATION NOW FLIES ITS OWN WEIGHT. A .CDX1 file can state a launch weight and CG for each simulation, and where its numbers allow, the app backs the motor out to set the stage's mass and CG. Until now every configuration reused the numbers of the simulation the file opened on: switching to another configuration changed the motor but kept that simulation's structure. @Buckeye's Blue Iguana file, switched from its K250 simulation to its L1000 one, flew 4.119 kg where the file states 9.5 lb (4.309 kg), 4.4 % light. Each imported configuration now keeps its own stage mass and CG overrides and restores them when you switch, and an edit to those overrides stays with the configuration it was made in. Across the tester files (112 checked, all 68 .CDX1 among them), 58 configurations in 30 .CDX1 files now fly a different mass or CG; no .ork or .rkt configuration changes, and no file opens with a different mass or CG. If you switched configurations in a RASAero file, launch those configurations again. A design imported from .CDX1 and saved as .ork before this release kept only one configuration's numbers: open the original .CDX1 again to recover the others. Saving as .ork now keeps every configuration's stage mass and CG in an addition of the app's own; desktop OpenRocket skips it and uses the saved active configuration's values for every configuration. Found by scoring @Buckeye's flight data.",
+      "THE BASE-DRAG NOTE NOW COVERS DESIGNS BUILT IN THE APP. The note that a design may model the base-drag hack - a virtual aft cone that can move the center of pressure aft, so the app can show more stability margin than the rocket really has - appeared only when a file was opened. It is now rechecked each time the design is rebuilt after a change, and shown with the other design warnings, so a design built here or restored from the browser's autosave gets it too, and deleting the part clears it. It no longer appears a second time in the import note. It also recognizes two forms it missed: an aft cone named \"base cone\" (still only with a near-zero mass override or a near-zero wall, so a name alone never triggers it), and a pointed aft cone whose own mass is replaced by a mass override on a stage or parent part that covers all its parts, when the cone also has a zero drag override or a base-drag name. Of the 112 tester files, it now notes 2 - the two base-drag-hack designs @Buckeye found it missing on - where it noted none."
+    ]
+  },
+  {
     "version": "0.157",
     "date": "2026-10-04",
     "title": "Recovery weight follows the flight, bay fit checks packed length, and recovery offsets now fly; file preservation and Batch matching corrected",

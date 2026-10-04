@@ -1,5 +1,5 @@
 {
-  "version": "0.157",
+  "version": "0.158",
   "released": "2026-10-04",
-  "note": "Recovery weight follows the flight, bay fit checks packed length, and recovery offsets now fly; file preservation and Batch matching corrected."
+  "note": "RASAero configurations keep their own weight; the base-drag note covers designs built in the app."
 }
