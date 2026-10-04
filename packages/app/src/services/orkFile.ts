@@ -34,6 +34,7 @@ import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
 import { archiveExMotors, EX_MOTOR_ID_TAG, EX_MOTOR_NOTES_TAG, EX_MOTORS_TAG, readArchivedExMotors } from './exMotorArchive.js';
 import type { ExMotor } from './exMotors.js';
+import { checkLegacyPositions, currentPlacementStamp, legacyPositionCandidates, recordCurrentPlacement } from './legacyPositionCheck.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -1471,7 +1472,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // <airfoilsection>. normalizeTree runs the same pass again at every load
   // boundary (this path included, with nothing left to do).
   notes.push(...outsideTreeEnums.values());
-  const tree = sanitizeTree({ name, components }, notes);
+  const root = doc.documentElement;
+  // Historical writers stamped only their name; .ork's version="1.10" is
+  // the OpenRocket format, not the app version. Share links carry this XML too.
+  const appFile = root?.getAttribute('creator') === ORK_CREATOR
+    || root?.getAttribute('creator') === 'Online OpenRocket';
+  const importedTree = sanitizeTree({ name, components }, notes);
+  // Desktop/current imports retain their placement origin through autosave.
+  // A clean unknown file needs no XML stamp, but its checked state must follow
+  // future edits. Legacy writer versions never establish a clean origin.
+  const currentPlacement = !appFile || root?.getAttribute('mmrsim-placement') === 'current';
+  const tree = currentPlacement || !legacyPositionCandidates(importedTree).length
+    ? recordCurrentPlacement(importedTree)
+    : checkLegacyPositions(importedTree, appFile, notes);
 
   const storedSimulations = readStoredSimulations(simEls, notes);
   // Definitions stay document-local. Only an accepted, current open persists them.
@@ -3120,7 +3133,7 @@ export function exportOrk({
   };
 
   emit(0, "<?xml version='1.0' encoding='utf-8'?>");
-  emit(0, `<openrocket version="1.10" creator="${ORK_CREATOR}">`);
+  emit(0, `<openrocket version="1.10" creator="${ORK_CREATOR}"${currentPlacementStamp(tree)}>`);
   emit(1, '<rocket>');
   emit(2, `<name>${escapeXml(name)}</name>`);
   emit(2, `<id>${uuid()}</id>`);

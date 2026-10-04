@@ -22,6 +22,9 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/legacyPositionCheck.test.ts',
+  'src/services/legacyPositionCheck.round2.test.ts',
+  'src/services/legacyPositionCheck.round3.test.ts',
   'src/services/rasaeroConfigMass.test.tsx',
   'src/services/addComponent.test.ts',
   'src/services/baseDragImportNotes.test.ts',
