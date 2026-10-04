@@ -1,6 +1,6 @@
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
-import { railNeeded, railNeededCell, railNeededHeader } from './railNeeded.js';
+import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { sameStoredFlight } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
@@ -295,6 +295,12 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // would turn a real nonzero load into zero; retain the converted value.
   const loadPressure = (si: number | null | undefined): string | number =>
     si == null || !Number.isFinite(si) ? '' : u ? siToUi('pressure', u.pressure, si) : si;
+  const railExportCell = (r: SimRun, measure: 'rail' | 'travel'): string | number => {
+    if (r.importedSummary) return '';
+    const needed = railNeeded(r.railProfile, railThreshold);
+    return needed?.status === 'reached' ? cv('length', measure === 'travel' ? needed.travelM : needed.railM, 3)
+      : railNeededResultCell(needed, r.railProfile, sym('length', 'm'), measure);
+  };
   return [
   ['Designation', (r) => r.motor],
   ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
@@ -403,12 +409,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     (r) => cv('distance', r.densityAltitudeM)],
   ['Winds aloft (levels)', (r) => r.windLevels?.length ?? ''],
   // Append to preserve existing spreadsheet column positions.
-  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => {
-    if (r.importedSummary) return '';
-    const needed = railNeeded(r.railProfile, railThreshold);
-    return needed?.status === 'reached' ? cv('length', needed.railM, 3)
-      : railNeededCell(r.railProfile, railThreshold, sym('length', 'm'));
-  }],
+  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => railExportCell(r, 'rail')],
   [`Max dynamic pressure (${sym('pressure', 'Pa')})`, r => loadPressure(r.loads?.maxQ?.value)],
   ['Time at max Q (s)', r => round(r.loads?.maxQ?.time ?? null, 4)],
   [`Altitude at max Q (${sym('distance', 'm')})`, r => cv('distance', r.loads?.maxQ?.altitude)],
@@ -422,12 +423,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Hybrid band lower (Mach)', (r) => round(r.hybridBand?.[0] ?? null, 3)],
   ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
   // Append travel too, keeping all previously exported column positions stable.
-  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => {
-    if (r.importedSummary) return '';
-    const needed = railNeeded(r.railProfile, railThreshold);
-    return needed?.status === 'reached' ? cv('length', needed.travelM, 3)
-      : railNeededCell(r.railProfile, railThreshold, sym('length', 'm'), 'travel');
-  }],
+  [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => railExportCell(r, 'travel')],
   ];
 }
 
