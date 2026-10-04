@@ -43071,6 +43071,8 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 8:
                 $c = iocr_TubeCoupler__init_0();
+                $c.$setRadialPosition(a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                $c.$setRadialDirection(a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(936), 0.05));
                 $or = a_JsonLite_dbl($node, $rt_s(1610), NaN);
                 if (!(isNaN($or) ? 1 : 0))
@@ -43080,10 +43082,14 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 9:
                 $c = iocr_CenteringRing__init_0();
+                $c.$setRadialPosition(a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                $c.$setRadialDirection(a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(936), 0.002));
                 break b;
             case 10:
                 $c = iocr_Bulkhead__init_0();
+                $c.$setRadialPosition(a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                $c.$setRadialDirection(a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(936), 0.002));
                 $or = a_JsonLite_dbl($node, $rt_s(1610), NaN);
                 if (!(isNaN($or) ? 1 : 0))
@@ -43091,6 +43097,8 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 11:
                 $c = iocr_EngineBlock__init_0();
+                $c.$setRadialPosition(a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                $c.$setRadialDirection(a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 iocr_RingComponent_setLength($c, a_JsonLite_dbl($node, $rt_s(936), 0.005));
                 $or = a_JsonLite_dbl($node, $rt_s(1610), NaN);
                 if (!(isNaN($or) ? 1 : 0))
@@ -43131,6 +43139,8 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 14:
                 $c = iocr_Parachute__init_();
+                iocr_MassObject_setRadialPosition($c, a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                iocr_MassObject_setRadialDirection($c, a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 $c.$setDiameter0(a_JsonLite_dbl($node, $rt_s(1637), 0.3));
                 $cd = a_JsonLite_dbl($node, $rt_s(1638), NaN);
                 if (!(isNaN($cd) ? 1 : 0))
@@ -43155,6 +43165,8 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 15:
                 $c = iocr_Streamer__init_0();
+                iocr_MassObject_setRadialPosition($c, a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                iocr_MassObject_setRadialDirection($c, a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 $c.$setStripLength(a_JsonLite_dbl($node, $rt_s(1646), 0.5));
                 $c.$setStripWidth(a_JsonLite_dbl($node, $rt_s(1647), 0.05));
                 $cd = a_JsonLite_dbl($node, $rt_s(1638), NaN);
@@ -43171,6 +43183,8 @@ a_ComponentFactory_create = $node => {
                 break b;
             case 16:
                 $c = iocr_ShockCord__init_0();
+                iocr_MassObject_setRadialPosition($c, a_JsonLite_dbl($node, $rt_s(1624), 0.0));
+                iocr_MassObject_setRadialDirection($c, a_JsonLite_dbl($node, $rt_s(1625), 0.0));
                 $c.$setCordLength(a_JsonLite_dbl($node, $rt_s(1648), 0.3));
                 $cordLine = a_JsonLite_dbl($node, $rt_s(1644), NaN);
                 if (!(isNaN($cordLine) ? 1 : 0)) {

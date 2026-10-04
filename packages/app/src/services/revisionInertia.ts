@@ -4,6 +4,17 @@ import { num } from '../tree/nodeNum.js';
 
 const fins = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset']);
 const asymmetricParts = new Set(['fairing', 'protuberance', 'launchlug', 'railbutton']);
+// Plain rings retain their offset but fly on the centerline, as in desktop OpenRocket.
+const radialParts = new Set(['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord']);
+const recoveryParts = new Set(['parachute', 'streamer', 'shockcord']);
+
+/** Recovery offsets newly forwarded by the kernel bridge for audit K6. */
+export function hasRecoveryRadialOffset(tree: RocketTree): boolean {
+  const offset = (node: ComponentNode): boolean =>
+    (recoveryParts.has(node.type) && num(node, 'radialPosition', 0) !== 0)
+    || (node.children?.some(offset) ?? false);
+  return tree.components.some(offset);
+}
 
 /**
  * Conservative eligibility for the true-CG roll correction, evaluated on the
@@ -18,6 +29,8 @@ const asymmetricParts = new Set(['fairing', 'protuberance', 'launchlug', 'railbu
  * does not depend on the roll inertia at all — only the reported Ir does. The
  * saved-run revision for the true-CG roll inertia is gated on this, so v0.143
  * runs on uncanted designs are not sent back for a Launch that changes nothing.
+ * This gate applies only to roll-inertia changes: a sideways recovery offset
+ * also changes pitch/yaw inertia through RigidBody.rebase's Iyy without cant.
  */
 export function hasRollForcing(tree: RocketTree): boolean {
   const canted = (node: ComponentNode): boolean =>
@@ -28,7 +41,7 @@ export function hasRollForcing(tree: RocketTree): boolean {
 export function affectsRollInertia(tree: RocketTree): boolean {
   const affected = (node: ComponentNode): boolean => {
     if (node.type === 'podset' || node.type === 'parallelstage') return true;
-    if ((node.type === 'innertube' || node.type === 'masscomponent')
+    if (radialParts.has(node.type)
       && num(node, 'radialPosition', 0) !== 0) return true;
     if (num(node, 'radiusOffset', 0) !== 0) return true;
     if (asymmetricParts.has(node.type)) return true;

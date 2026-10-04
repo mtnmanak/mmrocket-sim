@@ -154,6 +154,33 @@ describe('ordered physics revision history', () => {
   });
 });
 
+describe('K6 recovery radial placement revision', () => {
+  it('stamps new runs with the recovery placement revision', () => {
+    expect(PHYSICS_REVISION).toBe('recovery-radial-mass-v6');
+  });
+
+  it.each((['parachute', 'streamer', 'shockcord'] as const).flatMap(type =>
+    [0, Math.PI / 2].map(radialDirection => ({ type, radialDirection }))))(
+    'flags v5 runs with offset $type at $radialDirection radians regardless of fin cant', ({ type, radialDirection }) => {
+      const old = { physicsRevision: 'pods-only-base-drag-v5' };
+      for (const crossSection of ['rounded', 'airfoil']) {
+        for (const radialPosition of [-0.015, 0, 0.015]) {
+          for (const cant of [-0.02, 0, 0.02]) {
+            const tree = treeWith({ type: 'bodytube', children: [
+              { type, radialPosition, radialDirection }, { type: 'freeformfinset', crossSection, cant },
+            ] });
+            const cur = { physicsRevisions: physicsRevisionsFor(tree) };
+            const missed = physicsRevisionsMissed(old, cur);
+            const affected = radialPosition !== 0;
+            expect(missed.map((r) => r.id)).toEqual(affected ? ['recovery-radial-mass-v6'] : []);
+            expect(physicsChangeLabels(missed)).toEqual(affected ? ['the recovery-part placement physics'] : []);
+            expect(physicsRevisionsMissed({ physicsRevision: PHYSICS_REVISION }, cur)).toEqual([]);
+          }
+        }
+      }
+    });
+});
+
 describe('v0.144 revisions: roll inertia, strap-on nozzle, pods-only base', () => {
   const fin = (cant: number): ComponentNode => ({ type: 'trapezoidfinset', finCount: 3, cant });
   const lug: ComponentNode = { type: 'launchlug' };

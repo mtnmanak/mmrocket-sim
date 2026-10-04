@@ -296,6 +296,8 @@ final class ComponentFactory {
             }
             case "tubecoupler": {
                 TubeCoupler tc = new TubeCoupler();
+                tc.setRadialPosition(dbl(node, "radialPosition", 0));
+                tc.setRadialDirection(dbl(node, "radialDirection", 0));
                 tc.setLength(dbl(node, "length", 0.05));
                 double or = dbl(node, "outerRadius", Double.NaN);
                 if (Double.isNaN(or)) {
@@ -316,6 +318,8 @@ final class ComponentFactory {
             }
             case "centeringring": {
                 CenteringRing ring = new CenteringRing();
+                ring.setRadialPosition(dbl(node, "radialPosition", 0));
+                ring.setRadialDirection(dbl(node, "radialDirection", 0));
                 ring.setLength(dbl(node, "length", 0.002));
                 // BOTH radii are set post-attach by applyPostAttachDimensions,
                 // and the centering ring is the ONE ring type whose OUTER radius
@@ -333,6 +337,8 @@ final class ComponentFactory {
             }
             case "bulkhead": {
                 Bulkhead b = new Bulkhead();
+                b.setRadialPosition(dbl(node, "radialPosition", 0));
+                b.setRadialDirection(dbl(node, "radialDirection", 0));
                 b.setLength(dbl(node, "length", 0.002));
                 double or = dbl(node, "outerRadius", Double.NaN);
                 if (!Double.isNaN(or)) {
@@ -343,6 +349,8 @@ final class ComponentFactory {
             }
             case "engineblock": {
                 EngineBlock eb = new EngineBlock();
+                eb.setRadialPosition(dbl(node, "radialPosition", 0));
+                eb.setRadialDirection(dbl(node, "radialDirection", 0));
                 eb.setLength(dbl(node, "length", 0.005));
                 double or = dbl(node, "outerRadius", Double.NaN);
                 if (!Double.isNaN(or)) {
@@ -441,6 +449,8 @@ final class ComponentFactory {
             }
             case "parachute": {
                 Parachute p = new Parachute();
+                p.setRadialPosition(dbl(node, "radialPosition", 0));
+                p.setRadialDirection(dbl(node, "radialDirection", 0));
                 p.setDiameter(dbl(node, "diameter", 0.3));
                 double cd = dbl(node, "cd", Double.NaN);
                 if (!Double.isNaN(cd)) {
@@ -464,6 +474,8 @@ final class ComponentFactory {
             }
             case "streamer": {
                 Streamer s = new Streamer();
+                s.setRadialPosition(dbl(node, "radialPosition", 0));
+                s.setRadialDirection(dbl(node, "radialDirection", 0));
                 s.setStripLength(dbl(node, "stripLength", 0.5));
                 s.setStripWidth(dbl(node, "stripWidth", 0.05));
                 double cd = dbl(node, "cd", Double.NaN);
@@ -481,6 +493,8 @@ final class ComponentFactory {
             }
             case "shockcord": {
                 ShockCord sc = new ShockCord();
+                sc.setRadialPosition(dbl(node, "radialPosition", 0));
+                sc.setRadialDirection(dbl(node, "radialDirection", 0));
                 sc.setCordLength(dbl(node, "cordLength", 0.3));
                 double cordLine = dbl(node, "lineDensity", Double.NaN);
                 if (!Double.isNaN(cordLine)) {

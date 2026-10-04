@@ -12,7 +12,7 @@ import { formatWarningText } from './simWarnings.js';
 import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { flightLoads, type FlightLoads } from './flightLoads.js';
-import { affectsRollInertia, hasRollForcing } from './revisionInertia.js';
+import { affectsRollInertia, hasRecoveryRadialOffset, hasRollForcing } from './revisionInertia.js';
 import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 
 /**
@@ -1133,6 +1133,10 @@ export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   { id: 'strap-on-nozzle-v4', description: 'strap-on nozzle', affectsTree: affectsStrapOnNozzle },
   // v0.144: a pods-only stage's base-drag credit spreads over the pods' bases.
   { id: 'pods-only-base-drag-v5', description: 'pods-only base-drag', affectsTree: affectsPodsOnlyBase },
+  // K6: the kernel bridge now forwards recovery-part radial placement.
+  // Sideways offsets change pitch/yaw inertia through RigidBody.rebase's Iyy,
+  // even without fin cant; conservatively flag every nonzero recovery offset.
+  { id: 'recovery-radial-mass-v6', description: 'recovery-part placement', affectsTree: hasRecoveryRadialOffset },
 ];
 export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
 

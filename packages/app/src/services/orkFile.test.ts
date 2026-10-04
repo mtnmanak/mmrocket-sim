@@ -3523,8 +3523,99 @@ it('S1a-8 warns about an inactive stage in a single configuration', () => {
 });
 
 describe('.ork radial placement fidelity', () => {
-  it.each(['parachute', 'streamer', 'shockcord', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock'])(
-    'keeps %s offsets through saving and names the simulation limit', (type) => {
+  const offsetTypes = ['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'] as const;
+  const ringTypes = ['tubecoupler', 'centeringring', 'bulkhead', 'engineblock'] as const;
+  // Relative comparisons allow kernel rounding without pinning Node-specific floats.
+  const relative = (actual: number, expected: number) => {
+    expect(Number.isFinite(actual)).toBe(true);
+    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-9);
+  };
+
+  async function offsetRocket(type: ComponentNode['type'], radius: number, angle = 0, ballast = false) {
+    const { OrkRocket } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const design: RocketTree = { components: [
+      { type: 'nosecone', length: 0.25, aftRadius: 0.049, thickness: 0.002 },
+      { type: 'bodytube', length: 0.9, outerRadius: 0.049, thickness: 0.0012, density: 950,
+        children: [
+          { type: 'freeformfinset', finCount: 4, thickness: 0.003, crossSection: 'rounded',
+            points: [[0, 0], [0.07, 0.09], [0.14, 0.09], [0.14, 0]] },
+          { type: 'innertube', id: 'mount', length: 0.2, outerRadius: 0.0155,
+            thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type, name: 'Offset part', overrideMass: 0.1, length: 0.02,
+            outerRadius: 0.01, innerRadius: 0.005, thickness: 0.001,
+            radialPosition: radius, radialDirection: angle },
+          ...(ballast ? [{ type: 'masscomponent' as const, mass: 0.1, radialPosition: 0.03 }] : []),
+        ] },
+    ] };
+    const imported = importOrk(exportOrk({ name: 'Radial placement', tree: design }));
+    const rocket = OrkRocket.buildTree(engineTree(imported.tree));
+    return { rocket, imported };
+  }
+
+  it.each(offsetTypes)(
+    'uses imported %s offsets in the kernel roll inertia about the radial CG', async (type) => {
+      const centre = (await offsetRocket(type, 0)).rocket.staticInfo();
+      const displaced = (await offsetRocket(type, 0.03)).rocket.staticInfo();
+      // Moving 0.1 kg by 30 mm shifts the whole-rocket radial CG by m*d/M.
+      // 5e-13 kg m^2 allows arithmetic rounding, well below this displacement.
+      const expected = 0.1 * 0.03 ** 2 * (1 - 0.1 / centre.massEmpty);
+      expect(displaced.rotationalInertiaEmpty - centre.rotationalInertiaEmpty).toBeCloseTo(expected, 12);
+      expect(displaced.massEmpty).toBeCloseTo(centre.massEmpty, 12);
+      expect(displaced.cg).toBeCloseTo(centre.cg, 12);
+
+      const aligned = (await offsetRocket(type, 0.03, 0, true)).rocket.staticInfo();
+      const opposed = (await offsetRocket(type, 0.03, Math.PI, true)).rocket.staticInfo();
+      // Opposing equal masses cancel the radial centroid; this also checks radians.
+      expect(opposed.rotationalInertiaEmpty - aligned.rotationalInertiaEmpty)
+        .toBeCloseTo(4 * 0.1 ** 2 * 0.03 ** 2 / aligned.massEmpty, 12);
+    },
+  );
+
+  it.each(ringTypes)('keeps imported %s mass on the centerline like desktop OpenRocket', async (type) => {
+    const centre = (await offsetRocket(type, 0, 0, true)).rocket.staticInfo();
+    for (const direction of [0, Math.PI / 2, Math.PI]) {
+      const displaced = (await offsetRocket(type, 0.03, direction, true)).rocket.staticInfo();
+      relative(displaced.massEmpty, centre.massEmpty);
+      relative(displaced.cg, centre.cg);
+      relative(displaced.rotationalInertiaEmpty, centre.rotationalInertiaEmpty);
+      relative(displaced.longitudinalInertiaEmpty, centre.longitudinalInertiaEmpty);
+    }
+  });
+
+  it.each([...offsetTypes, ...ringTypes])('flies imported %s with desktop radial-placement parity', async (type) => {
+    const fly = async (radius: number) => {
+      const { rocket, imported } = await offsetRocket(type, radius);
+      const mount = flatten(imported.tree.components).find(n => n.type === 'innertube')!;
+      rocket.setMotorById(mount.id!, {
+        designation: 'Radial29', diameter: 0.029, length: 0.2, cgX: 0.1, ejectionDelay: 8,
+        times: [0, 0.05, 1.9, 2], thrusts: [0, 160, 160, 0], masses: [0.35, 0.345, 0.155, 0.15],
+      });
+      const info = rocket.staticInfo();
+      const flight = rocket.simulate({ maxTime: 0.2, launchRodLength: 100,
+        windAverage: 0, windStdDeviation: 0, randomSeed: 42, series: 'full' });
+      expect(flight.series.time.length).toBeGreaterThan(2);
+      expect(flight.series.time[0]).toBeCloseTo(0, 12);
+      expect(flight.series['Ir']![0]).toBeCloseTo(info.rotationalInertia, 12);
+      return flight.series;
+    };
+    const centre = await fly(0), displaced = await fly(0.03);
+    expect(displaced.time).toEqual(centre.time);
+    for (let i = 0; i < centre.time.length; i++) {
+      relative(displaced.mass[i]!, centre.mass[i]!);
+      relative(displaced.cgLocation[i]!, centre.cgLocation[i]!);
+      if (ringTypes.some(ring => ring === type)) {
+        relative(displaced['Ir']![i]!, centre['Ir']![i]!);
+        relative(displaced['Il']![i]!, centre['Il']![i]!);
+      } else {
+        relative(displaced['Ir']![i]! - centre['Ir']![i]!,
+          0.1 * 0.03 ** 2 * (1 - 0.1 / centre.mass[i]!));
+      }
+    }
+  }, 30000);
+
+  it.each([...offsetTypes, ...ringTypes])(
+    'keeps %s offsets through saving and notes only centerline ring simulation', (type) => {
       const xml = '<openrocket><rocket><subcomponents><stage><subcomponents><bodytube><subcomponents>'
         + '<' + type + '><name>Offset part</name><radialposition>0.02</radialposition><radialdirection>90</radialdirection></' + type + '>'
         + '</subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
@@ -3532,13 +3623,17 @@ describe('.ork radial placement fidelity', () => {
       const node = flatten(result.tree.components).find(n => n.type === type)!;
       expect(node['radialPosition']).toBeCloseTo(0.02, 12);
       expect(node['radialDirection']).toBeCloseTo(Math.PI / 2, 12);
-      expect(result.notes.join(' ')).toMatch(/Offset part.*radial placement is kept.*simulates this part on the centerline/);
+      const expectedNotes = ringTypes.some(ring => ring === type)
+        ? ['“Offset part”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.']
+        : [];
+      expect(result.notes.filter(note => /centerline/.test(note))).toEqual(expectedNotes);
       const back = importOrk(exportOrk({ name: result.name, tree: result.tree }));
       const saved = flatten(back.tree.components).find(n => n.type === type)!;
       expect(saved['radialPosition']).toBeCloseTo(0.02, 12);
       expect(saved['radialDirection']).toBeCloseTo(Math.PI / 2, 12);
+      expect(back.notes.filter(note => /centerline/.test(note))).toEqual(expectedNotes);
       expect(importOrk(xml.replace('<radialposition>0.02', '<radialposition>0')).notes.join(' '))
-        .not.toMatch(/simulates this part on the centerline/);
+        .not.toMatch(/centerline/);
     },
   );
 });

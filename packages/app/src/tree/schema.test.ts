@@ -12,6 +12,17 @@ import { tabOutline } from '../services/finTemplate.js';
 const field = (type: string, key: string) =>
   (FIELDS[type as keyof typeof FIELDS] ?? []).find((f) => f.key === key);
 
+describe('radial placement fields for recovery parts and ballast', () => {
+  it.each(['parachute', 'streamer', 'shockcord', 'masscomponent'] as const)('exposes both %s placement fields using the inner-tube controls', (type) => {
+    for (const key of ['radialPosition', 'radialDirection']) {
+      expect(FIELDS[type].filter((f) => f.key === key)).toHaveLength(1);
+      expect(field(type, key)).toEqual(field('innertube', key));
+    }
+    expect(field(type, 'radialPosition')).toMatchObject({ label: 'Distance off centerline', unit: 'mm', smin: 0 });
+    expect(field(type, 'radialDirection')).toMatchObject({ label: 'Direction around body', unit: 'deg' });
+  });
+});
+
 /**
  * A NODE'S TYPE IS FILE TEXT (audit 2026-09-30). A restored session or a
  * hand-edited file can carry any string, and these three tables were plain

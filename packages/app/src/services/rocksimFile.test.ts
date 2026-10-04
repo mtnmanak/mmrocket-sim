@@ -1088,6 +1088,44 @@ describe('RockSim export → import round trip of the two override flags', () =>
   });
 });
 
+describe('.rkt radial offset save notes', () => {
+  const design = (children: ComponentNode[]) => ({
+    name: 'Radial offsets',
+    tree: { components: [{ type: 'stage', children: [{
+      type: 'bodytube', length: 0.4, outerRadius: 0.03, thickness: 0.001, children,
+    }] }] as ComponentNode[] },
+  });
+
+  it.each(['parachute', 'streamer', 'shockcord', 'masscomponent'] as const)(
+    'warns only for a nonzero %s radial offset without changing the XML', (type) => {
+      const centered = design([{ type, name: 'Offset part', radialPosition: 0 }]);
+      const xml = exportRkt(centered);
+      for (const radialPosition of [undefined, 0, 0.02, -0.02]) {
+        const notes: string[] = [];
+        const d = design([{ type, name: 'Offset part', radialPosition, radialDirection: Math.PI / 2 }]);
+        expect(exportRkt({ ...d, notes })).toBe(xml);
+        expect(notes).toEqual(radialPosition ? [expect.stringMatching(
+          /Radial offsets on “Offset part” are not saved in \.rkt;.*centerline.*change the flight.*\.ork/,
+        )] : []);
+      }
+    },
+  );
+
+  it('names all affected parts in one note and excludes saved inner-tube offsets', () => {
+    const notes: string[] = [];
+    exportRkt({ ...design([
+      { type: 'parachute', name: 'Main', radialPosition: 0.02 },
+      { type: 'streamer', name: 'Backup', radialPosition: 0.01 },
+      { type: 'shockcord', name: 'Cord', radialPosition: 0.01 },
+      { type: 'masscomponent', name: 'Ballast', radialPosition: 0.01 },
+      { type: 'innertube', name: 'Mount', radialPosition: 0.01 },
+    ]), notes });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('“Main”, “Backup”, “Cord”, “Ballast”');
+    expect(notes[0]).not.toContain('Mount');
+  });
+});
+
 /**
  * ".rkt HAS NO 'OVERRIDE FOR ALL SUBCOMPONENTS'" (review of the audit fixes,
  * 2026-10-01). A RockSim part's <KnownMass> and <KnownCG> are its own, so a

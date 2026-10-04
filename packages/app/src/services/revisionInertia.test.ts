@@ -1,8 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { affectsRollInertia } from './revisionInertia.js';
+import { affectsRollInertia, hasRecoveryRadialOffset } from './revisionInertia.js';
 
 const tree = (...components: ComponentNode[]): RocketTree => ({ components });
+
+describe('recovery radial placement revision eligibility', () => {
+  it.each(['parachute', 'streamer', 'shockcord'] as const)('finds nested %s offsets at either sign', (type) => {
+    for (const radialPosition of [-0.02, 0.02]) {
+      const t = tree({ type: 'stage', children: [{ type: 'bodytube', children: [
+        { type: 'masscomponent' }, { type, radialPosition },
+      ] }] });
+      const before = structuredClone(t);
+      expect(hasRecoveryRadialOffset(t)).toBe(true);
+      expect(hasRecoveryRadialOffset(tree({ type, radialPosition }))).toBe(true);
+      expect(t).toEqual(before);
+    }
+    expect(hasRecoveryRadialOffset(tree({ type }))).toBe(false);
+    expect(hasRecoveryRadialOffset(tree({ type, radialPosition: 0 }))).toBe(false);
+  });
+
+  it('excludes existing ballast and tube placement, rings, and empty trees', () => {
+    expect(hasRecoveryRadialOffset(tree())).toBe(false);
+    for (const type of ['masscomponent', 'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock'] as const) {
+      expect(hasRecoveryRadialOffset(tree({ type, radialPosition: 0.02 }))).toBe(false);
+    }
+  });
+});
 
 describe('saved-run roll inertia eligibility', () => {
   it('excludes purely axial designs, including ordinary symmetric fins', () => {
@@ -21,15 +44,20 @@ describe('saved-run roll inertia eligibility', () => {
     expect(affectsRollInertia(tree({ type, instanceCount: 2, radiusOffset: 0 }))).toBe(true);
   });
 
-  it.each(['innertube', 'masscomponent'] as const)('flags radial %s placement at either sign', (type) => {
+  it.each(['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'] as const)('flags radial %s placement at either sign', (type) => {
+    expect(affectsRollInertia(tree({ type, radialPosition: 0 }))).toBe(false);
+    expect(affectsRollInertia(tree({ type }))).toBe(false);
     for (const radialPosition of [-0.02, 0.02]) {
       expect(affectsRollInertia(tree({ type, radialPosition, motorMount: false }))).toBe(true);
     }
   });
 
-  it.each(['bodytube', 'nosecone', 'parachute', 'freeformfinset'] as const)(
+  it.each(['tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
+    'bodytube', 'nosecone', 'freeformfinset'] as const)(
     'ignores an inert radialPosition on %s', (type) => {
-      expect(affectsRollInertia(tree({ type, radialPosition: 0.02 }))).toBe(false);
+      for (const radialPosition of [-0.02, 0, 0.02]) {
+        expect(affectsRollInertia(tree({ type, radialPosition }))).toBe(false);
+      }
     });
 
   it('retains radial-reference flags on lowered geometry', () => {
