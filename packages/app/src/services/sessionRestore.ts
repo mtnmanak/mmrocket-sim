@@ -9,6 +9,7 @@ import type { DesignState } from './designDerivation.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { MeasuredFigures } from './orkFile.js';
 import type { SessionState } from './session.js';
+import { checkLegacyPositions } from './legacyPositionCheck.js';
 
 /**
  * A STORED SESSION, TURNED INTO THE DESIGN THE APP RESTORES (2026-10-01).
@@ -74,7 +75,8 @@ export function designStateFromSession(
     ...[session?.mountMotors, ...(session?.savedConfigs ?? []).map(c => c.motors)]
       .flatMap(m => Object.values(m ?? {}).flatMap(mm =>
         mm.padMassWeighedWith ? (parseSetIdentity(mm.padMassWeighedWith) ?? []).map(([id]) => id) : []))]);
-  const before = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
+  const storedTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes, { preserveAbsolutePositions: true });
+  const before = normalizeTree(checkLegacyPositions(storedTree, session !== null, restoreNotes), restoreNotes);
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
   const tree = migrateMotorLengths(before, limits);
   const defaultMountId = session?.mountId ?? motorMounts(tree)[0]?.id;

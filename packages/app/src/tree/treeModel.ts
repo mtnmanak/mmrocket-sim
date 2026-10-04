@@ -22,6 +22,7 @@
 // engineTree back out for, and it would not be a cheap split anyway:
 // bodyDragReference and engineTree call each other.
 import { OrkRocket } from '@online-openrocket/engine';
+import { recordCurrentPlacement } from '../services/legacyPositionCheck.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, positionOf, resolveAbsolutePositions } from './position.js';
 import { defaultParams, DISPLAY_NAME, FIELDS, type EditorComponentType } from './schema.js';
@@ -98,10 +99,14 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
  * the limits table in schema.ts. The importers run it first with their own
  * notes; session restore collects its repairs here for the same load notice.
  */
-export function normalizeTree(tree: RocketTree, notes?: string[]): RocketTree {
+export function normalizeTree(
+  tree: RocketTree, notes?: string[], options?: { preserveAbsolutePositions?: boolean },
+): RocketTree {
   tree = repairTreeShape(tree, notes);
   reseedIds(tree);
-  tree = sanitizeTree(resolveAbsolutePositions(tree), notes);
+  // A load-time historical placement check needs the stored absolute fields
+  // after shape validation, before today's equivalent top-offset conversion.
+  tree = sanitizeTree(options?.preserveAbsolutePositions ? tree : resolveAbsolutePositions(tree), notes);
   if (tree.components.length === 0) {
     return { ...tree, components: [makeStage('Sustainer')] };
   }
@@ -2071,7 +2076,7 @@ export function isOnLaunchStage(tree: RocketTree, id: string): boolean {
 
 /** A blank design — one empty stage — for starting from scratch. */
 export function emptyTree(): RocketTree {
-  return { name: 'New Rocket', components: [makeStage('Sustainer')] };
+  return recordCurrentPlacement({ name: 'New Rocket', components: [makeStage('Sustainer')] });
 }
 
 /** The default (reference) rocket as a tree. */
@@ -2081,10 +2086,10 @@ export function defaultTree(): RocketTree {
   const fins = makeNode('trapezoidfinset');
   const mount = makeNode('innertube');
   const chute = makeNode('parachute');
-  return normalizeTree({
+  return recordCurrentPlacement(normalizeTree({
     name: 'My Rocket',
     components: [nose, { ...body, children: [fins, mount, chute] } as ComponentNode],
-  });
+  }));
 }
 
 /**

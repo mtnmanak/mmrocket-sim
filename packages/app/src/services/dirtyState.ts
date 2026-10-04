@@ -75,8 +75,12 @@ export function stableJson(value: unknown): string {
 
 /** A short, stable mark for a design. Same design in, same string out. */
 export function designFingerprint(s: DesignSnapshot): string {
+  // This placement bookkeeping is not a user edit. Showing or dismissing a
+  // check must not mark a saved file dirty or prevent the existing restore
+  // migrations from matching its mark.
+  const { legacyPositionCheck: _check, ...fileTree } = s.tree as RocketTree & { legacyPositionCheck?: unknown };
   return shortHash(stableJson([
-    s.tree,
+    fileTree,
     s.mountMotors,
     s.launch,
     s.maxMotorLengthByStage ?? {},

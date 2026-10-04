@@ -5,6 +5,7 @@ import { nozzleOversize, nozzleOversizeText } from './nozzleCheck.js';
 import { fmtStepS } from './orkFile.js';
 import { runCapNote } from './simStore.js';
 import { isImpulseNote } from './thrustcurve.js';
+import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from './legacyPositionCheck.js';
 
 /**
  * EVERYTHING TRANSIENT THE USER SHOULD SEE, in one channel with a severity —
@@ -60,6 +61,7 @@ export interface NoticeInput {
 
 /** What each dismissible notice's × does. */
 export interface NoticeDismissers {
+  legacyPositions?(): void;
   simError(): void;
   staleSession(): void;
   timeStep(): void;
@@ -112,6 +114,10 @@ export function curveNotes(assigned: NoticeInput['assigned']): { id: string; tex
 
 export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): Notice[] {
   const out: Notice[] = [];
+  const positionNote = legacyPositionNote(pendingLegacyPositions(input.tree));
+  if (positionNote) {
+    out.push({ id: 'legacy-positions', severity: 'warn', text: positionNote, onDismiss: dismiss.legacyPositions });
+  }
   if (input.error) {
     // Dismissible ONLY when it came from a flight. A BUILD error is a
     // standing fact about the design on screen — it comes straight back on
@@ -198,11 +204,15 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
       text: nozzleOversizeText(w, input.lengthText),
     });
   }
-  if (input.fileNote) {
+  // Load services also return the note for non-UI callers. On screen it has
+  // its own live entry, so saves cannot overwrite it and edits cannot leave a
+  // stale copy in the file banner. All other import/restore notes stay intact.
+  const fileText = input.fileNote?.text.split('\n').filter(line => !isLegacyPositionNote(line)).join('\n');
+  if (input.fileNote && fileText) {
     out.push({
       id: 'file-note',
       severity: input.fileNote.severity,
-      text: input.fileNote.text,
+      text: fileText,
       onDismiss: dismiss.fileNote,
     });
   }

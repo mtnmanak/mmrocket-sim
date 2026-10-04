@@ -23,6 +23,44 @@ import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
 import { addRuns, loadRuns } from './services/simStore.js';
 
+it('legacy position notice stays through Save and dismissal survives autosave reload', async () => {
+  const tree = { name: 'Position review', components: [{ type: 'stage', id: 's', children: [
+    { type: 'bodytube', id: 'body', length: 1, outerRadius: 0.03, children: [
+      { type: 'podset', id: 'pod', name: 'Side pod', position: { method: 'top', offset: 0 }, children: [
+        { type: 'nosecone', id: 'nose', length: 0.1, aftRadius: 0.01 },
+        { type: 'bodytube', id: 'tube', name: 'Pod tube', length: 0.2, outerRadius: 0.01, children: [
+          { type: 'masscomponent', id: 'weight', name: 'Pod weight', length: 0.02,
+            position: { method: 'top', offset: 0.06 } },
+        ] },
+      ] },
+    ] },
+  ] }] };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS,
+    appVersion: APP_VERSION, savedAt: Date.now() }));
+  const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+  const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  try {
+    let host = await mountApp();
+    const candidates = () => [...host.querySelectorAll('.notice-list li')]
+      .filter(li => li.textContent?.includes('Possible pre-v0.138'));
+    expect(candidates()).toHaveLength(1);
+    expect(candidates()[0]!.textContent).toContain('Pod weight');
+    expect(candidates()[0]!.textContent).not.toContain('Pod tube');
+    await act(async () => { button(host, 'Save As / Export').click(); });
+    await act(async () => { button(host, 'Save .ork — OpenRocket design').click(); });
+    await settle(50);
+    expect(candidates()).toHaveLength(1);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed position review');
+    await act(async () => { candidates()[0]!.querySelector<HTMLButtonElement>('button')!.click(); });
+    expect(candidates()).toHaveLength(0);
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(candidates()).toHaveLength(0);
+    await unmountAll();
+    host = await mountApp();
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('Possible pre-v0.138');
+  } finally { made.mockRestore(); revoked.mockRestore(); }
+}, 30000);
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 describe('per-mount maximum motor length', () => {

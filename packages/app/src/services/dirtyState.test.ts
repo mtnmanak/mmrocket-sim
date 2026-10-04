@@ -25,6 +25,16 @@ const base = (): DesignSnapshot => ({
 });
 
 describe('designFingerprint', () => {
+  it('ignores only the autosave position acknowledgement, while still noticing component edits', () => {
+    const snapshot = base();
+    const saved = designFingerprint(snapshot);
+    Object.assign(snapshot.tree, { legacyPositionCheck: { pending: ['bt'] } });
+    expect(designFingerprint(snapshot)).toBe(saved);
+    Object.assign(snapshot.tree, { legacyPositionCheck: { pending: [] } });
+    expect(designFingerprint(snapshot)).toBe(saved);
+    snapshot.tree.components[0]!.children![1]!.position = { method: 'top', offset: 0.1 };
+    expect(designFingerprint(snapshot)).not.toBe(saved);
+  });
   it('is the same for an identical snapshot', () => {
     expect(designFingerprint(base())).toBe(designFingerprint(base()));
   });

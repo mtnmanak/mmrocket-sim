@@ -133,6 +133,7 @@ import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
+import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
   dropPadMass, legacyPadMassWrite, restoredPadMassNote, type PadMassText,
 } from './services/padMassReconcile.js';
@@ -333,9 +334,9 @@ export function App() {
         return old.stageMassOverrides ? { ...rest, stageMassOverrides: old.stageMassOverrides } : rest;
       }));
     },
-    onRestore: (t) => {
+    onRestore: (t): RocketTree => {
       restoreNozzleFollow(t);
-      return spendSpentMarks.current(t);
+      return preserveLegacyPositionCheck(spendSpentMarks.current(t), treeRef.current);
     },
     blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,
   });
@@ -1490,11 +1491,11 @@ export function App() {
     padMassNote: () => setPadMassNote(null),
     fileNote: () => setFileNote(null),
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
+    legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
   }),
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
   [buildError, buildFailed, motorFailures, fileNoteState, setFileNote,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
-    tree.components, assigned, prefs.units.length]);
+    tree, treeRef, writeTree, assigned, prefs.units.length]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
