@@ -56,15 +56,17 @@ describe('a printable solid must actually be a solid', () => {
   });
 
   it('never returns the self-intersected volume a negative shoulder wall used to give', async () => {
-    const got = await componentSolid(
-      nose({ aftShoulderLength: 0.02, aftShoulderRadius: 0.024, aftShoulderThickness: -0.005 }), ctx);
-    // Either it declines, or it returns a real positive watertight volume. What
-    // it must NOT do is hand back the 8.3543e-6 m^3 self-intersected solid.
-    if (got) {
-      expect(solidVolume(got.mesh)).toBeGreaterThan(0);
-      expect(isWatertight(got.mesh)).toBe(true);
-      expect(Math.abs(solidVolume(got.mesh) - 8.3543e-6)).toBeGreaterThan(1e-7);
-    }
+    const part = nose({ shoulderLength: 0.02, shoulderRadius: 0.024, shoulderThickness: -0.005 });
+    const loop = componentLoop(part, ctx)!;
+    expect(loop).not.toBeNull();
+    expect(loop.loop).not.toEqual(componentLoop(nose(), ctx)!.loop);
+    const got = await componentSolid(part, ctx);
+    const clamped = await componentSolid(nose({ shoulderLength: 0.02, shoulderRadius: 0.024, shoulderThickness: 0 }), ctx);
+    expect(got).not.toBeNull();
+    expect(clamped).not.toBeNull();
+    expect(solidVolume(got!.mesh)).toBeGreaterThan(0);
+    expect(isWatertight(got!.mesh)).toBe(true);
+    expect(solidVolume(got!.mesh)).toBeCloseTo(solidVolume(clamped!.mesh), 12);
   });
 });
 

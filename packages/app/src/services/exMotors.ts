@@ -418,7 +418,7 @@ function rseSampleMassesKg(
     if (masses.every((m) => m >= low * 0.99 && m <= high * 1.01)) {
       return masses.map((m) => (m + (propellant ? initG - propG : 0)) / 1000);
     }
-    notes?.push(`${name}: its per-point masses fall outside ${low}–${high} g, contradicting its `
+    notes?.push(`${name}: its per-point masses fall outside ${Number(low.toFixed(3))}–${Number(high.toFixed(3))} g, contradicting its `
       + 'loaded/propellant masses, so burn-off is spread in proportion to impulse instead.');
     return undefined;
   }

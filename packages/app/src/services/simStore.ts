@@ -370,7 +370,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [`Altitude at deployment (${sym('distance', 'm')})`, (r) => cv('distance', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
-    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
+    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? d.velocityAtDeployment!.toFixed(1) : '?'}m/s descent ${Number.isFinite(d.descentRate) ? d.descentRate!.toFixed(1) : '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
     .join('; ')],
   [`Drogue descent rate (${sym('velocity', 'm/s')})`, (r) => {
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);

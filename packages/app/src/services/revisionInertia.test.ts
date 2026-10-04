@@ -27,6 +27,11 @@ describe('saved-run roll inertia eligibility', () => {
     }
   });
 
+  it.each(['bodytube', 'nosecone', 'parachute', 'freeformfinset'] as const)(
+    'ignores an inert radialPosition on %s', (type) => {
+      expect(affectsRollInertia(tree({ type, radialPosition: 0.02 }))).toBe(false);
+    });
+
   it('retains radial-reference flags on lowered geometry', () => {
     expect(affectsRollInertia(tree({ type: 'bodytube', radiusOffset: 0.01 }))).toBe(true);
   });

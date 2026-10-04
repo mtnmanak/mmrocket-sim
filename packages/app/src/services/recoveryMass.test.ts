@@ -844,7 +844,7 @@ it.each(['empty', 'never', 'launch'] as const)('ROUND2 S7b-1: upperignition uses
   const tree = twoStage();
   tree.components[1]!['separationEvent'] = 'upperignition';
   // The booster's lit motor must not stand in for a missing upper ignition.
-  const motors = upper === 'empty' ? { m2: C6() } : { m1: { ...C6(), ejectionDelay: Infinity }, m2: C6() };
+  const motors: Record<string, MotorSpec> = upper === 'empty' ? { m2: C6() } : { m1: { ...C6(), ejectionDelay: Infinity }, m2: C6() };
   const { answer } = await onKernel(tree, motors, upper === 'empty' ? {} : { m1: upper });
   expect(answer.state).toBe(upper === 'launch' ? 'ok' : 'unavailable');
   if (answer.state === 'unavailable') expect(answer.reason).toContain('upperignition separation cannot fire');

@@ -59,6 +59,16 @@ describe('storage hardening: run array entries', () => {
     expect(deploymentVerdict(loaded[0]!)).toBe(false);
   });
 
+  it.each([null, undefined, '5', {}, NaN, Infinity])('exports unavailable deployment speeds (%j)', (speed) => {
+    const deployment = { device: 'Main', time: 6, velocityAtDeployment: speed, descentRate: speed, isLanding: true };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...mkRun('kept'), deployments: [deployment, { ...deployment, device: 'Drogue', velocityAtDeployment: 35, descentRate: 5 }] },
+    ]));
+    const csv = runsToCsv(loadRuns());
+    expect(csv).toContain('Main@6.0s opens ?m/s descent ?m/s');
+    expect(csv).toContain('Drogue@6.0s opens 35.0m/s descent 5.0m/s');
+  });
+
   it('keeps valid entries and rows while dropping non-object entries, including nested deployments', () => {
     const deployment = { device: 'Main', time: 6, velocityAtDeployment: 35, descentRate: 5, isLanding: true };
     const branch = { name: 'Booster', deployments: [null, false, [], deployment] };

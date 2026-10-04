@@ -866,7 +866,7 @@ describe('applied weather in the Launch panel', () => {
 
   it('says where the numbers came from, credits Open-Meteo and GeoNames, and is not a caution', () => {
     renderWeather(APPLIED, SNAP);
-    expect(strip()!.getAttribute('role')).toBe('status');
+    expect(strip()!.getAttribute('role')).toBeNull();
     // Both dates in one format — "Sep", never en-GB's "Sept" — and no year
     // on a forecast. (The fetch date is in the browser's zone: 18:00 UTC is
     // the 22nd from UTC−12 to UTC+5.)
@@ -876,6 +876,44 @@ describe('applied weather in the Launch panel', () => {
     expect(strip()!.classList.contains('field-caution')).toBe(false);
     expect(host.querySelector('.field-caution')).toBeNull();
     expect(host.querySelector('[data-weather="stale"]')).toBeNull();
+  });
+
+  it('keeps inline text-only status nodes stable and actions in visual order', () => {
+    renderWeather(DEFAULT_CONDITIONS, null);
+    const status = host.querySelector('[data-weather="status"]')!;
+    expect(status).not.toBeNull();
+    const wrapper = status.parentElement!;
+    const staleSlot = wrapper.querySelector('[data-weather-slot="stale"]')!;
+    const staleStatus = staleSlot.querySelector('[role="status"]')!;
+    const stable = () => {
+      expect(host.querySelector('[data-weather="status"]')).toBe(status);
+      expect(wrapper.querySelector('[data-weather-slot="stale"] > [role="status"]')).toBe(staleStatus);
+      expect(wrapper.querySelectorAll('[data-weather-slot]')).toHaveLength(1);
+      expect(staleSlot.tagName).toBe('DIV');
+      for (const live of [status, staleStatus]) {
+        expect(live.getAttribute('role')).toBe('status');
+        expect(live.querySelector('button, a')).toBeNull();
+      }
+    };
+    expect(status.tagName).toBe('SPAN');
+    expect(staleStatus).not.toBeNull();
+    expect(wrapper.textContent).toBe('');
+    stable();
+    renderWeather(APPLIED, SNAP);
+    stable();
+    expect(status.textContent).toContain('Forecast for Gerlach');
+    expect(staleStatus.textContent).toBe('');
+    renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
+    stable();
+    expect(staleStatus.textContent).toContain('Site altitude is now 1,524 m.');
+    const stale = host.querySelector('[data-weather="stale"]')!;
+    expect(stale.textContent).toMatch(/^These came from.*Fetch again/);
+    expect(btn('Undo')!.compareDocumentPosition(stale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status.textContent).not.toMatch(/Undo|Dismiss|Fetch again|Clear both|Open-Meteo|GeoNames/);
+    renderWeather(APPLIED, null);
+    stable();
+    expect(wrapper.textContent).toBe('');
+    expect([...wrapper.childNodes].some((n) => n.nodeType === Node.TEXT_NODE)).toBe(false);
   });
 
   it('marks each field the weather set, and what the forecast said once it is edited', () => {

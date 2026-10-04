@@ -625,6 +625,7 @@ describe('B6 scaled freeform outlines are checked before Apply', () => {
     expect(applied).toBeNull();
     type(numberInputs()[0]!, '2');
     expect(applyButton().disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
     act(() => applyButton().click());
     expect(applied).not.toBeNull();
   });

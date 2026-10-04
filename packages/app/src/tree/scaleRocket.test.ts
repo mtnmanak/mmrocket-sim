@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
 import {
-  maxBodyDiameter, mountBore, previewMounts, rocketLength, scaleRocket,
+  maxBodyDiameter, mountBore, previewMounts, rocketLength, scaleRocket, scaledFinProblems,
 } from './scaleRocket.js';
 import { engineTree, findNode } from './treeModel.js';
 import { axialLength, startFromPosition } from './position.js';
@@ -1444,4 +1444,15 @@ it('B6 scales the implicit freeform outline as well as its thickness', () => {
   const scaled = findNode(scaleRocket(t, 2).tree, 'ff')!;
   expect(scaled['points']).toEqual([[0, 0], [0.05, 0.1], [0.15, 0.1], [0.1, 0]]);
   expect(findNode(t, 'ff')!['points']).toBeUndefined();
+});
+
+it('only attributes newly introduced freeform problems to scaling', () => {
+  const t = kitchenSink();
+  const fin = findNode(t, 'ff')!;
+  fin['points'] = [[0, 0], [3, 1], [3.2, 0]];
+  expect(scaledFinProblems(t, 1.1)).toEqual([]);
+  expect(scaledFinProblems(t, 0.5)).toEqual([]);
+  fin['points'] = [[0, 0], [1.3, 0.5], [1.35, 1], [1.5, 0]];
+  expect(scaledFinProblems(t, 2).join(' ')).toContain('2.5 m');
+  expect(scaledFinProblems(t, 1.1)).toEqual([]);
 });

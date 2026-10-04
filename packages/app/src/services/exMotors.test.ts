@@ -91,6 +91,20 @@ describe('B5b EX motor regressions', () => {
     expect(parseRse(xml([100, 75, 49.6]))[0]!.sampleMassesKg).toEqual([0.1, 0.075, 0.0496]);
   });
 
+  it.each([9.9, 9.8505])('keeps total masses at a rounded dry-case boundary (%s g)', (last) => {
+    const notes: string[] = [];
+    const m = parseRse(xml([100, 95, last]).replace('propWt="50"', 'propWt="90.1"'), notes)[0]!;
+    [0.1, 0.095, last / 1000].forEach((mass, i) => expect(m.sampleMassesKg?.[i]).toBeCloseTo(mass, 12));
+    expect(notes).toEqual([]);
+  });
+
+  it('formats the dry-case boundary without subtraction noise when rejecting masses', () => {
+    const notes: string[] = [];
+    expect(parseRse(xml([100, 95, 1]).replace('propWt="50"', 'propWt="90.1"'), notes)[0]!.sampleMassesKg).toBeUndefined();
+    expect(notes.join(' ')).toContain('9.9\u2013100 g');
+    expect(notes.join(' ')).not.toContain('9.900000000000006');
+  });
+
   it('S1c-6 lists the same impulse and class that a repaired late-start curve flies', async () => {
     for (const auto of ['0', '1']) {
       for (const times of [[1, 2], [2, 1, 3]]) {

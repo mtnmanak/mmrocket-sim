@@ -549,19 +549,22 @@ const round = (x: number, places = 12): number => {
   return Math.round(x * p) / p;
 };
 
-/** Refuse a scale whose freeform outline would fail or be silently clamped. */
+/** Refuse newly introduced freeform failures or silent clamps. */
 export function scaledFinProblems(tree: RocketTree, factor: number): string[] {
   const problems: string[] = [];
   const visit = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       if (n.type === 'freeformfinset') {
-        const points = scaleNode(n, factor)['points'] as FinOutlinePoint[];
-        let why = finOutlineProblem(points);
-        const [x0, y0] = points[0] ?? [0, 0];
-        const relative = points.map(([x, y]): FinOutlinePoint => [x - x0, y - y0]);
-        if (!why && kernelFinPoints(relative).some(([x, y], i) => x !== relative[i]![0] || y !== relative[i]![1])) {
-          why = 'The simulator would change this outline at its 2.5 m limit.';
-        }
+        const problem = (points: FinOutlinePoint[]) => {
+          const invalid = finOutlineProblem(points);
+          if (invalid) return invalid;
+          const [x0, y0] = points[0] ?? [0, 0];
+          const relative = points.map(([x, y]): FinOutlinePoint => [x - x0, y - y0]);
+          return kernelFinPoints(relative).some(([x, y], i) => x !== relative[i]![0] || y !== relative[i]![1])
+            ? 'The simulator would change this outline at its 2.5 m limit.' : null;
+        };
+        const before = problem(scaleNode(n, 1)['points'] as FinOutlinePoint[]);
+        const why = before ? null : problem(scaleNode(n, factor)['points'] as FinOutlinePoint[]);
         if (why) problems.push(`Fin set “${n.name ?? 'Freeform fins'}”: ${why} Choose a smaller factor or edit the outline.`);
       }
       visit(n.children ?? []);

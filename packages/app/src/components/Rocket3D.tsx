@@ -527,8 +527,32 @@ export function Rocket3D({ tree, info, motors, exportData, onError }: {
         // A name for the canvas (audit 2026-09-22): a screen reader met an
         // unlabelled canvas here. R3F spreads HTML props onto its wrapper div,
         // so the role and name land on the element that holds the <canvas>.
-        role="img"
-        aria-label="3D view of the rocket. Drag to rotate, scroll to zoom; the Reset, Side and Aft buttons above move the camera."
+        role="application"
+        tabIndex={0}
+        aria-label="3D view of the rocket. Arrow keys rotate, Shift with arrow keys pans, plus and minus zoom. Drag to rotate, scroll to zoom; the Reset, Side and Aft buttons above move the camera."
+        onKeyDown={(event) => {
+          const c = controls.current;
+          const camera = r3f.current?.camera;
+          if (!c || !camera || event.altKey || event.ctrlKey || event.metaKey) return;
+          const horizontal = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+          const vertical = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+          if (horizontal || vertical) {
+            if (event.shiftKey) {
+              const step = camera.position.distanceTo(c.target) * 0.05;
+              const delta = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0).multiplyScalar(horizontal * step)
+                .addScaledVector(new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1), -vertical * step);
+              camera.position.add(delta);
+              c.target.add(delta);
+            } else {
+              c.setAzimuthalAngle(c.getAzimuthalAngle() + horizontal * Math.PI / 18);
+              c.setPolarAngle(c.getPolarAngle() + vertical * Math.PI / 18);
+            }
+          } else if (event.key === '+' || event.key === '=') c.dollyIn();
+          else if (event.key === '-') c.dollyOut();
+          else return;
+          event.preventDefault();
+          c.update();
+        }}
         onCreated={(state) => { r3f.current = { gl: state.gl, scene: state.scene, camera: state.camera }; }}>
         {/* Soft studio setup (S5): warm-neutral key, cool fill, low rim —
             subtle and blueprint-serious, no shadows or environment maps. */}
@@ -616,7 +640,7 @@ export function Rocket3D({ tree, info, motors, exportData, onError }: {
           minDistance={camDist * 0.12} maxDistance={camDist * 5} />
       </Canvas>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0', textAlign: 'center' }}>
-        drag to rotate · scroll to zoom
+        drag to rotate · scroll to zoom · focus view: arrows rotate · Shift + arrows pan · + / − zoom
         {/* The legend goes with the markers — a key for dots nobody is drawing
             is worse than no key. */}
         {markers.axis && (

@@ -685,7 +685,7 @@ it.each(['auto', 'eb'] as const)('S3a-9: finished %s badges follow the flown mod
     nozzleStages: [{ stageId: 'st0', stageName: 'Sustainer', exitDiameterM: 0.01 }] });
   sweep.mockResolvedValue({ rows: [flown], stopped: false });
   mount({ mounts: [...MOUNTS, { ...MOUNTS[0]!, id: 'other', label: 'Other mount' }],
-    weighed: { mountId: 'mount', identity: 'Acme/C6', pinned: false, name: 'C6', perMotorShiftKg: 0.01 } });
+    weighed: { mountId: 'mount', identity: 'Acme/C6', pinned: false, name: 'C6', perMotorShiftKg: 0.01, deltaKg: 0.01 } });
   const select = (value: string) => [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === value))!;
   const pick = (el: HTMLSelectElement, value: string) => act(() => { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); });
   pick(select('eb'), model);

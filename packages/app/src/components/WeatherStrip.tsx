@@ -23,7 +23,7 @@ import { altitudeText, fieldText, showsYear, sourceHeading, sourceWord } from '.
  * follows it — and applies neither by itself.
  */
 export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain, onChange }: {
-  weather: WeatherSnapshot;
+  weather: WeatherSnapshot | null | undefined;
   launch: LaunchConditions;
   onUndo: () => void;
   onDismiss: () => void;
@@ -36,31 +36,39 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   // 2026-09-23: it was the one way into the dialog that stayed live offline).
   const online = useOnline();
   const alt = (m: number) => altitudeText(prefs.units.distance, m);
-  const stale = staleness(launch, weather);
+  const stale = weather ? staleness(launch, weather) : null;
   // Both dates in ONE format (formatDay), and both with their year for an
   // ERA5 answer: the valid time in the site's zone, the fetch in yours.
-  const year = showsYear(weather.endpoint);
-  const fetchedText = formatDay(Date.parse(weather.retrievedAt), undefined, year);
+  const year = weather ? showsYear(weather.endpoint) : false;
+  const fetchedText = weather ? formatDay(Date.parse(weather.retrievedAt), undefined, year) : '';
   return (
-    <div className="weather-strip" role="status" data-weather="strip">
-      {sourceHeading(weather.endpoint)}{' '}
-      <strong>{weatherPlaceLabel(weather.place)}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
-      {' '}
-      {/* Undo takes back a σ the gust chip worked out from this weather too
-          (weatherSnapshot.sigmaEstimate); Dismiss keeps every value, σ
-          included, and drops only the notes — the chip's goes with the rest. */}
-      <button type="button" className="file-btn" onClick={onUndo}
-        title={'Put back what the applied fields held, and Wind gusts σ if you took the estimate — '
-          + 'any you have edited since stay as they are'}>Undo</button>
-      {' '}
-      <button type="button" className="file-btn file-btn-ghost" onClick={onDismiss}
-        title="Keep every value, an estimated Wind gusts σ included, and stop showing where they came from">Dismiss</button>
-      {' — '}
-      <WeatherCredit geoNames={weather.place.method === 'search'} />
-      {stale && (
-        <p className="weather-stale" data-weather="stale">
+    <div className={weather ? 'weather-strip' : undefined} data-weather={weather ? 'strip' : undefined}>
+      <span role="status" data-weather="status">
+        {weather && <>
+          {sourceHeading(weather.endpoint)}{' '}
+          <strong>{weatherPlaceLabel(weather.place)}</strong> · {formatValidTime(weather.validUnix, weather.timezone, year)} · fetched {fetchedText}
+        </>}
+      </span>
+      {weather && <>
+        {' '}
+        {/* Undo takes back a σ the gust chip worked out from this weather too
+            (weatherSnapshot.sigmaEstimate); Dismiss keeps every value, σ
+            included, and drops only the notes — the chip's goes with the rest. */}
+        <button type="button" className="file-btn" onClick={onUndo}
+          title={'Put back what the applied fields held, and Wind gusts σ if you took the estimate — '
+            + 'any you have edited since stay as they are'}>Undo</button>
+        {' '}
+        <button type="button" className="file-btn file-btn-ghost" onClick={onDismiss}
+          title="Keep every value, an estimated Wind gusts σ included, and stop showing where they came from">Dismiss</button>
+        {' — '}
+        <WeatherCredit geoNames={weather.place.method === 'search'} />
+      </>}
+      <div className={stale ? 'weather-stale' : undefined} data-weather={stale ? 'stale' : undefined} data-weather-slot="stale">
+        <span role="status">{stale && weather && <>
           These came from the {sourceWord(weather.endpoint)} for {alt(stale.forAltitudeM)}; Site altitude is
           now {alt(stale.nowAltitudeM)}.
+        </>}</span>
+        {stale && <>
           {' '}
           {onFetchAgain && (
             <button type="button" className="file-btn" onClick={onFetchAgain} disabled={!online}
@@ -71,8 +79,8 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
             onClick={() => onChange({ ...launch, temperatureC: null, pressureHPa: null })}>
             Clear both — standard air for {alt(stale.nowAltitudeM)}
           </button>
-        </p>
-      )}
+        </>}
+      </div>
     </div>
   );
 }

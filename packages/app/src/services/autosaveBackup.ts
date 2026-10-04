@@ -96,8 +96,12 @@ export function autosavedDesignFile(): AutosaveFile | null {
   // While another tab holds the slot, this tab's design is the write the
   // conflict is holding back — that is the one to hand over, not the slot's.
   const held = heldSession();
-  const raw = held ? JSON.stringify(held) : sessionPayload();
-  if (raw === null) return null;
+  let raw = sessionPayload();
+  try {
+    if (held) raw = JSON.stringify(held);
+  } catch {
+    // A held edit can be unserializable; keep the stored recovery bytes.
+  }
   try {
     // peek, not load: reading the slot for the user must not make another
     // tab's write this tab's own, which "Start fresh" would then delete.
@@ -115,6 +119,7 @@ export function autosavedDesignFile(): AutosaveFile | null {
   } catch {
     // Fall through to the bytes as stored.
   }
+  if (raw === null) return null;
   return {
     name: 'rocket-autosave.json',
     data: raw,

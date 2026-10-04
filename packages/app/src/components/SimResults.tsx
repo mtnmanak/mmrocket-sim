@@ -167,15 +167,15 @@ function DeploymentTable({ deployments, dist, vel }: {
             <tr key={i}>
               <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
               <td>{Number.isFinite(d.time) ? `${d.time.toFixed(1)} s` : '—'}</td>
-              <td>{d.altitude === null ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
+              <td>{typeof d.altitude !== 'number' || !Number.isFinite(d.altitude) ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
               <td className={opening === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : undefined}>
-                {d.velocityAtDeployment === null ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
+                {typeof d.velocityAtDeployment !== 'number' || !Number.isFinite(d.velocityAtDeployment) ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
               </td>
               <td>{flownCd(d)}</td>
               <td className={d.descentOk === false ? 'stability-bad' : undefined}>
-                {d.descentRate === null ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
+                {typeof d.descentRate !== 'number' || !Number.isFinite(d.descentRate) ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
               </td>
-              <td>{d.groundSpeed === null ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
+              <td>{typeof d.groundSpeed !== 'number' || !Number.isFinite(d.groundSpeed) ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
               <td className={opening === false || d.descentOk === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : opening === true && d.descentOk === true ? 'stability-good' : undefined}>
                 {problems.length ? `\u26a0 ${problems.join(', ')}` : opening === true && d.descentOk === true ? '\u2713 ok' : '\u2014 not measured'}
               </td>
@@ -405,7 +405,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                     value={run.altitudeAtDeployment === null ? '—' : fmtSi('distance', dist, run.altitudeAtDeployment)}
                     quantity="distance" />
                   <Row label="Velocity at deployment"
-                    value={run.velocityAtDeployment === null ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
+                    value={typeof run.velocityAtDeployment !== 'number' || !Number.isFinite(run.velocityAtDeployment) ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
                     quantity="velocity" bad={openingVerdict(run.velocityAtDeployment) === false} warn={openingVerdict(run.velocityAtDeployment) === 'caution'} />
                 </>
               )}

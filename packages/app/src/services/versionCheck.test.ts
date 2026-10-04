@@ -106,7 +106,7 @@ it.each(['fetch', 'body', 'worker'] as const)('S1c-8: times out a stalled %s and
   const pending = new Promise<never>(() => {});
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
     signal = init?.signal;
-    return stall === 'fetch' ? pending : Promise.resolve({ ok: true, json: () => pending } as Response);
+    return stall === 'fetch' ? pending : Promise.resolve({ ok: true, json: () => pending } as unknown as Response);
   });
   function Probe() { check = useVersionCheck(); return createElement('span', null, check.state.kind); }
   try {

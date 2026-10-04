@@ -136,29 +136,29 @@ export function normalizeTree(tree: RocketTree, notes?: string[]): RocketTree {
 /** Repair stored shapes before any recursive id, position or dimension walk. */
 function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
   const note = (text: string) => { if (notes && !notes.includes(text)) notes.push(text); };
-  const components: ComponentNode[] = [];
-  if (!Array.isArray(tree.components)) note('The unreadable component list was removed.');
-  const pending = [{ source: Array.isArray(tree.components) ? tree.components as unknown[] : [], target: components, depth: 0 }];
-  while (pending.length) {
-    const { source, target, depth } = pending.pop()!;
+  const repair = (source: unknown[], depth: number): ComponentNode[] => {
+    let changed = false;
+    const target: ComponentNode[] = [];
     for (const value of source) {
       if (!value || typeof value !== 'object' || Array.isArray(value)
           || Object.getPrototypeOf(value) !== Object.prototype
           || typeof (value as Record<string, unknown>)['type'] !== 'string') {
         note('A component that could not be read was removed.');
+        changed = true;
         continue;
       }
-      const node = { ...value } as ComponentNode;
-      target.push(node);
+      let node = value as ComponentNode;
       if (node.children !== undefined) {
         const children = node.children;
-        node.children = [];
         if (!Array.isArray(children)) {
           note(`Component "${node.name ?? node.type}": its unreadable children were removed.`);
+          node = { ...node, children: [] };
         } else if (depth >= 128 && children.length) {
           note(`Component "${node.name ?? node.type}": children nested beyond 128 levels were removed.`);
+          node = { ...node, children: [] };
         } else {
-          pending.push({ source: children, target: node.children, depth: depth + 1 });
+          const repaired = repair(children, depth + 1);
+          if (repaired !== children) node = { ...node, children: repaired };
         }
       }
       const points = node['points'];
@@ -166,12 +166,20 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
           && (!Array.isArray(points) || !points.every((p: unknown) => Array.isArray(p)
             && p.length === 2 && p.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))))) {
         // FreeformFinSet's kernel default, in metres; show the outline that flies.
-        node['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
+        node = { ...node, points: [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]] };
         note(`Fin set "${node.name ?? 'freeform'}": its outline was not used — the points were unreadable. The set keeps a default outline; redraw it in the fin editor.`);
       }
+      if (node !== value) changed = true;
+      target.push(node);
     }
+    return changed ? target : source as ComponentNode[];
+  };
+  if (!Array.isArray(tree.components)) {
+    note('The unreadable component list was removed.');
+    return { ...tree, components: [] };
   }
-  return { ...tree, components };
+  const components = repair(tree.components, 0);
+  return components === tree.components ? tree : { ...tree, components };
 }
 
 function makeStage(name: string): ComponentNode {

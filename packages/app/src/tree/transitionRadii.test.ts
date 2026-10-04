@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { solidContextFor } from './solidContext.js';
 import { componentLoop } from './solidMesh.js';
@@ -7,7 +7,7 @@ import { printOffer } from '../services/printPack.js';
 
 const tree = (...children: ComponentNode[]): RocketTree => ({ name: 'R', components: [{ type: 'stage', children }] });
 describe('B6 automatic transition radii', () => {
-  it.each(['podset', 'parallelstage'])('leaves flush inline %s sleeve neighbours unresolved on both sides', (type) => {
+  it.each<ComponentType>(['podset', 'parallelstage'])('leaves flush inline %s sleeve neighbours unresolved on both sides', (type) => {
     const tube: ComponentNode = { type: 'bodytube', length: 0.2, outerRadius: 0.02, children: [{
       type, radiusMethod: 'free', radiusOffset: 0, instanceCount: 1,
       position: { method: 'bottom', offset: 0 },

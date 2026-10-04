@@ -632,11 +632,9 @@ export function LaunchPanel({
       </div>
       {/* Not a .field-caution: the tests (and a reader) take the FIRST caution
           as the one about what was typed. */}
-      {weather && (
-        <WeatherStrip weather={weather} launch={value} onChange={onChange}
-          onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()}
-          onFetchAgain={onWeatherFetchAgain ?? onGetWeather} />
-      )}
+      <WeatherStrip weather={weather} launch={value} onChange={onChange}
+        onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()}
+        onFetchAgain={onWeatherFetchAgain ?? onGetWeather} />
       <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch}

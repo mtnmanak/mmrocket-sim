@@ -176,7 +176,7 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
   nodes.forEach((n, i) => {
     let fixed = sanitizeOwn(n, found);
     // Restored sessions can predate the importers writing the default outline.
-    if (n.type === 'freeformfinset' && n['points'] === undefined) {
+    if (n.type === 'freeformfinset' && n['points'] == null) {
       fixed = { ...fixed, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
     }
     const kids = n.children ? walk(n.children, found) : null;
@@ -189,7 +189,7 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
 /**
  * The tree with every value brought inside its hard limit and every unknown
  * enum string dropped to its default — the SAME tree object when nothing
- * needed it. This identity guarantee applies to this sanitizing pass only.
+ * needed it, including when reached through normalizeTree.
  * Each repair pushes one note onto `notes`, when given.
  */
 export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {

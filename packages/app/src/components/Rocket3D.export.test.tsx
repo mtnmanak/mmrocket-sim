@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import { act, StrictMode, useEffect, type ReactNode } from 'react';
+import { act, Children, forwardRef, isValidElement, StrictMode, useEffect, useImperativeHandle, type ReactNode } from 'react';
+import { PerspectiveCamera } from 'three';
+import { OrbitControls as ThreeOrbitControls } from 'three-stdlib';
+import { OrbitControls } from '@react-three/drei';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -31,9 +34,11 @@ let r3fState: unknown = null;
 const fakeRenderer = () => {
   const canvas = { clientWidth: 800, clientHeight: 400, width: 1600, height: 800 };
   let ratio = 2;
+  const camera = new PerspectiveCamera();
+  camera.position.set(1, 1, 1);
   return {
     scene: {},
-    camera: { isPerspectiveCamera: false },
+    camera,
     gl: {
       domElement: canvas,
       getPixelRatio: () => ratio,
@@ -50,14 +55,28 @@ const fakeRenderer = () => {
 
 vi.mock('@react-three/fiber', async (importOriginal) => {
   const real = await importOriginal<typeof import('@react-three/fiber')>();
-  const Canvas = ({ onCreated, children: _c, camera: _cam, gl: _gl, ...html }: {
+  const Canvas = ({ onCreated, children, camera: _cam, gl: _gl, ...html }: {
     onCreated?: (s: unknown) => void; children?: ReactNode; camera?: unknown; gl?: unknown;
   } & Record<string, unknown>) => {
     useEffect(() => { onCreated?.(r3fState); }, [onCreated]);
-    return <div data-r3f="" {...html} />;
+    return <div data-r3f="" {...html}>{Children.toArray(children).filter((child) => isValidElement(child) && child.type === OrbitControls)}</div>;
   };
   return { ...real, Canvas };
 });
+
+let cameraControls: ThreeOrbitControls;
+vi.mock('@react-three/drei', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@react-three/drei')>(),
+  OrbitControls: forwardRef(({ minDistance, maxDistance }: { minDistance: number; maxDistance: number }, ref) => {
+    useImperativeHandle(ref, () => {
+      cameraControls = new ThreeOrbitControls((r3fState as ReturnType<typeof fakeRenderer>).camera);
+      cameraControls.minDistance = minDistance;
+      cameraControls.maxDistance = maxDistance;
+      return cameraControls;
+    }, [minDistance, maxDistance]);
+    return null;
+  }),
+}));
 
 let pick: (() => Promise<void>) | null = null;
 vi.mock('./ImageExportMenu.js', () => ({
@@ -220,12 +239,51 @@ describe('the 3D image export filename', () => {
  * renders the same div, with the same props, as the real Canvas).
  */
 describe('the 3D canvas', () => {
-  it('is an image with a name that says what it shows and how to move it', () => {
+  it('rotates, pans and zooms from its focused keyboard controls', () => {
+    mount(false);
+    const wrap = host.querySelector<HTMLElement>('[data-r3f]')!;
+    expect(wrap.tabIndex).toBe(0);
+    wrap.focus();
+    expect(document.activeElement).toBe(wrap);
+    const camera = (r3fState as ReturnType<typeof fakeRenderer>).camera;
+    const key = (key: string, shiftKey = false) => {
+      const event = new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+      act(() => { wrap.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+    };
+    for (const arrow of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+      const before = camera.position.clone();
+      key(arrow);
+      expect(camera.position.distanceTo(before)).toBeGreaterThan(0.01);
+    }
+    for (const arrow of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+      const before = camera.position.clone();
+      const target = cameraControls.target.clone();
+      key(arrow, true);
+      expect(camera.position.distanceTo(before)).toBeGreaterThan(0.01);
+      expect(camera.position.clone().sub(before).distanceTo(cameraControls.target.clone().sub(target))).toBeLessThan(1e-12);
+    }
+    const distance = cameraControls.getDistance();
+    key('+');
+    expect(cameraControls.getDistance()).toBeLessThan(distance);
+    key('-');
+    expect(cameraControls.getDistance()).toBeCloseTo(distance, 12);
+    for (let i = 0; i < 150; i++) key('+');
+    expect(cameraControls.getDistance()).toBeCloseTo(cameraControls.minDistance, 12);
+    for (let i = 0; i < 150; i++) key('-');
+    expect(cameraControls.getDistance()).toBeCloseTo(cameraControls.maxDistance, 12);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => { wrap.dispatchEvent(tab); });
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  it('is an application with a name that says what it shows and how to move it', () => {
     mount(false);
     const wrap = host.querySelector('[data-r3f]')!;
-    expect(wrap.getAttribute('role')).toBe('img');
+    expect(wrap.getAttribute('role')).toBe('application');
     const name = wrap.getAttribute('aria-label') ?? '';
     expect(name).toMatch(/^3D view of the rocket/);
+    expect(name).toMatch(/Arrow keys.*Shift.*plus and minus/);
     expect(name).toMatch(/Reset, Side and Aft/);
   });
 });

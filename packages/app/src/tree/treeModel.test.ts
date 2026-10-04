@@ -22,6 +22,22 @@ describe('normalizeTree repair notices', () => {
     expect(notes[0]).toMatch(/removed|outline was not used/);
   });
 
+  it('preserves clean tree identity and copies only ancestors of a shape repair', () => {
+    const good: ComponentNode = { type: 'bodytube', id: 'good', children: [] };
+    const damaged = { type: 'bodytube', id: 'bad', children: [null] } as unknown as ComponentNode;
+    const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [good, damaged] }] };
+    const fixed = normalizeTree(tree);
+    expect(fixed).not.toBe(tree);
+    expect(fixed.components[0]).not.toBe(tree.components[0]);
+    expect(fixed.components[0]!.children![0]).toBe(good);
+    expect(fixed.components[0]!.children![1]).not.toBe(damaged);
+    expect(damaged.children).toEqual([null]);
+    expect(fixed.components[0]!.children![1]!.children).toEqual([]);
+    expect(normalizeTree(fixed)).toBe(fixed);
+    const clean = defaultTree();
+    expect(normalizeTree(clean)).toBe(clean);
+  });
+
   it('keeps distinct named repairs', () => {
     const notes: string[] = [];
     normalizeTree({ components: ['First', 'Second'].map((name) => ({

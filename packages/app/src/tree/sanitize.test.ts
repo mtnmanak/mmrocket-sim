@@ -373,3 +373,12 @@ describe('the limits table and the panel agree', () => {
     }
   });
 });
+
+// An empty list is an unfinished outline in the fin editor and is kept (session.test.ts pins it); the fin template guards it.
+it.each([{ points: undefined }, { points: null }])('materializes the kernel freeform outline for absent points %j', ({ points }) => {
+  const input = rocket([{ type: 'freeformfinset', id: 'f', points }]);
+  const out = sanitizeTree(input);
+  expect(kid(out)['points']).toEqual([[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]]);
+  expect(kid(input)['points']).toBe(points);
+  expect(sanitizeTree(out)).toBe(out);
+});

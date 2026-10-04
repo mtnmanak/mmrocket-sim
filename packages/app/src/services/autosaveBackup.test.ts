@@ -59,6 +59,40 @@ describe('autosavedDesignFile', () => {
     }
   });
 
+  it('falls back to stored bytes when a held edit cannot be serialized or exported', () => {
+    storeDesign(defaultTree(), {});
+    vi.runAllTimers();
+    const raw = localStorage.getItem(KEY)!;
+    const tree = { ...defaultTree(), components: null } as unknown as RocketTree;
+    Object.assign(tree, { toJSON: () => { throw new Error('unserializable'); } });
+    storeDesign(tree, {});
+    vi.runAllTimers();
+    const file = autosavedDesignFile()!;
+    expect(file.ork).toBe(false);
+    expect(file.data).toBe(raw);
+    expect(file.extension).toBe('.json');
+  });
+
+  it('exports a held first save as ork when JSON serialization fails and the slot is empty', () => {
+    const tree = { ...defaultTree(), name: 'Unsaved first design' };
+    Object.assign(tree, { toJSON: () => { throw new Error('unserializable'); } });
+    storeDesign(tree, {});
+    vi.runAllTimers();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    const file = autosavedDesignFile();
+    expect(file).toMatchObject({ ork: true, extension: '.ork' });
+    expect(importOrk(file!.data).name).toBe('Unsaved first design');
+  });
+
+  it('returns null when a held first save cannot be serialized or exported and the slot is empty', () => {
+    const tree = { ...defaultTree(), components: null } as unknown as RocketTree;
+    Object.assign(tree, { toJSON: () => { throw new Error('unserializable'); } });
+    storeDesign(tree, {});
+    vi.runAllTimers();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(autosavedDesignFile()).toBeNull();
+  });
+
   it('writes the autosave as an .ork that opens with its parts, motor, launch and measured figures', () => {
     const tree = { ...defaultTree(), name: 'Crashy Rocket' };
     const mount = motorMounts(tree)[0]!.id!;

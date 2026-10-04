@@ -28,7 +28,9 @@ export function hasRollForcing(tree: RocketTree): boolean {
 export function affectsRollInertia(tree: RocketTree): boolean {
   const affected = (node: ComponentNode): boolean => {
     if (node.type === 'podset' || node.type === 'parallelstage') return true;
-    if (num(node, 'radialPosition', 0) !== 0 || num(node, 'radiusOffset', 0) !== 0) return true;
+    if ((node.type === 'innertube' || node.type === 'masscomponent')
+      && num(node, 'radialPosition', 0) !== 0) return true;
+    if (num(node, 'radiusOffset', 0) !== 0) return true;
     if (asymmetricParts.has(node.type)) return true;
     if (fins.has(node.type) && Math.trunc(num(node, 'finCount', node.type === 'tubefinset' ? 6 : 3)) <= 1) return true;
     if (node.type === 'innertube'

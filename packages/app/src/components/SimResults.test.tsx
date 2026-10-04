@@ -8,6 +8,7 @@ import { importedSummaryRuns } from '../services/orkFlightData.js';
 import { compassPoint } from '../services/openMeteo.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
+import * as units from '../prefs/units.js';
 import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
 } from '../services/simReport.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
@@ -126,6 +127,56 @@ describe('SimRunDetails — where the raw flight data went', () => {
     expect(main?.cells[1]?.textContent).toBe('—');
     expect(drogue?.cells[1]?.textContent).toBe('6.0 s');
     expect(main?.textContent).toContain('hard opening');
+  });
+
+  it.each([null, undefined, '5', {}, NaN, Infinity])('renders unavailable deployment altitude and ground speed without coercion (%j)', (value) => {
+    const format = vi.spyOn(units, 'fmtSi');
+    const deployment = { device: 'Main', time: 6, altitude: value, velocityAtDeployment: 35,
+      descentRate: 5, groundSpeed: value, isLanding: true, descentOk: true };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...run(), deployments: [deployment, { ...deployment, device: 'Drogue', altitude: 200, groundSpeed: 5 },
+        { ...deployment, device: 'Zero', altitude: 0, groundSpeed: 0 }] },
+    ]));
+    const stored = loadRuns()[0]!;
+    // JSON normalizes NaN/Infinity to null; also exercise the raw values directly.
+    for (const current of [stored, { ...stored, deployments: [deployment, ...stored.deployments!.slice(1)] } as SimRun]) {
+      format.mockClear();
+      render(<SimRunDetails run={current} />);
+      // Invalid measurements must be rejected by the reader before formatting.
+      expect(format.mock.calls.every(([, , si]) => typeof si === 'number' && Number.isFinite(si))).toBe(true);
+      const rows = [...host.querySelectorAll('tr')];
+      const main = rows.find((tr) => tr.cells[0]?.textContent === 'Main (landing)')!;
+      const drogue = rows.find((tr) => tr.cells[0]?.textContent === 'Drogue (landing)')!;
+      const zero = rows.find((tr) => tr.cells[0]?.textContent === 'Zero (landing)')!;
+      expect(main.cells[2]?.textContent).toBe('\u2014');
+      expect(main.cells[6]?.textContent).toBe('\u2014');
+      expect(drogue.cells[2]?.textContent).toBe(fmtSi('distance', 'm', 200));
+      expect(drogue.cells[6]?.textContent).toBe(fmtSi('velocity', 'm/s', 5));
+      expect(zero.cells[2]?.textContent).toBe(fmtSi('distance', 'm', 0));
+      expect(zero.cells[6]?.textContent).toBe(fmtSi('velocity', 'm/s', 0));
+    }
+  });
+
+  it.each([null, undefined, '5', {}, NaN, Infinity])('renders unavailable deployment speeds without coercion (%j)', (speed) => {
+    const deployment = { device: 'Main', time: 6, altitude: 200, velocityAtDeployment: speed,
+      descentRate: speed, groundSpeed: 5, isLanding: true, descentOk: true };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...run(), velocityAtDeployment: speed, deployments: [deployment,
+        { ...deployment, device: 'Drogue', velocityAtDeployment: 35, descentRate: 5 }] },
+    ]));
+    render(<SimRunDetails run={loadRuns()[0]!} />);
+    const rows = [...host.querySelectorAll('tr')];
+    const main = rows.find((tr) => tr.cells[0]?.textContent === 'Main (landing)')!;
+    const drogue = rows.find((tr) => tr.cells[0]?.textContent === 'Drogue (landing)')!;
+    expect(main.cells[3]?.textContent).toBe('\u2014');
+    expect(main.cells[5]?.textContent).toBe('\u2014');
+    expect(drogue.cells[3]?.textContent).not.toBe('\u2014');
+    expect(drogue.cells[5]?.textContent).not.toBe('\u2014');
+    expect(main.textContent).toContain('not measured');
+    render(<SimRunDetails run={{ ...loadRuns()[0]!, deployments: [] }} />);
+    act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show all details'))!.click(); });
+    const scalar = [...host.querySelectorAll('tr')].find((tr) => tr.cells[0]?.textContent === 'Velocity at deployment')!;
+    expect(scalar.cells[1]?.textContent).toContain('\u2014');
   });
 
   it('reports guide travel and physical rail beside exit speed, without changing the safety check', () => {

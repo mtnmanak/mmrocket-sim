@@ -207,6 +207,22 @@ describe('RockSim recovery and cluster export', () => {
     expect(Object.keys(r.motors)).toHaveLength(4);
   });
 
+  it.each(['Density', 'ID'])('repairs stale motor serials before refusing unequal %s tubes', (tag) => {
+    const tree = clusterTree();
+    const mount = all(tree.components).find((n) => n.id === 'mount')!;
+    mount['cluster'] = 'double';
+    delete mount['overrideMass'];
+    const doc = docOf(exportRkt({ name: 'T', tree, motors: { mount: motor } }));
+    const field = tubes(doc)[1]!.querySelector(':scope > ' + tag)!;
+    field.textContent = String(Number(field.textContent) + (tag === 'Density' ? 100 : -2));
+    const sets = [...doc.querySelectorAll('EngineSet > MountSerialNo')];
+    sets[1]!.textContent = sets[0]!.textContent;
+    const r = importRkt(xmlOf(doc));
+    expect(Object.keys(r.motors)).toHaveLength(2);
+    expect(all(r.tree.components).filter((n) => n.type === 'innertube')).toHaveLength(2);
+    expect(r.notes.join(' ')).toContain('wall thicknesses or materials');
+  });
+
   it('repairs stale motor serials before refusing a merge for different overhangs', () => {
     const tree = clusterTree(); all(tree.components).find((n) => n.id === 'mount')!['cluster'] = 'double';
     const doc = docOf(exportRkt({ name: 'T', tree, motors: { mount: motor } }));
