@@ -13,7 +13,8 @@ import { classLabel } from './services/motorDb.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { nozzleOversize } from './services/nozzleCheck.js';
 import { peekSession } from './services/session.js';
-import { designMatchKeyOf } from './services/simReport.js';
+import { designMatchKeyOf, type SimRun } from './services/simReport.js';
+import * as simStore from './services/simStore.js';
 import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
@@ -541,6 +542,26 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
  * App's call as a string match.
  */
 describe('the Auto delay box on a motor card', () => {
+  it('renders the motor card with null motorDataKeys even when load validation is bypassed', async () => {
+    await seedStarterSession();
+    await mountApp();
+    const key = vi.mocked(designMatchKeyOf).mock.results.at(-1)!.value;
+    await unmountAll();
+    // Same design, but no current motor-set stamp: exercise the previous-flight fallback.
+    const run = { id: 'corrupt-map', designKey: key.designKey, motorDataKeys: null } as unknown as SimRun;
+    const load = vi.spyOn(simStore, 'loadRuns').mockReturnValueOnce([run]);
+    try {
+      const host = await mountApp();
+      await openTab(host, 'Motors & Launch');
+      const card = host.querySelector('.mount-card');
+      expect(card).not.toBeNull();
+      expect(card!.textContent).toContain('C6');
+      expect(card!.querySelector('input[aria-label^="Ejection delay"]')).not.toBeNull();
+    } finally {
+      load.mockRestore();
+    }
+  }, 30000);
+
   it('is "auto (optimal)" on the core\'s card and "auto (optimal)" on the pods\'', async () => {
     const probe = podTree(defaultTree());
     const core = motorMounts(probe).find((m) => m.id !== 'pod-mmt')!;

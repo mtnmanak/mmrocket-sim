@@ -53,6 +53,16 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      // Invalid per-mount fingerprints fall back to the whole-set fingerprint.
+      if (r.motorDataKeys !== undefined && (typeof r.motorDataKeys !== 'object'
+        || r.motorDataKeys === null || Array.isArray(r.motorDataKeys)
+        || !Object.values(r.motorDataKeys).every((v) => typeof v === 'string'))) delete r.motorDataKeys;
+      // Keep only complete recovery evidence, using matchingRecoveryEvents' rules.
+      const events = r.recoveryEvents;
+      if (events !== undefined && (!Array.isArray(events) || !events.every((e) =>
+        e !== null && typeof e === 'object' && !Array.isArray(e) && Number.isFinite(e.time)
+        && (e.type === 'STAGE_SEPARATION' ? typeof e.sourceId === 'string'
+          : e.type === 'BURNOUT' && typeof (e.motorMountId ?? e.sourceId) === 'string')))) delete r.recoveryEvents;
       for (const k of ARRAY_FIELDS) {
         if (!(k in r)) continue;
         const entries = r[k];

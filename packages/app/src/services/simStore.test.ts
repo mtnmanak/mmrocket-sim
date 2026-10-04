@@ -310,6 +310,44 @@ describe('restoreRun — the ✕\'s Undo (audit 2026-09-22)', () => {
 
 const KEY = 'online-openrocket.sim-runs.v1';
 
+describe('stored motor fingerprints and recovery evidence', () => {
+  it.each([null, [], 5, { a: 1 }].map((motorDataKeys) => ({ motorDataKeys })))(
+    'drops malformed motorDataKeys ($motorDataKeys) without losing the run or whole-set key', ({ motorDataKeys }) => {
+      localStorage.setItem(KEY, JSON.stringify([
+        { ...mkRun('kept'), motorDataKey: 'whole-set', motorDataKeys }, mkRun('other'),
+      ]));
+      const loaded = loadRuns();
+      expect(loaded.map((r) => r.id)).toEqual(['kept', 'other']);
+      expect(loaded[0]).not.toHaveProperty('motorDataKeys');
+      expect(loaded[0]!.motorDataKey).toBe('whole-set');
+    });
+
+  it.each([{}, { a: 'motor-a', b: 'motor-b' }])('keeps a valid motorDataKeys map (%j)', (motorDataKeys) => {
+    localStorage.setItem(KEY, JSON.stringify([{ ...mkRun('kept'), motorDataKeys }]));
+    expect(loadRuns()[0]!.motorDataKeys).toEqual(motorDataKeys);
+  });
+
+  const separation = { type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' };
+  it.each([null, {}, 5, [null], [[]], [{ a: 1 }],
+    [{ ...separation, time: '3' }], [{ ...separation, sourceId: 1 }],
+    [{ ...separation, type: 'SIMULATION_END' }], [{ type: 'BURNOUT', time: 2 }],
+    [separation, null],
+  ].map((recoveryEvents) => ({ recoveryEvents })))(
+    'drops malformed recoveryEvents ($recoveryEvents) without retaining partial evidence', ({ recoveryEvents }) => {
+      localStorage.setItem(KEY, JSON.stringify([{ ...mkRun('kept'), recoveryEvents }, mkRun('other')]));
+      const loaded = loadRuns();
+      expect(loaded.map((r) => r.id)).toEqual(['kept', 'other']);
+      expect(loaded[0]).not.toHaveProperty('recoveryEvents');
+    });
+
+  it.each([[], [separation, { type: 'BURNOUT', time: 2, motorMountId: 'mount' },
+    { type: 'BURNOUT', time: 1, sourceId: 'legacy-mount' }],
+  ].map((recoveryEvents) => ({ recoveryEvents })))('keeps valid recoveryEvents ($recoveryEvents)', ({ recoveryEvents }) => {
+    localStorage.setItem(KEY, JSON.stringify([{ ...mkRun('kept'), recoveryEvents }]));
+    expect(loadRuns()[0]!.recoveryEvents).toEqual(recoveryEvents);
+  });
+});
+
 describe('a corrupt history costs ONE row, not the store (net-storage-6)', () => {
   it('keeps every usable run and drops only the elements that are not runs', () => {
     localStorage.setItem(KEY, JSON.stringify([

@@ -3854,7 +3854,7 @@ export function App() {
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
                 && resolutionMatches(r.delayResolution, flownDelayMounts))
                 ?? runs.find((r) => r.designKey === provenanceKey.designKey
-                  && (r.motorDataKeys !== undefined
+                  && (typeof r.motorDataKeys === 'object' && r.motorDataKeys !== null && !Array.isArray(r.motorDataKeys)
                     ? r.motorDataKeys[m.id!] !== undefined
                       && r.motorDataKeys[m.id!] === provenanceKey.motorDataKeys?.[m.id!]
                     : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
