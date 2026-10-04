@@ -140,7 +140,8 @@ async function main() {
         }
       }
       console.log(moved.length ? `Chrome ${chromeVersion} now differs on:\n  ${moved.join('\n  ')}` : `Chrome ${chromeVersion}: golden is current.`);
-      process.exit(moved.length ? 1 : 0);
+      process.exitCode = moved.length ? 1 : 0;
+      return;
     }
     writeFileSync(OUT, `${JSON.stringify(golden, null, 1)}\n`);
     console.log(`Wrote ${OUT}: Chrome ${chromeVersion}, ${names.length} fixtures, `
