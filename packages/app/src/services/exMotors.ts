@@ -1,5 +1,5 @@
 import type { MotorDbEntry } from './motorDb.js';
-import { clearCurveCache } from './thrustcurve.js';
+import { clearCurveCache, flownCurve } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
 
@@ -228,7 +228,7 @@ function totals(samples: { time: number; thrust: number }[]) {
 
 /** Shape an EX motor as a browser/database row (manufacturer shows as EX). */
 export function exToDbEntry(m: ExMotor): MotorDbEntry {
-  const { impulse, maxThrust, burnTime } = totals(m.samples);
+  const { impulse, maxThrust, burnTime } = totals(flownCurve(m.samples).samples);
   return {
     motorId: m.motorId,
     manufacturerAbbrev: 'EX',
@@ -309,6 +309,10 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     // A header has seven or more tokens (isHeader), so the name is there.
     const name = h[0]!;
     const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
+    if (!(Number(diaMm) > 0 && Number(lenMm) > 0)) {
+      skipped.push(`${name}: diameter/length missing or not a positive number`);
+      return;
+    }
     // Trailing zeros after the last burning sample go, bar the first.
     let last = pts.length - 1;
     while (last > 0 && pts[last]!.thrust === 0 && pts[last - 1]!.thrust === 0) last--;
@@ -378,8 +382,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
       : 'No motors found in .eng file');
   }
   if (skipped.length) {
-    notes?.push(`skipped ${skipped.length} motor${skipped.length === 1 ? '' : 's'} with impossible `
-      + `masses — ${skipped.join(' · ')}`);
+    notes?.push(`skipped ${skipped.length} motor${skipped.length === 1 ? '' : 's'} — ${skipped.join(' · ')}`);
   }
   return motors;
 }
@@ -408,8 +411,17 @@ function rseSampleMassesKg(
   if (autoCalc) return undefined;
   if (masses.length !== n || !masses.every((m) => Number.isFinite(m) && m >= 0)) return undefined;
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.01 * b;
-  if (near(masses[0]!, propG)) return masses.map((m) => (m + initG - propG) / 1000);
-  if (near(masses[0]!, initG) && masses.every((m) => m > 0)) return masses.map((m) => m / 1000);
+  const propellant = near(masses[0]!, propG);
+  if (propellant || near(masses[0]!, initG)) {
+    const low = propellant ? 0 : initG - propG;
+    const high = propellant ? propG : initG;
+    if (masses.every((m) => m >= low * 0.99 && m <= high * 1.01)) {
+      return masses.map((m) => (m + (propellant ? initG - propG : 0)) / 1000);
+    }
+    notes?.push(`${name}: its per-point masses fall outside ${low}–${high} g, contradicting its `
+      + 'loaded/propellant masses, so burn-off is spread in proportion to impulse instead.');
+    return undefined;
+  }
   notes?.push(`${name}: its per-point masses start at ${masses[0]!} g, which is neither its loaded mass `
     + `(${initG} g) nor its propellant (${propG} g), so burn-off is spread in proportion to impulse instead.`);
   return undefined;

@@ -340,7 +340,7 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
     const text = h.host.textContent ?? '';
     expect(text).toMatch(/Imported 2 EX motors/);
     expect(text).toMatch(/K475WW: listed more than once with different data/);
-    expect(text).toMatch(/rasp\.eng: skipped 1 motor with impossible masses — K700RT: more propellant/);
+    expect(text).toMatch(/rasp\.eng: skipped 1 motor — K700RT: more propellant/);
     await importFiles(h, [{ name: 'rasp.eng', text: twin('0') }]);
     expect(h.host.textContent).toMatch(/1 replaced the library's earlier motor of the same maker and name \(K475WW\)/);
   });

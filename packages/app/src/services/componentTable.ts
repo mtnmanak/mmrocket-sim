@@ -2,6 +2,7 @@ import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocke
 import { clusterCount } from '../tree/cluster.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { DISPLAY_NAME, FIELDS, type FieldDef } from '../tree/schema.js';
+import { shroudEnds } from '../tree/shroud.js';
 import { asStageNodes, flownInstanceCount, kernelStageIdByNode } from '../tree/treeModel.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell } from './csvUtil.js';
@@ -149,11 +150,15 @@ export function componentTable(
       const info = infoOf(n);
       const section = info && (n.children ?? []).length > 0 ? flownSection(n, mult) : null;
       const fieldCells = fieldCols.map((f): Cell => {
-        const raw = n[f.key];
-        if (f.bool) return raw === true ? 'yes' : raw === false ? 'no' : '';
-        if (f.options) {
+        const own = FIELDS[n.type]?.find((d) => d.key === f.key);
+        if (!own) return '';
+        const raw = f.key === 'fairingForeShape' ? shroudEnds(n).fore
+          : f.key === 'fairingAftShape' ? shroudEnds(n).aft
+            : n[f.key] === undefined ? own.dflt : n[f.key];
+        if (own.bool) return raw === true ? 'yes' : raw === false ? 'no' : '';
+        if (own.options) {
           if (typeof raw !== 'string') return '';
-          return f.options.find(([v]) => v === raw)?.[1] ?? raw;
+          return own.options.find(([v]) => v === raw)?.[1] ?? raw;
         }
         // A non-finite value is a blank cell, not "NaN" (audit row 522).
         const si = numOpt(n, f.key);

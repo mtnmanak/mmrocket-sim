@@ -283,11 +283,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // xmlNum's own three steps (xmlText, parseDecimal, the finite test), with
     // the failure recorded — inlined rather than wrapped, so a field costs one
     // selector query, not two: the import is query-bound on a deep tree.
-    const raw = text(el, `:scope > ${tag}`);
-    if (raw === null) return fb;
+    const element = el.querySelector(`:scope > ${tag}`);
+    if (!element) return fb;
+    const raw = element.textContent?.trim() ?? '';
     const v = parseDecimal(raw);
     if (Number.isFinite(v)) return v;
-    if (!unreadable.has(tag)) unreadable.set(tag, raw.slice(0, 40));
+    if (!unreadable.has(tag)) unreadable.set(tag, raw.slice(0, 40) || '(blank)');
     return fb;
   };
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
@@ -416,10 +417,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // <Stage3Mass>, never inside a part. So a part states a known mass in one
     // of two dialects:
     //   1. a part-level <UseKnownMass> — what a writer that distinguishes the
-    //      two would write. Read strictly. (exportRkt does NOT write it: it
-    //      writes UseKnownCG=1 beside a mass override, dialect 2, because
-    //      RockSim and desktop couple the flags — "EXPORT IS DELIBERATELY
-    //      UNCHANGED" in exportRkt. Corrected 2026-10-01.)
+    //      two would write. Read strictly. (exportRkt writes it ONLY for an
+    //      explicit zero mass override, since a bare <KnownMass>0 is read as
+    //      unspecified below. For every override it still writes UseKnownCG=1
+    //      beside the mass, dialect 2, because RockSim and desktop couple the
+    //      flags — "EXPORT IS DELIBERATELY UNCHANGED" in exportRkt.)
     //   2. no such element — RockSim's own dialect, where UseKnownCG=1 has to
     //      keep meaning "both are known": reading it as CG-only would discard
     //      5,626 weighed masses in that same survey.
@@ -434,9 +436,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const flagCG = num(el, 'UseKnownCG', 0) === 1;
     const massFlag = num(el, 'UseKnownMass', NaN);
     const flagMass = Number.isFinite(massFlag) ? massFlag === 1 : flagCG;
-    const km = num(el, 'KnownMass', 0);
+    const km = num(el, 'KnownMass', NaN);
     const kcg = num(el, 'KnownCG', 0);
-    const useMass = km > 0 && flagMass;
+    // A bare RockSim zero can mean unspecified; only an explicit mass flag pins it.
+    const useMass = flagMass && (km > 0 || (km === 0 && massFlag === 1));
     const useCG = kcg > 0 && flagCG;
     if (useMass) node['overrideMass'] = km / MASS;
     if (useCG) node['overrideCGX'] = kcg / LEN;
@@ -1315,9 +1318,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           Math.abs(nnum2(t, 'motorOverhang') - nnum2(g[0]!, 'motorOverhang')) > 1e-9);
         const childrenKey = (t: ComponentNode): string => JSON.stringify((t.children ?? []).map(subtreeValue));
         const differentChildren = new Set(g.map(childrenKey)).size > 1;
-        if (differentOverhang || differentChildren) {
+        const differentConstruction = g.some((t) =>
+          !near(nnum2(t, 'thickness'), nnum2(g[0]!, 'thickness'), 0.01, 5e-5)
+          || t['materialName'] !== g[0]!['materialName']
+          || numOpt(t, 'density') !== numOpt(g[0]!, 'density'));
+        if (differentOverhang || differentChildren || differentConstruction) {
           notes.push(`${g.length} similar ${kind} in “${where}” have different `
-            + `${differentOverhang ? 'motor overhangs' : 'child parts or child motor/recovery settings'}; `
+            + `${differentConstruction ? 'wall thicknesses or materials'
+              : differentOverhang ? 'motor overhangs' : 'child parts or child motor/recovery settings'}; `
             + 'each stays a separate tube with its own parts and settings.');
           continue;
         }
@@ -2349,11 +2357,8 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   notes?.push(...subtreeOverrideNotes(stagesIn));
 
   // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
-  // Without this it goes out as a plain <BodyTube> and its `overrideMass: 0` is lost
-  // on re-import — common() writes <KnownMass>0</KnownMass> and the import gate is
-  // `km > 0 && flagMass`, so a legitimate zero is rejected and the mass recomputed.
-  // Measured export→re-import without the fold: 4in WM Extreme 5308.2 → 5324.9 g;
-  // 6in Goblin 9219.0 → 9719.4 (+5.4 %); rocksimTestRocket1 264.3 → 290.4 (+9.9 %).
+  // Keep the original representation when the extension still shares its cone's
+  // construction. An edited tube travels separately, including its zero override.
   const baseExtOf = new Map<string, number>();
   const folded = new Set<ComponentNode>();
   const foldChain = (chain: ComponentNode[] | undefined) => {
@@ -2375,6 +2380,9 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       // whatever wall it still states: the fold hands it the cone's hollow
       // construction, and the file reopened it hollow.
       if (b['filled'] === true && a['filled'] !== true) continue;
+      if (numOpt(b, 'density') !== numOpt(a, 'density')
+        || b['materialName'] !== a['materialName']
+        || (b['finish'] ?? 'normal') !== (a['finish'] ?? 'normal')) continue;
       if ((b.children ?? []).length) continue;
       // Finite overrides only, as common() reads them (audit row 522): a NaN or
       // infinite one overrides nothing in the kernel, and it kept the fold from
@@ -2615,6 +2623,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       ?? ((massOv !== undefined ? massOv
         : override ? info?.mass ?? 0 : 0) * MASS) / share;
     emit(`<KnownMass>${knownMass}</KnownMass>`);
+    if (massOv === 0) emit('<UseKnownMass>1</UseKnownMass>');
     // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
     // never carry node.density — orkFile stores them as surfaceDensity (chute /
     // streamer) or lineDensity (shock cord) — so emitting the bulk key made
@@ -2910,9 +2919,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // <ExternalPod>s around the ring (the desktop does the same);
         // parallel stages export as Detachable pods.
         const count = Math.max(1, Math.round(nnum(node, 'instanceCount', 1)));
-        const parentR = parent
-          ? Math.max(nnum(parent, 'outerRadius', 0), nnum(parent, 'aftRadius', 0), 0.012)
-          : 0.012;
+        const parentR = parent?.type === 'bodytube' ? nnum(parent, 'outerRadius', 0.012) : 0;
         const centerR = resolveAssemblyRadius(node, parentR);
         const angle0 = nnum(node, 'angleOffset', 0);
         const at = massAt(node);
