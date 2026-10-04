@@ -7,6 +7,7 @@ import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from
 import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
 import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
+import { defaultTree } from '../tree/treeModel.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -22,6 +23,8 @@ export interface SessionState {
   /** The opened file's original summaries; never reconstructed from history. */
   importedDocument?: ImportedSummaryDocument;
   tree: RocketTree;
+  /** Transient load notes when the stored root could not be restored. */
+  treeRestoreNotes?: string[];
   /** Per-mount motors (v0.009+). */
   mountMotors?: Record<string, MountMotor>;
   /** Legacy single-motor fields (pre-v0.009 sessions) — migrated on load. */
@@ -310,19 +313,36 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
 }
 
 export function loadSession(): SessionState | null {
+  return readSession(true);
+}
+
+function readSession(restoreRoot: boolean): SessionState | null {
   try {
     const raw = localStorage.getItem(KEY);
     // What this tab has now seen in the slot — the baseline writeNow checks
     // the slot against before it overwrites anything (see `seenStamp`).
     seenStamp = stampOf(raw);
     if (!raw) return null;
-    const s = JSON.parse(raw) as SessionState;
-    if (!s || typeof s !== 'object' || !s.tree || !Array.isArray(s.tree.components)) {
+    let s = JSON.parse(raw) as SessionState;
+    if (!s || typeof s !== 'object' || Array.isArray(s)) {
       // Unusable payload: drop it rather than re-parsing the same wreck on
       // every load, and so a corrupted autosave cannot follow the user around.
       clearSession();
       seenStamp = null;
       return null;
+    }
+    delete s.treeRestoreNotes;
+    if (!isTable(s.tree)) {
+      // A recovery download must keep the original bytes, not export a substitute.
+      if (!restoreRoot) return null;
+      // Old mount ids can collide with freshly minted starter ids. Carry only
+      // launch conditions and session provenance across to the replacement.
+      s = {
+        tree: defaultTree(), launch: s.launch, savedAt: s.savedAt, appVersion: s.appVersion,
+        motorLengthLimitsMigrated: true,
+        treeRestoreNotes: ['The autosaved design root could not be read. The starter design was opened. '
+          + 'The old design\'s motors, configurations, and measurements were not applied.'],
+      };
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.
@@ -648,7 +668,7 @@ export function heldSession(): Omit<SessionState, 'savedAt'> | null {
 export function peekSession(): SessionState | null {
   const seen = seenStamp;
   try {
-    return loadSession();
+    return readSession(false);
   } finally {
     seenStamp = seen;
   }

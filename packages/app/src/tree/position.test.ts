@@ -21,6 +21,13 @@ import { engineTree, findNode, makeNode } from './treeModel.js';
 
 const num = (n: ComponentNode, key: string): number => n[key] as number;
 
+describe('axialLength malformed fin points', () => {
+  it.each([null, {}, 'outline', [null], [[0, 0], null], [[null, 0]], [[NaN, 0]], [[Infinity, 0]], [['0', 0]]]
+    .map((points) => [points]))('uses the default root chord for %j', (points) => {
+    expect(axialLength({ type: 'freeformfinset', points } as ComponentNode)).toBeCloseTo(0.05, 12);
+  });
+});
+
 describe('absoluteStations', () => {
   it('stacks the chain nose-to-tail and ignores a chain member\'s own position', () => {
     const t = {

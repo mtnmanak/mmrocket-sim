@@ -197,6 +197,11 @@ export function parseNav(raw: unknown): MmrNav | null {
     // caller's object — a live fetch body, or a cache entry another call may
     // still be holding — is never mutated by a drop or a normalisation.
     const out = { ...c } as MmrNav;
+    if (out.site.shortName !== undefined
+      && (typeof out.site.shortName !== 'string' || !out.site.shortName.trim())) {
+      out.site = { ...out.site };
+      delete out.site.shortName;
+    }
     if (out.search !== undefined && !isSearchBlock(out.search)) delete out.search;
     if (out.footer !== undefined && !isFooterBlock(out.footer)) delete out.footer;
     if (out.feedback !== undefined && !isFeedbackBlock(out.feedback)) {

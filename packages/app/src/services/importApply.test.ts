@@ -113,6 +113,19 @@ describe('resolveImportMotors — the awaits of an open', () => {
 });
 
 describe('planImport — one plan, applied and marked', () => {
+  it('names structural repairs in the import notice', () => {
+    const tree = podTree();
+    tree.components[0]!.children!.push(null as unknown as ComponentNode);
+    const imported: ImportedDesign = { name: 'Damaged', tree, notes: ['Reader note'], motors: {} };
+    const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    expect(plan.note.text.split('\n')).toEqual([
+      'Loaded “Damaged”.', 'Reader note', 'A component that could not be read was removed.',
+    ]);
+    expect(plan.snapshot.tree.components[0]!.children).toHaveLength(1);
+    expect(imported.notes).toEqual(['Reader note']);
+    expect(tree.components[0]!.children).toHaveLength(2);
+  });
+
   it('marks exactly what it writes, so a fresh file reads clean', () => {
     const imported: ImportedDesign = {
       name: 'x', tree: podTree(), notes: ['from the reader'], motors: { mmt: ref('H100') },

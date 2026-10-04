@@ -45,6 +45,9 @@ function load(): Preferences {
     const printer = normalizePrinter(parsed.printer);
     if (printer) parsed.printer = printer;
     else delete parsed.printer;
+    if (!Array.isArray(parsed.resultTiles) || !parsed.resultTiles.every((tile) => typeof tile === 'string')) {
+      delete parsed.resultTiles;
+    }
     return {
       ...DEFAULT_PREFS,
       ...parsed,

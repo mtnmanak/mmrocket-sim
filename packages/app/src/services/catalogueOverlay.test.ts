@@ -61,6 +61,14 @@ beforeEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
 afterEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
 
 describe('screenEntry — a live row must be a possible motor', () => {
+  it.each(['impulseClass', 'propInfo', 'caseInfo', 'delays', 'type'])('storage hardening: refuses non-text %s', (field) => {
+    for (const value of [{}, 7, [], true]) {
+      expect(screenEntry(row({ [field]: value }))).toBe(`${field} is not text`);
+    }
+    for (const value of [undefined, null, '', 'text']) {
+      expect(screenEntry(row({ [field]: value }))).toBeNull();
+    }
+  });
   it('accepts a normal row and refuses the impossible ones with a reason', () => {
     expect(screenEntry(row())).toBeNull();
     expect(screenEntry(row({ motorId: '' }))).toMatch(/motorId/);
@@ -162,6 +170,19 @@ describe('persistence and expiry', () => {
   const stored = (over: Partial<CatalogueOverlay> = {}): CatalogueOverlay => ({
     baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: 1,
     added: [row({ motorId: 'kept' })], changed: [], removed: [], rejected: [], ...over,
+  });
+
+  it('storage hardening: re-screens optional strings in cached added and changed motors', () => {
+    const shipped = MOTOR_DB[0]!;
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(stored({
+      added: [row(), row({ motorId: 'bad', propInfo: {} as string })],
+      changed: [{ motorId: shipped.motorId, before: shipped,
+        after: { ...shipped, impulseClass: 7 as unknown as string }, fields: ['impulseClass'] }],
+    })));
+    const loaded = restoreCatalogueOverlay()!;
+    expect(loaded.added.map((m) => m.motorId)).toEqual(['live-1']);
+    expect(loaded.changed).toEqual([]);
+    expect(loaded.rejected.map((r) => r.reason)).toEqual(['propInfo is not text', 'impulseClass is not text']);
   });
 
   it('restores an overlay diffed against THIS catalogue', () => {

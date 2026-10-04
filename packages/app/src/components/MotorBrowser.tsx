@@ -37,6 +37,10 @@ import type { MotorMeta } from '../services/simReport.js';
 
 const FILTERS_KEY = 'online-openrocket.motor-filters.v1';
 const ROW_CAP = 400;
+const SORT_KEYS = {
+  designation: true, manufacturerAbbrev: true, diameter: true, length: true,
+  burnTimeS: true, totImpulseNs: true, avgThrustN: true, totalWeightG: true,
+} satisfies Record<MotorSortKey, true>;
 
 interface StoredFilters {
   manufacturers: string[];
@@ -83,7 +87,32 @@ const FOLDED_CLEAR: Partial<StoredFilters> = {
 function loadFilters(): StoredFilters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY);
-    return raw ? { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<StoredFilters>) } : DEFAULT_FILTERS;
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return DEFAULT_FILTERS;
+    const stored = parsed as Record<string, unknown>;
+    const number = (v: unknown, fallback: number | null) =>
+      v === null || (typeof v === 'number' && Number.isFinite(v)) ? v : fallback;
+    const strings = (v: unknown, fallback: string[]) =>
+      Array.isArray(v) && v.every((s) => typeof s === 'string') ? v as string[] : fallback;
+    const numbers = (v: unknown, fallback: number[]) =>
+      Array.isArray(v) && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? v as number[] : fallback;
+    // Every persisted field needs a reader, including future optional fields.
+    return {
+      manufacturers: strings(stored['manufacturers'], DEFAULT_FILTERS.manufacturers),
+      classes: numbers(stored['classes'], DEFAULT_FILTERS.classes),
+      impulse: strings(stored['impulse'], DEFAULT_FILTERS.impulse),
+      propellants: strings(stored['propellants'], DEFAULT_FILTERS.propellants),
+      includeOOP: typeof stored['includeOOP'] === 'boolean' ? stored['includeOOP'] : DEFAULT_FILTERS.includeOOP,
+      fitsOnly: typeof stored['fitsOnly'] === 'boolean' ? stored['fitsOnly'] : DEFAULT_FILTERS.fitsOnly,
+      burnMin: number(stored['burnMin'], DEFAULT_FILTERS.burnMin),
+      burnMax: number(stored['burnMax'], DEFAULT_FILTERS.burnMax),
+      impulseMin: number(stored['impulseMin'], DEFAULT_FILTERS.impulseMin),
+      impulseMax: number(stored['impulseMax'], DEFAULT_FILTERS.impulseMax),
+      showAll: typeof stored['showAll'] === 'boolean' ? stored['showAll'] : DEFAULT_FILTERS.showAll,
+      sortKey: typeof stored['sortKey'] === 'string' && Object.hasOwn(SORT_KEYS, stored['sortKey'])
+        ? stored['sortKey'] as MotorSortKey : DEFAULT_FILTERS.sortKey,
+      sortDir: stored['sortDir'] === 1 || stored['sortDir'] === -1 ? stored['sortDir'] : DEFAULT_FILTERS.sortDir,
+    } satisfies Required<StoredFilters>;
   } catch {
     return DEFAULT_FILTERS;
   }

@@ -62,7 +62,26 @@ const DEFAULT_CRITERIA: Criteria = {
 function loadCriteria(): Criteria {
   try {
     const raw = localStorage.getItem(CRITERIA_KEY);
-    return raw ? { ...DEFAULT_CRITERIA, ...(JSON.parse(raw) as Partial<Criteria>) } : DEFAULT_CRITERIA;
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return DEFAULT_CRITERIA;
+    const stored = parsed as Record<string, unknown>;
+    const number = (v: unknown, fallback: number | null) =>
+      v === null || (typeof v === 'number' && Number.isFinite(v)) ? v : fallback;
+    const strings = (v: unknown, fallback: string[]) =>
+      Array.isArray(v) && v.every((s) => typeof s === 'string') ? v as string[] : fallback;
+    const numbers = (v: unknown, fallback: number[]) =>
+      Array.isArray(v) && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? v as number[] : fallback;
+    // Every persisted field needs a reader, including future optional fields.
+    return {
+      minRodExit: number(stored['minRodExit'], DEFAULT_CRITERIA.minRodExit),
+      minThrustToWeight: number(stored['minThrustToWeight'], DEFAULT_CRITERIA.minThrustToWeight),
+      minApogee: number(stored['minApogee'], DEFAULT_CRITERIA.minApogee),
+      maxApogee: number(stored['maxApogee'], DEFAULT_CRITERIA.maxApogee),
+      autoDelay: typeof stored['autoDelay'] === 'boolean' ? stored['autoDelay'] : DEFAULT_CRITERIA.autoDelay,
+      includeOOP: typeof stored['includeOOP'] === 'boolean' ? stored['includeOOP'] : DEFAULT_CRITERIA.includeOOP,
+      manufacturers: strings(stored['manufacturers'], DEFAULT_CRITERIA.manufacturers),
+      classes: numbers(stored['classes'], DEFAULT_CRITERIA.classes),
+    } satisfies Required<Criteria>;
   } catch {
     return DEFAULT_CRITERIA;
   }
@@ -1191,7 +1210,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len, 'travel') : ''}</td>
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len) : ''}</td>
                     <td>{run?.thrustToWeightAtRod != null ? run.thrustToWeightAtRod.toFixed(1) : '—'}</td>
-                    <td>{run?.optimumDelayS != null ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
+                    <td>{typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? `${run.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td className={failed.length ? 'stability-bad' : 'stability-good'}>
                       {error ? `error: ${error}` : failed.length ? `✗ ${failed.join(', ')}` : '✓ accepted'}
                     </td>

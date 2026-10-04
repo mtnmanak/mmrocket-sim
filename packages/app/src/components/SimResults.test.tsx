@@ -113,6 +113,21 @@ afterEach(() => {
 });
 
 describe('SimRunDetails — where the raw flight data went', () => {
+  it.each([null, undefined, '5', {}, NaN, Infinity])('storage hardening: renders unavailable deployment time (%j)', (time) => {
+    const deployment = { device: 'Main', time, altitude: 200, velocityAtDeployment: 35,
+      descentRate: 5, groundSpeed: 5, isLanding: true, descentOk: true };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...run(), deployments: [deployment, { ...deployment, device: 'Drogue', time: 6 }] },
+    ]));
+    render(<SimRunDetails run={loadRuns()[0]!} />);
+    const rows = [...host.querySelectorAll('tr')];
+    const main = rows.find((tr) => tr.cells[0]?.textContent === 'Main (landing)');
+    const drogue = rows.find((tr) => tr.cells[0]?.textContent === 'Drogue (landing)');
+    expect(main?.cells[1]?.textContent).toBe('—');
+    expect(drogue?.cells[1]?.textContent).toBe('6.0 s');
+    expect(main?.textContent).toContain('hard opening');
+  });
+
   it('reports guide travel and physical rail beside exit speed, without changing the safety check', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft', velocity: 'm/s' } }));
     const r = run();
@@ -374,6 +389,17 @@ describe('SimRunDetails — booster recovery weight', () => {
 });
 
 describe('SimHistory — the run table names its data', () => {
+  it.each([undefined, '5', null, {}, Infinity])('storage hardening: draws unavailable stored optimum delay (%j)', (optimumDelayS) => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...run(), optimumDelayS }, run()]));
+    render(<SimHistory runs={loadRuns()} onRunsChange={() => {}} />);
+    openTable();
+    const table = host.querySelector('table')!;
+    const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent?.includes('Opt. delay'));
+    expect(index).toBeGreaterThanOrEqual(0);
+    const rows = table.querySelectorAll('tbody tr');
+    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('—');
+    expect(rows[1]!.querySelectorAll('td')[index]?.textContent).toBe('4.9s');
+  });
   it('labels both exports as the run table, not as bare formats', () => {
     render(<SimHistory runs={[run()]} onRunsChange={() => {}} designName="Big Dog 4in" />);
     const labels = Array.from(host.querySelectorAll('button')).map((b) => b.textContent ?? '');

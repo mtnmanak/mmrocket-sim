@@ -53,7 +53,17 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
-      for (const k of ARRAY_FIELDS) if (k in r && !Array.isArray(r[k])) delete r[k];
+      for (const k of ARRAY_FIELDS) {
+        if (!(k in r)) continue;
+        const entries = r[k];
+        if (!Array.isArray(entries)) delete r[k];
+        else Object.assign(r, { [k]: entries.filter((v) => k === 'boosterMotors'
+          ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
+      }
+      for (const b of r.branches ?? []) {
+        if (!Array.isArray(b.deployments)) b.deployments = [];
+        else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
+      }
       // Revive plugged delays (persisted as the string "Infinity" — see persist).
       // Runs saved before that fix came back as null; treat those as plugged too
       // when the label says so.
@@ -360,7 +370,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [`Altitude at deployment (${sym('distance', 'm')})`, (r) => cv('distance', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
-    .map((d) => `${d.device}@${d.time.toFixed(1)}s opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
+    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${d.velocityAtDeployment?.toFixed(1) ?? '?'}m/s descent ${d.descentRate?.toFixed(1) ?? '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
     .join('; ')],
   [`Drogue descent rate (${sym('velocity', 'm/s')})`, (r) => {
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);

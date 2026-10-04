@@ -184,7 +184,7 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
 /**
  * The tree with every value brought inside its hard limit and every unknown
  * enum string dropped to its default — the SAME tree object when nothing
- * needed it, so `normalizeTree`'s identity is untouched for a clean design.
+ * needed it. This identity guarantee applies to this sanitizing pass only.
  * Each repair pushes one note onto `notes`, when given.
  */
 export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {

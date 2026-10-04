@@ -52,6 +52,17 @@ afterEach(() => {
 });
 
 describe('parseNav — the contract validator', () => {
+  it.each([{}, '', '   ', 7, [], null].map((v) => [v]))('storage hardening: drops malformed shortName (%j) without mutating input', (shortName) => {
+    const payload = { ...clone(LIVE), site: { ...LIVE.site, shortName } };
+    const parsed = parseNav(payload)!;
+    expect(parsed.site.shortName).toBeUndefined();
+    expect(parsed.site.name).toBe(LIVE.site.name);
+    expect(parsed.nav).toEqual(LIVE.nav);
+    expect(payload.site.shortName).toBe(shortName);
+    writeCachedNav(parsed);
+    expect(readCachedNav()?.site.shortName).toBeUndefined();
+    expect(parseNav(LIVE)?.site.shortName).toBe('MMR');
+  });
   it('accepts the live payload unchanged', () => {
     const parsed = parseNav(clone(LIVE));
     expect(parsed).not.toBeNull();

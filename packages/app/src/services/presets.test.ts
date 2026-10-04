@@ -1,13 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
   applyPresetLinks, CATALOGUE_LINK_KEYS, catalogueDifferences, catalogueField, csvToPresets, detachPatch,
-  differsFromCatalogue, holdsCatalogueMass, KIND_FOR_TYPE, linkedPreset, presetPatch, presetsToCsv, type Preset,
+  differsFromCatalogue, holdsCatalogueMass, KIND_FOR_TYPE, linkedPreset, loadCustomPresets, loadPresets, presetPatch, presetsToCsv, type Preset,
 } from './presets.js';
 import presetsJson from '../data/presets.json';
 import { numOpt } from '../tree/nodeNum.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
+
+describe('storage hardening: custom presets', () => {
+  it.each([{}, null, 'parts', [null, 1, [], {}, { kind: 'BodyTube' }]].map((v) => [v]))('ignores malformed presets (%j)', async (value) => {
+    const good: Preset = { kind: 'BodyTube', manufacturer: 'EX', partNo: 'BT-2+', description: 'Tube' };
+    const stored = Array.isArray(value) ? [...value, good] : value;
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(stored) });
+    try {
+      expect(loadCustomPresets()).toEqual(Array.isArray(value) ? [good] : []);
+      const all = await loadPresets();
+      expect(all.length).toBe(db.length + (Array.isArray(value) ? 1 : 0));
+      if (Array.isArray(value)) expect(all.at(-1)).toEqual(good);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe('bundled preset database', () => {
   it('is present and substantial', () => {

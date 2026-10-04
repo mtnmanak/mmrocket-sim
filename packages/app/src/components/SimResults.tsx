@@ -166,7 +166,7 @@ function DeploymentTable({ deployments, dist, vel }: {
           return (
             <tr key={i}>
               <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
-              <td>{d.time.toFixed(1)} s</td>
+              <td>{Number.isFinite(d.time) ? `${d.time.toFixed(1)} s` : '—'}</td>
               <td>{d.altitude === null ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
               <td className={opening === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : undefined}>
                 {d.velocityAtDeployment === null ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
@@ -678,7 +678,7 @@ export function SimHistory({
                       : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
                     <td>{fmtSi('velocity', vel, r.maxVelocity)}</td>
-                    <td>{r.optimumDelayS === null ? '—' : `${r.optimumDelayS.toFixed(1)}s`}</td>
+                    <td>{typeof r.optimumDelayS === 'number' && Number.isFinite(r.optimumDelayS) ? `${r.optimumDelayS.toFixed(1)}s` : '—'}</td>
                     <td>{r.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, r.rodExitVelocity)}</td>
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       {r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, addExMotors, exToDbEntry, exitDiameterFromRse,
-  getExMotor, impulseClassOf, parseEng, parseRse,
+  getExMotor, impulseClassOf, loadExMotors, parseEng, parseRse,
 } from './exMotors.js';
 import { defaultDelay, delayOptions } from './thrustcurve.js';
 
@@ -43,6 +43,25 @@ const RSE = `<engine-database>
   </engine>
  </engine-list>
 </engine-database>`;
+
+describe('storage hardening: EX motors', () => {
+  afterEach(() => { localStorage.clear(); });
+  it('keeps usable motors beside malformed entries and samples', () => {
+    const good = parseEng(ENG)[0]!;
+    const bad = [null, 1, [], {}, { ...good, motorId: 1 }, { ...good, designation: {} },
+      { ...good, samples: undefined }, { ...good, samples: [null] },
+      { ...good, samples: [{ time: '0', thrust: 1 }] },
+      { ...good, samples: [{ time: 0, thrust: Infinity }] }];
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([...bad, good]));
+    const loaded = loadExMotors();
+    expect(loaded).toEqual([good]);
+    expect(loaded.map(exToDbEntry)[0]?.designation).toBe(good.designation);
+  });
+  it.each(['{}', 'null', '"motors"'])('ignores non-array libraries (%s)', (raw) => {
+    localStorage.setItem('online-openrocket.ex-motors.v1', raw);
+    expect(loadExMotors()).toEqual([]);
+  });
+});
 
 describe('parseEng (RASP)', () => {
   it('parses a single motor with header metadata', () => {
