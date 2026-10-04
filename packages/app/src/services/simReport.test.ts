@@ -10,6 +10,7 @@ import {
   type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
+import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
 
@@ -2091,4 +2092,39 @@ describe('Amendment 1 departure state', () => {
     expect(launchGuideExplanation(run.launchGuideReason, run.launchGuideIgnoredButtons)).toContain('were not counted');
     expect(launchGuideExplanation('lug')).not.toContain('were not counted');
   });
+});
+
+it('K1 persists completed recovery events including booster branches', () => {
+  const result = fakeResult();
+  result.events.find((e) => e.type === 'BURNOUT')!.motorMountId = 'main';
+  result.branches = [{ name: 'Booster', series: result.series, events: [
+    { type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' }, { type: 'GROUND_HIT', time: 100 },
+  ] }];
+  const build = () => buildSimRun({ result, info, motor, meta: { label: 'C6' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  expect(JSON.parse(JSON.stringify(build())).recoveryEvents).toEqual([
+    { type: 'BURNOUT', time: 2, motorMountId: 'main' }, { type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' },
+  ]);
+  result.branches[0]!.events.pop();
+  expect(build().recoveryEvents).toBeUndefined();
+});
+
+it('ROUND3 compares persisted recovery events across fresh ids without hiding event changes', () => {
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'test', execMs: 1, motorDataKey: 'test' });
+  const events = (mount: string, stage: string) => [
+    { type: 'BURNOUT', time: 2, sourceId: mount, motorMountId: mount, source: 'Mount' },
+    { type: 'STAGE_SEPARATION', time: 3, sourceId: stage, source: 'Stage' },
+    { type: 'BURNOUT', time: 2, sourceId: mount, motorMountId: mount, source: 'Mount' },
+  ];
+  const original = idFree({ ...run, recoveryEvents: events('c1', 'c2') });
+  expect(idFree({ ...run, recoveryEvents: events('c51', 'c52') })).toStrictEqual(original);
+  for (const change of [{ time: 2.1 }, { type: 'STAGE_SEPARATION' }, { source: 'Other' },
+    { sourceId: 'c52' }, { motorMountId: 'c52' }]) {
+    const changed = events('c51', 'c52');
+    Object.assign(changed[0]!, change);
+    expect(idFree({ ...run, recoveryEvents: changed })).not.toStrictEqual(original);
+  }
+  expect(idFree({ ...run, recoveryEvents: events('c1', 'c2').slice(0, 2) })).not.toStrictEqual(original);
+  expect(idFree({ ...run, recoveryEvents: undefined })).not.toStrictEqual(original);
 });

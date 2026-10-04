@@ -8,6 +8,7 @@ import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js'
 import * as presetService from '../services/presets.js';
 import { loadPresets } from '../services/presets.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
+import * as sizingService from '../services/recoverySizing.js';
 import { RecoverySizingPanel } from './RecoverySizingPanel.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -78,6 +79,63 @@ describe('RecoverySizingPanel', () => {
       await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     }
   };
+
+  it('K1 sizes attached stages together and displays the flight or estimate note', async () => {
+    const t: RocketTree = { components: [{ type: 'stage', id: 'upper' },
+      { type: 'stage', id: 'lower', separationEvent: 'altitudeascending' }] };
+    const sizing = vi.spyOn(sizingService, 'recoverySizing');
+    for (const note of ['Uses the separations recorded in the matching flight.', 'Assumes separation at 200 m. Launch to confirm.']) {
+      const recovery = { state: 'ok' as const, mass: 1, multiStage: false, note };
+      await mount({ tree: t, recovery, byStage: { state: 'ok', groups: [
+        { stageIds: ['upper', 'lower'], stageNames: ['Upper', 'Lower'], isSustainer: true, mass: recovery },
+      ] } });
+      expect(sizing.mock.calls.at(-1)![0].scope?.map((s) => s.id)).toEqual(['upper', 'lower']);
+      expect(text()).toContain(note);
+    }
+  });
+
+  it('ROUND3 explains solid bay exclusions and names shared items without an unverified mark', async () => {
+    vi.spyOn(presetService, 'loadPresets').mockResolvedValue([{ kind: 'Parachute', manufacturer: 'Test', partNo: 'M',
+      description: 'Main', diameter: 0.82, dragCoefficient: 1, packedDiameter: 0.04, packedLength: 0.1 }]);
+    const chute: ComponentNode = { type: 'parachute', id: 'chute', diameter: 0.82 };
+    const bay: ComponentNode = { type: 'bodytube', id: 'bay', length: 1, outerRadius: 0.1, filled: true, children: [chute] };
+    const t: RocketTree = { components: [{ type: 'stage', id: 'stage', children: [bay] }] };
+    const recovery = { state: 'ok' as const, mass: 1, multiStage: false };
+    await mount({ tree: t, recovery });
+    expect(text()).toContain('The recovery bay is solid.');
+    bay['filled'] = false;
+    bay.children!.push({ type: 'masscomponent', id: 'ballast', name: 'Nose ballast' },
+      { type: 'shockcord', id: 'cord', name: 'Kevlar cord' });
+    await mount({ tree: { ...t }, recovery });
+    expect(text()).toContain('Allow room for Nose ballast, Kevlar cord sharing this bay.');
+    expect(text()).not.toContain('has unverified fit');
+    expect(text()).toContain('hollow couplers and open shoulders narrow the opening');
+  });
+
+  it('ROUND2 has no flight hint for a single-stage recovery without a note', async () => {
+    await mount({ recovery: WILDMAN });
+    expect(text()).not.toContain('Uses the separations');
+  });
+
+  it('ROUND2 shows packing assumptions only after checking published packed dimensions', async () => {
+    const load = vi.spyOn(presetService, 'loadPresets').mockReturnValue(new Promise(() => {}));
+    await mount();
+    expect(text()).toContain('Looking through');
+    expect(text()).not.toContain('Fit assumes');
+    // Remount to initiate another catalogue load with the new response.
+    act(() => root.unmount()); root = createRoot(host);
+    load.mockResolvedValue([{ kind: 'Parachute', manufacturer: 'Test', partNo: 'M',
+      description: 'Main', diameter: 0.82, dragCoefficient: 1 }]);
+    await mount({ recovery: { state: 'ok', mass: 1, multiStage: false } });
+    expect(text()).not.toContain('Fit assumes');
+    act(() => root.unmount()); root = createRoot(host);
+    load.mockResolvedValue([{ kind: 'Parachute', manufacturer: 'Test', partNo: 'M',
+      description: 'Main', diameter: 0.82, dragCoefficient: 1, packedDiameter: 0.04, packedLength: 0.1 }]);
+    await mount({ recovery: { state: 'ok', mass: 1, multiStage: false } });
+    expect(text()).toContain('Fit assumes a cylindrical bundle');
+    await mount({ recovery: { state: 'ok', mass: 1, multiStage: false }, tree: { components: [] } });
+    expect(text()).not.toContain('Fit assumes');
+  });
 
   it('S3b-7: reports a failed catalogue load and retries without losing size advice', async () => {
     const load = vi.spyOn(presetService, 'loadPresets').mockRejectedValueOnce(new Error('offline'));
@@ -163,7 +221,7 @@ describe('RecoverySizingPanel', () => {
       // significant figures since the 2026-09-22 audit: it read "3.9 in".)
       const foot = (i: number) => bands()[i]?.querySelector('.recovery-band-foot')?.textContent ?? '';
       expect(foot(0)).toContain('3.94 in bore');
-      expect(foot(2)).not.toContain('pack wider');
+      expect(foot(2)).not.toMatch(/canopies that hit this band exceed/);
     });
 
     it('is byte-identical to the single-stage panel when there is one object', async () => {
@@ -294,7 +352,8 @@ describe('RecoverySizingPanel', () => {
       } as unknown as ComponentNode],
     };
     await mount({ tree: narrow });
-    expect(text()).toMatch(/\d+ of \d+ canopies that hit this band pack wider/);
+    expect(text()).toMatch(/\d+ of \d+ canopies that hit this band exceed the bay’s/);
+    expect(text()).toContain('The packed diameter exceeds the bay opening.');
   });
 
   it('says the size is per canopy when the chute rides in a pod set', async () => {

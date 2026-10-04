@@ -166,7 +166,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               8.786 kg vs 11.7 kg case behind it.
             */}
             {recovery && stat(
-              'Recovery weight',
+              recovery.state === 'ok' && recovery.estimate ? 'Recovery weight (estimate)' : 'Recovery weight',
               recovery.state === 'ok' ? fmtSi('mass', prefs.units.mass, recovery.mass)
                 : recovery.state === 'no-motor' ? 'load a motor' : '—',
               recovery.state === 'ok' ? prefs.units.mass : undefined,

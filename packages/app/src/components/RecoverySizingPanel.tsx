@@ -3,11 +3,12 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, fmtSig, siToUi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
-import { recoveryGroups, type RecoveryByStage, type RecoveryMass } from '../services/recoveryMass.js';
+import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
 import {
   recoverySizing, type BandAdvice, type Candidate, type RecoverySizing,
 } from '../services/recoverySizing.js';
 import type { LaunchConditions } from './LaunchPanel.js';
+import { stages } from '../tree/treeModel.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
@@ -76,20 +77,18 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
 
   /**
    * The objects to size, in landing order: the sustainer's group first, then
-   * each booster that separates. The stage NODES come from `recoveryGroups`
-   * and the WEIGHTS from `byStage`; both derive from the same partition of
-   * the same tree, so they zip by index. With one object (single stage, or
+   * each booster that separates. Resolve stage nodes by the ids in `byStage`,
+   * so a flight that kept stages attached sizes their devices together. With one object (single stage, or
    * every booster set to Never) this is one entry and the panel is the panel
    * it always was.
    */
   const objects = useMemo(() => {
-    const nodeGroups = recoveryGroups(tree);
-    if (byStage?.state === 'ok' && byStage.groups.length > 1 && byStage.groups.length === nodeGroups.length) {
-      return byStage.groups.map((g, i) => ({
+    if (byStage?.state === 'ok') {
+      return byStage.groups.map((g) => ({
         label: g.stageNames.join(' + '),
         isSustainer: g.isSustainer,
         recovery: g.mass,
-        scope: nodeGroups[i]!,
+        scope: g.stageIds.length ? stages(tree).filter((s) => g.stageIds.includes(s.id ?? '')) : tree.components,
       }));
     }
     return [{ label: '', isSustainer: true, recovery, scope: undefined }];
@@ -153,6 +152,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
           Parts catalogue could not be loaded. <button type="button" onClick={() => setCatalogueFailed(false)}>Retry</button>
         </p>
       )}
+      {recovery.state === 'ok' && recovery.note && <p className="recovery-sizing-hint">{recovery.note}</p>}
       {objects.map((o, i) => (
         <ObjectSection
           key={o.label || 'rocket'}
@@ -393,11 +393,13 @@ function BandSection({
       )}
 
       <p className="recovery-band-foot">
-        {advice.excludedForFit > 0 && boreM !== null && (
+        {advice.checkedFits > 0 && <>Fit assumes a cylindrical bundle; hollow couplers and open shoulders narrow the opening, while solid internals reserve their full axial span. Allow extra room for wadding and deployment.{' '}</>}
+        {boreM !== null && <>Bay opening: {fmtSig(siToUi('length', lenSym, boreM), 3, 1)} {lenSym} bore.{' '}</>}
+        {advice.excludedForFit > 0 && (
           <>
-            {advice.excludedForFit} of {advice.inBand} canopies that hit this band pack wider
-            than this airframe’s {fmtSig(siToUi('length', lenSym, boreM), 3, 1)} {lenSym} bore and are
-            not listed.{' '}
+            {advice.excludedForFit} of {advice.inBand} canopies that hit this band exceed the bay’s
+            opening, taper or usable length, or overlap modelled internals, and are
+            not listed. {advice.excludedFitReasons.join(' ')}{' '}
           </>
         )}
         {advice.mergedVariants > 0 && (
@@ -408,8 +410,8 @@ function BandSection({
         )}
         {anyUnverified && (
           <>
-            <span className="recovery-mark">‡</span> publishes no packed size — check it fits
-            your bay before you buy.{' '}
+            <span className="recovery-mark">‡</span> has unverified fit — check the packed dimensions
+            and bay before you buy.{' '}
           </>
         )}
         {anyFlagged && (
@@ -479,7 +481,7 @@ function PartRow({ c, lenSym, velSym, massSym }: {
         {c.mass !== null && <> · {fmtSi('mass', massSym, c.mass)} {massSym}</>}
         {' · '}
         {c.packedDiameter !== null && c.packedLength !== null
-          ? <>packs {len(c.packedDiameter)} × {len(c.packedLength)} {lenSym}</>
+          ? <>packs {len(c.packedDiameter)} × {len(c.packedLength)} {lenSym}{c.fit === 'unverified' && ' ‡'}</>
           : (
             <>
               packed size unpublished
@@ -489,7 +491,9 @@ function PartRow({ c, lenSym, velSym, massSym }: {
               <span className="recovery-mark" aria-hidden="true">‡</span>
             </>
           )}
+        {c.fit === 'unverified' && <> · {c.fitReason}</>}
       </div>
+      {c.packingNote && <div className="recovery-part-meta">{c.packingNote}</div>}
     </li>
   );
 }
