@@ -84,7 +84,10 @@ const CUSTOM_KEY = 'online-openrocket.custom-presets.v1';
 export function loadCustomPresets(): Preset[] {
   try {
     const raw = localStorage.getItem(CUSTOM_KEY);
-    return raw ? (JSON.parse(raw) as Preset[]) : [];
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((p): p is Preset =>
+      p !== null && typeof p === 'object' && !Array.isArray(p)
+      && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof p[key] === 'string')) : [];
   } catch {
     return [];
   }

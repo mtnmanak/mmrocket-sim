@@ -43,6 +43,20 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe('storage hardening: result tiles', () => {
+  it.each([{}, null, 3, 'apogee', ['apogee', null]].map((v) => [v]))('drops malformed tile choices (%j)', (resultTiles) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ resultTiles, radiusMode: 'radius' }));
+    mount();
+    expect(seen.prefs.resultTiles).toBeUndefined();
+    expect(seen.prefs.radiusMode).toBe('radius');
+  });
+  it.each([[], ['apogee', 'maxV']].map((v) => [v]))('preserves string tile lists (%j)', (resultTiles) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ resultTiles }));
+    mount();
+    expect(seen.prefs.resultTiles).toEqual(resultTiles);
+  });
+});
+
 describe('the printer preference round-trips', () => {
   it('a stored blob from before this feature loads unchanged, with no printer', () => {
     const old = {

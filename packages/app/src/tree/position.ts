@@ -56,8 +56,9 @@ import { num } from './nodeNum.js';
  */
 export function axialLength(n: ComponentNode): number {
   if (n.type === 'freeformfinset') {
-    const pts = (n['points'] as [number, number][] | undefined) ?? [];
-    return pts.length ? pts[pts.length - 1]![0] : 0.05;
+    const pts = n['points'];
+    const last = Array.isArray(pts) ? pts[pts.length - 1] : undefined;
+    return Array.isArray(last) && Number.isFinite(last[0]) ? last[0] as number : 0.05;
   }
   if (n.type === 'trapezoidfinset' || n.type === 'ellipticalfinset') {
     return kernelNum(n, 'rootChord');

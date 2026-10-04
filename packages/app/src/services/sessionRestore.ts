@@ -60,7 +60,7 @@ export function designStateFromSession(
   // assignment and legacy migrations would key onto ghosts. Autosave repairs
   // are named just like file imports (open-items, 22–23 September: "A
   // restored session is repaired without a note").
-  const restoreNotes: string[] = [];
+  const restoreNotes: string[] = [...(session?.treeRestoreNotes ?? [])];
   const before = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
   const tree = migrateMotorLengths(before, limits);

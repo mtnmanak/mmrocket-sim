@@ -5,6 +5,34 @@ import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateN
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
+describe('normalizeTree repair notices', () => {
+  it.each(['nodes', 'children', 'points', 'depth', 'components'])('deduplicates repeated %s repairs', (kind) => {
+    let bad: unknown = null;
+    if (kind === 'children') bad = { type: 'stage', name: 'Damaged', children: {} };
+    if (kind === 'points') bad = { type: 'freeformfinset', name: 'Damaged', points: [null] };
+    if (kind === 'depth') {
+      bad = { type: 'stage', name: 'Damaged', children: [] };
+      for (let i = 0; i < 130; i++) bad = { type: 'stage', name: 'Damaged', children: [bad] };
+    }
+    const tree = { components: kind === 'components' ? null : [bad, bad] } as unknown as RocketTree;
+    const notes: string[] = [];
+    normalizeTree(tree, notes);
+    normalizeTree(tree, notes); // Includes a note already supplied by an importer.
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/removed|outline was not used/);
+  });
+
+  it('keeps distinct named repairs', () => {
+    const notes: string[] = [];
+    normalizeTree({ components: ['First', 'Second'].map((name) => ({
+      type: 'freeformfinset', name, points: [null],
+    })) } as unknown as RocketTree, notes);
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toContain('First');
+    expect(notes[1]).toContain('Second');
+  });
+});
+
 describe('engineTree — spill-hole Cd reduction at the engine boundary', () => {
   const chuteTree = (params: Record<string, unknown>): RocketTree => ({
     name: 's',

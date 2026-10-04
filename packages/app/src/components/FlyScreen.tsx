@@ -151,8 +151,8 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           <div className="fly-stats">
             {stat('Apogee', run ? fmtSi('distance', prefs.units.distance, run.maxAltitude) : '—',
               run ? prefs.units.distance : undefined)}
-            {stat('Optimum delay', run?.optimumDelayS != null ? run.optimumDelayS.toFixed(1) : '—',
-              run?.optimumDelayS != null ? 's' : undefined)}
+            {stat('Optimum delay', typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? run.optimumDelayS.toFixed(1) : '—',
+              Number.isFinite(run?.optimumDelayS) ? 's' : undefined)}
             {stat('Descent', descent != null ? fmtSi('velocity', prefs.units.velocity, descent) : '—',
               descent != null ? prefs.units.velocity : undefined)}
             {stat('Max velocity', run ? fmtSi('velocity', prefs.units.velocity, run.maxVelocity) : '—',

@@ -197,6 +197,36 @@ describe('the batch dialog', () => {
     ));
   }
 
+  it('storage hardening: round-trips every valid stored criterion', () => {
+    const key = 'online-openrocket.batch-criteria.v1';
+    const criteria = { manufacturers: ['Estes'], classes: [24], minRodExit: 12, minThrustToWeight: 5,
+      minApogee: 100, maxApogee: 1000, autoDelay: false, includeOOP: false };
+    localStorage.setItem(key, JSON.stringify(criteria));
+    mount();
+    const oop = [...host.querySelectorAll('label')].find((el) => el.textContent?.includes('include OOP'))
+      ?.querySelector('input');
+    expect(oop).toBeTruthy();
+    act(() => { oop!.click(); });
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ ...criteria, includeOOP: true });
+  });
+
+  it('storage hardening: opens with defaults for malformed criteria and keeps valid fields', () => {
+    const key = 'online-openrocket.batch-criteria.v1';
+    localStorage.setItem(key, JSON.stringify({ manufacturers: null, classes: [24, '29'],
+      minRodExit: '15', minThrustToWeight: {}, minApogee: 100, maxApogee: null,
+      autoDelay: 'false', includeOOP: null }));
+    mount();
+    expect(host.textContent).toMatch(/[1-9]\d* candidate motors/);
+    const oop = [...host.querySelectorAll('label')].find((el) => el.textContent?.includes('include OOP'))
+      ?.querySelector('input');
+    expect(oop).toBeTruthy();
+    act(() => { oop!.click(); });
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({
+      manufacturers: [], classes: [], minRodExit: null, minThrustToWeight: null,
+      minApogee: 100, maxApogee: null, autoDelay: true, includeOOP: true,
+    });
+  });
+
   it('switches candidate and exclusion counts with the selected mount limit', () => {
     const pool = filterMotors({ manufacturers: new Set(), classes: new Set(), boreMm: 24, includeOOP: false, text: '' }, MOTOR_DB);
     const boundary = pool[0]!.length / 1000;

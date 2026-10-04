@@ -11,7 +11,8 @@ import { loadBundledPresets, loadPresets, type Preset } from './presets.js';
  * its answer does not depend on which browser ran it.
  */
 const CUSTOM_KEY = 'online-openrocket.custom-presets.v1';
-const mine = { manufacturer: 'Mine', partNo: 'MY-1', type: 'BodyTube' } as unknown as Preset;
+// A well-formed stored row: loadCustomPresets drops rows missing kind, partNo, manufacturer or description (S1c-3).
+const mine = { kind: 'BodyTube', manufacturer: 'Mine', partNo: 'MY-1', description: '' } as unknown as Preset;
 
 afterEach(() => { localStorage.clear(); });
 

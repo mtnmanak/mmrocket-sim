@@ -73,6 +73,9 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   // browser dereferences it on every row — its search and its load label call
   // string methods on it — so one live row without it threw inside the render.
   if (typeof m.commonName !== 'string' || !m.commonName.trim()) return 'no common name';
+  for (const field of ['impulseClass', 'propInfo', 'caseInfo', 'delays', 'type'] as const) {
+    if (m[field] != null && typeof m[field] !== 'string') return `${field} is not text`;
+  }
   // A required number the row lacks, or carries as JSON's null, is named as
   // missing: describeOverlay shows the reason, and it read "diameter undefined
   // mm is not a motor" (audit 2026-09-30).

@@ -130,6 +130,52 @@ const settle = async (ms = 0) => { await act(async () => { await new Promise((r)
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
+describe('storage hardening: motor filters', () => {
+  it('round-trips every valid stored filter', () => {
+    const filters = { manufacturers: ['Estes'], classes: [24], impulse: ['D'], propellants: ['Black Powder'],
+      includeOOP: true, fitsOnly: true, showAll: false, burnMin: 0.1, burnMax: 3,
+      impulseMin: 1, impulseMax: 50, sortKey: 'length', sortDir: 1 };
+    const h = openBrowser({ mountDiameterMm: 24, filters });
+    onTestFinished(() => closeBrowser(h));
+    click([...h.host.querySelectorAll('button')].find((button) => button.textContent?.includes('All filters'))!);
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)).toEqual({ ...filters, showAll: true });
+  });
+
+  it.each(['designation', 'manufacturerAbbrev', 'diameter', 'length', 'burnTimeS',
+    'totImpulseNs', 'avgThrustN', 'totalWeightG'])('retains stored sort key %s', (sortKey) => {
+    const h = openBrowser({ mountDiameterMm: 24, filters: { sortKey, sortDir: 1 } });
+    onTestFinished(() => closeBrowser(h));
+    const filters = [...h.host.querySelectorAll('button')].find((button) => button.textContent?.includes('All filters'))!;
+    click(filters);
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)).toMatchObject({ sortKey, sortDir: 1 });
+  });
+
+  it.each(['toString', '__proto__'])('rejects inherited sort key %s', (sortKey) => {
+    const h = openBrowser({ mountDiameterMm: 24, filters: { sortKey } });
+    onTestFinished(() => closeBrowser(h));
+    const header = [...h.host.querySelectorAll('thead th')].find((th) => th.textContent?.includes('Impulse'))!;
+    expect(header.getAttribute('aria-sort')).toBe('descending');
+  });
+
+  it('opens with defaults for malformed fields and keeps valid fields', () => {
+    const h = openBrowser({ mountDiameterMm: 24, filters: {
+      manufacturers: null, classes: [24, null], impulse: {}, propellants: ['x', 3],
+      includeOOP: 'false', fitsOnly: [], showAll: true, burnMin: '1', burnMax: {},
+      impulseMin: 0, impulseMax: null, sortKey: 'bogus', sortDir: 0,
+    } });
+    onTestFinished(() => closeBrowser(h));
+    expect(bodyRows(h).length).toBeGreaterThan(0);
+    const header = [...h.host.querySelectorAll('thead th')].find((th) => th.textContent?.includes('Impulse'))!;
+    expect(header.getAttribute('aria-sort')).toBe('descending');
+    click(header);
+    expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)).toEqual({
+      manufacturers: [], classes: [], impulse: [], propellants: [], includeOOP: false,
+      fitsOnly: false, showAll: true, burnMin: null, burnMax: null, impulseMin: 0, impulseMax: null,
+      sortKey: 'totImpulseNs', sortDir: 1,
+    });
+  });
+});
+
 /** Drops files onto the "Import .eng/.rse" input, the way the picker hands them over. */
 async function importFiles(h: Harness, files: { name: string; text: string }[]): Promise<void> {
   const input = h.host.querySelector<HTMLInputElement>('input[type="file"][accept=".eng,.rse,.txt"]')!;

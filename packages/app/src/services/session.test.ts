@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   flushSession,
   loadSession,
+  peekSession,
   onSessionSaveStateChange,
   saveSessionDebounced,
   sessionPredatesThisBuild,
@@ -16,6 +17,9 @@ import type { MountMotor } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';
+import { autosavedDesignFile } from './autosaveBackup.js';
+import { designStateFromSession } from './sessionRestore.js';
+import { findNode, normalizeTree } from '../tree/treeModel.js';
 
 /** Minimal but loadSession-valid state — the save path never inspects more. */
 const state = () => ({
@@ -59,6 +63,140 @@ afterEach(() => {
   saveNow();
   vi.useRealTimers();
   localStorage.clear();
+});
+
+describe('storage hardening: session tree', () => {
+  const stage = { type: 'stage', id: 'kept', name: 'Sustainer', children: [] };
+  const restore = () => designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+
+  it.each([null, 7, 'tree', []].map((v) => [v]))('names a fallback for an unreadable root (%j)', (tree) => {
+    const raw = JSON.stringify({ ...state(), tree });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree.name).toBe('My Rocket');
+    expect(restored.restoreNotes.join(' ')).toContain('The starter design was opened.');
+    expect(peekSession()).toBeNull();
+    expect(autosavedDesignFile()).toMatchObject({ ork: false, extension: '.json', data: raw });
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it.each(['modern', 'legacy'])('detaches the old design from an unreadable root (%s)', (format) => {
+    const spec = { designation: 'H100', diameter: 0.029, length: 0.2, cgX: 0.1, ejectionDelay: 10,
+      times: [0, 1], thrusts: [0, 0], masses: [0.2, 0.1] };
+    const motors = { c4: { label: 'Old motor', spec, meta: { label: 'Old motor' } } };
+    const raw = JSON.stringify({ ...state(), tree: null, savedAt: 123, appVersion: APP_VERSION,
+      ...(format === 'modern' ? { mountMotors: motors } : { motor: spec, motorLabel: 'Old motor' }),
+      mountId: 'c4', activeConfigId: 'old', savedConfigs: [{ id: 'old', motors }],
+      unmatchedRefs: { c4: { designation: 'H100' } }, flownAutoDelays: { old: { c4: 5 } },
+      measured: { massKg: 10, cgM: 1, padMassKg: 11 }, maxMotorLengthByStage: { c1: 0.5 },
+      maxMotorLengthM: 0.5, importedDocument: { name: 'Old flight' }, savedMark: 'old', flownSinceSave: true,
+    });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const loaded = loadSession()!;
+    expect(Object.keys(loaded).sort()).toEqual([
+      'appVersion', 'launch', 'motorLengthLimitsMigrated', 'nozzleModeVersion', 'savedAt', 'tree', 'treeRestoreNotes',
+    ]);
+    expect(loaded.launch).toEqual(state().launch);
+    expect(loaded.savedAt).toBe(123);
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: 0.9 });
+    expect(restored.state.mountMotors).toEqual({});
+    expect(restored.state.savedConfigs).toEqual([]);
+    expect(restored.state.activeConfigId).toBeNull();
+    expect(restored.state.unmatchedRefs).toEqual({});
+    expect(restored.state.measured).toEqual({ massKg: null, cgM: null });
+    expect(restored.preLengthRestore.maxMotorLengthByStage).toEqual({});
+    expect(restored.restoreNotes.join(' ')).toContain('motors, configurations, and measurements were not applied.');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it.each([null, {}, 'components'].map((v) => [v]))('repairs an unreadable component list (%j)', (components) => {
+    const raw = JSON.stringify({ ...state(), tree: { name: 'Kept name', components } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree.name).toBe('Kept name');
+    expect(restored.state.tree.components).toHaveLength(1);
+    expect(restored.restoreNotes).toContain('The unreadable component list was removed.');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it.each([null, 7, 'node', [], {}, { type: 3 }].map((v) => [v]))('repairs malformed nodes before normalization (%j)', (node) => {
+    const raw = JSON.stringify({ ...state(), tree: { components: [node, stage] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree.components).toEqual([stage]);
+    expect(restored.restoreNotes).toContain('A component that could not be read was removed.');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it.each([null, {}, 'children'].map((v) => [v]))('repairs unreadable children (%j)', (children) => {
+    const raw = JSON.stringify({ ...state(), tree: { components: [{ ...stage, children }] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree.components).toEqual([stage]);
+    expect(restored.restoreNotes.join(' ')).toContain('unreadable children were removed');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it('removes malformed nested nodes while retaining their siblings', () => {
+    const body = { type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.02, thickness: 0.001 };
+    const raw = JSON.stringify({ ...state(), tree: { components: [{ ...stage, children: [null, body] }] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree.components[0]!.children).toEqual([body]);
+    expect(restored.restoreNotes).toContain('A component that could not be read was removed.');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it.each([[null], [[0, 0], null], {}, [[0, null]], [['0', 0]], 'points', null].map((v) => [v]))('repairs malformed fin points (%j)', (points) => {
+    const tree = normalizeTree({ components: [{ ...stage, children: [
+      { type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.02, thickness: 0.001, children: [
+        { type: 'freeformfinset', id: 'fin', name: 'Airfoil fins', crossSection: 'airfoil', points: [[0, 0], [0.05, 0]] },
+      ] },
+    ] }] } as RocketTree);
+    const expected = structuredClone(tree);
+    findNode(expected, 'fin')!['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
+    findNode(tree, 'fin')!['points'] = points;
+    const raw = JSON.stringify({ ...state(), tree });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.state.tree).toEqual(expected);
+    expect(restored.restoreNotes.join(' ')).toContain('Fin set "Airfoil fins": its outline was not used');
+    expect(restored.restoreNotes.join(' ')).toContain('The set keeps a default outline; redraw it in the fin editor.');
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it('keeps an ork recovery download available for previously exportable fin points', () => {
+    const raw = JSON.stringify({ ...state(), tree: { components: [{ ...stage, children: [
+      { type: 'freeformfinset', points: [[0, null]] },
+    ] }] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    expect(autosavedDesignFile()).toMatchObject({ extension: '.ork', ork: true });
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it('caps depth with a repair note without removing the recovery bytes', () => {
+    let node: unknown = { type: 'bodytube' };
+    for (let i = 0; i < 130; i++) node = { ...stage, id: 'level-' + i, children: [node] };
+    const raw = JSON.stringify({ ...state(), tree: { components: [node] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const restored = restore();
+    expect(restored.restoreNotes.join(' ')).toContain('children nested beyond 128 levels were removed');
+    expect(findNode(restored.state.tree, 'level-0')).toBeNull();
+    expect(findNode(restored.state.tree, 'level-1')).not.toBeNull();
+    expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+  });
+
+  it('preserves valid rounded and airfoil freeform outlines, including unfinished edits', () => {
+    const fins = ['rounded', 'airfoil'].map((crossSection) => ({
+      type: 'freeformfinset', crossSection, points: [[0, 0], [-0.01, 0.03], [0.06, 0]],
+    })).concat([{ type: 'freeformfinset', crossSection: 'airfoil', points: [] }]);
+    const tree = { components: [{ ...stage, children: fins }] };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree }));
+    expect(loadSession()?.tree).toEqual(tree);
+    const restored = restore();
+    expect(restored.state.tree.components[0]!.children).toEqual(fins);
+    expect(restored.restoreNotes).toEqual([]);
+  });
 });
 
 describe('session autosave under quota', () => {

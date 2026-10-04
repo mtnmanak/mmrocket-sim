@@ -113,8 +113,14 @@ export function loadExMotors(): ExMotor[] {
   if (unstored) return unstored;
   try {
     const raw = localStorage.getItem(KEY);
-    const list = raw ? (JSON.parse(raw) as ExMotor[]) : [];
-    return Array.isArray(list) ? list : [];
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((m): m is ExMotor =>
+      m !== null && typeof m === 'object' && !Array.isArray(m)
+      && typeof m.motorId === 'string' && typeof m.designation === 'string'
+      && typeof m.realManufacturer === 'string' && typeof m.delays === 'string'
+      && Array.isArray(m.samples) && m.samples.every((s: unknown) =>
+        s !== null && typeof s === 'object' && !Array.isArray(s)
+        && 'time' in s && Number.isFinite(s.time) && 'thrust' in s && Number.isFinite(s.thrust))) : [];
   } catch {
     return [];
   }

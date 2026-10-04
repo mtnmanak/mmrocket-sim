@@ -83,6 +83,14 @@ describe('FlyScreen', () => {
     return calls;
   }
 
+  it.each([undefined, '5', null, {}, Infinity])('storage hardening: draws unavailable optimum delay (%j)', (optimumDelayS) => {
+    mount({ run: { ...RUN, optimumDelayS } as SimRun });
+    const tile = [...host.querySelectorAll('.fly-stats > *')].find((el) => el.textContent?.includes('Optimum delay'))!;
+    expect(tile.querySelector('.stat-value')?.textContent).toBe('—');
+    mount();
+    expect(host.querySelector('.fly-stats')?.textContent).toContain('4.8');
+  });
+
   /**
    * Audit 2026-09-30: FlyScreen handed its drawing a fresh `motors={{}}` on
    * every render, and the drawing's layout is memoised on `motors`, so each

@@ -415,7 +415,8 @@ export function planImport(
   // switching to it would — the reader baked in its own pick's.
   // `let`, because the stated-launch-weight reconcile below may rewrite a
   // stage's overrides once the applied configuration's motors are known.
-  let importedTree = pick ? configOntoTree(normalizeTree(imported.tree), pick.cfg) : normalizeTree(imported.tree);
+  let importedTree = normalizeTree(imported.tree, notes);
+  if (pick) importedTree = configOntoTree(importedTree, pick.cfg);
   const nextConfigs: SavedConfig[] = [];
   for (const cfg of imported.configs ?? []) {
     const cfgMotors: Record<string, MountMotor> = {};

@@ -140,6 +140,18 @@ const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
 describe('the candidates', () => {
+  it.each([undefined, '5', null, {}, Infinity])('storage hardening: draws unavailable optimum delay (%j)', async (optimumDelayS) => {
+    const bad = row('bad', 'Bad', 100);
+    bad.run = { ...bad.run, optimumDelayS } as SimRun;
+    sweep.mockResolvedValue({ rows: [bad, row('good', 'Good', 100)], stopped: false });
+    mount();
+    await start();
+    const headers = [...host.querySelectorAll('thead th')];
+    const index = headers.findIndex((th) => th.textContent?.includes('Opt. delay'));
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(bodyRows()[0]!.querySelectorAll('td')[index]?.textContent).toBe('—');
+    expect(bodyRows()[1]!.querySelectorAll('td')[index]?.textContent).toBe('5.0s');
+  });
   /**
    * THE EFFECTIVE CATALOGUE (audit 2026-09-22). The candidates came from the
    * static MOTOR_DB import while every other motor path read the live

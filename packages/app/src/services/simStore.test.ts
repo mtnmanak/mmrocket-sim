@@ -6,7 +6,7 @@ import {
 } from './simStore.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
-import type { SimRun } from './simReport.js';
+import { deploymentVerdict, type SimRun } from './simReport.js';
 
 /**
  * Store tests exercise the persistence round-trip, not simulation output —
@@ -45,6 +45,51 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   clearRuns(); // module-level failure flag survives between tests — reset it
+});
+
+describe('storage hardening: run array entries', () => {
+  it.each([null, undefined, '5', {}, NaN, Infinity])('exports unavailable deployment time (%j)', (time) => {
+    const deployment = { device: 'Main', time, velocityAtDeployment: 35, descentRate: 5, isLanding: true };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...mkRun('kept'), deployments: [deployment, { ...deployment, device: 'Drogue', time: 6 }] },
+    ]));
+    const loaded = loadRuns();
+    expect(runsToCsv(loaded)).toContain('Main@? opens');
+    expect(runsToCsv(loaded)).toContain('Drogue@6.0s opens');
+    expect(deploymentVerdict(loaded[0]!)).toBe(false);
+  });
+
+  it('keeps valid entries and rows while dropping non-object entries, including nested deployments', () => {
+    const deployment = { device: 'Main', time: 6, velocityAtDeployment: 35, descentRate: 5, isLanding: true };
+    const branch = { name: 'Booster', deployments: [null, false, [], deployment] };
+    const warning = { key: 'SIM_ABORT', description: 'Stopped' };
+    const wind = { altitude: 0, speed: 2, direction: 0 };
+    const corrupt = { ...mkRun('kept'), deployments: [null, 1, [], deployment],
+      branches: [null, 'branch', [], branch, { name: 'Old', deployments: {} }],
+      boosterMotors: [null, 'C6', {}], simWarnings: [null, warning], windLevels: [null, wind] };
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([corrupt, mkRun('other')]));
+    const loaded = loadRuns();
+    expect(loaded.map((r) => r.id)).toEqual(['kept', 'other']);
+    const r = loaded[0]!;
+    expect(r.deployments).toEqual([deployment]);
+    expect(r.branches).toEqual([{ ...branch, deployments: [deployment] }, { name: 'Old', deployments: [] }]);
+    expect(r.boosterMotors).toEqual(['C6']);
+    expect(r.simWarnings).toEqual([warning]);
+    expect(r.windLevels).toEqual([wind]);
+    expect(deploymentVerdict(r)).toBe(false);
+    expect(() => runsToTable(loaded)).not.toThrow();
+    expect(runsToCsv(loaded)).toContain('Main@6.0s');
+  });
+
+  it('degrades null-only deployment arrays without losing the flight', () => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...mkRun('kept'), deployments: [null], branches: [null] },
+    ]));
+    const [r] = loadRuns();
+    expect(r?.id).toBe('kept');
+    expect(deploymentVerdict(r!)).toBeNull();
+    expect(() => runsToTable([r!])).not.toThrow();
+  });
 });
 
 describe('persist under quota — the table must not lie', () => {
