@@ -681,6 +681,9 @@ describe('the density-altitude readout', () => {
   it('is a readout, not an input, and its help reaches a screen reader', () => {
     renderConditions({});
     const out = shown()!;
+    const label = readout()!.querySelector('label')!;
+    expect(label.htmlFor).not.toBe('');
+    expect(document.getElementById(label.htmlFor)).toBe(out);
     expect(readout()!.querySelector('input')).toBeNull();
     const help = host.querySelector(`#${CSS.escape(out.getAttribute('aria-describedby')!)}`);
     expect(help?.textContent).toBe(DENSITY_ALTITUDE_HELP);

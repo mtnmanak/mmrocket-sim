@@ -417,9 +417,9 @@ function DensityAltitudeReadout({ value }: { value: LaunchConditions }) {
   const delta = fmtAltitude(sym, da - air.altitudeM);
   return (
     <div className="field field-readout" title={DENSITY_ALTITUDE_HELP} data-readout="density-altitude">
-      <label id={labelId}>Density altitude <UnitChip quantity="distance" /></label>
+      <label id={labelId} htmlFor={id}>Density altitude <UnitChip quantity="distance" /></label>
       <span id={helpId} className="sr-only">{DENSITY_ALTITUDE_HELP}</span>
-      <output aria-labelledby={labelId} aria-describedby={helpId} aria-live="off"
+      <output id={id} aria-labelledby={labelId} aria-describedby={helpId} aria-live="off"
         className={air.standard ? 'readout-muted' : undefined}>
         {fmtAltitude(sym, da)}
         {delta !== '0' && delta !== '—'
