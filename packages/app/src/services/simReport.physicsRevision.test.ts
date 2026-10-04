@@ -38,7 +38,7 @@ describe('K9/K15 upgrade provenance', () => {
     const stored = {
       delayResolution: testResolution([['mount', motor]], [5]),
       id: 'pre-release', when: 1, flightConfigId: 'A', rocket: 'Historical rocket',
-      designKey: key.designKey, motorSetKey: key.motorSetKey, conditionsKey: key.conditionsKey,
+      designKey: key.designKey, motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey, conditionsKey: key.conditionsKey,
       aeroModel: 'classic', rogersKbf: false, delayS: 5, recommendedDelayS: 5,
       maxAltitude: 123, comments: 'Historical safety report',
     } as SimRun;
@@ -111,7 +111,7 @@ describe('K9/K15 upgrade provenance', () => {
   ] as ComponentNode[])('keeps unaffected $type history reproducible', (node) => {
     const requires = requiresPhysicsRevision(treeWith(node));
     expect(requires).toBe(false);
-    const key = { designKey: 'd', motorSetKey: 'm', conditionsKey: 'c',
+    const key = { designKey: 'd', motorSetKey: 'm', motorDataKey: 'data', conditionsKey: 'c',
       aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false,
       requiresPhysicsRevision: requires };
     const run = { ...key, aeroModel: 'classic', rogersKbf: false } as unknown as SimRun;
@@ -121,7 +121,7 @@ describe('K9/K15 upgrade provenance', () => {
 
   it('does not attribute an old batch row to the current tree without a design key', () => {
     expect(changedSinceRun({ conditionsKey: 'c' } as SimRun, {
-      designKey: 'd', motorSetKey: 'm', conditionsKey: 'c', requiresPhysicsRevision: true,
+      designKey: 'd', motorSetKey: 'm', motorDataKey: 'data', conditionsKey: 'c', requiresPhysicsRevision: true,
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     })).toBeNull();
   });

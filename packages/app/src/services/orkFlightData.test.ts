@@ -3,7 +3,7 @@ import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
-import type { SimRun } from './simReport.js';
+import { motorDataKeyOf, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -33,6 +33,7 @@ const RUN: SimRun = {
   designKey: 'design-A',
   conditionsKey: 'cond-A',
   motorSetKey: 'set-A',
+  motorDataKey: motorDataKeyOf([['m1', MOTOR]]),
   delayS: 7,
   aeroModel: 'supersonic',
   rogersKbf: true,
@@ -443,6 +444,7 @@ describe('flightDataForExport — the flown delay must be the one the file names
     // `delayS` is the primary's: auto delay writes no other mount.
     const booster = withDelay(0);
     const staged = (primary: string) => ids({
+      runs: [{ ...RUN, motorDataKey: motorDataKeyOf([['b', booster], ['m1', MOTOR]]) }],
       assigned: [['b', booster], ['m1', MOTOR]], mountIds: ['b', 'm1'],
       primaryMountOf: () => primary,
     });
@@ -480,7 +482,7 @@ describe('flightDataForExport — the flown delay must be the one the file names
 describe('flownAutoDelays - complete settled vectors', () => {
   const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
   const assigned: [string, MountMotor][] = [['m1', auto], ['side', auto]];
-  const run = (delays = [7, 4]): SimRun => ({ ...RUN, delayS: delays[0]!, delayResolution: testResolution(assigned, delays) });
+  const run = (delays = [7, 4]): SimRun => ({ ...RUN, motorDataKey: motorDataKeyOf(assigned), delayS: delays[0]!, delayResolution: testResolution(assigned, delays) });
   const input = (over: Partial<FlightDataForExportInput> = {}) => base({
     assigned, mountIds: ['m1', 'side'], runs: [run()], ...over,
   });
@@ -489,7 +491,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
     expect(Object.keys(flightDataForExport(input()))).toEqual(['c1']);
     const proto: [string, MountMotor][] = [['constructor', auto]];
     expect(flownAutoDelays(input({ assigned: proto, mountIds: ['constructor'],
-      runs: [{ ...RUN, delayResolution: testResolution(proto, [7]) }] }))).toEqual({ c1: { constructor: 7 } });
+      runs: [{ ...RUN, motorDataKey: motorDataKeyOf(proto), delayResolution: testResolution(proto, [7]) }] }))).toEqual({ c1: { constructor: 7 } });
   });
   it('does not assemble partial vectors from unrelated flights or accept old scalar evidence', () => {
     const partial = run(); partial.delayResolution!.mounts.pop();
@@ -506,7 +508,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
   });
   it('rejects changed policy, motors, manual neighbours and malformed evidence', () => {
     const fixed: [string, MountMotor][] = [['m1', auto], ['side', MOTOR]];
-    const r = { ...RUN, delayResolution: testResolution(fixed, [7, 7]) };
+    const r = { ...RUN, motorDataKey: motorDataKeyOf(fixed), delayResolution: testResolution(fixed, [7, 7]) };
     expect(flownAutoDelays(input({ assigned: fixed, runs: [r] }))).toEqual({ c1: { m1: 7 } });
     expect(flownAutoDelays(input({ runs: [r] }))).toEqual({});
     expect(flownAutoDelays(input({ designKey: 'other' }))).toEqual({});
@@ -532,12 +534,13 @@ describe('flownAutoDelays - complete settled vectors', () => {
   describe('beside a motor the build refused', () => {
     const withPod: [string, MountMotor][] = [...assigned, ['pod', MOTOR]];
     const refused = (over: Partial<FlightDataForExportInput> = {}) => input({
+      runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod) }],
       assigned: withPod, mountIds: ['m1', 'side', 'pod'], refusedMountIds: ['pod'], ...over,
     });
     it('reads the run of the mounts that flew', () => {
       expect(flownAutoDelays(refused())).toEqual({ c1: { m1: 7, side: 4 } });
       // A design with no configurations: the working set, which App built, likewise.
-      expect(flownAutoDelays(refused({ activeConfigId: null, savedConfigs: [], runs: [{ ...run(), flightConfigId: undefined }] })))
+      expect(flownAutoDelays(refused({ activeConfigId: null, savedConfigs: [], runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod), flightConfigId: undefined }] })))
         .toEqual({ '': { m1: 7, side: 4 } });
       // Only the refusal leaves a mount out: without it the vector is a mount short.
       expect(flownAutoDelays(refused({ refusedMountIds: [] }))).toEqual({});
@@ -560,4 +563,27 @@ describe('flownAutoDelays - complete settled vectors', () => {
         .toEqual({ c1: { m1: 7, side: 4 } });
     });
   });
+});
+
+it('refuses stale motor physics in new flight data and Auto delays', () => {
+  for (const motorDataKey of ['', 'an older curve']) {
+    const run = { ...RUN, motorDataKey };
+    expect(flightDataForExport(base({ runs: [run] }))).toEqual({});
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const autoRun = { ...run, delayResolution: testResolution(assigned, [7]) };
+    expect(flownAutoDelays(base({ assigned, runs: [autoRun] }))).toEqual({});
+  }
+});
+
+it('keeps legacy flight data and Auto delays without a motor-data key', () => {
+  const legacy = { ...RUN };
+  delete legacy.motorDataKey;
+  expect(flightDataForExport(base({ runs: [legacy] }))).toEqual(flightDataForExport(base()));
+  expect(flightDataForExport(base({ runs: [legacy] })).c1).toBeDefined();
+  const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
+  const assigned: [string, MountMotor][] = [['m1', auto]];
+  const autoRun = { ...legacy, delayResolution: testResolution(assigned, [7]) };
+  expect(flownAutoDelays(base({ assigned, runs: [autoRun] }))).toEqual({ c1: { m1: 7 } });
+  expect(flightDataForExport(base({ assigned, runs: [autoRun] })).c1).toBeDefined();
 });

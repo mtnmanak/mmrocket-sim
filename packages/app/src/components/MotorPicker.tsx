@@ -43,12 +43,14 @@ const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = 
 
 const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
-export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, loadedMotors, showQuickPicks }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks }: {
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   selectedLabel: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
+  /** App owns the choice across tab remounts and retires it on unload/open. */
+  beginSelection?: () => () => boolean;
   /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
   loadedMotors?: readonly { label: string; manufacturer?: string }[];
   /** Offer the Quick Picks at all — false once the design is no longer the
@@ -90,11 +92,12 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
 
   const pick = async (p: { mfr: string; des: string; delay: number }): Promise<void> => {
     const mine = ++latest.current;
+    const mayLand = beginSelection?.() ?? (() => true);
     setProblem(null);
     setLoading(pickLabel(p));
     try {
       const m = await loadCatalogueMotor(p.mfr, p.des, p.delay);
-      if (mine !== latest.current) return;
+      if (mine !== latest.current || !mayLand()) return;
       if (!m) throw new Error(`${pickLabel(p)} is not in the motor database.`);
       onSelect(m.label, m.spec, m.meta);
     } catch (e) {
@@ -107,6 +110,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   /** The browser's pick: the latest choice, so it retires any quick pick still loading. */
   const selectFromBrowser = (label: string, spec: MotorSpec, meta: MotorMeta) => {
     latest.current++;
+    beginSelection?.();
     setLoading(null);
     setProblem(null);
     onSelect(label, spec, meta);

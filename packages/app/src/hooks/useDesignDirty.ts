@@ -42,7 +42,9 @@ export interface DesignDirty {
   /** The design on screen differs from the last save, or has flown since. */
   dirty: boolean;
   /** Records that what is in the app right now is also what is on disk. */
-  markSaved: (mark: string) => void;
+  markSaved: (mark: string, flightsAtSnapshot?: number) => void;
+  /** Capture beside a file snapshot, before awaiting its writer. */
+  flightCount: { readonly current: number };
   /**
    * A flight was recorded. It does not touch the design, so no fingerprint can
    * see it — but the owner asked for it to count, and desktop OR and RockSim
@@ -91,6 +93,7 @@ export function useDesignDirty(
    */
   const savedMark = useRef<string | null>(seed ? (seed.savedMark ?? null) : null);
   const flownSinceSave = useRef<boolean>(seed?.flownSinceSave ?? false);
+  const flightCount = useRef(0);
   const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
 
   // A first visit starts on the starter rocket, which is not work anybody
@@ -159,15 +162,16 @@ export function useDesignDirty(
     [snapshot, dirtyTick],
   );
 
-  const markSaved = useCallback((mark: string) => {
+  const markSaved = useCallback((mark: string, flightsAtSnapshot = flightCount.current) => {
     savedMark.current = mark;
-    flownSinceSave.current = false;
+    flownSinceSave.current = flightCount.current !== flightsAtSnapshot;
     bumpDirty();
   }, []);
   const markFlown = useCallback(() => {
+    flightCount.current++;
     flownSinceSave.current = true;
     bumpDirty();
   }, []);
 
-  return { dirty, markSaved, markFlown, savedMark, flownSinceSave, dirtyTick };
+  return { dirty, markSaved, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
 }

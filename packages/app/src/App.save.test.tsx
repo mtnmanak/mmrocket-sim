@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { MountMotor } from './model/design.js';
@@ -43,6 +44,10 @@ import { APP_VERSION } from './version.js';
  * share link's decoder (each an await a test can hold, so an action can land
  * inside it).
  */
+vi.mock('./services/simulateDesign.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/simulateDesign.js')>();
+  return { ...real, flyBuiltDesign: vi.fn(real.flyBuiltDesign) };
+});
 vi.mock('./services/saveFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/saveFile.js')>();
   return {
@@ -881,3 +886,112 @@ describe('maximum motor length export losses', () => {
     }
   }, 30000);
 });
+
+describe('pending motor choices across App actions', () => {
+  it.each(['Unload', 'Remove', 'remount', 'tab only', 'Config', 'New', 'Open'])('retires a quick pick across %s', async (action) => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    if (action === 'Config') {
+      await unmountAll();
+      const state = storedSession()!;
+      const mount = motorMounts(state.tree)[0]!.id!;
+      const b6 = (await loadCatalogueMotor('Estes', 'B6', 4))!;
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, savedConfigs: [
+        { id: 'original', name: 'Original motors', isDefault: true, motors: state.mountMotors },
+        { id: 'other', name: 'Other motors', isDefault: false, motors: { [mount]: b6 } },
+      ] }));
+      host = await mountApp();
+    }
+    const a8 = (await loadCatalogueMotor('Estes', 'A8', 3))!;
+    let finish!: () => void;
+    const gate = new Promise<void>((r) => { finish = r; });
+    let started = false;
+    vi.mocked(loadCatalogueMotor).mockImplementationOnce(async () => { started = true; await gate; return a8; });
+    await openTab(host, 'Motors & Launch');
+    const chooseQuick = async (value: string) => {
+      const select = [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === value))!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value);
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
+    await chooseQuick('Estes A8-3');
+    expect(started).toBe(true);
+    if (action === 'Unload') await act(async () => { button(host, 'Unload').click(); });
+    if (action === 'Remove') await act(async () => { host.querySelector<HTMLButtonElement>('button[title="Remove this motor"]')!.click(); });
+    if (action === 'Config') await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Apply Other motors"]')!.click(); });
+    if (action === 'tab only') { await openTab(host, 'Design'); await openTab(host, 'Motors & Launch'); }
+    if (action === 'remount') {
+      await openTab(host, 'Design');
+      await openTab(host, 'Motors & Launch');
+      await chooseQuick('Estes B6-4');
+      await waitFor(() => { window.dispatchEvent(new Event('pagehide')); return Object.values(storedSession()?.mountMotors ?? {}).some((m) => m.spec.designation === 'B6'); }, 'the later choice');
+    }
+    if (action === 'New' || action === 'Open') {
+      await openTab(host, 'Design');
+      if (action === 'New') expect(await guarded(host)).toBe(false);
+      else {
+        await pick(host, new File([fixture(RKT)], RKT));
+        await waitFor(() => shownName(host) === RKT_NAME, 'the opened design');
+      }
+    }
+    await act(async () => { finish(); await gate; });
+    window.dispatchEvent(new Event('pagehide'));
+    const motors = Object.values(storedSession()?.mountMotors ?? {});
+    if (action === 'remount' || action === 'Config') expect(motors.map((m) => m.spec.designation)).toEqual(['B6']);
+    else if (action === 'tab only') expect(motors.map((m) => m.spec.designation)).toEqual(['A8']);
+    else if (action === 'Open') expect(motors.map((m) => m.spec.designation)).toEqual(['E6']);
+    else expect(motors).toEqual([]);
+  }, 30000);
+});
+
+it('a flight completed behind the Save-As picker remains unsaved', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'the starter motor');
+  let finishFlight!: () => void;
+  const gate = new Promise<void>((r) => { finishFlight = r; });
+  const real = vi.mocked(flyBuiltDesign).getMockImplementation()!;
+  let started = false;
+  vi.mocked(flyBuiltDesign).mockImplementationOnce(async (input) => {
+    started = true;
+    const flown = await real(input);
+    await gate;
+    return flown;
+  });
+  await act(async () => { button(host, 'Launch').click(); });
+  await waitFor(() => started, 'the flight to start');
+  let written!: (o: SaveOutcome) => void;
+  vi.mocked(saveFile).mockImplementationOnce(() => new Promise<SaveOutcome>((r) => { written = r; }));
+  await saveAs(host, 'Save .ork');
+  await waitFor(() => !!written, 'the picker');
+  await act(async () => { finishFlight(); await gate; });
+  await waitFor(() => (JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as unknown[]).length === 1, 'the flight');
+  await act(async () => { written({ kind: 'saved', name: 'My Rocket.ork' }); });
+  await openTab(host, 'Design');
+  expect(await guarded(host)).toBe(true);
+}, 30000);
+
+it('a first-visit share link applies without an offer dialog', async () => {
+  expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+  const xml = exportOrk({ name: 'First linked design', tree: { ...defaultTree(), name: 'First linked design' } });
+  window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === 'First linked design' || host.textContent?.includes('This link opens') === true,
+    'the share link to decode');
+  expect(host.textContent).not.toContain('This link opens');
+  expect(shownName(host)).toBe('First linked design');
+}, 30000);
+
+it('a shared design asks before replacing non-tree work on the starter rocket', async () => {
+  const first = await mountApp();
+  await waitFor(starterStored, 'the starter motor');
+  await openTab(first, 'Motors & Launch');
+  await type(input(first, 'Wind avg'), '8');
+  await unmountAll();
+  const xml = exportOrk({ name: 'Linked', tree: { ...defaultTree(), name: 'Linked' } });
+  window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+  const host = await mountApp();
+  await waitFor(() => host.textContent?.includes('This link opens') === true, 'the share offer');
+  expect(shownName(host)).toBe('My Rocket');
+  expect(input(host, 'Wind avg').value).toBe('8');
+}, 30000);

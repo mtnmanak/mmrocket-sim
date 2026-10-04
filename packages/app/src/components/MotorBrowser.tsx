@@ -372,6 +372,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     const problems: string[] = [];
     if (write) {
       setExMotors(write.motors);
+      setPicked((p) => p?.motorId.startsWith('ex:')
+        ? (write.motors.map(exToDbEntry).find((m) => m.motorId === p.motorId) ?? null) : p);
       setText('');
       // Clear every filter that could hide the motor just imported ("where did
       // it go?"): the maker and diameter chips, and — audit 2026-09-22 — the

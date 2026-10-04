@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 
@@ -85,6 +86,7 @@ interface Harness {
   host: HTMLDivElement;
   root: Root;
   selected: { label: string; ejectionDelay: number }[];
+  specs: MotorSpec[];
 }
 
 function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown> }): Harness {
@@ -93,14 +95,15 @@ function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number 
   document.body.appendChild(host);
   const root = createRoot(host);
   const selected: Harness['selected'] = [];
+  const specs: MotorSpec[] = [];
   act(() => root.render(
     <PrefsProvider>
       <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={props.maxMotorLengthM ?? null}
-        onSelect={(label, spec) => selected.push({ label, ejectionDelay: spec.ejectionDelay })}
+        onSelect={(label, spec) => { selected.push({ label, ejectionDelay: spec.ejectionDelay }); specs.push(spec); }}
         onClose={() => {}} />
     </PrefsProvider>,
   ));
-  return { host, root, selected };
+  return { host, root, selected, specs };
 }
 
 function closeBrowser(h: Harness): void {
@@ -254,6 +257,24 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
 describe('MotorBrowser — what an import says about the motors it took (audit 2026-09-22)', () => {
   let h: Harness;
   afterEach(() => closeBrowser(h));
+
+  it('loads the replacement EX masses, dimensions and delays while the old row is selected', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    await importFiles(h, [{ name: 'home.eng', text: 'H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n' }]);
+    search(h, 'H99');
+    click(rowFor(h, 'EX', 'H99')!);
+    await importFiles(h, [{ name: 'home.eng', text: 'H99 38 250 8 0.2 0.35 Home\n0 0\n0.5 140\n1.5 0\n' }]);
+    expect(delaySelect(h)?.textContent).toContain('8');
+    click(loadButton(h)!);
+    await settle(30);
+    expect(h.selected).toHaveLength(1);
+    const spec = h.specs[0]!;
+    expect(spec.masses[0]).toBeCloseTo(0.35, 9);
+    expect(spec.masses.at(-1)).toBeCloseTo(0.15, 9);
+    expect(spec.diameter).toBeCloseTo(0.038, 9);
+    expect(spec.length).toBeCloseTo(0.25, 9);
+    expect(spec.ejectionDelay).toBe(8);
+  });
 
   it('names a refused .rse nozzle exit in the import notice', async () => {
     h = openBrowser({ mountDiameterMm: 29 });

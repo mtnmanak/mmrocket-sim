@@ -41,6 +41,24 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it.each([false, true])('recovers the newest design after refused writes (blocked reads: %s)', (blocked) => {
+    storeDesign({ ...defaultTree(), name: 'Stored A' }, {});
+    vi.runAllTimers();
+    const storage = localStorage;
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => { if (blocked) throw new Error('blocked'); return storage.getItem(key); },
+      setItem: () => { throw new Error('quota'); },
+      get length() { return 0; },
+    });
+    try {
+      storeDesign({ ...defaultTree(), name: 'Unsaved B' }, {});
+      vi.runAllTimers();
+      expect(importOrk(autosavedDesignFile()!.data).name).toBe('Unsaved B');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('writes the autosave as an .ork that opens with its parts, motor, launch and measured figures', () => {
     const tree = { ...defaultTree(), name: 'Crashy Rocket' };
     const mount = motorMounts(tree)[0]!.id!;

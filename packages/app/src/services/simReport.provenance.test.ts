@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
-  changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,
+  changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,
   type DesignMatchInput, type SimRun,
 } from './simReport.js';
 
@@ -22,7 +22,9 @@ const mm = (over: {
   event?: MountMotor['ignition']['event']; igDelay?: number;
 } = {}): MountMotor => ({
   label: 'x',
-  spec: { designation: over.designation ?? 'C6', ejectionDelay: over.delay ?? 5 },
+  spec: { designation: over.designation ?? 'C6', ejectionDelay: over.delay ?? 5,
+    times: [0, 0.1, 1], thrusts: [0, 10, 0], masses: [0.02, 0.018, 0.01],
+    length: 0.07, diameter: 0.018, cgX: 0.035 },
   meta: {
     label: 'x',
     ...(over.manufacturer !== undefined ? { manufacturer: over.manufacturer } : { manufacturer: 'Estes' }),
@@ -89,7 +91,7 @@ describe('motorSetKeyOf — the persisted format', () => {
     expect(runMatchesDesign(stored, cur)).toBe(false);
     expect(changedSinceRun(stored, cur)).toEqual(['the motor']);
     // A run flown NOW, without the refused motor, still matches itself.
-    expect(runMatchesDesign({ ...stored, motorSetKey: key } as SimRun, cur)).toBe(true);
+    expect(runMatchesDesign({ ...stored, motorDataKey: cur.motorDataKey, motorSetKey: key } as SimRun, cur)).toBe(true);
   });
 });
 
@@ -102,6 +104,7 @@ const DEFAULT_CONDITIONS_KEY =
 const INPUT_RUN = {
   designKey: shortHash('{"stages":[1]}'),
   motorSetKey: 'm1:Estes/C6:5:automatic:0',
+  motorDataKey: motorDataKeyOf([['m1', mm()]]),
   conditionsKey: DEFAULT_CONDITIONS_KEY,
   aeroModel: 'classic',
   rogersKbf: true,
@@ -173,7 +176,7 @@ describe('changedSinceRun reads the hardware term motorSetKeyOf writes', () => {
   const current = (hw: number, motor = mm()) => designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]], hardwareDeltaKg: hw });
   const stamped = (hw: number, motor = mm()) => {
     const k = current(hw, motor);
-    return { designKey: k.designKey, motorSetKey: k.motorSetKey, conditionsKey: k.conditionsKey } as SimRun;
+    return { designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
   };
 
   it('a run flown before the weighing differs only in the pad mass', () => {
@@ -190,6 +193,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
     expect(designMatchKeyOf(INPUT)).toEqual({
       designKey: shortHash(INPUT.physicsKey),
       motorSetKey: 'm1:Estes/C6:5:automatic:0',
+      motorDataKey: motorDataKeyOf(INPUT.assigned),
       conditionsKey: conditionsKeyOf(DEFAULT_CONDITIONS),
       aeroMode: 'auto',
       effectiveKbf: true,
@@ -201,7 +205,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
   it('a run stamped from it matches it — the stamp and the comparison cannot drift', () => {
     const key = designMatchKeyOf(INPUT);
     const run = {
-      designKey: key.designKey, motorSetKey: key.motorSetKey, conditionsKey: key.conditionsKey,
+      designKey: key.designKey, motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey, conditionsKey: key.conditionsKey,
       aeroModel: 'classic', rogersKbf: true,
     } as SimRun;
     expect(changedSinceRun(run, key)).toEqual([]);
@@ -211,7 +215,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
   it('moves with each of its three stamped terms', () => {
     const run = (() => {
       const k = designMatchKeyOf(INPUT);
-      return { designKey: k.designKey, motorSetKey: k.motorSetKey, conditionsKey: k.conditionsKey } as SimRun;
+      return { designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
     })();
     expect(changedSinceRun(run, designMatchKeyOf({ ...INPUT, physicsKey: '{"stages":[2]}' })))
       .toEqual(['the design']);
@@ -219,5 +223,33 @@ describe('designMatchKeyOf — the ONE assembly', () => {
       .toEqual(['the motor']);
     expect(changedSinceRun(run, designMatchKeyOf({ ...INPUT, launch: { ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5 } })))
       .toEqual(['the launch conditions']);
+  });
+});
+
+describe('motor physics provenance', () => {
+  it.each(['catalogue', 'EX'])('rejects changed samples under the same %s identity', (kind) => {
+    const motor = mm(kind === 'EX' ? { exMotorId: 'ex:home-c6' } : {});
+    const original = designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]] });
+    const run = { ...original, aeroModel: 'classic', rogersKbf: true } as unknown as SimRun;
+    expect(runMatchesDesign(run, original)).toBe(true);
+    for (const spec of [
+      { ...motor.spec, times: [0, 0.2, 1] }, { ...motor.spec, thrusts: [0, 12, 0] },
+      { ...motor.spec, masses: [0.03, 0.025, 0.02] }, { ...motor.spec, length: 0.08 },
+      { ...motor.spec, diameter: 0.019 }, { ...motor.spec, cgX: 0.04 },
+    ]) {
+      const cur = designMatchKeyOf({ ...INPUT, assigned: [['m1', { ...motor, spec }]] });
+      expect(cur.motorSetKey).toBe(original.motorSetKey);
+      expect(runMatchesDesign(run, cur)).toBe(false);
+      expect(changedSinceRun(run, cur)).toEqual(['the motor']);
+    }
+    const legacy = { ...run, motorDataKey: undefined };
+    expect(runMatchesDesign(legacy, original)).toBe(true);
+    expect(changedSinceRun(legacy, original)).toEqual([]);
+    const changedCurve = designMatchKeyOf({ ...INPUT,
+      assigned: [['m1', { ...motor, spec: { ...motor.spec, thrusts: [0, 12, 0] } }]],
+    });
+    expect(runMatchesDesign(legacy, changedCurve)).toBe(true);
+    expect(changedSinceRun(legacy, changedCurve)).toEqual([]);
+    expect(runMatchesDesign(legacy, { ...original, motorSetKey: 'another motor' })).toBe(false);
   });
 });

@@ -160,7 +160,7 @@ function recorded(over: { mach?: number; aeroMode?: AeroState['aeroMode']; super
     aero: { aeroMode: over.aeroMode ?? 'classic', effectiveKbf: false },
     activeConfigId: over.activeConfigId === undefined ? 'c1' : over.activeConfigId,
     savedConfigs: configs,
-    provenance: { designKey: 'design-key', motorSetKey: 'motor-set-key' },
+    provenance: { designKey: 'design-key', motorSetKey: 'motor-set-key', motorDataKey: 'motor-data-key' },
     onSupersonicUpgrade: vi.fn(),
   };
   return input;
@@ -243,6 +243,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
       designKey: input.provenance.designKey,
       motorSetKey: input.provenance.motorSetKey,
+      motorDataKey: input.provenance.motorDataKey,
       flownRecovery: built.flownRecovery,
       nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
     };
@@ -338,6 +339,7 @@ async function referenceLaunch(x: {
     ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
     designKey: provenanceKey.designKey,
     motorSetKey: provenanceKey.motorSetKey,
+    motorDataKey: provenanceKey.motorDataKey,
     flownRecovery: built.flownRecovery,
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
   });

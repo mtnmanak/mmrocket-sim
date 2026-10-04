@@ -530,12 +530,12 @@ function writeNow(): void {
     lastWritten = pending;
     setConflicted(false);
     setSaveFailing(false);
+    pending = null;
   } catch {
     // Quota/serialization failures must never break editing — but "your
     // work saves itself" failing silently forever was the defect: flag it.
     setSaveFailing(true);
   }
-  pending = null;
 }
 
 export function saveSessionDebounced(state: Omit<SessionState, 'savedAt'>): void {
@@ -631,13 +631,11 @@ export function sessionPayload(): string | null {
 }
 
 /**
- * The write a conflict is holding back — this tab's design, which the slot
- * does not have (see "ONE SLOT, SEVERAL TABS"). null when there is no
- * conflict. The crash-recovery download takes this over the slot, which then
- * holds another tab's design.
+ * The write a conflict or storage failure is holding back — this tab's
+ * newest design, which the slot does not have. Recovery takes it over the slot.
  */
 export function heldSession(): Omit<SessionState, 'savedAt'> | null {
-  return conflicted ? pending : null;
+  return conflicted || saveFailing ? pending : null;
 }
 
 /**

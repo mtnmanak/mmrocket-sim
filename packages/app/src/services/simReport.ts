@@ -599,6 +599,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   designKey?: string;
   /** The flown motor set: every mount, designation, delay and ignition setting. */
   motorSetKey?: string;
+  /** Curve, mass and geometry actually flown; older runs use the original match keys. */
+  motorDataKey?: string;
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
   /**
@@ -694,10 +696,11 @@ export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRev
  * default, and the caution scales from that.
  */
 export function storedSimCost(
-  runs: readonly SimRun[], design: Pick<DesignMatchKey, 'designKey' | 'motorSetKey'>, rocketName: string,
+  runs: readonly SimRun[], design: Pick<DesignMatchKey, 'designKey' | 'motorSetKey' | 'motorDataKey'>, rocketName: string,
 ): { ms: number; timeStepS?: number } | null {
   const r = runs.find((run) => (run.designKey !== undefined
     ? run.designKey === design.designKey && run.motorSetKey === design.motorSetKey
+      && (run.motorDataKey === undefined || run.motorDataKey === design.motorDataKey)
     : run.conditionsKey === undefined && run.rocket === rocketName)
     && Number.isFinite(run.execMs) && run.execMs > 0);
   if (!r) return null;
@@ -728,6 +731,7 @@ export function storedSimCost(
 export interface DesignMatchKey {
   designKey: string;
   motorSetKey: string;
+  motorDataKey: string;
   conditionsKey: string;
   aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   effectiveKbf: boolean;
@@ -815,6 +819,13 @@ export function motorSetKeyOf(
   return hardwareKg > 0 ? `${key}${HW_TERM}${Math.round(hardwareKg * 1e4)}` : key;
 }
 
+/** Kept separate so the persisted motor identity key stays byte-identical. */
+export function motorDataKeyOf(assigned: readonly (readonly [string, MountMotor])[]): string {
+  return shortHash(JSON.stringify(assigned.map(([id, { spec }]) => JSON.stringify([id,
+    spec.times, spec.thrusts, spec.masses, spec.length, spec.diameter, spec.cgX,
+  ])).sort()));
+}
+
 /** What {@link designMatchKeyOf} reads: the design, its motors and the conditions, as they stand. */
 export interface DesignMatchInput {
   /** App's `physicsKey`: the physics-relevant tree, names and colours stripped. */
@@ -845,6 +856,7 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
   return {
     designKey: shortHash(input.physicsKey),
     motorSetKey: motorSetKeyOf(input.assigned, input.hardwareDeltaKg),
+    motorDataKey: motorDataKeyOf(input.assigned),
     conditionsKey: conditionsKeyOf(input.launch),
     aeroMode: input.aeroMode,
     effectiveKbf: input.effectiveKbf,
@@ -940,6 +952,9 @@ export function changedSinceRun(
     };
     changed.push(motorsOf(run.motorSetKey) !== motorsOf(cur.motorSetKey) ? 'the motor' : 'the weighed pad mass');
   }
+  if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey && !changed.includes('the motor')) {
+    changed.push('the motor');
+  }
   if (run.conditionsKey && run.conditionsKey !== cur.conditionsKey) {
     changed.push('the launch conditions');
   }
@@ -982,6 +997,7 @@ export function listAnd(items: readonly string[]): string {
 export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
   if (!run.designKey || run.designKey !== cur.designKey) return false;
   if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
+  if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey) return false;
   if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
   // Same refusal for a run flown before the pressure-thrust term existed on a
   // design that now spends it — the three keys above cannot see a kernel
@@ -1772,6 +1788,7 @@ export function buildSimRun(input: {
   flightConfigId?: string;
   designKey?: string;
   motorSetKey?: string;
+  motorDataKey?: string;
   /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
   flownRecovery?: Record<string, FlownRecoveryDevice>;
   /**
@@ -2224,6 +2241,7 @@ export function buildSimRun(input: {
     ...(flightConfigId !== undefined ? { flightConfigId } : {}),
     ...(designKey !== undefined ? { designKey } : {}),
     ...(motorSetKey !== undefined ? { motorSetKey } : {}),
+    ...(input.motorDataKey !== undefined ? { motorDataKey: input.motorDataKey } : {}),
     // The pressure-thrust stamp — see SimRun.nozzleStages. Written only when
     // there is one, because ABSENT has to keep meaning "flown before v0.119",
     // and a design carrying a nozzle has a different `designKey` from one that
