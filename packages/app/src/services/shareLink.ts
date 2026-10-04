@@ -26,7 +26,7 @@ const VERSION = '1';
  * RSS — measured), so the inflater must be stopped by OUTPUT size, not input
  * size. Real designs are tens of KB compressed and well under 4 MB as XML.
  */
-const MAX_INFLATED_BYTES = 4 * 1024 * 1024;
+export const MAX_INFLATED_BYTES = 4 * 1024 * 1024;
 
 /**
  * Cheap pre-decode sanity cap for callers holding the raw fragment: no
@@ -149,8 +149,13 @@ export function shareLinkOpenFailure(e: unknown): string {
 
 /** Encode a .ork XML string as a URL fragment ("#d=1.…"). */
 export async function encodeShareFragment(xml: string): Promise<string> {
-  const deflated = await deflate(new TextEncoder().encode(xml));
-  return `${SHARE_PREFIX}${VERSION}.${toBase64Url(deflated)}`;
+  const tooLarge = () => new Error('This design is too large for a share link — send the .ork file instead.');
+  const bytes = new TextEncoder().encode(xml);
+  if (bytes.length > MAX_INFLATED_BYTES) throw tooLarge();
+  const deflated = await deflate(bytes);
+  const fragment = `${SHARE_PREFIX}${VERSION}.${toBase64Url(deflated)}`;
+  if (fragment.length > MAX_FRAGMENT_CHARS) throw tooLarge();
+  return fragment;
 }
 
 /**

@@ -3521,3 +3521,52 @@ it('S1a-8 warns about an inactive stage in a single configuration', () => {
   expect(result.notes.join(' ')).toContain('all stages fly');
   expect(importOrk(single.replace('active="false"', 'active="true"')).notes.join(' ')).not.toContain('deactivates');
 });
+
+describe('.ork radial placement fidelity', () => {
+  it.each(['parachute', 'streamer', 'shockcord', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock'])(
+    'keeps %s offsets through saving and names the simulation limit', (type) => {
+      const xml = '<openrocket><rocket><subcomponents><stage><subcomponents><bodytube><subcomponents>'
+        + '<' + type + '><name>Offset part</name><radialposition>0.02</radialposition><radialdirection>90</radialdirection></' + type + '>'
+        + '</subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+      const result = importOrk(xml);
+      const node = flatten(result.tree.components).find(n => n.type === type)!;
+      expect(node['radialPosition']).toBeCloseTo(0.02, 12);
+      expect(node['radialDirection']).toBeCloseTo(Math.PI / 2, 12);
+      expect(result.notes.join(' ')).toMatch(/Offset part.*radial placement is kept.*simulates this part on the centerline/);
+      const back = importOrk(exportOrk({ name: result.name, tree: result.tree }));
+      const saved = flatten(back.tree.components).find(n => n.type === type)!;
+      expect(saved['radialPosition']).toBeCloseTo(0.02, 12);
+      expect(saved['radialDirection']).toBeCloseTo(Math.PI / 2, 12);
+      expect(importOrk(xml.replace('<radialposition>0.02', '<radialposition>0')).notes.join(' '))
+        .not.toMatch(/simulates this part on the centerline/);
+    },
+  );
+});
+
+describe('.ork numeric field syntax', () => {
+  const tube = (length: string, radius = '0.025') => '<openrocket><rocket><subcomponents><stage><subcomponents>'
+    + '<bodytube><name>Tube</name><length>' + length + '</length><radius>' + radius + '</radius></bodytube>'
+    + '</subcomponents></stage></subcomponents></rocket></openrocket>';
+
+  it.each(['garbage 0.5', '1 2', 'auto 0.5', 'garbage', '0x10', ''])('defaults and reports invalid length %j', value => {
+    const result = importOrk(tube(value));
+    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.3, 12);
+    expect(result.notes.join(' ')).toMatch(/Tube.*invalid <length> value.*default \(0.3\)/);
+  });
+
+  it.each(['0.5', ' 5e-1 '])('keeps a decimal length %j and automatic radius suffix', value => {
+    const result = importOrk(tube(value, 'auto 0.025'));
+    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.5, 12);
+    expect(firstStageChildren(result)[0]!['outerRadius']).toBeCloseTo(0.025, 12);
+    expect(result.notes.join(' ')).not.toMatch(/invalid <(length|radius)>/);
+  });
+
+  it('reports malformed fields read by component helpers', () => {
+    const result = importOrk(tube('0.5').replace('</bodytube>', '<subcomponents><freeformfinset>'
+      + '<rotation>junk 90</rotation><finpoints><point x="0" y="0"/><point x="0.02" y="0.03"/>'
+      + '<point x="0.05" y="0"/></finpoints></freeformfinset></subcomponents></bodytube>'));
+    const fin = flatten(result.tree.components).find(n => n.type === 'freeformfinset')!;
+    expect(fin['rotation'] ?? 0).toBe(0);
+    expect(result.notes.join(' ')).toMatch(/invalid <rotation>/);
+  });
+});

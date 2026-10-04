@@ -8,7 +8,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
 import { kernelSimOptions } from './launchConditions.js';
-import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
+import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
 import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, unreadableFinPoints } from './xmlUtil.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
@@ -106,13 +106,13 @@ describe('.ork zip reading is bounded', () => {
     expect(() => importOrk(buf(zip))).toThrow(/not a rocket design/);
   });
 
-  it('accepts a member right up to the cap', () => {
+  it('refuses a short member even when its declared size is within the cap', () => {
     const zip = zipSync({ 'rocket.ork': strToU8(orkXml(BODY_TUBE)) });
     // 15.16 MB is the largest real member measured across this repo's corpus
     // (Wildman Mach 2 this one.ork); the cap has to clear it by a wide margin.
     patchZipEntry(zip, 'rocket.ork', { originalSize: MAX_ZIP_MEMBER_BYTES });
     expect(MAX_ZIP_MEMBER_BYTES).toBeGreaterThan(16 * 1024 * 1024);
-    expect(importOrk(buf(zip)).name).toBe('Test');
+    expect(() => importOrk(buf(zip))).toThrow(/does not match its declared size/);
   });
 
   it('skips a macOS AppleDouble sidecar that sorts first', () => {
@@ -709,5 +709,35 @@ describe('an imported launch site is held to the panel’s own bounds', () => {
     expect(aim('<windaverage>-4</windaverage><winddirection>1.5707963267948966</winddirection>')).toBe(0);
     // Last in file order wins, whichever element it is.
     expect(aim(`<wind model="average"><direction>${Math.PI}</direction></wind><winddirection>0</winddirection>`)).toBe(90);
+  });
+});
+
+
+describe('.ork configuration count limit', () => {
+  const withConfigs = (count: number, ids = true): string => orkXml(
+    '<parachute id="chute"><deployaltitude>321</deployaltitude></parachute>',
+  ).replace('<rocket>', '<rocket>' + Array.from({ length: count }, (_, i) =>
+    ids ? '<motorconfiguration configid="c' + i + '"/>' : '<motorconfiguration/>').join(''));
+
+  it('refuses too many declarations before capturing recovery or separation settings', () => {
+    expect(() => importOrk(withConfigs(MAX_ORK_CONFIGURATIONS + 1)))
+      .toThrow(/flight configurations, past the 256 the app will open/);
+  });
+
+  it('counts even declarations without an id', () => {
+    expect(() => importOrk(withConfigs(MAX_ORK_CONFIGURATIONS + 1, false)))
+      .toThrow(/flight configurations, past the 256 the app will open/);
+  });
+
+  it('keeps recovery and separation defaults for every configuration at the limit', () => {
+    const result = importOrk(withConfigs(MAX_ORK_CONFIGURATIONS).replace('<stage>',
+      '<stage/><stage><separationevent>ejection</separationevent><separationdelay>2</separationdelay>'));
+    expect(result.configs).toHaveLength(MAX_ORK_CONFIGURATIONS);
+    const chute = flatten(result.tree.components).find(n => n.type === 'parachute')!;
+    const stage = result.tree.components[1]!;
+    for (const config of result.configs) {
+      expect(config.deployments[chute.id!]?.deployAltitude).toBe(321);
+      expect(config.separations[stage.id!]?.separationDelay).toBe(2);
+    }
   });
 });

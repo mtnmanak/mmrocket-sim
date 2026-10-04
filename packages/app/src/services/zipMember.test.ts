@@ -64,6 +64,11 @@ function zip64Archive(name: string, data: Uint8Array, compressed: Uint8Array, me
   const central = new Uint8Array(46 + nm.length + extra.length);
   u32(central, 0, 0x02014b50);
   u16(central, 10, method);
+  // ZIP and GZIP state the same CRC-32; use an independent writer for it.
+  const gz = gzipSync(data);
+  const crc = new DataView(gz.buffer, gz.byteOffset, gz.byteLength).getUint32(gz.length - 8, true);
+  u32(local, 14, crc);
+  u32(central, 16, crc);
   u32(central, 20, 0xffffffff);
   u32(central, 24, 0xffffffff);
   u16(central, 28, nm.length);
@@ -365,5 +370,37 @@ describe('a GZIP design file is inflated as a bounded stream', () => {
     expect(Math.floor((twoPushes - header.length) / segment.length) * MIB).toBeGreaterThan(MAX_ZIP_MEMBER_BYTES);
     expect(bomb.length - 9).toBeGreaterThan(twoPushes); // where the 0x07 sits
     expect(() => gunzipCapped(bomb, '.ork')).toThrow(/expands past the 64 MB this app will open/);
+  });
+});
+
+
+describe('ZIP member integrity', () => {
+  const original = '<openrocket><radius>0.025</radius></openrocket>';
+  const changed = original.replace('0.025', '0.095');
+
+  it('refuses a stored member with a valid-text byte flipped', () => {
+    const zip = zipSync({ 'rocket.ork': strToU8(original) }, { level: 0 });
+    expect(new TextDecoder().decode(unzipMember(zip, '.ork', '.ork'))).toBe(original);
+    const dv = new DataView(zip.buffer);
+    const start = 30 + dv.getUint16(26, true) + dv.getUint16(28, true);
+    zip[start + original.indexOf('2')] = '9'.charCodeAt(0);
+    expect(new TextDecoder().decode(unzipSync(zip)['rocket.ork'])).toBe(changed);
+    expect(() => unzipMember(zip, '.ork', '.ork')).toThrow(/does not match its own checksum/);
+  });
+
+  it('refuses a deflated member re-zipped with a stale CRC', () => {
+    const old = zipSync({ 'rocket.ork': strToU8(original) });
+    const zip = zipSync({ 'rocket.ork': strToU8(changed) });
+    const crc = new DataView(old.buffer).getUint32(centralRecord(old, 'rocket.ork') + 16, true);
+    u32(zip, centralRecord(zip, 'rocket.ork') + 16, crc);
+    u32(zip, 14, crc);
+    expect(new TextDecoder().decode(unzipSync(zip)['rocket.ork'])).toBe(changed);
+    expect(() => unzipMember(zip, '.ork', '.ork')).toThrow(/does not match its own checksum/);
+  });
+
+  it.each([0, 6] as const)('refuses a short member at compression level %i', (level) => {
+    const zip = zipSync({ 'rocket.ork': strToU8(original) }, { level });
+    u32(zip, centralRecord(zip, 'rocket.ork') + 24, original.length + 100);
+    expect(() => unzipMember(zip, '.ork', '.ork')).toThrow(/does not match its declared size/);
   });
 });

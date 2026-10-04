@@ -1,5 +1,6 @@
+import { deflateSync, strToU8 } from 'fflate';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decodeShareFragment, encodeShareFragment, hasSharePayload, shareLinkOpenFailure } from './shareLink.js';
+import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, MAX_INFLATED_BYTES, shareLinkOpenFailure } from './shareLink.js';
 
 // These tests run in vitest's node environment: Node ≥ 21.2 ships the same
 // CompressionStream / DecompressionStream / Blob / Response / atob globals
@@ -75,7 +76,7 @@ describe('share-link codec', () => {
   it('aborts a decompression bomb at the inflated-size cap instead of materializing it', async () => {
     // A REAL crafted bomb: 32 MB of one repeated byte deflates to ~32 KB —
     // the same ~1000:1 ratio as the measured 49 KB → 12 MB attack fragment.
-    const bomb = await encodeShareFragment('A'.repeat(32 * 1024 * 1024));
+    const bomb = '#d=1.' + Buffer.from(deflateSync(strToU8('A'.repeat(32 * 1024 * 1024)))).toString('base64url');
     expect(bomb.length).toBeLessThan(64 * 1024); // it IS a plausible-size link
     await expect(decodeShareFragment(bomb)).rejects.toThrow(/expands past 4 MB/);
     // Not a time budget: the refusal is what is tested. Building a 32 MB input
@@ -131,5 +132,36 @@ describe('a browser that cannot unpack a share link (audit 2026-09-22)', () => {
     const frag = await encodeShareFragment(XML);
     const err = await decodeShareFragment(frag.slice(0, Math.floor(frag.length / 2))).then(() => null, (e: unknown) => e);
     expect(shareLinkOpenFailure(err)).toMatch(/damaged or cut short/);
+  });
+});
+
+
+describe('share-link encoder size limits', () => {
+  it('refuses XML over the inflated cap even when it compresses well', async () => {
+    await expect(encodeShareFragment('A'.repeat(MAX_INFLATED_BYTES + 1)))
+      .rejects.toThrow(/too large for a share link.*send the \.ork/);
+  });
+
+  it('counts UTF-8 bytes rather than characters', async () => {
+    await expect(encodeShareFragment('é'.repeat(MAX_INFLATED_BYTES / 2 + 1)))
+      .rejects.toThrow(/too large for a share link/);
+  });
+
+  it('round-trips XML exactly at the inflated cap', async () => {
+    const xml = 'é'.repeat(MAX_INFLATED_BYTES / 2);
+    expect(await decodeShareFragment(await encodeShareFragment(xml))).toBe(xml);
+  });
+
+  it('refuses a fragment over the character cap for XML below the byte cap', async () => {
+    // Deterministic noise: printable XML text, too varied to compress into a link.
+    let seed = 123456789;
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const xml = Array.from({ length: 1200000 }, () => {
+      seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+      return alphabet[(seed >>> 0) % alphabet.length];
+    }).join('');
+    expect(strToU8(xml).length).toBeLessThan(MAX_INFLATED_BYTES);
+    expect(5 + Buffer.from(deflateSync(strToU8(xml))).toString('base64url').length).toBeGreaterThan(MAX_FRAGMENT_CHARS);
+    await expect(encodeShareFragment(xml)).rejects.toThrow(/too large for a share link/);
   });
 });

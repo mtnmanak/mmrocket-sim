@@ -104,6 +104,7 @@ interface ZipEntry {
   size: number;
   /** Declared inflated size — the number the cap is checked against. */
   originalSize: number;
+  crc: number;
   /** Offset of the entry's LOCAL header, after which its data begins. */
   localHeader: number;
 }
@@ -179,6 +180,7 @@ function readCentralDirectory(d: Uint8Array, kind: string): ZipEntry[] {
       compression: b2(d, o + 10),
       size,
       originalSize,
+      crc: b4(d, o + 16),
       localHeader,
     });
     o = next;
@@ -216,6 +218,11 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
   }
   const damaged = (why: string) =>
     new Error(`Not a readable ${kind} archive — “${chosen.name}” ${why}.`);
+  const verified = (out: Uint8Array): Uint8Array => {
+    if (out.length !== chosen.originalSize) throw damaged('does not match its declared size');
+    if (crc32(out) !== chosen.crc) throw damaged('does not match its own checksum');
+    return out;
+  };
   const lh = chosen.localHeader;
   if (lh + 30 > bytes.length || b4(bytes, lh) !== SIG_LOCAL) throw damaged('has no local header');
   const start = lh + 30 + b2(bytes, lh + 26) + b2(bytes, lh + 28);
@@ -231,7 +238,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
     + 'bytes its directory declares — the archive is damaged or crafted, not a rocket design.');
   if (chosen.compression === 0) {
     if (chosen.size > chosen.originalSize) throw overflow;
-    return bytes.slice(start, end);
+    return verified(bytes.slice(start, end));
   }
   if (chosen.compression !== 8) {
     throw damaged(`uses compression method ${chosen.compression}, which this app cannot read`);
@@ -254,7 +261,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
     // but terse; say which archive member they are about.
     throw damaged(`is damaged (${err instanceof Error ? err.message : String(err)})`);
   }
-  return out.subarray(0, total);
+  return verified(out.subarray(0, total));
 }
 
 /** The CRC-32 table (the IEEE polynomial gzip uses), built on first use. */
