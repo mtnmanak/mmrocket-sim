@@ -196,7 +196,7 @@ describe('FlightStats — the aborted flight must not unmount the app', () => {
 it('K1 labels an unflown Design recovery estimate', () => {
   const host = document.createElement('div'); const root = createRoot(host);
   try {
-    act(() => root.render(<PrefsProvider><DesignStats info={{ length: 1, refDiameter: 0.1,
+    act(() => root.render(<PrefsProvider><DesignStats info={{ length: 1, lengthAerodynamic: 1, refDiameter: 0.1,
       mass: 1, massEmpty: 0.9, cg: 0.5, cgEmpty: 0.5, cp: 0.6, cna: 1, stabilityCalibers: 1,
       rotationalInertia: 1, longitudinalInertia: 1, rotationalInertiaEmpty: 1, longitudinalInertiaEmpty: 1,
       warnings: 0, warningTexts: [] }} recovery={{ state: 'ok', mass: 1, multiStage: true,

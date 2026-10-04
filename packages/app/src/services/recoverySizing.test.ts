@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import presetsJson from '../data/presets.json';
 import type { Preset } from './presets.js';
 import { presetPatch } from './presets.js';
@@ -1229,7 +1229,7 @@ describe('K5 packed bay fit', () => {
     tree.components.push({ type: 'stage', id: 'booster', children: [candidate('booster-tube')] });
     expect(recoveryFit(tree, null, preset(), [tree.components[0]!])).toMatchObject({ fits: false, known: true });
   });
-  it.each(['nosecone', 'transition'])('ROUND-F3 keeps a booster bundle out of the sustainer %s cavity', (type) => {
+  it.each<ComponentType>(['nosecone', 'transition'])('ROUND-F3 keeps a booster bundle out of the sustainer %s cavity', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.08;
     const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
@@ -1245,7 +1245,7 @@ describe('K5 packed bay fit', () => {
     tree.components[0]!.children = [];
     expect(recoveryFit(tree, chute, bundle, [booster])).toMatchObject({ fits: true, known: true });
   });
-  it.each(['nosecone', 'transition'])('ROUND-F3 uses the %s wall for an unstated shoulder wall', (type) => {
+  it.each<ComponentType>(['nosecone', 'transition'])('ROUND-F3 uses the %s wall for an unstated shoulder wall', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.08;
     const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
@@ -1268,7 +1268,7 @@ describe('K5 packed bay fit', () => {
     forward[prefix + 'Thickness'] = 0;
     expect(recoveryFit(tree, chute, bundle)).toMatchObject({ fits: true, known: true });
   });
-  it.each(['podset', 'parallelstage'])('ROUND-F2 ignores a %s motor mount outside the core bay', (type) => {
+  it.each<ComponentType>(['podset', 'parallelstage'])('ROUND-F2 ignores a %s motor mount outside the core bay', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.4;
     bay.children!.push({ type, id: 'pods', instanceCount: 2, radiusOffset: 0.08, separationEvent: 'never',
@@ -1289,7 +1289,7 @@ describe('K5 packed bay fit', () => {
     ] });
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
   });
-  it.each(['innertube', 'tubecoupler'])('ROUND-F2 ignores rings outside a nested %s bay', (type) => {
+  it.each<ComponentType>(['innertube', 'tubecoupler'])('ROUND-F2 ignores rings outside a nested %s bay', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.4;
     bay.children = [{ type, id: 'payload', length: 0.4, outerRadius: 0.03, thickness: 0.001, children: [chute] },
@@ -1297,7 +1297,8 @@ describe('K5 packed bay fit', () => {
         length: 0.01, outerRadius: 0.05, innerRadius: 0.03, position: { method: 'top', offset } }))];
     expect(recoveryFit(tree, chute, preset({ packedDiameter: 0.05, packedLength: 0.12 })))
       .toMatchObject({ fits: true, known: true });
-    bay.children[0]!.children!.push({ type: 'bulkhead', id: 'inside-payload', length: 0.4 });
+    if (!bay.children?.[0]?.children) throw new Error('Expected payload bay children');
+    bay.children[0].children.push({ type: 'bulkhead', id: 'inside-payload', length: 0.4 });
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: false, known: true });
   });
   it('ROUND-F2 keeps the core and nested pods out of a pod recovery bay', () => {
@@ -1315,7 +1316,7 @@ describe('K5 packed bay fit', () => {
     ] });
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
   });
-  it.each(['nosecone', 'transition'])('ROUND-F2 extends a short body bay through an open %s shoulder', (type) => {
+  it.each<ComponentType>(['nosecone', 'transition'])('ROUND-F2 extends a short body bay through an open %s shoulder', (type) => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.08;
     const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
