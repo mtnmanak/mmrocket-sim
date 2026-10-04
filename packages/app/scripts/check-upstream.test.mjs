@@ -233,6 +233,23 @@ describe('report-only execution, without network', () => {
  * is shared by every check in a run, so nothing here makes it move.
  */
 describe('thrustcurve.org rows this app corrects', () => {
+  it('watches each row 57 field independently, including a partial upstream fix', () => {
+    for (const designation of ['F52C', 'H13ST', 'N2700W-PS']) {
+      const c = MOTOR_CORRECTIONS.find((c) => c.designation === designation);
+      expect(c).toBeDefined();
+      const bad = Object.fromEntries(Object.entries(c.fields).map(([f, v]) => [f, v.bad]));
+      expect(motorCorrectionVerdicts(c, bad).every((v) => !v.moved)).toBe(true);
+      for (const [field, { good }] of Object.entries(c.fields)) {
+        const verdicts = motorCorrectionVerdicts(c, { ...bad, [field]: good });
+        expect(verdicts.filter((v) => v.moved)).toEqual([
+          expect.objectContaining({ note: `retire motor correction AeroTech ${designation} ${field}` }),
+        ]);
+        expect(motorCorrectionVerdicts(c, { ...bad, [field]: good + 0.123 }).filter((v) => v.moved))
+          .toEqual([expect.objectContaining({ note: `investigate motor correction AeroTech ${designation} ${field}` })]);
+      }
+    }
+  });
+
   const contrail = MOTOR_CORRECTIONS.find((c) => c.designation === 'J234-BG');
   const liveRow = (length) => ({ motorId: contrail.motorId, designation: 'J234-BG', length });
 

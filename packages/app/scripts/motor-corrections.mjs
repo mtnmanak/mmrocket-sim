@@ -49,7 +49,11 @@
  * millimetres, so the K62N's 374.25 mm is its 375). A source that only bounds
  * the figure or explains it is quoted without `states`, and is not the second:
  * the K62N's drawing gives its case alone, a floor under its length.
- * Where the sources disagree, nothing is corrected.
+ * Where the sources disagree, nothing is corrected unless Eric explicitly rules
+ * for a source. Tier 0 row 57 (2026-10-04) rules for the F52C/H13ST product-page
+ * peaks (the letters agree when rounded to the pages' tenths), and for the
+ * N2700W-PS letter's two-motor averages without a second document. That narrow
+ * exception does not authorize other single-document corrections.
  *
  * CONTRACT, as apply-preset-corrections.mjs's: idempotent, and loud on surprise.
  * A row holding the known-bad figure is corrected. A row already holding the
@@ -64,6 +68,75 @@
  * retired (or moved to the motor's new id), and says so before writing anything.
  */
 export const MOTOR_CORRECTIONS = [
+  {
+    motorId: '5f5e57811e865c0004c955d8',
+    manufacturer: 'AeroTech',
+    designation: 'F52C',
+    fields: { maxThrustN: { bad: 64.33, good: 74.6 } },
+    why: 'Eric, Tier 0 row 57, 2026-10-04: keep catalogue impulse and average thrust; correct only the peak. '
+      + 'AeroTech publishes 74.6 beside 66.2 N-s total, agreeing with the letter only on peak after rounding. '
+      + 'The product page mislabels peak as N-sec; peak thrust is in N. The flown samples are unchanged.',
+    sources: [
+      {
+        by: 'AeroTech, Enerjet F52-5C 2-Motor Pack, 65212',
+        url: 'https://aerotech-rocketry.com/products/product_f5da1f55-0034-c13d-9f5a-3ef5f1d395f1',
+        says: 'Total Impulse: 66.2 N-sec; Average Thrust: 52 newtons; Peak Thrust: 74.6 N-sec',
+        states: { maxThrustN: '74.6' },
+        read: '2026-10-04',
+      },
+      {
+        by: 'Tripoli Motor Testing, F52C certification draft, tested September 10, 2020; aerotech-certified.json',
+        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/f52c%20cert%20letter_1656516242122.pdf',
+        says: 'Max Impulse 74.57 N',
+        states: { maxThrustN: '74.57' },
+        read: '2026-10-04',
+      },
+    ],
+  },
+  {
+    motorId: '5f5e58171e865c0004c955f8',
+    manufacturer: 'AeroTech',
+    designation: 'H13ST',
+    fields: { maxThrustN: { bad: 43.51, good: 50.4 } },
+    why: 'Eric, Tier 0 row 57, 2026-10-04: keep catalogue impulse and average thrust; correct only the peak. '
+      + 'AeroTech publishes 50.4 beside 211 N-s total, agreeing with the letter only on peak after rounding. '
+      + 'The product page mislabels peak as N-sec; peak thrust is in N. The flown samples are unchanged.',
+    sources: [
+      {
+        by: 'AeroTech, H13ST-P Single Use DMS 1-Motor Kit, 081300',
+        url: 'https://aerotech-rocketry.com/products/product_b7697119-7d82-3db0-694e-7de6ea74dd90',
+        says: 'Total Impulse: 211 N-sec; Average Thrust: 13 newtons; Peak Thrust: 50.4 N-sec',
+        states: { maxThrustN: '50.4' },
+        read: '2026-10-04',
+      },
+      {
+        by: 'Tripoli Motor Testing, H13ST certification draft, tested September 10, 2020; aerotech-certified.json',
+        url: 'https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/h13st%20cert%20letter_1656524721164.pdf',
+        says: 'Max Impulse 50.42 N',
+        states: { maxThrustN: '50.42' },
+        read: '2026-10-04',
+      },
+    ],
+  },
+  {
+    motorId: '6623cf91f873440002ac6a28',
+    manufacturer: 'AeroTech',
+    designation: 'N2700W-PS',
+    fields: { totImpulseNs: { bad: 10637, good: 10322 }, maxThrustN: { bad: 5553.5, good: 4624.6 } },
+    why: 'Eric, Tier 0 row 57, 2026-10-04 explicitly rules for the certification letter: the bracketed '
+      + 'two-motor averages, not motor 1. This is a scoped exception to the two-document rule. Only the '
+      + 'two fields named in the task are corrected; average thrust and burn time remain the catalogue values.',
+    sources: [
+      {
+        by: 'Tripoli Motor Testing, April 17, 2024 letter, tested March 30, 2024, pages 1-2; local RCS Schematics/'
+          + 'Cert Docs/TRA/RMS-75-10240/N2700W-PS.pdf, visually read (letter types M2700W-PS)',
+        url: 'https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/n2700w%20tra%20cert_1754333128692.pdf',
+        says: 'Total Impulse [10,322 N.s]; Max Impulse [4624.6 N]; Number of Motors Tested 2',
+        states: { totImpulseNs: '10322', maxThrustN: '4624.6' },
+        read: '2026-10-04',
+      },
+    ],
+  },
   {
     motorId: '5f4294d200023100000003b8',
     manufacturer: 'Cesaroni',

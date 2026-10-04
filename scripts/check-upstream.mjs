@@ -411,7 +411,12 @@ export function motorCorrectionVerdicts(c, live) {
   });
 }
 
-/** 4b. The thrustcurve.org rows this app corrects. `getJson` is the network, injectable for the test. */
+/**
+ * 4b. The thrustcurve.org rows this app corrects. The shared table includes
+ * Tier 0 row 57's F52C/H13ST peaks and N2700W-PS impulse/peak (2026-10-04).
+ * Each field is watched independently, including partial upstream fixes.
+ * `getJson` is the network, injectable for the test.
+ */
 export async function checkMotorCorrections(getJson = json) {
   say('');
   say('4b. thrustcurve.org rows this app corrects (packages/app/scripts/motor-corrections.mjs)');
