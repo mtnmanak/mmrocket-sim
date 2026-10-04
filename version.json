@@ -1,5 +1,5 @@
 {
-  "version": "0.156",
+  "version": "0.157",
   "released": "2026-10-04",
-  "note": "Booster safety verdicts, measured mass and recovery checks corrected; closer file round trips, safer scaling and keyboard control of the 3D view."
+  "note": "Recovery weight follows the flight, bay fit checks packed length, and recovery offsets now fly; file preservation and Batch matching corrected."
 }
