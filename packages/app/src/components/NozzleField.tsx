@@ -159,7 +159,7 @@ export function NozzleField({
           step={niceStep(siToUi('motorDimensions', sym, 0.0005))}
           min={0}
           nullable
-          placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'automatic (0 = off)'}
+          placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'automatic'}
           onCommit={(v) => onCommit(v === null ? null : uiToSi('motorDimensions', sym, v))}
         />
       </div>

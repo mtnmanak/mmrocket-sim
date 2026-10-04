@@ -299,6 +299,21 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
    */
   const countAt = (mountId: string): number => mountMotorCount(tree, mountId);
 
+  // Refuse motor triggers that cannot fire. Altitude triggers retain the static
+  // estimate's assumption of separation: these inputs contain no flight apogee.
+  for (const [i, stage] of stages(tree).entries()) {
+    if (i === 0) continue;
+    const trigger = typeof stage['separationEvent'] === 'string' ? stage['separationEvent'] : 'ejection';
+    const triggerStage = trigger === 'upperignition' ? i - 1 : i;
+    const lit = motors.filter(([id, mm]) => stageIndexOf(tree, id) === triggerStage && !neverLights(mm));
+    const impossible = (trigger === 'ignition' || trigger === 'upperignition' || trigger === 'burnout' || trigger === 'ejection')
+      && !lit.some(([, mm]) => trigger !== 'ejection' || Number.isFinite(mm.spec.ejectionDelay));
+    if (impossible) {
+      return { state: 'unavailable', reason:
+        `the ${stage.name ?? 'booster'} ${trigger} separation cannot fire with these motors; the attached stack needs a recovery weight` };
+    }
+  }
+
   const groups = recoveryGroups(tree);
   const label = (g: ComponentNode[]): Pick<StageRecovery, 'stageIds' | 'stageNames'> => ({
     stageIds: g.map((s) => s.id ?? ''),

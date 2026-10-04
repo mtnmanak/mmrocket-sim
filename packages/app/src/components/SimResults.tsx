@@ -176,8 +176,8 @@ function DeploymentTable({ deployments, dist, vel }: {
                 {d.descentRate === null ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
               </td>
               <td>{d.groundSpeed === null ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
-              <td className={opening === false || d.descentOk === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : 'stability-good'}>
-                {problems.length ? `\u26a0 ${problems.join(', ')}` : '\u2713 ok'}
+              <td className={opening === false || d.descentOk === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : opening === true && d.descentOk === true ? 'stability-good' : undefined}>
+                {problems.length ? `\u26a0 ${problems.join(', ')}` : opening === true && d.descentOk === true ? '\u2713 ok' : '\u2014 not measured'}
               </td>
             </tr>
           );

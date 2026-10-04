@@ -170,3 +170,13 @@ describe('PropertyPanel — protuberance Cd sentence', () => {
     expect(typed).toContain('The Cd is the one you typed');
   });
 });
+
+it('S3a-8: shroud copy distinguishes a measured body curve from the fallback', () => {
+  mount(onBody({ type: 'fairing' }));
+  expect(stats()).toContain('at Mach 0.3');
+  expect(stats()).toContain('scales with the body');
+  expect(stats()).not.toContain('at every Mach');
+  mount(bare({ type: 'fairing' }));
+  expect(stats()).toContain('at every Mach');
+  expect(stats()).not.toContain('scales with the body');
+}, 60000);

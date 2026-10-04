@@ -110,6 +110,16 @@ describe('DragPanel — sweep conditions', () => {
   const caption = () => Array.from(host.querySelectorAll('p'))
     .map((p) => p.textContent ?? '').find((t) => t.startsWith('Conditions:')) ?? '';
 
+  it.each(['altitude', 'file'])('S3b-2: discloses the ISA ceiling in the %s caption and CSV', async (mode) => {
+    mount([[0, 0], [2, 100000]]);
+    openPanel();
+    setSelect(condSelect(), mode);
+    if (mode === 'altitude') type(altInput()!, '100000');
+    expect(caption()).toContain('above 84.5 km are held at that layer');
+    const { csv } = await exportCsv();
+    expect(csv).toContain('above 84.5 km are held at that layer');
+  });
+
   it('sweeps with no machAlt key at all until the user asks for one', () => {
     mount();
     openPanel();

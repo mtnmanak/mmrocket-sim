@@ -349,6 +349,28 @@ export function recoveryBayBore(
   const TUBES = new Set(['bodytube', 'tubecoupler', 'innertube']);
   if (device?.id) {
     const parent = findParent(tree, device.id);
+    if (parent && parent !== 'stage' && (parent.type === 'nosecone' || parent.type === 'transition')) {
+      // Use the opening into this cavity; an unknown or solid cavity is not
+      // evidence that a canopy fits the wider body tube elsewhere.
+      if (parent['filled'] === true) return null;
+      const nose = parent.type === 'nosecone';
+      const shoulder = nnum(parent, nose ? 'shoulderRadius' : 'aftShoulderRadius', 0);
+      const shoulderLength = nnum(parent, nose ? 'shoulderLength' : 'aftShoulderLength', 0);
+      const aftRadius = nnum(parent, 'aftRadius', nose ? 0.012 : NaN);
+      const hasAftRadius = Number.isFinite(aftRadius);
+      const baseBore = aftRadius - nnum(parent, 'thickness', 0.002);
+      let radius = baseBore;
+      if (shoulder > 0 && shoulderLength > 0) {
+        if (parent[nose ? 'shoulderCapped' : 'aftShoulderCapped'] === true) return null;
+        // The kernel caps the shoulder at the base radius; both openings
+        // constrain the canopy even when the stored shoulder is oversized.
+        const effectiveShoulder = hasAftRadius ? Math.min(shoulder, aftRadius) : shoulder;
+        const shoulderBore = effectiveShoulder - Math.min(effectiveShoulder,
+          nnum(parent, nose ? 'shoulderThickness' : 'aftShoulderThickness', 0));
+        radius = hasAftRadius ? Math.min(shoulderBore, baseBore) : shoulderBore;
+      }
+      return radius > 0 ? 2 * radius : null;
+    }
     if (parent && parent !== 'stage' && TUBES.has(parent.type)) {
       const bore = mountBore(parent);
       if (bore > 0) return bore;
@@ -406,6 +428,8 @@ export interface Candidate {
 /** One band's answer. */
 export interface BandAdvice {
   role: DeviceRole;
+  /** Bore of this device’s own bay (m), or null when unverified. */
+  boreM: number | null;
   band: Band;
   /** Diameter (m) that hits `band.target` at `cd`. THE size line. */
   diameter: number;
@@ -461,7 +485,7 @@ export type RecoverySizing =
     elevationM: number;
     /** How much faster this site lands the rocket than sea level, as a ratio. */
     siteRateFactor: number;
-    /** Bay bore the fit filter used (m), or null when nothing was filtered. */
+    /** Main's bay bore (m), or null when unknown; each band carries its own bore. */
     boreM: number | null;
     main: BandAdvice;
     drogue: BandAdvice;
@@ -819,7 +843,7 @@ function bandAdvice(
   }));
 
   return {
-    role, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
+    role, boreM, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
     candidates, inBand, excludedForFit, mergedVariants,
   };
 }
@@ -846,10 +870,9 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
   // sustainer's group; the per-stage panel passes each booster group in turn.
   const scope = input.scope ?? sustainerScope(tree);
   const { main, drogue } = classifyRecoveryDevices(tree, scope);
-  // The bay is the MAIN's tube when there is one — it is the bigger canopy, so
-  // it is the binding constraint, and in almost every dual-deploy design both
-  // devices ride in the same diameter airframe anyway.
-  const boreM = recoveryBayBore(tree, main ?? drogue, scope);
+  // Each canopy has to fit the bay it actually rides in.
+  const boreM = recoveryBayBore(tree, main, scope);
+  const drogueBoreM = recoveryBayBore(tree, drogue, scope);
 
   const canopies = presets.filter((p) => p.kind === 'Parachute');
 
@@ -868,7 +891,7 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
       massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
     }),
     drogue: bandAdvice('drogue', DROGUE_BAND, {
-      massKg: recovery.mass, rho, boreM, device: drogue, otherDevice: main,
+      massKg: recovery.mass, rho, boreM: drogueBoreM, device: drogue, otherDevice: main,
       currentMass: drogue ? deviceMass(drogue) : 0,
       massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
     }),

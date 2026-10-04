@@ -317,3 +317,17 @@ describe('the hero stage sizes to the drawing', () => {
     expect(heroStageStyle(300, 0)).toEqual({ '--hero-natural': '440px', '--drawer-clearance': '0px' });
   });
 });
+
+it('S2-5: tracks height-only resizes after the user closes the drawer', () => {
+  const h = mount({ stageH: 600 });
+  act(() => h.current.setByUser(false));
+  const stage = host!.firstElementChild as HTMLElement;
+  stage.dataset['h'] = '300';
+  resize();
+  expect(h.current.tight).toBe(true);
+  expect(h.current.open).toBe(false);
+  stage.dataset['h'] = '600';
+  resize();
+  expect(h.current.tight).toBe(false);
+  expect(h.current.open).toBe(false);
+});

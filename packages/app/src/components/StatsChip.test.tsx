@@ -46,6 +46,23 @@ describe('StatsChip — the floating readout', () => {
   ));
   const chip = () => host.querySelector('.stats-chip') as HTMLDivElement;
 
+  it.each(['button', 'pill'] as const)('S3a-10: keeps a manual fold after opening via %s while the drawer is open', (via) => {
+    mount(false);
+    mount(true);
+    act(() => {
+      if (via === 'button') (host.querySelector('.stats-chip-fold') as HTMLButtonElement).click();
+      else {
+        chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, ...LEFT, buttons: 1, clientX: 20, clientY: 20 }));
+        window.dispatchEvent(new PointerEvent('pointerup', { ...LEFT, buttons: 0, clientX: 20, clientY: 20 }));
+      }
+    });
+    expect(chip().className).not.toContain('stats-chip-folded');
+    act(() => { (host.querySelector('.stats-chip-fold') as HTMLButtonElement).click(); });
+    mount(false);
+    expect(chip().className).toContain('stats-chip-folded');
+    expect(JSON.parse(localStorage.getItem(CHIP_KEY)!).folded).toBe(true);
+  });
+
   it('shows the five readings, starting clear of the ruler gutters', () => {
     mount();
     const labels = Array.from(host.querySelectorAll('.stats-chip-label')).map((el) => el.textContent);

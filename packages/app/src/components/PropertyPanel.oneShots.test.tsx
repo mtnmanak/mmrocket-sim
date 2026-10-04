@@ -360,3 +360,16 @@ describe('the spill-hole ceiling is the flown one', () => {
     expect(sliderMax(chute({ diameter: 0 }))).toBeCloseTo(500, 9);
   });
 });
+
+it('S3a-7: shrinking a canopy caps its existing vent in the same patch', () => {
+  const tree = stageOf([{ id: 'p1', type: 'parachute', diameter: 0.3, spillHoleDiameter: 0.2 }]);
+  render(tree, find(tree, 'p1'));
+  const input = [...host.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Canopy diameter'))!.control as HTMLInputElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '100');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(patches).toHaveLength(1);
+  expect(patches[0]?.['diameter']).toBeCloseTo(0.1, 9);
+  expect(patches[0]?.['spillHoleDiameter']).toBeCloseTo(0.095, 9);
+});

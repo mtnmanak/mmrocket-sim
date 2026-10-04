@@ -463,3 +463,13 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     expect(text()).not.toMatch(/published figure|motor file you imported/);
   });
 });
+
+it.each([0, 1])('S3c-4: blank unknown exit spinner %i does not invent a value', async (direction) => {
+  await render({ exitDiameterM: null, motorIds: ['unknown-motor'] });
+  const input = host.querySelector('input')!;
+  const button = host.querySelectorAll<HTMLButtonElement>('.numfield button')[direction]!;
+  act(() => button.click());
+  expect(committed).toEqual([]);
+  expect(input.value).toBe('');
+  expect(document.activeElement).toBe(input);
+});

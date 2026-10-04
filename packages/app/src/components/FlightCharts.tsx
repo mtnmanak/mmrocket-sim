@@ -293,7 +293,10 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason, fl
    * the user asked for the file and it is theirs; only the state writes stop.
    */
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   /** Re-fly for the full series, then hand the bytes off as a download. */
   const exportFlightData = (kind: 'csv' | 'xlsx') => {

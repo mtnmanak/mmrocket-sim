@@ -97,13 +97,20 @@ export function useVersionCheck(): { state: UpdateState; recheck: () => void; ch
     let cancelled = false;
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     setState({ kind: 'checking' });
+    const deadline = setTimeout(() => {
+      cancelled = true;
+      ctrl?.abort();
+      setState({ kind: 'unknown' });
+    }, 10_000);
     void (async () => {
       // Poke the SW first so that, if a new build is already sitting there,
       // autoUpdate's own reload beats us to it and the user never sees a
       // banner for something already handled.
       if (nonce > 0) await pokeServiceWorker();
+      if (cancelled) return;
       const latest = await fetchLatestVersion(ctrl?.signal);
       if (cancelled) return;
+      clearTimeout(deadline);
       if (!latest) { setState({ kind: 'unknown' }); return; }
       // A build AHEAD of what version.json says is `current`, never `stale` —
       // that is a developer running a local build, or a CDN edge that has not
@@ -112,7 +119,7 @@ export function useVersionCheck(): { state: UpdateState; recheck: () => void; ch
         ? { kind: 'stale', latest }
         : { kind: 'current', version: latest.version });
     })();
-    return () => { cancelled = true; ctrl?.abort(); };
+    return () => { cancelled = true; clearTimeout(deadline); ctrl?.abort(); };
     // Mount-only, plus explicit rechecks. No polling: this is a design tool
     // people leave open for hours, and a background request every few minutes
     // buys nothing a reload would not.

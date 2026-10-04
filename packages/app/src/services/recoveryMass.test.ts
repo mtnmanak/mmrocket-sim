@@ -221,11 +221,11 @@ describe('recovery weight — serial multi-stage', () => {
 
   it('a booster motor is NOT counted — its casing lands with the booster', async () => {
     const both = await onKernel(twoStage(), { m1: C6(), m2: C6() });
-    const sustainerOnly = await onKernel(twoStage(), { m1: C6() });
+    const heavierBooster = await onKernel(twoStage(), { m1: C6(), m2: { ...C6(), masses: C6().masses.map((m) => m + 0.01) } });
     expect(both.answer.state).toBe('ok');
-    expect(sustainerOnly.answer.state).toBe('ok');
-    if (both.answer.state !== 'ok' || sustainerOnly.answer.state !== 'ok') return;
-    expect(both.answer.mass).toBeCloseTo(sustainerOnly.answer.mass, 12);
+    expect(heavierBooster.answer.state).toBe('ok');
+    if (both.answer.state !== 'ok' || heavierBooster.answer.state !== 'ok') return;
+    expect(both.answer.mass).toBeCloseTo(heavierBooster.answer.mass, 12);
   });
 
   it('is cluster-aware on the sustainer', async () => {
@@ -631,7 +631,7 @@ describe('recovery weight — real corpus designs', () => {
     expect(sustainerMount).toBeTruthy();
 
     const { info, sectionMass, answer } = await onKernel(
-      imported.tree, { [sustainerMount!.id!]: C6() });
+      imported.tree, Object.fromEntries(motorMounts(imported.tree).map((m) => [m.id!, C6()])));
     expect(answer.state).toBe('ok');
     if (answer.state !== 'ok') return;
     expect(answer.multiStage).toBe(true);
@@ -788,11 +788,8 @@ describe('what actually comes down — one weight per separating object', () => 
       join(here, '__fixtures__', 'Complex.Two-Stage.CDX1'), 'utf8'));
     const stageList = stages(imported.tree);
     expect(stageList.length).toBeGreaterThan(1);
-    const sustainerMount = motorMounts(imported.tree)
-      .find((m) => stageIndexOf(imported.tree, m.id!) === 0);
-
     const { info, sectionMass, byStage } = await onKernel(
-      imported.tree, { [sustainerMount!.id!]: C6() });
+      imported.tree, Object.fromEntries(motorMounts(imported.tree).map((m) => [m.id!, C6()])));
     expect(byStage.state).toBe('ok');
     if (byStage.state !== 'ok') return;
     expect(byStage.groups.length).toBe(stageList.length);
@@ -801,10 +798,61 @@ describe('what actually comes down — one weight per separating object', () => 
     expect(booster.isSustainer).toBe(false);
     expect(booster.mass.state).toBe('ok');
     if (booster.mass.state !== 'ok') return;
-    // No motor in the booster in this configuration, so it is its dry section
-    // exactly — and it is real mass the flyer has to hang a canopy under.
-    expect(booster.mass.mass).toBeCloseTo(sectionMass(stageList[1]!.id!)!, 9);
+    // The loaded booster separates at burnout carrying its spent casing.
+    expect(booster.mass.mass).toBeCloseTo(sectionMass(stageList[1]!.id!)! + BURNOUT, 9);
     expect(booster.mass.mass).toBeGreaterThan(0);
     expect(booster.mass.mass).toBeLessThan(info.massEmpty);
   });
 });
+
+it.each(['ejection', 'ignition', 'burnout'])('S7b-1: refuses %s separation without a firing motor', async (trigger) => {
+  const tree = twoStage();
+  tree.components[1]!['separationEvent'] = trigger;
+  for (const never of [false, true]) {
+    const { answer } = await onKernel(tree, never ? { m1: C6(), m2: C6() } : { m1: C6() },
+      never ? { m2: 'never', m1: 'launch' } : { m1: 'launch' });
+    expect(answer.state).toBe('unavailable');
+    if (answer.state === 'unavailable') expect(answer.reason).toContain(trigger + ' separation cannot fire');
+  }
+}, 60000);
+
+it('S7b-1: refuses a plugged ejection booster that the kernel lands still attached', async () => {
+  const tree = twoStage();
+  tree.components[1]!.children![0]!.children!.unshift({ type: 'trapezoidfinset', id: 'f2', finCount: 3,
+    rootChord: 0.07, tipChord: 0.04, sweep: 0.03, height: 0.04, thickness: 0.003,
+    position: { method: 'bottom', offset: 0 } } as ComponentNode);
+  const { rocket, info, answer } = await onKernel(tree, { m1: C6(), m2: { ...C6(), ejectionDelay: Infinity } }, { m1: 'burnout' });
+  const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+  const flight = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+  expect(flight.events.map((e) => e.type)).toContain('GROUND_HIT');
+  expect(flight.events.map((e) => e.type)).not.toContain('STAGE_SEPARATION');
+  expect(flight.series.mass.at(-1)).toBeCloseTo(info.mass - 2 * PROPELLANT, 9);
+  expect(answer.state).toBe('unavailable');
+  if (answer.state === 'unavailable') expect(answer.reason).toContain('ejection separation cannot fire');
+}, 60000);
+
+it.each(['altitudeascending', 'altitudedescending'])('ROUND2 S7b-1: retains the static estimate for %s separation', async (trigger) => {
+  const tree = twoStage();
+  Object.assign(tree.components[1]!, { separationEvent: trigger, separationAltitude: 100000 });
+  const { answer, byStage, info, sectionMass } = await onKernel(tree, { m1: C6(), m2: C6() });
+  expect(answer.state).toBe('ok');
+  expect(groupMass(byStage, 'Sustainer')).toBeCloseTo(info.massEmpty - sectionMass('s2')! + BURNOUT, 9);
+  expect(groupMass(byStage, 'Booster')).toBeCloseTo(sectionMass('s2')! + BURNOUT, 9);
+}, 60000);
+
+it.each(['empty', 'never', 'launch'] as const)('ROUND2 S7b-1: upperignition uses the upper motor (%s)', async (upper) => {
+  const tree = twoStage();
+  tree.components[1]!['separationEvent'] = 'upperignition';
+  // The booster's lit motor must not stand in for a missing upper ignition.
+  const motors = upper === 'empty' ? { m2: C6() } : { m1: { ...C6(), ejectionDelay: Infinity }, m2: C6() };
+  const { answer } = await onKernel(tree, motors, upper === 'empty' ? {} : { m1: upper });
+  expect(answer.state).toBe(upper === 'launch' ? 'ok' : 'unavailable');
+  if (answer.state === 'unavailable') expect(answer.reason).toContain('upperignition separation cannot fire');
+}, 60000);
+
+it('ROUND2 S7b-1: upperignition does not need a motor on the separating stage', async () => {
+  const tree = twoStage();
+  tree.components[1]!['separationEvent'] = 'upperignition';
+  const { answer } = await onKernel(tree, { m1: C6() }, { m1: 'launch' });
+  expect(answer.state).toBe('ok');
+}, 60000);
