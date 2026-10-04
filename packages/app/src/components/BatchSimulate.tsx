@@ -25,6 +25,7 @@ import {
 import { useCatalogue } from './useCatalogue.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
+import { Modal } from './Modal.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -279,36 +280,27 @@ export interface BatchPace {
  */
 export const BATCH_ESTIMATE_ABOVE_FLIGHTS = 100;
 
-/**
- * Above this many flights the Simulate button asks a second time.
- *
- * The threshold is an ORDER of magnitude, not a budget: at the measured pace
- * (BATCH_FLIGHT_S) 5,000 flights is close to three hours of a page that cannot
- * respond between flights.
- */
+/** Above 5,000 flights, preserve the existing second ask on the Simulate button. */
 export const BATCH_CONFIRM_ABOVE_FLIGHTS = 5000;
+/** Above 20,000 flights, require the separate Run anyway action. */
+export const BATCH_RUN_ANYWAY_ABOVE_FLIGHTS = 20_000;
+
+/** A confirmation belongs only to the permitted sweep whose inputs were shown. */
+export function batchConfirmationArmed(confirmed: object | null, sweep: object, flights: number, refusal: string | null): boolean {
+  return confirmed === sweep && refusal === null && flights > BATCH_CONFIRM_ABOVE_FLIGHTS;
+}
 
 /**
- * The most flights one sweep will fly. Past it the sweep is REFUSED — the
- * button disabled, and a sentence saying how to bring it under (batchRefusal) —
- * never silently cut short.
- *
- * Chosen from two measurements (2026-10-01, the project laptop):
- *  - TIME: 20,000 flights at the default pace (BATCH_FLIGHT_S) is about 11
- *    hours — an overnight run, the longest a page that cannot respond while a
- *    flight runs should be asked to stay in front.
- *  - THE TABLE: the dialog holds every row a sweep flies (it draws the best
- *    BATCH_TABLE_ROWS) and re-sorts them all after each flight. An update took
- *    ~21 ms at 10,000 rows, ~51 ms at 25,000 and ~78 ms at 50,000 — 1-4 % of a
- *    2 s flight — at ~3.4 KiB a row, ~70 MB at the cap; the CSV of 10,000 runs
- *    took 0.15 s (8.6 MB) and the XLSX 0.8 s. Below ~50,000 the table is not
- *    what binds; time is.
- * The sweep that made a cap necessary, 226 candidates with "mixed 4+2 /
- * 2+2+2" ticked (1,949,476 flights), would run about 45 days and hold ~6.5 GB
- * of rows — more than a browser tab can hold at all. Before the cap it was
- * one click and one confirmation away.
+ * Memory ceiling, separate from the time confirmation. The dialog retains all
+ * rows for export even though it draws only BATCH_TABLE_ROWS of each kind.
+ * Row-55 measurement (2026-10-04, Node 24): 40,000 independent copies of a
+ * six-ring mixed 4+2 result held 257 MiB, 264 MiB including sorting/filtering.
+ * 50,000 leaves room above the owner's 37,820-flight sweep while bounding
+ * retention (roughly 330 MiB for that fixture, not a universal heap bound).
+ * Unbounded combinations can reach millions of rows and several GiB.
+ * Saved history still has its separate 500-run cap in simStore.
  */
-export const BATCH_MAX_FLIGHTS = 20_000;
+export const BATCH_MAX_FLIGHTS = 50_000;
 
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
@@ -448,7 +440,7 @@ export function batchRefusal({ candidates, withoutOOP, modes, solverFlights, tim
     + `maker and diameter chips${oop}`;
   const how = untick ? `${untick}, or ${narrow}` : narrow[0]!.toUpperCase() + narrow.slice(1);
   return `${group(flights)} flights is more than one batch will fly: the most is ${group(BATCH_MAX_FLIGHTS)}, `
-    + `${atCap} at the measured pace. ${how}.`;
+    + `${atCap} at the measured pace. The app keeps every result in memory for export. ${how}.`;
 }
 
 /**
@@ -476,9 +468,14 @@ export function batchButtonLabel(
 
 /** The second-ask copy for a sweep past {@link BATCH_CONFIRM_ABOVE_FLIGHTS}. */
 export function batchConfirmWarning(totalFlights: number, estimate: string | null): string {
-  return `${group(totalFlights)} flights is a very long run${estimate ? ` — ${estimate}` : ''}. The page `
-    + 'cannot respond while a flight runs, and Stop only takes effect between them. Press the button '
-    + 'again to start, or untick a combination mode to shrink it.';
+  if (totalFlights <= BATCH_RUN_ANYWAY_ABOVE_FLIGHTS) {
+    return `${group(totalFlights)} flights is a very long run${estimate ? ` — ${estimate}` : ''}. The page `
+      + 'cannot respond while a flight runs, and Stop only takes effect between them. Press the button '
+      + 'again to start, or untick a combination mode to shrink it.';
+  }
+  return `${group(totalFlights)} flights is a very long run${estimate ? ` — ${estimate}` : ''}. The app `
+    + 'cannot respond while a flight runs, and Stop only takes effect between them. Choose Run anyway '
+    + 'to start, or Cancel to narrow the makers, diameters or combination modes.';
 }
 
 /**
@@ -608,8 +605,6 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [sweepMountId, setSweepMountId] = useState(mountId);
   const [running, setRunning] = useState(false);
-  /** True once a sweep past BATCH_CONFIRM_ABOVE_FLIGHTS has been asked about. */
-  const [confirming, setConfirming] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   /**
    * Set when a run ends, cleared when the next one starts — the "it's done"
@@ -689,6 +684,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
   const start = async () => {
+    if (runningRef.current || refusal !== null || candidates.length === 0) return;
+    runningRef.current = true;
     setRunning(true);
     setFinished(null);
     setFailure(null);
@@ -734,6 +731,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
     } catch (e) {
       if (!unmounted.current) setFailure(e instanceof Error ? e.message : String(e));
     } finally {
+      runningRef.current = false;
       setProgress(null);
       setRunning(false);
     }
@@ -846,13 +844,25 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
     candidates: candidates.length, withoutOOP, modes: ticked, solverFlights, timeStepS: launch.timeStepS,
   });
 
-  // Disarm the second-ask whenever the sweep's size changes: unticking a
-  // combination mode or narrowing the filters must not leave a confirmation
-  // armed for a count that no longer exists. A refused sweep is never armed.
-  useEffect(() => { setConfirming(false); }, [totalFlights]);
-  const armed = confirming && refusal === null;
+  // Disarm when the proposed sweep changes, even at the same flight count.
+  // Include every runBatchSweep input, the criteria and count. Identity changes
+  // invalidate confirmation during render, before any layout or passive effect.
+  // A memo eviction can only disarm; returning to old settings cannot re-arm.
+  const sweepIdentity = useMemo(() => ({
+    totalFlights, candidates, criteria, mountId, comboMode, pairMode, clusterSplit, pairSplit,
+    tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
+    assignedIgnitions, assignedAutoDelays, weighed, batchModel, launch, rocketName,
+  }), [
+    totalFlights, candidates, criteria, mountId, comboMode, pairMode, clusterSplit, pairSplit,
+    tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
+    assignedIgnitions, assignedAutoDelays, weighed, batchModel, launch, rocketName,
+  ]);
+  const [confirmedSweep, setConfirmedSweep] = useState<object | null>(null);
+  const armed = batchConfirmationArmed(confirmedSweep, sweepIdentity, totalFlights, refusal);
+  const runAnyway = totalFlights > BATCH_RUN_ANYWAY_ABOVE_FLIGHTS;
 
   return (
+    <>
     <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Batch simulate motors"
         ref={dialogRef} tabIndex={-1}
@@ -991,7 +1001,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
           <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
         )}
 
-        {armed && !running && (
+        {armed && !runAnyway && !running && (
           <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>
             <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights, estimate)}
           </p>
@@ -1032,18 +1042,17 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
               onClick={() => {
                 // Past the cap there is nothing to start or to confirm.
                 if (refusal) return;
-                // A sweep this big is not something anyone clicks on purpose
-                // by accident — the second ask names the flight count.
-                if (!confirming && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS) {
-                  setConfirming(true);
+                // Only the separate Run anyway action may authorize a large sweep.
+                if ((runAnyway || !armed) && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS) {
+                  setConfirmedSweep(sweepIdentity);
                   return;
                 }
-                setConfirming(false);
+                setConfirmedSweep(null);
                 void start();
               }}
               disabled={candidates.length === 0 || refusal !== null}>
               <Icon name="rocket" /> {batchButtonLabel({
-                candidates: candidates.length, totalFlights, confirming: armed, estimate,
+                candidates: candidates.length, totalFlights, confirming: armed && !runAnyway, estimate,
               })}
             </button>
           )}
@@ -1228,5 +1237,19 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
         )}
       </div>
     </div>
+    {armed && runAnyway && !running && (
+      <Modal label="Run a large batch?" onClose={() => setConfirmedSweep(null)}>
+        <h2>Run a large batch?</h2>
+        <p role="alert">{batchConfirmWarning(totalFlights, estimate)}</p>
+        <div className="modal-actions">
+          <button className="file-btn" onClick={() => setConfirmedSweep(null)}>Cancel</button>
+          <button className="file-btn file-btn-primary" onClick={() => {
+            setConfirmedSweep(null);
+            void start();
+          }}>Run anyway</button>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 }
