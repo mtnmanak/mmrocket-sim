@@ -7,6 +7,19 @@ const value = (el: XmlElement | null, tag: string): number => {
   return raw ? parseDecimal(raw) : NaN;
 };
 
+/** A stored result can identify a possible curve mismatch without a dry-mass
+ * override. Seconds have the same meaning in legacy v2/v3 and v4 files.
+ * Never attribute the final burnout of a cluster or staged flight to one motor.
+ */
+export function rocksimBurnTime(doc: XmlDocument, engineSet: XmlElement): number | undefined {
+  const sim = engineSet.closest('SimulationResults');
+  if (value(doc.querySelector('RocketDesign'), 'StageCount') !== 1 || !sim
+    || sim.querySelectorAll('EngineSet').length !== 1 || value(engineSet, 'EngineCount') !== 1) return undefined;
+  const ignition = value(engineSet, 'IgnitionDelay');
+  const burn = value(sim, 'TimeToBurnout') - ignition;
+  return Number.isFinite(ignition) && ignition >= 0 && Number.isFinite(burn) && burn > 0 ? burn : undefined;
+}
+
 /** Raw XML provenance only: defaults/sanitized geometry are not measurements.
  * RockSim v4 stores Mass0 in grams. Older v3 corpus files store kilograms;
  * they are deliberately ineligible rather than guessed from the magnitude.

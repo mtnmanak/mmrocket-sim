@@ -44,6 +44,8 @@ import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from '
  */
 
 export interface OrkMotorRef {
+  /** Stored RockSim burnout minus ignition, only for one stage and one motor. Diagnostic, never identity evidence. */
+  rktBurnTimeS?: number;
   /** Original import evidence; never derived from a selected catalogue row. */
   matchContext?: MotorMatchContext;
   designation: string;
