@@ -34,8 +34,8 @@
 //     writes suppression comments for
 //   - react-refresh/only-export-components: 10 of 35 .tsx modules deliberately export
 //     both a component and its helpers so the helpers can be unit-tested
-//   - eslint-plugin-jsx-a11y: not installed. Size it with one warn-only run
-//     before deciding (audit 2026-09-22)
+//   - four jsx-a11y recommended rules: deliberate interaction patterns still
+//     report hits; the app-only block below records the measured exceptions.
 //   - Prettier: it would rewrite every line and wreck `git blame` on a history this
 //     project reads constantly (the CHANGELOG and the audits cite commits)
 // (tsconfig.base.json records the one compiler flag declined the same way,
@@ -60,6 +60,7 @@ import js from '@eslint/js';
 import { includeIgnoreFile } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
 
@@ -162,6 +163,32 @@ export default tseslint.config(
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
+
+  {
+    // Tier 0 row 56 (2026-10-04): 26 recommended rules measured at zero hits,
+    // plus label-has-associated-control after recognizing NumField's input
+    // and explicitly associating the density-altitude label with its output.
+    // Preserve the preset's options, including its intentionally off rules.
+    files: ['packages/app/**/*.{ts,tsx}'],
+    plugins: { 'jsx-a11y': jsxA11y },
+    rules: {
+      ...jsxA11y.configs.recommended.rules,
+      'jsx-a11y/label-has-associated-control': ['error', { controlComponents: ['NumField'] }],
+      // 14 hits: dialog-card / tree-action propagation guards and GuideDialog's
+      // delegated anchor clicks. Keyboard behavior belongs to their descendants.
+      'jsx-a11y/click-events-have-key-events': 'off',
+      // 14 hits: the dialog cards and delegated guide clicks above, plus the
+      // stats readout's keyboard movement. Two hits are useDialog test fixtures.
+      'jsx-a11y/no-noninteractive-element-interactions': 'off',
+      // 5 hits: four named scroll regions (ComparisonChart, ConfigPanel,
+      // GuideDialog, WindProfile) and the arrow-key-movable stats readout.
+      'jsx-a11y/no-noninteractive-tabindex': 'off',
+      // 1 hit: ComponentTree's tree-actions span stops button clicks bubbling.
+      'jsx-a11y/no-static-element-interactions': 'off',
+      // The plugin cannot inspect clickable()/rove() prop spreads; their
+      // keyboard and focus tests remain necessary even with this lint gate.
+    },
+  },
 
   {
     // Unused declarations, everywhere, one rule. The base rule is off because the

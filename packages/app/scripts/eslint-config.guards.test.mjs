@@ -39,6 +39,7 @@
 import { describe, expect, it } from 'vitest';
 import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -63,6 +64,53 @@ function lint(code, rules) {
 
 const GLOBALS = ['no-restricted-globals'];
 const READER = ['no-restricted-syntax'];
+
+describe('eslint.config.mjs — app accessibility guards', () => {
+  const deferred = [
+    'jsx-a11y/click-events-have-key-events',
+    'jsx-a11y/no-noninteractive-element-interactions',
+    'jsx-a11y/no-noninteractive-tabindex',
+    'jsx-a11y/no-static-element-interactions',
+  ];
+  const recommended = Object.entries(jsxA11y.configs.recommended.rules)
+    .filter(([, entry]) => ![0, 'off'].includes(severity(entry))).map(([name]) => name);
+  const enabled = recommended.filter((name) => !deferred.includes(name));
+
+  it('enforces all 27 adopted rules as errors across app TS/TSX, including tests', async () => {
+    expect(enabled).toHaveLength(27);
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/components/LaunchPanel.test.tsx',
+      'packages/app/src/services/shareLink.ts', 'packages/app/vite.config.ts']) {
+      const rules = await rulesFor(rel, recommended);
+      expect(enabled.map((name) => severity(rules[name])), rel).toEqual(enabled.map(() => 2));
+      expect(deferred.map((name) => severity(rules[name])), rel).toEqual(deferred.map(() => 0));
+    }
+    const engine = await rulesFor('packages/engine/src/index.ts', enabled);
+    expect(enabled.map((name) => engine[name])).toEqual(enabled.map(() => 'off'));
+  });
+
+  it('rejects missing associations, alt text and invalid ARIA while accepting real labels and NumField', async () => {
+    const names = ['jsx-a11y/label-has-associated-control', 'jsx-a11y/alt-text', 'jsx-a11y/aria-props'];
+    const rules = await rulesFor('packages/app/src/components/LaunchPanel.tsx', names);
+    const messages = new Linter().verify([
+      'const brokenLabel = <label>Altitude</label>;',
+      'const brokenImage = <img src="rocket.png" />;',
+      'const brokenAria = <button aria-labl="Launch">Launch</button>;',
+      'const native = <label>Altitude<input /></label>;',
+      'const numeric = <label>Altitude<NumField /></label>;',
+      'const output = <><label htmlFor="density">Density altitude</label><output id="density">0</output></>;',
+      'const unrelated = <label>Altitude<UnrelatedComponent /></label>;',
+    ].join('\n'), [{
+      files: ['**/*.tsx'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { ecmaFeatures: { jsx: true } } },
+      plugins: { 'jsx-a11y': jsxA11y },
+      rules,
+    }], 'probe.tsx');
+    expect(messages.map((m) => `${m.ruleId}@${m.line}`)).toEqual([
+      'jsx-a11y/label-has-associated-control@1', 'jsx-a11y/alt-text@2', 'jsx-a11y/aria-props@3',
+      'jsx-a11y/label-has-associated-control@7',
+    ]);
+  });
+});
 
 describe('eslint.config.mjs — the browser-source guards resolve and fire', () => {
   it('refuses all-inline type imports but permits erased and mixed imports', async () => {
