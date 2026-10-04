@@ -3549,6 +3549,11 @@ export function App() {
               measured={measured}
               onChange={setMeasured}
               onApply={applyAllowance}
+              onRemove={() => {
+                if (!allowanceNode?.id) return;
+                setTree(removeNode(tree, allowanceNode.id));
+                if (selectedId === allowanceNode.id) setSelectedId(null);
+              }}
               blockedBy={allowanceBlocker}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
             />

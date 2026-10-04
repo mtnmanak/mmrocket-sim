@@ -796,3 +796,16 @@ it('flies every batch candidate with the same aloft profile as Launch', async ()
     expect(rows[i]!.run!.maxAltitude).toBe(direct.summary.maxAltitude);
   }
 }, 60000);
+
+
+it('S7a-2 flies candidates despite a motor left on a deleted mount', async () => {
+  const inp = input(rocket(), {
+    candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
+    assignedMotors: { deleted: curve('E20') }, assignedMotorIds: { deleted: 'gone' },
+    assignedIgnitions: { deleted: { event: 'automatic', delay: 0 } },
+  });
+  const result = await sweep(inp, { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]!.error).toBeUndefined();
+  expect(result.rows[0]!.run).toBeDefined();
+}, 30000);

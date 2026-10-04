@@ -3,7 +3,7 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import {
-  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, mountMotorCount, stageIdByNode, stagesWithNozzle,
+  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode, stagesWithNozzle,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
@@ -616,8 +616,9 @@ export async function runBatchSweep(
   ) => {
     const optimumForPlugged = !autoDelay && deploysOnCharge
       && legs.every((l) => l.spec.ejectionDelay === Infinity && !l.noListedDelay);
+    const liveMountIds = new Set(motorMounts(probeTree).map((m) => m.id));
     const assigned: [string, MountMotor][] = Object.entries(assignedMotors)
-      .filter(([id]) => id !== replacedMountId && !legs.some((l) => l.mountId === id))
+      .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
       .map(([id, spec]) => [id, {
         spec, label: spec.designation,
         meta: { label: spec.designation, motorId: assignedMotorIds[id], autoDelay: input.assignedAutoDelays?.[id] === true },

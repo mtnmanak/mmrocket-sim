@@ -3,7 +3,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
-import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn } from '../tree/treeModel.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
@@ -1629,7 +1629,7 @@ export interface Cdx1ExportInput {
   /**
    * Assigned motors keyed by mount node id — App's exportMotorsMap() works
    * verbatim. Only read when engine export is enabled (CDX1_ENGINE_EXPORT):
-   * each stage's first mounted motor becomes its Engine string.
+   * each stage's sole physical motor becomes its Engine string.
    */
   motors?: Record<string, Cdx1ExportEngine>;
   /** Engine-string override for tests and file generation; defaults to the
@@ -1675,14 +1675,21 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   const stageSlots = stagesIn.map((st): { engine: string | null; ignitionDelay: number } => {
     if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
     let found: Cdx1ExportEngine | undefined;
+    let motorCount = 0;
     const seek = (nodes: ComponentNode[]) => {
       for (const n of nodes) {
-        if (found) return;
-        if (n.id && motors[n.id]) { found = motors[n.id]; return; }
+        if (n.id && motors[n.id]) {
+          found ??= motors[n.id];
+          motorCount += mountMotorCount(tree, n.id);
+        }
         seek(n.children ?? []);
       }
     };
-    seek(st.children ?? []); // one engine per stage in RASAero — first mount wins
+    seek(st.children ?? []);
+    if (motorCount > 1) {
+      throw new Error(`RASAero supports one engine per stage — “${st.name ?? 'Stage'}” has ${motorCount} motors. `
+        + 'Export as .ork or .rkt to keep every motor and its thrust.');
+    }
     // Only a burnout-triggered motor has a delay this format can express; a
     // launch-stage motor, or any other ignition event, writes RASAero's own 0.
     const ignitionDelay = found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0;
@@ -1895,6 +1902,21 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   };
   for (const st of stagesIn) refusePodTailCones(st.children ?? [], null);
 
+  // Only direct sustainer tubes call podXml. Refuse assemblies everywhere
+  // else before an external-only writer can silently leave them out.
+  const podHosts = new Set((stagesIn[0]!.children ?? []).filter((n) => n.type === 'bodytube'));
+  const refuseUnwrittenAssemblies = (node: ComponentNode, parent?: ComponentNode): void => {
+    if ((node.type as string) === 'parallelstage') {
+      throw new Error('RASAero has no parallel staging — export as .ork or .rkt to keep strap-ons.');
+    }
+    if ((node.type as string) === 'podset' && (!parent || !podHosts.has(parent))) {
+      throw new Error(`RASAero cannot represent pod set “${node.name ?? 'Pod set'}” in this location. `
+        + 'Export as .ork or .rkt to keep its geometry.');
+    }
+    for (const child of node.children ?? []) refuseUnwrittenAssemblies(child, node);
+  };
+  for (const st of stagesIn) refuseUnwrittenAssemblies(st);
+
   const noseXml = (node: ComponentNode) => {
     refuseTailCone(node);
     const shape = String(node['shape'] ?? 'ogive');
@@ -1945,13 +1967,16 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
    */
   const podXml = (host: ComponentNode, hostLen: number) => {
     for (const pod of (host.children ?? []).filter((c) => (c.type as string) === 'podset')) {
-      const kids = (pod.children ?? []).filter(
-        (c) => c.type === 'bodytube' || c.type === 'transition',
-      );
+      if (flownInstanceCount(pod) !== 1 || pod['radiusMethod'] !== 'free'
+        || nnum(pod, 'radiusOffset', 0) !== 0) {
+        throw new Error('RASAero has no off-axis or repeated pods — export as .ork or .rkt to keep their geometry.');
+      }
+      const kids = pod.children ?? [];
       const pos = positionOf(pod);
       const canTube = kids.find((c) => c.type === 'bodytube');
       const shoulder = kids[0] !== canTube && kids[0]?.type === 'transition' ? kids[0] : undefined;
-      if (canTube && (kids.length === 1 || (kids.length === 2 && shoulder
+      if (canTube && nnum(canTube, 'outerRadius', 0.012) >= nnum(host, 'outerRadius', 0.012)
+        && (kids.length === 1 || (kids.length === 2 && shoulder
         && nnum(shoulder, 'foreRadius', 0) <= nnum(shoulder, 'aftRadius', 0)))) {
         // FIN CAN. <Location> is the HOST tube's aft station and <Offset> is the
         // can's front measured from it — negative, and exactly −<Length> when
@@ -2010,9 +2035,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         emit('</BoatTail>');
         continue;
       }
-      // Any other pod (a real off-axis assembly the user built by hand) has no
-      // RASAero representation and drops, the same way the stage walk drops
-      // internals — RASAero's airframe is one axial chain plus these two.
+      throw new Error(`RASAero cannot represent pod set “${pod.name ?? 'Pod set'}” as a fin can or boat tail. `
+        + 'Export as .ork or .rkt to keep its geometry.');
     }
   };
 

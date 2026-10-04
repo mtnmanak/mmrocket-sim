@@ -2035,6 +2035,18 @@ export function buildSimRun(input: {
   if (safeThrustToWeight === false) {
     say(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`, 'warning');
   }
+  // Both the sustainer and separated stages use the same drogue limits and
+  // wording, so a failed branch descent check always has an explanation.
+  const sayDrogueDescent = (d: DeploymentReport, prefix = '') => {
+    if (d.descentOk === false && !d.isLanding) {
+      const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate;
+      say(`${prefix}Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
+        + (fast
+          ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
+          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, in the caution band up to ${fps(SAFETY.warnDrogueDescentRate)}.`),
+      fast ? 'warning' : 'caution');
+    }
+  };
   for (const d of deployments) {
     if (d.openingOk === false || d.openingOk === 'caution') {
       // Names the ground speed too when the two differ, for the reason the
@@ -2055,14 +2067,7 @@ export function buildSimRun(input: {
           : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
         + over, hard ? 'warning' : 'caution');
     }
-    if (d.descentOk === false && !d.isLanding) {
-      const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate;
-      say(`Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
-        + (fast
-          ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
-          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, in the caution band up to ${fps(SAFETY.warnDrogueDescentRate)}.`),
-      fast ? 'warning' : 'caution');
-    }
+    sayDrogueDescent(d);
     if (d.descentOk === false && d.isLanding) {
       // The app's strongest claim about a design has to carry its own
       // reconciliation. It names the coefficient it rests on (the owner's
@@ -2125,6 +2130,7 @@ export function buildSimRun(input: {
       say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
     }
     for (const d of b.deployments) {
+      sayDrogueDescent(d, `${b.name}: `);
       if (d.openingOk === false || d.openingOk === 'caution') {
         // Same three tiers as the sustainer's own devices, above.
         const v = Math.abs(d.velocityAtDeployment!);

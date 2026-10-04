@@ -2,7 +2,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
 import { num, numOpt } from '../tree/nodeNum.js';
-import type { SolidContext } from '../tree/solidMesh.js';
+import { finCutOutline, type SolidContext } from '../tree/solidMesh.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -93,7 +93,12 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: Sol
   // files put it, until the 2026-09-22 audit. It sets the tab station below,
   // the dashed root line, and the printed "root NN.N mm" caption.
   const rootLenM = finRootChord(node);
-  const tab = tabOutline(node, rootLenM, ctx.tabMaxDepth);
+  const cutOutline = finCutOutline(node, ctx);
+  if (!cutOutline) throw new Error('This fin set has no usable outline.');
+  // The cut contour merges a tab only across root-line endpoints. Read its
+  // normalized endpoints so closed freeform lists follow the same rule.
+  const tab = Math.abs(cutOutline[0]![1]) <= 1e-7 && Math.abs(cutOutline.at(-1)![1]) <= 1e-7
+    ? tabOutline(node, rootLenM, ctx.tabMaxDepth) : null;
   const tabDepthMm = tab ? mm(tab.depth) : 0;
 
   // The tab needs no share of the page width: it is clamped into [0, root
@@ -155,8 +160,8 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: Sol
   const X = (v: number) => v - minX + M;
   const Y = (v: number) => M + maxY - v; // flip: y up
 
-  const outlinePath = outline
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${X(mm(p.x)).toFixed(3)} ${Y(mm(p.y)).toFixed(3)}`)
+  const outlinePath = cutOutline
+    .map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${X(mm(x)).toFixed(3)} ${Y(mm(y)).toFixed(3)}`)
     .join(' ') + ' Z';
 
   const lines: string[] = [];
@@ -165,10 +170,6 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: Sol
   // Cut layer: hairline outline, no fill (laser-cutter friendly).
   lines.push('<g fill="none" stroke="#000" stroke-width="0.2">');
   lines.push(`<path d="${outlinePath}"/>`);
-  if (tab) {
-    const y0 = Y(0);
-    lines.push(`<path d="M ${X(mm(tab.x0)).toFixed(3)} ${y0.toFixed(3)} L ${X(mm(tab.x0)).toFixed(3)} ${(y0 + tabDepthMm).toFixed(3)} L ${X(mm(tab.x1)).toFixed(3)} ${(y0 + tabDepthMm).toFixed(3)} L ${X(mm(tab.x1)).toFixed(3)} ${y0.toFixed(3)}"/>`);
-  }
   lines.push('</g>');
   // Root-chord reference line (dashed — fold/alignment, not a cut).
   lines.push(`<line x1="${X(0).toFixed(3)}" y1="${Y(0).toFixed(3)}" x2="${X(mm(rootLenM)).toFixed(3)}" y2="${Y(0).toFixed(3)}" stroke="#888" stroke-width="0.15" stroke-dasharray="2 1.5"/>`);

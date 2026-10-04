@@ -439,6 +439,27 @@ function dualDeployResult(drogueRate: number, landRate: number, windDrift = 0): 
   };
 }
 
+it.each([
+  [18, null], [24, 'caution'], [31, 'warning'],
+] as const)('ROUND3 explains a booster drogue descent of %s m/s with level %s', (rate, level) => {
+  const main = fakeResult();
+  const booster = dualDeployResult(rate, 5);
+  const run = buildSimRun({ result: { ...main, branches: [
+    { name: 'Sustainer', events: main.events, series: main.series },
+    { name: 'Booster', events: booster.events, series: booster.series },
+  ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Staged', execMs: 1 });
+  expect(run.safeLandingRate).toBe(true);
+  expect(run.branches![0]!.safeLandingRate).toBe(true);
+  expect(run.branches![0]!.deployments[0]!.descentOk).toBe(level === null);
+  const descent = commentsOf(run).find((c) => c.text.startsWith('Booster: Descent under Drogue'));
+  if (level === null) expect(descent).toBeUndefined();
+  else {
+    expect(descent?.level).toBe(level);
+    expect(descent?.text).toContain(`${rate.toFixed(1)} m/s`);
+    expect(descent?.text).toContain(level === 'warning' ? 'limit for a drogue' : 'caution band');
+  }
+});
+
 describe('stored-run provenance (2026-09-03, v0.101)', () => {
   // A stored run was rendered with the full prominence of a fresh one and no
   // date or design mark anywhere — and because a change that does not touch the

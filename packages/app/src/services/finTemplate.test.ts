@@ -63,8 +63,8 @@ describe('finTemplateSvg', () => {
     const svg = finTemplateSvg(fin, 'WM Goblin');
     expect(svg).toContain('WM Goblin — Main fins (cut 4)');
     expect(svg).toContain('root 80.0 mm · height 50.0 mm · thickness 3.0 mm · airfoil cross-section · tab 10.0 mm deep');
-    // Cut layer: outline path + tab path inside the hairline group.
-    expect((svg.match(/<path /g) ?? []).length).toBe(2);
+    // Cut layer: one closed contour with the tab attached.
+    expect((svg.match(/<path /g) ?? []).length).toBe(1);
   });
 
   it('rejects non-fin components', () => {
@@ -152,12 +152,13 @@ describe('finTemplateSvg — root chord and tab agree with the cut files', () =>
     rootChord: 0.1, tipChord: 0.05, sweep: 0.08, height: 0.05, thickness: 0.003,
     tabHeight: 0.01, tabLength: 0.06, tabOffset: 0, tabOffsetMethod: 'middle',
   } as ComponentNode;
-  /** The tab path's two x's in page units (the second path in the cut group). */
+  /** Tab corners below the dashed root line, in page units. */
   const tabXs = (svg: string): [number, number] | null => {
-    const d = [...svg.matchAll(/<path d="([^"]+)"\/>/g)].map((m) => m[1]!);
-    if (d.length < 2) return null;
-    const xs = [...d[1]!.matchAll(/[ML] ([\d.-]+) /g)].map((m) => Number(m[1]));
-    return [Math.min(...xs), Math.max(...xs)];
+    const rootY = Number(/<line x1="[^"]+" y1="([^"]+)"/.exec(svg)![1]);
+    const d = /<path d="([^"]+)"/.exec(svg)![1]!;
+    const xs = [...d.matchAll(/[ML] ([\d.-]+) ([\d.-]+)/g)]
+      .filter((m) => Number(m[2]) > rootY).map((m) => Number(m[1]));
+    return xs.length ? [Math.min(...xs), Math.max(...xs)] : null;
   };
   /** Page x of a physical x in mm: M (15) plus the outline's own left edge. */
   const pageX = (mm: number, minXmm = 0) => mm - minXmm + 15;
@@ -237,4 +238,41 @@ describe('tab outline — clamped into the root like the cut files', () => {
     expect((svg.match(/<path /g) ?? []).length).toBe(1);
     expect(svg).not.toContain('tab ');
   });
+});
+
+describe('S7b-2 attached tab cut contour', () => {
+  it.each([false, true])('ROUND3 omits the tab label when freeform endpoints are off-root (closed=%s)', (closed) => {
+    const points = [[0, 0.002], [0.02, 0.04], [0.06, 0.04], [0.08, 0.003]];
+    if (closed) points.push(points[0]!);
+    const svg = finTemplateSvg({ type: 'freeformfinset', points, crossSection: 'rounded',
+      tabLength: 0.04, tabHeight: 0.01, tabOffsetMethod: 'middle' } as ComponentNode, 'Cut');
+    const d = /<path d="([^"]+)"/.exec(svg)![1]!;
+    expect([...d.matchAll(/[ML] /g)]).toHaveLength(4);
+    expect(svg).not.toMatch(/tab [\d.]+ mm deep/);
+  });
+
+  it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'] as const)(
+    '%s has one closed cut path with no cut through the tab root', (type) => {
+      const node = { type, rootChord: 0.08, tipChord: 0.04, sweep: 0.02, height: 0.04,
+        points: [[0, 0], [0.02, 0.04], [0.06, 0.04], [0.08, 0], [0, 0]],
+        crossSection: 'airfoil', tabLength: 0.04, tabHeight: 0.01, tabOffsetMethod: 'middle',
+      } as ComponentNode;
+      const svg = finTemplateSvg(node, 'Cut', { tabMaxDepth: 0.006 });
+      expect(svg).toContain('tab 6.0 mm deep');
+      const cutGroup = /<g fill="none"[^>]*>([\s\S]*?)<\/g>/.exec(svg)![1]!;
+      const paths = [...cutGroup.matchAll(/<path d="([^"]+)"/g)];
+      expect(paths).toHaveLength(1);
+      const d = paths[0]![1]!;
+      expect(d.endsWith(' Z')).toBe(true);
+      const pts = [...d.matchAll(/[ML] ([\d.-]+) ([\d.-]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      const rootY = Number(/<line x1="[^"]+" y1="([^"]+)"/.exec(svg)![1]);
+      expect(Math.max(...pts.map((p) => p[1]!)) - rootY).toBeCloseTo(6, 3);
+      expect(pts.filter((p) => p[1]! > rootY).map((p) => p[0])).toEqual([75, 35]);
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i]!, b = pts[(i + 1) % pts.length]!;
+        if (a[1] === rootY && b[1] === rootY) {
+          expect(Math.min(a[0]!, b[0]!) >= 75 || Math.max(a[0]!, b[0]!) <= 35).toBe(true);
+        }
+      }
+    });
 });

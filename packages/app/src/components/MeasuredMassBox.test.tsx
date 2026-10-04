@@ -53,6 +53,7 @@ const show = (measured: MeasuredFigures, block?: { blockedBy: { name?: string };
         bareCgM={0.5}
         rocketLengthM={1}
         hasAllowance={false}
+        onRemove={() => {}}
         measured={measured}
         onChange={(n) => changes.push(n)}
         onApply={(s) => applied.push(s)}
@@ -278,5 +279,21 @@ describe('MeasuredMassBox — airframe only, as in v0.115', () => {
     expect(host.querySelectorAll('input')).toHaveLength(2);
     expect([...host.querySelectorAll('input')].map((i) => i.id)).toEqual(['measured-mass', 'measured-cg']);
     expect(host.querySelector('.measured-hardware')).toBeNull();
+  });
+});
+
+
+describe('S3c-1 obsolete Build allowance', () => {
+  it.each([[1, 0.5], [1, 0.55], [0.9, 0.5]])('offers removal for mass %s kg and CG %s m', (massKg, cgM) => {
+    let removed = 0;
+    act(() => root.render(<PrefsProvider><MeasuredMassBox bareMassKg={1} bareCgM={0.5} rocketLengthM={1}
+      hasAllowance measured={{ massKg, cgM }} onChange={() => {}} onApply={() => {}}
+      onRemove={() => { removed++; }} /></PrefsProvider>));
+    expect(host.textContent).toContain('Computed figures exclude the existing Build allowance');
+    expect(host.textContent).not.toContain('Nothing to add');
+    const remove = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Remove Build allowance');
+    expect(remove).toBeDefined();
+    act(() => remove!.click());
+    expect(removed).toBe(1);
   });
 });

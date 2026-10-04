@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { engineTree, findNode } from '../tree/treeModel.js';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 
@@ -342,4 +343,39 @@ describe('PropertyPanel — a non-finite value reads as absent (audit row 522)',
     expect(range(undefined).every((v) => Number.isFinite(Number(v)))).toBe(true);
     for (const bad of BAD) expect(range(bad), String(bad)).toEqual(range(undefined));
   });
+});
+
+
+it('S3a-2 hides inert shroud overrides and points to the effective Mass field', () => {
+  mount({ type: 'fairing', id: 'shroud', mass: 0.03, overrideMass: 0.1, overrideCGX: 0.02, overrideCD: 0.5 } as ComponentNode);
+  expect(host.querySelector('[aria-label="Mass override"]')).toBeNull();
+  expect(host.querySelector('[aria-label="CG override, from component top"]')).toBeNull();
+  expect(host.querySelector('[aria-label="Drag coefficient (Cd) override"]')).toBeNull();
+  expect(host.textContent).toContain('Use the shroud’s Mass (as built) field');
+});
+
+it('S3a-2 legacy shroud overrides do not replace its synthesized engine values', () => {
+  const fairing = { type: 'fairing', id: 'shroud', mass: 0.03 } as ComponentNode;
+  const expected = findNode(engineTree(treeOf(fairing)), 'shroud')!;
+  for (const patch of [{ overrideMass: 0.1 }, { overrideCGX: 0.02 }, { overrideCD: 0.5 }]) {
+    const actual = findNode(engineTree(treeOf({ ...fairing, ...patch })), 'shroud')!;
+    expect(actual['overrideMass']).toBeCloseTo(0.03, 12);
+    expect(actual['overrideCGX']).toBeUndefined();
+    expect(actual['overrideCD']).toBe(expected['overrideCD']);
+  }
+});
+
+it.each(['overrideMass', 'overrideCGX', 'overrideCD'])('ROUND3 clears stored shroud %s, including zero', (key) => {
+  const shroud = { type: 'fairing', id: 'shroud', mass: 0.03, [key]: 0,
+    overrideSubcomponentsMass: true, overrideSubcomponentsCG: true, overrideSubcomponentsCD: true } as ComponentNode;
+  mount(shroud);
+  const clear = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Clear stored overrides');
+  expect(clear).toBeDefined();
+  act(() => { clear!.click(); });
+  expect(patches).toEqual([{
+    overrideMass: undefined, overrideCGX: undefined, overrideCD: undefined,
+    overrideSubcomponentsMass: undefined, overrideSubcomponentsCG: undefined, overrideSubcomponentsCD: undefined,
+  }]);
+  mount({ ...shroud, ...patches[0] } as ComponentNode);
+  expect(host.textContent).not.toContain('Clear stored overrides');
 });

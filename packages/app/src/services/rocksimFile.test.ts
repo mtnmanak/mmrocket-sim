@@ -3774,3 +3774,24 @@ describe('RockSim export — a part with no position', () => {
     expect(back.position!.offset).toBeCloseTo(0, 12);
   });
 });
+
+
+describe('S1b-3 RockSim tab reference round trip', () => {
+  for (const type of ['trapezoidfinset', 'freeformfinset'] as const) {
+    it.each([['top', 0.005], ['middle', 0.035], ['bottom', 0.065], [undefined, 0.035]] as const)(
+      type + ' preserves a %s referenced tab', (method, front) => {
+        const fin = { type, name: 'Tab test', rootChord: 0.1, tipChord: 0.04, height: 0.04,
+          points: [[0, 0], [0.02, 0.04], [0.06, 0.04], [0.1, 0]],
+          crossSection: 'rounded', tabHeight: 0.01, tabLength: 0.04, tabOffset: 0.005,
+          ...(method ? { tabOffsetMethod: method } : {}) } as ComponentNode;
+        const tree = { name: 'Tabs', components: [{ type: 'stage', children: [
+          { type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [fin] },
+        ] }] } as Parameters<typeof exportRkt>[0]['tree'];
+        const xml = exportRkt({ name: 'Tabs', tree });
+        expect(Number(/<TabOffset>([^<]+)/.exec(xml)![1]) / 1000).toBeCloseTo(front, 12);
+        const back = flatten(importRkt(xml).tree.components).find((n) => n.name === 'Tab test')!;
+        expect(back['tabOffsetMethod']).toBe('top');
+        expect(back['tabOffset']).toBeCloseTo(front, 12);
+      });
+  }
+});

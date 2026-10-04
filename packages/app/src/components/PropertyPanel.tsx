@@ -1588,15 +1588,24 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         </div>
       )}
 
-      {/* No Overrides block for a protuberance. Its whole physics IS a CD
-          override synthesized at the engine boundary (treeModel.engineTree),
-          and its mass is a mass override — so a figure typed here would be
-          overwritten on the way to the kernel while looking live and surviving
-          a .ork round-trip. That is exactly the trap the fairing component
-          still carries (findings-2026-08-22-import-fidelity.md item 8); the
-          Cd escape hatch that item asks for is the "Cd on frontal area" field
-          above. */}
-      {(node.type as string) !== 'protuberance' && (
+      {/* No Overrides block for a protuberance: its whole physics IS a Cd
+          override synthesized at the engine boundary, and its mass is a mass
+          override. A typed override would be overwritten while looking live
+          and surviving a .ork round-trip (findings-2026-08-22-import-fidelity.md
+          item 8). Its Cd escape hatch is "Cd on frontal area" above. Camera
+          shrouds also synthesize overrides; allow clearing legacy stored ones. */}
+      {node.type === 'fairing' && (
+        <div>
+          <p className="hint">Use the shroud’s Mass (as built) field to set its mass. Mass, CG and Cd overrides do not apply to camera shrouds.</p>
+          {['overrideMass', 'overrideCGX', 'overrideCD'].some((key) => node[key] != null) && (
+            <button type="button" className="file-btn" onClick={() => onPatch({
+              overrideMass: undefined, overrideCGX: undefined, overrideCD: undefined,
+              overrideSubcomponentsMass: undefined, overrideSubcomponentsCG: undefined, overrideSubcomponentsCD: undefined,
+            })}>Clear stored overrides</button>
+          )}
+        </div>
+      )}
+      {(node.type as string) !== 'protuberance' && node.type !== 'fairing' && (
       <div style={{ marginTop: 10 }}>
         <h3 style={{ marginTop: 0 }}>
           Overrides (blank = calculated)

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { applyStageNozzles } from '../tree/treeModel.js';
 import { CDX1_ENGINE_EXPORT, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
@@ -2552,5 +2552,77 @@ describe('RASAero import — a part hung under a tube does not copy its siblings
     // …and all of them hang off that tube.
     const tube = r!.tree.components[0]!.children!.find((c) => c.type === 'bodytube')!;
     expect((tube.children ?? []).filter((c) => (c.type as string) === type)).toHaveLength(N);
+  });
+});
+
+
+describe('S1b-4 RASAero pod geometry', () => {
+  it.each(['booster tube', 'stage child', 'transition', 'nested pod', 'strap-on'])(
+    'ROUND3 refuses an assembly the writer would drop: %s', (placement) => {
+      const pod = { type: 'podset', name: 'Inline sleeve', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0,
+        children: [{ type: 'bodytube', length: 0.1, outerRadius: 0.04 }] } as ComponentNode;
+      const host = { type: 'bodytube', length: 0.4, outerRadius: 0.03, children: [] } as ComponentNode;
+      const sustainer = { type: 'stage', children: [host] } as ComponentNode;
+      const tree: RocketTree = { components: [sustainer] };
+      if (placement === 'booster tube') {
+        tree.components.push({ type: 'stage', children: [{ ...host, children: [pod] }] } as ComponentNode);
+      } else if (placement === 'stage child') sustainer.children!.push(pod);
+      else if (placement === 'transition') {
+        sustainer.children!.push({ type: 'transition', shape: 'conical', length: 0.1,
+          foreRadius: 0.03, aftRadius: 0.02, children: [pod] } as ComponentNode);
+      } else if (placement === 'nested pod') {
+        host.children!.push({ ...pod, children: [{ ...host, outerRadius: 0.04, children: [pod] }] } as ComponentNode);
+      } else host.children!.push({ ...pod, type: 'parallelstage' } as ComponentNode);
+      expect(() => exportCdx1({ name: 'Assemblies', tree }))
+        .toThrow(placement === 'strap-on' ? /RASAero has no parallel staging/ : /cannot represent pod set.*in this location/);
+    });
+
+  const design = (pod: Record<string, unknown>) => ({ name: 'Pods', tree: { name: 'Pods', components: [
+    { type: 'stage', children: [{ type: 'bodytube', length: 0.4, outerRadius: 0.03, children: [
+      { type: 'podset', ...pod },
+    ] }] },
+  ] } } as Parameters<typeof exportCdx1>[0]);
+  const tube = { type: 'bodytube', length: 0.1, outerRadius: 0.04 };
+  it.each([
+    { instanceCount: 2, radiusMethod: 'relative', radiusOffset: 0 },
+    {},
+    { instanceCount: 1, radiusMethod: 'free', radiusOffset: 0.02 },
+    { instanceCount: 1, radiusMethod: 'relative', radiusOffset: 0 },
+  ])('refuses side pods instead of writing a concentric fin can: %j', (props) => {
+    expect(() => exportCdx1(design({ ...props, children: [
+      { type: 'nosecone', length: 0.05, aftRadius: 0.01 }, { ...tube, outerRadius: 0.01 },
+    ] }))).toThrow(/RASAero has no off-axis or repeated pods/);
+  });
+  it('refuses an undersized inline sleeve and an inline pod with a nose', () => {
+    const inline = { instanceCount: 1, radiusMethod: 'free', radiusOffset: 0 };
+    expect(() => exportCdx1(design({ ...inline, children: [{ ...tube, outerRadius: 0.01 }] })))
+      .toThrow(/cannot represent pod set/);
+    expect(() => exportCdx1(design({ ...inline, children: [{ type: 'nosecone' }, tube] })))
+      .toThrow(/cannot represent pod set/);
+    expect(exportCdx1(design({ ...inline, children: [tube] }))).toContain('<FinCan>');
+  });
+});
+
+describe('S1b-1 RASAero physical motor count', () => {
+  const motor = { designation: 'C6', manufacturer: 'Estes' };
+  const mount = { type: 'innertube', id: 'm', motorMount: true, length: 0.07, outerRadius: 0.0095 };
+  const design = (children: unknown[], motors = { m: motor }) => ({ name: 'Motors', motors,
+    launchMassKg: 0.2, tree: { name: 'Motors', components: [{ type: 'stage', name: 'Sustainer', children: [
+      { type: 'bodytube', length: 0.3, outerRadius: 0.03, children },
+    ] }] } } as Parameters<typeof exportCdx1>[0]);
+  it('refuses a three-motor cluster instead of saving one motor at the full weight', () => {
+    expect(() => exportCdx1(design([{ ...mount, cluster: '3-ring' }])))
+      .toThrow(/one engine per stage.*3 motors/);
+    expect(exportCdx1(design([mount]))).toContain('<SustainerEngine>C6  (ES)</SustainerEngine>');
+    expect(exportCdx1({ ...design([{ ...mount, cluster: '3-ring' }]), engineExport: false }))
+      .not.toContain('Engine>');
+  });
+  it('counts separate mounts and enclosing assembly instances', () => {
+    expect(() => exportCdx1(design([mount, { ...mount, id: 'm2' }], { m: motor, m2: motor } as { m: typeof motor })))
+      .toThrow(/one engine per stage.*2 motors/);
+    for (const type of ['podset', 'parallelstage']) {
+      expect(() => exportCdx1(design([{ type, instanceCount: 2, children: [{ ...mount, cluster: '3-ring' }] }])))
+        .toThrow(/one engine per stage.*6 motors/);
+    }
   });
 });

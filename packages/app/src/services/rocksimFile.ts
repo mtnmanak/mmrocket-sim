@@ -8,6 +8,7 @@ import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
+import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
 import { spansOverlap } from '../tree/finAlign.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
@@ -2892,7 +2893,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         if (nnum(node, 'tabHeight', 0) > 0 && nnum(node, 'tabLength', 0) > 0) {
           emit(`<TabLength>${nnum(node, 'tabLength', 0) * LEN}</TabLength>`);
           emit(`<TabDepth>${nnum(node, 'tabHeight', 0) * LEN}</TabDepth>`);
-          emit(`<TabOffset>${nnum(node, 'tabOffset', 0) * LEN}</TabOffset>`);
+          emit(`<TabOffset>${finTabFront(node, finRootChord(node)) * LEN}</TabOffset>`);
         }
         // Radians — matching the desktop's RockSim exporter (FinSetDTO).
         if (nnum(node, 'cant', 0) !== 0) {

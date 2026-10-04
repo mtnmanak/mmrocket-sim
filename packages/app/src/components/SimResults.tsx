@@ -650,7 +650,9 @@ export function SimHistory({
                   || stabilityState(r.launchStaticMarginCal) === 'under'
                   || r.safeThrustToWeight === false
                   || r.safeLandingRate === false
-                  || (r.deployments ?? []).some((d) => d.descentOk === false);
+                  || (r.deployments ?? []).some((d) => d.descentOk === false)
+                  || (r.branches ?? []).some((b) => b.safeLandingRate === false
+                    || b.deployments?.some((d) => d.descentOk === false));
                 const caution = !unsafe && (deploymentVerdict(r) === 'caution'
                   || stabilityState(r.launchStaticMarginCal) === 'over');
                 // A tab stop and Enter/Space, not a bare onClick. `onSelect` is

@@ -180,13 +180,10 @@ describe('exporters with no flipped nose cone', () => {
     expect(() => exportCdx1({ name: 'Two', tree: t })).toThrow(/Booster tail/);
   });
 
-  it('RASAero: refuses a tail cone in a pod set too, which the pod writer dropped without a word', () => {
-    // The pod writer keeps only a pod's body tubes and transitions, as RASAero's
-    // fin can or recessed boat tail. A tube with a tail cone behind it went out
-    // as a fin can, the cone left out of the file; a pod on a booster's tube
-    // was never written at all. desktop ignores a whole pod set with a warning
-    // ("Unsupported component ..., ignoring"); the guide promises a .CDX1
-    // export refuses a tail cone "for the back of a rocket or pod".
+  it('RASAero: refuses a tail cone in a pod set before checking pod geometry', () => {
+    // Only representable inline pods become a fin can or recessed boat tail.
+    // Other pods are refused as a whole (S1b-4), but the specific tail-cone
+    // refusal still fires first, including on a booster's tube.
     const podded = (tail: Record<string, unknown>): RocketTree => {
       const t = tree();
       const sustainer = t.components[0]!;
@@ -201,9 +198,9 @@ describe('exporters with no flipped nose cone', () => {
     };
     expect(() => exportCdx1({ name: 'Pods', tree: podded({ flipped: true }) }))
       .toThrow(/RASAero has no tail cone — “Pod tail” in pod set “Side pods” is flipped to point aft/);
-    // An unflipped nose cone in a pod is not written either, and is not refused:
-    // only a tail cone, as in a booster.
-    expect(() => exportCdx1({ name: 'Pods', tree: podded({}) })).not.toThrow();
+    // The two-instance side pod is refused even with an unflipped nose.
+    expect(() => exportCdx1({ name: 'Pods', tree: podded({}) }))
+      .toThrow(/RASAero has no off-axis or repeated pods/);
     // A pod on a BOOSTER's tube, which the writer never visits.
     const t = tree();
     const sustainer = t.components[0]!;
@@ -232,7 +229,8 @@ describe('exporters with no flipped nose cone', () => {
     };
     expect(() => exportCdx1({ name: 'Strap', tree: strapped({ flipped: true }) }))
       .toThrow(/RASAero has no tail cone — “Strap tail” in strap-on “Side boosters” is flipped to point aft/);
-    // An unflipped nose cone in a strap-on is not refused, as in a pod set.
-    expect(() => exportCdx1({ name: 'Strap', tree: strapped({}) })).not.toThrow();
+    // Without a tail cone, the unsupported parallel staging is still refused.
+    expect(() => exportCdx1({ name: 'Strap', tree: strapped({}) }))
+      .toThrow(/RASAero has no parallel staging/);
   });
 });

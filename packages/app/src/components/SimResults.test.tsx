@@ -721,3 +721,18 @@ it('Amendment 1 renders the ignored-button note saved with a lug report', () => 
   act(() => expand.click());
   expect(host.textContent).toContain('Rail buttons without two stations on one line were not counted.');
 });
+
+
+describe('S3a-3 booster recovery in history safety', () => {
+  it.each(['landing', 'descent', 'safe'] as const)('includes booster %s verdict', (kind) => {
+    const r = run();
+    r.branches = [{ name: 'Booster', apogee: 120, tumbles: kind === 'landing',
+      landingRate: kind === 'landing' ? 30 : 5, safeLandingRate: kind !== 'landing',
+      deployments: kind === 'landing' ? [] : [{ ...preV099Deployment, velocityAtDeployment: 5, descentOk: kind !== 'descent' }],
+    }];
+    render(<SimHistory runs={[r]} onRunsChange={() => {}} designName="Booster" />);
+    openTable();
+    expect(host.querySelector('tr.motor-row td.stability-bad, tr.motor-row td.stability-good')?.className)
+      .toBe(kind === 'safe' ? 'stability-good' : 'stability-bad');
+  });
+});

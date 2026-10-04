@@ -22,7 +22,7 @@ import type { MeasuredFigures } from '../services/orkFile.js';
  */
 export function MeasuredMassBox({
   bareMassKg, bareCgM, rocketLengthM, hasAllowance, measured, onChange, onApply,
-  blockedBy, onPinStage,
+  blockedBy, onPinStage, onRemove,
 }: {
   /** Computed dry mass with any existing allowance backed out (kg). */
   bareMassKg: number;
@@ -30,6 +30,7 @@ export function MeasuredMassBox({
   bareCgM: number;
   rocketLengthM: number;
   hasAllowance: boolean;
+  onRemove: () => void;
   measured: MeasuredFigures;
   onChange: (next: MeasuredFigures) => void;
   onApply: (solution: Extract<BallastSolution, { kind: 'ok' }>) => void;
@@ -126,6 +127,7 @@ export function MeasuredMassBox({
         </div>
       </div>
 
+      {hasAllowance && <p className="measured-hint">Computed figures exclude the existing Build allowance. It remains in the design until removed.</p>}
       <dl className="measured-compare">
         <div>
           <dt>Computed mass</dt>
@@ -162,6 +164,9 @@ export function MeasuredMassBox({
       */}
       <div role="status">{shown?.text}</div>
       {shown?.action}
+      {hasAllowance && solution && ['matches', 'cg-only', 'overweight-model'].includes(solution.kind) && (
+        <button className="file-btn measured-apply" onClick={onRemove}>Remove Build allowance</button>
+      )}
     </div>
   );
 }
@@ -185,7 +190,9 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
       return {
         text: (
           <p className="measured-verdict measured-ok">
-            Your build matches the model. Nothing to add.
+            {hasAllowance
+              ? 'Your build matches the model without the existing Build allowance. Remove the redundant allowance.'
+              : 'Your build matches the model. Nothing to add.'}
           </p>
         ),
       };

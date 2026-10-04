@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { OrkRocket, type ComponentNode } from '@online-openrocket/engine';
 import { probeFlight } from './services/autoDelay.testSupport.js';
 import type { DelayResolution } from './services/autoDelaySolver.js';
-import { findNode, findParent, motorMounts } from './tree/treeModel.js';
+import { engineTree, findNode, findParent, motorMounts } from './tree/treeModel.js';
 import type { SessionState } from './services/session.js';
 import { exportOrk, importOrk } from './services/orkFile.js';
 import { padMassSetKey } from './services/configSync.js';
@@ -967,3 +967,61 @@ describe('a pad mass the restore moves onto the core', () => {
     expect(await notices(host)).not.toContain(MOVED);
   }, 30000);
 });
+
+
+it('S3c-1 removes a redundant allowance from the flown tree and Undo restores it', async () => {
+  await mountApp();
+  await waitFor(starterStored, 'the starter session');
+  await unmountAll();
+  const s = storedSession()!;
+  const bare = OrkRocket.buildTree(engineTree(s.tree)).staticInfo();
+  const body = s.tree.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+  body.children ??= [];
+  body.children.push({ type: 'masscomponent', id: 'redundant-allowance', name: 'Build allowance',
+    mass: 0.06, length: 0.02, radius: 0.005, position: { method: 'top', offset: 0.1 } } as ComponentNode);
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...s, measured: { massKg: bare.massEmpty, cgM: bare.cgEmpty } }));
+  const host = await mountApp();
+  const before = OrkRocket.buildTree(engineTree(s.tree)).staticInfo().massEmpty;
+  await act(async () => { button(host, 'Remove Build allowance').click(); });
+  await settle(600);
+  expect(findNode(storedSession()!.tree, 'redundant-allowance')).toBeNull();
+  const after = OrkRocket.buildTree(engineTree(storedSession()!.tree)).staticInfo().massEmpty;
+  expect(before - after).toBeCloseTo(0.06, 9);
+  expect(after).toBeCloseTo(bare.massEmpty, 9);
+  await act(async () => { button(host, '↩ Undo').click(); });
+  await settle(600);
+  expect(findNode(storedSession()!.tree, 'redundant-allowance')).not.toBeNull();
+  expect(OrkRocket.buildTree(engineTree(storedSession()!.tree)).staticInfo().massEmpty).toBeCloseTo(before, 9);
+}, 30000);
+
+it('ROUND3 clears stored shroud overrides through the tree and Undo restores them', async () => {
+  await mountApp();
+  await waitFor(starterStored, 'the starter session');
+  await unmountAll();
+  const s = storedSession()!;
+  const body = s.tree.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+  body.children ??= [];
+  const shroud = { type: 'fairing', id: 'legacy-shroud', name: 'Legacy shroud', mass: 0.03,
+    overrideMass: 0.1, overrideCGX: 0.02, overrideCD: 0.5,
+    overrideSubcomponentsMass: true, overrideSubcomponentsCG: true, overrideSubcomponentsCD: true } as ComponentNode;
+  body.children.push(shroud);
+  localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  const host = await mountApp();
+  const row = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+    .find((el) => el.querySelector('.tree-label')?.textContent === 'Legacy shroud')!;
+  expect(row).toBeDefined();
+  await act(async () => { row.click(); });
+  await act(async () => { button(host, 'Clear stored overrides').click(); });
+  await settle(600);
+  const cleared = findNode(storedSession()!.tree, shroud.id!)!;
+  for (const key of ['overrideMass', 'overrideCGX', 'overrideCD',
+    'overrideSubcomponentsMass', 'overrideSubcomponentsCG', 'overrideSubcomponentsCD']) {
+    expect(cleared[key]).toBeUndefined();
+  }
+  expect(cleared['mass']).toBeCloseTo(0.03, 12);
+  expect(host.textContent).not.toContain('Clear stored overrides');
+  await act(async () => { button(host, '↩ Undo').click(); });
+  await settle(600);
+  expect(findNode(storedSession()!.tree, shroud.id!)).toMatchObject(shroud);
+  expect(host.textContent).toContain('Clear stored overrides');
+}, 30000);

@@ -3511,3 +3511,13 @@ describe('.ork export — a part with no position', () => {
     expect(at('tubecoupler')).toEqual({ method: 'bottom', offset: 0 });
   });
 });
+
+
+it('S1a-8 warns about an inactive stage in a single configuration', () => {
+  const single = MULTI.replace(/<motorconfiguration configid="cfg-a"[\s\S]*?<\/motorconfiguration>/, '');
+  const result = importOrk(single);
+  expect(result.configs).toHaveLength(1);
+  expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
+  expect(result.notes.join(' ')).toContain('all stages fly');
+  expect(importOrk(single.replace('active="false"', 'active="true"')).notes.join(' ')).not.toContain('deactivates');
+});

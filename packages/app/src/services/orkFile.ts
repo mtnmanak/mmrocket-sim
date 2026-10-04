@@ -1323,6 +1323,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     );
   }
 
+  // Stage activeness (<stage active="false">) is not applied (Stage C) —
+  // warn when the chosen configuration would actually ground a stage.
+  const chosenEl = configEls.find((c) => c.getAttribute('configid') === chosenConfigId);
+  if (chosenEl && Array.from(chosenEl.querySelectorAll(':scope > stage'))
+      .some((s) => s.getAttribute('active') === 'false')) {
+    notes.push(
+      'This configuration deactivates one or more stages — stage activeness isn’t applied here, so all stages fly in the simulation.');
+  }
+
   // Multi-config notes: the chosen configuration's values were applied by
   // the config-scoped reads above — say which one, and how to get another.
   if (configs.length > 1) {
@@ -1346,14 +1355,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
         + `flight configuration (${configs.length} in the file). Switch between them `
         + `under Motors & Launch → Flight configurations.`);
-    }
-    // Stage activeness (<stage active="false">) is not applied (Stage C) —
-    // warn when the chosen configuration would actually ground a stage.
-    const chosenEl = configEls.find((c) => c.getAttribute('configid') === chosenConfigId);
-    if (chosenEl && Array.from(chosenEl.querySelectorAll(':scope > stage'))
-        .some((s) => s.getAttribute('active') === 'false')) {
-      notes.push(
-        'This configuration deactivates one or more stages — stage activeness isn’t applied here, so all stages fly in the simulation.');
     }
   } else if (configs.length === 0) {
     // Hand-rolled files may key <motor configid>s without declaring the
