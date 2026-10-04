@@ -281,6 +281,8 @@ export function motorCorrectionsSentence(corrections, motors) {
   const clauses = corrections.flatMap((c) => Object.entries(c.fields).map(([field, { bad, good }]) => {
     const name = `the ${c.manufacturer} ${c.designation}`;
     if (field === 'length') return `${name} is ${n(good)} mm long, where thrustcurve.org lists ${n(bad)} mm`;
+    if (field === 'maxThrustN') return `${name} has a peak thrust of ${n(good)} N, where thrustcurve.org lists ${n(bad)} N`;
+    if (field === 'totImpulseNs') return `${name} has a total impulse of ${n(good)} N·s, where thrustcurve.org lists ${n(bad)} N·s`;
     if (field === 'propWeightG') {
       const loaded = byId.get(c.motorId)?.totalWeightG;
       return `${name} carries ${n(good)} g of propellant, where thrustcurve.org lists ${n(bad)} g`

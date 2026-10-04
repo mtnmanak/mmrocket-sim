@@ -11,8 +11,9 @@
  *     surface the app sees, so the two must declare the same exports.
  *  2. EVERY FIGURE IS SOURCED from the manufacturer or a certifying body, quoted,
  *     with its URL — never from thrustcurve.org, where the error is — and STATED
- *     by two documents, never one: a letter can be the one that is wrong, and a
- *     document that only bounds the figure is not a second statement of it.
+ *     by two documents: a letter can be the one that is wrong, and a document
+ *     that only bounds the figure is not a second statement of it. Eric's
+ *     explicit N2700W-PS ruling is the one narrowly pinned exception below.
  *  3. THE SHIPPED FILE AGREES WITH THE TABLE: motors.json holds every corrected
  *     figure, so the table can never describe a correction nobody applied.
  */
@@ -30,7 +31,7 @@ const shipped = JSON.parse(readFileSync(here('../src/data/motors.json'), 'utf8')
 
 /** A figure as a source prints it, found whole: "375" in "54 x 375 |", never inside "1375", "375.5" or "3750". */
 const printedIn = (printed, says) =>
-  new RegExp(`(?<![\\d.])${printed.replace('.', '\\.')}(?![\\d]|\\.\\d)`).test(says);
+  new RegExp(`(?<![\\d.])${printed.replace('.', '\\.')}(?![\\d]|\\.\\d)`).test(says.replace(/(?<=\d),(?=\d{3}\b)/g, ''));
 
 /**
  * Whether a figure printed as `printed` can be `value` rounded: under one unit
@@ -84,7 +85,10 @@ function cannotSecond(s, field, { bad, good }) {
     return `${s.by}: ${field} ${JSON.stringify(printed)} is not a figure as printed, a string`;
   }
   if (!printedIn(printed, s.says)) return `${s.by} states ${field} ${printed}, which its quote does not print`;
-  if (!withinItsDigit(printed, good)) return `${s.by} prints ${printed}, which is not ${good}`;
+  // A finer source may round to the chosen published figure: 74.57 N -> 74.6 N.
+  const goodDigits = String(good).split('.')[1]?.length ?? 0;
+  const roundsToGood = Number(Number(printed).toFixed(goodDigits)) === good;
+  if (!withinItsDigit(printed, good) && !roundsToGood) return `${s.by} prints ${printed}, which is not ${good}`;
   if (withinItsDigit(printed, bad)) return `${s.by} prints ${printed}, which does not rule out the known-bad ${bad}`;
   return null;
 }
@@ -132,8 +136,18 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
   });
 
   it.each(MOTOR_CORRECTIONS.map((c) => [`${c.manufacturer} ${c.designation}`, c]))(
-    '%s: two documents state each corrected figure, and rule out the known-bad one', (_name, c) => {
+    '%s: sources satisfy the two-document rule or the explicit N2700W-PS ruling', (_name, c) => {
       const problems = unseconded(c);
+      if (c.motorId === '6623cf91f873440002ac6a28') {
+        // Eric's explicit 2026-10-04 ruling, ONLY these two fields on this row.
+        expect(c.fields).toEqual({ totImpulseNs: { bad: 10637, good: 10322 }, maxThrustN: { bad: 5553.5, good: 4624.6 } });
+        expect(c.why).toContain('scoped exception to the two-document rule');
+        expect(problems).toEqual([
+          'totImpulseNs: one document is not enough to correct a row: a second has to state 10322 too',
+          'maxThrustN: one document is not enough to correct a row: a second has to state 4624.6 too',
+        ]);
+        return;
+      }
       expect(problems, problems.join('\n')).toEqual([]);
     });
 
@@ -175,6 +189,35 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
     expect(withinItsDigit('374.25', 374.2)).toBe(false);
     expect(printedIn('375', 'Dimensions (mm) 54 x 375 | Impulse')).toBe(true);
     expect(['1375 g', '375.5 mm', '3750'].map((says) => printedIn('375', says))).toEqual([false, false, false]);
+    expect(printedIn('10322', '[10,322 N.s]')).toBe(true);
+    const source = (printed) => ({ by: 'TMT', says: `${printed} N`, states: { maxThrustN: printed } });
+    expect(cannotSecond(source('74.57'), 'maxThrustN', { bad: 64.33, good: 74.6 })).toBeNull();
+    expect(cannotSecond(source('50.42'), 'maxThrustN', { bad: 43.51, good: 50.4 })).toBeNull();
+    expect(cannotSecond(source('74.54'), 'maxThrustN', { bad: 64.33, good: 74.6 })).not.toBeNull();
+    expect(cannotSecond(source('74.57'), 'maxThrustN', { bad: 74.57, good: 74.6 })).not.toBeNull();
+  });
+});
+
+describe('Tier 0 row 57 rulings, 2026-10-04', () => {
+  it.each([
+    ['F52C', { maxThrustN: { bad: 64.33, good: 74.6 } }],
+    ['H13ST', { maxThrustN: { bad: 43.51, good: 50.4 } }],
+    ['N2700W-PS', { totImpulseNs: { bad: 10637, good: 10322 }, maxThrustN: { bad: 5553.5, good: 4624.6 } }],
+  ])('%s corrects exactly the ruled fields', (designation, fields) => {
+    const c = MOTOR_CORRECTIONS.find((c) => c.designation === designation);
+    expect(c?.fields).toEqual(fields);
+    const row = shipped.motors.find((m) => m.motorId === c.motorId);
+    const before = { ...row, ...Object.fromEntries(Object.entries(fields).map(([f, v]) => [f, v.bad])) };
+    expect(correctMotorRow(before)).toEqual(row);
+    expect(applyMotorCorrections([before]).applied).toHaveLength(Object.keys(fields).length);
+  });
+
+  it('keeps J99N and B6W unchanged when their conditions are not met', () => {
+    expect(MOTOR_CORRECTIONS.some((c) => ['J99N', 'B6W'].includes(c.designation))).toBe(false);
+    expect(shipped.motors.find((m) => m.designation === 'J99N')).toMatchObject({
+      totImpulseNs: 945.2, maxThrustN: 151.95, propWeightG: 556, burnTimeS: 10.2,
+    });
+    expect(shipped.motors.find((m) => m.designation === 'B6W')).toMatchObject({ totalWeightG: 19.3 });
   });
 });
 

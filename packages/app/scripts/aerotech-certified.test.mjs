@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
  * WHY (board Tier 1 row 8 (c), 2026-10-01). The picker's impulse-agreement gate
  * and the impulse note (thrustcurve.ts) compare a curve with the catalogue's
  * certified total, and both come from thrustcurve.org: where the two agree with
- * each other, nothing looks further. The F52C and the H13ST ship 13.7 % under
+ * each other, nothing looks further. The F52C and the H13ST originally shipped 13.7 % under
  * their certification letters on all three figures, every bundled curve agreeing
  * with the low one, and nothing in the app could see it. The letters are a
  * reference from outside thrustcurve.org, read from the PDFs by
@@ -155,8 +155,9 @@ const ABSENT = {
 const KNOWN = {
   '5f5e57811e865c0004c955d8': {
     designation: 'F52C',
-    holds: { totImpulseNs: 66.2, maxThrustN: 64.33, avgThrustN: 52.65, length: 111.4, totalWeightG: 81.4, propWeightG: 30 },
-    why: 'every figure is the letter\'s divided by 1.159 (76.73 N·s, 74.57 N, 61.04 N), the same factor as the H13ST '
+    holds: { totImpulseNs: 66.2, maxThrustN: 74.6, avgThrustN: 52.65, length: 111.4, totalWeightG: 81.4, propWeightG: 30 },
+    why: 'Eric ruled 2026-10-04: only peak corrected to 74.6 N from AeroTech; impulse and average retained. '
+      + 'Before correction every thrust figure was the letter\'s divided by 1.159 (76.73 N·s, 74.57 N, 61.04 N), the same factor as the H13ST '
       + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
       + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
       + 'pages, the NAR\'s list, both bundled curves (66.31 N·s, peak 61.32 N), and the propellant. Over the mass the '
@@ -184,8 +185,9 @@ const KNOWN = {
   },
   '5f5e58171e865c0004c955f8': {
     designation: 'H13ST',
-    holds: { totImpulseNs: 211.19, maxThrustN: 43.51, avgThrustN: 13.89, length: 213.4, totalWeightG: 203.4, propWeightG: 116.4 },
-    why: 'every figure is the letter\'s divided by 1.159 (244.76 N·s, 50.42 N, 16.10 N), the same factor as the F52C '
+    holds: { totImpulseNs: 211.19, maxThrustN: 50.4, avgThrustN: 13.89, length: 213.4, totalWeightG: 203.4, propWeightG: 116.4 },
+    why: 'Eric ruled 2026-10-04: only peak corrected to 50.4 N from AeroTech; impulse and average retained. '
+      + 'Before correction every thrust figure was the letter\'s divided by 1.159 (244.76 N·s, 50.42 N, 16.10 N), the same factor as the F52C '
       + 'tested the same day, while its masses, length and burn time are the letter\'s, rounded. But the letter is an '
       + 'undated draft ("xxxxxxxx, 2020"), and on total impulse every other source sides with the row: AeroTech\'s own '
       + 'page, both bundled curves (214.94 N·s, peak 44.53 N), and the propellant. Over the mass the letter itself '
@@ -206,7 +208,9 @@ const KNOWN = {
   '5f4294d20002310000000309': {
     designation: 'J99N',
     holds: { totImpulseNs: 945.2, maxThrustN: 151.95, avgThrustN: 92.4, length: 231, totalWeightG: 899, propWeightG: 556 },
-    why: 'the letter certifies the REDESIGNED J99N-P reload, tested 14 August 2020: 935.24 N·s, 127.24 N peak, 86.94 N '
+    why: '2026-10-04: left unchanged because AeroTech product-page agreement could not be verified; site search '
+      + 'and product-list endpoints were unreadable. The only bundled file is from 2009, not the redesign. '
+      + 'The letter certifies the REDESIGNED J99N-P reload, tested 14 August 2020: 935.24 N·s, 127.24 N peak, 86.94 N '
       + 'average, 479.7 g of propellant in 893.51 g loaded, 240.46 mm long, 10.773 s. The row\'s 556 g of propellant, '
       + '899 g loaded, 231 mm, 10.2 s burn and 19 % higher peak are not the redesign\'s; correcting it means taking the '
       + 'redesign\'s figures for every field, which is a ruling, not a transcription fix. The NAR\'s combined list '
@@ -224,15 +228,19 @@ const KNOWN = {
   },
   '6623cf91f873440002ac6a28': {
     designation: 'N2700W-PS',
-    holds: { totImpulseNs: 10637, maxThrustN: 5553.5, avgThrustN: 2692.6, length: 1232.5, totalWeightG: 9058.2, propWeightG: 5275 },
-    why: 'the letter fired two motors and certifies their average, printed in brackets: 10,322 N·s, 4,624.6 N peak, '
-      + '2,716.9 N average (its TMT nomenclature, "10,322 N2717", is built from it). The row carries the FIRST motor\'s '
+    holds: { totImpulseNs: 10322, maxThrustN: 4624.6, avgThrustN: 2692.6, length: 1232.5, totalWeightG: 9058.2, propWeightG: 5275 },
+    why: 'Eric ruled 2026-10-04: total impulse and peak corrected to the bracketed two-motor averages. '
+      + 'Average thrust remains 2692.6 N (letter 2716.9 N), outside the two fields named in the task. '
+      + 'The letter fired two motors and certifies their average, printed in brackets: 10,322 N·s, 4,624.6 N peak, '
+      + '2,716.9 N average (its TMT nomenclature, "10,322 N2717", is built from it). Before correction the row carried the FIRST motor\'s '
       + 'own figures, 10,637 / 5,553.5 / 2,692.6: 3.1 % over on impulse and 20 % on peak',
   },
   '60ac76068dc4640004c24d93': {
     designation: 'B6W',
     holds: { totImpulseNs: 4.87, maxThrustN: 9.13, avgThrustN: 4.22, length: 79.2, totalWeightG: 19.3, propWeightG: 2.8 },
-    why: 'loaded mass 19.3 g against the letter\'s 18.29 g (0.0403 lb): 5.5 % over, which no rounding of 18.29 gives, '
+    why: '2026-10-04: retained. The ThrustCurve cert simfile is a transcription of TMT test data, not a '
+      + 'second manufacturer/certifying-body document; 18.3 g agrees by rounding but is not a second '
+      + 'authoritative statement of 18.29 g. Loaded mass 19.3 g against the letter\'s 18.29 g (0.0403 lb): 5.5 % over, which no rounding of 18.29 gives, '
       + 'where every other figure is the letter\'s, rounded. The letter is dated and signed (May 10, 2021), but '
       + 'AeroTech\'s own pages say 19 grams, the row\'s 19.3 rounded and not the letter\'s 18.29, so the two disagree; '
       + 'the NAR\'s combined list prints no loaded mass. What the row reaches: the app flies a data file\'s own masses '
