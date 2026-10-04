@@ -18,6 +18,7 @@ export interface RailProfile {
 export type RailNeeded =
   | { status: 'reached'; travelM: number; railM: number }
   | { status: 'not-reached'; railM: number }
+  | { status: 'undetermined'; railM: number }
   | { status: 'thrust-ended'; railM: number };
 
 /**
@@ -77,7 +78,7 @@ export function railNeeded(profile: RailProfile | undefined, threshold: number):
   // Saved runs predate this field; malformed persisted data is not a measurement.
   if (!profile || !Array.isArray(profile.segments) || !Number.isFinite(threshold) || threshold < 0
     || !Number.isFinite(profile.railM)) return undefined;
-  if (profile.offsetM === null) return { status: 'not-reached', railM: profile.railM };
+  if (profile.offsetM === null) return { status: 'undetermined', railM: profile.railM };
   if (!Number.isFinite(profile.offsetM)) return undefined;
   if (threshold === 0) return { status: 'reached', travelM: 0, railM: profile.offsetM };
   for (const segment of profile.segments) {
@@ -93,8 +94,13 @@ export function railNeeded(profile: RailProfile | undefined, threshold: number):
 
 export function railNeededCell(profile: RailProfile | undefined, threshold: number, lengthUnit: string,
   measure: 'rail' | 'travel' = 'rail'): string {
-  const needed = railNeeded(profile, threshold);
+  return railNeededResultCell(railNeeded(profile, threshold), profile, lengthUnit, measure);
+}
+
+export function railNeededResultCell(needed: RailNeeded | undefined, profile: RailProfile | undefined,
+  lengthUnit: string, measure: 'rail' | 'travel' = 'rail'): string {
   if (!needed) return '';
+  if (needed.status === 'undetermined') return 'Cannot be determined: no guided travel';
   if (needed.status === 'reached') return fmtSi('length', lengthUnit, measure === 'travel' ? needed.travelM : needed.railM, 1);
   const limitM = measure === 'travel' ? availableTravel(profile!) : needed.railM;
   return needed.status === 'thrust-ended' ? 'Cannot reach: thrust ended'
@@ -120,27 +126,28 @@ export function railNeededLine(profile: RailProfile | undefined, threshold: numb
   const rocketTravel = kind === 'off' || kind === 'none' || kind === 'single-button';
   const buttons = kind === 'buttons' || kind === 'mixed-buttons';
   const lug = kind === 'lug' || kind === 'mixed-lug';
+  const launcher = lug ? 'rod' : 'rail';
   // SimulationStatus.buttonGuidePosition / secondStation selects the aft edge
   // of the second-from-aft station on the chosen rail line, not among all buttons.
-  const point = buttons ? 'the bottom edge of the second rail button up from the tail (the upper button on a two-button rocket)'
+  const point = buttons ? 'the bottom edge of the second rail button up from the tail on the line the rail runs through (the upper button on a two-button rocket)'
     : lug ? 'the bottom of the lowest launch lug' : 'the guide point recorded for this flight';
   const reference = rocketTravel ? 'of travel of the rocket itself' : `of travel, measured from ${point}`;
-  const pad = rocketTravel
-    ? `${kind === 'off' ? 'Guide-position allowance is off.' : kind === 'none' ? 'No launch guide is fitted.'
-      : 'A single button station cannot hold the rocket straight.'} The rail figure equals the travel of the rocket itself.`
-    : `At the pad, measure the usable ${lug ? 'rod' : 'rail'} from ${buttons ? 'that button edge' : lug ? 'that lug edge' : 'that guide point'} to the end of the ${lug ? 'rod' : 'rail'}.`
+  const pad = kind === 'single-button' ? 'A single button station cannot hold the rocket straight.' : rocketTravel
+    ? `${kind === 'off' ? 'Guide-position allowance is off.' : 'No launch guide is fitted.'}`
+      + (needed.status === 'undetermined' ? '' : ' The rail figure equals the travel of the rocket itself.')
+    : `At the pad, measure the usable ${launcher} from ${buttons ? 'that button edge' : lug ? 'that lug edge' : 'that guide point'} to the end of the ${launcher}.`
       + (kind === 'mixed-lug' || kind === 'mixed-buttons' ? ` With both lugs and buttons fitted, the app used the shorter travel (${lug ? 'lug' : 'buttons'}).` : '')
       + (!kind ? ' This older run did not record the guide kind; re-launch to identify the measuring point.' : '');
   if (needed.status === 'thrust-ended') return `Cannot reach ${speed}: thrust ended before reaching that speed while still guided. `
-    + `The simulated limit was ${length(availableTravel(profile))} ${reference} (${length(profile.railM)} of rail if the tail sits at the bottom of the rail). ${pad}`;
+    + `The simulated limit was ${length(availableTravel(profile))} ${reference} (${length(profile.railM)} of ${launcher} if the tail sits at the bottom of the ${launcher}). ${pad}`;
+  // A zero effective length cannot reveal the guide-to-tail offset. In
+  // particular a single station provides no guided crossing to measure.
+  if (needed.status === 'undetermined') return `Did not reach ${speed}: the simulation provided no guided travel${rocketTravel ? '' : ` (measured from ${point})`} on the entered ${length(profile.railM)} ${launcher}. `
+    + `No required travel or ${launcher} length can be determined. ${pad}`;
   if (needed.status === 'not-reached') {
-    // A zero effective length cannot reveal the guide-to-tail offset. In
-    // particular a single station provides no guided crossing to measure.
-    if (profile.offsetM === null) return `Did not reach ${speed}: the simulation provided no guided travel on the entered ${length(profile.railM)} rail${rocketTravel ? '' : `, measured from ${point}`}. `
-      + `No required travel or rail length can be determined. ${pad}`;
     return `Did not reach ${speed} within ${length(availableTravel(profile))} ${reference} `
-      + `(${length(needed.railM)} of rail if the tail sits at the bottom of the rail); a longer rail has not been simulated. ${pad}`;
+      + `(${length(needed.railM)} of ${launcher} if the tail sits at the bottom of the ${launcher}); a longer ${launcher} has not been simulated. ${pad}`;
   }
   return `Reaches ${speed} after ${length(needed.travelM)} ${reference} `
-    + `(${length(needed.railM)} of rail if the tail sits at the bottom of the rail). ${pad}`;
+    + `(${length(needed.railM)} of ${launcher} if the tail sits at the bottom of the ${launcher}). ${pad}`;
 }

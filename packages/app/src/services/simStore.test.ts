@@ -356,6 +356,41 @@ describe('one corrupt timestamp must not kill BOTH exports (net-storage-4)', () 
  * used the same unguarded product.
  */
 describe('the flight-day lead columns', () => {
+  it.each([false, true])('exports both length limits when thrustEnded is %s', (thrustEnded) => {
+    const r = mkRun('limited', { railProfile: {
+      segments: [[0, 10, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, guideKind: 'buttons', thrustEnded,
+    } });
+    for (const units of [undefined, IMPERIAL_UNITS]) {
+      const table = runsToTable([r], units);
+      const csv = runsToCsv([r], units).split('\n');
+      for (const measure of ['Travel', 'Rail']) {
+        const at = table.headers.findIndex((header) => header.startsWith(`${measure} for `));
+        const limit = measure === 'Travel' ? (units ? '137.8 in' : '3.5 m') : (units ? '157.5 in' : '4 m');
+        const expected = thrustEnded ? 'Cannot reach: thrust ended' : `Not reached within ${limit}`;
+        expect(at).toBeGreaterThan(-1);
+        expect(table.rows[0]![at]).toBe(expected);
+        expect(csv[1]!.split(',')[at]).toBe(expected);
+      }
+    }
+  });
+
+  it.each(['single-button', 'buttons', 'lug'] as const)(
+    'exports undetermined travel and rail cells for %s with no guided travel', (guideKind) => {
+      const r = mkRun('zero-guide', { railProfile: {
+        segments: [], railM: 2.4384, offsetM: null, allowance: true, guideKind, thrustEnded: false,
+      } });
+      for (const units of [undefined, IMPERIAL_UNITS]) {
+        const table = runsToTable([r], units);
+        const csv = runsToCsv([r], units).split('\n');
+        for (const measure of ['Travel', 'Rail']) {
+          const at = table.headers.findIndex((header) => header.startsWith(`${measure} for `));
+          expect(at).toBeGreaterThan(-1);
+          expect(table.rows[0]![at]).toBe('Cannot be determined: no guided travel');
+          expect(csv[1]!.split(',')[at]).toBe('Cannot be determined: no guided travel');
+        }
+      }
+    });
+
   it('exports distinct travel and rail lengths in SI and chosen units, with unavailable runs blank', () => {
     const r = mkRun('rail', { railProfile: {
       segments: [[0, 20, 0, 2]], railM: 4, offsetM: 0.5, allowance: true, guideKind: 'buttons', thrustEnded: false,
