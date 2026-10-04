@@ -157,6 +157,47 @@ const kitchenSink = (): RocketTree => ({
 
 const K = 2.5;
 
+describe('scaleRocket — preserved radial placement', () => {
+  const types = [
+    'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
+    'parachute', 'streamer', 'shockcord',
+  ] as const;
+
+  it.each(types)('scales %s offsets in both directions without rotating the part', (type) => {
+    const tree: RocketTree = {
+      name: 'offset',
+      components: [{ type: 'stage', children: [{
+        type: 'bodytube', outerRadius: 0.025, children: [{
+          type, id: 'part', radialPosition: 0.02, radialDirection: Math.PI / 2,
+        }],
+      }] }],
+    };
+    for (const factor of [0.5, 2]) {
+      const part = findNode(scaleRocket(tree, factor).tree, 'part')!;
+      expect(part['radialPosition']).toBeCloseTo(0.02 * factor, 12);
+      expect(part['radialDirection']).toBe(Math.PI / 2);
+    }
+    expect(findNode(tree, 'part')!['radialPosition']).toBe(0.02);
+  });
+
+  it.each(types)('does not invent a %s offset when it is absent or zero', (type) => {
+    const tree: RocketTree = {
+      name: 'centered',
+      components: [{ type: 'stage', children: [
+        { type, id: 'absent' },
+        { type, id: 'zero', radialPosition: 0, radialDirection: Math.PI / 2 },
+      ] }],
+    };
+    for (const factor of [0.5, 2]) {
+      const scaled = scaleRocket(tree, factor).tree;
+      expect(findNode(scaled, 'absent')).not.toHaveProperty('radialPosition');
+      expect(findNode(scaled, 'absent')).not.toHaveProperty('radialDirection');
+      expect(findNode(scaled, 'zero')!['radialPosition']).toBe(0);
+      expect(findNode(scaled, 'zero')!['radialDirection']).toBe(Math.PI / 2);
+    }
+  });
+});
+
 /** Every numeric leaf in the tree, addressed as "<id>.<key>" (+ position offsets, points). */
 function numericLeaves(tree: RocketTree): Map<string, number> {
   const out = new Map<string, number>();

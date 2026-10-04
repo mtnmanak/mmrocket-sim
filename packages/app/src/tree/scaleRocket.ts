@@ -26,7 +26,8 @@ import { numOrNull as num } from './nodeNum.js';
  *    a freeform fin's whole planform (`points`), ring/coupler/bulkhead
  *    `outerRadius` and `innerRadius`, `foreShoulderThickness`,
  *    `aftShoulderThickness`, `instanceSeparation` on rings and lugs,
- *    `filletRadius`, `overrideCGX`, and `radialPosition` on a mass component.
+ *    `filletRadius`, `overrideCGX`, and `radialPosition` on mass components,
+ *    recovery gear, tube couplers, centering rings, bulkheads and engine blocks.
  *    A FIELDS-driven scaler leaves every freeform fin unchanged — which is
  *    Eric's own primary workflow — and puts original-size centering rings
  *    inside a doubled airframe.
@@ -110,10 +111,10 @@ const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly stri
   // outerRadius absent = the touching-circle formula, which scales itself.
   tubefinset: ['length', 'outerRadius', 'thickness'],
   innertube: ['length', 'outerRadius', 'thickness', 'radialPosition', 'maxMotorLength'],
-  tubecoupler: ['length', 'thickness', 'outerRadius', 'innerRadius'],
-  centeringring: ['length', 'outerRadius', 'innerRadius', 'instanceSeparation'],
-  bulkhead: ['length', 'outerRadius', 'instanceSeparation'],
-  engineblock: ['length', 'thickness', 'outerRadius'],
+  tubecoupler: ['length', 'thickness', 'outerRadius', 'innerRadius', 'radialPosition'],
+  centeringring: ['length', 'outerRadius', 'innerRadius', 'instanceSeparation', 'radialPosition'],
+  bulkhead: ['length', 'outerRadius', 'instanceSeparation', 'radialPosition'],
+  engineblock: ['length', 'thickness', 'outerRadius', 'radialPosition'],
   // A lug's BORE is the launch rod's diameter — 1/8", 3/16", 1/4" — and rods
   // do not scale. Its length is a design choice and does.
   launchlug: ['length', 'instanceSeparation'],
@@ -124,9 +125,9 @@ const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly stri
   // cd·(1−(d/D)²), so only the ratio matters, and scaling both preserves it.
   // The packed size is the cylinder the device's mass sits in, inside a bay
   // that grows with the airframe — scaled as a mass component's is.
-  parachute: ['diameter', 'spillHoleDiameter', 'lineLength', 'packedLength', 'packedRadius'],
-  streamer: ['stripLength', 'stripWidth', 'packedLength', 'packedRadius'],
-  shockcord: ['cordLength', 'packedLength', 'packedRadius'],
+  parachute: ['diameter', 'spillHoleDiameter', 'lineLength', 'packedLength', 'packedRadius', 'radialPosition'],
+  streamer: ['stripLength', 'stripWidth', 'packedLength', 'packedRadius', 'radialPosition'],
+  shockcord: ['cordLength', 'packedLength', 'packedRadius', 'radialPosition'],
   masscomponent: ['length', 'radius', 'radialPosition'],
   // A camera shroud is sized by the camera inside it. Nothing here.
   fairing: [],
