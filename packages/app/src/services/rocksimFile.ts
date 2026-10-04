@@ -24,7 +24,7 @@ import {
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
-import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
+import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
 import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
@@ -1649,6 +1649,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const ref: OrkMotorRef = {
       designation: code,
       matchContext,
+      rktBurnTimeS: rocksimBurnTime(doc, engineSet),
       manufacturer,
       diameter: 0, // unknown in the file — match by designation alone
       length: 0,

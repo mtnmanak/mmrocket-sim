@@ -8,6 +8,7 @@ import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { bundleHasCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
+import { rocksimCurveNote } from './rocksimCurveNote.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
 
 /**
@@ -272,7 +273,8 @@ export async function matchImportedMotor(
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
       const delayTag = ref.autoDelay ? ' (auto delay)'
         : `-${Number.isFinite(matchedDelay) ? String(matchedDelay) : 'P'}`;
-      const openNote = unconfirmedMatchNote(ref, dbMatch, how);
+      const openNote = [unconfirmedMatchNote(ref, dbMatch, how), await rocksimCurveNote(ref, dbMatch, spec)]
+        .filter(Boolean).join('\n') || undefined;
       return {
         motor: openNote ? { ...motor, openNote } : motor,
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,

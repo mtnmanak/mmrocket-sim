@@ -4,7 +4,7 @@ import { findDbMotor, matchDbMotor, MOTOR_DB } from './motorDb.js';
 import { matchImportedMotor } from './motorMatch.js';
 import { MOTOR_MATCH_POLICY as P, type MotorMatchContext } from './motorMatchPolicy.js';
 import { importRkt, rktEveryDelay } from './rocksimFile.js';
-import { rocksimMotorEvidence } from './rocksimMotorEvidence.js';
+import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { defaultDelay, fetchMotorSpec } from './thrustcurve.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -181,5 +181,45 @@ describe('physical evidence provenance and importer seams', () => {
     const g80 = importCdx1(changed.replace('I170-P  (Kosdon)', 'G80  (unknown)'));
     const equivalent = MOTOR_DB.find(m => m.motorId === P.aeroTechG80)!;
     expect(g80.tree.components[0]?.['overrideMass']).toBeCloseTo(4.2 * 0.45359237 - equivalent.totalWeightG / 1000, 8);
+  });
+});
+
+
+describe('stored RockSim burn duration is diagnostic only', () => {
+  function burn(xml: string): number | undefined {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    return rocksimBurnTime(doc, doc.querySelector('EngineSet')!);
+  }
+  it('reads legacy seconds without promoting legacy masses to matcher evidence', () => {
+    for (const version of [2, 3, 4]) {
+      const xml = rkt('E15', 0.1, 3.7, 24).replace('<FileVersion>4', '<FileVersion>' + version)
+        .replace('<UseKnownMass>1', '<UseKnownMass>0').replace('<IgnitionDelay>0', '<IgnitionDelay>1');
+      expect(burn(xml)).toBeCloseTo(2.7);
+      const imported = importRkt(xml);
+      expect(Object.values(imported.motors)[0]?.rktBurnTimeS).toBeCloseTo(2.7);
+      expect(Object.values(imported.motors)[0]?.matchContext?.physical).toBeUndefined();
+    }
+  });
+  it('refuses multi-stage/cluster/invalid burnout evidence', () => {
+    const invalid = [
+      ['<StageCount>1', '<StageCount>2'], ['<EngineCount>1', '<EngineCount>2'],
+      ['<IgnitionDelay>0', '<IgnitionDelay>-1'], ['<IgnitionDelay>0</IgnitionDelay>', ''],
+      ['<TimeToBurnout>2.38', '<TimeToBurnout>NaN'], ['<TimeToBurnout>2.38', '<TimeToBurnout>0'],
+      ['<IgnitionDelay>0', '<IgnitionDelay>3'],
+      ['</Stage3Engines>', '<EngineSet><EngineCount>1</EngineCount></EngineSet></Stage3Engines>'],
+    ];
+    for (const [a, b] of invalid) expect(burn(rkt().replace(a!, b!)), a).toBeUndefined();
+  });
+  it('surfaces the curve note on open and when switching to its saved configuration', async () => {
+    const imported = importRkt(rkt('E15', 100, 2.7, 24).replace(/Cesaroni/g, 'AeroTech'));
+    const resolved = await resolveImportMotors(imported);
+    const text = { mass: (kg: number) => kg + ' kg', length: (m: number) => m + ' m' };
+    const plan = planImport(imported, resolved, { launch: { ...DEFAULT_CONDITIONS }, text });
+    expect(plan.note.text).toContain('Published alternatives with similar duration');
+    expect(plan.note.severity).toBe('warn');
+    for (const config of plan.snapshot.savedConfigs) {
+      const switched = planConfigSwitch({ ...plan.snapshot, unmatchedRefs: plan.unmatchedRefs }, config, text);
+      expect(switched.note.text).toContain('Published alternatives with similar duration');
+    }
   });
 });
