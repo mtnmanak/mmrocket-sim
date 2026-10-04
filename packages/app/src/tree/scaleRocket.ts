@@ -3,7 +3,8 @@ import {
   classLabel, classesFittingMount, diameterClass, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
-import { kernelDefault, kernelNum } from './kernelDefaults.js';
+import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
+import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
 import { findParent, motorMounts } from './treeModel.js';
 import { axialLength } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
@@ -156,6 +157,7 @@ const MASS_KEYS = ['mass', 'overrideMass'] as const;
  *   - a solid part is a volume: k³
  *   - a canopy or a streamer is a SURFACE density on an area: k²
  *   - a shock cord is a LINE density on a length: k
+ *   - a launch lug keeps its bore and wall; only its length scales: k
  * Getting this wrong is not subtle — a catalogued 85 g chute came out at 680 g
  * instead of 340 g, while the summary printed beside it said recovery gear does
  * not go as the cube.
@@ -164,6 +166,7 @@ const MASS_EXPONENT: Record<string, number> = lookupTable({
   parachute: 2,
   streamer: 2,
   shockcord: 1,
+  launchlug: 1,
 });
 
 export interface ScaleResult {
@@ -545,6 +548,28 @@ const round = (x: number, places = 12): number => {
   return Math.round(x * p) / p;
 };
 
+/** Refuse a scale whose freeform outline would fail or be silently clamped. */
+export function scaledFinProblems(tree: RocketTree, factor: number): string[] {
+  const problems: string[] = [];
+  const visit = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n.type === 'freeformfinset') {
+        const points = scaleNode(n, factor)['points'] as FinOutlinePoint[];
+        let why = finOutlineProblem(points);
+        const [x0, y0] = points[0] ?? [0, 0];
+        const relative = points.map(([x, y]): FinOutlinePoint => [x - x0, y - y0]);
+        if (!why && kernelFinPoints(relative).some(([x, y], i) => x !== relative[i]![0] || y !== relative[i]![1])) {
+          why = 'The simulator would change this outline at its 2.5 m limit.';
+        }
+        if (why) problems.push(`Fin set “${n.name ?? 'Freeform fins'}”: ${why} Choose a smaller factor or edit the outline.`);
+      }
+      visit(n.children ?? []);
+    }
+  };
+  visit(tree.components);
+  return problems;
+}
+
 /** Scales one node's own fields. Children are handled by the caller. */
 function scaleNode(n: ComponentNode, k: number): ComponentNode {
   const type = n.type as string;
@@ -570,8 +595,9 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // A freeform fin's planform lives entirely in `points` — [x along the body,
   // y off the surface], metres. Both coordinates scale. This is the path Eric
   // designs on, so it is the one that must not be missed.
-  if (Array.isArray(n['points'])) {
-    const pts = n['points'] as unknown[];
+  const points = n['points'] ?? (type === 'freeformfinset' ? KERNEL_DEFAULT_FIN_POINTS : undefined);
+  if (Array.isArray(points)) {
+    const pts = points as unknown[];
     // A row it cannot read is passed through as a COPY, never by reference:
     // the result must share nothing with the input (cloneSubtree's rule, and
     // for the same reason).
@@ -825,7 +851,7 @@ export function scaleRocket(
   if (massPinned) {
     notes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled the same way that`
       + ' part’s own material would — the cube of the factor for a solid part, the square for a'
-      + ' canopy, the factor for a cord — and any pinned CG station by the factor, which is what'
+      + ' canopy, the factor for a cord or launch lug — and any pinned CG station by the factor, which is what'
       + ' keeps the balance point at the same percentage of the length. If a pinned mass was a'
       + ' real part you weighed, it is now a guess: re-weigh it.');
   }

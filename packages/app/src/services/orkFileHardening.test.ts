@@ -10,6 +10,15 @@ import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
 import { kernelSimOptions } from './launchConditions.js';
 import { exportOrk, importOrk, type OrkExportConfig, type OrkExportMotor } from './orkFile.js';
 import { MAX_FIN_POINTS, TOO_MANY_FIN_POINTS, unreadableFinPoints } from './xmlUtil.js';
+import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
+import { scaleRocket } from '../tree/scaleRocket.js';
+import { normalizeTree } from '../tree/treeModel.js';
+import { buildPieces } from '../tree/pieces.js';
+import { layoutSchematic, schematicFrame } from '../tree/schematicLayout.js';
+import { solidContextFor } from '../tree/solidContext.js';
+import { componentLoop } from '../tree/solidMesh.js';
+import { printOffer } from './printPack.js';
+import { finTemplateSvg } from './finTemplate.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
 /**
@@ -268,7 +277,7 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
       return i === 100 ? `<point x="abc" y="${y}"/>` : `<point x="${x}" y="${y}"/>`;
     });
     const r = fins(pts.join(''));
-    expect(r.points).toBeUndefined();
+    expect(r.points).toEqual(KERNEL_DEFAULT_FIN_POINTS);
     expect(r.notes).toContain(refusal(TOO_MANY_FIN_POINTS));
   });
 
@@ -299,7 +308,7 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
   it('refuses the outline when what is left cannot be one, with both notes', () => {
     const r = fins('<point x="0.0" y="0.0"/><point x="a" y="0.03"/><point x="0.04" y="b"/>'
       + '<point x="0.06" y="0.0"/>');
-    expect(r.points).toBeUndefined();
+    expect(r.points).toEqual(KERNEL_DEFAULT_FIN_POINTS);
     expect(r.notes).toContain(skipped(2));
     expect(r.notes.some((m) => m.startsWith('Fin set "Fins": its outline was not used'))).toBe(true);
   });
@@ -709,5 +718,79 @@ describe('an imported launch site is held to the panel’s own bounds', () => {
     expect(aim('<windaverage>-4</windaverage><winddirection>1.5707963267948966</winddirection>')).toBe(0);
     // Last in file order wins, whichever element it is.
     expect(aim(`<wind model="average"><direction>${Math.PI}</direction></wind><winddirection>0</winddirection>`)).toBe(90);
+  });
+});
+
+describe('B6 imported geometry matches the implicit kernel dimensions', () => {
+  it.each(['', '<finpoints/>', '<finpoints><point x="0" y="0"/><point x="1" y="0"/></finpoints>',
+    '<finpoints><point x="0" y="0"/><point x="0.05" y="0.05"/><point x="0" y="0.05"/><point x="0.05" y="0"/></finpoints>',
+    '<finpoints><point x="bad" y="bad"/></finpoints>'])('materializes refused or missing fins for drawing, scaling and templates: %s', (outline) => {
+    const { tree } = importOrk(orkXml('<bodytube><length>0.3</length><radius>0.025</radius><subcomponents>'
+      + '<freeformfinset><name>Default fins</name>' + outline + '</freeformfinset></subcomponents></bodytube>'));
+    const fin = flatten(tree.components).find((n) => n.type === 'freeformfinset')!;
+    expect(fin['points']).toEqual(KERNEL_DEFAULT_FIN_POINTS);
+    const layout = layoutSchematic(tree, { scale: 1000, cy: 100, x0: 10, roll: 0, idPrefix: 'test' });
+    expect(layout.shapes.some((s) => s.key === fin.id + ':fin0')).toBe(true);
+    const pieces = buildPieces(tree).pieces;
+    expect(pieces.some((p) => p.key.startsWith('fin'))).toBe(true);
+    pieces.forEach((p) => p.geometry.dispose());
+    expect(finTemplateSvg(fin, 'Rocket')).toContain('<svg');
+    const scaled = flatten(scaleRocket(tree, 2).tree.components).find((n) => n.id === fin.id)!;
+    expect(scaled['points']).toEqual([[0, 0], [0.05, 0.1], [0.15, 0.1], [0.1, 0]]);
+  });
+  it('restores an old points-less session with visible default fins', () => {
+    const original = { name: 'Old', components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', children: [
+      { type: 'freeformfinset', id: 'f' },
+    ] }] }] } as import('@online-openrocket/engine').RocketTree;
+    const restored = normalizeTree(original);
+    expect(flatten(restored.components).find((n) => n.id === 'f')!['points']).toEqual(KERNEL_DEFAULT_FIN_POINTS);
+    expect(flatten(original.components).find((n) => n.id === 'f')!['points']).toBeUndefined();
+    expect(normalizeTree(restored)).toBe(restored);
+  });
+  it('prints and draws a tag-less transition at its neighbour radii', () => {
+    const { tree } = importOrk(orkXml('<bodytube><length>0.2</length><radius>0.05</radius></bodytube>'
+      + '<transition><name>Reducer</name><length>0.1</length></transition>'
+      + '<bodytube><length>0.2</length><radius>0.03</radius></bodytube>'));
+    const tr = flatten(tree.components).find((n) => n.type === 'transition')!;
+    expect(tr['foreRadius']).toBeUndefined();
+    expect(tr['aftRadius']).toBeUndefined();
+    const ctx = solidContextFor(tree, tr);
+    const loop = componentLoop(tr, ctx)!;
+    expect(loop.loop[0]![1]).toBeCloseTo(0.05, 12);
+    expect(Math.max(...loop.loop.filter(([x]) => Math.abs(x - 0.1) < 1e-10).map(([, r]) => r))).toBeCloseTo(0.03, 12);
+    expect(loop.sizeAssumed).toBeUndefined();
+    expect(printOffer(tr, ctx, null).tone).toBe('none');
+    const explicit = { ...tree, components: tree.components.map((stage) => ({ ...stage,
+      children: stage.children!.map((n) => n === tr ? { ...tr, foreRadius: 0.05, aftRadius: 0.03 } : n),
+    })) };
+    const opts = { scale: 1000, cy: 100, x0: 10, roll: 0, idPrefix: 'test' };
+    expect(layoutSchematic(tree, opts)).toEqual(layoutSchematic(explicit, opts));
+    const frame = { cw: 640, chPx: 480, maxHeight: 480, rulers: true, rollW: 26, rollBar: 0, lanes: true, topReserve: 0 };
+    expect(schematicFrame(tree, frame)).toEqual(schematicFrame(explicit, frame));
+    const autoPieces = buildPieces(tree).pieces, explicitPieces = buildPieces(explicit).pieces;
+    expect(autoPieces.map((p) => Array.from(p.geometry.getAttribute('position').array)))
+      .toEqual(explicitPieces.map((p) => Array.from(p.geometry.getAttribute('position').array)));
+    [...autoPieces, ...explicitPieces].forEach((p) => p.geometry.dispose());
+  });
+  it('warns and draws a placeholder for a tag-less transition after a flush inline sleeve', () => {
+    const { tree } = importOrk(orkXml('<bodytube><length>0.2</length><radius>0.02</radius><subcomponents>'
+      + '<podset><radiusoffset method="free">0</radiusoffset><instancecount>1</instancecount>'
+      + '<axialoffset method="bottom">0</axialoffset><subcomponents>'
+      + '<bodytube><length>0.1</length><radius>0.05</radius></bodytube>'
+      + '</subcomponents></podset></subcomponents></bodytube>'
+      + '<transition><name>Reducer</name><length>0.1</length><aftradius>0.03</aftradius></transition>'));
+    const tr = flatten(tree.components).find((n) => n.type === 'transition')!;
+    expect(tr['foreRadius']).toBeUndefined();
+    const ctx = solidContextFor(tree, tr);
+    expect.soft(ctx.foreRadius).toBeUndefined();
+    expect.soft(componentLoop(tr, ctx)!.sizeAssumed).toBe(true);
+    expect.soft(componentLoop(tr, ctx)!.label).toContain('assumed size');
+    expect.soft(printOffer(tr, ctx, null).tone).toBe('warn');
+    const opts = { scale: 1000, cy: 100, x0: 10, roll: 0, idPrefix: 'test' };
+    const path = layoutSchematic(tree, opts).shapes.find((s) => s.key === `${tr.id}:transition`)!;
+    // The unresolved fore end uses the renderer's placeholder, not the tube's 20 mm.
+    const coords = String(path.attrs['d']).match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+    expect(Math.abs(coords[1]! - opts.cy) / opts.scale).not.toBeCloseTo(0.02, 12);
+    expect(Math.abs(coords[1]! - opts.cy) / opts.scale).toBeCloseTo(0.012, 12);
   });
 });

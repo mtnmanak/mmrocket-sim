@@ -1,3 +1,4 @@
+import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, axialStart } from './position.js';
 import { finTabFront } from './finTab.js';
@@ -179,6 +180,7 @@ export interface SchematicFrame {
  * whole drawing rescaling under the pointer.
  */
 export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): SchematicFrame {
+  tree = resolveTransitionRadii(tree);
   // --- measure the axial chain ---
   const chain = axialChain(tree);
   let totalLen = 0;
@@ -430,6 +432,7 @@ const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = loo
 
 /** Every shape of the side view, as data. See the module note. */
 export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): SchematicLayout {
+  tree = resolveTransitionRadii(tree);
   const { scale, roll, motors, vertical } = o;
   const ctx = { scale, cy: o.cy, x0: o.x0 };
   // Three paint layers, concatenated at the end.
@@ -1299,9 +1302,9 @@ const CHAIN = new Set(['nosecone', 'bodytube', 'transition']);
 /**
  * The largest radius the side view draws a chain member at: a nose cone's aft
  * radius and a body tube's outer radius as the kernel flies them (stated, else
- * its default — tree/kernelDefaults.ts), a transition's two ends as stated or,
- * when automatic, the drawing's own placeholders, which no kernel constant
- * replaces. The frame (schematicFrame) is sized from the same number, so a
+ * its default — tree/kernelDefaults.ts), a transition's two ends as stated or
+ * resolved in the drawing snapshot. Unresolved ends keep placeholders.
+ * The frame (schematicFrame) is sized from the same number, so a
  * cleared radius cannot leave it measuring a part it does not draw. The aft
  * view draws its hulls at it too (components/AftView.tsx).
  */

@@ -3,6 +3,7 @@ import { axialLength, positionOf, startFromPosition } from './position.js';
 import { num, numOrNull } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
 import { isTailCone } from './tailCone.js';
+import { kernelNum } from './kernelDefaults.js';
 
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
@@ -22,8 +23,6 @@ import { isTailCone } from './tailCone.js';
 
 /** A new fin tab spans this fraction of the root chord. */
 const NEW_TAB_FRACTION = 0.6;
-/** The tube wall assumed when a fin's tube states none (m). */
-const WALL_FALLBACK = 0.001;
 
 export interface FinTabFit {
   /** Tab depth (m): from the tube's outside to the motor tube, or the wall. */
@@ -67,7 +66,7 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
   // One-shot sizes obey the typed field's limits too (open-items, 22–23
   // September: "Fit shoulder can still write what it repairs").
   const depth = applyFieldLimit(fieldLimit(fin.type, 'tabHeight')!,
-    mountR !== null ? outerR - mountR : num(parent, 'thickness', WALL_FALLBACK));
+    mountR !== null ? outerR - mountR : kernelNum(parent, 'thickness'));
   if (depth <= 0) return null;
   const hasLength = num(fin, 'tabLength', 0) > 0;
   return {
@@ -146,7 +145,7 @@ export interface ShoulderFit {
  * among the nose's SIBLINGS — the enclosing stage's children, or the rocket's
  * top level (`tree.components` holds only stage nodes since v0.009). Never a
  * tube forward of the nose; null when there is none, or it states no radius.
- * A tube with no stated wall is its own outer radius. A TAIL CONE's shoulder
+ * A tube with no stated wall uses the kernel's default. A TAIL CONE's shoulder
  * is at its front (tailCone.ts), so it fits the nearest body tube AHEAD.
  *
  * A SOLID tube (Solid (filled)) has no bore — BodyTube.getInnerRadius is 0
@@ -166,6 +165,6 @@ export function shoulderFit(
   if (tube['filled'] === true) return { innerR: 0, patch: { shoulderRadius: 0 }, solid: true };
   const outerR = numOrNull(tube, 'outerRadius');
   if (outerR === null) return null;
-  const innerR = applyFieldLimit(fieldLimit(nose.type, 'shoulderRadius')!, outerR - num(tube, 'thickness', 0));
+  const innerR = applyFieldLimit(fieldLimit(nose.type, 'shoulderRadius')!, outerR - kernelNum(tube, 'thickness'));
   return { innerR, patch: { shoulderRadius: innerR } };
 }

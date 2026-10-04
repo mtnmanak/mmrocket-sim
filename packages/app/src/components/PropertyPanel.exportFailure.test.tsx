@@ -6,6 +6,9 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { componentSolid } from '../tree/solidMesh.js';
+import { downloadBlob } from '../services/saveFile.js';
+
+vi.mock('../services/saveFile.js', () => ({ downloadBlob: vi.fn() }));
 
 /**
  * THE 🖨 BUTTON WHEN THE EXPORT THROWS (audit 2026-09-22).
@@ -51,9 +54,30 @@ afterEach(() => {
   host.remove();
   process.off('unhandledRejection', onRejection);
   vi.mocked(componentSolid).mockReset();
+  vi.mocked(downloadBlob).mockReset();
 });
 
 describe('PropertyPanel — an export that throws says so', () => {
+  it('reports an unusable fin template and clears the note after a successful retry', () => {
+    const fin: ComponentNode = { type: 'freeformfinset', id: 'f', name: 'Fins', points: [] };
+    const t: RocketTree = { name: 'R', components: [{ type: 'stage', children: [{
+      type: 'bodytube', outerRadius: 0.02, length: 0.2, children: [fin],
+    }] }] };
+    const render = () => act(() => root.render(
+      <PrefsProvider><PropertyPanel tree={t} node={fin} onPatch={() => {}} /></PrefsProvider>,
+    ));
+    render();
+    const button = [...host.querySelectorAll('button')].find((b) => b.textContent!.includes('Fin template'))!;
+    act(() => button.click());
+    expect(host.querySelector('.print-note-warn[role="alert"]')?.textContent)
+      .toBe('Could not export this fin template. Check the outline in the fin editor before exporting.');
+    expect(downloadBlob).not.toHaveBeenCalled();
+    fin['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
+    render();
+    act(() => button.click());
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(host.querySelector('.print-note-warn[role="alert"]')).toBeNull();
+  });
   it('the 🖨 STL button reports the failure in its note instead of rejecting', async () => {
     vi.mocked(componentSolid).mockRejectedValue(new Error('mesher gave up'));
     act(() => root.render(

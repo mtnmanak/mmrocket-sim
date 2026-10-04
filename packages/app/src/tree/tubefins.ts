@@ -1,5 +1,13 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finCountOf } from './counts.js';
+import { kernelDefault } from './kernelDefaults.js';
+import { num } from './nodeNum.js';
+
+/** TubeFinSet inherits its body's wall; a wall reaching the axis is solid. */
+export function tubeFinWall(node: ComponentNode, radius: number, bodyThickness?: number): number {
+  return Math.min(radius, Math.max(0,
+    num(node, 'thickness', bodyThickness ?? kernelDefault('bodytube', 'thickness')!)));
+}
 
 /**
  * Tube-fin tube radius (m). When the set carries no explicit outerRadius the

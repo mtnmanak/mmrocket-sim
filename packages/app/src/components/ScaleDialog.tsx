@@ -7,7 +7,7 @@ import { fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
-  maxBodyDiameter, previewMounts, rocketLength, scaleRocket,
+  maxBodyDiameter, previewMounts, rocketLength, scaleRocket, scaledFinProblems,
   type MountChoice, type MountPreview, type ScaleResult,
 } from '../tree/scaleRocket.js';
 import { numOpt } from '../tree/nodeNum.js';
@@ -222,7 +222,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   const fmt = (si: number, places = 1, sig = 3) => fmtSig(siToUi('length', lenSym, si), sig, places);
 
   const apply = () => {
-    if (busy) return;
+    if (busy || !usable) return;
     setBusy(true);
     onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters, mountChoices: choices }));
     onClose();
@@ -234,7 +234,8 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
    * catalogue could set any factor at all, and Apply took it.
    */
   const factorInRange = Number.isFinite(factor) && factor >= FACTOR_MIN && factor <= FACTOR_MAX;
-  const usable = factorInRange && factor !== 1 && baseD > 0 && !mounts.some(overflows);
+  const finProblems = useMemo(() => factorInRange ? scaledFinProblems(tree, factor) : [], [tree, factor, factorInRange]);
+  const usable = factorInRange && factor !== 1 && baseD > 0 && !mounts.some(overflows) && finProblems.length === 0;
 
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
@@ -555,6 +556,12 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                 A loaded motor will not fit the scaled mount. The design still scales; pick a new
                 motor on Motors &amp; Launch afterwards.
               </p>
+            )}
+
+            {finProblems.length > 0 && (
+              <div className="file-note file-note-warn" role="alert">
+                {finProblems.map((problem, i) => <p key={i}>{problem}</p>)}
+              </div>
             )}
 
             <div className="modal-actions">

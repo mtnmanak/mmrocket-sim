@@ -539,7 +539,9 @@ There are two ways to set the factor, and they are linked — change either and 
 **What is scaled, and what is not.** Angles, fin and instance counts, material densities, drag
 coefficients, surface finish, cluster spacing (already a ratio of tube diameters), motor selection,
 deployment and separation settings, and the launch conditions are all left alone. Masses you pinned
-by hand — mass overrides and mass components — go as the **cube** of the factor, and a pinned CG
+by hand — mass overrides and mass components — follow the part's geometry: the **cube** of the
+factor for solid parts, the **square** for canopies and streamers, and the factor for shock cords
+and launch lugs. A pinned CG
 station goes as the factor, because that is what holds the balance point at the same percentage of
 the length. If a pinned mass was a part you actually weighed, it is a guess afterwards: re-weigh it.
 The **Measured mass & CG** box is cleared, and so is every **weighed pad mass** on Motors & Launch,
@@ -550,6 +552,10 @@ them down first if you want them.
 camera inside it is the same camera), a **rail button** (they come in fixed sizes — micro, mini,
 1010, 1515, unistrut), and a **launch lug's bore** (that is the launch rod's diameter). The spacing
 between a pair of rail buttons does scale, and a lug's length does.
+
+If scaling a freeform fin would make its outline invalid or push it past the simulator's 2.5 m
+coordinate limit, the dialog names the fin and disables the **Scale to …** button. Choose a smaller factor or edit
+the outline before scaling; the simulator would otherwise refuse or change the fin.
 
 **The motor mount is the interesting one.** It scales geometrically, and the dialog then tells you
 what that means. An 18 mm mount scaled by 2.27

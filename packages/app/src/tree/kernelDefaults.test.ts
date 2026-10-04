@@ -229,3 +229,11 @@ describe('every printed, cut and drawn part with no dimension keys is the part t
     expect(Number(lug.attrs['height']) / g.scale).toBeCloseTo(2 * k('launchlug', 'outerRadius'), 9);
   });
 });
+
+it('B6 an omitted transition shape prints a conical profile', () => {
+  const part = componentLoop({ type: 'transition', length: 0.1, foreRadius: 0.02, aftRadius: 0.01 } as ComponentNode, {}, [0.025, 0.05, 0.075])!;
+  for (const x of [0.025, 0.05, 0.075]) {
+    const outer = Math.max(...part.loop.filter(([px]) => Math.abs(px - x) < 1e-10).map(([, r]) => r));
+    expect(outer).toBeCloseTo(0.02 - x * 0.1, 10);
+  }
+});

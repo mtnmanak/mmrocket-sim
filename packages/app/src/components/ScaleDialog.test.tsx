@@ -609,3 +609,23 @@ describe('ScaleDialog', () => {
       .toBe(false);
   });
 });
+
+describe('B6 scaled freeform outlines are checked before Apply', () => {
+  it.each([
+    [[0, 0], [0.026, 0.01], [0.027, 0.02], [0.03, 0]],
+    [[0, 0], [0.03, 0.01], [0.04, 0]],
+  ])('blocks rejected or silently clamped fins and recovers at a smaller factor', async (...points) => {
+    const design = tree();
+    design.components[0]!.children![1]!.children = [{ type: 'freeformfinset', name: 'Oversize fins', points } as ComponentNode];
+    await render({}, design);
+    type(numberInputs()[0]!, '100');
+    expect(applyButton().disabled).toBe(true);
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('Oversize fins');
+    act(() => applyButton().click());
+    expect(applied).toBeNull();
+    type(numberInputs()[0]!, '2');
+    expect(applyButton().disabled).toBe(false);
+    act(() => applyButton().click());
+    expect(applied).not.toBeNull();
+  });
+});

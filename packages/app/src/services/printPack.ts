@@ -212,6 +212,10 @@ export function printOffer(
   if (!base) return single(null, 'none');
   const od = 2 * Math.max(0, ...base.loop.map(([, r]) => r));
   if (base.sizeAssumed) {
+    if (node.type === 'transition') {
+      return single('Transition diameter assumed: the app could not resolve an automatic end radius. '
+        + 'Measure both end diameters before you print it.', 'warn');
+    }
     return single(
       `Diameter assumed: ${mm1(od)} mm is a placeholder — the app could not find the tube `
         + 'this part sits in. Measure the bore before you print or cut it.'

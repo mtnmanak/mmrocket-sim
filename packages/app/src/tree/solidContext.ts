@@ -5,6 +5,8 @@ import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
 import { noseEnds } from './tailCone.js';
+import { kernelDefault } from './kernelDefaults.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -31,8 +33,7 @@ import { noseEnds } from './tailCone.js';
  *    imported part), else — automatic — the bore of ITS parent at the
  *    coupler's station; less its wall either way;
  *  - nose cone / transition: the profile's radius at the part's station,
- *    less the wall — except a transition radius left automatic, which the
- *    kernel takes from the neighbouring part and this does not resolve.
+ *    less the wall, with automatic transition ends resolved from neighbours.
  *
  * Anything else leaves the bore unset, and the exporters then label the part
  * "(assumed size)" and say so under the 🖨 button rather than printing a
@@ -40,9 +41,30 @@ import { noseEnds } from './tailCone.js';
  */
 export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidContext {
   const ctx: SolidContext = {};
+  tree = resolveTransitionRadii(tree);
+  if (node.type === 'transition' && node.id) {
+    const find = (nodes: ComponentNode[]): ComponentNode | undefined => {
+      for (const n of nodes) {
+        if (n.id === node.id) return n;
+        const hit = find(n.children ?? []);
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+    const resolved = find(tree.components);
+    if (resolved) {
+      ctx.foreRadius = numOpt(resolved, 'foreRadius');
+      ctx.aftRadius = numOpt(resolved, 'aftRadius');
+    }
+  }
   const chain = node.id ? ancestry(tree, node.id) : null;
   const parent = chain?.[0];
   if (!parent) return ctx;
+  if (parent.type === 'bodytube') {
+    ctx.bodyThickness = parent['filled'] === true
+      ? num(parent, 'outerRadius', kernelDefault('bodytube', 'outerRadius')!)
+      : num(parent, 'thickness', kernelDefault('bodytube', 'thickness')!);
+  }
   const bore = boreAt(chain, 0, node);
   if (bore !== undefined) ctx.parentInnerRadius = bore;
   const pOuter = numOpt(parent, 'outerRadius');
@@ -118,7 +140,7 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       // transition radius it omits is AUTOMATIC there — taken from the
       // neighbouring part — and is not read as 0 here: that came out 17.2 mm
       // where the kernel flies 18.0, unflagged. Unresolved, the part is
-      // labelled "(assumed size)" instead.
+      // labelled "(assumed size)" instead. The snapshot above resolves neighbours.
       const len = axialLength(child);
       const pos = positionOf(child);
       const start = startFromPosition(pos, len, axialLength(host));
@@ -143,7 +165,7 @@ function boreAt(chain: ComponentNode[], i: number, child: ComponentNode): number
       if (host.type === 'bodytube' && host['filled'] === true) return undefined;
       const outer = numOpt(host, 'outerRadius');
       if (outer === undefined) return undefined;
-      return Math.max(0.0005, outer - num(host, 'thickness', 0.001));
+      return Math.max(0.0005, outer - num(host, 'thickness', kernelDefault(host.type, 'thickness') ?? 0.001));
     }
   }
 }

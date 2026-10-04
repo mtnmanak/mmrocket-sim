@@ -1,3 +1,4 @@
+import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG, baseDragImportNotes } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
@@ -877,8 +878,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           : finOutlineProblem(pts);
         if (!outlineProblem) {
           n['points'] = pts;
-        } else if (ptEls.length > 0) {
-          notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
+        } else {
+          n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
+          if (ptEls.length > 0) notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }
         return n;

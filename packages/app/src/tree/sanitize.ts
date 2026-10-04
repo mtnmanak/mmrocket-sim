@@ -1,3 +1,4 @@
+import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
 import {
@@ -174,6 +175,10 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
   let out: ComponentNode[] | null = null;
   nodes.forEach((n, i) => {
     let fixed = sanitizeOwn(n, found);
+    // Restored sessions can predate the importers writing the default outline.
+    if (n.type === 'freeformfinset' && n['points'] === undefined) {
+      fixed = { ...fixed, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
+    }
     const kids = n.children ? walk(n.children, found) : null;
     if (kids) fixed = { ...fixed, children: kids };
     if (fixed !== n) (out ??= nodes.slice())[i] = fixed;

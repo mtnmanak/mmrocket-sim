@@ -1,3 +1,5 @@
+import { componentLoop } from './solidMesh.js';
+import { solidContextFor } from './solidContext.js';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -579,5 +581,36 @@ describe('an elliptical fin set draws a TRUE half ellipse', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(8);
+  });
+});
+
+describe('B6 tube fin walls in both drawn and printable geometry', () => {
+  it.each([0.005, 0.01, undefined])('uses the full stated or inherited wall %s', (thickness) => {
+    const fin = { type: 'tubefinset', id: 'tf', outerRadius: 0.01, length: 0.1, finCount: 3,
+      ...(thickness === undefined ? {} : { thickness }) } as ComponentNode;
+    const t = withChildren([fin]);
+    t.components[0]!.children![1]!['thickness'] = 0.002;
+    const wall = thickness ?? 0.002;
+    const loop = componentLoop(fin, solidContextFor(t, fin))!;
+    expect(loop.wall).toBeCloseTo(wall, 12);
+    expect(Math.min(...loop.loop.map(([, r]) => r))).toBeCloseTo(0.01 - wall, 12);
+    const pieces = buildPieces(t).pieces;
+    const geo = pieces.find((p) => p.key.startsWith('tubefin'))!.geometry;
+    const pos = geo.getAttribute('position');
+    // At the first fin's centreline (+Y), the inner ring is the nearest vertex.
+    let nearest = Infinity;
+    for (let i = 0; i < pos.count; i++) nearest = Math.min(nearest, Math.hypot(pos.getY(i) - BODY_R - 0.01, pos.getZ(i)));
+    if (wall < 0.01) expect(nearest).toBeCloseTo(0.01 - wall, 7);
+    // End-cap triangle area distinguishes a solid disc from an annulus even
+    // when triangulation has no centre vertex.
+    let area = 0;
+    for (let i = 0; i < pos.count; i += 3) {
+      if ([0, 1, 2].some((j) => Math.abs(pos.getX(i + j) - pos.getX(i)) > 1e-6)) continue;
+      const ay = pos.getY(i), az = pos.getZ(i);
+      area += Math.abs((pos.getY(i + 1) - ay) * (pos.getZ(i + 2) - az)
+        - (pos.getZ(i + 1) - az) * (pos.getY(i + 2) - ay)) / 2;
+    }
+    expect(area / (2 * Math.PI * (0.01 ** 2 - (0.01 - wall) ** 2))).toBeCloseTo(1, 2);
+    pieces.forEach((p) => p.geometry.dispose());
   });
 });
