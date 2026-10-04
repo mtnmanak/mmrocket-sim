@@ -34,4 +34,4 @@
  * rule the same release had deleted from the code.
  */
 
-export const APP_VERSION = '0.158';
+export const APP_VERSION = '0.159';

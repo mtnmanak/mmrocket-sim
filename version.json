@@ -1,5 +1,5 @@
 {
-  "version": "0.158",
+  "version": "0.159",
   "released": "2026-10-04",
-  "note": "RASAero configurations keep their own weight; the base-drag note covers designs built in the app."
+  "note": ".ork files carry imported motors; big Batch sweeps can run; motor figures and import notes corrected."
 }
