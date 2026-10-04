@@ -199,10 +199,12 @@ describe('Fit tab to motor tube', () => {
     expect(got!.patch!['tabHeight']).toBe(0.0015);
   });
 
-  it('with no motor tube and no wall stated, takes 1 mm', () => {
+  it('with no motor tube and no wall stated, takes the kernel wall of 0.3 mm', () => {
     const tree = tube([FIN]);
     delete (tree.components[0]!.children![0]! as Record<string, unknown>)['thickness'];
-    expect(fit(tree)!.patch!['tabHeight']).toBe(0.001);
+    const got = fit(tree)!;
+    expect(got.patch!['tabHeight']).toBeCloseTo(0.0003, 12);
+    expect(got.title).toBe('No motor tube found — set tab depth to the tube wall (0.3 mm)');
   });
 
   it('keeps a tab offset method already chosen, and a tab length already set', () => {
@@ -291,9 +293,10 @@ describe('Fit shoulder to tube ⌀', () => {
     expect(got!.patch).toEqual({ shoulderRadius: 0.03 - 0.0015 });
   });
 
-  it('a tube with no wall stated is its own outer radius', () => {
+  it('a tube with no wall stated uses the kernel wall of 0.3 mm', () => {
     const got = fit(stageOf([NOSE, { id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.027 }]));
-    expect(got!.patch).toEqual({ shoulderRadius: 0.027 });
+    expect(got!.patch!['shoulderRadius']).toBeCloseTo(0.0267, 12);
+    expect(got!.title).toBe('Set the shoulder to the adjacent tube\'s inner diameter (53.4 mm)');
   });
 
   it('reads as a radius where the preference is radii', () => {

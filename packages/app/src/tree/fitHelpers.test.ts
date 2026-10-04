@@ -28,9 +28,9 @@ describe('finTabFit', () => {
     expect(finTabFit(ff, tube([MMT, ff]))!.patch['tabLength']).toBeCloseTo(0.36 * 0.6, 15);
   });
 
-  it('goes to the wall with no motor tube, and to 1 mm with no wall stated', () => {
+  it('B6 fits tabs to the kernel wall when no motor tube or wall is stated', () => {
     expect(finTabFit(FIN, tube([FIN]))).toMatchObject({ toMount: false, depth: 0.0015 });
-    expect(finTabFit(FIN, tube([FIN], { thickness: undefined }))!.depth).toBe(0.001);
+    expect(finTabFit(FIN, tube([FIN], { thickness: undefined }))!.depth).toBeCloseTo(0.0003, 12);
   });
 
   it('keeps a tab already sized and a tab offset method already chosen', () => {
@@ -161,13 +161,13 @@ describe('shoulderFit', () => {
     ])!.innerR).toBe(0.03 - 0.0015);
   });
 
-  it('a tube with no wall stated is its own outer radius', () => {
-    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: 0.027 })])!.innerR).toBe(0.027);
+  it('B6 fits shoulders to the kernel bore when no wall is stated', () => {
+    expect(fit([NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: 0.027 })])!.innerR).toBeCloseTo(0.027 - 0.0003, 12);
   });
 
   it('reads the rocket top level when the nose has no parent node', () => {
     const t = { name: 'R', components: [NOSE, node({ id: 'b1', type: 'bodytube', outerRadius: 0.02 })] } as RocketTree;
-    expect(shoulderFit(t, NOSE, 'stage')!.innerR).toBe(0.02);
+    expect(shoulderFit(t, NOSE, 'stage')!.innerR).toBeCloseTo(0.02 - 0.0003, 12);
   });
 
   it('offers nothing with no tube behind, or one without a usable radius', () => {

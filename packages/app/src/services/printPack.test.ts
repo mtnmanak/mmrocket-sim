@@ -20,6 +20,12 @@ const node = (type: string, params: Record<string, unknown>): ComponentNode =>
   ({ type, ...params } as unknown as ComponentNode);
 
 const H2D = toPrinterVolume(printerFromPreset('bambu-h2d')!)!;
+
+it('B6 unresolved transition ends have a measurement warning before printing', () => {
+  const offer = printOffer(node('transition', { foreRadius: 0.03 }), {}, null);
+  expect(offer.tone).toBe('warn');
+  expect(offer.note).toContain('Measure both end diameters');
+});
 const MK4S = toPrinterVolume(printerFromPreset('prusa-mk4s')!)!;
 
 /**

@@ -189,3 +189,29 @@ describe('the pan follows only the press that started it', () => {
     expect(view()).toBe(panned);
   });
 });
+
+describe('B6 letterboxed pointer coordinates', () => {
+  beforeEach(() => { rectSpy.mockReturnValue({ left: 10, top: 20, width: 800, height: 360 } as DOMRect); });
+  const state = () => [...view().matchAll(/-?[0-9]+(?:\.[0-9]+)?(?:e[-+]?\d+)?/g)].map((m) => Number(m[0]));
+  const extent = () => Number(svgEl().getAttribute('viewBox')!.split(' ')[2]) / 2;
+  it('anchors wheel zoom at the cursor inside the centred square', () => {
+    const event = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    // happy-dom's WheelEvent does not initialise MouseEvent coordinates.
+    Object.defineProperties(event, { clientX: { value: 500 }, clientY: { value: 200 } });
+    act(() => { svgEl().dispatchEvent(event); });
+    const [x, y, k] = state();
+    expect(k).toBeCloseTo(1.15, 12);
+    expect(x).toBeCloseTo((500 - 410) * 2 * extent() / 360 * (1 - 1.15), 12);
+    expect(y).toBeCloseTo(0, 12);
+  });
+  it('pans 100 client pixels by 100 displayed pixels', () => {
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')!.click());
+    const ptr = (type: string, x: number) => act(() => { svgEl().dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: 1, isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: 200,
+    })); });
+    ptr('pointerdown', 410);
+    ptr('pointermove', 510);
+    expect(state()[0]).toBeCloseTo(100 * 2 * extent() / 360, 12);
+    expect(state()[1]).toBeCloseTo(0, 12);
+  });
+});

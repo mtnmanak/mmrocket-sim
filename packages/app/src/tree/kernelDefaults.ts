@@ -2,6 +2,11 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { num } from './nodeNum.js';
 
+/** FreeformFinSet's constructor outline, metres (FreeformFinSet.java:30-34). */
+export const KERNEL_DEFAULT_FIN_POINTS: readonly (readonly [number, number])[] = [
+  [0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0],
+];
+
 /**
  * WHAT AN ABSENT DIMENSION FLIES — the kernel bridge's own default for a node
  * that carries no `length`, `outerRadius`, `thickness`, `rootChord`, … : the

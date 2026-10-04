@@ -15,7 +15,7 @@ import { num, numOpt } from './nodeNum.js';
 import { axialLength } from './position.js';
 import { signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
-import { tubeFinRadius } from './tubefins.js';
+import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
 import { isTailCone, noseEnds } from './tailCone.js';
 
@@ -42,6 +42,11 @@ export interface SolidContext {
   mountOuterRadius?: number;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
+  /** parent body's resolved wall (m), inherited by tube fins */
+  bodyThickness?: number;
+  /** automatic transition ends resolved from its axial neighbours (m) */
+  foreRadius?: number;
+  aftRadius?: number;
   /**
    * a fin set's deepest through-the-wall tab (m): the parent body's radius at
    * the tab, the smaller of its two ends (FinSet.getMaxTabHeight), resolved by
@@ -395,7 +400,7 @@ function ringLoop(outerR: number, innerR: number, length: number): Array<[number
 
 function shapeOf(node: ComponentNode): { shape: string; param: number | undefined } {
   return {
-    shape: typeof node['shape'] === 'string' ? (node['shape'] as string) : 'ogive',
+    shape: typeof node['shape'] === 'string' ? (node['shape'] as string) : node.type === 'transition' ? 'conical' : 'ogive',
     param: numOpt(node, 'shapeParameter'),
   };
 }
@@ -611,8 +616,8 @@ export function componentLoop(
   // defaults (tree/kernelDefaults.ts). Each case kept its own until then — an
   // engine block printed 50 mm long where 5 mm flies, a body tube 100 mm with a
   // 1 mm wall where 300 mm with 0.3 mm flies — with nothing to say so. Only an
-  // AUTOMATIC radius keeps a placeholder: a transition's ends (FALLBACK_RADIUS)
-  // and a ring part's outer radius (ringOuterRadius, which says when).
+  // AUTOMATIC radius uses context; an unresolved end or ring radius keeps a
+  // placeholder and says when its size is assumed.
   switch (node.type) {
     case 'nosecone': {
       const L = axialLength(node);
@@ -634,8 +639,11 @@ export function componentLoop(
     }
     case 'transition': {
       const L = axialLength(node);
-      const Rf = num(node, 'foreRadius', FALLBACK_RADIUS);
-      const Ra = num(node, 'aftRadius', FALLBACK_RADIUS);
+      const fore = numOpt(node, 'foreRadius') ?? ctx.foreRadius;
+      const aft = numOpt(node, 'aftRadius') ?? ctx.aftRadius;
+      const assumed = fore === undefined || aft === undefined;
+      const Rf = fore ?? FALLBACK_RADIUS;
+      const Ra = aft ?? FALLBACK_RADIUS;
       const wall = kernelNum(node, 'thickness');
       const { shape, param } = shapeOf(node);
       // node['clipped'] (.ork <shapeclipped>) MUST ride along, exactly as
@@ -655,7 +663,10 @@ export function componentLoop(
         outer, wall, node['filled'] === true,
         shoulderOf(node, 'fore', wall), shoulderOf(node, 'aft', wall),
       );
-      return { loop, label: 'Transition', bodySpan: [0, L], wall };
+      return {
+        loop, label: assumed ? 'Transition (assumed size)' : 'Transition', bodySpan: [0, L], wall,
+        ...(assumed ? { sizeAssumed: true } : {}),
+      };
     }
     case 'bodytube':
     case 'innertube':
@@ -709,7 +720,7 @@ export function componentLoop(
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);
       // No kernel constant: an absent wall inherits the parent tube's.
-      const wall = Math.min(num(node, 'thickness', 0.0005), r * 0.45);
+      const wall = tubeFinWall(node, r, ctx.bodyThickness);
       const L = axialLength(node);
       return { loop: ringLoop(r, r - wall, L), label: 'Tube fin', bodySpan: [0, L], wall };
     }

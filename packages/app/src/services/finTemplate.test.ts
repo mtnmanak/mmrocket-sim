@@ -276,3 +276,10 @@ describe('S7b-2 attached tab cut contour', () => {
       }
     });
 });
+
+it.each([undefined, null])('B6 exports the implicit freeform fin with its real root and tab: %s', (points) => {
+  const fin = { type: 'freeformfinset', name: 'Fins', points, tabLength: 0.03, tabHeight: 0.005 } as ComponentNode;
+  const explicit = { ...fin, points: [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]] } as ComponentNode;
+  expect(finTemplateSvg(fin, 'Rocket')).toBe(finTemplateSvg(explicit, 'Rocket'));
+  expect(fin['points']).toBe(points);
+});

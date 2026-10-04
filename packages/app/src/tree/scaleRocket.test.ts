@@ -1419,3 +1419,29 @@ describe('scaleRocket — a dimension the design leaves to the kernel', () => {
     }
   });
 });
+
+it('B6 a pinned lug mass follows its computed mass ratio', () => {
+  const t = kitchenSink();
+  const lug = findNode(t, 'll')!;
+  lug['overrideMass'] = 0.0067;
+  const scaled = scaleRocket(t, 2);
+  const out = findNode(scaled.tree, 'll')!;
+  const volume = (n: ComponentNode) => {
+    const r = n['outerRadius'] as number, wall = n['thickness'] as number;
+    return Math.PI * (r ** 2 - (r - wall) ** 2) * (n['length'] as number);
+  };
+  expect((out['overrideMass'] as number) / 0.0067).toBeCloseTo(volume(out) / volume(lug), 12);
+  expect(out['overrideMass']).toBeCloseTo(0.0134, 12);
+  const computed = structuredClone(t);
+  delete findNode(computed, 'll')!['overrideMass'];
+  const mass = (tree: RocketTree) => OrkRocket.buildTree(engineTree(tree)).componentInfo('ll').mass;
+  expect((out['overrideMass'] as number) / 0.0067).toBeCloseTo(mass(scaleRocket(computed, 2).tree) / mass(computed), 9);
+  expect(scaled.notes.join(' ')).toContain('cord or launch lug');
+});
+it('B6 scales the implicit freeform outline as well as its thickness', () => {
+  const t = kitchenSink();
+  delete findNode(t, 'ff')!['points'];
+  const scaled = findNode(scaleRocket(t, 2).tree, 'ff')!;
+  expect(scaled['points']).toEqual([[0, 0], [0.05, 0.1], [0.15, 0.1], [0.1, 0]]);
+  expect(findNode(t, 'ff')!['points']).toBeUndefined();
+});

@@ -1,6 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
-import { kernelNum } from '../tree/kernelDefaults.js';
+import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { num, numOpt } from '../tree/nodeNum.js';
 import { finCutOutline, type SolidContext } from '../tree/solidMesh.js';
 import { escapeXml as esc } from './xmlUtil.js';
@@ -54,7 +54,7 @@ export function finOutline(node: ComponentNode): Pt[] {
       return pts;
     }
     case 'freeformfinset': {
-      const raw = (node['points'] as [number, number][] | undefined) ?? [];
+      const raw = (node['points'] as [number, number][] | undefined) ?? KERNEL_DEFAULT_FIN_POINTS;
       return raw.map(([x, y]) => ({ x, y }));
     }
     default:
@@ -78,6 +78,9 @@ export function tabOutline(
  * reads its `tabMaxDepth`, so the paper tab is no deeper than the cut ones.
  */
 export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: SolidContext = {}): string {
+  if (node.type === 'freeformfinset' && (node['points'] === undefined || node['points'] === null)) {
+    node = { ...node, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
+  }
   const outline = finOutline(node);
   if (outline.length < 3) throw new Error('This fin set has no usable outline.');
   const mm = (m: number) => m * 1000;

@@ -252,7 +252,7 @@ describe('the camera shroud sits ON the tube, not in it', () => {
     expect(d.includes('NaN')).toBe(false);
   });
 
-  it('clamps the width as the 3D mesh does: conformal inside 0.98 R, flat at 2 R', () => {
+  it('B6 fits the clamped shroud width inside the viewBox', () => {
     // The same numbers shroudMesh.test.ts pins for the mesh, so the end-on
     // drawing and the 3D shell (and the STL) cannot part (audit 2026-09-22,
     // Dead code row 576).
@@ -266,6 +266,14 @@ describe('the camera shroud sits ON the tube, not in it', () => {
       .find((q) => q.startsWith('M ') && !q.includes('A '))!;
     const f = xs(flat);
     expect(Math.max(...f) - Math.min(...f)).toBeCloseTo(2 * 2 * BODY_R, 6);
+    const [left, top, width, height] = host.querySelector('svg')!.getAttribute('viewBox')!.split(' ').map(Number);
+    for (const pair of flat.match(/-?[\d.e-]+,-?[\d.e-]+/g) ?? []) {
+      const [x, y] = pair.split(',').map(Number);
+      expect(x).toBeGreaterThanOrEqual(left!);
+      expect(x).toBeLessThanOrEqual(left! + width!);
+      expect(y).toBeGreaterThanOrEqual(top!);
+      expect(y).toBeLessThanOrEqual(top! + height!);
+    }
   });
 });
 
@@ -563,4 +571,13 @@ describe('a fin is drawn end-on where it is mounted', () => {
       expect(finsOf(boatTail({ type: 'freeformfinset', points })), JSON.stringify(points)).toHaveLength(0);
     }
   });
+});
+
+it.each(['fairing', 'protuberance', 'railbutton'])('B6 fits the outer corners of a wide %s at any roll', (type) => {
+  const tree = { name: 'Wide', components: [{ type: 'stage', children: [{ type: 'bodytube', outerRadius: 0.027,
+    children: [{ type, width: 0.2, height: 0.01, outerDiameter: 0.2, totalHeight: 0.01, conformal: false }],
+  }] }] } as unknown as RocketTree;
+  for (const roll of [0, Math.PI / 4, Math.PI / 2]) {
+    expect(aftLayout(tree, roll).extent).toBeCloseTo(Math.hypot(0.027 + 0.01, 0.054), 12);
+  }
 });

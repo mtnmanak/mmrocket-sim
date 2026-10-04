@@ -11,12 +11,13 @@ import { kernelNum } from './kernelDefaults.js';
 import { num, numOpt } from './nodeNum.js';
 import { enclosesArea } from './polygon.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
-import { tubeFinRadius } from './tubefins.js';
+import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { outerProfile } from './shapeProfile.js';
 import { isConformal, shroudEnds } from './shroud.js';
 import { shroudGeometry } from './shroudMesh.js';
 import { noseEnds } from './tailCone.js';
 import { axialLength, axialStart } from './position.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -94,6 +95,7 @@ export type MotorDims = Record<string, { length: number; diameter: number; label
 
 /** Shared with the OBJ exporter — this IS the app's 3D geometry. */
 export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Piece[]; totalLen: number; maxR: number } {
+  tree = resolveTransitionRadii(tree);
   const pieces: Piece[] = [];
   let maxR = 0.005;
   let k = 0;
@@ -305,7 +307,8 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
         const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
         // No kernel constant for the wall: an absent one inherits the tube's.
-        const wall = Math.min(num(child, 'thickness', 0.0005), rt * 0.45);
+        const wall = tubeFinWall(child, rt,
+          parent['filled'] === true ? pRadius : kernelNum(parent, 'thickness'));
         const start = axialStart(child, len, pStart, pLen);
         reach(pRadius + 2 * rt);
         for (let i = 0; i < count; i++) {
@@ -313,9 +316,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
           // Open tube: an annulus extruded along the body axis.
           const ring = new THREE.Shape();
           ring.absarc(0, 0, rt, 0, 2 * Math.PI, false);
-          const bore = new THREE.Path();
-          bore.absarc(0, 0, Math.max(rt - wall, rt * 0.55), 0, 2 * Math.PI, true);
-          ring.holes.push(bore);
+          if (wall < rt) {
+            const bore = new THREE.Path();
+            bore.absarc(0, 0, rt - wall, 0, 2 * Math.PI, true);
+            ring.holes.push(bore);
+          }
           const geo = new THREE.ExtrudeGeometry(ring, { depth: len, bevelEnabled: false, curveSegments: 24 });
           // Extrude runs along +Z; rotate so the tube runs along +X (body axis),
           // then lift to the surface (+Y) and spin about X for the ring position.

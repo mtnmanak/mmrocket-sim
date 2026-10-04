@@ -1,3 +1,4 @@
+import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { baseDragImportNotes } from './baseDragImportNotes.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
@@ -84,16 +85,6 @@ const PENDING_BASE_EXT = '__rktBaseExt';
  * field the unreadable-number note has to be able to name.
  */
 type NumReader = (el: XmlElement, tag: string, fb: number) => number;
-
-/**
- * The outline a FreeformFinSet is born with in the kernel (carved
- * FreeformFinSet.java:30-34: (0,0) (0.025,0.05) (0.075,0.05) (0.05,0), metres)
- * — what a freeform set with no `points` flies. Given explicitly to a set whose
- * file outline is refused, so the fin that flies is the fin on screen.
- */
-const KERNEL_DEFAULT_FIN_POINTS: readonly (readonly [number, number])[] = [
-  [0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0],
-];
 
 const NOSE_SHAPES: Record<string, string> = lookupTable({
   '0': 'conical', '1': 'ogive', '2': 'ellipsoid', '3': 'ellipsoid',

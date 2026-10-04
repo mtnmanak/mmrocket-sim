@@ -1,3 +1,4 @@
+import { resolveTransitionRadii } from '../tree/transitionRadii.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from '../tree/cluster.js';
@@ -78,6 +79,7 @@ export interface AftLayout {
 export function aftLayout(
   tree: RocketTree, roll: number, motors?: Record<string, MotorDims>,
 ): AftLayout {
+  tree = resolveTransitionRadii(tree);
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.
   const hulls: Shape[] = [];
   const inner: Shape[] = [];
@@ -187,7 +189,7 @@ export function aftLayout(
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
         });
-        reach(cy, cz, pRadius + hgt);
+        reach(cy, cz, Math.hypot(pRadius + hgt, shroudHalfWidth(pRadius, wid, isConformal(child))));
       } else if ((t as string) === 'protuberance') {
         // A drag bump, end-on: the frontal box it IS aerodynamically, `width`
         // across and `height` off the surface — the same box the 3D view
@@ -207,7 +209,7 @@ export function aftLayout(
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: `${child.name ?? 'Protuberance'}${count > 1 ? ` ×${count}` : ''}`,
         });
-        reach(cy, cz, pRadius + hgt);
+        reach(cy, cz, Math.hypot(pRadius + hgt, shroudHalfWidth(pRadius, wid, false)));
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Angle 0 is the top of the side view, and the aft frame's +y is up,
         // so a lug at 0 draws at 12 o'clock here too — the two views agree.
@@ -234,7 +236,8 @@ export function aftLayout(
             conformal: false,
             fill: colorOf(child, '#c8c5be'), stroke: '#7a786f', title: stackTitle,
           });
-          reach(cy, cz, pRadius + num(child, 'totalHeight', 0.0097));
+          reach(cy, cz, Math.hypot(pRadius + num(child, 'totalHeight', 0.0097),
+            shroudHalfWidth(pRadius, num(child, 'outerDiameter', 0.0097), false)));
         } else {
           // A lug is a tube lying ON the surface: round end-on, and it stands
           // off by its own diameter.
@@ -356,6 +359,16 @@ export function aftLayout(
   return { hulls, inner, outer, extent };
 }
 
+/** Square viewBox with the SVG default xMidYMid meet letterboxing. */
+function clientToView(svg: SVGSVGElement, clientX: number, clientY: number, extent: number) {
+  const rect = svg.getBoundingClientRect();
+  const scale = 2 * extent / Math.min(rect.width, rect.height);
+  return {
+    vx: (clientX - rect.left - rect.width / 2) * scale,
+    vy: (clientY - rect.top - rect.height / 2) * scale,
+  };
+}
+
 export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   tree: RocketTree;
   /** Loaded motor dimensions per mount node id (real case sizes). */
@@ -392,10 +405,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
       // the pointer over this drawing — the same fix as the 2D schematic's.
       if (stepK(zoomRef.current.k) === zoomRef.current.k) return;
       e.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const Ev = eRef.current;
-      const vx = -Ev + ((e.clientX - rect.left) / rect.width) * 2 * Ev;
-      const vy = -Ev + ((e.clientY - rect.top) / rect.height) * 2 * Ev;
+      const { vx, vy } = clientToView(svg, e.clientX, e.clientY, eRef.current);
       setZoom((z) => {
         const k = stepK(z.k);
         if (k === z.k) return z;
@@ -508,11 +518,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   };
 
   const toView = (clientX: number, clientY: number) => {
-    const rect = svgRef.current!.getBoundingClientRect();
-    return {
-      vx: -E + ((clientX - rect.left) / rect.width) * 2 * E,
-      vy: -E + ((clientY - rect.top) / rect.height) * 2 * E,
-    };
+    return clientToView(svgRef.current!, clientX, clientY, E);
   };
   /**
    * Arrow keys pan a ZOOMED view a tenth of its width a press (audit

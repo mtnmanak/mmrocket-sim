@@ -1064,9 +1064,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           onClick={() => {
             // The exporters' context, so the paper tab is clamped to the body
             // radius exactly as the ✂ and 🖨 files clamp theirs.
-            const svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node));
-            downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
-              `${safeName(node.name ?? 'fin', 'fin')}-template.svg`, 'SVG cut template');
+            try {
+              const svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node));
+              setExportNote(null);
+              downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
+                `${safeName(node.name ?? 'fin', 'fin')}-template.svg`, 'SVG cut template');
+            } catch {
+              setExportNote('Could not export this fin template. Check the outline in the fin editor before exporting.');
+            }
           }}>
           📐 Fin template (SVG, 1:1)
         </button>

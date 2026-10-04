@@ -120,7 +120,7 @@ describe('solidContextFor — the bore a part sits in', () => {
     expect(solidContextFor(tr, find(tr, 'bh')).parentInnerRadius).toBeCloseTo(0.0266, 12);
   });
 
-  it('a transition radius left AUTOMATIC is not read as 0 — the part says its size is assumed', () => {
+  it('B6 resolves the bore inside an automatic transition', () => {
     // No foreRadius: the kernel takes it from the tube ahead. Read as 0, a
     // bulkhead flush aft came out at 17.2 mm where the kernel flies 18.0 mm,
     // and was not flagged.
@@ -133,8 +133,8 @@ describe('solidContextFor — the bore a part sits in', () => {
     );
     const node = find(t, 'bh');
     const ctx = solidContextFor(t, node);
-    expect(ctx.parentInnerRadius).toBeUndefined();
-    expect(componentLoop(node, ctx)!.label).toBe('Bulkhead (assumed size)');
+    expect(ctx.parentInnerRadius).toBeCloseTo(0.018, 12);
+    expect(componentLoop(node, ctx)!.label).toBe('Bulkhead');
   });
 
   it('a body tube is unchanged: outer radius less the wall', () => {
@@ -143,7 +143,7 @@ describe('solidContextFor — the bore a part sits in', () => {
       children: [bulkhead, { id: 'mm', type: 'innertube', outerRadius: 0.0146, thickness: 0.0005, length: 0.1 }],
     });
     expect(solidContextFor(t, find(t, 'bh'))).toEqual({
-      parentInnerRadius: expect.closeTo(0.0237, 12), bodyRadius: 0.0245, mountOuterRadius: 0.0146,
+      parentInnerRadius: expect.closeTo(0.0237, 12), bodyRadius: 0.0245, bodyThickness: 0.0008, mountOuterRadius: 0.0146,
     });
   });
 
@@ -293,10 +293,9 @@ describe('a fin tab is cut no deeper than the body at the tab', () => {
       }],
     });
     expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeCloseTo(0.023, 12);
-    // A transition radius left automatic is not resolved here, so the tab is
-    // left as stated rather than clamped to a guess.
+    // With no fore neighbour, the automatic fore end is the kernel's 25 mm.
     delete (find(t, 't1') as Record<string, unknown>)['foreRadius'];
-    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeUndefined();
+    expect(solidContextFor(t, find(t, 'ff')).tabMaxDepth).toBeCloseTo(0.0215, 12);
   });
 
   it('the printed prism, the DXF and the paper template all cut the clamped 19.5 mm', async () => {
@@ -327,4 +326,9 @@ describe('ring parts take their OWN stated outer radius first', () => {
       expect(Math.max(...loop.loop.map(([, r]) => r)), type).toBe(0.02);
     }
   });
+});
+
+it.each([['bodytube', 0.0003], ['innertube', 0.0005]] as const)('B6 omitted %s wall sizes the bulkhead to the kernel bore', (type, wall) => {
+  const t = tree({ id: 'tube', type, outerRadius: 0.025, children: [bulkhead] });
+  expect(solidContextFor(t, find(t, 'bh')).parentInnerRadius).toBeCloseTo(0.025 - wall, 12);
 });
