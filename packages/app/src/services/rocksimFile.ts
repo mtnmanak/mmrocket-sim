@@ -1,5 +1,4 @@
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
-import { baseDragImportNotes } from './baseDragImportNotes.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -1931,7 +1930,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   }
 
   const tree = sanitizeTree({ name, components }, notes);
-  notes.push(...baseDragImportNotes(tree));
   return {
     name,
     // The limits table (audit 2026-09-22), applied where its notes still reach

@@ -1,5 +1,5 @@
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
-import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG, baseDragImportNotes } from './baseDragImportNotes.js';
+import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
 import {
@@ -1438,7 +1438,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // boundary (this path included, with nothing left to do).
   notes.push(...outsideTreeEnums.values());
   const tree = sanitizeTree({ name, components }, notes);
-  notes.push(...baseDragImportNotes(tree));
 
   const storedSimulations = readStoredSimulations(simEls, notes);
   return {

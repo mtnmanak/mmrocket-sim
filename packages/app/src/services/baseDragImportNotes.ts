@@ -1,7 +1,8 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { absoluteStations, type AbsoluteStation } from '../tree/position.js';
+import { suppressingAncestor } from '../tree/treeModel.js';
 
-const hint = /base[\s-]*drag|\bBD\b|drag[\s-]*cone|\bvirtual\b/i;
+const hint = /base[\s-]*(?:drag|cone)|\bBD\b|drag[\s-]*cone|\bvirtual\b/i;
 const finite = (n: ComponentNode, key: string): number | undefined => {
   const v = n[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
@@ -14,6 +15,7 @@ export const BASE_DRAG_DECLARATION = 'mmrBaseDragDeclaration';
 export const BASE_DRAG_DECLARATION_TAG = 'mmrbasedragdeclaration';
 
 /** Advisory only. The corpus's Gizmo transitions use 25.4 nm walls, NOT mass overrides.
+ * "base cone" also covers the zero-wall Pringles form; a name alone is never evidence.
  * CDX1 has no component mass/wall/name data: require an explicit declaration in its
  * design comments, never infer a massless part from the importer's default material.
  */
@@ -54,10 +56,17 @@ function baseDragCandidates(tree: RocketTree, description = '') {
       && wall !== undefined && wall >= 0 && wall <= 1e-7; // m: <= 0.1 micrometre
     const declaredPart = (declared || n[BASE_DRAG_DECLARATION] === true)
       && detachedTip && mass === undefined;
+    // A covering ancestor replaces this part's mass, including its own override.
+    // Weighed real rockets also use this setting: require BOTH the pointed fore
+    // geometry and independent name/zero-CD evidence before calling it suspicious.
+    const subsumed = n.id !== undefined
+      && suppressingAncestor(tree, n.id, 'overrideSubcomponentsMass', 'overrideMass') !== null;
+    const subsumedPart = subsumed && detachedTip && (named || finite(n, 'overrideCD') === 0);
     const evidence = massless && (named || finite(n, 'overrideCD') === 0 || detachedTip)
       ? 'an approximately zero mass override'
       : ghostWall ? 'an extremely thin shell and a base-drag-related name'
-        : declaredPart ? 'a virtual base-drag model described in the file comments' : null;
+        : declaredPart ? 'a virtual base-drag model described in the file comments'
+          : subsumedPart ? 'its mass included in an ancestor\u2019s override of all subcomponents' : null;
     if (!evidence) continue;
     candidates.push({ node: n, evidence, declared: declaredPart });
   }
@@ -65,18 +74,20 @@ function baseDragCandidates(tree: RocketTree, description = '') {
 }
 
 /** Retain CDX1 comment evidence on matching parts, so deleting the part also
- * deletes its declaration. Geometry/override checks still apply on every import. */
+ * deletes its declaration. Geometry/override checks still apply on every build. */
 export function retainBaseDragDeclaration(tree: RocketTree, description: string): void {
   for (const candidate of baseDragCandidates(tree, description)) {
     if (candidate.declared) candidate.node[BASE_DRAG_DECLARATION] = true;
   }
 }
 
+/** Live design advisory; importers retain provenance but do not also display it. */
 export function baseDragImportNotes(tree: RocketTree): string[] {
   return baseDragCandidates(tree).map(({ node: n, evidence }) =>
     `Possible base-drag model: “${n.name ?? n.type}” is an aft ${n.type}
 with ${evidence}. If this is a virtual part rather than part of the real rocket, its aerodynamic contribution
-can move the center of pressure (CP) aft and so can overstate the stability margin of the real airframe.
-The app keeps it as the file describes. To model the real airframe without it, use Delete on this part in the
+can move the center of pressure (CP) aft and so can overstate the stability margin:
+the app shows more stability margin than the rocket really has.
+The app keeps the part as modeled. To model the real airframe without it, use Delete on this part in the
 component tree, then run the simulation again.`.replace(/\n/g, ' '));
 }
