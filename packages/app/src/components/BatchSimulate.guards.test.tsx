@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -15,6 +15,7 @@ import {
 } from './BatchSimulate.js';
 import { batchSolverFlights, mixedComboCount, type BatchMountOption } from '../services/batchSweep.js';
 import { MOTOR_DB } from '../services/motorDb.js';
+import * as batchSweep from '../services/batchSweep.js';
 
 /**
  * Three ways the batch dialog could throw away a sweep or misdescribe one.
@@ -143,8 +144,8 @@ describe('the cap', () => {
       expect(batchFlightCount(n, groups), `${groups}`).toBeLessThanOrEqual(BATCH_MAX_FLIGHTS);
       expect(batchFlightCount(n + 1, groups), `${groups}`).toBeGreaterThan(BATCH_MAX_FLIGHTS);
     }
-    expect(batchMaxCandidates([3])).toBe(48);
-    expect(batchMaxCandidates([2])).toBe(199);
+    expect(batchMaxCandidates([3])).toBe(65);
+    expect(batchMaxCandidates([2])).toBe(315);
   });
 
   const HALVES_2 = { name: 'mixed 2+2', groups: 2 };
@@ -154,19 +155,32 @@ describe('the cap', () => {
   /** The flights a sweep searches when every one does — "optimal delay per motor", the default. */
   const allSearch = (candidates: number, modes: Mode[]) => batchFlightCount(candidates, modes.map((m) => m.groups));
 
+  it.each([['AeroTech', 37820], ['Cesaroni', 24804]] as const)(
+    'allows the requested 29 mm six-ring %s sweep to reach confirmation', (maker, expected) => {
+      const { candidates } = batchCandidates(
+        { manufacturers: [maker], classes: [29], includeOOP: false },
+        { diameterMm: 29, maxMotorLengthM: null }, MOTOR_DB,
+      );
+      const flights = batchFlightCount(candidates.length, [3]);
+      expect(flights).toBe(expected);
+      expect(batchRefusal({ candidates: candidates.length, withoutOOP: null,
+        modes: [PAIRS], solverFlights: flights })).toBeNull();
+    },
+  );
+
   it('refuses nothing at the cap, and past it says why and how to narrow the sweep', () => {
     const refuse = (candidates: number, modes: Mode[]) =>
       batchRefusal({ candidates, withoutOOP: null, modes, solverFlights: allSearch(candidates, modes) });
     const atCap = batchMaxCandidates([2]);
     expect(refuse(atCap, [HALVES_3])).toBeNull();
     expect(refuse(atCap + 1, [HALVES_3])).not.toBeNull();
-    expect(refuse(226, [PAIRS])).toBe('1,949,476 flights is more than one batch will fly: the most is 20,000, '
-      + 'about 11 h at the measured pace. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 48 or fewer '
+    expect(refuse(226, [PAIRS])).toBe('1,949,476 flights is more than one batch will fly: the most is 50,000, '
+      + 'about 28 h at the measured pace. The app keeps every result in memory for export. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 65 or fewer '
       + 'with the maker and diameter chips.');
     // The time at the cap is this sweep's own pace: unticked, with no flight
-    // searching, 20,000 flights is 12,000 s, said to the quarter hour.
+    // searching, 50,000 flights is 30,000 s, said to the quarter hour.
     expect(batchRefusal({ candidates: 226, withoutOOP: null, modes: [PAIRS], solverFlights: 0 }))
-      .toContain('the most is 20,000, about 3 h 15 min at the measured pace.');
+      .toContain('the most is 50,000, about 8 h 15 min at the measured pace.');
   });
 
   /**
@@ -178,23 +192,18 @@ describe('the cap', () => {
   it('names only the ways that bring the sweep under the cap on their own', () => {
     const refuse = (candidates: number, withoutOOP: number | null, modes: Mode[]) =>
       batchRefusal({ candidates, withoutOOP, modes, solverFlights: allSearch(candidates, modes) });
-    // A 29 mm 4-ring with "mixed 2+2" and include OOP: 314 candidates, 49,455
-    // flights. Unticking include OOP leaves 232 and 27,028 — still refused.
-    expect(refuse(314, 232, [HALVES_2]))
-      .toBe('49,455 flights is more than one batch will fly: the most is 20,000, about 11 h at the measured pace. '
-        + 'Untick mixed 2+2, or bring the candidates down to 199 or fewer with the maker and diameter chips.');
-    // A 54 mm 4-ring with the Cesaroni chip: 202 with OOP motors in, 196
-    // without — 19,306 flights, so that one IS enough, and is named.
-    expect(refuse(202, 196, [HALVES_2]))
-      .toContain('. Untick mixed 2+2, or bring the candidates down to 199 or fewer with the maker and diameter '
+    // Neither 57,970 flights with OOP nor 54,615 without fits under 50,000.
+    expect(refuse(340, 330, [HALVES_2]))
+      .toBe('57,970 flights is more than one batch will fly: the most is 50,000, about 28 h at the measured pace. '
+        + 'The app keeps every result in memory for export. Untick mixed 2+2, or bring the candidates down to '
+        + '315 or fewer with the maker and diameter chips.');
+    expect(refuse(320, 315, [HALVES_2]))
+      .toContain('Untick mixed 2+2, or bring the candidates down to 315 or fewer with the maker and diameter '
         + 'chips, or by unticking include OOP.');
-    // Both boxes on a 6-ring, 113 candidates: unticking 3+3 alone still leaves
-    // the split that explodes (246,905 flights), so only the other is named…
     expect(refuse(113, null, [HALVES_3, PAIRS]))
-      .toContain('. Untick mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer');
-    // …and past 199 neither is enough alone (232: 27,028 flights with 3+3 left on).
-    expect(refuse(232, null, [HALVES_3, PAIRS]))
-      .toContain('. Untick both mixed 3+3 and mixed 4+2 / 2+2+2, or bring the candidates down to 47 or fewer');
+      .toContain('Untick mixed 4+2 / 2+2+2, or bring the candidates down to 65 or fewer');
+    expect(refuse(340, null, [HALVES_3, PAIRS]))
+      .toContain('Untick both mixed 3+3 and mixed 4+2 / 2+2+2, or bring the candidates down to 65 or fewer');
   });
 });
 
@@ -233,6 +242,8 @@ describe('the batch dialog', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // These guards exercise mounted UI, not thousands of real kernel flights.
+    vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ rows: [], stopped: false });
     closes = 0;
     host = document.createElement('div');
     document.body.appendChild(host);
@@ -242,6 +253,7 @@ describe('the batch dialog', () => {
     act(() => root.unmount());
     host.remove();
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   const mount = (
@@ -305,7 +317,7 @@ describe('the batch dialog', () => {
   const box = (words: string) => Array.from(host.querySelectorAll('label'))
     .find((l) => (l.textContent ?? '').includes(words))
     ?.querySelector('input') as HTMLInputElement;
-  /** 3+3 halves: n(n−1)/2 extra flights — past the second ask, inside the cap, for the bundled DB. */
+  /** 3+3 halves: n(n−1)/2 extra flights, inside the memory cap for the bundled DB. */
   const halvesBox = () => box('mixed 3+3');
   /** 4+2 / 2+2+2: n(n+1)(n+2)/6 − n extra — the one that explodes, past the cap. */
   const pairsBox = () => box('mixed 4+2');
@@ -438,6 +450,43 @@ describe('the batch dialog', () => {
     expect(primaryText()).toContain('motors');
   });
 
+  it('opens confirmation above 20,000 flights, cancels without starting, and starts only with Run anyway', async () => {
+    // Use the shipped 29 mm AeroTech catalogue and the actual three-pair split.
+    // Stub only execution: this test must not fly 37,820 real kernel flights.
+    const sweep = vi.mocked(batchSweep.runBatchSweep);
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ manufacturers: ['AeroTech'], classes: [29] }));
+    mount(TREE, [{ ...MOUNTS[0]!, label: '29 mm cluster', diameterMm: 29 }]);
+    act(() => { pairsBox().click(); });
+    expect(primaryText()).toContain('37,820 flights');
+    expect(primary().disabled).toBe(false);
+    const modal = () => host.querySelector('[role="dialog"][aria-label="Run a large batch?"]');
+    const action = (name: string) => Array.from(modal()!.querySelectorAll('button'))
+      .find(b => b.textContent === name)!;
+    const click = async (button: HTMLButtonElement) => { await act(async () => { button.click(); }); };
+
+    await click(primary());
+    expect(modal()).not.toBeNull();
+    expect(modal()!.querySelector('[role="alert"]')?.textContent)
+      .toContain(`37,820 flights is a very long run — ${batchEstimate({ flights: 37820, solverFlights: 37820 })}`);
+    expect(sweep).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(action('Cancel'));
+    await click(action('Cancel'));
+    expect(modal()).toBeNull();
+    expect(sweep).not.toHaveBeenCalled();
+    expect(closes).toBe(0);
+
+    await click(primary());
+    expect(modal()).not.toBeNull();
+    await click(primary());
+    expect(sweep).not.toHaveBeenCalled();
+    await click(action('Run anyway'));
+    expect(modal()).toBeNull();
+    expect(sweep).toHaveBeenCalledOnce();
+    const input = sweep.mock.calls[0]![0];
+    expect(batchFlightCount(input.candidates.length, input.splits!.map(split => split.mountIds.length)))
+      .toBe(37820);
+  });
+
   it('refuses a sweep past the cap — says why and how to narrow it, and never starts it', () => {
     mount();
     const n = candidateCount();
@@ -491,9 +540,9 @@ describe('the batch dialog', () => {
   const CRITERIA_KEY = 'online-openrocket.batch-criteria.v1';
 
   it('offers unticking include OOP only when that alone brings the sweep under the cap', () => {
-    // The 29 mm 4-ring of the review: 314 candidates with OOP motors in, 232 without.
+    // On 38 mm both the OOP-inclusive and production-only sweeps exceed 50,000.
     localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true }));
-    mount(...fourRing(29));
+    mount(...fourRing(38));
     act(() => { box('mixed 2+2').click(); });
     expect(refusedText()).toContain('flights is more than one batch will fly');
     expect(refusedText()).not.toContain('include OOP');
@@ -503,16 +552,18 @@ describe('the batch dialog', () => {
   });
 
   it('counts what unticking include OOP leaves through the same filters, makers that stop applying included', () => {
-    // Kosdon, Ellis and KBA are all out of production at 38 mm. Unticked, the
+    // Kosdon, Ellis and KBA are all out of production at 54 mm. Unticked, the
     // stored makers no longer apply and the sweep widens to every motor in
     // production: unticking does not shrink this sweep, it grows it.
     localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true, manufacturers: ['Kosdon', 'Ellis', 'KBA'] }));
-    mount(TREE, [{ ...MOUNTS[0]!, label: '38 mm cluster', diameterMm: 38 }]);
+    mount(TREE, [{ ...MOUNTS[0]!, label: '54 mm cluster', diameterMm: 54 }]);
     /** The meta line's "<n> candidate motors". */
     const metaCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
     act(() => { pairsBox().click(); });
     const before = metaCount();
-    expect(refusedText()).toContain('flights is more than one batch will fly');
+    expect(batchFlightCount(before, [3])).toBeGreaterThan(BATCH_MAX_FLIGHTS);
+    expect(primary().disabled).toBe(true);
+    expect(refusedText()).toContain('flights is more than one batch will fly: the most is 50,000');
     expect(refusedText()).not.toContain('include OOP');
     act(() => { box('include OOP').click(); });
     expect(metaCount()).toBeGreaterThan(before);
@@ -520,13 +571,23 @@ describe('the batch dialog', () => {
   });
 
   it('and offers it when it is enough', () => {
-    // 54 mm with the Cesaroni chip: 202 with OOP motors in, 196 without.
-    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true, manufacturers: ['Cesaroni'] }));
-    mount(...fourRing(54));
+    // 342 candidates with OOP, 312 without: halves cross the 50,000 ceiling.
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({
+      includeOOP: true, manufacturers: ['AeroTech', 'Cesaroni', 'Loki'],
+    }));
+    mount(...fourRing(38));
     act(() => { box('mixed 2+2').click(); });
     expect(primary().disabled, 'the shipped catalogue still puts this sweep over the cap').toBe(true);
     expect(refusedText()).toContain('or by unticking include OOP.');
     act(() => { box('include OOP').click(); });
+    expect(primary().disabled).toBe(false);
+    expect(refusedText()).toBe('');
+  });
+
+  it('allows the former 20,000-flight refusal cases through to confirmation', () => {
+    localStorage.setItem(CRITERIA_KEY, JSON.stringify({ includeOOP: true, manufacturers: ['Cesaroni'] }));
+    mount(...fourRing(54));
+    act(() => { box('mixed 2+2').click(); });
     expect(primary().disabled).toBe(false);
     expect(refusedText()).toBe('');
   });
@@ -559,9 +620,9 @@ describe('the running-sweep guards are actually wired up', () => {
     expect(src).toContain('aria-valuemax={progress.total}');
     expect(src).toContain('aria-label="Batch simulation progress"');
   });
-
   it('the second ask starts the sweep on the second click', () => {
-    expect(src).toContain('if (!confirming && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS)');
-    expect(src).toContain('setConfirming(false);\n                void start();');
+    expect(src).toContain('if ((runAnyway || !armed) && totalFlights > BATCH_CONFIRM_ABOVE_FLIGHTS)');
+    expect(src).toContain('setConfirmedSweep(sweepIdentity);\n                  return;');
+    expect(src).toContain('setConfirmedSweep(null);\n                void start();');
   });
 });
