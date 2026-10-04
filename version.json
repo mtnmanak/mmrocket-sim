@@ -1,5 +1,5 @@
 {
-  "version": "0.155",
-  "released": "2026-10-03",
-  "note": "Rail needed now gives the guide travel to measure at the pad, from your rail button or launch lug, as well as the rail length; Batch Simulate shows both as columns and exports both."
+  "version": "0.156",
+  "released": "2026-10-04",
+  "note": "Booster safety verdicts, measured mass and recovery checks corrected; closer file round trips, safer scaling and keyboard control of the 3D view."
 }
