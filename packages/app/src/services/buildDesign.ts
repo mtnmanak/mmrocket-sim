@@ -8,6 +8,7 @@ import { engineTree, flownRecoveryDevices, shroudKernelName } from '../tree/tree
 import { writeMountMotor, type FlightHandle } from './flightRunner.js';
 import { flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { FlownRecoveryDevice } from './simReport.js';
+import { baseDragImportNotes } from './baseDragImportNotes.js';
 
 /**
  * THE DESIGN BUILD: the tree and the motors on it, handed to the kernel, and
@@ -214,6 +215,10 @@ export function buildDesign<R extends BuildHandle>(
     // shroud named like a fin gets filtered out of its own sentence.
     const wakeWarnings = wakeShadowWarnings(tree);
     if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
+    // Re-evaluate the live tree for opened, restored and edited designs alike.
+    // Importers retain declarations on parts; this strip is the sole display.
+    const baseDragWarnings = baseDragImportNotes(tree);
+    if (baseDragWarnings.length) info.warningTexts = [...info.warningTexts, ...baseDragWarnings];
     return { rocket, info, motorFailures, flownRecovery, hardware };
   } catch (e) {
     // Named, not raw (audit 2026-09-22): the kernel's own text — "The number

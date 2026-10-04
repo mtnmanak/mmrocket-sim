@@ -15,7 +15,11 @@ const cone = (extra: Record<string, unknown> = {}): ComponentNode => ({
 const tree = (...parts: ComponentNode[]): RocketTree => ({ components: [
   { id: 'stage', type: 'stage', children: parts },
 ] });
-const warnings = (notes: string[]) => notes.filter(n => n.startsWith('Possible base-drag model:'));
+const warnings = (result: { tree: RocketTree; notes: string[] }) => {
+  // The live warning strip owns this advisory, never the import banner as well.
+  expect(result.notes.filter(n => n.startsWith('Possible base-drag model:'))).toEqual([]);
+  return baseDragImportNotes(result.tree);
+};
 const cdx = (comments: string, tail = '<NoseCone><Length>12</Length><Diameter>4</Diameter><Shape>Conical</Shape></NoseCone>') =>
   importCdx1(`<RASAeroDocument><RocketDesign>
     <Comments>${comments}</Comments><NoseCone><Length>6</Length><Diameter>4</Diameter></NoseCone>
@@ -25,7 +29,100 @@ const declarationTag = '<mmrbasedragdeclaration>true</mmrbasedragdeclaration>';
 const physicalTree = (design: RocketTree): unknown => JSON.parse(JSON.stringify(design.components,
   (key, value: unknown) => key === 'id' || key === BASE_DRAG_DECLARATION ? undefined : value));
 
-describe('conservative base-drag import note', () => {
+describe('ancestor-subsumed base-drag evidence', () => {
+  const design = (part: Record<string, unknown> = {}, stage: Record<string, unknown> = {}): RocketTree => ({
+    components: [{ id: 'stage', type: 'stage', overrideMass: 1.72, overrideSubcomponentsMass: true,
+      ...stage, children: [body, cone({ name: 'Transition', thickness: 0.05, overrideCD: 0, ...part })] }],
+  });
+
+  it('recognizes a pointed zero-CD cone with ancestor-subsumed mass without changing the tree', () => {
+    const t = design();
+    const before = structuredClone(t);
+    expect(baseDragImportNotes(t)).toHaveLength(1);
+    expect(baseDragImportNotes(t)[0]).toContain('its mass included in an ancestor\u2019s override of all subcomponents');
+    expect(t).toEqual(before);
+  });
+
+  it('accepts a matching name instead of zero CD at the pointed-tip boundary', () => {
+    expect(baseDragImportNotes(design({ name: 'base cone', overrideCD: undefined,
+      foreRadius: (body['outerRadius'] as number) * 0.1 })))
+      .toHaveLength(1);
+  });
+
+  it.each([
+    { foreRadius: 0.00501 }, // Just outside 10% of the preceding body's aft radius.
+    { foreRadius: 0.02, name: 'base cone' }, // Name and zero CD cannot waive the point.
+    { overrideCD: undefined },
+    { overrideCD: 0.01 },
+    { overrideCD: NaN },
+    { name: 'Real weighed boattail', foreRadius: 0.05, aftRadius: 0.02, overrideCD: undefined },
+  ])('rejects subsumed geometry or corroboration near miss %j', part => {
+    expect(baseDragImportNotes(design(part))).toEqual([]);
+  });
+
+  it.each([
+    { overrideSubcomponentsMass: false },
+    { overrideSubcomponentsMass: undefined },
+    { overrideMass: undefined },
+    { overrideMass: NaN },
+    { overrideMass: Infinity },
+    { overrideMass: undefined, overrideCGX: 0.5, overrideSubcomponentsCG: true },
+  ])('requires an active ancestor mass override AND its subcomponent flag %j', stage => {
+    expect(baseDragImportNotes(design({}, stage))).toEqual([]);
+  });
+
+  it('uses the full ancestor chain but does not borrow an override from another branch', () => {
+    const t = design();
+    const parts = t.components[0]!.children!;
+    t.components[0]!.children = [{ ...body, id: 'main', children: [
+      { id: 'pod', type: 'podset', children: parts },
+    ] }];
+    expect(baseDragImportNotes(t)).toHaveLength(1);
+    t.components[0]!['overrideSubcomponentsMass'] = false;
+    t.components.push({ id: 'other', type: 'stage', overrideMass: 2, overrideSubcomponentsMass: true });
+    expect(baseDragImportNotes(t)).toEqual([]);
+  });
+
+  it('distinguishes a cone own override from a covering ancestor and keeps existing alternatives', () => {
+    // The cone's massive own override still counts unless an ancestor covers it.
+    expect(baseDragImportNotes(design({ overrideMass: 0.2, overrideSubcomponentsMass: true },
+      { overrideSubcomponentsMass: false }))).toEqual([]);
+    expect(baseDragImportNotes(design({ overrideMass: 0.2 }))).toHaveLength(1);
+    // An unflagged ancestor does not invalidate independent, component-local evidence.
+    expect(baseDragImportNotes(design({ overrideMass: 0 }, { overrideSubcomponentsMass: false }))).toHaveLength(1);
+    expect(baseDragImportNotes(design({ name: 'base cone', thickness: 0 },
+      { overrideSubcomponentsMass: false }))).toHaveLength(1);
+    expect(baseDragImportNotes(design({ overrideCD: undefined, [BASE_DRAG_DECLARATION]: true },
+      { overrideSubcomponentsMass: false }))).toHaveLength(1);
+  });
+
+  it('preserves ancestor mass flags and a single live advisory through ORK round trips', () => {
+    const reopened = importOrk(exportOrk({ name: 'Synthetic weighed design', tree: design() }));
+    expect(warnings(reopened)).toHaveLength(1);
+    expect(reopened.tree.components[0]!['overrideSubcomponentsMass']).toBe(true);
+    expect(reopened.tree.components[0]!['overrideMass']).toBe(1.72);
+  });
+
+  it('matches shipped-kernel mass accounting with and without child replacement', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const mass = (t: RocketTree) => OrkRocket.buildTree(t).staticInfo().massEmpty;
+    const unpinned = design({}, { overrideMass: undefined, overrideSubcomponentsMass: false });
+    const geometric = mass(unpinned);
+    const withoutCone = structuredClone(unpinned);
+    withoutCone.components[0]!.children!.pop();
+    const bodyMass = mass(withoutCone);
+    expect(geometric).toBeGreaterThan(bodyMass);
+    // Kilograms, 1e-9 decimal tolerance; comparisons use measured kernel mass.
+    expect(mass(design({}, { overrideSubcomponentsMass: false }))).toBeCloseTo(geometric + 1.72, 9);
+    expect(mass(design())).toBeCloseTo(1.72, 9);
+    expect(mass(design({ overrideMass: 0.2 }))).toBeCloseTo(1.72, 9);
+    expect(mass(design({ overrideMass: 0.2 }, { overrideMass: undefined }))).toBeCloseTo(bodyMass + 0.2, 9);
+    expect(mass(design({ overrideMass: 0 }, { overrideSubcomponentsMass: false }))).toBeCloseTo(bodyMass + 1.72, 9);
+  });
+});
+
+describe('conservative base-drag design note', () => {
   it('recognizes the corpus thin-wall form without an active mass override, without changing the tree', () => {
     const design = tree(body, cone());
     const before = structuredClone(design);
@@ -34,7 +131,7 @@ describe('conservative base-drag import note', () => {
     expect(notes[0]).toContain('extremely thin shell');
     expect(notes[0]).toContain('can move the center of pressure (CP) aft');
     expect(notes[0]).toContain('can overstate the stability margin');
-    expect(notes[0]).toContain('keeps it as the file describes');
+    expect(notes[0]).toContain('keeps the part as modeled');
     expect(notes[0]).toContain('use Delete');
     expect(design).toEqual(before);
   });
@@ -42,6 +139,7 @@ describe('conservative base-drag import note', () => {
   it.each([
     { name: 'BD', overrideMass: 0, thickness: 0.002 },
     { name: 'Cone', overrideMass: 1e-6, overrideCD: 0, thickness: 0.002 },
+    { name: 'Cone', foreRadius: 0.02, overrideMass: 0, overrideCD: 0, thickness: 0.002 },
     { name: 'Cone', overrideMass: 0, thickness: 0.002 },
     { type: 'nosecone', name: 'virtual cone', overrideMass: 0, thickness: 0.002 },
   ])('recognizes corroborated massless tail $name', patch => {
@@ -73,6 +171,56 @@ describe('conservative base-drag import note', () => {
     const pod: ComponentNode = { id: 'pod', type: 'podset', children: [body, cone()] };
     expect(baseDragImportNotes(tree({ ...body, id: 'main', children: [pod] }))).toHaveLength(1);
     expect(baseDragImportNotes(tree({ ...body, children: [cone()] }))).toEqual([]);
+    const nested = { ...body, id: 'outer', children: [body,
+      cone({ position: { method: 'top', offset: 0.7 } })] };
+    expect(baseDragImportNotes(tree(nested))).toEqual([]);
+  });
+
+  it.each(['base cone', 'Base-Cone', 'basecone'])('recognizes a zero-wall %s behind a massless spacer', name => {
+    const spacer: ComponentNode = { ...body, id: 'spacer', length: 0.02, overrideMass: 0 };
+    const design = tree(body, spacer, cone({ type: 'nosecone', name, thickness: 0, overrideCD: 0 }));
+    const before = structuredClone(design);
+    expect(baseDragImportNotes(design)).toHaveLength(1);
+    expect(baseDragImportNotes(design)[0]).toContain('the app shows more stability margin than the rocket really has');
+    expect(design).toEqual(before);
+  });
+
+  it('recognizes a base cone name with a near-zero override and no other corroboration', () => {
+    expect(baseDragImportNotes(tree(body, cone({ name: 'base cone', thickness: 0.002,
+      foreRadius: 0.02, overrideMass: 1e-6 })))).toHaveLength(1);
+  });
+
+  it.each([
+    { name: 'Real boattail', foreRadius: 0.05, aftRadius: 0.02, overrideMass: 0.03 },
+    { type: 'nosecone', name: 'Real tail cone', flipped: true, thickness: 0.002, density: 680 },
+    { name: 'base cone', thickness: 0.002, density: 680 },
+    { name: 'base cone', overrideMass: 0.03 },
+    { name: 'Transition', thickness: 0.05, density: 680, overrideCD: 0 },
+    { name: 'base cone', thickness: 0.002, density: 1e-9 }, // Density alone remains ambiguous.
+    { name: 'base cone', filled: true, thickness: 0 },
+    { name: 'base cone', overrideMass: -1e-6 },
+    { name: 'base cone', thickness: -1e-8 },
+    { name: 'base cone', thickness: 1.01e-7 },
+    { name: 'base cone', thickness: undefined },
+    { name: 'base cone', length: 0 },
+    { name: 'base cone', aftRadius: 0 },
+    { name: 'base cone', foreRadius: -0.01, aftRadius: 0, overrideMass: 0 },
+    { name: 'base cone', aftRadius: Infinity },
+    { name: 'base cone', aftRadius: undefined },
+    { name: 'base cone', foreRadius: undefined },
+    { name: 'base cone', overrideMass: 1.01e-6 },
+    { name: 'base cone', overrideMass: NaN, thickness: 0.002 },
+    { name: 'base cone', overrideMass: Infinity, thickness: 0.002 },
+    { name: 'Shell', foreRadius: 0.02, overrideMass: 0, thickness: 0.002 },
+  ])('keeps conservative evidence for %j', patch => {
+    expect(baseDragImportNotes(tree(body, cone(patch)))).toEqual([]);
+  });
+
+  it('does not borrow mass cancellation or a name from another component', () => {
+    const cancellation: ComponentNode = { id: 'cancel', type: 'masscomponent', name: 'base cone', mass: 0 };
+    expect(baseDragImportNotes(tree(body, cone({ name: 'Transition', thickness: 0.002,
+      children: [cancellation] })))).toEqual([]);
+    expect(baseDragImportNotes(tree({ ...body, outerRadius: 0 }, cone()))).toEqual([]);
   });
 
   it('wires the .ork importer and retains the suspicious part and overrides', () => {
@@ -81,7 +229,7 @@ describe('conservative base-drag import note', () => {
       <nosecone><name>BD</name><length>0.32</length><aftradius>0.05</aftradius><shape>conical</shape>
       <overridemass>0</overridemass><overriddencd>0</overriddencd></nosecone>
       </subcomponents></stage></subcomponents></rocket></openrocket>`);
-    expect(warnings(result.notes)).toHaveLength(1);
+    expect(warnings(result)).toHaveLength(1);
     const tail = result.tree.components[0]!.children![1]!;
     expect(tail.name).toBe('BD');
     expect(tail['overrideMass']).toBe(0);
@@ -96,7 +244,7 @@ describe('conservative base-drag import note', () => {
       <RearDia>102.235</RearDia><WallThickness>0.0000254</WallThickness><ConstructionType>1</ConstructionType>
       <Density>1199.78</Density><KnownMass>0</KnownMass><UseKnownCG>0</UseKnownCG></Transition>
       </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`);
-    expect(warnings(result.notes)).toHaveLength(1);
+    expect(warnings(result)).toHaveLength(1);
     const tail = result.tree.components[0]!.children!.at(-1)!;
     expect(tail['overrideMass']).toBeUndefined();
     expect(tail['thickness']).toBeCloseTo(2.54e-8, 14);
@@ -108,7 +256,7 @@ describe('conservative base-drag import note', () => {
     expect(reopenedTail['thickness']).toBeCloseTo(2.54e-8, 14);
     expect(reopenedTail['foreRadius']).toBeCloseTo(1.27e-6, 12);
     expect(reopenedTail['aftRadius']).toBeCloseTo(0.0511175, 12);
-    expect(warnings(reopened.notes)).toHaveLength(1);
+    expect(warnings(reopened)).toHaveLength(1);
   });
 
   it.each(['rounded', 'airfoil'])('does not flag a zero-mass zero-CD 1 mm unchanged-radius tube (%s fins)', async crossSection => {
@@ -143,11 +291,11 @@ describe('conservative base-drag import note', () => {
     const parse = cdx;
     const nose = '<NoseCone><Length>12</Length><Diameter>4</Diameter><Shape>Conical</Shape></NoseCone>';
     const positive = parse('Added a massless base drag cone', nose);
-    expect(warnings(positive.notes)).toHaveLength(1);
+    expect(warnings(positive)).toHaveLength(1);
     expect(positive.tree.components[0]!.children).toHaveLength(3);
-    expect(warnings(parse('Ordinary design', nose).notes)).toEqual([]);
-    expect(warnings(parse('Added a massless base drag cone', '').notes)).toEqual([]);
-    expect(warnings(parse('Added a massless base drag cone', '<BoatTail><Length>4</Length><RearDiameter>2</RearDiameter></BoatTail>').notes)).toEqual([]);
+    expect(warnings(parse('Ordinary design', nose))).toEqual([]);
+    expect(warnings(parse('Added a massless base drag cone', ''))).toEqual([]);
+    expect(warnings(parse('Added a massless base drag cone', '<BoatTail><Length>4</Length><RearDiameter>2</RearDiameter></BoatTail>'))).toEqual([]);
   });
 
   it('keeps the CDX1 declaration through repeated .ork round trips as nonphysical component metadata', () => {
@@ -169,8 +317,8 @@ describe('conservative base-drag import note', () => {
         .toHaveLength(1);
       const reopened = importOrk(xml);
       const without = importOrk(xml.replace(declarationTag, ''));
-      expect(warnings(reopened.notes)).toHaveLength(1);
-      expect(warnings(without.notes)).toEqual([]);
+      expect(warnings(reopened)).toHaveLength(1);
+      expect(warnings(without)).toEqual([]);
       expect(physicalTree(reopened.tree)).toEqual(physicalTree(without.tree));
       const tail = reopened.tree.components[0]!.children!.at(-1)!;
       expect(tail[BASE_DRAG_DECLARATION]).toBe(true);
@@ -184,7 +332,7 @@ describe('conservative base-drag import note', () => {
     design.components[0]!.children!.push(ordinary.tree.components[0]!.children!.at(-1)!);
     const replaced = exportOrk({ name: positive.name, tree: design });
     expect(replaced).not.toContain(declarationTag);
-    expect(warnings(importOrk(replaced).notes)).toEqual([]);
+    expect(warnings(importOrk(replaced))).toEqual([]);
   });
 
   it('accepts only a true declaration directly under the component', () => {
@@ -196,7 +344,7 @@ describe('conservative base-drag import note', () => {
       `<metadata>${declarationTag}</metadata>`,
     ]) {
       const reopened = importOrk(xml.replace(declarationTag, replacement));
-      expect(warnings(reopened.notes)).toEqual([]);
+      expect(warnings(reopened)).toEqual([]);
       expect(reopened.tree.components[0]!.children!.at(-1)![BASE_DRAG_DECLARATION]).toBeUndefined();
     }
   });
@@ -205,6 +353,7 @@ describe('conservative base-drag import note', () => {
     const declared = { name: 'Cone', thickness: 0.002, [BASE_DRAG_DECLARATION]: true };
     expect(baseDragImportNotes(tree(body, cone(declared)))).toHaveLength(1);
     expect(baseDragImportNotes(tree(body, cone({ ...declared, overrideMass: 0.01 })))).toEqual([]);
+    expect(baseDragImportNotes(tree(body, cone({ ...declared, foreRadius: 0.02 })))).toEqual([]);
     expect(baseDragImportNotes(tree(body, cone({ ...declared, foreRadius: 0.05, aftRadius: 0.025 })))).toEqual([]);
     expect(baseDragImportNotes(tree(body, cone(declared), { ...body, id: 'after' }))).toEqual([]);
   });

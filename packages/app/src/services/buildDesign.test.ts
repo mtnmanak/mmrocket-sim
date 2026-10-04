@@ -12,6 +12,7 @@ import { padMassSetKey } from './configSync.js';
 import { catalogueMotorMass } from './hardwareMass.js';
 import { findDbMotor } from './motorDb.js';
 import { fetchMotorSpec } from './thrustcurve.js';
+import { designStateFromSession } from './sessionRestore.js';
 
 /**
  * THE DESIGN BUILD (audit 2026-09-22, row 494, extraction #2). App's build
@@ -165,6 +166,61 @@ describe('buildDesign — the warning strip', () => {
   const noMotors = (tree: RocketTree): DesignBuildInput => ({
     tree, assigned: [], kbf: true, supersonic: false, measuredDryMassKg: null, primaryMountId: null,
     currentSetKey: '',
+  });
+
+  it('recomputes the base-drag advisory on live add, mass edit and deletion', () => {
+    const tree = camTree('Camera');
+    const parts = tree.components[0]!.children!;
+    const { handles } = recordingFactory({ warningTexts: ['Existing warning'] });
+    const notes = () => {
+      const built = buildDesign(noMotors(tree), handles);
+      if ('error' in built) throw new Error(built.error);
+      expect(built.info.warningTexts).toContain('Existing warning');
+      return built.info.warningTexts.filter(n => n.startsWith('Possible base-drag model:'));
+    };
+    expect(notes()).toEqual([]);
+    parts.push({ id: 'bd', type: 'nosecone', name: 'base cone', length: 0.2, aftRadius: 0.027, thickness: 0 });
+    expect(notes()).toHaveLength(1);
+    expect(notes()).toHaveLength(1); // Rebuilding never accumulates copies.
+    parts.at(-1)!['overrideMass'] = 0.02;
+    expect(notes()).toEqual([]);
+    parts.at(-1)!['overrideMass'] = 0;
+    expect(notes()).toHaveLength(1);
+    parts.pop();
+    expect(notes()).toEqual([]);
+  });
+
+  it('recomputes ancestor-subsumed evidence on mass-flag edits and autosave restoration', () => {
+    const tree = camTree('Camera');
+    const stage = tree.components[0]!;
+    stage['overrideMass'] = 1.72;
+    stage.children!.push({ id: 'bd', type: 'transition', name: 'Transition', length: 0.075,
+      foreRadius: 0.00001, aftRadius: 0.027, thickness: 0.02, overrideCD: 0 });
+    const notes = (design = tree) => {
+      const built = buildDesign(noMotors(design), KERNEL_HANDLES);
+      if ('error' in built) throw new Error(built.error);
+      return built.info.warningTexts.filter(n => n.startsWith('Possible base-drag model:'));
+    };
+    expect(notes()).toEqual([]);
+    stage['overrideSubcomponentsMass'] = true;
+    expect(notes()).toHaveLength(1);
+    expect(notes()).toHaveLength(1);
+    const stored = JSON.parse(JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, savedAt: 0 }));
+    const restored = designStateFromSession(stored, { legacyMaxMotorLengthM: null });
+    expect(notes(restored.state.tree)).toHaveLength(1);
+    stage['overrideSubcomponentsMass'] = false;
+    expect(notes()).toEqual([]);
+  });
+
+  it('warns on an autosaved design restored through the app restore path and real kernel', () => {
+    const tree = camTree('Camera');
+    tree.components[0]!.children!.push({ id: 'bd', type: 'nosecone', name: 'base cone',
+      length: 0.2, aftRadius: 0.027, thickness: 0 });
+    const stored = JSON.parse(JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, savedAt: 0 }));
+    const restored = designStateFromSession(stored, { legacyMaxMotorLengthM: null });
+    const built = buildDesign(noMotors(restored.state.tree), KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    expect(built.info.warningTexts.filter(n => n.startsWith('Possible base-drag model:'))).toHaveLength(1);
   });
 
   it('drops the kernel’s THICK_FIN about a shroud, keeps the rest, and appends the wake sentence after', () => {
