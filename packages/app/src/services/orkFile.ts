@@ -3,7 +3,7 @@ import type { StageMassOverride } from './stageMassOverrides.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
-import type { ComponentNode, ComponentPosition, ComponentType, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentPosition, ComponentType, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
@@ -32,6 +32,8 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
+import { archiveExMotors, EX_MOTOR_ID_TAG, EX_MOTOR_NOTES_TAG, EX_MOTORS_TAG, readArchivedExMotors } from './exMotorArchive.js';
+import type { ExMotor } from './exMotors.js';
 
 /**
  * .ork import/export for full component trees (P2.5 — all 17 editor types).
@@ -46,6 +48,11 @@ import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from '
 export interface OrkMotorRef {
   /** Stored RockSim burnout minus ignition, only for one stage and one motor. Diagnostic, never identity evidence. */
   rktBurnTimeS?: number;
+  /** Explicit app-library identity; never fall back to a same-name catalogue motor. */
+  exMotorId?: string;
+  /** Validated document-local definition; parsing never changes the library. */
+  exDefinition?: ExMotor;
+  exMotorMissing?: true;
   /** Original import evidence; never derived from a selected catalogue row. */
   matchContext?: MotorMatchContext;
   designation: string;
@@ -92,6 +99,7 @@ export interface OrkMotorRef {
 }
 
 export interface OrkTreeImportResult {
+  embeddedExMotors?: ExMotor[];
   name: string;
   tree: RocketTree;
   /**
@@ -585,6 +593,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel treats a
     // +Inf ejection delay as "never fires", matching the desktop.
     const resolveRef = (motorEl: XmlElement, igEl: XmlElement): OrkMotorRef => {
+      const exIdElement = motorEl.querySelector(`:scope > ${EX_MOTOR_ID_TAG}`);
       const delayText = text(motorEl, ':scope > delay');
       // Pre-1.4 digests use the old algorithm — never carry them (see
       // digestsTrusted above). <type>/<manufacturer> are version-independent.
@@ -626,6 +635,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       return {
         designation,
+        ...(exIdElement ? { exMotorId: exIdElement.textContent?.trim() ?? '' } : {}),
         matchContext: { source: 'ork' },
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
         diameter: num(motorEl, 'diameter', 0.018, notes),
@@ -1464,8 +1474,23 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const tree = sanitizeTree({ name, components }, notes);
 
   const storedSimulations = readStoredSimulations(simEls, notes);
+  // Definitions stay document-local. Only an accepted, current open persists them.
+  const exIds = readArchivedExMotors(rocketEl, notes);
+  const savedExNotes = rocketEl.querySelector(`:scope > ${EX_MOTOR_NOTES_TAG}`)?.textContent;
+  if (savedExNotes) notes.push(savedExNotes.slice(0, 65536));
+  const remapped = new Set<OrkMotorRef>();
+  for (const refs of [motors, ...configs.map(c => c.motors)]) {
+    for (const ref of Object.values(refs)) {
+      if (ref.exMotorId === undefined || remapped.has(ref)) continue;
+      remapped.add(ref);
+      const definition = exIds.get(ref.exMotorId);
+      if (definition) ref.exDefinition = definition;
+      else ref.exMotorMissing = true;
+    }
+  }
   return {
     name, tree, motors, configs, chosenConfigId,
+    ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
@@ -1970,6 +1995,13 @@ function readLaunchConditions(
 // ============================ EXPORT ============================
 
 export interface OrkExportMotor {
+  exMotorId?: string;
+  exMotorMissing?: true;
+  /** Archive the loaded curve independently of subsequent library changes. */
+  exMotorSpec?: MotorSpec;
+  exDefinition?: ExMotor;
+  /** Available delays captured in older sessions without the source definition. */
+  exDelays?: string;
   designation: string;
   manufacturer?: string;
   /** Desktop <type> (single|reload|hybrid); omitted from the file when unknown. */
@@ -2561,6 +2593,7 @@ export function exportOrk({
     for (const c of withMotor) {
       const m = c.motors[nodeId!]!;
       emit(depth + 1, `<motor configid="${escapeXmlAttr(c.id)}">`);
+      if (m.exMotorId !== undefined) emit(depth + 2, `<${EX_MOTOR_ID_TAG}>${escapeXml(m.exMotorId)}</${EX_MOTOR_ID_TAG}>`);
       // Desktop element order (RocketComponentSaver): type, manufacturer,
       // digest, designation, diameter, length, delay. Unknown identity is
       // OMITTED, never guessed: the desktop matcher treats a missing field
@@ -3094,6 +3127,27 @@ export function exportOrk({
   emit(2, '<axialoffset method="absolute">0.0</axialoffset>');
   emit(2, '<position type="absolute">0.0</position>');
   emit(2, '<designtype>original</designtype>');
+  // Desktop 24.12 ComponentParameterHandler gives unknown rocket children to
+  // PlainTextHandler, then warns and ignores their contents. MotorHandler has
+  // no native embedded-curve form; it resolves references with MotorFinder.
+  const exNotes: string[] = [];
+  const exArchive = archiveExMotors(writeConfigs.flatMap(c => Object.values(c.motors)), exNotes);
+  // Copy only EX maps: never rewrite caller-owned configurations or loaded ids.
+  for (const c of writeConfigs) {
+    if (!Object.values(c.motors).some(m => exArchive.ids.has(m))) continue;
+    c.motors = Object.fromEntries(Object.entries(c.motors).flatMap(([mount, motor]) => {
+      const id = exArchive.ids.get(motor);
+      return id === null ? [] : [[mount, id === undefined ? motor : { ...motor, exMotorId: id }]];
+    }));
+  }
+  if (exNotes.length) {
+    notes?.push(...exNotes);
+    emit(2, `<${EX_MOTOR_NOTES_TAG}>${escapeXml(exNotes.join('\n'))}</${EX_MOTOR_NOTES_TAG}>`);
+  }
+  if (exArchive.json) {
+    emit(2, `<${EX_MOTORS_TAG} version="1">${escapeXml(exArchive.json)}</${EX_MOTORS_TAG}>`);
+    notes?.push('Used EX motors are embedded for the app. Desktop OpenRocket ignores the embedded curves; install the original .eng/.rse there.');
+  }
   // The mass and balance point the builder actually MEASURED. The ballast this
   // produces ("Build allowance") is an ordinary mass component and always
   // saved; these two numbers did not, so re-opening a file left the box blank

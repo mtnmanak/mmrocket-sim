@@ -766,6 +766,8 @@ export function delayTag(delay: number): string {
  * same approximation OpenRocket applies to RASP data without CG info).
  */
 export type RepairedMotorSpec = MotorSpec & {
+  /** Source metadata captured with an EX curve, independent of later library edits. */
+  exDefinition?: import('./exMotors.js').ExMotor;
   /**
    * Plain-English repairs applied to the published curve before it could be
    * simulated. Present only when the file needed them; the UI shows it so a
@@ -1053,33 +1055,10 @@ export async function fetchMotorSpec(
       + ' this run reads only the curves bundled with the app.');
   }
   if (motor.motorId.startsWith('ex:')) {
-    const { getExMotor, exToDbEntry } = await import('./exMotors.js');
+    const { getExMotor, exToMotorSpec } = await import('./exMotors.js');
     const ex = getExMotor(motor.motorId);
     if (!ex) throw new Error(`Imported motor ${motor.designation} is no longer stored`);
-    if (ex.sampleMassesKg && ex.sampleMassesKg.length === ex.samples.length) {
-      // An imported .eng/.rse can carry the same damage as a downloaded curve,
-      // and this branch never reaches samplesToMotorSpec. keptIndices realigns
-      // the measured masses onto the repaired curve.
-      const repaired = repairSamples(ex.samples);
-      const samples = [...repaired.samples];
-      const masses = repaired.keptIndices.map((i) => ex.sampleMassesKg![i]!);
-      if (samples[0]!.time > 0) {
-        samples.unshift({ time: 0, thrust: 0 });
-        masses.unshift(ex.totalWeightG / 1000);
-      }
-      return {
-        designation: ex.designation,
-        diameter: ex.diameter / 1000,
-        length: ex.length / 1000,
-        times: samples.map((s) => s.time),
-        thrusts: samples.map((s) => s.thrust),
-        masses,
-        cgX: ex.length / 2000,
-        ejectionDelay,
-        ...(repaired.repairs.length ? { curveRepairs: repaired.repairs } : {}),
-      };
-    }
-    return samplesToMotorSpec(exToDbEntry(ex), ex.samples, ejectionDelay);
+    return exToMotorSpec(ex, ejectionDelay);
   }
 
   const cacheKey = CACHE_PREFIX + motor.motorId;

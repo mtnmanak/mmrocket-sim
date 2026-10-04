@@ -10,6 +10,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import { bundleHasCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
 import { rocksimCurveNote } from './rocksimCurveNote.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
+import { exToDbEntry, exToMotorSpec } from './exMotors.js';
 
 /**
  * Resolving ONE motor reference out of a design file to something the kernel
@@ -96,6 +97,9 @@ function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
  */
 export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
   return {
+    ...(ref.exMotorId !== undefined ? { exMotorId: ref.exMotorId } : {}),
+    ...(ref.exDefinition ? { exDefinition: ref.exDefinition } : {}),
+    ...(ref.exMotorMissing ? { exMotorMissing: true as const } : {}),
     designation: ref.designation,
     ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
       ? { manufacturer: ref.manufacturer } : {}),
@@ -234,6 +238,20 @@ export async function matchImportedMotor(
     delay: ref.ignitionDelay ?? 0,
   };
   const fileIdentity = fileMotorIdentity(ref);
+  if (ref.exMotorId !== undefined) {
+    const ex = ref.exMotorMissing ? undefined : ref.exDefinition;
+    if (!ex) return { note: `EX motor ${ref.designation}: its embedded definition is missing or refused; re-import the original .eng/.rse.`, missing: 'curve' };
+    try {
+      const db = exToDbEntry(ex);
+      const spec = exToMotorSpec(ex, ref.delay);
+      return {
+        motor: mountMotorFromDb(db, spec, ref.delay, ignition, { exMotorId: ex.motorId }),
+        note: `Motor: EX ${ex.designation} (loaded from the embedded motor library).`,
+      };
+    } catch (error) {
+      return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
 
   // RockSim refs carry no motor diameter (0) — match by designation only.
   const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;

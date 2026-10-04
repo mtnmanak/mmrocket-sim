@@ -1,4 +1,6 @@
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
+import { restoreExMotors, type ExMotor } from './exMotors.js';
+import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
@@ -55,7 +57,7 @@ import {
  * results — same shape minus `launch` — fit too; only .ork parses carry the
  * flight-configuration fields.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured' | 'longitudeCheck'>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
@@ -337,6 +339,7 @@ function unconfirmedNotes(perMount: readonly (string | undefined)[]): string[] {
 
 /** What App writes for an opened design, and the mark it takes over it. */
 export interface ImportPlan {
+  embeddedExMotors?: ExMotor[];
   longitudeCheck?: OrkTreeImportResult['longitudeCheck'];
   /**
    * Exactly the state App writes, in the shape the saved mark hashes — the
@@ -548,6 +551,7 @@ export function planImport(
   // report the new design's gap against someone else's scale.
   const measured: MeasuredFigures = imported.measured ?? { massKg: null, cgM: null };
   return {
+    ...(imported.embeddedExMotors ? { embeddedExMotors: imported.embeddedExMotors } : {}),
     snapshot: {
       tree: importedTree,
       mountMotors: nextMotors,
@@ -603,6 +607,34 @@ export interface ImportSinks {
  * told the user "Ctrl+Z does not reach across a file open"; now it does not.
  */
 export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
+  // This synchronous edge is reached only after acceptance and App's final
+  // current-open check. Parsers, previews and headless simulations never call it.
+  if (plan.embeddedExMotors?.length) {
+    const notes: string[] = [];
+    const ids = restoreExMotors(plan.embeddedExMotors, notes);
+    const remap = (motor: MountMotor): MountMotor => {
+      const old = motor.meta.exMotorId;
+      const id = old && ids.get(old);
+      if (!id) return motor;
+      const spec = motor.spec as RepairedMotorSpec;
+      return { ...motor, meta: { ...motor.meta, exMotorId: id, motorId: id },
+        spec: { ...spec, ...(spec.exDefinition ? { exDefinition: { ...spec.exDefinition, motorId: id } } : {}) } };
+    };
+    const set = (motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {}) => {
+      const next = Object.fromEntries(Object.entries(motors).map(([mount, motor]) => [mount, remap(motor)]));
+      const before = padMassSetKey(plan.snapshot.tree, motors, refs);
+      const after = padMassSetKey(plan.snapshot.tree, next, refs);
+      for (const [mount, m] of Object.entries(next)) {
+        // The curve did not change, only its library id. Preserve a valid
+        // weighing; a stale or legacy key must keep its existing meaning.
+        if (m.padMassWeighedWith === before) next[mount] = { ...m, padMassWeighedWith: after };
+      }
+      return next;
+    };
+    plan.snapshot = { ...plan.snapshot, mountMotors: set(plan.snapshot.mountMotors, plan.unmatchedRefs),
+      savedConfigs: plan.snapshot.savedConfigs.map(c => ({ ...c, motors: set(c.motors, c.unmatchedRefs) })) };
+    if (notes.length) plan.note = { ...plan.note, text: [plan.note.text, ...notes].filter(Boolean).join('\n') };
+  }
   const { snapshot } = plan;
   sinks.history.reset(snapshot.tree);
   sinks.setMountMotors(snapshot.mountMotors);

@@ -2487,6 +2487,7 @@ export function App() {
   const onCopyShareLink = async () => {
     try {
       const flown = flownAutoDelaysNow();
+      const saveNotes: string[] = [];
       const xml = exportOrk({
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
         // Included so a share link reproduces exactly what saving the file
@@ -2495,6 +2496,7 @@ export function App() {
         configs: exportConfigs(savedConfigs, flown), activeConfigId, measured,
         // Same rule: a link must open to the same file a save would write.
         flightData: flightDataForExport(),
+        notes: saveNotes,
       });
       const frag = await encodeShareFragment(xml);
       const url = `${window.location.origin}${window.location.pathname}${window.location.search}${frag}`;
@@ -2511,12 +2513,14 @@ export function App() {
         : '';
       try {
         await navigator.clipboard.writeText(url);
-        setFileNote(`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`);
+        setFileNote([`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
+          ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info');
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):
         // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
         window.prompt('Copy this share link (Ctrl+C):', url);
-        if (sizeNote) setFileNote(sizeNote.trim(), 'warn');
+        const fallbackNotes = [sizeNote.trim(), ...saveNotes].filter(Boolean).join('\n');
+        if (fallbackNotes) setFileNote(fallbackNotes, 'warn');
       }
     } catch (e) {
       // 'error' — nothing was copied and nothing is on screen to say so
