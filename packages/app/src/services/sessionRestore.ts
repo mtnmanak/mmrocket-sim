@@ -1,7 +1,9 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { legacyStageLimits, migrateMotorLengths } from '../tree/motorLength.js';
-import { defaultTree, motorMounts, normalizeTree, padMassOntoRankedPrimary } from '../tree/treeModel.js';
+import { defaultTree, motorMounts, normalizeTree, padMassOntoRankedPrimary, reserveNodeIds } from '../tree/treeModel.js';
+import { pruneStageMass } from './stageMassOverrides.js';
+import { parseSetIdentity } from './hardwareMass.js';
 import { migrateLegacyPadMass, restoreUnmatchedRefs } from './configSync.js';
 import type { DesignState } from './designDerivation.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
@@ -61,6 +63,17 @@ export function designStateFromSession(
   // are named just like file imports (open-items, 22–23 September: "A
   // restored session is repaired without a note").
   const restoreNotes: string[] = [...(session?.treeRestoreNotes ?? [])];
+  // Reserve references BEFORE normalization can mint a repair node. Some maps
+  // retain absent mounts for undo; none may ever bind to a newly minted node.
+  const maps = [session?.mountMotors, session?.unmatchedRefs, session?.maxMotorLengthByStage,
+    ...Object.values(session?.flownAutoDelays ?? {}),
+    ...(session?.savedConfigs ?? []).flatMap(c => [c.motors, c.unmatchedRefs, c.deployments,
+      c.separations, c.nozzles, c.stageActiveness, c.stageMassOverrides])];
+  reserveNodeIds([...(session?.mountId ? [session.mountId] : []),
+    ...maps.flatMap(m => Object.keys(m ?? {})),
+    ...[session?.mountMotors, ...(session?.savedConfigs ?? []).map(c => c.motors)]
+      .flatMap(m => Object.values(m ?? {}).flatMap(mm =>
+        mm.padMassWeighedWith ? (parseSetIdentity(mm.padMassWeighedWith) ?? []).map(([id]) => id) : []))]);
   const before = normalizeTree(session?.tree ?? defaultTree(), restoreNotes);
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
   const tree = migrateMotorLengths(before, limits);
@@ -111,15 +124,17 @@ export function designStateFromSession(
   // one saved with a pod motor picked first would orphan it again. A row
   // nothing moves in is kept by identity.
   const stored = session?.savedConfigs ?? [];
-  const savedConfigs = stored.map((c) => {
+  const rankedConfigs = stored.map((c) => {
     const ranked = padMassOntoRankedPrimary(tree, c.motors);
     return ranked.motors === c.motors ? c : { ...c, motors: ranked.motors };
   });
   // Recorded for the saved-mark re-take, with the working set as it was
   // restored (moved or not).
-  if (savedConfigs.some((c, i) => c !== stored[i])) {
+  if (rankedConfigs.some((c, i) => c !== stored[i])) {
     preRankRestore = { motors: preRankRestore?.motors ?? mountMotors, configs: stored };
   }
+  // Reload has no undo history, so missing-stage snapshots can now be dropped.
+  const savedConfigs = pruneStageMass(rankedConfigs, tree);
 
   // A session written by v0.116/v0.117 carries the pad mass as a third
   // measured key — migrated above, and stripped here ONLY when present, so

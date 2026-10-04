@@ -1,3 +1,4 @@
+import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
@@ -278,12 +279,12 @@ function swapConfigNotes(
  */
 export function configOntoTree(
   tree: RocketTree,
-  cfg: Pick<SavedConfig, 'deployments' | 'separations' | 'nozzles'>,
+  cfg: Pick<SavedConfig, 'deployments' | 'separations' | 'nozzles' | 'stageMassOverrides'>,
 ): RocketTree {
   const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
   const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
   const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
-  let next = tree;
+  let next = applyStageMass(tree, cfg.stageMassOverrides);
   if (!hasDeploy && !hasSep && !hasNozzles) return next;
   // The nozzle is the flown motor's, so it switches with the motors: a
   // RASAero file's simulations can each state a different one (0 removes
@@ -481,6 +482,7 @@ export function planImport(
     }
     nextConfigs.push({
       id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
+      ...(cfg.stageMassOverrides ? { stageMassOverrides: cfg.stageMassOverrides } : {}),
       ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
@@ -671,8 +673,8 @@ export function planConfigSwitch(
   requested: SavedConfig,
   text: StatedWeightText,
 ): ConfigSwitchPlan {
-  const synced = syncActiveConfig(state.savedConfigs, state.activeConfigId,
-    { motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, tree: state.tree });
+  const synced = pruneStageMass(syncActiveConfig(state.savedConfigs, state.activeConfigId,
+    { motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, tree: state.tree }), state.tree);
   const cfg = synced.find((c) => c.id === requested.id) ?? requested;
   // A configuration is its motors AND its recovery deployment. These were
   // carried for export only, so applying one here switched the motors and

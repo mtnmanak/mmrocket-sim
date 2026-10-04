@@ -1,3 +1,5 @@
+import { captureStageMass, captureTreeStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
+import type { StageMassOverride } from './stageMassOverrides.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
@@ -138,6 +140,8 @@ export interface MeasuredFigures {
 
 /** One rocket-level <motorconfiguration> declaration. */
 export interface OrkFlightConfig {
+  /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
+  stageMassOverrides?: Record<string, StageMassOverride>;
   id: string;
   /** File stage activeness keyed by editor node id; preserved, not simulated. */
   stageActiveness?: Record<string, boolean>;
@@ -1236,6 +1240,24 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       && (numOpt(stage, 'overrideMass') !== undefined || numOpt(stage, 'overrideCGX') !== undefined)) {
       stage[OVERRIDE_INCLUDES_MOTOR] = included;
     }
+    // App extension: a COMPLETE snapshot per stage/configuration, so an
+    // empty block clears bare overrides. Desktop keeps the bare active values.
+    for (const c of configs) {
+      const block = Array.from(stageEl.children).find(x =>
+        x.tagName === 'stagemassconfiguration' && x.getAttribute('configid') === c.id);
+      if (!block) continue;
+      const value: ComponentNode = { type: 'stage' };
+      readOverrides(block, value, notes);
+      const mark = text(block, ':scope > overrideincludesmotor');
+      if (mark) value['overrideIncludesMotor'] = mark;
+      const snapshot = captureStageMass(value);
+      (c.stageMassOverrides ??= {})[stage.id!] = snapshot;
+      if (c.id === chosenConfigId) {
+        const next = replaceStageMass(stage, snapshot);
+        for (const key of Object.keys(stage)) delete stage[key];
+        Object.assign(stage, next);
+      }
+    }
     if (i > 0) {
       // Like ignition: the chosen config's block overrides the bare defaults
       // (24.12 writes a <separationconfiguration> for EVERY config id).
@@ -2002,6 +2024,7 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): s
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
 export interface OrkExportConfig {
+  stageMassOverrides?: Record<string, StageMassOverride>;
   id: string;
   /** Preserved file flags keyed by stage node id, including parallel boosters. */
   stageActiveness?: Record<string, boolean>;
@@ -2176,6 +2199,9 @@ export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
   flightDataDefault, notes,
 }: OrkTreeExportInput): string {
+  // Complete existing owners before minting a custom configuration, including
+  // callers that export directly without first syncing the active config.
+  if (configs) configs = completeStageMass(configs, tree);
   // Read in place, not copied. The copy that stood here kept the legacy
   // `motor` + `mountId` merge out of the caller's map, and went with that pair
   // (audit 2026-09-22, Dead code row 575). Nothing below writes a motor map:
@@ -2183,6 +2209,11 @@ export function exportOrk({
   // the Readonly here and on writeConfigs makes tsc refuse an index write or a
   // delete through either.
   const motorMap: Readonly<Record<string, OrkExportMotor>> = motors ?? {};
+  if (configs?.some(c => c.stageMassOverrides)) {
+    notes?.push('Per-configuration stage mass and CG are saved as an app extension. '
+      + 'The app restores them when reopening; OpenRocket desktop uses the active configuration’s '
+      + 'stage overrides for every configuration.');
+  }
   // The configurations to write. Classic path (no configs): ONE minted
   // config carrying the working set — exactly the pre-Stage-B output.
   //
@@ -2214,6 +2245,7 @@ export function exportOrk({
     /** null for the ACTIVE config: its separation comes from the live tree. */
     separations: Record<string, OrkSeparationOverride> | null;
     stageActiveness?: Record<string, boolean>;
+    stageMassOverrides?: Record<string, StageMassOverride>;
   }> =
     configs && configs.length > 0
       ? configs.map((c) => ({
@@ -2223,12 +2255,14 @@ export function exportOrk({
         deployments: c === active ? null : (c.deployments ?? {}),
         separations: c === active ? null : (c.separations ?? {}),
         stageActiveness: c.stageActiveness,
+        stageMassOverrides: c.stageMassOverrides,
       }))
       : [{ id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
   const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? { id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }
+    ? { id: uuid(), name: null, motors: motorMap, deployments: null, separations: null,
+      ...(configs.some(c => c.stageMassOverrides) ? { stageMassOverrides: captureTreeStageMass(tree) } : {}) }
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
@@ -3133,6 +3167,15 @@ export function exportOrk({
     // without this a whole-stage Cd or weighed mass typed in the app was
     // applied to the simulation and then thrown away on Save.
     overrides(4, st);
+    for (const c of writeConfigs) {
+      if (!st.id || !c.stageMassOverrides || !Object.hasOwn(c.stageMassOverrides, st.id)) continue;
+      const value = c.id === active?.id ? captureStageMass(st) : c.stageMassOverrides[st.id]!;
+      emit(4, `<stagemassconfiguration configid="${escapeXmlAttr(c.id)}">`);
+      overrides(5, { type: 'stage', ...value });
+      if (value.overrideIncludesMotor) emit(5,
+        `<overrideincludesmotor>${escapeXml(value.overrideIncludesMotor)}</overrideincludesmotor>`);
+      emit(4, '</stagemassconfiguration>');
+    }
     // RASAero power-on base-drag input (metres, no conversion). Non-standard
     // element (OpenRocket desktop ignores it); only emitted when finite and nonnegative so a
     // plain design round-trips exactly. Applies to every stage incl. sustainer.

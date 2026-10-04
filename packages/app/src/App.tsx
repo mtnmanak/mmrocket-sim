@@ -154,8 +154,8 @@ import {
   catalogueMotorMass, flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity,
 } from './services/hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, stripPadMass,
-  stripRefPadMass, syncActiveConfig, withoutStoredRef,
+  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
+  stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced,
 } from './services/configSync.js';
 import {
   reconcileAllIncludedMotors, reconcileIncludedMotor,
@@ -305,6 +305,9 @@ export function App() {
   const [restored] = useState(() => designStateFromSession(session, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
   const { restoreNotes, preLengthRestore } = restored;
   const initialTree = restored.state.tree;
+  // Only crossing a Scale step restores configuration snapshots. An ordinary
+  // tree undo (especially after Apply None) must not undo saved configuration edits.
+  const scaleRevision = useRef<object>({});
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -316,6 +319,20 @@ export function App() {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
+    captureCompanion: (): { revision: object; configs: SavedConfig[] } => ({
+      revision: scaleRevision.current,
+      configs: withActiveConfigTreeSynced(savedConfigs, activeConfigId, treeRef.current),
+    }),
+    restoreCompanion: ({ revision, configs }) => {
+      if (revision === scaleRevision.current) return;
+      scaleRevision.current = revision;
+      setSavedConfigs(prev => prev.map(c => {
+        const old = configs.find(row => row.id === c.id);
+        if (!old) return c;
+        const { stageMassOverrides: _snapshot, ...rest } = c;
+        return old.stageMassOverrides ? { ...rest, stageMassOverrides: old.stageMassOverrides } : rest;
+      }));
+    },
     onRestore: (t) => {
       restoreNozzleFollow(t);
       return spendSpentMarks.current(t);
@@ -2046,6 +2063,7 @@ export function App() {
     }),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
+    ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
   }));
 
   /**
@@ -3026,7 +3044,9 @@ export function App() {
           tree={tree}
           assignedMotorDiameters={assignedMotorDiameters}
           onApply={(res) => {
+            const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor);
             commitTreeStep(res.tree);
+            scaleRevision.current = {};
             // A measured mass describes the rocket that was weighed. After a
             // scale it describes one that no longer exists, and the box would
             // report the new design's gap against someone else's scale.
@@ -3039,7 +3059,8 @@ export function App() {
             // one, so a design without a pad mass is untouched.
             setMountMotors((prev) => stripPadMass(prev));
             setUnmatchedRefs((prev) => stripRefPadMass(prev));
-            setSavedConfigs((prev) => {
+            setSavedConfigs(() => {
+              const prev = scaledConfigs;
               let changed = false;
               const next = prev.map((c) => {
                 const motors = stripPadMass(c.motors);

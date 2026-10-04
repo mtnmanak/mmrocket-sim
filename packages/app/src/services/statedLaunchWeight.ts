@@ -94,15 +94,11 @@ import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designat
  * same "a wrong override is worse than none" ruling the two refusal branches
  * below already run on, and the same one the import block itself runs on.
  *
- * THE LIMIT THAT LEAVES, stated rather than hidden. A RASAero file states a
- * launch weight PER SIMULATION, and only the applied one is read at import
- * (`rasaeroFile.ts`, "WHICH SIMULATION'S NUMBERS"). Nothing carries the other
- * simulations' weights, so switching flight configuration cannot re-derive the
- * new simulation's stage mass — it can only decline to use the old one. Fixing
- * that means carrying each configuration's stated weights AND re-running the
- * importer's whole per-stage override pass (stack-above subtraction, motor CG
- * placement) on every switch; it is a feature, not a review fix, and it is
- * logged rather than half-built here.
+ * Each RASAero configuration now carries its own derived stage mass/CG
+ * snapshot, including this mark when its motor was unresolved. Import and
+ * configuration switch restore that snapshot before reconciliation. A swap
+ * on the live configuration still obeys the matching-only rule above; live
+ * overrides (and a spent mark) are synced before switching away or saving.
  */
 
 /**

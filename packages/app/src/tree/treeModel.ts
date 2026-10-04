@@ -48,11 +48,17 @@ export function freshId(): string {
  * reseeding, the first freshId() after a reload collides with them (duplicate
  * ids break selection, updateNode and setMotorById).
  */
+export function reserveNodeIds(ids: Iterable<string>): void {
+  for (const id of ids) {
+    const m = /^c(\d+)$/.exec(id);
+    if (m) counter = Math.max(counter, Number(m[1]) + 1);
+  }
+}
+
 function reseedIds(tree: RocketTree): void {
   const walk = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
-      const m = n.id ? /^c(\d+)$/.exec(n.id) : null;
-      if (m) counter = Math.max(counter, Number(m[1]) + 1);
+      if (n.id) reserveNodeIds([n.id]);
       walk(n.children ?? []);
     }
   };

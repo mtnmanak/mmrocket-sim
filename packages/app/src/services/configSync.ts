@@ -1,3 +1,5 @@
+import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
+import { scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
@@ -137,9 +139,9 @@ function liveOverride<T extends object>(
 /**
  * The live tree written back into the active configuration: its recovery
  * deployments, stage separations and (RASAero) nozzles, for exactly the nodes
- * the configuration governs. Returns `configs` BY IDENTITY when there is no
- * active row or nothing differs under `stableJson`, the same contract as
- * `withActiveConfigSynced`.
+ * the configuration governs. Stage mass/CG maps also gain every added stage,
+ * including while None is active. Returns `configs` BY IDENTITY when no maps
+ * need completing and no active values differ under `stableJson`.
  *
  * WHY (audit 2026-09-22). Only the MOTORS were written back, so a deployment,
  * separation or nozzle changed in the app while A was active was overwritten
@@ -148,11 +150,13 @@ function liveOverride<T extends object>(
  * user's, and a Save while B was active wrote A's stale values (the .ork writer
  * replays every non-active configuration from its stored copy). A node the tree
  * no longer has keeps its stored entry; a node the configuration does not
- * govern (a chute added in the app) is tree-level and stays out of it.
+ * govern (a chute added in the app) is tree-level and stays out of it. Stage
+ * mass/CG is the exception: all snapshot-bearing configs own every live stage.
  */
 export function withActiveConfigTreeSynced(
   configs: SavedConfig[], activeId: string | null, tree: RocketTree,
 ): SavedConfig[] {
+  configs = completeStageMass(configs, tree);
   if (activeId === null) return configs;
   const at = configs.findIndex((c) => c.id === activeId);
   if (at === -1) return configs;
@@ -169,6 +173,7 @@ export function withActiveConfigTreeSynced(
     }
     return changed ? out : stored;
   };
+  const stageMassOverrides = sync(c.stageMassOverrides, (n) => captureStageMass(n));
   const deployments = sync(c.deployments, (n, o) => liveOverride(n, o, DEPLOY_FIELDS));
   const separations = sync(c.separations, (n, o) => liveOverride(n, o, SEPARATION_FIELDS));
   // Preserve explicit OFF separately from blank/automatic.
@@ -176,12 +181,14 @@ export function withActiveConfigTreeSynced(
     const d = n['nozzleExitDiameter'];
     return typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
   });
-  if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles) return configs;
+  if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles
+      && stageMassOverrides === c.stageMassOverrides) return configs;
   const next: SavedConfig = {
     ...c,
     ...(deployments ? { deployments } : {}),
     ...(separations ? { separations } : {}),
     ...(nozzles ? { nozzles } : {}),
+    ...(stageMassOverrides ? { stageMassOverrides } : {}),
   };
   return configs.map((row, i) => (i === at ? next : row));
 }
@@ -198,6 +205,19 @@ export function syncActiveConfig(
 ): SavedConfig[] {
   return withActiveConfigTreeSynced(
     withActiveConfigSynced(configs, activeId, live.motors, live.unmatchedRefs), activeId, live.tree);
+}
+
+/** Apply the tree scaler's exact mass/CG and unresolved-motor policy to every snapshot. */
+export function scaleConfigStageMass(
+  configs: SavedConfig[], activeId: string | null, tree: RocketTree, factor: number,
+): SavedConfig[] {
+  return withActiveConfigTreeSynced(configs, activeId, tree).map(c => {
+    if (!c.stageMassOverrides) return c;
+    const snapshots = scaleRocket({ name: tree.name, components:
+      Object.entries(c.stageMassOverrides).map(([id, values]) => ({ type: 'stage', id, ...values })) }, factor);
+    return { ...c, stageMassOverrides: Object.fromEntries(snapshots.tree.components.map(s =>
+      [s.id!, captureStageMass(s)])) };
+  });
 }
 
 /**

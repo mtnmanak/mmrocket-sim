@@ -10,6 +10,7 @@ import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import type { MountMotor } from './model/design.js';
+import type { StageMassOverride } from './services/stageMassOverrides.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
@@ -221,6 +222,109 @@ afterEach(async () => {
 });
 
 describe('lane C2 save and share fidelity', () => {
+  it('round 2: ordinary undo after Apply None keeps saved configuration edits', async () => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!;
+    Object.assign(stage, { overrideMass: 3, overrideSubcomponentsMass: true });
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'A', savedConfigs: [{ id: 'A', name: 'A', isDefault: true, motors: {},
+        stageMassOverrides: { [stage.id!]: { overrideMass: 3, overrideSubcomponentsMass: true } } },
+      { id: 'B', name: 'B', isDefault: false, motors: {}, stageMassOverrides: { [stage.id!]: {} } }],
+    }));
+    const host = await mountApp();
+    const row = [...host.querySelectorAll<HTMLElement>('.tree-row')]
+      .find(r => r.querySelector('.tree-label')?.textContent === stage.name)!;
+    await act(async () => { row.click(); });
+    await type(input(host, 'Mass override'), '5000'); // default display is grams
+    await openTab(host, 'Motors & Launch');
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Apply None"]')!.click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass).toBe(5);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!['overrideMass']).toBe(3);
+    expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass).toBe(5);
+  });
+
+  it('round 2: scale transforms inactive snapshots, and undo/redo restores them with the tree', async () => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!;
+    const a = { overrideMass: 3, overrideCGX: 0.8, overrideSubcomponentsMass: true, overrideSubcomponentsCG: true };
+    const b = { ...a, overrideMass: 4, overrideCGX: 0.9 };
+    const pending = { ...b, overrideIncludesMotor: 'Z999TEST' };
+    Object.assign(stage, a);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'A', savedConfigs: [a, b, pending].map((snapshot, i) => ({
+        id: ['A', 'B', 'C'][i], name: ['A', 'B', 'C'][i], isDefault: i === 0, motors: {},
+        stageMassOverrides: { [stage.id!]: snapshot },
+      })),
+    }));
+    const host = await mountApp();
+    await act(async () => { button(host, 'Scale').click(); });
+    await waitFor(() => document.getElementById('scale-factor') !== null, 'scale dialog');
+    await type(document.getElementById('scale-factor') as HTMLInputElement, '2');
+    await act(async () => { button(document, 'Scale to 200').click(); });
+    const snapshots = async () => {
+      await saveAs(host, 'Save .ork');
+      const r = importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+      return r.configs.map(c => c.stageMassOverrides?.[r.tree.components[0]!.id!]);
+    };
+    const scaled: StageMassOverride[] = [{ ...a, overrideMass: 24, overrideCGX: 1.6 },
+      { ...b, overrideMass: 32, overrideCGX: 1.8 }, {}];
+    expect(await snapshots()).toEqual(scaled);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })); });
+    expect(await snapshots()).toEqual([a, b, pending]);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true })); });
+    expect(await snapshots()).toEqual(scaled);
+    await openTab(host, 'Motors & Launch');
+    for (const [name, expected] of [['B', scaled[1]], ['C', scaled[2]]] as const) {
+      const apply = host.querySelector<HTMLButtonElement>(`button[aria-label="Apply ${name}"]`)!;
+      await act(async () => { apply.click(); });
+      window.dispatchEvent(new Event('pagehide'));
+      const current = storedSession()!.tree.components[0]!;
+      expect(current['overrideMass']).toBe(expected!.overrideMass);
+      expect(current['overrideCGX']).toBe(expected!.overrideCGX);
+      expect(current['overrideIncludesMotor']).toBeUndefined();
+    }
+  });
+  it('keeps configuration stage mass/CG through Save, share, and crash recovery', async () => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!;
+    const first = { overrideMass: 0.12, overrideCGX: 0.2, overrideSubcomponentsMass: true, overrideSubcomponentsCG: true };
+    const second = { ...first, overrideMass: 0.15, overrideCGX: 0.22 };
+    Object.assign(stage, second);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'B', savedConfigs: [
+        { id: 'A', name: 'A', isDefault: false, motors: {}, stageMassOverrides: { [stage.id!]: first } },
+        { id: 'B', name: 'B', isDefault: true, motors: {}, stageMassOverrides: { [stage.id!]: second } },
+      ],
+    }));
+    const host = await mountApp();
+    await settle(50);
+    const check = (xml: string) => {
+      const result = importOrk(xml);
+      const id = result.tree.components[0]!.id!;
+      expect(result.configs.map(c => c.stageMassOverrides?.[id])).toEqual([first, second]);
+    };
+    await saveAs(host, 'Save .ork');
+    check(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+    expect(host.textContent).toContain('OpenRocket desktop uses the active configuration');
+    window.dispatchEvent(new Event('pagehide'));
+    check(autosavedDesignFile()!.data);
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      await saveAs(host, 'Copy share link');
+      await waitFor(() => writeText.mock.calls.length === 1, 'stage overrides share copy');
+      check(await decodeShareFragment(new URL(writeText.mock.calls.at(-1)![0]).hash));
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
   it('K2 keeps inactive stages through open, save, share, session reload and crash recovery', async () => {
     const xml = exportOrk({ name: 'Inactive stage', tree: defaultTree() }).replace('active="true"', 'active="false"');
     let host = await mountApp();

@@ -1,3 +1,4 @@
+import type { StageMassOverride } from '../services/stageMassOverrides.js';
 import type { IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
 import type { MotorMeta } from '../services/simReport.js';
 import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from '../services/orkFile.js';
@@ -71,6 +72,8 @@ export interface MountMotor {
  * reads; applying a preset copies its motors in and marks it active.
  */
 export interface SavedConfig {
+  /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
+  stageMassOverrides?: Record<string, StageMassOverride>;
   /** File stage activeness keyed by node id; kept through save and session restore. */
   stageActiveness?: Record<string, boolean>;
   /** The .ork configid — stable through save, so desktop round-trips keep it. */
