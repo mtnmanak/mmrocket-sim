@@ -15,7 +15,7 @@ import {
 } from './atmosphere.js';
 import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
-import type { OrkFlightConfig, OrkImportResult, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
+import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef, type OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
 } from './statedLaunchWeight.js';
@@ -1062,6 +1062,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       motors: cfgMotors, deployments: {}, separations,
       nozzles: readNozzles(sim, cfgId),
     });
+    if (configs.length > MAX_ORK_CONFIGURATIONS) {
+      throw new Error(`This file would open as more than ${MAX_ORK_CONFIGURATIONS} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Reduce the simulations in RASAero and save it again.`);
+    }
   }
   // Which configuration to open. The first engine-carrying simulation is the
   // natural choice, but a RASAero file's first <Simulation> is often a

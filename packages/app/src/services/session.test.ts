@@ -199,6 +199,36 @@ describe('storage hardening: session tree', () => {
   });
 });
 
+describe('K2 stored stage activeness', () => {
+  it('keeps only boolean flags, including unusual string keys, without a repair notice', () => {
+    const flags = JSON.parse('{"core":true,"booster":false,"__proto__":false,"constructor":true,"text":"false","number":0,"nil":null,"object":{},"array":[]}') as unknown;
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [{ id: 'cfg', name: null, isDefault: true, motors: {}, stageActiveness: flags }],
+    }));
+    for (const loaded of [loadSession(), peekSession()]) {
+      expect(loaded).not.toBeNull();
+      expect(loaded!.savedConfigs![0]!.stageActiveness)
+        .toEqual(JSON.parse('{"core":true,"booster":false,"__proto__":false,"constructor":true}'));
+      expect(loaded!.treeRestoreNotes ?? []).toEqual([]);
+    }
+  });
+
+  it.each([null, false, 7, 'false', [false], { bad: 'false' }])('drops corrupt stage activeness %j', (stageActiveness) => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [{ id: 'cfg', motors: {}, stageActiveness }, { id: 'legacy', motors: {} }],
+    }));
+    const loaded = loadSession()!;
+    expect(loaded).not.toBeNull();
+    if (stageActiveness && typeof stageActiveness === 'object' && !Array.isArray(stageActiveness)) {
+      expect(loaded.savedConfigs![0]!.stageActiveness).toEqual({});
+    } else {
+      expect(loaded.savedConfigs![0]).not.toHaveProperty('stageActiveness');
+    }
+    expect(loaded.savedConfigs![1]).not.toHaveProperty('stageActiveness');
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+  });
+});
+
 describe('session autosave under quota', () => {
   it('migrates legacy configuration zero commands to automatic, but preserves new OFF and tree zero', () => {
     const legacy = { ...state(), savedConfigs: [{ id: 'c', name: 'C', isDefault: true, motors: {}, nozzles: { s: 0, b: 0.02 } }] };

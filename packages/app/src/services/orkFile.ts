@@ -139,6 +139,8 @@ export interface MeasuredFigures {
 /** One rocket-level <motorconfiguration> declaration. */
 export interface OrkFlightConfig {
   id: string;
+  /** File stage activeness keyed by editor node id; preserved, not simulated. */
+  stageActiveness?: Record<string, boolean>;
   /** Desktop writes <name> only when the user renamed the configuration. */
   name: string | null;
   isDefault: boolean;
@@ -434,6 +436,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // Flight-configuration table: rocket-level <motorconfiguration> blocks
   // (optional <name>, optional default="true" — desktop 24.12
   // MotorConfigurationHandler).
+  const stageIds = new Map<XmlElement, string>();
   const configs: OrkFlightConfig[] = configEls
     .map((c) => ({
       id: c.getAttribute('configid') ?? '',
@@ -1151,6 +1154,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           }
         }
         if (asmType === 'parallelstage') {
+          stageIds.set(el, n.id!);
           const nozzle = num(el, 'nozzleexitdiameter', NaN, notes);
           if (Number.isFinite(nozzle) && nozzle >= 0) n['nozzleExitDiameter'] = nozzle;
           // Same separation read as a booster <stage> — the chosen config's
@@ -1204,6 +1208,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       id: freshId(),
       name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
     };
+    stageIds.set(stageEl, stage.id!);
     // A stage carries mass/CG/Cd overrides like any other component. NOT via
     // base(), which would clobber the Sustainer/Booster name fallback above and
     // pull <material>/<finish> onto a stage that has neither.
@@ -1336,6 +1341,23 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         + 'repeat as multiple instances. The file keeps every instance, but the '
         + 'drawing and the simulation currently show one.',
     );
+  }
+
+  // Desktop numbers axial stages and parallel boosters in tree preorder.
+  // Keep node ids so deleting or reordering stages cannot move a flag to another stage.
+  const numberedStages = Array.from(rocketEl.querySelector(':scope > subcomponents')!
+    .querySelectorAll('stage, parallelstage, boosterset'));
+  for (const c of configs) {
+    const configEl = configEls.find((el) => el.getAttribute('configid') === c.id)!;
+    const flags: Record<string, boolean> = {};
+    for (const el of Array.from(configEl.querySelectorAll(':scope > stage'))) {
+      const number = el.getAttribute('number') ?? '';
+      if (!/^\d+$/.test(number)) continue;
+      const stageEl = numberedStages[Number(number)];
+      const id = stageEl && stageIds.get(stageEl);
+      if (id) flags[id] = /^true$/i.test(el.getAttribute('active') ?? '');
+    }
+    if (Object.keys(flags).length > 0) c.stageActiveness = flags;
   }
 
   // Stage activeness (<stage active="false">) is not applied (Stage C) —
@@ -1982,6 +2004,8 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): s
 /** One flight configuration to write (Stage B) — the stable id from import. */
 export interface OrkExportConfig {
   id: string;
+  /** Preserved file flags keyed by stage node id, including parallel boosters. */
+  stageActiveness?: Record<string, boolean>;
   /** Written as <name> only when non-null (desktop writes renamed configs only). */
   name: string | null;
   isDefault: boolean;
@@ -2004,6 +2028,8 @@ export interface OrkExportConfig {
 export interface OrkTreeExportInput {
   name: string;
   tree: RocketTree;
+  /** Save notices, displayed by the caller only after a successful write. */
+  notes?: string[];
   /**
    * Motors keyed by mount node id (Release C: one per mount). A legacy single
    * `motor` + `mountId` pair merged into this map was passed by no production
@@ -2149,7 +2175,7 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 
 export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
-  flightDataDefault,
+  flightDataDefault, notes,
 }: OrkTreeExportInput): string {
   // Read in place, not copied. The copy that stood here kept the legacy
   // `motor` + `mountId` merge out of the caller's map, and went with that pair
@@ -2188,6 +2214,7 @@ export function exportOrk({
     deployments: Record<string, OrkDeployOverride> | null;
     /** null for the ACTIVE config: its separation comes from the live tree. */
     separations: Record<string, OrkSeparationOverride> | null;
+    stageActiveness?: Record<string, boolean>;
   }> =
     configs && configs.length > 0
       ? configs.map((c) => ({
@@ -2196,6 +2223,7 @@ export function exportOrk({
         motors: c === active ? motorMap : c.motors,
         deployments: c === active ? null : (c.deployments ?? {}),
         separations: c === active ? null : (c.separations ?? {}),
+        stageActiveness: c.stageActiveness,
       }))
       : [{ id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }];
   // Active = none but motors loaded: mint an extra config carrying the live
@@ -2204,6 +2232,9 @@ export function exportOrk({
     ? { id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }
     : null;
   if (minted) writeConfigs.push(minted);
+  if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
+    throw new Error(`This design would write ${writeConfigs.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Apply one of the stored configurations, or Apply None, before saving.`);
+  }
   // default="true" (also what <simulation> references): the active config,
   // else the minted custom one, else the original default.
   const defaultId = active?.id ?? minted?.id
@@ -3072,11 +3103,22 @@ export function exportOrk({
   // Stage nodes at the top level export as sibling <stage> blocks (the
   // desktop model); legacy flat trees wrap into one implicit stage.
   const stageNodes = asStageNodes(tree);
+  const numberedStages: ComponentNode[] = [];
+  const collectStages = (nodes: ComponentNode[]) => {
+    for (const node of nodes) {
+      if (node.type === 'stage' || node.type === 'parallelstage') numberedStages.push(node);
+      collectStages(node.children ?? []);
+    }
+  };
+  collectStages(stageNodes);
+  if (writeConfigs.some((c) => numberedStages.some((s) => c.stageActiveness?.[s.id!] === false))) {
+    notes?.push('Inactive stages are preserved in this .ork file. The app does not apply stage activeness, so all stages fly in its simulation. Results for configurations with inactive stages are written as outdated because the app flew all stages; run them again in OpenRocket.');
+  }
   for (const c of writeConfigs) {
     emit(2, `<motorconfiguration configid="${escapeXmlAttr(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
     if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
-    for (let i = 0; i < stageNodes.length; i++) {
-      emit(3, `<stage number="${i}" active="true"/>`);
+    for (let i = 0; i < numberedStages.length; i++) {
+      emit(3, `<stage number="${i}" active="${c.stageActiveness?.[numberedStages[i]!.id!] === false ? 'false' : 'true'}"/>`);
     }
     emit(2, '</motorconfiguration>');
   }
@@ -3155,7 +3197,9 @@ export function exportOrk({
       const fd = (flightData && Object.hasOwn(flightData, c.id) ? flightData[c.id] : undefined)
         ?? (c.id === defaultId ? flightDataDefault : undefined);
       const fdAttrs = flightDataAttrs(fd);
-      emit(2, `<simulation status="${fdAttrs ? fd?.importedSummary ? 'outdated' : 'uptodate' : 'notsimulated'}">`);
+      // The app flew all stages, so its results cannot validate an inactive-stage configuration.
+      const hasInactiveStage = numberedStages.some((s) => c.stageActiveness?.[s.id!] === false);
+      emit(2, `<simulation status="${fdAttrs ? fd?.importedSummary || hasInactiveStage ? 'outdated' : 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".
       emit(3, `<name>${escapeXml(c.name ?? `Simulation ${i + 1}`)}</name>`);

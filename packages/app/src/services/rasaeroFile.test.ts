@@ -26,6 +26,17 @@ function flatten(nodes: ComponentNode[]): ComponentNode[] {
 }
 
 describe('RASAero import — desktop fixture files', () => {
+  it('K4 caps engine-carrying imported configurations, excluding engine-less simulations', () => {
+    const cdx = (count: number) => `<RASAeroDocument><RocketDesign>
+      <BodyTube><PartType>BodyTube</PartType><Length>20</Length><Diameter>3</Diameter></BodyTube>
+      </RocketDesign><SimulationList><Simulation/>
+      ${'<Simulation><SustainerEngine>J350W  (AT)</SustainerEngine></Simulation>'.repeat(count)}
+      </SimulationList></RASAeroDocument>`;
+    expect(importCdx1(cdx(256)).configs).toHaveLength(256);
+    expect(() => importCdx1(cdx(257)))
+      .toThrow('This file would open as more than 256 flight configurations, past the 256 the app will open. Reduce the simulations in RASAero and save it again.');
+  });
+
   it('imports the three-stage rocket as three stages', () => {
     const r = importCdx1(fixture('Three-stage rocket.CDX1'));
     expect(r.tree.components.length).toBe(3);

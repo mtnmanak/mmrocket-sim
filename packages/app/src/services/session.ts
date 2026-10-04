@@ -344,6 +344,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
           + 'The old design\'s motors, configurations, and measurements were not applied.'],
       };
     }
+    for (const cfg of s.savedConfigs ?? []) {
+      if (isTable(cfg.stageActiveness)) {
+        cfg.stageActiveness = lookupTable(Object.fromEntries(
+          Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
+        ));
+      } else {
+        delete cfg.stageActiveness;
+      }
+    }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.
     if (s.nozzleModeVersion !== 1) {

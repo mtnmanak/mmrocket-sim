@@ -2026,6 +2026,7 @@ export function App() {
     configs: SavedConfig[] = savedConfigs, flown: FlownAutoDelays = {},
   ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
+    ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
     // The same mapping as exportMotorsMap: what the file said, re-emitted
     // verbatim for any mount this configuration could not match, so a preset
     // the user has never applied does not quietly lose its motors on the way
@@ -2133,6 +2134,7 @@ export function App() {
         name: tree.name ?? 'My Rocket', tree, motors, launch,
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
+        notes: losses,
       }), 'ork', '', losses);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.

@@ -76,6 +76,7 @@ export function autosaveToOrk(s: SessionState): string {
     launch: s.launch,
     configs: s.savedConfigs?.map((c) => ({
       id: c.id, name: c.name, isDefault: c.isDefault,
+      ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
       motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
       ...(c.deployments ? { deployments: c.deployments } : {}),
       ...(c.separations ? { separations: c.separations } : {}),

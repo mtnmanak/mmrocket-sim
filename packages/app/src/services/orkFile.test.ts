@@ -1317,7 +1317,7 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
 describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);
-    expect(result.configs.map(({ motors: _m, deployments: _d, separations: _s, ...rest }) => rest)).toEqual([
+    expect(result.configs.map(({ motors: _m, deployments: _d, separations: _s, stageActiveness: _a, ...rest }) => rest)).toEqual([
       { id: 'cfg-a', name: 'Club field C6', isDefault: true },
       { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
     ]);
@@ -3520,6 +3520,71 @@ it('S1a-8 warns about an inactive stage in a single configuration', () => {
   expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
   expect(result.notes.join(' ')).toContain('all stages fly');
   expect(importOrk(single.replace('active="false"', 'active="true"')).notes.join(' ')).not.toContain('deactivates');
+});
+
+describe('K2 stage activeness preservation', () => {
+  it.each([true, false])('marks only surviving inactive-stage results outdated (data: %s)', (withData) => {
+    const opened = importOrk(MULTI);
+    const input = {
+      name: opened.name, tree: opened.tree, launch: DEFAULT_CONDITIONS,
+      activeConfigId: 'cfg-a', configs: opened.configs.map((c) => ({ ...c, motors: {} })),
+      flightData: withData ? { 'cfg-a': { maxAltitude: 100 }, 'cfg-b': { maxAltitude: 200 } } : undefined,
+    };
+    const simulations = exportOrk(input).split('<simulation ').slice(1);
+    expect(simulations).toHaveLength(2);
+    expect(simulations[0]).toContain('<configid>cfg-a</configid>');
+    expect(simulations[1]).toContain('<configid>cfg-b</configid>');
+    expect(simulations[0]!.startsWith(`status="${withData ? 'uptodate' : 'notsimulated'}">`)).toBe(true);
+    expect(simulations[1]!.startsWith(`status="${withData ? 'outdated' : 'notsimulated'}">`)).toBe(true);
+    if (withData) {
+      expect(simulations[1]).toContain('<flightdata maxaltitude="200"/>');
+      const removed = exportOrk({ ...input, tree: { ...opened.tree, components: [opened.tree.components[0]!] } });
+      expect(removed.split('<simulation ').slice(1).every((s) => s.startsWith('status="uptodate">'))).toBe(true);
+    }
+  });
+
+  it.each(['cfg-a', 'cfg-b'])('round-trips every configuration while %s is selected', (activeConfigId) => {
+    const opened = importOrk(MULTI, { configId: activeConfigId });
+    const notes: string[] = [];
+    const xml = exportOrk({
+      name: opened.name, tree: opened.tree, activeConfigId, notes,
+      configs: opened.configs.map((c) => ({ ...c, motors: {} })),
+    });
+    const reopened = importOrk(xml, { configId: activeConfigId });
+    const boosterId = reopened.tree.components[1]!.id!;
+    expect(reopened.configs.find((c) => c.id === 'cfg-a')?.stageActiveness?.[boosterId]).toBe(true);
+    expect(reopened.configs.find((c) => c.id === 'cfg-b')?.stageActiveness?.[boosterId]).toBe(false);
+    expect(notes).toEqual(['Inactive stages are preserved in this .ork file. The app does not apply stage activeness, so all stages fly in its simulation. Results for configurations with inactive stages are written as outdated because the app flew all stages; run them again in OpenRocket.']);
+  });
+
+  it('keeps parallel booster flags on their node after serial stages are reordered or removed', () => {
+    const xml = `<openrocket><rocket>
+      <motorconfiguration configid="A"><stage number="0" active="true"/><stage number="1" active="false"/><stage number="2" active="true"/></motorconfiguration>
+      <subcomponents><stage><name>Core</name><subcomponents><bodytube><subcomponents>
+        <parallelstage><name>Strap-on</name><subcomponents><bodytube/></subcomponents></parallelstage>
+      </subcomponents></bodytube></subcomponents></stage><stage><name>Lower</name><subcomponents><bodytube/></subcomponents></stage></subcomponents>
+    </rocket></openrocket>`;
+    const opened = importOrk(xml);
+    const configs = opened.configs.map((c) => ({ ...c, motors: {} }));
+    const strap = flatten(opened.tree.components).find((n) => n.type === 'parallelstage')!;
+    expect(configs[0]!.stageActiveness?.[strap.id!]).toBe(false);
+    for (const components of [[...opened.tree.components].reverse(), [opened.tree.components[0]!]]) {
+      const saved = exportOrk({ name: opened.name, tree: { ...opened.tree, components }, configs, activeConfigId: 'A' });
+      const reopened = importOrk(saved);
+      const stages = flatten(reopened.tree.components).filter((n) => n.type === 'stage' || n.type === 'parallelstage');
+      expect(stages.map((n) => [n.name, reopened.configs[0]!.stageActiveness?.[n.id!]]))
+        .toEqual(components.length === 2
+          ? [['Lower', true], ['Core', true], ['Strap-on', false]]
+          : [['Core', true], ['Strap-on', false]]);
+    }
+  });
+
+  it('imports active="TRUE" as active', () => {
+    const xml = MULTI.replace('<stage number="1" active="false"/>', '<stage number="1" active="TRUE"/>');
+    const opened = importOrk(xml);
+    const boosterId = opened.tree.components[1]!.id!;
+    expect(opened.configs.find((c) => c.id === 'cfg-b')?.stageActiveness?.[boosterId]).toBe(true);
+  });
 });
 
 describe('.ork radial placement fidelity', () => {

@@ -13,7 +13,7 @@ import type { MountMotor } from './model/design.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
-import { exportOrk, importOrk } from './services/orkFile.js';
+import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
@@ -218,6 +218,72 @@ afterEach(async () => {
   await unmountAll();
   vi.unstubAllGlobals();
   window.history.replaceState(null, '', window.location.pathname);
+});
+
+describe('lane C2 save and share fidelity', () => {
+  it('K2 keeps inactive stages through open, save, share, session reload and crash recovery', async () => {
+    const xml = exportOrk({ name: 'Inactive stage', tree: defaultTree() }).replace('active="true"', 'active="false"');
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await pick(host, new File([xml], 'inactive.ork'));
+    await waitFor(() => shownName(host) === 'Inactive stage', 'inactive-stage import');
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const expectInactive = (saved: string) => {
+      const reopened = importOrk(saved);
+      expect(reopened.configs[0]!.stageActiveness?.[reopened.tree.components[0]!.id!]).toBe(false);
+    };
+    try {
+      for (let round = 0; round < 2; round++) {
+        await saveAs(host, 'Save .ork');
+        expectInactive(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+        expect(host.textContent).toContain('Inactive stages are preserved in this .ork file.');
+        await saveAs(host, 'Copy share link');
+        await waitFor(() => writeText.mock.calls.length === round + 1, 'share copy');
+        expectInactive(await decodeShareFragment(new URL(writeText.mock.calls.at(-1)![0]).hash));
+        window.dispatchEvent(new Event('pagehide'));
+        expectInactive(autosavedDesignFile()!.data);
+        if (round === 0) {
+          await unmountAll();
+          host = await mountApp();
+          await waitFor(() => shownName(host) === 'Inactive stage', 'restored design');
+        }
+      }
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  }, 30000);
+
+  it.each([
+    ['Save .ork', 'too many stored'], ['Copy share link', 'too many stored'],
+    ['Save .ork', 'extra custom set'], ['Copy share link', 'extra custom set'],
+  ])('K4 refuses %s for %s configurations', async (action, scenario) => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await unmountAll();
+    const stored = storedSession()!;
+    const count = MAX_ORK_CONFIGURATIONS + (scenario === 'too many stored' ? 1 : 0);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      ...stored,
+      activeConfigId: scenario === 'too many stored' ? 'c0' : null,
+      savedConfigs: Array.from({ length: count }, (_, i) => ({
+        id: `c${i}`, name: null, isDefault: i === 0, motors: {},
+      })),
+    }));
+    host = await mountApp();
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    vi.mocked(saveFile).mockClear();
+    try {
+      await saveAs(host, action!);
+      expect(saveFile).not.toHaveBeenCalled();
+      expect(writeText).not.toHaveBeenCalled();
+      expect(host.textContent).toContain(action === 'Save .ork' ? 'Save .ork failed' : 'Share link failed');
+      expect(host.textContent).toContain('257 flight configurations, past the 256');
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  }, 30000);
 });
 
 /**

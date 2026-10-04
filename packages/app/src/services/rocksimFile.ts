@@ -19,7 +19,7 @@ import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { isTailCone, tailConeAsTransition } from '../tree/tailCone.js';
 import {
-  autoDelaySaveNote, type MeasuredFigures, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
+  autoDelaySaveNote, MAX_ORK_CONFIGURATIONS, type MeasuredFigures, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -1770,6 +1770,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     foldedDiagnostics.set(cfg, []);
     cfgSim.set(cfg, { number: g.number, name });
     configs.push(cfg);
+    if (configs.length > MAX_ORK_CONFIGURATIONS) {
+      throw new Error(`This file would open as more than ${MAX_ORK_CONFIGURATIONS} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Reduce the simulations in RockSim and save it again.`);
+    }
   }
   // Which configuration to open: the first that puts a motor on the launch
   // stage, which is the one that has to light first — importCdx1's choice.

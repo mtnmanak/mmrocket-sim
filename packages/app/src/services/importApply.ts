@@ -481,6 +481,7 @@ export function planImport(
     }
     nextConfigs.push({
       id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
+      ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
       ...(cfg.deployments && Object.keys(cfg.deployments).length > 0

@@ -728,6 +728,28 @@ describe('.ork configuration count limit', () => {
   ).replace('<rocket>', '<rocket>' + Array.from({ length: count }, (_, i) =>
     ids ? '<motorconfiguration configid="c' + i + '"/>' : '<motorconfiguration/>').join(''));
 
+  it('K4 refuses over-limit saves and counts a newly created custom-motor configuration', () => {
+    const opened = importOrk(withConfigs(MAX_ORK_CONFIGURATIONS));
+    const configs: OrkExportConfig[] = opened.configs.map((c) => ({ ...c, motors: {} }));
+    const input = { name: opened.name, tree: opened.tree, configs };
+    expect(importOrk(exportOrk(input)).configs).toHaveLength(MAX_ORK_CONFIGURATIONS);
+    expect(() => exportOrk({ ...input, configs: [...configs, { ...configs[0]!, id: 'extra' }] }))
+      .toThrow(/257 flight configurations, past the 256/);
+    const motors: Record<string, OrkExportMotor> = {
+      mount: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 },
+    };
+    expect(() => exportOrk({ ...input, motors, activeConfigId: null }))
+      .toThrow(/257 flight configurations, past the 256.*Apply one of the stored configurations, or Apply None, before saving\./);
+    // Applying None clears the live motors, so no custom configuration is minted.
+    expect(importOrk(exportOrk({ ...input, motors: {}, activeConfigId: null })).configs)
+      .toHaveLength(MAX_ORK_CONFIGURATIONS);
+    // Applying an existing configuration needs no extra declaration.
+    expect(importOrk(exportOrk({ ...input, motors, activeConfigId: configs[0]!.id })).configs)
+      .toHaveLength(MAX_ORK_CONFIGURATIONS);
+    expect(importOrk(exportOrk({ ...input, configs: configs.slice(1), motors })).configs)
+      .toHaveLength(MAX_ORK_CONFIGURATIONS);
+  });
+
   it('refuses too many declarations before capturing recovery or separation settings', () => {
     expect(() => importOrk(withConfigs(MAX_ORK_CONFIGURATIONS + 1)))
       .toThrow(/flight configurations, past the 256 the app will open/);

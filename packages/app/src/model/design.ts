@@ -71,6 +71,8 @@ export interface MountMotor {
  * reads; applying a preset copies its motors in and marks it active.
  */
 export interface SavedConfig {
+  /** File stage activeness keyed by node id; kept through save and session restore. */
+  stageActiveness?: Record<string, boolean>;
   /** The .ork configid — stable through save, so desktop round-trips keep it. */
   id: string;
   /** null = unnamed in the file (the desktop shows its motor list instead). */
