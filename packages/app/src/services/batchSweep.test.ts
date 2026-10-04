@@ -6,11 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
-import { engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
+import { applyStageNozzles, engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, type MotorDbEntry } from './motorDb.js';
 import type { NozzleEntry } from './nozzleDb.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
-import { commentLevelsAlign, recommendDelay } from './simReport.js';
+import { changedSinceRun, commentLevelsAlign, motorDataKeyOf, recommendDelay, runMatchesDesign, storedSimCost } from './simReport.js';
+import { deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, physicsKeyOf, provenanceKeyOf, type DesignState } from './designDerivation.js';
+import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
+import { flownSpec, motorIdentity } from './hardwareMass.js';
+import { padMassSetKey } from './configSync.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import type { MountMotor } from '../model/design.js';
@@ -130,7 +134,7 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
     tree,
     info: OrkRocket.buildTree(engineTree(tree)).staticInfo(),
     mounts: [MOUNT], target: MOUNT, candidates: [], splits: [],
-    assignedMotors: {}, assignedMotorIds: {}, assignedIgnitions: {},
+    assignedMountMotors: {}, assignedMotors: {}, assignedMotorIds: {}, assignedIgnitions: {},
     model: 'kbf', autoDelay: true, launch: DEFAULT_CONDITIONS, rocketName: 'Sweep bird',
     ...over,
   };
@@ -808,4 +812,305 @@ it('S7a-2 flies candidates despite a motor left on a deleted mount', async () =>
   expect(result.rows).toHaveLength(1);
   expect(result.rows[0]!.error).toBeUndefined();
   expect(result.rows[0]!.run).toBeDefined();
+}, 30000);
+
+it('K7: Batch row carries provenance keys (motorDataKey, designKey, motorSetKey) matching design, and a changed curve makes runMatchesDesign false', async () => {
+  const tree = rocket();
+  const specA = curve('E20');
+  const cand = entry('a', 'Acme', 'E20', '5');
+  const inp = input(tree, {
+    candidates: [cand],
+    autoDelay: false,
+  });
+  const result = await sweep(inp, { fetchSpec: fetchFrom({ a: specA }), nozzleFor: nozzles({}) });
+  expect(result.rows).toHaveLength(1);
+  const row = result.rows[0]!;
+  expect(row.run).toBeDefined();
+  const run = row.run!;
+
+  // 1. A Batch row carries motorDataKey equal to motorDataKeyOf for its motors
+  const expectedAssigned: [string, MountMotor][] = [[
+    'mount',
+    {
+      spec: { ...specA, ejectionDelay: 5 },
+      label: specA.designation,
+      meta: {
+        label: cand.designation,
+        manufacturer: cand.manufacturerAbbrev,
+        motorId: cand.motorId,
+        autoDelay: false,
+      },
+      ignition: { event: 'automatic', delay: 0 },
+    },
+  ]];
+  expect(run.motorDataKey).toBeDefined();
+  expect(run.motorDataKey).toBe(motorDataKeyOf(expectedAssigned));
+
+  // 2. Also carries designKey and motorSetKey matching the swept design and motor
+  const cur = provenanceKeyOf({
+    physicsKey: physicsKeyOf(tree.components),
+    tree,
+    assigned: expectedAssigned,
+    hardwareDeltaKg: 0,
+    launch: DEFAULT_CONDITIONS,
+    aero: { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false },
+  });
+  expect(run.designKey).toBe(cur.designKey);
+  expect(run.motorSetKey).toBe(cur.motorSetKey);
+  expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
+  expect(runMatchesDesign(run, cur)).toBe(true);
+
+  // 3. A changed curve makes runMatchesDesign false for it
+  const changedSpec = { ...specA, thrusts: specA.thrusts.map((t) => t * 1.5) };
+  const changedAssigned: [string, MountMotor][] = [[
+    'mount',
+    {
+      ...expectedAssigned[0]![1],
+      spec: changedSpec,
+    },
+  ]];
+  const changedCur = provenanceKeyOf({
+    physicsKey: physicsKeyOf(tree.components),
+    tree,
+    assigned: changedAssigned,
+    hardwareDeltaKg: 0,
+    launch: DEFAULT_CONDITIONS,
+    aero: { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false },
+  });
+  expect(changedCur.motorDataKey).not.toBe(run.motorDataKey);
+  expect(runMatchesDesign(run, changedCur)).toBe(false);
+}, 30000);
+
+it('K7: combination Batch row keys the original design and the flown group motors', async () => {
+  const t = clusterRocket('4-ring');
+  const split = splitClusterTree(t, 'mount')!;
+  const cands = [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')];
+  const { rows } = await sweep(input(t, { candidates: cands, splits: [split], autoDelay: false }),
+    { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  const comboRow = rows.find((r) => r.combo);
+  expect(comboRow?.run).toBeDefined();
+  const run = comboRow!.run!;
+  expect(run.motorDataKey).toBeDefined();
+  expect(run.designKey).toBe(provenanceKeyOf({
+    physicsKey: physicsKeyOf(t.components),
+    tree: t,
+    assigned: [],
+    hardwareDeltaKg: 0,
+    launch: DEFAULT_CONDITIONS,
+    aero: { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false },
+  }).designKey);
+  expect(run.motorSetKey).toBeDefined();
+  const state = designState(split.tree, Object.fromEntries(split.mountIds.map((id, i) =>
+    [id, loadedMotor(cands[i]!.motorId, cands[i]!.designation)])));
+  const cur = provenanceKeyOf({
+    ...deriveLaunchInputs(state, provenanceAero), physicsKey: physicsKeyOf(t.components), tree: state.tree, launch: state.launch,
+    hardwareDeltaKg: 0, aero: provenanceAero,
+  });
+  expect(run.motorDataKey).toBe(cur.motorDataKey);
+  expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
+  const original = designPageKey(designState(t, { mount: loadedMotor('a', 'E20') }));
+  expect(changedSinceRun(run, original)).toEqual(['the motor']);
+  expect(runMatchesDesign(run, cur)).toBe(true);
+  expect(changedSinceRun(run, cur)).toEqual([]);
+}, 30000);
+
+const provenanceAero = { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false } as const;
+const loadedMotor = (id: string, designation: string): MountMotor => ({
+  label: designation, spec: curve(designation),
+  meta: { label: designation, manufacturer: 'Acme', motorId: id, autoDelay: false },
+  ignition: { event: 'automatic', delay: 0 },
+});
+const designState = (tree: RocketTree, mountMotors: Record<string, MountMotor>): DesignState => ({
+  tree, mountMotors, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+  savedConfigs: [], activeConfigId: null,
+});
+
+function designPageKey(state: DesignState) {
+  const derived = deriveLaunchInputs(state, provenanceAero);
+  const built = buildDesign(designBuildInputOf({
+    tree: state.tree, assigned: derived.assigned, effectiveKbf: true, effectiveSupersonic: false,
+    measuredDryMassKg: null, primaryMountId: derived.primaryMountId, currentSetKey: derived.currentSetKey,
+  }), KERNEL_HANDLES);
+  if ('error' in built) throw new Error(built.error);
+  expect(built.motorFailures).toEqual([]);
+  return provenanceKeyOf({
+    ...derived, tree: state.tree, launch: state.launch,
+    hardwareDeltaKg: hardwareDeltaKgOf(built), aero: provenanceAero,
+  });
+}
+
+it('K7: a batch database nozzle does not match a design with no nozzle', async () => {
+  const tree = rocket();
+  const state = designState(tree, { mount: loadedMotor('a', 'E20') });
+  const cur = designPageKey(state);
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
+    assignedMountMotors: state.mountMotors,
+    assignedMotors: { mount: state.mountMotors.mount!.spec },
+    assignedMotorIds: batchMotorIds(state.mountMotors),
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: nozzles({ a: 0.012 }) });
+  expect(rows[0]!.error).toBeUndefined();
+  const run = rows[0]!.run!;
+  expect(run.nozzleStages).toEqual(['Sustainer']);
+  expect(run.motorSetKey).toBe(cur.motorSetKey);
+  expect(run.motorDataKey).toBe(cur.motorDataKey);
+  expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
+  expect(runMatchesDesign(run, cur)).toBe(false);
+  expect(changedSinceRun(run, cur)).toEqual(['the design']);
+}, 30000);
+
+it.each([0.016, null])('K7: a batch candidate matches the design after following its nozzle %s', async (exitB) => {
+  const exitA = 0.012;
+  const tree = rocket({ nozzleExitDiameter: exitA });
+  const state = designState(tree, { mount: loadedMotor('a', 'E20') });
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')], autoDelay: false,
+    assignedMountMotors: state.mountMotors,
+    assignedMotors: { mount: state.mountMotors.mount!.spec },
+    assignedMotorIds: batchMotorIds(state.mountMotors),
+  }), {
+    fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }),
+    nozzleFor: nozzles({ a: exitA, ...(exitB !== null ? { b: exitB } : {}) }),
+  });
+  const curA = designPageKey(state);
+  const curB = designPageKey(designState(
+    applyStageNozzles(tree, { st0: exitB }), { mount: loadedMotor('b', 'E22') },
+  ));
+  for (const [id, cur] of [['a', curA], ['b', curB]] as const) {
+    const row = rows.find((r) => r.entry.motorId === id)!;
+    expect(row.error).toBeUndefined();
+    expect(runMatchesDesign(row.run!, cur)).toBe(true);
+    expect(changedSinceRun(row.run!, cur)).toEqual([]);
+  }
+}, 30000);
+
+it.each([0.016, null])('K7: combination provenance follows its equivalent nozzle %s', async (exitB) => {
+  const tree = applyStageNozzles(clusterRocket('4-ring'), { st0: 0.04 });
+  const split = splitClusterTree(tree, 'mount')!;
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    splits: [split], autoDelay: false,
+  }), {
+    fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }),
+    nozzleFor: nozzles({ a: 0.012, ...(exitB !== null ? { b: exitB } : {}) }),
+  });
+  const row = rows.find((r) => r.combo)!;
+  expect(row.error).toBeUndefined();
+  const exitM = exitB === null ? null : Math.sqrt(2 * 0.012 ** 2 + 2 * exitB ** 2);
+  if (exitM === null) expect(row.exitM).toBeNull();
+  else expect(row.exitM).toBeCloseTo(exitM, 10);
+  const cur = designPageKey(designState(
+    applyStageNozzles(split.tree, { st0: exitM }),
+    Object.fromEntries(split.mountIds.map((id, i) => [id, loadedMotor(i === 0 ? 'a' : 'b', i === 0 ? 'E20' : 'E22')])),
+  ));
+  const original = designPageKey(designState(
+    applyStageNozzles(tree, { st0: exitM }), { mount: loadedMotor('a', 'E20') },
+  ));
+  expect(row.run!.designKey).toBe(original.designKey);
+  expect(changedSinceRun(row.run!, original)).toEqual(['the motor']);
+  expect(runMatchesDesign(row.run!, { ...cur, designKey: original.designKey })).toBe(true);
+}, 30000);
+
+it.each([
+  { name: 'weighed target', sideMount: false, weighed: true, targetId: 'mount' },
+  { name: 'two catalogue mounts', sideMount: true, weighed: false, targetId: 'mount' },
+  { name: 'weighed retained mount', sideMount: true, weighed: true, targetId: 'side' },
+])('K7: design-page provenance matches a real batch row with $name', async ({ sideMount, weighed, targetId }) => {
+  const tree = rocket({ sideMount });
+  const state = designState(tree, {
+    mount: loadedMotor('a', 'E20'),
+    ...(sideMount ? { side: loadedMotor('b', 'E22') } : {}),
+  });
+  if (weighed) {
+    const dryKg = OrkRocket.buildTree(engineTree(tree)).staticInfo().massEmpty;
+    state.mountMotors.mount!.padMassKg = dryKg + (sideMount ? 0.14 : 0.07) + 0.01;
+    state.mountMotors.mount!.padMassWeighedWith = padMassSetKey(tree, state.mountMotors);
+  }
+  const derived = deriveLaunchInputs(state, provenanceAero);
+  const built = buildDesign(designBuildInputOf({
+    tree, assigned: derived.assigned, effectiveKbf: true, effectiveSupersonic: false,
+    measuredDryMassKg: null, primaryMountId: derived.primaryMountId, currentSetKey: derived.currentSetKey,
+  }), KERNEL_HANDLES);
+  if ('error' in built) throw new Error(built.error);
+  expect(built.motorFailures).toEqual([]);
+  const hw = built.hardware;
+  if (weighed) expect(hw.state).toBe('ok');
+  const current = () => provenanceKeyOf({
+    ...deriveLaunchInputs(state, provenanceAero), tree, launch: state.launch,
+    hardwareDeltaKg: hardwareDeltaKgOf(built), aero: provenanceAero,
+  });
+  const cur = current();
+  const mounts = [MOUNT, ...(sideMount ? [{ ...MOUNT, id: 'side' }] : [])];
+  const mm = state.mountMotors[targetId]!;
+  const inp = input(tree, {
+    mounts, target: mounts.find((m) => m.id === targetId)!,
+    candidates: [entry(mm.meta.motorId!, 'Acme', mm.spec.designation, '5')], autoDelay: false,
+    assignedMountMotors: state.mountMotors,
+    assignedMotors: Object.fromEntries(derived.assigned.map(([id, motor]) => [id, flownSpec(id, motor.spec, hw)])),
+    assignedMotorIds: batchMotorIds(state.mountMotors),
+    assignedIgnitions: Object.fromEntries(derived.assigned.map(([id, motor]) => [id, motor.ignition])),
+    ...(hw.state === 'ok' ? { weighed: {
+      mountId: hw.appliedTo, identity: motorIdentity(state.mountMotors[hw.appliedTo]!.meta, 'E20'),
+      pinned: false, name: 'E20', perMotorShiftKg: hw.perMotorShiftKg, deltaKg: hw.deltaKg,
+    } } : {}),
+  });
+  const { rows } = await sweep(inp, {
+    fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}),
+  });
+  expect(rows[0]!.error).toBeUndefined();
+  const run = rows[0]!.run!;
+  expect(run.motorDataKey).toBe(cur.motorDataKey);
+  expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
+  expect(run.motorSetKey).toBe(cur.motorSetKey);
+  expect(runMatchesDesign(run, cur)).toBe(true);
+  expect(changedSinceRun(run, cur)).toEqual([]);
+  expect(storedSimCost([run], cur, tree.name!)).toEqual({ ms: run.execMs });
+  mm.spec = { ...mm.spec, thrusts: mm.spec.thrusts.map((t) => t * 1.5) };
+  expect(runMatchesDesign(run, current())).toBe(false);
+  expect(changedSinceRun(run, current())).toEqual(['the motor']);
+  expect(storedSimCost([run], current(), tree.name!)).toBeNull();
+}, 30000);
+
+
+it('K7: plugged exception provenance matches Auto and rejects P on charge recovery', async () => {
+  const tree = rocket({ deployEvent: 'ejection' });
+  const mm = loadedMotor('p', 'E20');
+  mm.spec = { ...mm.spec, ejectionDelay: Infinity };
+  const state = designState(tree, { mount: mm });
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('p', 'Acme', 'E20', 'P')], autoDelay: false,
+    assignedMountMotors: state.mountMotors,
+    assignedMotors: { mount: mm.spec }, assignedMotorIds: { mount: 'p' },
+  }), { fetchSpec: fetchFrom({ p: curve('E20') }), nozzleFor: nozzles({}) });
+  const row = rows[0]!;
+  expect(row.error).toBeUndefined();
+  expect(row.optimumForPlugged).toBe(true);
+  expect(row.run!.delayResolution!.mounts[0]!.mode).toBe('auto');
+  const plugged = designPageKey(state);
+  expect(runMatchesDesign(row.run!, plugged)).toBe(false);
+  expect(changedSinceRun(row.run!, plugged)).toContain('the motor');
+  const auto = designPageKey(designState(tree, { mount: {
+    ...mm, spec: { ...mm.spec, ejectionDelay: 0 }, meta: { ...mm.meta, autoDelay: true },
+  } }));
+  expect(runMatchesDesign(row.run!, auto)).toBe(true);
+  expect(changedSinceRun(row.run!, auto)).toEqual([]);
+}, 30000);
+
+it('K7: plugged combination provenance keys every target leg at Auto', async () => {
+  const tree = clusterRocket('4-ring', 'ejection');
+  const split = splitClusterTree(tree, 'mount')!;
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', 'P'), entry('b', 'Acme', 'E22', 'P')],
+    splits: [split], autoDelay: false,
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  const row = rows.find((r) => r.combo)!;
+  expect(row.error).toBeUndefined();
+  expect(row.optimumForPlugged).toBe(true);
+  const assigned = Object.fromEntries(split.mountIds.map((id, i) => {
+    const mm = loadedMotor(i === 0 ? 'a' : 'b', i === 0 ? 'E20' : 'E22');
+    return [id, { ...mm, spec: { ...mm.spec, ejectionDelay: 0 }, meta: { ...mm.meta, autoDelay: true } }];
+  }));
+  const cur = designPageKey(designState(split.tree, assigned));
+  expect(row.run!.motorSetKey).toBe(cur.motorSetKey);
+  expect(row.run!.motorDataKeys).toEqual(cur.motorDataKeys);
 }, 30000);

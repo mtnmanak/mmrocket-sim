@@ -111,7 +111,7 @@ function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mount
     <PrefsProvider>
       <BatchSimulate
         tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
-        assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
+        assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={launch} rocketName="Sweep bird" weighed={weighed}
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}

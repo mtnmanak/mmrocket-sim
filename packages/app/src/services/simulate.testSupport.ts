@@ -20,9 +20,10 @@ export function comparable(run: FreshSimRun) {
 }
 
 /**
- * `comparable`, less the fields that carry a node id: the design, motor-set and motor-data
- * keys and each delay row's mount id. Ids are minted per parse (treeModel's
- * freshId, a module-level counter), so two parses of the same bytes number the
+ * `comparable`, less the fields that carry a node id: the design, motor-set,
+ * whole-set and per-mount motor-data keys, and each delay row's mount id.
+ * Ids are minted per parse (treeModel's freshId, a module-level counter), so
+ * two parses of the same bytes number the
  * same parts differently — this is how a run from `simulateFile` (its own
  * parse) is compared with one from another parse of the same file. Every other
  * field must still match exactly. (Moved here from simulateFile.test.ts,
@@ -30,7 +31,9 @@ export function comparable(run: FreshSimRun) {
  */
 export function idFree(run: FreshSimRun) {
   expect(typeof run.motorDataKey).toBe('string');
-  const { designKey: _d, motorSetKey: _m, motorDataKey: _md, delayResolution, ...rest } = comparable(run);
+  const {
+    designKey: _d, motorSetKey: _m, motorDataKey: _md, motorDataKeys: _mds, delayResolution, ...rest
+  } = comparable(run);
   return {
     ...rest,
     delayResolution: delayResolution

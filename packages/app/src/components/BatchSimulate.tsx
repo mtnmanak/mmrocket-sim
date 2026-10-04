@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MountMotor } from '../model/design.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
@@ -499,7 +500,7 @@ export function batchProgressAnnouncement(done: number, total: number): string |
   return `${Math.round((done / total) * 100)} percent — ${group(done)} of ${group(total)} flights.`;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -515,6 +516,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
    *  already `flownSpec`'d, so a weighed motor on a non-target mount keeps
    *  its hardware here too. */
   assignedMotors: Record<string, MotorSpec>;
+  /** Catalogue specs and metadata for provenance, before hardware is applied. */
+  assignedMountMotors: Record<string, MountMotor>;
   /**
    * Nozzle-database ids for those same motors, by mount id. A MotorSpec
    * carries no id, and the nozzle database is keyed on one — so without this
@@ -705,7 +708,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoto
     try {
       const { rows: out, stopped } = await runBatchSweep({
         tree, info, mounts, target: sel, candidates, splits,
-        assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed,
+        assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed,
         model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
       // The run ENDING used to be invisible: the progress bar and its

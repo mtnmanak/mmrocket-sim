@@ -601,6 +601,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   motorSetKey?: string;
   /** Curve, mass and geometry actually flown; older runs use the original match keys. */
   motorDataKey?: string;
+  /** Catalogue fingerprints per mount, for previous Auto-delay evidence. */
+  motorDataKeys?: Record<string, string>;
   /** The launch conditions in force, serialized. */
   conditionsKey?: string;
   /**
@@ -682,16 +684,16 @@ export type FreshSimRun = SimRun & { deployments: DeploymentReport[]; physicsRev
  * reader the caution degraded to the bare multiplier the moment the tab
  * closed. Another rocket's twelve-second flight must never price this one's.
  *
- * Matched on the provenance keys every run has carried since v0.074: the
- * design (`designKey`) AND its motors (`motorSetKey`) — the identity the
+ * Matched on the provenance keys carried by design-page and current batch
+ * runs: the design (`designKey`) AND its motors (`motorSetKey`) — the identity the
  * in-session cost dies with, because the thing being costed is this design
  * under this motor's burn. It used to match the rocket NAME, on the grounds
  * that a stored run had no design identity beyond it, which stopped being
  * true when the keys were stamped; and ✕ New names every design "New Rocket",
  * so a big one's flight priced the small one built after it (audit
  * 2026-09-30). The name is still the match for a run stored before the keys
- * existed, which carries none of the three; a batch row — the conditions
- * key alone, nothing that names its design or motor — never matches.
+ * existed, which carries none of the three. Legacy batch rows with only a
+ * conditions key never match; fully keyed batch rows can supply the cost.
  * An absent timeStepS stays absent — it means the run flew the engine
  * default, and the caution scales from that.
  */
@@ -732,6 +734,7 @@ export interface DesignMatchKey {
   designKey: string;
   motorSetKey: string;
   motorDataKey: string;
+  motorDataKeys?: Record<string, string>;
   conditionsKey: string;
   aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   effectiveKbf: boolean;
@@ -857,6 +860,7 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
     designKey: shortHash(input.physicsKey),
     motorSetKey: motorSetKeyOf(input.assigned, input.hardwareDeltaKg),
     motorDataKey: motorDataKeyOf(input.assigned),
+    motorDataKeys: Object.fromEntries(input.assigned.map((mount) => [mount[0], motorDataKeyOf([mount])])),
     conditionsKey: conditionsKeyOf(input.launch),
     aeroMode: input.aeroMode,
     effectiveKbf: input.effectiveKbf,
@@ -965,10 +969,8 @@ export function changedSinceRun(
   if (runMatchesModel(run, cur) === false) changed.push(AERO_MODEL_CHANGED);
   // The kernel's own physics is part of "does this still describe my rocket"
   // too, and nothing above can see it — see SimRun.nozzleStages (2026-09-08).
-  // Gated on `designKey` for the same reason the completeness rule below
-  // exists: a batch row carries only `conditionsKey`, belongs to a tree this
-  // function was never given, and must keep answering "unknown" rather than
-  // naming a difference in a design it cannot be attributed to.
+  // Legacy runs without a designKey cannot be attributed to this tree.
+  // Current batch rows carry it and receive the same physics checks as Launch.
   if (run.designKey && !runCarriesNozzleStamp(run, cur)) changed.push(PRESSURE_THRUST_CHANGED);
   if (run.designKey && !runCarriesPhysicsRevision(run, cur)) {
     // Name only the revisions this run predates that reach this design; a caller
@@ -980,10 +982,8 @@ export function changedSinceRun(
 
   // NOTHING DIFFERS — but silence and a clean bill of health are not the same
   // claim, and only the second one can be wrong. Clearing a run requires every
-  // key to be present: batch-simulate runs carry `conditionsKey` (buildSimRun
-  // always stamps it) and neither of the other two, so a one-key rule would
-  // have stamped "matches the design as it stands" on a batch row belonging to
-  // a different rocket — worse than the silence this feature replaced.
+  // design, motor-set and conditions key to be present. Older batch rows
+  // carried conditions alone; current batch rows carry all the match keys.
   const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey;
   return complete ? [] : null;
 }
@@ -1789,6 +1789,7 @@ export function buildSimRun(input: {
   designKey?: string;
   motorSetKey?: string;
   motorDataKey?: string;
+  motorDataKeys?: Record<string, string>;
   /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
   flownRecovery?: Record<string, FlownRecoveryDevice>;
   /**
@@ -1796,8 +1797,8 @@ export function buildSimRun(input: {
    * motor that can burn (`motorisedStagesWithNozzle`). Present so the report
    * can say the flown thrust is not the catalogue curve, and stamped onto the
    * run so a later build can tell a v0.119 flight from an older one; absent, or
-   * empty, says nothing. The batch dialog strips the nozzle from its sweep and
-   * so passes nothing.
+   * empty, says nothing. Batch rows stamp the stage when their candidate flies
+   * a nozzle exit, using that exit in the row's design provenance as well.
    */
   nozzleStages?: string[];
 }): FreshSimRun {
@@ -2242,6 +2243,7 @@ export function buildSimRun(input: {
     ...(designKey !== undefined ? { designKey } : {}),
     ...(motorSetKey !== undefined ? { motorSetKey } : {}),
     ...(input.motorDataKey !== undefined ? { motorDataKey: input.motorDataKey } : {}),
+    ...(input.motorDataKeys !== undefined ? { motorDataKeys: input.motorDataKeys } : {}),
     // The pressure-thrust stamp — see SimRun.nozzleStages. Written only when
     // there is one, because ABSENT has to keep meaning "flown before v0.119",
     // and a design carrying a nozzle has a different `designKey` from one that

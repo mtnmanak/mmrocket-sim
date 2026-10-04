@@ -194,6 +194,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
       designKey: shortHash(INPUT.physicsKey),
       motorSetKey: 'm1:Estes/C6:5:automatic:0',
       motorDataKey: motorDataKeyOf(INPUT.assigned),
+      motorDataKeys: { m1: motorDataKeyOf(INPUT.assigned) },
       conditionsKey: conditionsKeyOf(DEFAULT_CONDITIONS),
       aeroMode: 'auto',
       effectiveKbf: true,

@@ -17,6 +17,7 @@ import type { MountMotor } from '../model/design.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
+import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 
 /**
  * THE BATCH SWEEP — every flight Batch Simulate flies, out of the component.
@@ -428,6 +429,8 @@ export interface BatchSweepInput {
   splits: readonly ClusterSplit[];
   /** Flown specs of the motors on the OTHER mounts, by mount id. */
   assignedMotors: Record<string, MotorSpec>;
+  /** Catalogue specs and identities, before weighed hardware is applied. */
+  assignedMountMotors: Record<string, MountMotor>;
   /** Their nozzle-database ids — catalogue motorId, or an imported motor's ex: id. */
   assignedMotorIds: Record<string, string | undefined>;
   /** Their ignition settings — a MotorSpec carries none. */
@@ -610,7 +613,12 @@ export async function runBatchSweep(
    */
   const flyLegs = async (
     rocket: OrkRocket,
-    legs: readonly { mountId: string; spec: MotorSpec; noListedDelay?: boolean }[],
+    legs: readonly {
+      mountId: string;
+      spec: MotorSpec;
+      meta?: MotorMeta;
+      noListedDelay?: boolean;
+    }[],
     probeTree: RocketTree,
     replacedMountId?: string,
   ) => {
@@ -621,12 +629,21 @@ export async function runBatchSweep(
       .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
       .map(([id, spec]) => [id, {
         spec, label: spec.designation,
-        meta: { label: spec.designation, motorId: assignedMotorIds[id], autoDelay: input.assignedAutoDelays?.[id] === true },
+        meta: {
+          label: spec.designation,
+          motorId: assignedMotorIds[id],
+          ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),
+          autoDelay: input.assignedAutoDelays?.[id] === true,
+        },
         ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
       }]);
     for (const l of legs) assigned.push([l.mountId, {
       spec: l.spec, label: l.spec.designation,
-      meta: { label: l.spec.designation, autoDelay: autoDelay || !!l.noListedDelay || optimumForPlugged },
+      meta: {
+        label: l.spec.designation,
+        autoDelay: autoDelay || !!l.noListedDelay || optimumForPlugged,
+        ...l.meta,
+      },
       ignition: { event: 'automatic', delay: 0 },
     }]);
     const flight = await flyLaunch(rocket, {
@@ -647,6 +664,12 @@ export async function runBatchSweep(
       optimumForPlugged, autoDelay: autoDelay || !!legs[0]?.noListedDelay,
       aeroModel: aeroModelFor(aeroMode, flight.usedSupersonic),
       rogersKbf: rogersKbfFor(kbf, flight.usedSupersonic),
+      // Provenance keys catalogue curves; hardware has its own motor-set term.
+      assigned: assigned.map(([id, mm]): [string, MountMotor] => [id,
+        !legs.some((l) => l.mountId === id) ? { ...mm, ...input.assignedMountMotors[id] } : mm,
+      ]),
+      otherHardwareDeltaKg: weighed && weighed.mountId !== target.id
+        && assigned.some(([id]) => id === weighed.mountId) ? weighed.deltaKg : 0,
     };
   };
 
@@ -656,6 +679,8 @@ export async function runBatchSweep(
   const out: BatchRow[] = [];
   // Motor specs fetched in the single pass, reused by the combination pass.
   const specCache = new Map<string, MotorSpec>();
+
+  const aero = { aeroMode, effectiveKbf: kbf, autoSupersonic: model === 'auto' };
 
   for (let i = 0; i < n; i++) {
     if (signal.aborted) break;
@@ -678,8 +703,31 @@ export async function runBatchSweep(
       // for a motor with no published exit — about two thirds of a 54 mm
       // sweep — which gets the nozzle-free handle and today's numbers.
       const exitM = await exitForCandidate(entry, target.motorCount);
+      const keyTree = stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
+        ? applyStageNozzles(tree, { [stageIdOfTarget]: exitM }) : tree;
       const f = await flyLegs(sweepHandle(exitM),
-        [{ mountId: target.id, spec: flown, noListedDelay: listsNoDelay(entry) }], tree);
+        [{
+          mountId: target.id,
+          spec: flown,
+          meta: {
+            label: entry.designation,
+            manufacturer: entry.manufacturerAbbrev,
+            motorId: entry.motorId,
+            ...(entry.motorId.startsWith('ex:') ? { exMotorId: entry.motorId } : {}),
+          },
+          noListedDelay: listsNoDelay(entry),
+        }], tree);
+      const provenance = provenanceKeyOf({
+        physicsKey: physicsKeyOf(keyTree.components),
+        tree: keyTree,
+        // The plugged exception flew Auto, whose design-page placeholder is 0.
+        assigned: f.assigned.map(([id, mm]) => [id, id === target.id ? {
+          ...mm, spec: f.optimumForPlugged ? { ...spec, ejectionDelay: provisionalDelay(entry, true) } : spec,
+        } : mm]),
+        hardwareDeltaKg: weighed && target.id === weighed.mountId && isWeighedCandidate(entry, weighed) ? weighed.deltaKg : f.otherHardwareDeltaKg,
+        launch,
+        aero,
+      });
       const run = buildSimRun({
         result: f.res,
         delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
@@ -706,6 +754,10 @@ export async function runBatchSweep(
         // pressure-thrust note off, and what marks the row in the table.
         ...(exitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
         ...(comboActive ? { motorConfig: 'single' } : {}),
+        designKey: provenance.designKey,
+        motorSetKey: provenance.motorSetKey,
+        motorDataKey: provenance.motorDataKey,
+        motorDataKeys: provenance.motorDataKeys,
       });
       if (f.optimumForPlugged) notePluggedAtOptimum(run, 1);
       out.push({
@@ -785,16 +837,42 @@ export async function runBatchSweep(
           exitDiameterM: (await nozzleFor(e.motorId))?.exitDiameterM ?? null,
         }));
         const exitM = equivalentExitDiameterM([...await Promise.all(comboParts), ...otherParts]);
+        // Group mount ids are temporary flight machinery, not a design edit.
+        const keyTree = stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
+          ? applyStageNozzles(tree, { [stageIdOfTarget]: exitM }) : tree;
         // The split tree is what this candidate flies — its group mounts do
         // not exist in `tree`, and the replaced cluster mount's motor is not
         // aboard (see batchProbeCutoff).
         const f = await flyLegs(comboHandle(exitM),
-          split.mountIds.map((id, k) => ({ mountId: id, spec: specs[k]!, noListedDelay: listsNoDelay(entries[k]!) })),
+          split.mountIds.map((id, k) => ({
+            mountId: id,
+            spec: specs[k]!,
+            meta: {
+              label: entries[k]!.designation,
+              manufacturer: entries[k]!.manufacturerAbbrev,
+              motorId: entries[k]!.motorId,
+              ...(entries[k]!.motorId.startsWith('ex:') ? { exMotorId: entries[k]!.motorId } : {}),
+            },
+            noListedDelay: listsNoDelay(entries[k]!),
+          })),
           split.tree, target.id);
         const manuf = [...new Set(entries.map((e) => e.manufacturerAbbrev))].join('+');
+        const provenance = provenanceKeyOf({
+          physicsKey: physicsKeyOf(keyTree.components),
+          tree: keyTree,
+          assigned: f.assigned.map(([id, mm]) => {
+            const leg = split.mountIds.indexOf(id);
+            return [id, f.optimumForPlugged && leg >= 0 ? {
+              ...mm, spec: { ...mm.spec, ejectionDelay: provisionalDelay(entries[leg]!, true) },
+            } : mm];
+          }),
+          hardwareDeltaKg: f.otherHardwareDeltaKg,
+          launch,
+          aero,
+        });
         const run = buildSimRun({
           result: f.res,
-        delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
+          delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
           info,
           motor: { ...specs[0]!, ejectionDelay: f.flownDelay },
           meta: {
@@ -811,6 +889,10 @@ export async function runBatchSweep(
           rogersKbf: f.rogersKbf,
           ...(exitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
           motorConfig: configTag,
+          designKey: provenance.designKey,
+          motorSetKey: provenance.motorSetKey,
+          motorDataKey: provenance.motorDataKey,
+          motorDataKeys: provenance.motorDataKeys,
         });
         // The stored designation is the combo label so saved runs read right.
         run.motor = label;

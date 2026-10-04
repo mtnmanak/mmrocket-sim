@@ -254,7 +254,7 @@ describe('the batch dialog', () => {
         info={{} as never}
         mounts={mounts}
         initialMountId="mount"
-        assignedMotors={others.assignedMotors ?? {}} assignedMotorIds={{}} assignedIgnitions={{}}
+        assignedMountMotors={{}} assignedMotors={others.assignedMotors ?? {}} assignedMotorIds={{}} assignedIgnitions={{}}
         assignedAutoDelays={others.assignedAutoDelays}
         launch={DEFAULT_CONDITIONS}
         rocketName="Cluster bird"

@@ -90,6 +90,8 @@ describe('simulateDesign flies the design', () => {
     }));
     expect(out.run.designKey).toBe(out.provenance.designKey);
     expect(out.run.motorSetKey).toBe(out.provenance.motorSetKey);
+    expect(out.run.motorDataKeys).toEqual(out.provenance.motorDataKeys);
+    expect(Object.keys(out.run.motorDataKeys!)).toEqual(d.assigned.map(([id]) => id));
     expect(out.result.summary.maxAltitude).toBeGreaterThan(0);
   }, 30000);
 
