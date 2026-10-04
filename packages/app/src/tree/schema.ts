@@ -639,10 +639,14 @@ const MOUNT_ANGLE: FieldDef = {
  * common case — each tube is a single tube at its own radius and angle.
  *
  * Both keys round-trip (orkFile.ts reads/writes <radialposition>/
- * <radialdirection>, scaleRocket scales them), AftView draws with them, and
- * ComponentFactory's innertube and masscomponent cases hand them to the kernel
- * (since v0.105), so do NOT "clean up" either as unused. What the kernel does
- * with them: a mass component's CG moves with its offset. A SINGLE off-axis
+ * <radialdirection>, scaleRocket scales them). AftView, pieces.ts and
+ * schematicLayout.ts draw only inner-tube offsets; recovery-part and mass-
+ * component offsets shown in the Design tab are not drawn. ComponentFactory
+ * forwards both keys for innertube and masscomponent (since v0.105), and now
+ * parachute, streamer and shockcord. It also forwards them for tubecoupler,
+ * centeringring, bulkhead and engineblock, whose setters leave them on the
+ * centerline. Do NOT "clean up" either key as unused. A mass component's or
+ * recovery part's CG moves with its offset. A SINGLE off-axis
  * inner tube, and every mount's motor, keep their CG on the tube's parent axis
  * and carry the offset as a parallel-axis ROLL-inertia term, m·r² per
  * instance; a CLUSTERED tube's CG sits at the mean of its instances' offsets
@@ -989,6 +993,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'lineCount', label: 'Line count', unit: 'count', smin: 0, smax: 16 },
     lenMM('lineLength', 'Line length', 10, 1000),
     ...PACKED,
+    ...RADIAL_PLACEMENT,
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
     { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
     { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
@@ -998,6 +1003,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     lenMM('stripWidth', 'Strip width', 5, 150),
     CD,
     ...PACKED,
+    ...RADIAL_PLACEMENT,
     { key: 'deployEvent', label: 'Deploy at', unit: 'none', options: DEPLOY_EVENTS },
     { key: 'deployAltitude', label: 'Deploy altitude (AGL)', unit: 'm', step: 10, smin: 0, smax: 500 },
     { key: 'deployDelay', label: 'Deploy delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
@@ -1005,12 +1011,14 @@ export const FIELDS = lookupTable<FieldDef[]>({
   shockcord: [
     lenMM('cordLength', 'Cord length', 10, 2000),
     ...PACKED,
+    ...RADIAL_PLACEMENT,
   ],
   masscomponent: [
     { key: 'mass', label: 'Mass', unit: 'g', step: 1, smin: 0, smax: 500 },
     lenMM('length', 'Length', 1, 200),
     radMM('radius', 'Radius', 0.5, 50),
     { key: 'massComponentType', label: 'Type', unit: 'none', options: MASS_COMPONENT_TYPES },
+    ...RADIAL_PLACEMENT,
   ],
   // External protuberance (camera shroud, avionics fairing). The physics is
   // synthesized at the engine boundary (treeModel.engineTree): slender-strake

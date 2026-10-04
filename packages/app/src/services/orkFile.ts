@@ -3817,8 +3817,8 @@ function readRadialPlacement(el: XmlElement, node: ComponentNode, notes: string[
   const dir = num(el, 'radialdirection', 0, notes);
   if (pos !== 0) node['radialPosition'] = pos;
   if (dir !== 0) node['radialDirection'] = (dir * Math.PI) / 180;
-  if (pos !== 0 && node.type !== 'innertube' && node.type !== 'masscomponent') {
-    notes.push(`“${node.name ?? node.type}”: its radial placement is kept when saving .ork, but the app simulates this part on the centerline. Its offset does not affect the simulated inertia.`);
+  if (pos !== 0 && ['tubecoupler', 'centeringring', 'bulkhead', 'engineblock'].includes(node.type)) {
+    notes.push(`“${node.name ?? node.type}”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.`);
   }
 }
 

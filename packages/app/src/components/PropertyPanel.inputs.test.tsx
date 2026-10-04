@@ -64,6 +64,19 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe('PropertyPanel recovery and ballast radial placement', () => {
+  it.each(['parachute', 'streamer', 'shockcord', 'masscomponent'] as const)('shows and edits imported %s offsets in SI', (type) => {
+    const node: ComponentNode = { id: 'part', type, radialPosition: 0.015, radialDirection: Math.PI / 2 };
+    show(treeOf(node), node);
+    expect(Number(inputNamed('Distance off centerline (mm)').value)).toBe(15);
+    expect(Number(inputNamed('Direction around body (°)').value)).toBe(90);
+    click(spinner('Distance off centerline (mm)', 0));
+    expect(patches.at(-1)!['radialPosition']).toBeCloseTo(0.016, 12);
+    click(spinner('Direction around body (°)', 0));
+    expect(patches.at(-1)!['radialDirection']).toBeCloseTo(95 * Math.PI / 180, 12);
+  });
+});
+
 describe('PropertyPanel — a spinner click leaves nothing behind for the next component', () => {
   /**
    * The audit's HIGH, reproduced as it was measured: tube B has no override and

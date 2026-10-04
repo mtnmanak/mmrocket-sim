@@ -2349,6 +2349,19 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
     throw new Error('A .rkt file holds at most 3 stages.');
   }
   notes?.push(...subtreeOverrideNotes(stagesIn));
+  if (notes) {
+    const radialParts: string[] = [];
+    const collectRadialParts = (nodes: readonly ComponentNode[]) => {
+      for (const n of nodes) {
+        if (['parachute', 'streamer', 'shockcord', 'masscomponent'].includes(n.type)
+          && nnum(n, 'radialPosition', 0) !== 0) radialParts.push(`“${n.name ?? n.type}”`);
+        collectRadialParts(n.children ?? []);
+      }
+    };
+    collectRadialParts(stagesIn);
+    if (radialParts.length) notes.push(`Radial offsets on ${radialParts.join(', ')} are not saved in .rkt;`
+      + ' these parts reopen on their parent’s centerline, which can change the flight. Save a .ork file to keep the offsets.');
+  }
 
   // Fold a synthesised base extension back into its cone's <BaseExtensionLen>.
   // Keep the original representation when the extension still shares its cone's
