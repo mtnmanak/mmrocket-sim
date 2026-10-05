@@ -1303,19 +1303,19 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="101.41517647688308">
-    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" transform="rotate(-90 405.58507462686566 104.68234065598756)" x="405.58507462686566" y="104.68234065598756">
+    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="104.68234065598756">
       "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="7.128358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" width="59.402985074626876" x="364.5970149253731" y="92.73464278893721">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="93.03165771431034">
-    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" transform="rotate(-90 405.58507462686566 96.29882189341483)" x="405.58507462686566" y="96.29882189341483">
+    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="96.29882189341483">
       "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="7.128358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" width="59.402985074626876" x="364.5970149253731" y="95.45465834612">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="95.75167327149313">
-    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" transform="rotate(-90 405.58507462686566 99.01883745059762)" x="405.58507462686566" y="99.01883745059762">
+    <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="99.01883745059762">
       "D12-5"
     <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="5.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" tabindex="0" width="2.9701492537313436" x="364.5970149253731" y="97.02985074626865">
       <title>

@@ -68,18 +68,21 @@ describe('motor label fit', () => {
     }
   });
 
-  // Nose-up the label reads horizontally across the case, so the case's
-  // diameter on screen is the room it has, however long the case is drawn.
+  // Nose-up the motor label turns with the drawing and runs along the case
+  // (no counter-rotation), so the case length is still its room.
   it.each([
-    ['F115SN-8', 0.124, 0.029, 600, false],
-    ['C6-5', 0.07, 0.018, 1700, false],
-    ['C6-5', 0.07, 0.018, 1800, true],
-  ])('nose-up: %s on a %s m x %s m case at %s px/m fits: %s', (label, length, diameter, scale, fits) => {
+    ['F115SN-8', 0.124, 600, true],
+    ['F115SN-8', 0.124, 480, false],
+    ['C6-5', 0.07, 400, false],
+    ['C6-5', 0.07, 500, true],
+  ])('nose-up: %s on a %s m case at %s px/m fits: %s', (label, length, scale, fits) => {
     const shapes = layoutSchematic(rocket([]), {
       scale, cy: 100, x0: 10, roll: 0, idPrefix: 't', vertical: true,
-      motors: { b1: { length, diameter, label } },
+      motors: { b1: { length, diameter: 0.029, label } },
     }).shapes;
-    expect(Boolean(shapes.find(s => s.key === 'b1:motor-label'))).toBe(fits);
+    const text = shapes.find(s => s.key === 'b1:motor-label');
+    expect(Boolean(text)).toBe(fits);
+    if (text) expect(text.attrs['transform']).toBeUndefined();
   });
 });
 
