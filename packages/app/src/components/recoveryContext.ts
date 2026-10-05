@@ -11,7 +11,7 @@ export function recoveryScope(configs: SavedConfig[], activeId: string | null, n
   }
   return activeId === null
     ? 'No flight configuration is active. Apply one under Flight configurations to edit its recovery settings. Newly added devices keep shared settings.'
-    : 'This device has shared recovery settings across flight configurations. Flight configurations → Apply switches motors and imported devices’ recovery settings.';
+    : 'This device has shared recovery settings across flight configurations. Flight configurations → Apply switches motors and the recovery settings of devices a configuration stores.';
 }
 
 /**

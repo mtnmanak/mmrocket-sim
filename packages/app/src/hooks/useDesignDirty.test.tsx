@@ -64,13 +64,13 @@ interface Harness {
  * App's shape, and nothing else: a snapshot in state, the hook over it.
  * `preRank` is what App's restore records when it moved a pad mass.
  */
-function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>): Harness {
+function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>, preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null): Harness {
   const h = {} as Harness;
   function Probe() {
     const [s, setS] = useState(initial);
     const landing = useRef<MountMotor | null>(null);
     const pre = useRef<PreRankRestore | null>(preRank);
-    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength);
+    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength, preConfig);
     h.set = setS;
     h.landing = landing;
     return null;
@@ -235,6 +235,25 @@ describe('useDesignDirty — a save and a flight', () => {
 
 
 describe('motor-length migration saved mark', () => {
+  it.each(['clean', 'edited', 'missing', 'flown'] as const)(
+    'round 8: empty-configuration migration preserves %s with simultaneous rank and length migrations', status => {
+      const before: DesignSnapshot = { ...snap(tree('Saved'), { mmt: { ...C6, padMassKg: 0.5 } }),
+        savedConfigs: [{ id: 'dry', name: null, isDefault: true, motors: {} }], activeConfigId: 'dry',
+        maxMotorLengthByStage: { st: 0.4 } };
+      const after = snap(tree('Saved'), { mmt: C6 });
+      after.tree.components[0]!.children![0]!.maxMotorLength = 0.4;
+      const seed = { savedMark: status === 'missing' ? undefined
+        : status === 'edited' ? 'older-unsaved-mark' : designFingerprint(before), flownSinceSave: status === 'flown' };
+      const h = mount(after, seed, { motors: before.mountMotors, configs: before.savedConfigs },
+        { tree: before.tree, maxMotorLengthByStage: before.maxMotorLengthByStage },
+        { savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId });
+      expect(h.current.dirty).toBe(status !== 'clean');
+      expect(h.current.savedMark.current).toBe(status === 'clean' || status === 'flown'
+        ? designFingerprint(after) : seed.savedMark ?? null);
+      act(() => h.set({ ...after, tree: tree('Edited later') }));
+      expect(h.current.dirty).toBe(true);
+    });
+
   it.each([false, true])('preserves dirty=%s while moving a stage limit onto its mount', (dirty) => {
     const before = { ...snap(tree('Saved')), maxMotorLengthByStage: { st: 0.4 } };
     const after = snap(tree('Saved'));

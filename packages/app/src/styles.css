@@ -350,6 +350,31 @@ html {
   border-top: 1px solid var(--border);
 }
 
+.config-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.config-details {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Keep Apply first; the name/editor gets a full line on phones. */
+@media (max-width: 480px) {
+  .config-details {
+    flex: 1 0 100%;
+    overflow-wrap: anywhere;
+  }
+  .config-panel > .file-btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
 .config-active-tag {
   font-size: 11px;
   font-weight: 700;

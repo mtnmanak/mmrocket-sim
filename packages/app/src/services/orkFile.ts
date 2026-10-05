@@ -1,4 +1,6 @@
-import { captureStageMass, captureTreeStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
+import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
+import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
+import { isLoneEmptyConfig } from './emptyConfig.js';
 import type { StageMassOverride } from './stageMassOverrides.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
@@ -294,7 +296,7 @@ const DESKTOP_PRESET_TYPE: Partial<Record<ComponentType, string>> = lookupTable<
 });
 
 // Bound the dense configuration-by-component recovery and separation tables.
-export const MAX_ORK_CONFIGURATIONS = 256;
+export { MAX_ORK_CONFIGURATIONS } from './configSnapshot.js';
 
 // ============================ IMPORT ============================
 
@@ -1487,6 +1489,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     : checkLegacyPositions(importedTree, appFile, notes);
 
   const storedSimulations = readStoredSimulations(simEls, notes);
+  // Dry saves need a simulation to carry launch conditions, not a panel row.
+  // Keep configurations with results, including untagged desktop flight data.
+  const emptyDefault = isLoneEmptyConfig(configs, id => simEls.some(sim => simulationConfigId(sim) === id
+    && sim.querySelector(':scope > flightdata')));
   // Definitions stay document-local. Only an accepted, current open persists them.
   const exIds = readArchivedExMotors(rocketEl, notes);
   const savedExNotes = rocketEl.querySelector(`:scope > ${EX_MOTOR_NOTES_TAG}`)?.textContent;
@@ -1502,7 +1508,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   }
   return {
-    name, tree, motors, configs, chosenConfigId,
+    name, tree, motors, configs: emptyDefault ? [] : configs,
+    chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
     ignored: [...ignored], notes, ...(launch ? { launch } : {}),
@@ -2261,8 +2268,8 @@ export function exportOrk({
       + 'The app restores them when reopening; OpenRocket desktop uses the active configuration’s '
       + 'stage overrides for every configuration.');
   }
-  // The configurations to write. Classic path (no configs): ONE minted
-  // config carrying the working set — exactly the pre-Stage-B output.
+  // With no stored configurations, mint one even without motors: its simulation
+  // carries the launch conditions that a dry design must keep on reopen.
   //
   // EVERY `c.id` BELOW IS ESCAPED WHERE IT IS EMITTED — seven sites: the
   // <motorconfiguration>, <deploymentconfiguration>, <separationconfiguration>,
@@ -2304,12 +2311,11 @@ export function exportOrk({
         stageActiveness: c.stageActiveness,
         stageMassOverrides: c.stageMassOverrides,
       }))
-      : [{ id: uuid(), name: null, motors: motorMap, deployments: null, separations: null }];
+      : [snapshotLoadedConfig(tree, motorMap)];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
   const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? { id: uuid(), name: null, motors: motorMap, deployments: null, separations: null,
-      ...(configs.some(c => c.stageMassOverrides) ? { stageMassOverrides: captureTreeStageMass(tree) } : {}) }
+    ? snapshotLoadedConfig(tree, motorMap, { stageMass: configs.some(c => !!c.stageMassOverrides) })
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
@@ -3995,12 +4001,4 @@ function readPosition(el: XmlElement): ComponentPosition | undefined {
   const offset = parseDecimal(off.textContent);
   if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
   return { method, offset: Number.isFinite(offset) ? offset : 0 };
-}
-
-function uuid(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () =>
-    Math.floor(Math.random() * 16).toString(16));
 }

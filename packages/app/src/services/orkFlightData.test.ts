@@ -7,6 +7,8 @@ import { motorDataKeyOf, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { createLoadedConfig, deleteConfig } from './configSync.js';
+import { orkMotorSet } from './orkExportMotors.js';
 
 /**
  * SIX INDEPENDENT REFUSAL RULES, none of which had a test until this function
@@ -75,6 +77,32 @@ const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
 describe('flightDataForExport — the baseline qualifies', () => {
+  it('deleting the active default excludes both its app result and file summary from a reopened file', () => {
+    const tree = { name: 'Delete result', components: [{ type: 'stage' as const, id: 'stage', children: [
+      { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+    ] }] };
+    const importedDocument = { name: tree.name, storedSimulations: [
+      { name: 'Deleted flight', configId: 'c1', windAverage: 0,
+        data: { ...summaryOf(RUN), importedSummary: true as const } },
+    ] };
+    for (const runs of [[RUN], []]) {
+      const input = base({ runs, importedDocument });
+      expect(flightDataForExport(input)['c1']).toBeDefined();
+      const next = deleteConfig([CONFIG, { ...CONFIG, id: 'keep', isDefault: false }], 'c1', 'c1');
+      const data = flightDataForExport({ ...input, ...next });
+      expect(data).toEqual({});
+      const xml = exportOrk({ name: tree.name, tree, launch: DEFAULT_CONDITIONS,
+        configs: next.savedConfigs.map(c => ({ ...c, motors: {} })), activeConfigId: next.activeConfigId,
+        motors: { m1: { designation: 'H128W', diameter: 0.029, length: 0.1, delay: 10 } }, flightData: data });
+      expect(xml).not.toContain('<flightdata');
+      expect(xml).not.toContain('configid="c1"');
+      expect(xml).not.toContain('<configid>c1</configid>');
+      const reopened = importOrk(xml);
+      expect(reopened.configs).toHaveLength(2);
+      expect(reopened.storedSimulations ?? []).toHaveLength(0);
+    }
+  });
+
   const file = (name: string, altitude: number) => importOrk(exportOrk({ name,
     tree: { name, components: [{ type: 'stage', children: [
       { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
@@ -485,6 +513,75 @@ describe('flownAutoDelays - complete settled vectors', () => {
   const run = (delays = [7, 4]): SimRun => ({ ...RUN, motorDataKey: motorDataKeyOf(assigned), delayS: delays[0]!, delayResolution: testResolution(assigned, delays) });
   const input = (over: Partial<FlightDataForExportInput> = {}) => base({
     assigned, mountIds: ['m1', 'side'], runs: [run()], ...over,
+  });
+  it.each(['create', 'delete', 'create-from-active', 'delete-then-create'] as const)(
+    'keeps the flown Auto delay through %s and save without reassigning results', (action) => {
+    const tree = { name: 'Auto ownership', components: [{ type: 'stage' as const, id: 'stage', children:
+      ['m1', 'side'].map(id => ({ type: 'bodytube' as const, id, motorMount: true,
+        length: 0.3, outerRadius: 0.02, thickness: 0.001 })) }] };
+    const motors = Object.fromEntries(assigned);
+    const history = [{ ...run(), flightConfigId: action === 'create' ? undefined : 'c1' }];
+    const before = structuredClone(history);
+    const originalMotors = action === 'create-from-active'
+      ? { ...motors, m1: { ...auto, spec: { ...auto.spec, designation: 'Old motor' } } } : motors;
+    const original = { savedConfigs: [{ ...CONFIG, motors: originalMotors }], activeConfigId: 'c1' };
+    const deleted = deleteConfig(original.savedConfigs, 'c1', 'c1');
+    const next = action === 'delete' ? deleted
+      : createLoadedConfig({ tree, mountMotors: motors, unmatchedRefs: {},
+        ...(action === 'create-from-active' ? original : deleted) })!;
+    const state = input({ ...next, runs: history });
+    const key = next.activeConfigId ?? '';
+    const flown = flownAutoDelays(state);
+    expect(flown).toEqual({ [key]: { m1: 7, side: 4 } });
+    expect(history).toEqual(before);
+    expect(flightDataForExport(state)).toEqual({});
+    const map = (records: Record<string, MountMotor>, configKey: string) => orkMotorSet({ records,
+      refs: {}, tree, flown, configKey, exLibrary: () => [], first: 'records' });
+    const xml = exportOrk({ name: tree.name, tree, launch: DEFAULT_CONDITIONS,
+      motors: map(motors, key), configs: next.savedConfigs.map(c => ({ ...c, motors: map(c.motors, c.id) })),
+      activeConfigId: next.activeConfigId, flightData: flightDataForExport(state) });
+    const reopened = importOrk(xml);
+    expect(Object.values(reopened.configs.find(c => c.isDefault)!.motors).map(m => m.delay)).toEqual([7, 4]);
+    if (action === 'create-from-active') {
+      expect(next.savedConfigs[0]!.motors).toBe(originalMotors);
+      expect(Object.values(reopened.configs.find(c => c.id === 'c1')!.motors).map(m => m.designation))
+        .toContain('Old motor');
+    }
+    expect(xml).not.toContain('<flightdata');
+    for (const changed of [
+      { designKey: 'edited' }, { conditionsKey: 'edited' }, { motorSetKeyOf: () => 'edited' },
+      { runs: [{ ...history[0]!, motorDataKey: 'edited' }] },
+      { runs: [{ ...history[0]!, nozzleStamp: undefined }], hasNozzle: true },
+      { model: { aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false } },
+      { runs: [{ ...history[0]!, delayResolution: testResolution(assigned.slice(0, 1), [7]) }] },
+    ]) expect(flownAutoDelays({ ...state, ...changed })).toEqual({});
+  });
+
+  it('does not count another configuration’s different motor set for the active configuration', () => {
+    const other: [string, MountMotor][] = assigned.map(([id, mm]) =>
+      [id, { ...mm, spec: { ...mm.spec, designation: 'Different motor' } }]);
+    const state = input({ assigned: other, activeConfigId: 'C', savedConfigs: [
+      { ...CONFIG, motors: Object.fromEntries(assigned) },
+      { ...CONFIG, id: 'C', motors: Object.fromEntries(other) },
+    ] });
+    expect(flownAutoDelays(state)).toEqual({ c1: { m1: 7, side: 4 } });
+    expect(flightDataForExport(state)['C']).toBeUndefined();
+    // Even legacy runs without the curve-data key must pass the motor-set guard.
+    expect(flownAutoDelays({ ...state, runs: [{ ...run(), motorDataKey: undefined }],
+      motorSetKeyOf: motors => motors[0]?.[1].spec.designation === auto.spec.designation ? 'set-A' : 'set-C',
+    })).toEqual({ c1: { m1: 7, side: 4 } });
+  });
+
+  it('keeps original Auto evidence and selects the newest matching run independently for each id', () => {
+    const state = input({ activeConfigId: 'C', savedConfigs: [
+      { ...CONFIG, motors: Object.fromEntries(assigned) },
+      { ...CONFIG, id: 'C', motors: Object.fromEntries(assigned) },
+    ] });
+    expect(flownAutoDelays(state)).toEqual({ c1: { m1: 7, side: 4 }, C: { m1: 7, side: 4 } });
+    expect(Object.keys(flightDataForExport(state))).toEqual(['c1']);
+    const newer = { ...run([8, 6]), id: 'newer', flightConfigId: 'C' };
+    expect(flownAutoDelays({ ...state, runs: [newer, run()] }))
+      .toEqual({ C: { m1: 8, side: 6 }, c1: { m1: 7, side: 4 } });
   });
   it('uses every Auto mount from one complete qualifying run, including prototype-key mount IDs', () => {
     expect(flownAutoDelays(input())).toEqual({ c1: { m1: 7, side: 4 } });
