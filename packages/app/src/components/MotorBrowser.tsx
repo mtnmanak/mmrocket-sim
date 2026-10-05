@@ -10,7 +10,7 @@ import {
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB_DATE, classLabel, classesFittingMount,
-  displayDesignation, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
+  displayDesignation, motorLabel, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
@@ -18,7 +18,7 @@ import {
   addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile, type ExMotor,
 } from '../services/exMotors.js';
 import {
-  bundledSimFiles, defaultDelay, delayOptions, delayTag, fetchMotorSpec, headerMasses, pickSampleFile,
+  bundledSimFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, pickSampleFile,
 } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
@@ -180,7 +180,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   onClose: () => void;
   /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
-  loadedMotors?: readonly { label: string; manufacturer?: string }[];
+  loadedMotors?: readonly { label: string; manufacturer?: string; motorId?: string }[];
 }) {
   const { prefs } = usePrefs();
   const motorSym = prefs.units.motorDimensions;
@@ -513,9 +513,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // cached spec can also resolve without ever touching the network, so the
       // check is on the signal rather than on the throw.
       if (ctrl.signal.aborted) return;
-      const label = delay === 'auto'
-        ? `${picked.commonName} (auto delay)`
-        : `${picked.commonName}-${delayTag(chosen)}`;
+      const label = motorLabel(picked, chosen, { autoDelay: delay === 'auto' });
       onSelect(label, spec, {
         label,
         manufacturer: picked.manufacturerAbbrev,

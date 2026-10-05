@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
+import { savedConfigLabel } from '../model/design.js';
+import { restoreMotorLabels, motorTooltip } from './motorLabels.js';
+import { MOTOR_DB } from './motorDb.js';
+import { exToMotorSpec, parseEng } from './exMotors.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { normalizeTree, freshId, addStage } from '../tree/treeModel.js';
 import { applyStageMass, captureStageMass } from './stageMassOverrides.js';
@@ -163,4 +167,55 @@ describe('designStateFromSession', () => {
     const legacy = designStateFromSession(session({ mountMotors: {} }), { legacyMaxMotorLengthM: 0.05 });
     expect(mount(legacy.state.tree, 'core')?.['maxMotorLength']).toBe(0.05);
   });
+});
+
+describe('stored motor designation labels', () => {
+  it.each([9, 2.5, Infinity])('restores catalogue labels in the working set and unnamed configurations at %s s', (delay) => {
+    const entry = MOTOR_DB.find(m => m.designation === 'F67C')!;
+    const old = motor('F67C');
+    old.label = 'F67-9';
+    old.meta.label = 'F67-9';
+    old.meta.motorId = entry.motorId;
+    old.spec.ejectionDelay = delay;
+    const unknown = { ...motor('unknown'), label: 'keep this' };
+    const motors = { core: old, unknown };
+    const config = { id: 'A', name: null, isDefault: true, motors };
+    const input = session({ mountMotors: motors, savedConfigs: [config] });
+    const before = structuredClone(input);
+    const got = designStateFromSession(input, NO_LIMIT).state;
+    const expected = 'F67C-' + (Number.isFinite(delay) ? delay : 'P');
+    expect(got.mountMotors['core']?.label).toBe(expected);
+    expect(got.mountMotors['core']?.meta.label).toBe(expected);
+    expect(got.mountMotors['core']?.spec).toBe(old.spec);
+    expect(got.mountMotors['unknown']).toBe(unknown);
+    expect(savedConfigLabel(got.savedConfigs[0]!)).toBe('[' + expected + ', keep this]');
+    expect(input).toEqual(before);
+  });
+  it('keeps Auto and its provisional delay, and resolves an embedded EX motor', () => {
+    const ex = parseEng('F67 29 100 9 0.02 0.05 Home\n0 0\n0.5 67\n1 0\n')[0]!;
+    const old = { ...motor('F67'), spec: exToMotorSpec(ex, 9), meta: { label: 'old', exMotorId: ex.motorId, autoDelay: true } };
+    const got = designStateFromSession(session({ mountMotors: { core: old } }), NO_LIMIT).state.mountMotors['core']!;
+    expect(got.label).toBe('F67 (auto delay)');
+    expect(got.meta.autoDelay).toBe(true);
+    expect(got.spec).toBe(old.spec);
+  });
+});
+
+it('label restoration keeps unresolved ids, resolves exact legacy identities, and is idempotent', () => {
+  const old = motor('F67C');
+  old.meta.manufacturer = 'AeroTech';
+  old.label = 'F67-5';
+  const unresolved = { ...old, meta: { ...old.meta, motorId: 'missing-id' } };
+  const missingEx = { ...old, meta: { ...old.meta, exMotorId: 'ex:missing' } };
+  const restored = restoreMotorLabels({ old, unresolved, missingEx });
+  expect(restored['old']!.label).toBe('F67C-5');
+  expect(restored['unresolved']).toBe(unresolved);
+  expect(restored['missingEx']).toBe(missingEx);
+  expect(restoreMotorLabels(restored)).toBe(restored);
+});
+it('the tooltip keeps the full designation and label behind an abbreviated strip value', () => {
+  const mm = motor('1013J453-16A');
+  mm.meta.manufacturer = 'Cesaroni';
+  mm.label = 'J453-5';
+  expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 5 s delay (J453-5)');
 });

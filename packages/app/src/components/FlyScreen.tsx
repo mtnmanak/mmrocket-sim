@@ -2,6 +2,7 @@ import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { weatherPlaceLabel } from '../services/coordinates.js';
+import { motorLabel } from '../services/motorDb.js';
 import { fmtSi } from '../prefs/units.js';
 import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
 import {
@@ -249,6 +250,6 @@ function flownMotorLabel(run: SimRun): string {
   if (run.motorConfig?.startsWith('mixed')) {
     return `${run.motor}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
   }
-  return `${run.manufacturer ? `${run.manufacturer} ` : ''}${run.motor}-${
-    Number.isFinite(run.delayS) ? run.delayS : 'P'}`;
+  return `${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
+    { designation: run.motor, manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
 }

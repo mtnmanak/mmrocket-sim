@@ -52,7 +52,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   /** App owns the choice across tab remounts and retires it on unload/open. */
   beginSelection?: () => () => boolean;
   /** Every motor loaded in the design, so a catalogue check can name the ones it changed. */
-  loadedMotors?: readonly { label: string; manufacturer?: string }[];
+  loadedMotors?: readonly { label: string; manufacturer?: string; motorId?: string }[];
   /** Offer the Quick Picks at all — false once the design is no longer the
    *  untouched starter rocket (App: `isPristineDefault`). */
   showQuickPicks: boolean;

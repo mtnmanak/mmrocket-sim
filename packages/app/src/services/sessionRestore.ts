@@ -9,6 +9,7 @@ import type { DesignState } from './designDerivation.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { MeasuredFigures } from './orkFile.js';
 import type { SessionState } from './session.js';
+import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
 
 /**
@@ -27,8 +28,8 @@ import { checkLegacyPositions } from './legacyPositionCheck.js';
  * initializers and by anything that flies a stored session
  * (services/simulateDesign.ts; App.simulate.test.tsx's session cases).
  *
- * Pure apart from the id counter `normalizeTree` reseeds, which every caller
- * that builds a tree already shares.
+ * Reseeds the id counter through `normalizeTree`; label migration also reads
+ * the stored catalogue overlay and EX library without replacing flown specs.
  */
 
 /** Where a restore moved a weighed pad mass when the core-first ranking named another primary. */
@@ -46,7 +47,7 @@ export interface RestoredDesign {
   legacyPadMass: ReturnType<typeof migrateLegacyPadMass> | null;
   /** Where the core-first ranking moved the working set's pad mass; null when the session carried no motor set. */
   rankedPadMass: RankedPadMass | null;
-  /** The working set and configurations as stored, kept only when the ranking moved a pad mass in either. */
+  /** The working set and configurations before pad-mass ranking or label migration, for the saved mark. */
   preRankRestore: { motors: Record<string, MountMotor>; configs: SavedConfig[] } | null;
   /** The mount a pre-per-mount session's one motor applied to, else the first mount. */
   defaultMountId: string | undefined;
@@ -137,6 +138,12 @@ export function designStateFromSession(
   }
   // Reload has no undo history, so missing-stage snapshots can now be dropped.
   const savedConfigs = pruneStageMass(rankedConfigs, tree);
+  const labelledMotors = restoreMotorLabels(mountMotors);
+  const labelledConfigs = savedConfigs.map(c => restoreConfigLabels(c));
+  // Display-only migration must not turn a saved design into unsaved work.
+  if (labelledMotors !== mountMotors || labelledConfigs.some((c, i) => c !== savedConfigs[i])) {
+    preRankRestore = { motors: preRankRestore?.motors ?? mountMotors, configs: preRankRestore?.configs ?? stored };
+  }
 
   // A session written by v0.116/v0.117 carries the pad mass as a third
   // measured key — migrated above, and stripped here ONLY when present, so
@@ -151,10 +158,10 @@ export function designStateFromSession(
   return {
     state: {
       tree,
-      mountMotors,
+      mountMotors: labelledMotors,
       launch: session?.launch ?? DEFAULT_CONDITIONS,
       measured,
-      savedConfigs,
+      savedConfigs: labelledConfigs,
       activeConfigId: session?.activeConfigId ?? null,
       // The session's copy minus any mount that has a record; a session written
       // before they were stored falls back to the ACTIVE configuration's refs.

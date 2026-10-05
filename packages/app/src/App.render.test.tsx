@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -9,7 +12,11 @@ import { PrefsProvider } from './prefs/PrefsContext.js';
 import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
 import { buildDesign, KERNEL_HANDLES } from './services/buildDesign.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
-import { classLabel } from './services/motorDb.js';
+import { classLabel, MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
+import { discardCatalogueOverlay } from './services/catalogueOverlay.js';
+import { designFingerprint } from './services/dirtyState.js';
+import { getExMotor, loadExMotors } from './services/exMotors.js';
+import { motorTooltip } from './services/motorLabels.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { nozzleOversize } from './services/nozzleCheck.js';
 import { peekSession } from './services/session.js';
@@ -53,6 +60,14 @@ vi.mock('./services/simReport.js', async (importOriginal) => {
 vi.mock('./services/motorDb.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/motorDb.js')>();
   return { ...real, classLabel: vi.fn(real.classLabel) };
+});
+vi.mock('./services/motorLabels.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/motorLabels.js')>();
+  return { ...real, motorTooltip: vi.fn(real.motorTooltip) };
+});
+vi.mock('./services/exMotors.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/exMotors.js')>();
+  return { ...real, getExMotor: vi.fn(real.getExMotor), loadExMotors: vi.fn(real.loadExMotors) };
 });
 /**
  * The hero canvas's schematic, passed through with its props kept, so a test
@@ -174,6 +189,7 @@ beforeEach(() => {
   heroSchematic = null;
   batchDialog = null;
   localStorage.clear();
+  setCatalogueOverlay(null);
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
@@ -181,6 +197,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await unmountAll();
+  discardCatalogueOverlay();
   vi.unstubAllGlobals();
 });
 
@@ -916,4 +933,180 @@ describe('the panel header rows', () => {
     expectWrapping(headOf(host, 'Launch report'), 'Launch report');
     expectWrapping(headOf(host, 'Drag analysis'), 'Drag analysis');
   }, 30000);
+});
+
+describe('the Motor vitals designation and tooltip', () => {
+  it('keeps live check and discard labels, saved rows, tooltip and delay edits consistent', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const mm = (await loadCatalogueMotor('AeroTech', 'F67C', 9))!;
+    const snapshot = { tree, mountMotors: { [mount]: mm }, launch: DEFAULT_CONDITIONS,
+      savedConfigs: [
+        { id: 'saved', name: null, isDefault: true, motors: { [mount]: mm } },
+        { id: 'other', name: 'Other configuration', isDefault: false, motors: { [mount]: mm } },
+      ],
+      activeConfigId: 'saved', measured: { massKg: null, cgM: null } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...snapshot, savedMark: designFingerprint(snapshot),
+      savedAt: Date.now(), appVersion: APP_VERSION }));
+    const host = await mountApp();
+    await settle(500);
+    const original = peekSession()!;
+    expect(original.savedMark).toBe(designFingerprint({ ...snapshot, ...original }));
+    await openTab(host, 'Motors & Launch');
+    await act(async () => { button(host, 'Browse').click(); });
+    // Drive the actual check through App -> MotorPicker -> MotorBrowser, with no network.
+    const rows = MOTOR_DB.map(m => m.motorId === mm.meta.motorId ? { ...m, designation: 'F67C-UPDATED' } : m);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = new URL(url);
+      const body = u.pathname.endsWith('/metadata.json')
+        ? { manufacturers: [...new Set(rows.map(m => m.manufacturerAbbrev))].map(abbrev => ({ abbrev })), impulseClasses: [] }
+        : { results: rows.filter(m => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }));
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Check thrustcurve.org for newer motors"]')!.click(); });
+    await waitFor(() => !!host.querySelector('.motor-check-status .file-note'), 'catalogue check');
+    expect(host.querySelector('.motor-check-status')?.textContent).toContain('In this design: AeroTech F67C-UPDATED');
+    const expectDisplay = (base: string, delay = 9) => {
+      const value = host.querySelector('.vitals-motor-label')!;
+      expect(value.textContent).toBe(`${base}-${delay}`);
+      expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(`AeroTech ${base}, ${delay} s delay (${base}-${delay})`);
+      expect(host.querySelector('.config-name')?.textContent).toBe(`[${base}-9]`);
+    };
+    expectDisplay('F67C-UPDATED');
+    await settle(500);
+    const installed = peekSession()!;
+    expect(installed.mountMotors![mount]!.spec).toEqual(original.mountMotors![mount]!.spec);
+    expect(installed.savedConfigs![0]!.motors[mount]!.spec).toEqual(original.savedConfigs![0]!.motors[mount]!.spec);
+    expect(installed.savedMark).toBe(designFingerprint({ ...snapshot, ...installed }));
+    await act(async () => { discardCatalogueOverlay(); });
+    expectDisplay('F67C');
+    await settle(500);
+    expect(peekSession()!.savedMark).toBe(original.savedMark);
+    // Repeat installation, then edit delay: all three views keep the updated base.
+    await act(async () => { button(host, 'Check thrustcurve.org').click(); });
+    await waitFor(() => host.querySelector('.vitals-motor-label')?.textContent === 'F67C-UPDATED-9', 'second check');
+    const delay = host.querySelector<HTMLInputElement>(`[id="ejection-delay-${mount}"]`)!;
+    await act(async () => { delay.focus(); });
+    await type(delay, '7');
+    await act(async () => { delay.blur(); });
+    expectDisplay('F67C-UPDATED', 7);
+    await settle(500);
+    const edited = peekSession()!;
+    expect(edited.savedMark).not.toBe(designFingerprint({ ...snapshot, ...edited }));
+    await act(async () => { discardCatalogueOverlay(); });
+    expectDisplay('F67C', 7);
+    await settle(500);
+    expect(peekSession()!.savedMark).toBe(edited.savedMark);
+    expect(peekSession()!.savedMark).not.toBe(designFingerprint({ ...snapshot, ...peekSession()! }));
+  }, 30000);
+
+  it('memoizes the tooltip and never loads the EX library on unchanged-input rerenders', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const mm = { ...c6, label: 'F67-9', spec: { ...c6.spec, designation: 'F67', ejectionDelay: 9 },
+      meta: { label: 'F67-9', manufacturer: 'EX', motorId: 'ex:old-f67', exMotorId: 'ex:old-f67' } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
+      launch: DEFAULT_CONDITIONS, savedAt: Date.now(), appVersion: APP_VERSION }));
+    const host = await mountApp();
+    await settle(500);
+    vi.mocked(getExMotor).mockClear();
+    vi.mocked(loadExMotors).mockClear();
+    // Also cover the first tooltip calculation with an explicit catalogue: no library read.
+    expect(motorTooltip(mm, MOTOR_DB)).toBe('EX F67, 9 s delay (F67-9)');
+    expect(getExMotor).not.toHaveBeenCalled();
+    expect(loadExMotors).not.toHaveBeenCalled();
+    vi.mocked(motorTooltip).mockClear();
+    const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+    await type(name, 'EX rocket renamed');
+    await type(name, 'EX rocket renamed again');
+    expect(host.querySelector('.vitals-item-name .vitals-value')?.textContent).toBe('EX rocket renamed again');
+    expect(motorTooltip).not.toHaveBeenCalled();
+    expect(getExMotor).not.toHaveBeenCalled();
+    expect(loadExMotors).not.toHaveBeenCalled();
+    // Changing the catalogue invalidates the memo, even if the EX display stays the same.
+    const before = MOTOR_DB[0]!;
+    await act(async () => { setCatalogueOverlay({ baseGenerated: '', fetchedAt: '', liveCount: 1, added: [],
+      changed: [{ motorId: before.motorId, before, after: { ...before, designation: 'UPDATED' }, fields: ['designation'] }],
+      removed: [], rejected: [] }); });
+    expect(motorTooltip).toHaveBeenCalled();
+    expect(host.querySelector('.vitals-motor-label')?.closest('.vitals-item')?.getAttribute('title')).toContain('EX F67, 9 s delay');
+  });
+
+  it.each([1, 2])('keeps +%s other mounts outside a clipped long motor label', async (extra) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!;
+    const mm = (await loadCatalogueMotor('AeroTech', 'F67C', 9))!;
+    // Keep the supplied long identity unresolved so restore retains it.
+    const label = '1685CC098LFX-L225FX (auto delay)';
+    const long = { ...mm, label, spec: { ...mm.spec, designation: '1685CC098LFX-L225FX' },
+      meta: { label, manufacturer: 'Hypertek', autoDelay: true } };
+    const motors = { [mount.id!]: long };
+    for (let i = 0; i < extra; i++) {
+      const id = `extra-mount-${i}`;
+      tree.components[0]!.children!.push({ ...mount, id });
+      motors[id] = long;
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: motors,
+      launch: DEFAULT_CONDITIONS, savedAt: Date.now(), appVersion: '0.159' }));
+    const host = await mountApp();
+    const value = host.querySelector('.vitals-motor-label')!;
+    const count = host.querySelector('.vitals-motor-count')!;
+    expect(value.textContent).toBe(label);
+    expect(count.textContent).toBe(` +${extra}`);
+    expect(count.parentElement).toBe(value.parentElement);
+    expect(value.contains(count)).toBe(false);
+    // Happy DOM checks the applied rule; real clipping geometry remains browser QA.
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
+    document.head.appendChild(style);
+    try {
+      expect(getComputedStyle(count).flexShrink).toBe('0');
+      expect(getComputedStyle(value).textOverflow).toBe('ellipsis');
+    } finally {
+      style.remove();
+    }
+    expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(`(+${extra} more ${extra === 1 ? 'mount' : 'mounts'})`);
+    expect(value.parentElement?.querySelector('button')?.textContent).toContain('Unload');
+  });
+
+  it.each([
+    [9, false, 'F67C-9', '9 s delay'],
+    [Infinity, false, 'F67C-P', 'plugged'],
+    [9, true, 'F67C (auto delay)', 'automatic delay'],
+  ] as const)('restores the full label at %s s, auto %s', async (delay, autoDelay, label, delayText) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const mm = (await loadCatalogueMotor('AeroTech', 'F67C', delay))!;
+    mm.label = 'F67-9';
+    mm.meta.label = 'F67-9';
+    mm.meta.autoDelay = autoDelay;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
+      launch: DEFAULT_CONDITIONS, savedAt: Date.now(), appVersion: '0.159' },
+    (_key, value: unknown) => value === Infinity ? 'Infinity' : value));
+    const host = await mountApp();
+    const value = host.querySelector('.vitals-motor-label')!;
+    expect(value.textContent).toBe(label);
+    expect(value.closest('.vitals-item')?.getAttribute('title')).toContain('AeroTech F67C, ' + delayText);
+    expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(label);
+    expect(value.parentElement?.querySelector('button')?.textContent).toContain('Unload');
+  });
+});
+
+it('the Batch weighed-pad note receives the loaded designation without its delay', async () => {
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('AeroTech', 'F67C', 9))!;
+  const bare = buildDesign({ tree, assigned: [[mount, mm]], kbf: true, supersonic: false,
+    measuredDryMassKg: null, primaryMountId: mount, currentSetKey: '' }, KERNEL_HANDLES);
+  if ('error' in bare) throw new Error(bare.error);
+  const padMassKg = bare.info.massEmpty + catalogueMotorMass(tree, [[mount, mm]])! + 0.005;
+  await seedStarterSession({ over: { tree, mountMotors: { [mount]: mm },
+    measured: { massKg: null, cgM: null, padMassKg } } });
+  const host = await mountApp();
+  await settle(600);
+  await openTab(host, 'Motors & Launch');
+  await act(async () => { button(host, 'Batch simulate motors…').click(); });
+  await waitFor(() => batchDialog !== null, 'batch dialog');
+  expect(batchDialog!.weighed?.name).toBe('F67C');
 });

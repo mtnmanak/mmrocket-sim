@@ -8,6 +8,11 @@ import {
   OVERLAY_KEY, RECHECK_MIN_MS, changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay,
   diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry,
 } from './catalogueOverlay.js';
+import { mountMotorFromDb } from './motorMatch.js';
+import type { MotorSpec } from '@online-openrocket/engine';
+import type { SavedConfig } from '../model/design.js';
+import { statedWeightTextFor } from './unitText.js';
+import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
 import { DEFAULT_MAX_JSON_BYTES } from './net.js';
 
@@ -451,4 +456,144 @@ describe('the words the browser shows', () => {
     expect(changedMotorsInDesign(overlay, [{ label: 'C6 (auto delay)', manufacturer: 'Estes' }])).toHaveLength(1);
     expect(changedMotorsInDesign(overlay, [{ label: 'C6-p', manufacturer: 'Estes' }])).toHaveLength(1);
   });
+});
+
+it('recognizes a loaded designation after its catalogue delay and impulse prefix were replaced', () => {
+  for (const [designation, manufacturerAbbrev, commonName, label] of [
+    ['F115SN-12A', 'AeroTech', 'F115', 'F115SN-8'],
+    ['1013J453-16A', 'Cesaroni', 'J453', 'J453 (auto delay)'],
+  ]) {
+    const before = { ...MOTOR_DB[0]!, designation: designation!, manufacturerAbbrev: manufacturerAbbrev!, commonName: commonName! };
+    const after = { ...before, totImpulseNs: before.totImpulseNs + 1 };
+    const overlay: CatalogueOverlay = { ...diffCatalogue([before], [after]),
+      baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] };
+    expect(changedMotorsInDesign(overlay, [{ label: label!, manufacturer: manufacturerAbbrev }])).toHaveLength(1);
+  }
+});
+
+it('restores an overlay-only motor label before App installs the stored overlay', async () => {
+  // Startup needs a fresh module instance, before any set/restore/discard call.
+  vi.resetModules();
+  const { restoreMotorLabels } = await import('./motorLabels.js');
+  const { getCatalogueOverlay } = await import('./motorDb.js');
+  const added = row({ motorId: 'overlay-only', designation: 'F67C', commonName: 'F67', manufacturerAbbrev: 'AeroTech' });
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE,
+    fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, added: [added], changed: [], removed: [], rejected: [] }));
+  const spec = { designation: added.designation, ejectionDelay: 9 } as MotorSpec;
+  const old = mountMotorFromDb(added, spec, 9, { event: 'automatic', delay: 0 });
+  old.label = 'F67-9';
+  const got = restoreMotorLabels({ mount: old })['mount']!;
+  expect(got.label).toBe('F67C-9');
+  expect(got.spec).toBe(spec);
+  expect(getCatalogueOverlay()).toBeNull();
+});
+
+it('does not confuse AMW case impulses when naming changed loaded motors', () => {
+  const before = MOTOR_DB.filter(m => m.manufacturerAbbrev === 'AMW'
+    && ['BB-54-1050', 'BB-54-2550'].includes(m.designation));
+  expect(before).toHaveLength(2);
+  const overlay: CatalogueOverlay = { ...diffCatalogue(before, before.map(m => ({ ...m, totImpulseNs: m.totImpulseNs + 1 }))),
+    baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 2, rejected: [] };
+  for (const suffix of ['-P', '-9', ' (auto delay)']) {
+    expect(changedMotorsInDesign(overlay, [{ label: 'BB-54-2550' + suffix, manufacturer: 'AMW' }])
+      .map(c => c.after.designation)).toEqual(['BB-54-2550']);
+  }
+});
+
+it('recognizes a loaded PS designation with plugged, numeric and Auto labels', () => {
+  const before = MOTOR_DB.find(m => m.designation === 'N1975W-PS')!;
+  const overlay: CatalogueOverlay = { ...diffCatalogue([before], [{ ...before, totImpulseNs: before.totImpulseNs + 1 }]),
+    baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] };
+  for (const suffix of ['', '-9', ' (auto delay)']) {
+    expect(changedMotorsInDesign(overlay, [{ label: 'N1975W-PS' + suffix, manufacturer: 'AeroTech' }]))
+      .toHaveLength(1);
+  }
+});
+
+it.each([false, true])('uses one overlay designation for restore, delay edits and tooltip (installed: %s)', async (installed) => {
+  vi.resetModules();
+  const { setCatalogueOverlay, getCatalogueOverlay } = await import('./motorDb.js');
+  const { motorTooltip, restoreConfigLabels, restoreMotorLabels } = await import('./motorLabels.js');
+  const { withAuto, withDelay, withPlugged } = await import('./mountDelayEdits.js');
+  const before = MOTOR_DB.find(m => m.designation === 'F67C')!;
+  const after = { ...before, designation: 'F67C-UPDATED' };
+  const overlay: CatalogueOverlay = { ...diffCatalogue([before], [after]),
+    baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] };
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+  if (installed) setCatalogueOverlay(overlay);
+  const spec = { designation: before.designation, ejectionDelay: 9 } as MotorSpec;
+  const old = mountMotorFromDb(before, spec, 9, { event: 'automatic', delay: 0 });
+  const restored = restoreMotorLabels({ mount: old })['mount']!;
+  expect(restored.label).toBe('F67C-UPDATED-9');
+  expect(restored.spec).toBe(spec);
+  expect(restoreConfigLabels({ id: 'A', name: null, isDefault: true, motors: { mount: old } }).motors['mount']!.label)
+    .toBe(restored.label);
+  expect(motorTooltip(restored)).toBe(`AeroTech F67C-UPDATED, 9 s delay (${restored.label})`);
+  const edited = withDelay(restored, 8);
+  const auto = withAuto(edited, true);
+  const plugged = withPlugged(auto, true);
+  for (const [mm, label, delay] of [
+    [edited, 'F67C-UPDATED-8', '8 s delay'],
+    [auto, 'F67C-UPDATED (auto delay)', 'automatic delay'],
+    [plugged, 'F67C-UPDATED-P', 'plugged'],
+  ] as const) {
+    expect(mm.label).toBe(label);
+    expect(mm.meta.label).toBe(label);
+    expect(mm.spec.designation).toBe(before.designation);
+    expect(motorTooltip(mm)).toBe(`AeroTech F67C-UPDATED, ${delay} (${label})`);
+  }
+  expect(getCatalogueOverlay()).toBe(installed ? overlay : null);
+});
+
+it.each(['restore', 'set', 'discard'] as const)('ignores another tab stored overlay after %s initializes this tab', async (initialize) => {
+  vi.resetModules();
+  const { getCatalogue, getCatalogueOverlay, setCatalogueOverlay } = await import('./motorDb.js');
+  const { restoreCatalogueOverlay, discardCatalogueOverlay } = await import('./catalogueOverlay.js');
+  const { motorTooltip, restoreConfigLabels, restoreMotorLabels } = await import('./motorLabels.js');
+  const { withAuto, withDelay, withPlugged } = await import('./mountDelayEdits.js');
+  const { planConfigSwitch } = await import('./importApply.js');
+  const before = MOTOR_DB.find(m => m.designation === 'F67C')!;
+  const overlay: CatalogueOverlay = { ...diffCatalogue([before], [{ ...before, designation: 'F67CT' }]),
+    baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] };
+  if (initialize === 'restore') expect(restoreCatalogueOverlay()).toBeNull();
+  else if (initialize === 'set') setCatalogueOverlay(null);
+  else discardCatalogueOverlay();
+  // A different tab stores a rename that this tab has never installed.
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+  expect(getCatalogueOverlay()).toBeNull();
+  const spec = { designation: before.designation, ejectionDelay: 9, masses: [0.1], length: 0.1 } as MotorSpec;
+  const old = mountMotorFromDb(before, spec, 9, { event: 'automatic', delay: 0 });
+  const edited = withDelay(old, 7);
+  expect(edited.label).toBe('F67C-7');
+  expect(motorTooltip(edited, getCatalogue())).toBe('AeroTech F67C, 7 s delay (F67C-7)');
+  expect(motorTooltip(edited)).toBe(motorTooltip(edited, getCatalogue()));
+  expect(withAuto(edited, true).label).toBe('F67C (auto delay)');
+  expect(withPlugged(edited, true).label).toBe('F67C-P');
+  old.label = 'F67-9';
+  old.meta.label = 'F67-9';
+  const restored = restoreMotorLabels({ mount: old });
+  expect(restored['mount']?.label).toBe('F67C-9');
+  expect(restored['mount']?.spec).toBe(spec);
+  const config: SavedConfig = { id: 'A', name: null, isDefault: true, motors: { mount: old } };
+  expect(restoreConfigLabels(config).motors['mount']?.label).toBe('F67C-9');
+  const plan = planConfigSwitch({ tree: { name: 'empty', components: [] }, savedConfigs: [config], activeConfigId: null,
+    mountMotors: {}, unmatchedRefs: {} }, config, statedWeightTextFor(DEFAULT_PREFS.units));
+  expect(plan.mountMotors['mount']?.label).toBe('F67C-9');
+  expect(plan.savedConfigs[0]?.motors['mount']?.label).toBe('F67C-9');
+  expect(getCatalogueOverlay()).toBeNull();
+});
+
+it('names a renamed loaded motor by id, with both rename sides as the no-id fallback', () => {
+  const before = MOTOR_DB.find(m => m.designation === 'F67C')!;
+  const after = { ...before, designation: 'F67C-UPDATED', commonName: 'F67-UPDATED' };
+  const overlay: CatalogueOverlay = { ...diffCatalogue([before], [after]),
+    baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] };
+  expect(changedMotorsInDesign(overlay, [{ motorId: before.motorId, manufacturer: 'AeroTech', label: 'stale-label' }]))
+    .toEqual(overlay.changed);
+  expect(changedMotorsInDesign(overlay, [{ motorId: 'another-motor', manufacturer: 'AeroTech', label: 'F67C-9' }]))
+    .toEqual([]);
+  for (const label of ['F67C-9', 'F67C-UPDATED-9', 'F67-9', 'F67-UPDATED-9']) {
+    expect(changedMotorsInDesign(overlay, [{ manufacturer: 'AeroTech', label }])).toEqual(overlay.changed);
+    expect(changedMotorsInDesign(overlay, [{ manufacturer: 'Quest', label }])).toEqual([]);
+  }
 });

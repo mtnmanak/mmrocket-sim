@@ -95,6 +95,7 @@ export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | n
 }
 
 let activeOverlay: CatalogueOverlay | null = null;
+let overlayInitialized = false;
 let effective: MotorDbEntry[] = MOTOR_DB;
 const listeners = new Set<() => void>();
 
@@ -115,8 +116,14 @@ export function getCatalogueOverlay(): CatalogueOverlay | null {
   return activeOverlay;
 }
 
+/** After startup, another tab's stored overlay must not change this tab's labels. */
+export function isCatalogueOverlayInitialized(): boolean {
+  return overlayInitialized;
+}
+
 /** Installs (or clears) the overlay and tells every subscriber. */
 export function setCatalogueOverlay(overlay: CatalogueOverlay | null): void {
+  overlayInitialized = true;
   activeOverlay = overlay;
   effective = applyOverlay(MOTOR_DB, overlay);
   for (const fn of listeners) fn();
@@ -153,6 +160,18 @@ export function displayDesignation(designation: string, manufacturer?: string): 
   let d = designation.replace(/^HP-/i, '');
   if (manufacturer === 'Cesaroni') d = d.replace(/^\d+(?=[A-O]\d)/, '');
   return d;
+}
+
+/** A loaded motor keeps its propellant letters and replaces only a trailing delay. */
+export function motorLabel(
+  entry: { designation: string; manufacturerAbbrev?: string },
+  delay: number,
+  { autoDelay = false }: { autoDelay?: boolean } = {},
+): string {
+  // Three or more digits can be an AMW case's impulse, not a delay.
+  const base = displayDesignation(entry.designation, entry.manufacturerAbbrev).replace(/-(?:\d{1,2}[A-Z]?|P)$/, '');
+  if (!autoDelay && !Number.isFinite(delay) && base.endsWith('-PS')) return base;
+  return autoDelay ? `${base} (auto delay)` : `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
 
 /**

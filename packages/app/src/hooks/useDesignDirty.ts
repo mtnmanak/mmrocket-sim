@@ -23,8 +23,7 @@ import { designFingerprint, isDirty, type DesignSnapshot } from '../services/dir
 
 /**
  * The working set and configurations exactly as a restored session stored
- * them, recorded by App's restore only when the core-first ranking
- * (treeModel.padMassOntoRankedPrimary) moved a weighed pad mass in either.
+ * them, recorded when the restore moves a weighed pad mass or migrates labels.
  */
 export interface PreRankRestore {
   motors: Record<string, MountMotor>;
@@ -43,6 +42,8 @@ export interface DesignDirty {
   dirty: boolean;
   /** Records that what is in the app right now is also what is on disk. */
   markSaved: (mark: string, flightsAtSnapshot?: number) => void;
+  /** Move a matching saved mark across a display migration, retaining flight/dirty flags. */
+  migrateSavedMark: (before: DesignSnapshot, after: DesignSnapshot) => void;
   /** Capture beside a file snapshot, before awaiting its writer. */
   flightCount: { readonly current: number };
   /**
@@ -71,7 +72,7 @@ export interface DesignDirty {
  * @param starter the starter motor as it arrives (App's loader writes the ref)
  *   and the mount it lands on.
  * @param preRank the design as the session stored it, when the restore moved
- *   a pad mass onto the ranked primary (App's restore writes the ref); read
+ *   a pad mass onto the ranked primary or migrated labels; read
  *   once, on mount.
  * @param preLength the tree and stage limits before the one-time mount migration.
  */
@@ -116,8 +117,8 @@ export function useDesignDirty(
   // audit 2026-09-22). Re-taken over the moved design exactly when it
   // described the design before the move, the same guard as the starter
   // landing's below; a mark that did not (unsaved work) keeps its prompt.
-  // Apply the same rule to motor-length migration. Compare BOTH migrations
-  // together so a session needing both never loses its original clean/dirty state.
+  // Apply the same rule to motor-length and label migrations. Compare them
+  // together so combined migrations preserve the original clean/dirty state.
   useEffect(() => {
     const pre = preRank?.current ?? null;
     if (preRank) preRank.current = null;
@@ -167,11 +168,16 @@ export function useDesignDirty(
     flownSinceSave.current = flightCount.current !== flightsAtSnapshot;
     bumpDirty();
   }, []);
+  const migrateSavedMark = useCallback((before: DesignSnapshot, after: DesignSnapshot) => {
+    if (savedMark.current !== designFingerprint(before)) return;
+    savedMark.current = designFingerprint(after);
+    bumpDirty();
+  }, []);
   const markFlown = useCallback(() => {
     flightCount.current++;
     flownSinceSave.current = true;
     bumpDirty();
   }, []);
 
-  return { dirty, markSaved, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
+  return { dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
 }

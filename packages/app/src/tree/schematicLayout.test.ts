@@ -44,6 +44,45 @@ const busy = rocket([
       children: [{ id: 'pf', type: 'trapezoidfinset', finCount: 3, rootChord: 0.02, height: 0.01 }] }] },
 ]);
 
+describe('motor label fit', () => {
+  it.each([
+    ['F115SN-8', 59.9, false],
+    ['F115SN-8', 60, true],
+    ['F115SN-8', 60.1, true],
+    ['BB-54-2550-P', 60.1, false],
+    ['BB-54-2550-P', 87.9, false],
+    ['BB-54-2550-P', 88.1, true],
+    ['C6-5', 32.1, true],
+  ])('fits %s in a %s px case: %s', (label, caseWidth, fits) => {
+    const shapes = layoutSchematic(rocket([]), {
+      scale: caseWidth / 0.1, cy: 100, x0: 10, roll: 0, idPrefix: 't',
+      motors: { b1: { length: 0.1, diameter: 0.029, label } },
+    }).shapes;
+    const motor = shapes.find(s => s.key === 'b1:motor')!;
+    expect(motor.attrs['width']).toBeCloseTo(caseWidth, 9);
+    const text = shapes.find(s => s.key === 'b1:motor-label');
+    expect(Boolean(text)).toBe(fits);
+    if (fits) {
+      expect(text?.text).toBe(label);
+      expect(text?.attrs['fontSize']).toBe('10');
+    }
+  });
+
+  // Nose-up the label reads horizontally across the case, so the case's
+  // diameter on screen is the room it has, however long the case is drawn.
+  it.each([
+    ['F115SN-8', 0.124, 0.029, 600, false],
+    ['C6-5', 0.07, 0.018, 1700, false],
+    ['C6-5', 0.07, 0.018, 1800, true],
+  ])('nose-up: %s on a %s m x %s m case at %s px/m fits: %s', (label, length, diameter, scale, fits) => {
+    const shapes = layoutSchematic(rocket([]), {
+      scale, cy: 100, x0: 10, roll: 0, idPrefix: 't', vertical: true,
+      motors: { b1: { length, diameter, label } },
+    }).shapes;
+    expect(Boolean(shapes.find(s => s.key === 'b1:motor-label'))).toBe(fits);
+  });
+});
+
 describe('keys are identities', () => {
   it('every shape has a distinct key', () => {
     for (const roll of [0, 0.7]) {

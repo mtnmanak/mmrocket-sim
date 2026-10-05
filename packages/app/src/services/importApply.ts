@@ -1,4 +1,5 @@
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
+import { restoreConfigLabels } from './motorLabels.js';
 import { restoreExMotors, type ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -707,7 +708,9 @@ export function planConfigSwitch(
 ): ConfigSwitchPlan {
   const synced = pruneStageMass(syncActiveConfig(state.savedConfigs, state.activeConfigId,
     { motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, tree: state.tree }), state.tree);
-  const cfg = synced.find((c) => c.id === requested.id) ?? requested;
+  const selected = synced.find((c) => c.id === requested.id) ?? requested;
+  const cfg = restoreConfigLabels(selected);
+  const savedConfigs = cfg === selected ? synced : synced.map(c => c === selected ? cfg : c);
   // A configuration is its motors AND its recovery deployment. These were
   // carried for export only, so applying one here switched the motors and
   // left the chute set the way the previously-opened configuration wanted
@@ -770,7 +773,7 @@ export function planConfigSwitch(
       .filter((s) => s.stageId in cfg.nozzles!)
     : [];
   return {
-    savedConfigs: synced,
+    savedConfigs,
     config: cfg,
     mountMotors: cfg.motors,
     // The working set's unresolved references are this configuration's, so

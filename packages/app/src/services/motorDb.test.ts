@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
-  displayDesignation, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
+  displayDesignation, motorLabel, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
   isBlackPowder,
   manufacturerMatches, manufacturersForMount, matchDbMotor, nearestCommonClass, PROPELLANT_CODES,
   propellantsForMount, rangesForMount, sortMotors,
@@ -822,5 +822,39 @@ describe('isBlackPowder', () => {
     expect(isBlackPowder({})).toBe(false);
     expect(isBlackPowder({ propInfo: '' })).toBe(false);
     expect(isBlackPowder({ propInfo: '   ' })).toBe(false);
+  });
+});
+
+describe('motorLabel', () => {
+  it.each([
+    ['AeroTech', 'F67C', 9, false, 'F67C-9'],
+    ['AeroTech', 'F67W', 9, false, 'F67W-9'],
+    ['AeroTech', 'D10W', Infinity, false, 'D10W-P'],
+    ['AeroTech', 'D10W', 5, true, 'D10W (auto delay)'],
+    ['AeroTech', 'L2775ST-PS', Infinity, false, 'L2775ST-PS'],
+    ['AeroTech', 'N1975W-PS', Infinity, false, 'N1975W-PS'],
+    ['AeroTech', 'N2700W-PS', Infinity, false, 'N2700W-PS'],
+    ['AeroTech', 'N3120X-PS', Infinity, false, 'N3120X-PS'],
+    ['AeroTech', 'N4000W-PS', Infinity, false, 'N4000W-PS'],
+    ['AeroTech', 'O5500X-PS', Infinity, false, 'O5500X-PS'],
+    ['AeroTech', 'N1975W-PS', 9, false, 'N1975W-PS-9'],
+    ['AeroTech', 'N1975W-PS', Infinity, true, 'N1975W-PS (auto delay)'],
+    ['Cesaroni', '1013J453-16A', 12, false, 'J453-12'],
+    ['Cesaroni', '10133M795-P', Infinity, false, 'M795-P'],
+    ['AeroTech', 'F115SN-12A', 8, false, 'F115SN-8'],
+    ['AeroTech', 'E12-RCJ', 4, false, 'E12-RCJ-4'],
+    ['Quest', 'A8-3', 5, false, 'A8-5'],
+    ['ZEVETA', 'ROS-40-5', 3, false, 'ROS-40-3'],
+    ['Hypertek', '1685CC098L-L200', 9, false, '1685CC098L-L200-9'],
+    ['Contrail', 'G100-PVC', 4, false, 'G100-PVC-4'],
+    ['Loki', 'G66-LR', 4, false, 'G66-LR-4'],
+    ['AMW', '1025J475-P', Infinity, false, '1025J475-P'],
+    ['AMW', 'BB-54-2550', Infinity, false, 'BB-54-2550-P'],
+    ['AMW', 'BB-38-390', Infinity, false, 'BB-38-390-P'],
+    ['AMW', 'BB-38-640', Infinity, false, 'BB-38-640-P'],
+    ['EX', 'F67', 9, false, 'F67-9'],
+    ['Loki', 'HP-I140W', 2.5, false, 'I140W-2.5'],
+  ])('%s %s at %s s (auto %s) becomes %s', (manufacturerAbbrev, designation, delay, autoDelay, expected) => {
+    expect(motorLabel({ manufacturerAbbrev, designation }, delay, { autoDelay })).toBe(expected);
   });
 });

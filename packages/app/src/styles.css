@@ -173,7 +173,22 @@ html {
   vertical-align: middle;
 }
 
-.vitals-item-name .vitals-value {
+.vitals-motor {
+  display: flex;
+  align-items: center;
+}
+
+.vitals-motor .vitals-unload,
+.vitals-motor-count {
+  flex-shrink: 0;
+}
+
+.vitals-motor-count {
+  white-space: pre;
+}
+
+.vitals-item-name .vitals-value,
+.vitals-motor-label {
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;

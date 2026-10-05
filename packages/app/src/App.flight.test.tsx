@@ -14,10 +14,13 @@ import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { padMassSetKey } from './services/configSync.js';
 import { flyLaunch, reflyRun } from './services/flightRunner.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
+import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
+import { discardCatalogueOverlay } from './services/catalogueOverlay.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { importOrk } from './services/orkFile.js';
 import type { SessionState } from './services/session.js';
 import type { SimRun } from './services/simReport.js';
+import type { MountMotor } from './model/design.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -223,6 +226,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await unmountAll();
+  setCatalogueOverlay(null);
   vi.unstubAllGlobals();
 });
 
@@ -658,6 +662,184 @@ describe('what a Launch computed lands only on the design it flew', () => {
     await waitFor(() => !hasButton(host, 'Simulating…'), 'the flight to end');
     await settle(50);
     expect(document.body.textContent?.includes('the solver gave up (test)'), 'the error').toBe(!replaced);
+  }, 30000);
+});
+
+describe('motor relabeling preserves flight state', () => {
+  async function renameC6(): Promise<void> {
+    const before = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+    await act(async () => { setCatalogueOverlay({ baseGenerated: '', fetchedAt: '', liveCount: 1, added: [],
+      changed: [{ motorId: before.motorId, before, after: { ...before, designation: 'C6-UPDATED' }, fields: ['designation'] }],
+      removed: [], rejected: [] }); });
+  }
+
+  it('keeps the shown flight, inspected summary, cache and measured cost on install and discard', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await openTab(host, 'Motors & Launch');
+    await type(input(host, 'Time step'), '0.025');
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the first flight');
+    await launch(host);
+    await waitFor(() => runs() === 2, 'the second flight');
+    await openHistory(host);
+    const [latest, earlier] = history!.runs;
+    const latestResult = charts!.result;
+    await act(async () => { history!.onShowCharts!(earlier!); });
+    await waitFor(() => !!history!.hasChartsFor?.(earlier!), 'the cached re-flight');
+    const earlierResult = charts!.result;
+    const reflights = vi.mocked(reflyRun).mock.calls.length;
+    expect(reflights).toBeGreaterThan(0);
+    for (const change of [renameC6, async () => { await act(async () => { discardCatalogueOverlay(); }); }]) {
+      await act(async () => { history!.onSelect!(latest!); });
+      expect(charts!.result).toBe(latestResult);
+      await change();
+      expect(hasHeading(host, 'Launch report')).toBe(true);
+      expect(hasHeading(host, 'Flight plots')).toBe(true);
+      expect(history!.selectedId).toBe(latest!.id);
+      expect(charts!.result).toBe(latestResult);
+      expect(history!.hasChartsFor?.(latest!)).toBe(true);
+      expect(history!.hasChartsFor?.(earlier!)).toBe(true);
+      await act(async () => { history!.onSelect!(earlier!); });
+      expect(charts!.result).toBe(earlierResult);
+      expect(vi.mocked(reflyRun).mock.calls.length).toBe(reflights);
+    }
+    const imported = { ...earlier!, id: 'imported-summary', importedSummary: true };
+    await act(async () => { history!.onSelect!(imported); });
+    for (const change of [renameC6, async () => { await act(async () => { discardCatalogueOverlay(); }); }]) {
+      await change();
+      expect(history!.selectedId).toBe(imported.id);
+      expect(hasHeading(host, 'Launch report')).toBe(true);
+      expect(hasHeading(host, 'Flight plots')).toBe(false);
+    }
+    // Remove the stored-cost fallback so only lastSimCost can price this flight.
+    await act(async () => { history!.onRunsChange([]); });
+    await openTab(host, 'Motors & Launch');
+    const caution = host.querySelector('.field-caution')!.textContent;
+    expect(caution).toContain('per flight instead of');
+    await renameC6();
+    expect(host.querySelector('.vitals-motor-label')?.textContent).toBe('C6-UPDATED-5');
+    expect(host.querySelector('.field-caution')!.textContent).toBe(caution);
+    await act(async () => { discardCatalogueOverlay(); });
+    expect(host.querySelector('.vitals-motor-label')?.textContent).toBe('C6-5');
+    expect(host.querySelector('.field-caution')!.textContent).toBe(caution);
+  }, 30000);
+
+  it.each(['install', 'discard'] as const)('accepts a held Launch across overlay %s', async (change) => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    if (change === 'discard') await renameC6();
+    const { land } = holdLaunch();
+    await launch(host);
+    await waitFor(() => vi.mocked(flyLaunch).mock.calls.length === 1, 'the held Launch');
+    try {
+      if (change === 'install') await renameC6();
+      else await act(async () => { discardCatalogueOverlay(); });
+    } finally { await land(); }
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    expect(hasHeading(host, 'Launch report')).toBe(true);
+    expect(hasHeading(host, 'Flight plots')).toBe(true);
+    expect(document.body.textContent).toContain('Flight complete — apogee');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()?.flownSinceSave).toBe(true);
+  }, 30000);
+
+  it('keeps the simulation error on a relabel, and clears it on a delay edit', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    const { land } = holdLaunch({ fail: 'round-six solver failure' });
+    await launch(host);
+    await waitFor(() => vi.mocked(flyLaunch).mock.calls.length === 1, 'the held Launch');
+    await land();
+    await waitFor(() => !hasButton(host, 'Simulating…'), 'the failed Launch');
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('round-six solver failure');
+    await renameC6();
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('round-six solver failure');
+    await act(async () => { discardCatalogueOverlay(); });
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('round-six solver failure');
+    await editDelay(host);
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('round-six solver failure');
+  }, 30000);
+
+  async function editDelay(host: HTMLElement): Promise<void> {
+    await openTab(host, 'Motors & Launch');
+    const field = input(host, 'Ejection delay for');
+    await act(async () => { field.focus(); });
+    await type(field, '7');
+    await act(async () => { field.blur(); });
+  }
+
+  const changes = ['delay', 'auto', 'plugged', 'motor', 'mount', 'unload', 'curve', 'ignition', 'pad mass'] as const;
+  async function seedChange(change: typeof changes[number]): Promise<void> {
+    const tree = podTree(defaultTree());
+    const mount = motorMounts(tree).find(m => m.id !== 'pod-mmt')!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    let next: Record<string, MountMotor> = { [mount]: c6 };
+    if (change === 'auto') next = { [mount]: { ...c6, meta: { ...c6.meta, autoDelay: true } } };
+    if (change === 'plugged') next = { [mount]: { ...c6, spec: { ...c6.spec, ejectionDelay: Infinity } } };
+    if (change === 'motor') next = { [mount]: (await loadCatalogueMotor('Estes', 'B6', 4))! };
+    if (change === 'mount') next = { 'pod-mmt': c6 };
+    if (change === 'unload') next = {};
+    if (change === 'curve') next = { [mount]: { ...c6, spec: { ...c6.spec, thrusts: c6.spec.thrusts.map(n => n * 1.01) } } };
+    if (change === 'ignition') next = { [mount]: { ...c6, ignition: { ...c6.ignition, delay: 0.1 } } };
+    if (change === 'pad mass') next = { [mount]: { ...c6,
+      padMassKg: 0.1 + catalogueMotorMass(tree, [[mount, c6]])! + 0.02,
+      padMassWeighedWith: padMassSetKey(tree, { [mount]: c6 }),
+    } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: c6 },
+      measured: { massKg: 0.1, cgM: null }, launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.025 },
+      savedConfigs: [
+        { id: 'original', name: 'Original', isDefault: true, motors: { [mount]: c6 } },
+        { id: 'changed', name: 'Changed', isDefault: false, motors: next },
+      ], activeConfigId: 'original', appVersion: APP_VERSION, savedAt: Date.now(),
+    }, (_key, value: unknown) => value === Infinity ? 'Infinity' : value));
+  }
+
+  async function changeMotor(host: HTMLElement, change: typeof changes[number]): Promise<void> {
+    if (change === 'delay') return editDelay(host);
+    await openTab(host, 'Motors & Launch');
+    const apply = host.querySelector<HTMLButtonElement>('[aria-label^="Apply Changed"]')!;
+    await act(async () => { apply.click(); });
+  }
+
+  it.each(changes)('still clears completed flight state for a real %s change', async (change) => {
+    await seedChange(change);
+    const host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the reference flight');
+    await openHistory(host);
+    const run = history!.runs[0]!;
+    expect(hasHeading(host, 'Launch report')).toBe(true);
+    expect(history!.hasChartsFor?.(run)).toBe(true);
+    await act(async () => { history!.onShowCharts!(run); });
+    await waitFor(() => vi.mocked(reflyRun).mock.calls.length > 0 && !history!.reflyingId, 'the cached re-flight');
+    await act(async () => { history!.onSelect!({ ...run, id: 'imported-summary', importedSummary: true }); });
+    expect(history!.selectedId).toBe('imported-summary');
+    // No stored cost can mask a missing lastSimCost reset.
+    await act(async () => { history!.onRunsChange([]); });
+    await changeMotor(host, change);
+    expect(host.querySelector('.field-caution')?.textContent).not.toContain('per flight instead of');
+    await openTab(host, 'Results');
+    expect(hasHeading(host, 'Launch report')).toBe(false);
+    expect(hasHeading(host, 'Flight plots')).toBe(false);
+    expect(history!.selectedId).toBeNull();
+    expect(history!.hasChartsFor?.(run)).toBe(false);
+  }, 30000);
+
+  it.each(changes)('rejects a held Launch result after a real %s change', async (change) => {
+    await seedChange(change);
+    const host = await mountApp();
+    const { land } = holdLaunch();
+    await launch(host);
+    await waitFor(() => vi.mocked(flyLaunch).mock.calls.length === 1, 'the held Launch');
+    try { await changeMotor(host, change); } finally { await land(); }
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    await openTab(host, 'Results');
+    expect(hasHeading(host, 'Launch report')).toBe(false);
+    expect(hasHeading(host, 'Flight plots')).toBe(false);
+    expect(document.body.textContent).not.toContain('Flight complete — apogee');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()?.flownSinceSave ?? false).toBe(false);
   }, 30000);
 });
 

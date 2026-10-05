@@ -8,7 +8,8 @@ import {
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
-import { displayDesignation, isHighPower, type MotorDbEntry } from './motorDb.js';
+import { displayDesignation, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
+import { motorLabelEntry } from './motorLabels.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
@@ -615,6 +616,7 @@ export async function runBatchSweep(
     rocket: OrkRocket,
     legs: readonly {
       mountId: string;
+      entry: MotorDbEntry;
       spec: MotorSpec;
       meta?: MotorMeta;
       noListedDelay?: boolean;
@@ -627,25 +629,32 @@ export async function runBatchSweep(
     const liveMountIds = new Set(motorMounts(probeTree).map((m) => m.id));
     const assigned: [string, MountMotor][] = Object.entries(assignedMotors)
       .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
-      .map(([id, spec]) => [id, {
-        spec, label: spec.designation,
-        meta: {
-          label: spec.designation,
-          motorId: assignedMotorIds[id],
-          ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),
-          autoDelay: input.assignedAutoDelays?.[id] === true,
-        },
-        ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
-      }]);
-    for (const l of legs) assigned.push([l.mountId, {
-      spec: l.spec, label: l.spec.designation,
-      meta: {
-        label: l.spec.designation,
+      .map(([id, spec]) => {
+        const label = motorLabel(motorLabelEntry({ spec,
+          meta: { ...input.assignedMountMotors[id]?.meta, label: '', motorId: assignedMotorIds[id] } }), spec.ejectionDelay,
+        { autoDelay: input.assignedAutoDelays?.[id] === true });
+        return [id, {
+          spec, label,
+          meta: {
+            label,
+            motorId: assignedMotorIds[id],
+            ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),
+            autoDelay: input.assignedAutoDelays?.[id] === true,
+          },
+          ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
+        }];
+      });
+    for (const l of legs) {
+      const meta = {
         autoDelay: autoDelay || !!l.noListedDelay || optimumForPlugged,
         ...l.meta,
-      },
-      ignition: { event: 'automatic', delay: 0 },
-    }]);
+      };
+      const label = motorLabel(l.entry, l.spec.ejectionDelay, meta);
+      assigned.push([l.mountId, {
+        spec: l.spec, label, meta: { ...meta, label },
+        ignition: { event: 'automatic', delay: 0 },
+      }]);
+    }
     const flight = await flyLaunch(rocket, {
       assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
       mountNames: Object.fromEntries(mounts.map((m) => [m.id, m.label])),
@@ -708,9 +717,10 @@ export async function runBatchSweep(
       const f = await flyLegs(sweepHandle(exitM),
         [{
           mountId: target.id,
+          entry,
           spec: flown,
           meta: {
-            label: entry.designation,
+            label: motorLabel(entry, flown.ejectionDelay, { autoDelay }),
             manufacturer: entry.manufacturerAbbrev,
             motorId: entry.motorId,
             ...(entry.motorId.startsWith('ex:') ? { exMotorId: entry.motorId } : {}),
@@ -734,7 +744,7 @@ export async function runBatchSweep(
         info,
         motor: { ...flown, ejectionDelay: f.flownDelay },
         meta: {
-          label: entry.designation,
+          label: motorLabel(entry, f.flownDelay, { autoDelay: f.autoDelay }),
           manufacturer: entry.manufacturerAbbrev,
           availableDelays: delayOptions(entry).filter((d) => Number.isFinite(d)),
           autoDelay: f.autoDelay,
@@ -846,9 +856,10 @@ export async function runBatchSweep(
         const f = await flyLegs(comboHandle(exitM),
           split.mountIds.map((id, k) => ({
             mountId: id,
+            entry: entries[k]!,
             spec: specs[k]!,
             meta: {
-              label: entries[k]!.designation,
+              label: motorLabel(entries[k]!, specs[k]!.ejectionDelay, { autoDelay }),
               manufacturer: entries[k]!.manufacturerAbbrev,
               motorId: entries[k]!.motorId,
               ...(entries[k]!.motorId.startsWith('ex:') ? { exMotorId: entries[k]!.motorId } : {}),

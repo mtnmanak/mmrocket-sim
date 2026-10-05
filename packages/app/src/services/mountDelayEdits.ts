@@ -1,5 +1,6 @@
 import type { MountMotor } from '../model/design.js';
-import { stripDelay } from './motorMatch.js';
+import { motorLabel } from './motorDb.js';
+import { motorLabelEntry } from './motorLabels.js';
 
 /**
  * WHAT THE MOTOR CARD'S DELAY CONTROLS DO TO A MOUNT'S MOTOR — the typed
@@ -12,9 +13,9 @@ import { stripDelay } from './motorMatch.js';
 
 /** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
 export function labelWithDelay(label: string, delay: number | 'auto'): string {
-  const base = stripDelay(label);
-  if (delay === 'auto') return `${base} (auto delay)`;
-  return `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
+  // Stored labels can carry a custom fractional delay or a legacy lowercase p.
+  const designation = label.trim().replace(/ \(auto delay\)$/, '-0').replace(/-(?:\d+\.\d+|p)$/, '-0');
+  return motorLabel({ designation }, delay === 'auto' ? 0 : delay, { autoDelay: delay === 'auto' });
 }
 
 /**
@@ -22,11 +23,12 @@ export function labelWithDelay(label: string, delay: number | 'auto'): string {
  * whatever whole second the flyer wants.
  */
 export function withDelay(mm: MountMotor, delay: number): MountMotor {
+  const label = motorLabel(motorLabelEntry(mm), delay);
   return {
     ...mm,
     spec: { ...mm.spec, ejectionDelay: delay },
-    meta: { ...mm.meta, autoDelay: false },
-    label: labelWithDelay(mm.label, delay),
+    meta: { ...mm.meta, autoDelay: false, label },
+    label,
   };
 }
 
@@ -47,9 +49,11 @@ export function withPlugged(mm: MountMotor, plugged: boolean): MountMotor {
  * flies, and off again the motor goes back to it — and the label says which.
  */
 export function withAuto(mm: MountMotor, auto: boolean): MountMotor {
+  const label = motorLabel(motorLabelEntry(mm),
+    mm.spec.ejectionDelay, { autoDelay: auto });
   return {
     ...mm,
-    meta: { ...mm.meta, autoDelay: auto },
-    label: labelWithDelay(mm.label, auto ? 'auto' : mm.spec.ejectionDelay),
+    meta: { ...mm.meta, autoDelay: auto, label },
+    label,
   };
 }
