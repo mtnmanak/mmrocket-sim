@@ -67,6 +67,9 @@ import { TreeSchematic } from './components/TreeSchematic.js';
 import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
+import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
+import { getCatalogue, subscribeCatalogue } from './services/motorDb.js';
+import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
@@ -144,7 +147,7 @@ import {
 } from './services/designDerivation.js';
 import { nozzleExportNotes } from './services/nozzleExport.js';
 import { stageMotors } from './services/nozzleFollow.js';
-import type { DesignSnapshot } from './services/dirtyState.js';
+import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
@@ -820,8 +823,20 @@ export function App() {
    * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
-    dirty, markSaved, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
+    dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore);
+
+  const catalogue = useCatalogue();
+  useEffect(() => subscribeCatalogue(() => {
+    const currentCatalogue = getCatalogue();
+    const motors = restoreMotorLabels(designSnapshot.mountMotors, currentCatalogue);
+    const configs = designSnapshot.savedConfigs.map(c => restoreConfigLabels(c, currentCatalogue));
+    if (motors === designSnapshot.mountMotors
+      && configs.every((c, i) => c === designSnapshot.savedConfigs[i])) return;
+    migrateSavedMark(designSnapshot, { ...designSnapshot, mountMotors: motors, savedConfigs: configs });
+    setMountMotors(motors);
+    setSavedConfigs(configs);
+  }), [designSnapshot, migrateSavedMark]);
 
   // The autosave effect itself sits below `flownAutoDelaysNow`: it carries
   // what a Save would write for each Auto mount's delay, from the export input.
@@ -1220,6 +1235,13 @@ export function App() {
   // rename gives `tree` a fresh identity and this whole recursive strip +
   // JSON.stringify re-ran per keystroke to produce the identical string.
   const physicsKey = useMemo(() => physicsKeyOf(tree.components), [tree.components]);
+  // Catalogue relabeling changes only display text. Keep every other motor
+  // field (including Auto, ignition and weighing) in the flight-reset key.
+  const motorFlightKey = useMemo(() => stableJson(Object.fromEntries(
+    Object.entries(mountMotors).map(([id, mm]) => [id, {
+      ...mm, label: undefined, meta: { ...mm.meta, label: undefined },
+    }]),
+  )), [mountMotors]);
 
   useEffect(() => {
     setResult(null);
@@ -1248,7 +1270,7 @@ export function App() {
     // `.current`, one Map for the life of the app. It is named so the rule can
     // see the whole closure — the lint ceiling is 0, so a genuinely missing
     // dep added here later cannot hide behind this one.
-  }, [physicsKey, mountMotors, launch, reflightCache]);
+  }, [physicsKey, motorFlightKey, launch, reflightCache]);
   /**
    * The design on screen, in the three terms the effect above resets on and a
    * fourth — what onLaunch compares the design it flew against before anything
@@ -1273,8 +1295,8 @@ export function App() {
    * Mirrored on every render, not counted by the effect: a click handler reads
    * it, and must not depend on when an effect last ran.
    */
-  const designNow = useRef({ physicsKey, mountMotors, launch, hardwareDeltaKg });
-  designNow.current = { physicsKey, mountMotors, launch, hardwareDeltaKg };
+  const designNow = useRef({ physicsKey, motorFlightKey, launch, hardwareDeltaKg });
+  designNow.current = { physicsKey, motorFlightKey, launch, hardwareDeltaKg };
 
   // The measured cost survives LAUNCH edits by design (see lastSimCost above)
   // but must die with the rocket it timed: flying Mach2.trf.ork (~12 s) and
@@ -1286,7 +1308,7 @@ export function App() {
   // the exact self-defeat the lastSimCost split exists to prevent.
   useEffect(() => {
     setLastSimCost(null);
-  }, [physicsKey, mountMotors]);
+  }, [physicsKey, motorFlightKey]);
 
   /**
    * Power-off total Cd at a fixed subsonic Mach, for the Design tab's stats.
@@ -1673,9 +1695,9 @@ export function App() {
     // the weighed hardware, is one the effect does not clear on (`designNow`):
     // a Measured mass typed meanwhile leaves the screen as it was, any flight
     // shown there marked stale, and this flight lands nothing on it.
-    const flown = { physicsKey, mountMotors, launch, hardwareDeltaKg };
+    const flown = { physicsKey, motorFlightKey, launch, hardwareDeltaKg };
     const stillFlown = () => designNow.current.physicsKey === flown.physicsKey
-      && designNow.current.mountMotors === flown.mountMotors && designNow.current.launch === flown.launch
+      && designNow.current.motorFlightKey === flown.motorFlightKey && designNow.current.launch === flown.launch
       && designNow.current.hardwareDeltaKg === flown.hardwareDeltaKg;
     setSimulating(true);
     // Flying hands off to the Results workspace — land the user there, focus
@@ -2612,6 +2634,12 @@ export function App() {
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
   const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
+  const primaryMotor = primaryMountId ? mountMotors[primaryMountId] : undefined;
+  const assignedCount = assigned.length;
+  const primaryMotorTooltip = useMemo(() => primaryMotor
+    ? `${motorTooltip(primaryMotor, catalogue)}${assignedCount > 1 ? ` (+${assignedCount - 1} more ${assignedCount === 2 ? 'mount' : 'mounts'})` : ''} — motor on the primary (sustainer) mount; assign it in Motors & Launch`
+    : 'Motor on the primary (sustainer) mount — assign it in Motors & Launch',
+  [primaryMotor, catalogue, assignedCount]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
   // surfaced in the Rocket panel and Motors panel so the flyer never has to
@@ -3338,11 +3366,13 @@ export function App() {
               <span className="vitals-value stability-bad">⚠ error</span>
             </span>
           )}
-          <span className="vitals-item" title="Motor on the primary (sustainer) mount — assign it in Motors & Launch">
+          <span className="vitals-item" title={primaryMotorTooltip}>
             <span className="vitals-label">Motor</span>
-            <span className="vitals-value">
-              {primaryLabel ?? <span className="vitals-none">none</span>}
-              {assigned.length > 1 ? ` +${assigned.length - 1}` : ''}
+            <span className="vitals-value vitals-motor">
+              <span className="vitals-motor-label">
+                {primaryLabel ?? <span className="vitals-none">none</span>}
+              </span>
+              {assigned.length > 1 && <span className="vitals-motor-count">{` +${assigned.length - 1}`}</span>}
               {assigned.length > 0 && (
                 // One click from ANY tab: strip every loaded motor so the
                 // rocket can be viewed/weighed clean (2026-08-05 chat). A
@@ -3933,7 +3963,7 @@ export function App() {
                     selectedLabel={mm?.label ?? ''}
                     beginSelection={() => beginMotorChoice(m.id!)}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
-                    loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer }))}
+                    loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }))}
                     showQuickPicks={quickPicksOffered}
                   />
                   {mm && (

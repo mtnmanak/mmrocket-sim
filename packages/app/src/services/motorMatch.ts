@@ -1,7 +1,7 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor, MOTOR_DB,
+  displayDesignation, motorLabel, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor, MOTOR_DB,
   type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
@@ -60,7 +60,8 @@ import { exToDbEntry, exToMotorSpec } from './exMotors.js';
  * matcher both call this now.
  */
 export function stripDelay(label: string): string {
-  return label.trim().replace(/ \(auto delay\)$/, '').replace(/-(\d+(?:\.\d+)?|P)$/i, '');
+  // Strip once: ROS-40 on Auto keeps -40, and AMW case impulses are not delays.
+  return label.trim().replace(/(?: \(auto delay\)|-(?:\d{1,2}(?:\.\d+)?|P))$/i, '');
 }
 
 /**
@@ -175,10 +176,7 @@ export function mountMotorFromDb(
   // Plugged motors (Infinity delay) display the standard "-P" suffix, and an
   // auto-delay motor the browser's own "(auto delay)" — `delay` is then only
   // its provisional first flight (MotorBrowser.load).
-  const delayTag = Number.isFinite(delay) ? String(delay) : 'P';
-  const label = extraMeta.autoDelay
-    ? `${db.commonName} (auto delay)`
-    : `${db.commonName}-${delayTag}`;
+  const label = motorLabel(db, delay, extraMeta);
   return {
     label,
     spec,
@@ -246,7 +244,7 @@ export async function matchImportedMotor(
       const spec = exToMotorSpec(ex, ref.delay);
       return {
         motor: mountMotorFromDb(db, spec, ref.delay, ignition, { exMotorId: ex.motorId }),
-        note: `Motor: EX ${ex.designation} (loaded from the embedded motor library).`,
+        note: `Motor: EX ${motorLabel(db, ref.delay)} (loaded from the embedded motor library).`,
       };
     } catch (error) {
       return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
@@ -289,13 +287,11 @@ export async function matchImportedMotor(
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
       const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
-      const delayTag = ref.autoDelay ? ' (auto delay)'
-        : `-${Number.isFinite(matchedDelay) ? String(matchedDelay) : 'P'}`;
       const openNote = [unconfirmedMatchNote(ref, dbMatch, how), await rocksimCurveNote(ref, dbMatch, spec)]
         .filter(Boolean).join('\n') || undefined;
       return {
         motor: openNote ? { ...motor, openNote } : motor,
-        note: `Motor: ${dbMatch.manufacturerAbbrev} ${displayDesignation(dbMatch.designation, dbMatch.manufacturerAbbrev)}${delayTag} (loaded from the motor database).`,
+        note: `Motor: ${dbMatch.manufacturerAbbrev} ${motor.label} (loaded from the motor database).`,
         ...(openNote ? { openNote } : {}),
       };
     } catch (err) {

@@ -6,6 +6,8 @@ import {
   baseDesignation, stripDelay, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
   withMountCount,
 } from './motorMatch.js';
+import { exToMotorSpec, parseEng } from './exMotors.js';
+import { savedConfigLabel } from '../model/design.js';
 import { NoPublishedCurveError } from './thrustcurve.js';
 
 /** A .ork <motor> block as the importer hands it over. SI: metres, seconds. */
@@ -44,6 +46,23 @@ describe('stripDelay — the one delay-strip rule (label, catalogue match, overl
 
   it('leaves a delay with a propellant letter whole — it is not a bare delay', () => {
     expect(stripDelay('I224-15A')).toBe('I224-15A');
+  });
+
+  it('preserves AMW impulse suffixes, including on Auto labels', () => {
+    for (const suffix of ['', '-P', '-9', ' (auto delay)']) {
+      expect(stripDelay('BB-54-2550' + suffix)).toBe('BB-54-2550');
+    }
+  });
+
+  it('strips only the Auto token from a ROS-40 label', () => {
+    expect(stripDelay('ROS-40 (auto delay)')).toBe('ROS-40');
+  });
+
+  it('retains the PS designation token for plugged, numeric and Auto labels', () => {
+    for (const suffix of ['', '-9', ' (auto delay)']) {
+      expect(stripDelay('N1975W-PS' + suffix)).toBe('N1975W-PS');
+      expect(baseDesignation('N1975W-PS' + suffix)).toBe('n1975w-ps');
+    }
   });
 });
 
@@ -180,8 +199,8 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
     });
     expect(res.motor?.meta.autoDelay).toBe(true);
     expect(res.motor?.spec.ejectionDelay).toBe(0);
-    expect(res.motor?.label).toBe('G135 (auto delay)');
-    expect(res.motor?.meta.label).toBe('G135 (auto delay)');
+    expect(res.motor?.label).toBe('G135R (auto delay)');
+    expect(res.motor?.meta.label).toBe('G135R (auto delay)');
     expect(res.note).toContain('G135R (auto delay)');
     // Without the flag, nothing about an ordinary reference changes.
     const plain = await matchImportedMotor(ref({ delay: 5 }), {
@@ -219,7 +238,7 @@ describe('matchImportedMotor — the database, and nothing below it', () => {
 });
 
 describe('mountMotorFromDb / loadCatalogueMotor — the one place a mounted motor is built', () => {
-  it('names the motor by common name and delay, P for plugged', () => {
+  it('names the motor by designation and delay, P for plugged', () => {
     const ign = { event: 'automatic' as const, delay: 0 };
     expect(mountMotorFromDb(dbEntry(), spec('C6', 5), 5, ign).label).toBe('C6-5');
     expect(mountMotorFromDb(dbEntry(), spec('C6', Infinity), Infinity, ign).label).toBe('C6-P');
@@ -287,7 +306,7 @@ describe('matchImportedMotor against the shipped catalog', () => {
     const rkt = ref({ designation: 'G115-WT', manufacturer: 'Cesaroni Technology Inc.', diameter: 0, length: 0, delay: 10 });
     expect(await chosen(rkt)).toBe('Cesaroni 140.6');
     expect((await matchImportedMotor(rkt, { fetchSpec: async (m) => spec(m.designation, 10) })).note)
-      .toBe('Motor: Cesaroni G115-13A-10 (loaded from the motor database).');
+      .toBe('Motor: Cesaroni G115-10 (loaded from the motor database).');
   });
 
   /**
@@ -461,4 +480,28 @@ describe('an ignition event nothing knows', () => {
     const res = await matchImportedMotor(ref({ ignitionEvent: 'EJECTION_CHARGE' }), deps);
     expect(res.motor?.ignition.event).toBe('ejectioncharge');
   });
+});
+
+it('loads designation labels and import notes without stacking catalogue delays', async () => {
+  const db = dbEntry({ manufacturerAbbrev: 'Cesaroni', designation: '1013J453-16A', commonName: 'J453' });
+  const result = await matchImportedMotor(ref({ designation: db.designation, manufacturer: 'Cesaroni', delay: 12 }),
+    { findDb: () => db, fetchSpec: async () => spec(db.designation, 12) });
+  expect(result.motor?.label).toBe('J453-12');
+  expect(result.motor?.meta.label).toBe('J453-12');
+  expect(result.note).toContain('Cesaroni J453-12 (loaded');
+  expect(result.motor?.spec).toEqual(spec(db.designation, 12));
+});
+
+it.each(['F67C', 'F67W'])('the shared mount constructor names %s and unnamed configurations', (designation) => {
+  const db = dbEntry({ designation, commonName: 'F67', manufacturerAbbrev: 'AeroTech' });
+  const mm = mountMotorFromDb(db, spec(designation, 9), 9, { event: 'automatic', delay: 0 });
+  expect(mm.label).toBe(designation + '-9');
+  expect(savedConfigLabel({ id: 'A', name: null, isDefault: true, motors: { mount: mm } })).toBe('[' + designation + '-9]');
+});
+it('an embedded EX import uses its file designation and the selected delay in its note', async () => {
+  const ex = parseEng('F67 29 100 9 0.02 0.05 Home\n0 0\n0.5 67\n1 0\n')[0]!;
+  const got = await matchImportedMotor(ref({ designation: 'F67', delay: 9, exMotorId: ex.motorId, exDefinition: ex }));
+  expect(got.motor?.label).toBe('F67-9');
+  expect(got.note).toContain('EX F67-9 (loaded');
+  expect(got.motor?.spec).toEqual(exToMotorSpec(ex, 9));
 });

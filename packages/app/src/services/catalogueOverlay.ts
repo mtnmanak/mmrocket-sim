@@ -1,5 +1,5 @@
 import {
-  MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
+  MOTOR_DB, MOTOR_DB_DATE, motorLabel, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
   type MotorDbEntry,
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
@@ -406,15 +406,19 @@ export function describeOverlay(o: CatalogueOverlay): string[] {
   return lines;
 }
 
-/** Which of the CHANGED motors is loaded in the design right now, by maker + designation base. */
+/** Prefer catalogue identity; older records without ids can match either side of a rename. */
 export function changedMotorsInDesign(
   o: CatalogueOverlay,
-  loaded: readonly { label: string; manufacturer?: string }[],
+  loaded: readonly { label: string; manufacturer?: string; motorId?: string }[],
 ): CatalogueChange[] {
   // motorMatch's one delay-strip rule, so a picker label on auto delay
   // ("C6 (auto delay)") is known as the C6 it is.
   const base = baseDesignation;
-  return o.changed.filter((c) => loaded.some((l) =>
-    (l.manufacturer === undefined || l.manufacturer === c.after.manufacturerAbbrev)
-    && (base(l.label) === base(c.after.designation) || base(l.label) === base(c.after.commonName ?? ''))));
+  return o.changed.filter((c) => loaded.some((l) => {
+    if (l.motorId) return l.motorId === c.motorId;
+    return [c.before, c.after].some(entry =>
+      (l.manufacturer === undefined || l.manufacturer === entry.manufacturerAbbrev)
+      && (base(l.label) === base(motorLabel(entry, 0))
+        || base(l.label) === base(entry.designation) || base(l.label) === base(entry.commonName ?? '')));
+  }));
 }

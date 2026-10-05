@@ -1,3 +1,4 @@
+import * as flightRunner from './flightRunner.js';
 import { flyLaunch } from './flightRunner.js';
 import { readFileSync } from 'node:fs';
 import { probeFlight } from './autoDelay.testSupport.js';
@@ -7,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { applyStageNozzles, engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
-import { MOTOR_DB, type MotorDbEntry } from './motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type MotorDbEntry } from './motorDb.js';
+import { diffCatalogue } from './catalogueOverlay.js';
 import type { NozzleEntry } from './nozzleDb.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { changedSinceRun, commentLevelsAlign, motorDataKeyOf, recommendDelay, runMatchesDesign, storedSimCost } from './simReport.js';
@@ -1114,3 +1116,37 @@ it('K7: plugged combination provenance keys every target leg at Auto', async () 
   expect(row.run!.motorSetKey).toBe(cur.motorSetKey);
   expect(row.run!.motorDataKeys).toEqual(cur.motorDataKeys);
 }, 30000);
+
+it('batch flight mount labels use the catalogue designation and chosen delay', async () => {
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const candidate = entry('label-test', 'Cesaroni', '1013J453-16A', '5');
+  const result = await sweep(input(rocket(), { candidates: [candidate], autoDelay: false }),
+    { fetchSpec: fetchFrom({ 'label-test': curve('old-spec-name') }), nozzleFor: nozzles({}) });
+  expect(result.rows[0]!.run).toBeDefined();
+  expect(fly.mock.calls[0]![1].assigned[0]![1].label).toBe('J453-5');
+  expect(fly.mock.calls[0]![1].assigned[0]![1].meta.label).toBe('J453-5');
+});
+
+it('batch background labels follow an overlay without changing the loaded spec', async () => {
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const before = MOTOR_DB.find(m => m.designation === 'F67C')!;
+  const after = { ...before, designation: 'F67C-UPDATED' };
+  setCatalogueOverlay({ ...diffCatalogue([before], [after]), baseGenerated: MOTOR_DB_DATE,
+    fetchedAt: '2026-10-04T00:00:00Z', liveCount: 1, rejected: [] });
+  try {
+    const spec = curve(before.designation);
+    const candidate = entry('label-test', 'Cesaroni', '1013J453-16A', '5');
+    const { rows } = await sweep(input(rocket({ sideMount: true }), {
+      candidates: [candidate], autoDelay: false,
+      mounts: [MOUNT, { ...MOUNT, id: 'side', label: 'Side' }],
+      assignedMotors: { side: spec }, assignedMotorIds: { side: before.motorId },
+    }), { fetchSpec: fetchFrom({ 'label-test': curve(candidate.designation) }), nozzleFor: nozzles({}) });
+    expect(rows[0]!.run).toBeDefined();
+    const background = fly.mock.calls[0]![1].assigned.find(([id]) => id === 'side')![1];
+    expect(background.label).toBe('F67C-UPDATED-5');
+    expect(background.meta.label).toBe(background.label);
+    expect(background.spec).toEqual(spec);
+  } finally {
+    setCatalogueOverlay(null);
+  }
+});

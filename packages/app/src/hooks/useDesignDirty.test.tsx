@@ -6,6 +6,9 @@ import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../model/design.js';
 import { designFingerprint, type DesignSnapshot } from '../services/dirtyState.js';
+import { MOTOR_DB } from '../services/motorDb.js';
+import { designStateFromSession } from '../services/sessionRestore.js';
+import { normalizeTree } from '../tree/treeModel.js';
 import { useDesignDirty, type DesignDirty, type DirtySeed, type PreRankRestore } from './useDesignDirty.js';
 
 /**
@@ -83,6 +86,27 @@ function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRank
   hosts.push(host);
   return h;
 }
+
+describe('useDesignDirty — live label migration', () => {
+  it.each(['clean', 'edited', 'flown', 'unknown'] as const)('preserves the %s state across relabeling', state => {
+    const before = snap(tree('Saved'), { mmt: C6 });
+    const seed = state === 'unknown' ? {} : { savedMark: designFingerprint(before) };
+    const working = state === 'edited' ? { ...before, tree: tree('Edited') } : before;
+    const h = mount(working, seed);
+    if (state === 'flown') act(() => h.current.markFlown());
+    const label = 'C6-UPDATED-5';
+    const after = { ...working, mountMotors: { mmt: { ...C6, label, meta: { ...C6.meta, label } } } };
+    act(() => {
+      h.current.migrateSavedMark(working, after);
+      h.set(after);
+    });
+    expect(h.current.dirty).toBe(state !== 'clean');
+    expect(h.current.savedMark.current).toBe(state === 'clean' || state === 'flown'
+      ? designFingerprint(after) : seed.savedMark ?? null);
+    expect(h.current.flownSinceSave.current).toBe(state === 'flown');
+    expect(h.current.flightCount.current).toBe(state === 'flown' ? 1 : 0);
+  });
+});
 
 describe('useDesignDirty — the seeding rule', () => {
   it('a FIRST visit is clean: nobody is asked to save a rocket they have not touched', () => {
@@ -244,5 +268,43 @@ describe('motor-length migration saved mark', () => {
     expect(h.current.dirty).toBe(dirty);
     act(() => h.set({ ...after, tree: tree('Edited') }));
     expect(h.current.dirty).toBe(true);
+  });
+});
+
+describe('motor-label migration saved mark', () => {
+  it.each(['working', 'config', 'both', 'combined'] as const)('keeps a clean v0.159 %s set clean through restore and reload', (where) => {
+    const entry = MOTOR_DB.find(m => m.manufacturerAbbrev === 'AeroTech' && m.designation === 'F67C')!;
+    const old: MountMotor = { ...C6, label: 'F67-9', spec: { ...C6.spec, designation: 'F67C', ejectionDelay: 9 },
+      meta: { label: 'F67-9', manufacturer: 'AeroTech', motorId: entry.motorId } };
+    const before = snap(normalizeTree(tree('Saved')), where === 'config' ? {} : { mmt: old });
+    if (where === 'combined') {
+      before.tree.components[0]!.children!.push({ type: 'podset', id: 'pods', instanceCount: 2,
+        children: [{ type: 'innertube', id: 'pod-mmt', motorMount: true }] });
+      before.tree = normalizeTree(before.tree);
+      before.mountMotors = { 'pod-mmt': { ...old, padMassKg: 0.25, padMassWeighedWith: 'set' }, mmt: old };
+      before.maxMotorLengthByStage = { st: 0.3 };
+    }
+    if (where !== 'working') before.savedConfigs = [{ id: 'A', name: null, isDefault: true,
+      motors: where === 'combined' ? before.mountMotors : { mmt: old } }];
+    const session = { ...before, savedAt: 0, savedMark: designFingerprint(before) };
+    const restored = designStateFromSession(session, { legacyMaxMotorLengthM: null });
+    const h = mount(restored.state, session, restored.preRankRestore, restored.preLengthRestore);
+    expect(h.current.dirty).toBe(false);
+    expect(h.current.savedMark.current).toBe(designFingerprint(restored.state));
+    expect(h.current.savedMark.current).not.toBe(session.savedMark);
+    if (where !== 'config') expect(restored.state.mountMotors['mmt']?.label).toBe('F67C-9');
+    if (where !== 'working') expect(restored.state.savedConfigs[0]?.motors['mmt']?.label).toBe('F67C-9');
+    if (where === 'combined') {
+      expect(restored.state.mountMotors['mmt']?.padMassKg).toBe(0.25);
+      expect(restored.preRankRestore?.motors).toBe(before.mountMotors);
+      expect(restored.preRankRestore?.configs).toBe(before.savedConfigs);
+    }
+    const reloaded = { ...restored.state, savedAt: 1, savedMark: h.current.savedMark.current! };
+    const again = designStateFromSession(reloaded, { legacyMaxMotorLengthM: null });
+    expect(mount(again.state, reloaded, again.preRankRestore, again.preLengthRestore).current.dirty).toBe(false);
+    expect(mount(restored.state, { savedMark: 'unsaved-edit' }, restored.preRankRestore, restored.preLengthRestore)
+      .current.dirty).toBe(true);
+    expect(mount(restored.state, { ...session, flownSinceSave: true }, restored.preRankRestore, restored.preLengthRestore)
+      .current.dirty).toBe(true);
   });
 });

@@ -194,6 +194,15 @@ describe('FlyScreen', () => {
       expect(notes()[0]).toContain('Estes C6-P');
     });
 
+    it.each([
+      ['Cesaroni', 'J453-16A', 12, 'Cesaroni J453-12'],
+      ['AeroTech', 'F115SN-12A', 8, 'AeroTech F115SN-8'],
+      ['AeroTech', 'N1975W-PS', Infinity, 'AeroTech N1975W-PS'],
+    ])('uses the shared flown motor label for %s %s', (manufacturer, motor, delayS, label) => {
+      mount({ run: { ...FLOWN, manufacturer, motor, delayS }, changedSince: ['the design'] });
+      expect(notes()[0]).toContain(`Flown with ${label} at `);
+    });
+
     it('names a Batch combination as the report header does, with no delay hung on its last leg', () => {
       // Batch stores a combination with the whole label as `motor` and the
       // manufacturers '+'-joined; it carries a conditions key, so a change of

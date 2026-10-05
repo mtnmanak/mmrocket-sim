@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import type { MountMotor } from '../model/design.js';
+import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
 
 /**
  * The motor database's sortable column headers.
@@ -87,6 +89,7 @@ interface Harness {
   root: Root;
   selected: { label: string; ejectionDelay: number }[];
   specs: MotorSpec[];
+  motors: MountMotor[];
 }
 
 function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown> }): Harness {
@@ -96,14 +99,19 @@ function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number 
   const root = createRoot(host);
   const selected: Harness['selected'] = [];
   const specs: MotorSpec[] = [];
+  const motors: MountMotor[] = [];
   act(() => root.render(
     <PrefsProvider>
       <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={props.maxMotorLengthM ?? null}
-        onSelect={(label, spec) => { selected.push({ label, ejectionDelay: spec.ejectionDelay }); specs.push(spec); }}
+        onSelect={(label, spec, meta) => {
+          selected.push({ label, ejectionDelay: spec.ejectionDelay });
+          specs.push(spec);
+          motors.push({ label, spec, meta, ignition: { event: 'automatic', delay: 0 } });
+        }}
         onClose={() => {}} />
     </PrefsProvider>,
   ));
-  return { host, root, selected, specs };
+  return { host, root, selected, specs, motors };
 }
 
 function closeBrowser(h: Harness): void {
@@ -851,5 +859,30 @@ describe('per-mount length flag and opt-in hiding', () => {
       expect(bodyRows(h).filter((r) => r.cells.length > 1).length).toBeGreaterThan(0);
       expect(bodyRows(h).some((r) => r.textContent?.includes('⚠'))).toBe(false);
     } finally { closeBrowser(h); }
+  });
+});
+
+describe('MotorBrowser designation labels', () => {
+  it.each(['F67C', 'F67W'])('loads %s with its propellant letter and selected delay', async (designation) => {
+    const h = openBrowser({ mountDiameterMm: 29 });
+    onTestFinished(() => closeBrowser(h));
+    search(h, designation);
+    await settle(100);
+    click(rowFor(h, 'AeroTech', designation)!);
+    act(() => {
+      delaySelect(h)!.value = '9';
+      delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    click(loadButton(h)!);
+    for (let i = 0; i < 30 && !h.selected.length; i++) await settle(10);
+    expect(h.selected).toEqual([{ label: designation + '-9', ejectionDelay: 9 }]);
+    expect(h.specs[0]!.designation).toBe(designation);
+    const edited = withDelay(h.motors[0]!, 8);
+    const auto = withAuto(edited, true);
+    const plugged = withPlugged(auto, true);
+    expect([edited.label, auto.label, plugged.label])
+      .toEqual([designation + '-8', designation + ' (auto delay)', designation + '-P']);
+    expect([edited.meta.label, auto.meta.label, plugged.meta.label])
+      .toEqual([edited.label, auto.label, plugged.label]);
   });
 });

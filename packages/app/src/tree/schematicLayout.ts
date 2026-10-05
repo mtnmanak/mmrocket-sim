@@ -502,13 +502,18 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         style: { pointerEvents: 'none' },
       },
     }];
-    if (motor.label && motor.length * ctx.scale > 36) {
+    const fontSize = 10;
+    // Estimate bold designation text at 0.7 em per character, with 2 px at each end.
+    // Nose-up, the label is counter-rotated to read horizontally, so on screen it
+    // runs across the case: the room it has is the case diameter, not its length.
+    const room = (vertical ? 2 * mR : motor.length) * ctx.scale;
+    if (motor.label && room >= motor.label.length * fontSize * 0.7 + 4) {
       const lx = ctx.x0 + (mStart + motor.length / 2) * ctx.scale;
       out.push({
         key: `${key}-label`, layer, tag: 'text', text: motor.label,
         attrs: {
           x: lx, y: cY, textAnchor: 'middle', dominantBaseline: 'central',
-          fontSize: '10', fontWeight: 'bold', fill: '#ffffff', ...textUp(lx, cY),
+          fontSize: String(fontSize), fontWeight: 'bold', fill: '#ffffff', ...textUp(lx, cY),
           style: { pointerEvents: 'none' },
         },
       });

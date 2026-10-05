@@ -4,6 +4,8 @@ import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
+import { MOTOR_DB } from './motorDb.js';
+import { savedConfigLabel } from '../model/design.js';
 import type { MotorMatchResult } from './motorMatch.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
@@ -588,4 +590,17 @@ describe('the open sequence', () => {
 
 it.each([undefined, {}])('opening a file without guide allowance resets a previous off setting', (fileLaunch) => {
   expect(importedLaunch({ ...DEFAULT_CONDITIONS, launchGuideAllowance: false }, fileLaunch).launchGuideAllowance).not.toBe(false);
+});
+
+it('refreshes stored configuration labels when applying a configuration', () => {
+  const entry = MOTOR_DB.find(m => m.designation === 'F67W')!;
+  const old = motor(entry.designation, entry.motorId);
+  old.label = 'F67-10';
+  old.meta.label = 'F67-10';
+  const config: SavedConfig = { id: 'old', name: null, isDefault: true, motors: { m1: old } };
+  const plan = planConfigSwitch({ tree: { name: 'empty', components: [] }, savedConfigs: [config], activeConfigId: null,
+    mountMotors: {}, unmatchedRefs: {} }, config, TEXT);
+  expect(plan.mountMotors['m1']?.label).toBe('F67W-10');
+  expect(plan.mountMotors['m1']?.spec).toBe(old.spec);
+  expect(savedConfigLabel(plan.savedConfigs[0]!)).toBe('[F67W-10]');
 });

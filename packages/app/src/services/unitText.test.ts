@@ -30,5 +30,11 @@ describe('unitText', () => {
     expect(t.motorName('H220-P')).toBe('H220');
     expect(t.motorName('H220 (auto delay)')).toBe('H220');
     expect(baseLabel('C6-5')).toBe('C6');
+    expect(baseLabel('BB-54-2550 (auto delay)')).toBe('BB-54-2550');
+    expect(t.motorName('BB-54-2550-P')).toBe('BB-54-2550');
+    for (const suffix of ['', '-9', ' (auto delay)']) {
+      expect(baseLabel('N1975W-PS' + suffix)).toBe('N1975W-PS');
+      expect(t.motorName('N1975W-PS' + suffix)).toBe('N1975W-PS');
+    }
   });
 });

@@ -3,7 +3,11 @@ import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/en
 import type { MountMotor } from '../model/design.js';
 import { addChild, defaultTree, motorMounts } from '../tree/treeModel.js';
 import { orkMotorSet, toOrkMotor, type ExLibrary } from './orkExportMotors.js';
-import type { OrkMotorRef } from './orkFile.js';
+import { exportOrk, type OrkMotorRef } from './orkFile.js';
+import { exportRkt } from './rocksimFile.js';
+import { exportCdx1 } from './rasaeroFile.js';
+import { restoreMotorLabels } from './motorLabels.js';
+import { MOTOR_DB } from './motorDb.js';
 import type { MotorMeta } from './simReport.js';
 
 /**
@@ -253,4 +257,27 @@ describe('orkMotorSet — a tie for the pad mass', () => {
     expect(out['mmt-b']!.padMassKg).toBe(0.42);
     expect(out[starter]).not.toHaveProperty('padMassKg');
   });
+});
+
+it('motor label migration preserves .ork, .rkt and .CDX1 export bytes', () => {
+  const entry = MOTOR_DB.find(m => m.designation === 'F67C')!;
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = motor({ spec: { designation: entry.designation, ejectionDelay: 9 },
+    meta: { motorId: entry.motorId, manufacturer: entry.manufacturerAbbrev } });
+  mm.label = 'F67-9';
+  mm.meta.label = 'F67-9';
+  const before = { [mount]: mm };
+  const after = restoreMotorLabels(before);
+  expect(after[mount]!.label).toBe('F67C-9');
+  const oldMotor = toOrkMotor(mm, undefined, noLibrary);
+  const newMotor = toOrkMotor(after[mount]!, undefined, noLibrary);
+  expect(newMotor).toEqual(oldMotor);
+  const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000000');
+  try {
+    for (const writer of [exportOrk, exportRkt, exportCdx1]) {
+      const args = { name: 'Labels', tree, engineExport: true };
+      expect(writer({ ...args, motors: { [mount]: newMotor } })).toBe(writer({ ...args, motors: { [mount]: oldMotor } }));
+    }
+  } finally { uuid.mockRestore(); }
 });
