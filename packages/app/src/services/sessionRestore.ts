@@ -8,10 +8,13 @@ import { migrateLegacyPadMass, restoreUnmatchedRefs } from './configSync.js';
 import type { DesignState } from './designDerivation.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { MeasuredFigures } from './orkFile.js';
-import type { SessionState } from './session.js';
+import { versionEarlierThan, type SessionState } from './session.js';
 import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
+
+/** The release whose importer first hid a lone dry-save placeholder configuration. */
+const PLACEHOLDER_DROP_VERSION = '0.160';
 
 /**
  * A STORED SESSION, TURNED INTO THE DESIGN THE APP RESTORES (2026-10-01).
@@ -140,8 +143,12 @@ export function designStateFromSession(
     preRankRestore = { motors: preRankRestore?.motors ?? mountMotors, configs: stored };
   }
   // Match file import for dry-save placeholders, retaining the old state only for the saved mark.
-  const emptyDefault = isLoneEmptyConfig(stored, id =>
-    !!session?.importedDocument?.storedSimulations.some(sim => sim.configId === id));
+  // Only for a session written before the importer dropped them: a session from
+  // this version on already holds what the importer kept, and the importer can
+  // see results (desktop OR's flight data) that a session does not carry.
+  const emptyDefault = versionEarlierThan(session?.appVersion, PLACEHOLDER_DROP_VERSION)
+    && isLoneEmptyConfig(stored, id =>
+      !!session?.importedDocument?.storedSimulations.some(sim => sim.configId === id));
   const preConfigRestore = emptyDefault
     ? { savedConfigs: stored, activeConfigId: session?.activeConfigId ?? null } : null;
   // Reload has no undo history, so missing-stage snapshots can now be dropped.

@@ -74,6 +74,22 @@ describe('designStateFromSession', () => {
     }
   });
 
+  // From v0.160 the importer decides, and it can see desktop flight data a
+  // session does not carry: a configuration it kept must survive a reload.
+  it('leaves a v0.160-or-later session\'s lone empty configuration as the importer kept it', () => {
+    const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {} };
+    for (const appVersion of ['0.160', '0.161', '1.0']) {
+      const r = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
+      expect(r.state.savedConfigs).toEqual([dry]);
+      expect(r.state.activeConfigId).toBe('dry');
+      expect(r.preConfigRestore).toBeNull();
+    }
+    for (const appVersion of [undefined, '0.159', '0.1']) {
+      const r = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
+      expect(r.state.savedConfigs).toEqual([]);
+    }
+  });
+
   it('round 8: keeps names, motors, unmatched references, inactive stages, multiple configurations and own results', () => {
     const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {} };
     const result = (configId: string | null) => ({ name: 'Stored check', configId,

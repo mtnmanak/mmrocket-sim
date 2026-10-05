@@ -1,5 +1,5 @@
 {
-  "version": "0.159",
-  "released": "2026-10-04",
-  "note": ".ork files carry imported motors; big Batch sweeps can run; motor figures and import notes corrected."
+  "version": "0.160",
+  "released": "2026-10-05",
+  "note": "Motor names show the full designation; create, rename and delete flight configurations."
 }
