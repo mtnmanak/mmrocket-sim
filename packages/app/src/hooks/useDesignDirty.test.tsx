@@ -67,13 +67,13 @@ interface Harness {
  * App's shape, and nothing else: a snapshot in state, the hook over it.
  * `preRank` is what App's restore records when it moved a pad mass.
  */
-function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>): Harness {
+function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>, preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null): Harness {
   const h = {} as Harness;
   function Probe() {
     const [s, setS] = useState(initial);
     const landing = useRef<MountMotor | null>(null);
     const pre = useRef<PreRankRestore | null>(preRank);
-    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength);
+    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength, preConfig);
     h.set = setS;
     h.landing = landing;
     return null;
@@ -259,6 +259,25 @@ describe('useDesignDirty — a save and a flight', () => {
 
 
 describe('motor-length migration saved mark', () => {
+  it.each(['clean', 'edited', 'missing', 'flown'] as const)(
+    'round 8: empty-configuration migration preserves %s with simultaneous rank and length migrations', status => {
+      const before: DesignSnapshot = { ...snap(tree('Saved'), { mmt: { ...C6, padMassKg: 0.5 } }),
+        savedConfigs: [{ id: 'dry', name: null, isDefault: true, motors: {} }], activeConfigId: 'dry',
+        maxMotorLengthByStage: { st: 0.4 } };
+      const after = snap(tree('Saved'), { mmt: C6 });
+      after.tree.components[0]!.children![0]!.maxMotorLength = 0.4;
+      const seed = { savedMark: status === 'missing' ? undefined
+        : status === 'edited' ? 'older-unsaved-mark' : designFingerprint(before), flownSinceSave: status === 'flown' };
+      const h = mount(after, seed, { motors: before.mountMotors, configs: before.savedConfigs },
+        { tree: before.tree, maxMotorLengthByStage: before.maxMotorLengthByStage },
+        { savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId });
+      expect(h.current.dirty).toBe(status !== 'clean');
+      expect(h.current.savedMark.current).toBe(status === 'clean' || status === 'flown'
+        ? designFingerprint(after) : seed.savedMark ?? null);
+      act(() => h.set({ ...after, tree: tree('Edited later') }));
+      expect(h.current.dirty).toBe(true);
+    });
+
   it.each([false, true])('preserves dirty=%s while moving a stage limit onto its mount', (dirty) => {
     const before = { ...snap(tree('Saved')), maxMotorLengthByStage: { st: 0.4 } };
     const after = snap(tree('Saved'));
@@ -306,5 +325,27 @@ describe('motor-label migration saved mark', () => {
       .current.dirty).toBe(true);
     expect(mount(restored.state, { ...session, flownSinceSave: true }, restored.preRankRestore, restored.preLengthRestore)
       .current.dirty).toBe(true);
+  });
+
+  // The label migration and the dry-placeholder drop are separate lanes' work
+  // and both rewrite fingerprinted state: a v0.159 session needing both must
+  // still restore clean when its mark described it, and unsaved when not.
+  it('keeps a clean v0.159 session clean when it needs both the relabel and the placeholder drop', () => {
+    const entry = MOTOR_DB.find(m => m.manufacturerAbbrev === 'AeroTech' && m.designation === 'F67C')!;
+    const old: MountMotor = { ...C6, label: 'F67-9', spec: { ...C6.spec, designation: 'F67C', ejectionDelay: 9 },
+      meta: { label: 'F67-9', manufacturer: 'AeroTech', motorId: entry.motorId } };
+    const before = snap(normalizeTree(tree('Saved')), { mmt: old });
+    before.savedConfigs = [{ id: 'dry', name: null, isDefault: true, motors: {} }];
+    before.activeConfigId = 'dry';
+    const session = { ...before, savedAt: 0, savedMark: designFingerprint(before) };
+    const restored = designStateFromSession(session, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([]);
+    expect(restored.state.activeConfigId).toBeNull();
+    expect(restored.state.mountMotors['mmt']?.label).toBe('F67C-9');
+    const h = mount(restored.state, session, restored.preRankRestore, restored.preLengthRestore, restored.preConfigRestore);
+    expect(h.current.dirty).toBe(false);
+    expect(h.current.savedMark.current).toBe(designFingerprint(restored.state));
+    expect(mount(restored.state, { savedMark: 'unsaved-edit' }, restored.preRankRestore, restored.preLengthRestore,
+      restored.preConfigRestore).current.dirty).toBe(true);
   });
 });

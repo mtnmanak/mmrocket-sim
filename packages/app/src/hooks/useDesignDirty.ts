@@ -75,6 +75,7 @@ export interface DesignDirty {
  *   a pad mass onto the ranked primary or migrated labels; read
  *   once, on mount.
  * @param preLength the tree and stage limits before the one-time mount migration.
+ * @param preConfig the configurations before removing a dry-save placeholder.
  */
 export function useDesignDirty(
   snapshot: DesignSnapshot,
@@ -82,6 +83,7 @@ export function useDesignDirty(
   starter: { landing: MutableRefObject<MountMotor | null>; mountId: string | undefined },
   preRank?: MutableRefObject<PreRankRestore | null>,
   preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>,
+  preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null,
 ): DesignDirty {
   /**
    * The design fingerprint as of the last save or import — what is on disk.
@@ -117,13 +119,14 @@ export function useDesignDirty(
   // audit 2026-09-22). Re-taken over the moved design exactly when it
   // described the design before the move, the same guard as the starter
   // landing's below; a mark that did not (unsaved work) keeps its prompt.
-  // Apply the same rule to motor-length and label migrations. Compare them
-  // together so combined migrations preserve the original clean/dirty state.
+  // Apply the same rule to the motor-length, label and empty-configuration
+  // migrations. Compare them together so a session needing several never loses
+  // its original clean/dirty state.
   useEffect(() => {
     const pre = preRank?.current ?? null;
     if (preRank) preRank.current = null;
     if (savedMark.current === null) return;
-    const before = { ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}) };
+    const before = { ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}), ...preConfig };
     if (designFingerprint(before) !== savedMark.current) return;
     savedMark.current = designFingerprint(snapshot);
     bumpDirty();

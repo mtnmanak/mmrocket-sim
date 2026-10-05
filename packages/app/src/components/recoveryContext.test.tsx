@@ -29,6 +29,7 @@ describe('recovery configuration context', () => {
       expect(host.querySelector('select[aria-label="Deploy at"]')).not.toBeNull();
       render(recoveryScope(configs, 'a', 'new-device'));
       expect(host.textContent).toContain('This device has shared recovery settings across flight configurations.');
+      expect(host.textContent).toContain('Flight configurations → Apply switches motors and the recovery settings of devices a configuration stores.');
       render(recoveryScope(configs, null, 'chute'));
       expect(host.textContent).toContain('No flight configuration is active.');
       render(recoveryScope([configs[0]!], 'a', 'chute'));
@@ -41,15 +42,15 @@ describe('recovery configuration context', () => {
     let applied = '';
     try {
       act(() => root.render(<ConfigPanel configs={configs} tree={tree} activeConfigId="a" hasMotors={false}
-        onApply={(c) => { applied = c.id; }} onClear={() => {}} />));
-      const buttons = [...host.querySelectorAll('button')];
+        onApply={(c) => { applied = c.id; }} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />));
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Apply "]')];
       expect(buttons[0]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 1; Recovery: Main: apogee');
       expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Recovery: Main: 121.92 m AGL descending');
       expect(host.textContent).toContain('Recovery: Main: apogee');
       expect(host.textContent).toContain('Recovery: Main: 121.92 m AGL descending');
       act(() => buttons[1]!.click()); expect(applied).toBe('b');
       act(() => root.render(<ConfigPanel configs={[configs[0]!]} tree={tree} activeConfigId="a" hasMotors={false}
-        onApply={() => {}} onClear={() => {}} />));
+        onApply={() => {}} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />));
       expect(host.textContent).not.toContain('Recovery:');
       expect(host.querySelector('button')!.getAttribute('aria-label')).toBe('Apply Same motors');
     } finally { act(() => root.unmount()); }
@@ -63,9 +64,9 @@ describe('recovery configuration context', () => {
     try {
       act(() => root.render(<PrefsProvider>
         <ConfigPanel configs={configs} tree={tree} activeConfigId="a" hasMotors={false}
-          onApply={() => {}} onClear={() => {}} />
+          onApply={() => {}} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />
       </PrefsProvider>));
-      const buttons = [...host.querySelectorAll('button')];
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Apply "]')];
       expect(buttons[1]!.getAttribute('aria-label'))
         .toBe('Apply Same motors — configuration 2; Recovery: Main: 400 ft AGL descending');
       expect(host.textContent).toContain('Recovery: Main: 400 ft AGL descending');

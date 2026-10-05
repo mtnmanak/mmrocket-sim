@@ -258,6 +258,26 @@ describe('a keystroke in the Rocket name re-runs none of the five memos row 513 
 /** The notice bar App renders into (NoticeBar's own element). */
 const noticeBar = (): HTMLElement | null => document.querySelector<HTMLElement>('.notice-bar');
 
+describe('flight configuration panel visibility', () => {
+  it.each([[0, false], [0, true], [1, false], [2, true]] as const)(
+    '%i configurations, loaded motor %s: last full-width row when either exists', async (count, hasMotor) => {
+      const tree = defaultTree();
+      const mount = motorMounts(tree)[0]!.id!;
+      const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS,
+        mountMotors: hasMotor ? { [mount]: c6 } : {}, activeConfigId: null,
+        // Named: a lone unnamed motorless configuration is a v0.159 phantom
+        // that restore drops (sessionRestore), which is not what this pins.
+        savedConfigs: Array.from({ length: count }, (_, i) => ({ id: String(i), name: `Config ${i}`, isDefault: false, motors: {} })),
+        appVersion: APP_VERSION, savedAt: Date.now() }));
+      const host = await mountApp();
+      await act(async () => { button(host, 'Motors & Launch').click(); });
+      const panel = host.querySelector('.config-panel');
+      expect(!!panel).toBe(count > 0 || hasMotor);
+      if (panel) expect(panel.parentElement!.lastElementChild).toBe(panel);
+    }, 30000);
+});
+
 /**
  * A stored session holding the starter rocket (`edit` applied to it) with the
  * catalogue C6-5 on its mount, written as the autosave writes one; anything in

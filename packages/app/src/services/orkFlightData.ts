@@ -259,12 +259,20 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
 export function flownAutoDelays(input: FlightDataForExportInput): Record<string, Record<string, number>> {
   const out = lookupTable<Record<string, number>>({});
   for (const r of input.runs) {
-    const key = r.flightConfigId ?? '';
-    if (key in out) continue;
-    const described = describedMotors(r, input);
-    if (!described || !resolutionMatches(r.delayResolution, delayMountsOf(described.flown))) continue;
-    const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
-    if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
+    // Create/Delete can change ownership without changing the working set.
+    // Reuse only Auto evidence, through all the same match guards; never
+    // reassign historical results or revive a deleted configuration's result.
+    const keys = [r.flightConfigId ?? ''];
+    if (input.activeConfigId !== null && input.activeConfigId !== keys[0]) keys.push(input.activeConfigId);
+    else if (r.flightConfigId && input.activeConfigId === null
+        && !input.savedConfigs.some(c => c.id === r.flightConfigId)) keys.push('');
+    for (const key of keys) {
+      if (key in out) continue;
+      const described = describedMotors({ ...r, flightConfigId: key || undefined }, input);
+      if (!described || !resolutionMatches(r.delayResolution, delayMountsOf(described.flown))) continue;
+      const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
+      if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
+    }
   }
   return out;
 }

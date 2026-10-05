@@ -1,4 +1,5 @@
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
+import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
@@ -8,6 +9,40 @@ import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
 } from './hardwareMass.js';
 import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/treeModel.js';
+
+/** Create is a copy of the working set, never a write-back into its old owner. */
+export function createLoadedConfig(state: {
+  savedConfigs: SavedConfig[]; activeConfigId: string | null;
+  tree: RocketTree; mountMotors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>;
+}): { savedConfigs: SavedConfig[]; activeConfigId: string } | null {
+  if (state.savedConfigs.length >= MAX_ORK_CONFIGURATIONS
+      || !motorMounts(state.tree).some(m => m.id && state.mountMotors[m.id])) return null;
+  // Acquire added stages before edits on the new configuration can reach old owners.
+  const existing = completeStageMass(state.savedConfigs, state.tree);
+  const active = state.savedConfigs.find(c => c.id === state.activeConfigId);
+  const config = snapshotLoadedConfig(state.tree, state.mountMotors,
+    { ...snapshotConfigFamilies(state.savedConfigs), stageActiveness: active?.stageActiveness });
+  if (Object.keys(state.unmatchedRefs).length) {
+    config.unmatchedRefs = state.unmatchedRefs;
+    config.unmatched = Object.values(state.unmatchedRefs).map(r => r.designation);
+  }
+  return { savedConfigs: [...existing, structuredClone(config)], activeConfigId: config.id };
+}
+
+export function renameConfig(configs: SavedConfig[], id: string, value: string): SavedConfig[] {
+  const current = configs.find(c => c.id === id);
+  // Merely opening an imported name must not trim or truncate it.
+  if (!current || value === (current.name ?? '')) return configs;
+  const name = value.trim().slice(0, MAX_CONFIG_NAME_LENGTH) || null;
+  if (name === current.name) return configs;
+  return configs.map(c => c.id === id ? { ...c, name } : c);
+}
+
+/** The live working set is deliberately absent: deleting its owner cannot unload it. */
+export function deleteConfig(savedConfigs: SavedConfig[], activeConfigId: string | null, id: string) {
+  return { savedConfigs: savedConfigs.filter(c => c.id !== id),
+    activeConfigId: activeConfigId === id ? null : activeConfigId };
+}
 
 /**
  * The working motor set ↔ the flight configuration it belongs to (v0.118).

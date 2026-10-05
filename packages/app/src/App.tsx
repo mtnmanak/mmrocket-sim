@@ -160,6 +160,7 @@ import {
 import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
   stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced,
+  createLoadedConfig, renameConfig, deleteConfig,
 } from './services/configSync.js';
 import {
   reconcileAllIncludedMotors, reconcileIncludedMotor,
@@ -179,7 +180,7 @@ import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
 import { useFirstRunTour } from './hooks/useFirstRunTour.js';
 import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
 import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
-import type { MountMotor, SavedConfig } from './model/design.js';
+import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
 
 import './styles.css';
 
@@ -636,6 +637,7 @@ export function App() {
    * same apogee is a DOM change a screen reader hears.
    */
   const resultsMainRef = useRef<HTMLElement>(null);
+  const motorsHeading = useRef<HTMLHeadingElement>(null);
   const [flightSaid, setFlightSaid] = useState({ seq: 0, text: '' });
   const [simError, setSimError] = useState<string | null>(null);
   /**
@@ -824,7 +826,7 @@ export function App() {
    */
   const {
     dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
-  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore);
+  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore);
 
   const catalogue = useCatalogue();
   useEffect(() => subscribeCatalogue(() => {
@@ -2394,6 +2396,34 @@ export function App() {
     });
   };
 
+  const createConfig = (): string | null => {
+    const next = createLoadedConfig({ savedConfigs, activeConfigId, tree, mountMotors, unmatchedRefs });
+    if (!next) return null;
+    // Older scale companions cannot restore configurations created after them.
+    resetHistory();
+    setSavedConfigs(next.savedConfigs);
+    setActiveConfigId(next.activeConfigId);
+    setFileNote('New flight configuration created from the loaded motors.');
+    return next.activeConfigId;
+  };
+
+  const renameFlightConfig = (id: string, name: string) => {
+    if (renameConfig(savedConfigs, id, name) === savedConfigs) return;
+    setSavedConfigs(prev => renameConfig(prev, id, name));
+    setFileNote('Flight configuration renamed.');
+  };
+
+  const deleteFlightConfig = (config: SavedConfig) => {
+    const next = deleteConfig(savedConfigs, activeConfigId, config.id);
+    setSavedConfigs(next.savedConfigs);
+    setActiveConfigId(next.activeConfigId);
+    // History remains a record of flown flights. Its result export gate rejects this
+    // missing id; remove the file-owned fallback association as well.
+    setImportedDocument(prev => prev ? { ...prev,
+      storedSimulations: prev.storedSimulations.filter(s => s.configId !== config.id) } : prev);
+    setFileNote(`Flight configuration "${savedConfigLabel(config)}" deleted.`);
+  };
+
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
     motorChoices.current.clear();
@@ -3860,7 +3890,7 @@ export function App() {
           </div>
 
           <div className="panel">
-            <h2>Motors</h2>
+            <h2 ref={motorsHeading} tabIndex={-1}>Motors</h2>
             {mounts.length === 0 && (
               <p className="stability-bad" style={{ fontSize: 12 }}>
                 No motor mount — add an inner tube, or check “Motor mount” on a body tube (minimum-diameter).
@@ -4173,17 +4203,20 @@ export function App() {
               Motors, and pushed the two panels a tester actually works in
               below the fold on a file with several configurations.
 
-              Only when there's a genuine choice: a single-config file's one
-              row would be noise on every ordinary design (our own exports
-              included), and ⏏ Unload already covers its "None". */}
-          {savedConfigs.length > 1 && (
+              The old > 1 rule was superseded 2026-10-04: without the panel
+              there was no way to create a configuration from loaded motors. */}
+          {(savedConfigs.length > 0 || assigned.length > 0) && (
             <ConfigPanel
               configs={savedConfigs}
               tree={tree}
               activeConfigId={activeConfigId}
-              hasMotors={Object.keys(mountMotors).length > 0}
+              hasMotors={assigned.length > 0}
               onApply={applyConfig}
               onClear={clearConfig}
+              onCreate={createConfig}
+              onRename={renameFlightConfig}
+              onDelete={deleteFlightConfig}
+              onEmpty={() => motorsHeading.current?.focus()}
             />
           )}
         </main>

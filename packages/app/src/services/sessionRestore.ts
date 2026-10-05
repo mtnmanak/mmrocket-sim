@@ -11,6 +11,7 @@ import type { MeasuredFigures } from './orkFile.js';
 import type { SessionState } from './session.js';
 import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
+import { isLoneEmptyConfig } from './emptyConfig.js';
 
 /**
  * A STORED SESSION, TURNED INTO THE DESIGN THE APP RESTORES (2026-10-01).
@@ -49,6 +50,8 @@ export interface RestoredDesign {
   rankedPadMass: RankedPadMass | null;
   /** The working set and configurations before pad-mass ranking or label migration, for the saved mark. */
   preRankRestore: { motors: Record<string, MountMotor>; configs: SavedConfig[] } | null;
+  /** Configuration state before removing a dry-save placeholder, for the saved mark's one re-take. */
+  preConfigRestore: { savedConfigs: SavedConfig[]; activeConfigId: string | null } | null;
   /** The mount a pre-per-mount session's one motor applied to, else the first mount. */
   defaultMountId: string | undefined;
 }
@@ -136,8 +139,15 @@ export function designStateFromSession(
   if (rankedConfigs.some((c, i) => c !== stored[i])) {
     preRankRestore = { motors: preRankRestore?.motors ?? mountMotors, configs: stored };
   }
+  // Match file import for dry-save placeholders, retaining the old state only for the saved mark.
+  const emptyDefault = isLoneEmptyConfig(stored, id =>
+    !!session?.importedDocument?.storedSimulations.some(sim => sim.configId === id));
+  const preConfigRestore = emptyDefault
+    ? { savedConfigs: stored, activeConfigId: session?.activeConfigId ?? null } : null;
   // Reload has no undo history, so missing-stage snapshots can now be dropped.
-  const savedConfigs = pruneStageMass(rankedConfigs, tree);
+  const savedConfigs = emptyDefault ? [] : pruneStageMass(rankedConfigs, tree);
+  const activeConfigId = emptyDefault && session?.activeConfigId === stored[0]!.id
+    ? null : session?.activeConfigId ?? null;
   const labelledMotors = restoreMotorLabels(mountMotors);
   const labelledConfigs = savedConfigs.map(c => restoreConfigLabels(c));
   // Display-only migration must not turn a saved design into unsaved work.
@@ -162,7 +172,7 @@ export function designStateFromSession(
       launch: session?.launch ?? DEFAULT_CONDITIONS,
       measured,
       savedConfigs: labelledConfigs,
-      activeConfigId: session?.activeConfigId ?? null,
+      activeConfigId,
       // The session's copy minus any mount that has a record; a session written
       // before they were stored falls back to the ACTIVE configuration's refs.
       unmatchedRefs: restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {},
@@ -173,6 +183,7 @@ export function designStateFromSession(
     legacyPadMass,
     rankedPadMass,
     preRankRestore,
+    preConfigRestore,
     defaultMountId,
   };
 }

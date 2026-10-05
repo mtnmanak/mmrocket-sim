@@ -1624,6 +1624,95 @@ describe('.ork multi-configuration export (Stage B)', () => {
     expect(importOrk(xml).launch?.windAverage).toBeCloseTo(2, 12);
   });
 
+  it('round 7: dry saves keep launch conditions through reopen and resave without a phantom configuration', () => {
+    const launch = { ...DEFAULT_CONDITIONS,
+      launchRodLengthM: 2.4, launchRodAngleDeg: 7, launchRodAimDeg: 45,
+      launchGuideAllowance: false, windAverage: 4, windStdDev: 0.8,
+      launchAltitudeM: 1350, latitudeDeg: 39.5, longitudeDeg: -119.355,
+      temperatureC: 25, pressureHPa: 850, timeStepS: 0.02,
+    };
+    // Every dry export mints a fresh ID; only that reference may differ.
+    const conditions = (xml: string) => xml.match(/<conditions>[\s\S]*?<\/conditions>/)![0]
+      .replace(/<configid>[^<]*<\/configid>/, '<configid/>');
+    for (const extra of [{}, { configs: [] as OrkExportConfig[], activeConfigId: null }]) {
+      const xml = exportOrk({ name: 'Dry', tree: TREE, motors: {}, launch, ...extra });
+      expect(xml.match(/<motorconfiguration /g)).toHaveLength(1);
+      expect(xml.match(/<simulation /g)).toHaveLength(1);
+      expect(xml).toContain('<simulation status="notsimulated">');
+      const reopened = importOrk(xml);
+      expect(reopened.configs).toEqual([]);
+      expect(reopened.chosenConfigId).toBeNull();
+      expect(reopened.motors).toEqual({});
+      expect(reopened.tree.components).toHaveLength(TREE.components.length);
+      expect(reopened.launch).toMatchObject(launch);
+      const resaved = exportOrk({ name: reopened.name, tree: reopened.tree, motors: {},
+        configs: reopened.configs, activeConfigId: reopened.chosenConfigId,
+        launch: { ...DEFAULT_CONDITIONS, ...reopened.launch } });
+      expect(conditions(resaved)).toBe(conditions(xml));
+      expect(importOrk(resaved).configs).toEqual([]);
+      expect(importOrk(resaved).launch).toMatchObject(launch);
+    }
+  });
+
+  it.each(['MMRocket Sim', 'OpenRocket 24.12'])(
+    'round 7: drops a lone unnamed dry configuration from %s, retaining intentional configurations and results', creator => {
+      const dry = `<openrocket version="1.10" creator="${creator}"><rocket>
+        <name>Dry</name><motorconfiguration configid="dry" default="true"/>
+        <subcomponents><stage><name>Stage</name><subcomponents><bodytube>
+          <name>Mount</name><length>0.3</length><radius>0.03</radius>
+          <motormount><ismotormount>true</ismotormount></motormount>
+        </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+      expect(importOrk(dry).configs).toEqual([]);
+      expect(importOrk(dry).chosenConfigId).toBeNull();
+      const named = dry.replace('default="true"/>', 'default="true"><name>Dry fit</name></motorconfiguration>');
+      expect(importOrk(named).configs).toMatchObject([{ id: 'dry', name: 'Dry fit' }]);
+      const inactive = dry.replace('default="true"/>',
+        'default="true"><stage number="0" active="false"/></motorconfiguration>');
+      const keptInactive = importOrk(inactive);
+      expect(keptInactive.configs).toMatchObject([{ id: 'dry', name: null,
+        stageActiveness: { [keptInactive.tree.components[0]!.id!]: false } }]);
+      expect(keptInactive.chosenConfigId).toBe('dry');
+      expect(importOrk(inactive.replace('active="false"', 'active="true"')).configs).toEqual([]);
+      const multiple = dry.replace('</rocket>', '<motorconfiguration configid="second"/></rocket>');
+      expect(importOrk(multiple).configs).toHaveLength(2);
+      // v0.116/v0.117 wrote an attribute-less weighed pad mass onto the dry configuration.
+      const weighed = dry.replace('default="true"/>', 'default="true"/><measuredpadmass>0.5</measuredpadmass>');
+      expect(importOrk(weighed).configs).toMatchObject([{ id: 'dry', name: null, padMassKg: 0.5 }]);
+      // Import retains unresolved references before catalogue matching: they are not empty motors.
+      const unmatched = dry.replace('</motormount>', `<motor configid="dry"><designation>Unknown-round6</designation>
+        <manufacturer>Unknown</manufacturer><diameter>0.018</diameter><length>0.07</length><delay>5</delay>
+        </motor></motormount>`);
+      const loaded = importOrk(unmatched);
+      expect(loaded.configs).toHaveLength(1);
+      expect(Object.values(loaded.configs[0]!.motors)).toMatchObject([{ designation: 'Unknown-round6' }]);
+      const simulation = (result: string, id = 'dry') => `<simulation status="outdated">
+        <name>Dry check</name><conditions><configid>${id}</configid><launchrodlength>2.4</launchrodlength></conditions>${result}
+        </simulation>`;
+      const withSimulations = (sims: string) => dry.replace('</openrocket>', `<simulations>${sims}</simulations></openrocket>`);
+      for (const result of ['', '<aeromodel runid="no-result">classic</aeromodel>']) {
+        const empty = importOrk(withSimulations(simulation(result)));
+        expect(empty.configs).toEqual([]);
+        expect(empty.chosenConfigId).toBeNull();
+        expect(empty.launch?.launchRodLengthM).toBe(2.4);
+      }
+      for (const result of ['<flightdata/>', '<flightdata maxaltitude="123"/>',
+        '<flightdata><databranch name="Sustainer" types="Time,Altitude"><datapoint>0,0</datapoint></databranch></flightdata>',
+        '<aeromodel runid="stored-dry">classic</aeromodel><flightdata maxaltitude="123"/>']) {
+        // The result may belong to a later simulation for the same configuration.
+        const kept = importOrk(withSimulations(simulation('') + simulation(result)));
+        expect(kept.configs).toMatchObject([{ id: 'dry', name: null }]);
+        expect(kept.chosenConfigId).toBe('dry');
+        if (result.includes('aeromodel')) {
+          expect(kept.storedSimulations).toMatchObject([{ configId: 'dry', data: { maxAltitude: 123, runId: 'stored-dry' } }]);
+        } else {
+          expect(kept.storedSimulations).toBeUndefined();
+        }
+      }
+      const otherResult = importOrk(withSimulations(simulation('') + simulation('<flightdata maxaltitude="123"/>', 'other')));
+      expect(otherResult.configs).toEqual([]);
+      expect(otherResult.chosenConfigId).toBeNull();
+    });
+
   it('no configs still writes exactly one simulation (legacy single-sim shape)', () => {
     const xml = exportOrk({ name: 'MC', tree: TREE, motors: { b: C6 }, launch: LAUNCH });
     expect((xml.match(/<simulation /g) ?? []).length).toBe(1);

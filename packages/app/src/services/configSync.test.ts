@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
@@ -7,7 +8,316 @@ import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
   stripRefPadMass, syncActiveConfig, withActiveConfigSynced, withActiveConfigTreeSynced, withoutStoredRef,
+  createLoadedConfig, renameConfig, deleteConfig,
 } from './configSync.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import { orkMotorSet } from './orkExportMotors.js';
+import { encodeShareFragment, decodeShareFragment } from './shareLink.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
+import { motorMounts } from '../tree/treeModel.js';
+import { planConfigSwitch, planImport, resolveImportMotors } from './importApply.js';
+
+describe('configuration editing', () => {
+  const working = () => {
+    const tree = twoStage();
+    Object.assign(tree.components[0]!, { nozzleExitDiameter: 0.012, overrideMass: 2.5, overrideCGX: 0.4 });
+    Object.assign(tree.components[1]!, { separationEvent: 'burnout', separationDelay: 1.5, nozzleExitDiameter: 0 });
+    tree.components[0]!.children!.push({ type: 'parachute', id: 'chute', diameter: 0.5,
+      deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0.5 });
+    return { ...snapshot({ 's-mmt': { ...motor('F67W', 6), ignition: { event: 'launch' as const, delay: 0.5 },
+      padMassKg: 3, padMassWeighedWith: 'measured-set' } },
+    [cfg('A', { 's-mmt': motor('F67C') }, { stageActiveness: { s2: false }, stageMassOverrides: { s1: {}, s2: {} },
+      nozzles: { s1: null, s2: null }, deployments: { chute: { deployEvent: 'apogee' } },
+      separations: { s1: { separationEvent: 'ejection' }, s2: { separationEvent: 'ejection' } } })], 'A'),
+    tree, unmatchedRefs: { 'b-mmt': ref('Missing') } };
+  };
+
+  it('snapshots every per-configuration field, activates it, and leaves the previous active unchanged', () => {
+    const state = working();
+    const before = structuredClone(state);
+    const next = createLoadedConfig(state)!;
+    const created = next.savedConfigs[1]!;
+    expect(next.savedConfigs[0]).toBe(state.savedConfigs[0]);
+    expect(state).toEqual(before);
+    expect(created).toEqual({ id: next.activeConfigId, name: null, isDefault: false,
+      motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, unmatched: ['Missing'],
+      stageActiveness: { s2: false }, stageMassOverrides: { s1: { overrideMass: 2.5, overrideCGX: 0.4 }, s2: {} },
+      nozzles: { s1: 0.012, s2: 0 },
+      deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0.5 } },
+      separations: { s1: { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 },
+        s2: { separationEvent: 'burnout', separationDelay: 1.5, separationAltitude: 200 } } });
+    expect(created.id).toMatch(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/);
+    expect(created.motors).not.toBe(state.mountMotors);
+    expect(createLoadedConfig(state)!.activeConfigId).not.toBe(created.id);
+  });
+
+  it('refuses no motors, orphaned motors, and 256 configurations; permits the 256th', () => {
+    const state = working();
+    expect(createLoadedConfig({ ...state, mountMotors: {} })).toBeNull();
+    expect(createLoadedConfig({ ...state, mountMotors: { deleted: motor('F67W') } })).toBeNull();
+    const configs = Array.from({ length: 256 }, (_, i) => cfg(String(i), {}));
+    expect(createLoadedConfig({ ...state, savedConfigs: configs })).toBeNull();
+    expect(createLoadedConfig({ ...state, savedConfigs: configs.slice(1) })!.savedConfigs).toHaveLength(256);
+  });
+
+  it('captures automatic nozzles and the writer separation fallback without inventing values', () => {
+    for (const value of [undefined, NaN, Infinity, -0.01]) {
+      const state = working();
+      state.tree.components[0]!['nozzleExitDiameter'] = value;
+      state.tree.components[0]!['separationEvent'] = 7;
+      const created = createLoadedConfig(state)!.savedConfigs[1]!;
+      expect(created.nozzles?.['s1']).toBeNull();
+      expect(created.separations?.['s1']?.separationEvent).toBe('ejection');
+    }
+  });
+
+  it('rename trims and caps names, and empty means unnamed', () => {
+    const state = working();
+    expect(renameConfig(state.savedConfigs, 'A', '  Club field  ')[0]!.name).toBe('Club field');
+    expect(renameConfig(state.savedConfigs, 'A', ' '.repeat(3))[0]!.name).toBeNull();
+    expect(renameConfig(state.savedConfigs, 'A', 'x'.repeat(101))[0]!.name).toHaveLength(100);
+  });
+
+  it('unchanged names preserve identity and the dirty fingerprint, including untouched imported names', () => {
+    for (const name of [null, 'Club field', '  padded  ', 'x'.repeat(120)]) {
+      const state = working();
+      state.savedConfigs[0]!.name = name;
+      const next = renameConfig(state.savedConfigs, 'A', name ?? '');
+      expect(next).toBe(state.savedConfigs);
+      expect(designFingerprint({ ...state, savedConfigs: next })).toBe(designFingerprint(state));
+    }
+    const configs = [cfg('A', {}, { name: null })];
+    expect(renameConfig(configs, 'A', '   ')).toBe(configs);
+    configs[0]!.name = 'Club';
+    expect(renameConfig(configs, 'A', ' Club ')).toBe(configs);
+  });
+
+  it('plain stage mass stays design-wide through Create, Apply A, edit, Apply C, Apply A', () => {
+    let state: DesignSnapshot & { unmatchedRefs: Record<string, OrkMotorRef> } = working();
+    delete state.savedConfigs[0]!.stageMassOverrides;
+    state = { ...state, ...createLoadedConfig(state)! };
+    const createdId = state.activeConfigId!;
+    const apply = (id: string) => {
+      const plan = planConfigSwitch(state, state.savedConfigs.find(c => c.id === id)!,
+        { mass: kg => `${kg} kg`, length: m => `${m} m` });
+      state = { ...state, ...plan };
+    };
+    apply('A');
+    state.tree = structuredClone(state.tree);
+    state.tree.components[0]!.overrideMass = 1.2;
+    apply(createdId);
+    expect(state.tree.components[0]!.overrideMass).toBe(1.2);
+    apply('A');
+    expect(state.tree.components[0]!.overrideMass).toBe(1.2);
+    expect(state.savedConfigs.every(c => c.stageMassOverrides === undefined)).toBe(true);
+  });
+
+  it.each(['nozzles', 'deployments', 'separations'] as const)(
+    'unowned %s stay design-wide through Create, Apply A, edit, Apply C, Apply A', (family) => {
+      for (const empty of [undefined, {}]) {
+        let state: DesignSnapshot & { unmatchedRefs: Record<string, OrkMotorRef> } = working();
+        state.savedConfigs[0]![family] = empty;
+        state = { ...state, ...createLoadedConfig(state)! };
+        const createdId = state.activeConfigId!;
+        const apply = (id: string) => {
+          state = { ...state, ...planConfigSwitch(state, state.savedConfigs.find(c => c.id === id)!,
+            { mass: kg => `${kg} kg`, length: m => `${m} m` }) };
+        };
+        const settings = (tree: RocketTree) => family === 'deployments'
+          ? tree.components[0]!.children!.find(n => n.id === 'chute')!
+          : tree.components[family === 'separations' ? 1 : 0]!;
+        const edit = family === 'nozzles' ? { nozzleExitDiameter: 0.02 }
+          : family === 'deployments' ? { deployEvent: 'altitude', deployAltitude: 300, deployDelay: 2 }
+          : { separationEvent: 'apogee', separationDelay: 3, separationAltitude: 400 };
+        apply('A');
+        state.tree = structuredClone(state.tree);
+        Object.assign(settings(state.tree), edit);
+        apply(createdId);
+        expect(settings(state.tree)).toMatchObject(edit);
+        apply('A');
+        expect(settings(state.tree)).toMatchObject(edit);
+        expect(state.savedConfigs.every(c => Object.keys(c[family] ?? {}).length === 0)).toBe(true);
+      }
+    });
+
+  it.each(['nozzles', 'deployments', 'separations'] as const)(
+    'new components keep shared %s through Create, Apply A, edit, Apply C, Apply A', (family) => {
+      for (const firstCreated of [false, true]) {
+        let state: DesignSnapshot & { unmatchedRefs: Record<string, OrkMotorRef> } = working();
+        if (firstCreated) {
+          state.savedConfigs = [];
+          state.activeConfigId = null;
+          state = { ...state, ...createLoadedConfig(state)! };
+        }
+        const originalId = state.activeConfigId!;
+        const newId = family === 'deployments' ? 'ch2' : 's3';
+        if (family === 'deployments') state.tree.components[0]!.children!.push({
+          type: 'parachute', id: newId, deployEvent: 'apogee', deployAltitude: 200,
+        });
+        else state.tree.components.push({ type: 'stage', id: newId, children: [],
+          separationEvent: 'burnout', separationDelay: 1, nozzleExitDiameter: 0.012,
+          overrideMass: 2, overrideCGX: 0.4 });
+        state = { ...state, ...createLoadedConfig(state)! };
+        const createdId = state.activeConfigId!;
+        const apply = (id: string) => {
+          state = { ...state, ...planConfigSwitch(state, state.savedConfigs.find(c => c.id === id)!,
+            { mass: kg => `${kg} kg`, length: m => `${m} m` }) };
+        };
+        const added = () => family === 'deployments'
+          ? state.tree.components[0]!.children!.find(n => n.id === newId)!
+          : state.tree.components.find(n => n.id === newId)!;
+        const edit = family === 'deployments' ? { deployEvent: 'altitude', deployAltitude: 300, deployDelay: 2 }
+          : family === 'separations' ? { separationEvent: 'apogee', separationDelay: 3, separationAltitude: 400 }
+            : { nozzleExitDiameter: 0.02 };
+        apply(originalId);
+        state.tree = structuredClone(state.tree);
+        Object.assign(added(), edit);
+        apply(createdId);
+        expect(added()).toMatchObject(edit);
+        apply(originalId);
+        expect(added()).toMatchObject(edit);
+        expect(state.savedConfigs.every(c => !Object.hasOwn(c[family] ?? {}, newId))).toBe(true);
+      }
+    });
+
+  it.each(['nozzles', 'deployments', 'separations'] as const)(
+    'Create takes the union of component IDs for %s', (family) => {
+      const state = working();
+      state.tree.components[0]!.children!.push({ type: 'streamer', id: 'ch2', deployAltitude: 300 });
+      const b = cfg('B', {}, { nozzles: { s2: 0 }, separations: { s2: { separationEvent: 'burnout' } },
+        stageMassOverrides: { s2: {} }, deployments: { ch2: { deployEvent: 'apogee' } } });
+      state.savedConfigs[0]!.nozzles = { s1: null };
+      state.savedConfigs[0]!.separations = { s1: { separationEvent: 'ejection' } };
+      state.savedConfigs[0]!.stageMassOverrides = { s1: {} };
+      state.savedConfigs.push(b);
+      const created = createLoadedConfig(state)!.savedConfigs[2]!;
+      expect(Object.keys(created[family]!).sort()).toEqual(family === 'deployments' ? ['ch2', 'chute'] : ['s1', 's2']);
+    });
+
+  it('round 5: Create snapshots every stage when an existing stage-mass map is empty', () => {
+    const state = working();
+    state.savedConfigs[0]!.stageMassOverrides = {};
+    const created = createLoadedConfig(state)!.savedConfigs[1]!;
+    expect(created.stageMassOverrides).toEqual({ s1: { overrideMass: 2.5, overrideCGX: 0.4 }, s2: {} });
+    expect(state.savedConfigs[0]!.stageMassOverrides).toEqual({});
+  });
+
+  it.each(['nozzles', 'deployments', 'separations', 'stageMassOverrides'] as const)(
+    'Create snapshots %s when another existing configuration owns it', (family) => {
+      const state = working();
+      const expected = createLoadedConfig(state)!.savedConfigs[1]![family];
+      const owner = { ...state.savedConfigs[0]!, id: 'B' };
+      delete state.savedConfigs[0]![family];
+      state.savedConfigs.push(owner);
+      const created = createLoadedConfig(state)!.savedConfigs[2]!;
+      expect(Object.keys(expected ?? {}).length).toBeGreaterThan(0);
+      expect(created[family]).toEqual(expected);
+      expect(state.savedConfigs[0]![family]).toBeUndefined();
+    });
+
+  it('the first Create snapshots recovery, separation and nozzles, keeping stage mass design-wide', () => {
+    const state = { ...working(), savedConfigs: [], activeConfigId: null };
+    const created = createLoadedConfig(state)!.savedConfigs[0]!;
+    expect(created.deployments?.['chute']).toMatchObject({ deployEvent: 'altitude', deployAltitude: 150 });
+    expect(created.separations?.['s2']).toMatchObject({ separationEvent: 'burnout', separationDelay: 1.5 });
+    expect(created.nozzles).toEqual({ s1: 0.012, s2: 0 });
+    expect(created.stageMassOverrides).toBeUndefined();
+  });
+
+  it('Create on a plain design writes no stage-mass extension or warning', () => {
+    const state = { ...working(), tree: twoStage(), savedConfigs: [], activeConfigId: null };
+    const next = createLoadedConfig(state)!;
+    const notes: string[] = [];
+    const xml = exportOrk({ name: 'Plain', tree: state.tree, launch: DEFAULT_CONDITIONS,
+      configs: next.savedConfigs.map(c => ({ ...c, motors: {} })), activeConfigId: next.activeConfigId, notes });
+    expect(next.savedConfigs[0]!.stageMassOverrides).toBeUndefined();
+    expect(xml).not.toContain('stagemassconfiguration');
+    expect(notes.join(' ')).not.toContain('Per-configuration stage mass');
+  });
+
+  it('create, rename, and delete each change the unsaved-work fingerprint', () => {
+    const state = working();
+    for (const next of [createLoadedConfig(state)!,
+      { savedConfigs: renameConfig(state.savedConfigs, 'A', 'Club field') },
+      deleteConfig(state.savedConfigs, state.activeConfigId, 'A')]) {
+      expect(designFingerprint({ ...state, ...next })).not.toBe(designFingerprint(state));
+    }
+  });
+
+  const write = (state: ReturnType<typeof working>) => {
+    const map = (motors: Record<string, MountMotor>, refs = {}) => orkMotorSet({ records: motors,
+      refs, tree: state.tree, flown: {}, configKey: '', exLibrary: () => [], first: 'records' });
+    return exportOrk({ name: 'Configs', tree: state.tree, launch: DEFAULT_CONDITIONS,
+      activeConfigId: state.activeConfigId, motors: map(state.mountMotors, state.unmatchedRefs),
+      configs: state.savedConfigs.map(c => ({ ...c, motors: map(c.motors, c.unmatchedRefs) })) });
+  };
+
+  it('two creates with different motors survive save and a share link with names, IDs, and active default', async () => {
+    let state = { ...working(), savedConfigs: [] as SavedConfig[], activeConfigId: null as string | null };
+    state.mountMotors = { 's-mmt': motor('F67C') };
+    state = { ...state, ...createLoadedConfig(state)! };
+    const firstId = state.activeConfigId;
+    state.mountMotors = { 's-mmt': motor('F67W') };
+    state = { ...state, ...createLoadedConfig(state)! };
+    const name = 'Club <field> & "Été"';
+    state.savedConfigs = renameConfig(state.savedConfigs, state.activeConfigId!, name);
+    const xml = write(state as ReturnType<typeof working>);
+    for (const payload of [xml, await decodeShareFragment(await encodeShareFragment(xml))]) {
+      const reopened = importOrk(payload);
+      expect(reopened.configs.map(c => c.id)).toEqual([firstId, state.activeConfigId]);
+      expect(reopened.configs.map(c => c.name)).toEqual([null, name]);
+      expect(reopened.configs.map(c => c.isDefault)).toEqual([false, true]);
+      expect(Object.values(reopened.configs[0]!.motors).map(m => m.designation)).toContain('F67C');
+      expect(Object.values(reopened.configs[1]!.motors).map(m => m.designation)).toContain('F67W');
+    }
+  });
+
+  it('round 7: opening an app-written dry file then creating two motor sets keeps exactly two configurations', async () => {
+    const launch = { ...DEFAULT_CONDITIONS, launchRodLengthM: 2.4, windAverage: 4, launchAltitudeM: 1350 };
+    const dry = exportOrk({ name: 'Dry', tree: twoStage(), motors: {}, launch });
+    expect(dry.match(/<motorconfiguration /g)).toHaveLength(1);
+    expect(dry.match(/<simulation /g)).toHaveLength(1);
+    const imported = importOrk(dry);
+    const plan = planImport(imported, await resolveImportMotors(imported), { launch: DEFAULT_CONDITIONS,
+      text: { mass: n => `${n} kg`, length: n => `${n} m` } });
+    let state = { ...plan.snapshot, unmatchedRefs: plan.unmatchedRefs };
+    expect(state.savedConfigs).toEqual([]);
+    expect(state.activeConfigId).toBeNull();
+    expect(state.launch).toMatchObject({ launchRodLengthM: 2.4, windAverage: 4, launchAltitudeM: 1350 });
+    const mountId = motorMounts(state.tree)[0]!.id!;
+    for (const designation of ['F67C', 'F67W']) {
+      state = { ...state, mountMotors: { [mountId]: motor(designation) } };
+      state = { ...state, ...createLoadedConfig(state)! };
+    }
+    expect(state.savedConfigs).toHaveLength(2);
+    const reopened = importOrk(write(state as ReturnType<typeof working>));
+    expect(reopened.configs.map(c => Object.values(c.motors).map(m => m.designation)))
+      .toEqual([['F67C'], ['F67W']]);
+    expect(reopened.configs.map(c => c.id)).toEqual(state.savedConfigs.map(c => c.id));
+    expect(reopened.chosenConfigId).toBe(state.activeConfigId);
+  });
+
+  it('deletes the active default without touching working settings; save appends an unnamed default', () => {
+    const state = working();
+    const before = structuredClone(state);
+    const survivor = cfg('B', { 's-mmt': motor('F67C') });
+    state.savedConfigs.push(survivor);
+    const next = deleteConfig(state.savedConfigs, 'A', 'A');
+    expect(next).toEqual({ savedConfigs: [survivor], activeConfigId: null });
+    expect(survivor.isDefault).toBe(false);
+    const result = { ...state, ...next };
+    expect(result.mountMotors).toEqual(before.mountMotors);
+    expect(result.tree).toEqual(before.tree);
+    expect(result.unmatchedRefs).toEqual(before.unmatchedRefs);
+    const reopened = importOrk(write(result as ReturnType<typeof working>));
+    expect(reopened.configs).toHaveLength(2);
+    expect(reopened.configs.map(c => c.id)).not.toContain('A');
+    expect(reopened.configs.find(c => c.isDefault)?.name).toBeNull();
+    const unloaded = importOrk(write({ ...result, mountMotors: {}, unmatchedRefs: {} } as ReturnType<typeof working>));
+    expect(unloaded.configs).toMatchObject([{ id: 'B', isDefault: true }]);
+    expect(deleteConfig(state.savedConfigs, 'A', 'B').activeConfigId).toBe('A');
+  });
+});
 
 /**
  * The working motor set written back into its flight configuration (v0.118).

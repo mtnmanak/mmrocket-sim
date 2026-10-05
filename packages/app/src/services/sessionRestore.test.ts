@@ -52,6 +52,55 @@ const session = (over: Partial<SessionState>): SessionState => ({
 });
 
 describe('designStateFromSession', () => {
+  it('round 8: drops only a lone dry placeholder, clearing only its active id without changing working content', () => {
+    const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {},
+      unmatchedRefs: {}, stageActiveness: { s: true } };
+    for (const activeConfigId of ['dry', null, 'other']) {
+      const s = session({ savedConfigs: [dry], activeConfigId, mountMotors: { core: motor('C6') },
+        unmatchedRefs: { 'pod-mmt': { designation: 'Unknown' } as OrkMotorRef },
+        launch: { ...DEFAULT_CONDITIONS, windAverage: 4 } });
+      const before = structuredClone(s);
+      const r = designStateFromSession(s, NO_LIMIT);
+      expect(r.state.savedConfigs).toEqual([]);
+      expect(r.state.activeConfigId).toBe(activeConfigId === 'dry' ? null : activeConfigId);
+      expect(r.state.mountMotors).toEqual(s.mountMotors);
+      expect(r.state.unmatchedRefs).toEqual(s.unmatchedRefs);
+      expect(r.state.launch).toEqual(s.launch);
+      expect(r.preConfigRestore).toEqual({ savedConfigs: [dry], activeConfigId });
+      expect(s).toEqual(before);
+      const again = designStateFromSession({ ...s, ...r.state }, NO_LIMIT);
+      expect(again.state).toEqual(r.state);
+      expect(again.preConfigRestore).toBeNull();
+    }
+  });
+
+  it('round 8: keeps names, motors, unmatched references, inactive stages, multiple configurations and own results', () => {
+    const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {} };
+    const result = (configId: string | null) => ({ name: 'Stored check', configId,
+      data: { maxAltitude: 123 }, windAverage: 0 });
+    const cases: [Partial<SessionState>, boolean][] = [
+      [{ savedConfigs: [{ ...dry, name: 'Dry fit' }] }, true],
+      [{ savedConfigs: [{ ...dry, name: '   ' }] }, false],
+      [{ savedConfigs: [{ ...dry, motors: { core: motor('C6') } }] }, true],
+      [{ savedConfigs: [{ ...dry, unmatchedRefs: { core: { designation: 'Unknown' } as OrkMotorRef } }] }, true],
+      [{ savedConfigs: [{ ...dry, stageActiveness: { s: false } }] }, true],
+      [{ savedConfigs: [dry, { ...dry, id: 'other' }] }, true],
+      [{ importedDocument: { name: 'Dry', storedSimulations: [result('other'), result('dry')] } }, true],
+      [{ importedDocument: { name: 'Dry', storedSimulations: [result('other'), result(null)] } }, false],
+      [{ importedDocument: { name: 'Dry', storedSimulations: [] } }, false],
+      [{ savedConfigs: [] }, false],
+    ];
+    for (const [over, keep] of cases) {
+      const s = session({ savedConfigs: [dry], activeConfigId: 'dry', ...over });
+      const r = designStateFromSession(s, NO_LIMIT);
+      expect(r.state.savedConfigs, JSON.stringify(over)).toEqual(keep ? s.savedConfigs : []);
+      if (keep) {
+        expect(r.state.activeConfigId).toBe('dry');
+        expect(r.preConfigRestore).toBeNull();
+      }
+    }
+  });
+
   it('round 2: deleted stage snapshots cannot land on newly created stages after reload', () => {
     const deletedNumber = Number(freshId().slice(1)) + 100;
     const deletedId = `c${deletedNumber}`;

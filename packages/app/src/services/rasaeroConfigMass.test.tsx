@@ -8,7 +8,7 @@ import { orkMotorSet } from './orkExportMotors.js';
 import { applyConfigSwitchPlan, planConfigSwitch, planImport, planOrkSave, resolveImportMotors, type ImportedDesign } from './importApply.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
-import { padMassSetKey, withActiveConfigTreeSynced } from './configSync.js';
+import { createLoadedConfig, padMassSetKey, withActiveConfigTreeSynced } from './configSync.js';
 import { primaryMountOf, addStage, removeNode } from '../tree/treeModel.js';
 import { reconcileIncludedMotor } from './statedLaunchWeight.js';
 import { applyStageMass, captureStageMass } from './stageMassOverrides.js';
@@ -114,6 +114,59 @@ it('round 3: sync completes every snapshot map even under None and retains delet
   expect(withActiveConfigTreeSynced(completed, null, tree)).toBe(completed);
   const snapshotFree = [{ ...a.savedConfigs[0]!, stageMassOverrides: undefined }];
   expect(withActiveConfigTreeSynced(snapshotFree, null, tree)).toBe(snapshotFree);
+});
+
+it('round 5: CDX1 added-stage mass stays with A through A to B to A before and after save', async () => {
+  const a = await open(importCdx1(cdx(A, B)));
+  const added = addStage(a.tree);
+  a.tree = applyStageMass(added.tree, { [added.newId]: { overrideMass: 1, overrideCGX: 0.4 } });
+  const b = switchTo(a, 1);
+  b.tree = applyStageMass(b.tree, { [added.newId]: { overrideMass: 2, overrideCGX: 0.6 } });
+  const returned = switchTo(b, 0);
+  expect(captureStageMass(returned.tree.components.at(-1)!)).toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  const reopened = await open(importOrk(save(returned)));
+  expect(captureStageMass(reopened.tree.components.at(-1)!)).toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  expect(captureStageMass(switchTo(reopened, 1).tree.components.at(-1)!))
+    .toEqual({ overrideMass: 2, overrideCGX: 0.6 });
+});
+
+it('round 5: Create owns an added CDX1 stage and keeps A edits through A to C to A', async () => {
+  const a = await open(importCdx1(cdx(A, B)));
+  const added = addStage(a.tree);
+  a.tree = applyStageMass(added.tree, { [added.newId]: { overrideMass: 1, overrideCGX: 0.4 } });
+  const original = structuredClone(a.savedConfigs);
+  const created = { ...a, ...createLoadedConfig(a)! };
+  expect(created.savedConfigs.slice(0, 2)).toEqual(original.map(c => ({ ...c,
+    stageMassOverrides: { ...c.stageMassOverrides, [added.newId]: { overrideMass: 1, overrideCGX: 0.4 } },
+  })));
+  expect(a.savedConfigs).toEqual(original);
+  expect(created.savedConfigs[2]!.stageMassOverrides![added.newId])
+    .toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  const activeA = switchTo(created, 0);
+  activeA.tree = applyStageMass(activeA.tree, { [added.newId]: { overrideMass: 3, overrideCGX: 0.8 } });
+  const activeC = switchTo(activeA, 2);
+  expect(captureStageMass(activeC.tree.components.at(-1)!)).toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  expect(captureStageMass(switchTo(activeC, 0).tree.components.at(-1)!))
+    .toEqual({ overrideMass: 3, overrideCGX: 0.8 });
+});
+
+it('round 6: Create completes old stage-mass owners before C edits, switching and saving', async () => {
+  const a = await open(importCdx1(cdx(A, B)));
+  const added = addStage(a.tree);
+  a.tree = applyStageMass(added.tree, { [added.newId]: { overrideMass: 1, overrideCGX: 0.4 } });
+  const c = { ...a, ...createLoadedConfig(a)! };
+  c.tree = applyStageMass(c.tree, { [added.newId]: { overrideMass: 2, overrideCGX: 0.6 } });
+  for (const index of [0, 1]) {
+    expect(captureStageMass(switchTo(c, index).tree.components.at(-1)!))
+      .toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  }
+  const reopened = await open(importOrk(save(c)));
+  expect(reopened.activeConfigId).toBe(c.activeConfigId);
+  expect(captureStageMass(reopened.tree.components.at(-1)!)).toEqual({ overrideMass: 2, overrideCGX: 0.6 });
+  for (const index of [0, 1]) {
+    expect(captureStageMass(switchTo(reopened, index).tree.components.at(-1)!))
+      .toEqual({ overrideMass: 1, overrideCGX: 0.4 });
+  }
 });
 
 it('round 2: a custom loadout saved after Apply None owns a complete live snapshot', async () => {

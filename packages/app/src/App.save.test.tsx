@@ -9,7 +9,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
-import type { MountMotor } from './model/design.js';
+import type { MountMotor, SavedConfig } from './model/design.js';
 import type { StageMassOverride } from './services/stageMassOverrides.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
@@ -19,6 +19,7 @@ import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
+import { designFingerprint } from './services/dirtyState.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
@@ -206,6 +207,300 @@ const fixture = (name: string) => readFileSync(join(here, 'services', '__fixture
 const RKT = 'rocksimTestRocket1.rkt';
 const RKT_NAME = 'FooBar Test';
 
+describe('flight configuration editing in App', () => {
+  const press = async (host: HTMLElement, label: string) => {
+    const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label);
+    expect(b, label).toBeDefined();
+    await act(async () => { b!.click(); });
+  };
+  const enter = async (host: HTMLElement, value: string) => {
+    const el = input(host, 'Rename ');
+    await type(el, value);
+    await act(async () => { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  };
+  const flush = () => window.dispatchEvent(new Event('pagehide'));
+
+  it.each(['undo', 'redo', 'delete active', 'delete inactive'] as const)(
+    'round 4: scale companions stay consistent after configuration actions (%s)', async action => {
+      const tree = defaultTree();
+      const stage = tree.components[0]!;
+      const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+      const motors = { [motorMounts(tree)[0]!.id!]: c6 };
+      Object.assign(stage, { overrideMass: 3, overrideCGX: 0.8 });
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        tree, mountMotors: motors, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+        activeConfigId: 'A', savedConfigs: ['A', 'B'].map((id, i) => ({
+          id, name: id, isDefault: i === 0, motors,
+          stageMassOverrides: { [stage.id!]: { overrideMass: 3 + i, overrideCGX: 0.8 } },
+        })),
+      }));
+      const host = await mountApp();
+      await act(async () => { button(host, 'Scale').click(); });
+      await type(document.getElementById('scale-factor') as HTMLInputElement, '2');
+      await act(async () => { button(document, 'Scale to 200').click(); });
+      const key = async (redo = false) => act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: redo }));
+      });
+      flush();
+      expect(storedSession()!.tree.components[0]!.overrideMass).toBe(24);
+      if (action === 'redo') await key();
+      await openTab(host, 'Motors & Launch');
+      if (action.startsWith('delete')) {
+        const id = action === 'delete active' ? 'A' : 'B';
+        const position = id === 'A' ? 1 : 2;
+        await press(host, `Delete ${id} — configuration ${position}`);
+        await press(host, `Confirm delete ${id} — configuration ${position}`);
+        await key();
+        flush();
+        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(3);
+        expect(storedSession()!.savedConfigs!.map(c => c.id)).toEqual([id === 'A' ? 'B' : 'A']);
+        expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass)
+          .toBe(id === 'A' ? 4 : 3);
+        expect(storedSession()!.activeConfigId).toBe(id === 'A' ? null : 'A');
+        await key(true);
+        flush();
+        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(24);
+        expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass)
+          .toBe(id === 'A' ? 32 : 24);
+      } else {
+        for (const name of ['C', 'D']) {
+          await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+          await enter(host, name);
+        }
+        flush();
+        const before = storedSession()!;
+        await key();
+        flush();
+        expect(storedSession()!.tree).toEqual(before.tree);
+        expect(storedSession()!.savedConfigs).toEqual(before.savedConfigs);
+        await key(true);
+        flush();
+        expect(storedSession()!.tree).toEqual(before.tree);
+        expect(storedSession()!.savedConfigs).toEqual(before.savedConfigs);
+        expect(button(host, '↩ Undo').disabled).toBe(true);
+        expect(button(host, '↪ Redo').disabled).toBe(true);
+        await press(host, 'Apply C');
+        flush();
+        const expected = action === 'redo' ? { overrideMass: 3, overrideCGX: 0.8 }
+          : { overrideMass: 24, overrideCGX: 1.6 };
+        expect(storedSession()!.tree.components[0]).toMatchObject(expected);
+        await saveAs(host, 'Save .ork');
+        const reopened = importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+        expect(reopened.tree.components[0]).toMatchObject(expected);
+        expect(reopened.configs.find(c => c.name === 'C')!.stageMassOverrides![reopened.tree.components[0]!.id!])
+          .toEqual(expected);
+      }
+    }, 30000);
+
+  it.each(['Open', 'share link', 'New'] as const)(
+    'round 4: %s clears a pending configuration deletion', async replacement => {
+      const tree = defaultTree();
+      const configs: SavedConfig[] = [{ id: 'reused-id', name: 'A', isDefault: true, motors: {} }];
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+        activeConfigId: 'reused-id', savedConfigs: configs,
+      }));
+      const xml = exportOrk({ name: 'Replacement', tree: { ...tree, name: 'Replacement' },
+        configs: configs.map(c => ({ ...c, motors: {} })) });
+      let release: (() => void) | undefined;
+      if (replacement === 'share link') {
+        window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        vi.mocked(decodeShareFragment).mockImplementationOnce(async () => { await gate; return xml; });
+      }
+      const host = await mountApp();
+      if (replacement !== 'share link') await saveAs(host, 'Save .ork');
+      await openTab(host, 'Motors & Launch');
+      await press(host, 'Delete A — configuration 1');
+      expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeTruthy();
+      if (replacement === 'Open') {
+        await pick(host, new File([xml], 'replacement.ork'));
+        await waitFor(() => shownName(host) === 'Replacement', 'replacement file');
+      } else if (replacement === 'share link') {
+        await act(async () => { release!(); });
+        await waitFor(() => host.textContent?.includes('This link opens') === true, 'share offer');
+        await act(async () => { button(document, 'Open “Replacement”').click(); });
+        await waitFor(() => shownName(host) === 'Replacement', 'replacement link');
+      } else {
+        await openTab(host, 'Design');
+        await act(async () => { button(host, '✕ New').click(); });
+        await openTab(host, 'Motors & Launch');
+      }
+      expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
+      expect(host.querySelector('.config-panel input')).toBeNull();
+      flush();
+      expect(storedSession()!.savedConfigs).toHaveLength(replacement === 'New' ? 0 : 1);
+    }, 30000);
+
+  it('round 7: a dry App save reopens empty and two Creates produce exactly two configurations', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await act(async () => { button(host, 'Unload').click(); });
+    await saveAs(host, 'Save .ork');
+    const dry = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(dry.match(/<motorconfiguration /g)).toHaveLength(1);
+    expect(dry.match(/<simulation /g)).toHaveLength(1);
+    expect(importOrk(dry).configs).toEqual([]);
+    await pick(host, new File([dry], 'dry.ork'));
+    await openTab(host, 'Motors & Launch');
+    flush();
+    expect(storedSession()!.savedConfigs).toEqual([]);
+    expect(host.querySelector('.config-panel')).toBeNull();
+    for (const designation of ['C6', 'B6']) {
+      await act(async () => { button(host, 'Browse motors').click(); });
+      await type(input(host, 'Search motor designation'), designation);
+      const row = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(tr =>
+        tr.cells[1]?.textContent === 'Estes' && tr.cells[0]?.textContent?.trim() === designation);
+      await waitFor(() => !!row(), 'catalogue row');
+      await act(async () => { row()!.click(); });
+      await act(async () => { button(host, 'Load motor').click(); });
+      await waitFor(() => { flush(); return Object.values(storedSession()!.mountMotors ?? {}).some(m => m.spec.designation === designation); }, 'chosen motor');
+      await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+      await act(async () => { input(host, 'Rename ').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    }
+    flush();
+    expect(storedSession()!.savedConfigs).toHaveLength(2);
+    await saveAs(host, 'Save .ork');
+    const reopened = importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+    expect(reopened.configs.map(c => Object.values(c.motors).map(m => m.designation))).toEqual([['C6'], ['B6']]);
+    expect(reopened.chosenConfigId).toBe(storedSession()!.activeConfigId);
+  }, 30000);
+
+  it('untouched Create editor preserves its notice; unchanged rename stays saved; last empty delete keeps focus', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await openTab(host, 'Motors & Launch');
+    await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+    await act(async () => { input(host, 'Rename ').blur(); });
+    expect(host.textContent).toContain('New flight configuration created from the loaded motors.');
+    expect(host.textContent).not.toContain('Flight configuration renamed.');
+    await saveAs(host, 'Save .ork');
+    const note = host.querySelector('.file-note')?.textContent;
+    const rename = host.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!;
+    await act(async () => rename.click());
+    await enter(host, '   ');
+    expect(host.querySelector('.file-note')?.textContent).toBe(note);
+    expect(host.textContent).not.toContain('Flight configuration renamed.');
+    // The actual unsaved-work guard must see this as saved. It starts New,
+    // so check that last, after the independent focus regression below.
+    flush();
+    const saved = storedSession()!;
+    await press(host, 'Apply None — unload every motor');
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Delete "]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete "]')!.click(); });
+    expect(host.querySelector('.config-panel')).toBeNull();
+    expect(document.activeElement?.textContent).toBe('Motors');
+    expect(document.activeElement?.isConnected).toBe(true);
+    await unmountAll();
+    localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+    const restored = await mountApp();
+    await saveAs(restored, 'Save .ork');
+    await openTab(restored, 'Motors & Launch');
+    await act(async () => { restored.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
+    await enter(restored, '   ');
+    await openTab(restored, 'Design');
+    expect(await guarded(restored)).toBe(false);
+  }, 30000);
+
+  it('create, rename and delete each guard unsaved work; autosave, share and .ork retain the new row', async () => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    await openTab(host, 'Motors & Launch');
+    expect(host.querySelector('.config-panel')).not.toBeNull();
+    await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+    expect(document.activeElement).toBe(input(host, 'Rename '));
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    flush();
+    const id = storedSession()!.activeConfigId!;
+    expect(storedSession()!.savedConfigs).toHaveLength(1);
+    expect(storedSession()!.savedConfigs![0]!.name).toBeNull();
+    await openTab(host, 'Design');
+    expect(await guarded(host)).toBe(true);
+    await saveAs(host, 'Save .ork');
+    await openTab(host, 'Motors & Launch');
+    const rename = [...host.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rename '))!;
+    await act(async () => { rename.click(); });
+    const name = 'Club <field> & "Été"';
+    await enter(host, name);
+    await openTab(host, 'Design');
+    expect(await guarded(host)).toBe(true);
+    await saveAs(host, 'Save .ork');
+    const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(importOrk(xml).configs).toMatchObject([{ id, name, isDefault: true }]);
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      await saveAs(host, 'Copy share link');
+      await waitFor(() => writeText.mock.calls.length > 0, 'share link');
+      const url = writeText.mock.calls[0]![0];
+      const shared = importOrk(await decodeShareFragment(new URL(url).hash));
+      expect(shared.configs).toMatchObject([{ id, name, isDefault: true }]);
+    } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
+    await unmountAll();
+    host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    expect(host.querySelector('.config-name')?.textContent).toBe(name);
+    flush();
+    const before = storedSession()!;
+    await press(host, `Delete ${name} — configuration 1`);
+    await press(host, `Confirm delete ${name} — configuration 1`);
+    flush();
+    const after = storedSession()!;
+    expect(after.savedConfigs).toEqual([]);
+    expect(after.activeConfigId).toBeNull();
+    expect(after.mountMotors).toEqual(before.mountMotors);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.launch).toEqual(before.launch);
+    expect(after.unmatchedRefs).toEqual(before.unmatchedRefs);
+    expect(host.textContent).toContain(`Flight configuration "${name}" deleted.`);
+    await openTab(host, 'Design');
+    expect(await guarded(host)).toBe(true);
+    await saveAs(host, 'Save .ork');
+    const reopened = importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+    expect(reopened.configs).toHaveLength(1);
+    expect(reopened.configs[0]).toMatchObject({ name: null, isDefault: true });
+    expect(reopened.configs[0]!.id).not.toBe(id);
+  }, 30000);
+
+  it('opens three unnamed configurations, renames one and deletes another, then saves and reopens two', async () => {
+    const tree = defaultTree();
+    const m = motorMounts(tree)[0]!.id!;
+    const xml = exportOrk({ name: 'Three configurations', tree, launch: DEFAULT_CONDITIONS,
+      flightData: { b: { aeroModel: 'classic', maxAltitude: 123, importedSummary: true } },
+      configs: ['a', 'b', 'c'].map(id => ({ id, name: null, isDefault: id === 'a', motors: {
+        [m]: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 },
+      } })) });
+    let host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await pick(host, new File([xml], 'three.ork'));
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    expect(host.querySelectorAll('.config-row')).toHaveLength(4);
+    const rows = [...host.querySelectorAll('.config-row')];
+    await act(async () => { rows[0]!.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
+    await enter(host, 'Club field');
+    await act(async () => { rows[1]!.querySelector<HTMLButtonElement>('button[aria-label^="Delete "]')!.click(); });
+    await act(async () => { rows[1]!.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete "]')!.click(); });
+    flush();
+    expect(storedSession()!.importedDocument?.storedSimulations).toEqual([]);
+    await saveAs(host, 'Save .ork');
+    const saved = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(saved).not.toContain('<flightdata');
+    await pick(host, new File([saved], 'two.ork'));
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    expect(host.querySelectorAll('.config-row')).toHaveLength(3);
+    expect(host.querySelector('.config-name')?.textContent).toBe('Club field');
+    flush();
+    expect(storedSession()!.savedConfigs!.map((c: SavedConfig) => c.id)).toEqual(['a', 'c']);
+    await unmountAll();
+    host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    expect(host.querySelectorAll('.config-row')).toHaveLength(3);
+  }, 30000);
+});
+
 beforeEach(() => {
   localStorage.clear();
   // Start on the Design tab with the tour off, as a returning desktop user would.
@@ -357,6 +652,36 @@ describe('lane C2 save and share fidelity', () => {
       delete (navigator as { clipboard?: unknown }).clipboard;
     }
   });
+
+  it.each(['clean', 'edited', 'missing', 'flown'] as const)(
+    'round 8: v0.159 dry autosave restores %s and stays so after another reload', async status => {
+      const state = { tree: defaultTree(), mountMotors: {}, launch: DEFAULT_CONDITIONS,
+        measured: { massKg: null, cgM: null },
+        savedConfigs: [{ id: 'dry', name: null, isDefault: true, motors: {} }], activeConfigId: 'dry' };
+      const savedMark = status === 'missing' ? undefined
+        : status === 'edited' ? 'older-unsaved-mark' : designFingerprint(state);
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, savedMark,
+        flownSinceSave: status === 'flown', appVersion: '0.159', savedAt: Date.now() }));
+      let host = await mountApp();
+      for (let round = 0; round < 2; round++) {
+        await settle(500);
+        const stored = storedSession()!;
+        expect(stored.savedConfigs).toEqual([]);
+        expect(stored.activeConfigId).toBeNull();
+        expect(stored.mountMotors).toEqual({});
+        expect(stored.flownSinceSave).toBe(status === 'flown');
+        expect(stored.savedMark).toBe(status === 'clean' || status === 'flown'
+          ? designFingerprint({ ...state, savedConfigs: [], activeConfigId: null }) : savedMark);
+        await openTab(host, 'Motors & Launch');
+        expect(host.querySelector('[aria-label="Flight configurations"]')).toBeNull();
+        await openTab(host, 'Design');
+        if (round === 0) {
+          await unmountAll();
+          host = await mountApp();
+        }
+      }
+      expect(await guarded(host)).toBe(status !== 'clean');
+    }, 30000);
 
   it('K2 keeps inactive stages through open, save, share, session reload and crash recovery', async () => {
     const xml = exportOrk({ name: 'Inactive stage', tree: defaultTree() }).replace('active="true"', 'active="false"');
