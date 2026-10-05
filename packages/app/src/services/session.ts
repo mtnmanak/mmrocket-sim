@@ -36,6 +36,13 @@ export interface SessionState {
   savedConfigs?: SavedConfig[];
   /** Configuration nozzle maps distinguish persistent zero from automatic null. */
   nozzleModeVersion?: 1;
+  /**
+   * Written by every autosave from v0.160 on: the session's configurations are
+   * as the importer kept them, so restore must not drop a dry placeholder again.
+   * Not appVersion — that records the build that PARSED the design and survives
+   * restores, so a design first opened before v0.160 would keep its old stamp.
+   */
+  emptyConfigVersion?: 1;
   /** Which preset the working motor set came from; null/absent = custom/none. */
   activeConfigId?: string | null;
   /**
@@ -517,7 +524,7 @@ function writeNow(): void {
     // silently turn that into null, so round-trip it as a string.
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
-      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1 }, (_k, v) =>
+      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1 }, (_k, v) =>
       typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),
     // so re-writing the same design is the same stamp. Spliced rather than

@@ -199,6 +199,16 @@ describe('storage hardening: session tree', () => {
   });
 });
 
+describe('empty-configuration marker', () => {
+  // Restore drops a dry placeholder only from a session no v0.160+ autosave
+  // wrote (sessionRestore); every autosave must therefore carry the marker.
+  it('every autosave writes emptyConfigVersion', () => {
+    saveNow();
+    expect(JSON.parse(localStorage.getItem('online-openrocket.session.v1')!).emptyConfigVersion).toBe(1);
+    expect(loadSession()!.emptyConfigVersion).toBe(1);
+  });
+});
+
 describe('K2 stored stage activeness', () => {
   it('keeps only boolean flags, including unusual string keys, without a repair notice', () => {
     const flags = JSON.parse('{"core":true,"booster":false,"__proto__":false,"constructor":true,"text":"false","number":0,"nil":null,"object":{},"array":[]}') as unknown;

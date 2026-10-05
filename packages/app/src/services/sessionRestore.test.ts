@@ -74,19 +74,21 @@ describe('designStateFromSession', () => {
     }
   });
 
-  // From v0.160 the importer decides, and it can see desktop flight data a
-  // session does not carry: a configuration it kept must survive a reload.
-  it('leaves a v0.160-or-later session\'s lone empty configuration as the importer kept it', () => {
+  // Once a v0.160+ autosave has written the session, the importer has decided,
+  // and it can see desktop flight data a session does not carry: a configuration
+  // it kept - or one made in the app - must survive every reload. appVersion is
+  // NOT the test: it names the build that parsed the design, so a design first
+  // opened in v0.159 keeps '0.159' through every later autosave.
+  it('drops a placeholder only from a session no v0.160 autosave has written', () => {
     const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {} };
-    for (const appVersion of ['0.160', '0.161', '1.0']) {
-      const r = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
-      expect(r.state.savedConfigs).toEqual([dry]);
-      expect(r.state.activeConfigId).toBe('dry');
-      expect(r.preConfigRestore).toBeNull();
-    }
-    for (const appVersion of [undefined, '0.159', '0.1']) {
-      const r = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
-      expect(r.state.savedConfigs).toEqual([]);
+    for (const appVersion of [undefined, '0.159', '0.160']) {
+      const marked = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion,
+        emptyConfigVersion: 1 }), NO_LIMIT);
+      expect(marked.state.savedConfigs).toEqual([dry]);
+      expect(marked.state.activeConfigId).toBe('dry');
+      expect(marked.preConfigRestore).toBeNull();
+      const unmarked = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
+      expect(unmarked.state.savedConfigs).toEqual([]);
     }
   });
 
