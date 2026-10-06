@@ -133,6 +133,8 @@ export interface MotorMatchResult {
    * that ruling and went, audit 2026-09-22, Dead code row 577.)
    */
   note: string;
+  /** Confirmed EX-library match, informational at open and never repeated on apply. */
+  infoNote?: string;
   /**
    * Why nothing loaded, when nothing did: the catalogue has no such motor, or
    * has it with no thrust curve anywhere. For a sentence that has to say it
@@ -281,9 +283,10 @@ export async function matchImportedMotor(
     try {
       const db = exToDbEntry(ex);
       const spec = exToMotorSpec(ex, ref.delay);
+      const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${ex.designation} — the motor database has no ${maker} ${ref.designation}.`;
       return {
         motor: mountMotorFromDb(db, spec, ref.delay, ignition, { ...fileIdentity, exMotorId: ex.motorId }),
-        note: `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${ex.designation} — the motor database has no ${maker} ${ref.designation}.`,
+        note, infoNote: note,
       };
     } catch (error) {
       return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };

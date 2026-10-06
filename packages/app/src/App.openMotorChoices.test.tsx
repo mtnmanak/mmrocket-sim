@@ -7,6 +7,8 @@ import { PrefsProvider } from './prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS } from './services/launchConditions.js';
 import type { SessionState } from './services/session.js';
 import { APP_VERSION } from './version.js';
+import { addExMotors, parseEng } from './services/exMotors.js';
+import { escapeXml } from './services/xmlUtil.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const ctx2d = new Proxy({}, {
@@ -40,11 +42,11 @@ beforeEach(async () => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
 });
-afterEach(async () => { flush(); await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
+afterEach(async () => { act(() => { flush(); }); await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
-async function open() {
+async function open(name = 'Ask motor', extra = '') {
   const motor = (id: string) => `<motor configid="${id}"><manufacturer>Enerjet</manufacturer><designation>F67</designation><diameter>0.0286</diameter><length>0.127</length><delay>9</delay></motor>`;
-  const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Ask motor</name>
+  const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>${escapeXml(name)}</name>${extra}
     <motorconfiguration configid="a" default="true"><name>First</name></motorconfiguration>
     <motorconfiguration configid="b"><name>Second</name></motorconfiguration>
     <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><name>Motor tube</name>
@@ -57,8 +59,33 @@ async function open() {
   const discard = button('Open without saving');
   if (discard) await act(async () => discard.click());
   await waitFor(() => !!host.querySelector('[aria-label="Choose motors for this file"]'));
-  flush();
+  act(() => { flush(); });
 }
+
+it('O3 preserves embedded EX storage notices when accepting another-maker matches', async () => {
+  const ex = parseEng('G42 29 127 6 0.043 0.112 Custom\n0 0\n0.1 80\n1 0')[0]!;
+  const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('full'); });
+  const warning = 'Embedded EX motors are available for this session but were not saved in browser storage.';
+  try {
+    await open('Ask motor', `<mmrexmotors version="1">${escapeXml(JSON.stringify([ex]))}</mmrexmotors>`);
+    expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain(warning);
+    await act(async () => button('Apply').click());
+    await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+    const notice = host.querySelector('[aria-label="Notices"]')!.textContent;
+    expect(notice).toContain(warning);
+    expect(notice).not.toContain('the file names Enerjet');
+  } finally { write.mockRestore(); addExMotors([]); }
+}, 20000);
+
+it('O3 keeps replacement metacharacters in the current open notice literally', async () => {
+  const name = 'Ask $$ $& $\' $` motor';
+  await open(name);
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  const notice = host.querySelector('[aria-label="Notices"]')!.textContent;
+  expect(notice).toContain(`Loaded “${name}”.`);
+  expect(notice).not.toContain('the file names Enerjet');
+}, 20000);
 
 it('the real file-open dialog applies all configurations, marks dirty, and undoes/redoes once', async () => {
   await open();

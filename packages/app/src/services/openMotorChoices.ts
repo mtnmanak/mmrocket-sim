@@ -6,7 +6,8 @@ import type { OrkMotorRef } from './orkFile.js';
 import { fileMotorIdentity, mountMotorFromDb, namesOtherMaker } from './motorMatch.js';
 import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
-import { findNode, motorMounts } from '../tree/treeModel.js';
+import { findNode, kernelStageIdByNode, motorMounts } from '../tree/treeModel.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DesignSnapshot } from './dirtyState.js';
 import type { MotorMatchResult } from './motorMatch.js';
 
@@ -65,6 +66,11 @@ export function collectOpenMotorIdentities(
   const mounts = motorMounts(snapshot.tree);
   for (const set of sets) {
     for (const [mountId, ref] of Object.entries(set.motors)) {
+      const result = set.configId === (imported.chosenConfigId ?? null)
+        ? resolved.working[mountId] : resolved.configResults?.[set.configId!]?.[mountId];
+      // @atestani TRF #162, Eric 2026-10-06: a shared name alone does not
+      // authorize replacing an embedded EX or a differently resolved motor.
+      if (!result?.otherMaker) continue;
       const group = groups.get(identityKey(ref));
       if (!group) continue;
       group.locations.push({ configId: set.configId, mountId, ref });
@@ -79,16 +85,24 @@ export function collectOpenMotorIdentities(
 }
 
 export async function applyOpenMotorChoices(
-  state: OpenMotorState, activeConfigId: string | null, groups: OpenMotorIdentity[],
+  state: OpenMotorState & Pick<DesignSnapshot, 'tree'>, activeConfigId: string | null, groups: OpenMotorIdentity[],
   choices: Record<string, OpenMotorChoice>, fetchSpec = fetchMotorSpec,
 ): Promise<OpenMotorState> {
   const mountMotors = { ...state.mountMotors };
   const unmatchedRefs = { ...state.unmatchedRefs };
   const savedConfigs = state.savedConfigs.map(c => ({ ...c, motors: { ...c.motors } }));
+  const stageOfMount = kernelStageIdByNode(state.tree);
   const replace = async (motors: Record<string, MountMotor>, mountId: string,
     ref: OrkMotorRef, choice: OpenMotorChoice) => {
     const old = motors[mountId];
     if (choice.kind === 'empty') { delete motors[mountId]; return; }
+    // @atestani TRF #162, Eric 2026-10-06: accepting the loaded motor only
+    // silences its question; its file delay and offline curve are already valid.
+    if (choice.kind === 'catalogue' && choice.motor.motorId === old?.meta.motorId) {
+      motors[mountId] = { ...old };
+      delete motors[mountId].openNote;
+      return;
+    }
     const db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : choice.motor;
     const previousDelay = old?.spec.ejectionDelay ?? ref.delay;
     const delay = choice.kind === 'ex' || delayOptions(db).includes(previousDelay)
@@ -97,7 +111,7 @@ export async function applyOpenMotorChoices(
     const identity = fileMotorIdentity(ref);
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;
     const motor = mountMotorFromDb(db, spec, delay,
-      old?.ignition ?? { event: 'automatic', delay: 0 },
+      old?.ignition ?? { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 },
       { ...identity, ...(choice.kind === 'ex' ? { exMotorId: choice.motor.motorId } : {}),
         ...(choice.kind === 'catalogue' && defaultDelay(db) === null ? { autoDelay: true } : {}) });
     // @atestani TRF #162, Eric 2026-10-06: the weighed-set key must still flag a changed loadout.
@@ -110,7 +124,16 @@ export async function applyOpenMotorChoices(
     for (const { configId, mountId, ref } of group.locations) {
       const config = savedConfigs.find(c => c.id === configId);
       if (config) {
+        const old = config.motors[mountId];
         await replace(config.motors, mountId, ref, choice);
+        const stageId = stageOfMount.get(mountId);
+        // @atestani TRF #162, Eric 2026-10-06: inactive configurations have
+        // no nozzle-follow effect. Null explicitly clears on a later switch;
+        // deleting the key would leave the previous configuration's nozzle live.
+        if (old && old.spec !== config.motors[mountId]?.spec && stageId !== undefined
+          && config.nozzles?.[stageId] !== 0) {
+          config.nozzles = { ...config.nozzles, [stageId]: null };
+        }
         if (config.unmatchedRefs?.[mountId]) {
           config.unmatchedRefs = { ...config.unmatchedRefs };
           delete config.unmatchedRefs[mountId];

@@ -19,6 +19,40 @@ const apply = vi.fn().mockResolvedValue(undefined);
 const later = vi.fn();
 const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent === text)!;
 const render = () => act(() => root.render(<OpenMotorDialog identities={identities} onApply={apply} onLater={later} />));
+async function importText(section: number, text: string, click = true) {
+  if (click) act(() => host.querySelectorAll('fieldset')[section]!.querySelector('button')!.click());
+  const inputs = host.querySelectorAll<HTMLInputElement>('input[type=file]');
+  const input = inputs[section] ?? inputs[0]!;
+  Object.defineProperty(input, 'files', { configurable: true, value: [new File([text], 'Enerjet_F67.eng')] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+}
+// Al's complete 504-byte Enerjet_F67.eng, inlined so CI does not depend on docs/.
+const enerjetEng = `; Enerjet F67 (1971 catalog No. 741) - digitized from catalog thrust curve,
+; scaled to catalog total impulse 80 N-s. Approximation, not measured data.
+F67 28.6 127 6 0.0430 0.1120 Enerjet
+   0.030 36.13
+   0.050 87.16
+   0.080 76.78
+   0.105 58.71
+   0.140 56.90
+   0.200 59.16
+   0.300 64.58
+   0.400 69.55
+   0.500 74.52
+   0.600 79.03
+   0.700 84.00
+   0.800 88.97
+   0.870 91.23
+   0.920 90.32
+   0.950 86.26
+   1.000 65.48
+   1.050 48.32
+   1.100 32.52
+   1.150 17.61
+   1.200 3.61
+   1.230 0.00
+;
+`;
 beforeEach(() => {
   localStorage.clear(); apply.mockClear(); later.mockClear();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
@@ -26,6 +60,35 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('open motor dialog', () => {
+  it.each([true, false])('B1 selects the real Enerjet file using the LEM-1 reference (button click %s)', async click => {
+    render();
+    expect(new TextEncoder().encode(enerjetEng)).toHaveLength(504);
+    await importText(0, enerjetEng, click);
+    expect(host.textContent).toContain('Enerjet F67 (EX, 28.6 mm)');
+    expect(host.textContent).not.toContain('No imported motor matches');
+    expect(host.querySelectorAll('fieldset')[0]!.querySelector('input:checked')!.parentElement!.textContent).toContain('Enerjet F67 (EX');
+    await act(async () => button('Apply').click());
+    expect(apply.mock.calls[0]![0]['0']).toMatchObject({ kind: 'ex', motor: { realManufacturer: 'Enerjet', diameter: 28.6 } });
+  });
+
+  it.each([28.6, 38])('C2 reconciles another section EX choice after a %s mm replacement', async diameter => {
+    render();
+    await importText(0, enerjetEng);
+    await importText(1, `F67 ${diameter} 127 6 0.043 0.112 Enerjet\n0 0\n0.1 160\n1 0\n;\nF67 28.6 127 6 0.043 0.112 Another maker\n0 0\n0.1 90\n1 0`);
+    const checked = host.querySelectorAll('fieldset')[0]!.querySelectorAll('input:checked');
+    expect(checked).toHaveLength(1);
+    await act(async () => button('Apply').click());
+    const choice = apply.mock.calls[0]![0]['0'];
+    if (diameter === 38) {
+      expect(choice).toEqual({ kind: 'catalogue', motor: identities[0]!.candidates[0] });
+      expect(checked[0]!.parentElement!.textContent).toContain('AeroTech F67C');
+    } else {
+      expect(choice.kind).toBe('ex');
+      expect(choice.motor.samples.some((s: { thrust: number }) => s.thrust === 160)).toBe(true);
+      expect(checked[0]!.parentElement!.textContent).toContain('Enerjet F67 (EX');
+    }
+  });
+
   it('shows two identities and their mounts/configurations, defaults to the matched rows', async () => {
     render();
     expect(host.querySelectorAll('fieldset')).toHaveLength(2);

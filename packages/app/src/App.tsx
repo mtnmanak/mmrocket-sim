@@ -316,7 +316,7 @@ export function App() {
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
   const motorAnswerRevision = useRef<object>({});
-  const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; noteBefore: string; noteAfter: string } | null>(null);
+  const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -2349,6 +2349,9 @@ export function App() {
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
+    const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
+      { launch: launchRef.current, text: statedWeightText }).note.text.split('\n'));
+    const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     motorChoices.current.clear();
     applyImportPlan(plan, {
       history: { reset: resetHistory },
@@ -2360,8 +2363,7 @@ export function App() {
     });
     const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
     setOpenMotorQuestion(identities.length ? {
-      identities, openId, noteBefore: plan.note.text,
-      noteAfter: planImport(imported, acceptedOtherMakerNotes(resolved), { launch: launchRef.current, text: statedWeightText }).note.text,
+      identities, openId, acceptedLines,
     } : null);
     const storedCount = imported.storedSimulations?.length ?? 0;
     setImportedDocument(summaryDocument(imported));
@@ -3253,7 +3255,7 @@ export function App() {
           onLater={() => setOpenMotorQuestion(null)}
           onApply={async choices => {
             const { identities, openId } = openMotorQuestion;
-            const next = await applyOpenMotorChoices({ mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices);
+            const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices);
             if (!openSeq.isCurrent(openId)) return;
             commitOpenMotorChoices(next, {
               commitStep: () => {
@@ -3264,7 +3266,9 @@ export function App() {
             });
             setOpenMotorQuestion(null);
             setFileNoteState(prev => prev ? {
-              ...prev, text: prev.text.replace(openMotorQuestion.noteBefore, openMotorQuestion.noteAfter),
+              // @atestani TRF #162, Eric 2026-10-06: edit the CURRENT notice,
+              // preserving embedded-EX/storage lines and literal dollars in names.
+              ...prev, text: prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)).join('\n'),
             } : null);
           }} />
       )}

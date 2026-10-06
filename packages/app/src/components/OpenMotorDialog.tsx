@@ -17,8 +17,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const importingFor = useRef<OpenMotorIdentity | null>(null);
+  const fileInputs = useRef(new Map<string, HTMLInputElement>());
   const pending = useRef(false);
   const choose = (key: string, choice: OpenMotorChoice) => setChoices(prev => ({ ...prev, [key]: choice }));
   const later = () => { if (!pending.current) onLater(); };
@@ -31,6 +30,31 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { pending.current = false; setBusy(false); }
   };
+  // @atestani TRF #162, Eric 2026-10-06: a library replacement changes every
+  // section. Render and Apply use the same current definition or visible default.
+  const resolveChoices = (previous: Record<string, OpenMotorChoice>, motors: ExMotor[]): Record<string, OpenMotorChoice> => Object.fromEntries(identities.map(group => {
+    const choice = previous[group.key];
+    if (choice?.kind !== 'ex') return [group.key, choice];
+    const motor = matchingExMotors(group.ref, motors).find(m => m.motorId === choice.motor.motorId);
+    return [group.key, motor ? { kind: 'ex', motor } : { kind: 'catalogue', motor: group.candidates[0]! }];
+  }));
+  const importFiles = (group: OpenMotorIdentity, files: File[]) => run(async () => {
+    const result = await importMotorFiles(files);
+    setError(result.error);
+    setNotice(result.notice);
+    if (!result.write) return;
+    const motors = result.write.motors;
+    setLibrary(motors);
+    const matches = matchingExMotors(group.ref, motors);
+    // @atestani TRF #162, Eric 2026-10-06: use the open's EX rule, including ambiguity.
+    setChoices(previous => {
+      const next = resolveChoices(previous, motors);
+      if (matches.length === 1) next[group.key] = { kind: 'ex', motor: matches[0]! };
+      return next;
+    });
+    if (matches.length !== 1) setNotice([result.notice, matches.length ? 'Several imported motors match. Choose one above.'
+      : 'No imported motor matches this file’s maker, designation and diameter.'].filter(Boolean).join(' '));
+  });
   return (
     <Modal label="Choose motors for this file" onClose={later}>
       <h2>Choose motors for this file</h2>
@@ -62,33 +86,21 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
                 onChange={() => choose(group.key, { kind: 'empty' })} />
               Leave the mount empty
             </label>
-            <button type="button" className="file-btn" onClick={() => {
-              importingFor.current = group;
-              fileInput.current?.click();
-            }}>Import .eng/.rse…</button>
+            <button type="button" className="file-btn" onClick={() => fileInputs.current.get(group.key)?.click()}>Import .eng/.rse…</button>
+            <input ref={input => {
+              if (input) fileInputs.current.set(group.key, input);
+              else fileInputs.current.delete(group.key);
+            }} type="file" accept=".eng,.rse,.txt" multiple hidden aria-label={`Import motor files for ${group.ref.manufacturer} ${group.ref.designation}`}
+              onChange={e => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = '';
+                // The input owns its file reference, even without a preceding button click.
+                if (files.length) void importFiles(group, files);
+              }} />
           </fieldset>
         );
       })}
       </div>
-      <input ref={fileInput} type="file" accept=".eng,.rse,.txt" multiple hidden aria-label="Import motor files"
-        onChange={e => {
-          const files = Array.from(e.target.files ?? []);
-          e.target.value = '';
-          if (!files.length) return;
-          void run(async () => {
-            const result = await importMotorFiles(files);
-            setError(result.error);
-            setNotice(result.notice);
-            if (!result.write) return;
-            setLibrary(result.write.motors);
-            const group = importingFor.current;
-            const matches = group ? matchingExMotors(group.ref, result.write.motors) : [];
-            // @atestani TRF #162, Eric 2026-10-06: use the open's EX rule, including ambiguity.
-            if (group && matches.length === 1) choose(group.key, { kind: 'ex', motor: matches[0]! });
-            else setNotice([result.notice, matches.length ? 'Several imported motors match. Choose one above.'
-              : 'No imported motor matches this file’s maker, designation and diameter.'].filter(Boolean).join(' '));
-          });
-        }} />
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
       <div className="modal-actions">

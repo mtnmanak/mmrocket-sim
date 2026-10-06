@@ -2,13 +2,13 @@
 import { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import type { MotorSpec } from '@online-openrocket/engine';
+import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { useTreeHistory } from '../hooks/useTreeHistory.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import { matchImportedMotor } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
-import { resolveImportMotors, type ImportedDesign } from './importApply.js';
+import { planConfigSwitch, resolveImportMotors, type ImportedDesign } from './importApply.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorState } from './openMotorChoices.js';
 
@@ -37,11 +37,71 @@ async function fixture() {
     savedConfigs: imported.configs!.map(c => ({ ...c, motors: Object.fromEntries(
       Object.entries(c.id === 'a' ? resolved.working : resolved.configResults![c.id]!).map(([id, result]) => [id, result.motor!])) })),
   };
-  const state = { mountMotors: snapshot.mountMotors, savedConfigs: snapshot.savedConfigs, unmatchedRefs: {} };
+  const state = { tree: snapshot.tree, mountMotors: snapshot.mountMotors, savedConfigs: snapshot.savedConfigs, unmatchedRefs: {} };
   return { imported, resolved, snapshot, state, groups: collectOpenMotorIdentities(imported, resolved, snapshot) };
 }
 
 describe('ask at open choices', () => {
+  it.each(['empty', 'catalogue', 'ex'] as const)('C1 clears the inactive configuration nozzle on %s and keeps other stages', async kind => {
+    const { state, groups } = await fixture();
+    const tree: RocketTree = { components: [
+      { type: 'stage', id: 's', nozzleExitDiameter: 0.012, children: [
+        { type: 'innertube', id: 'm', motorMount: true, length: 0.2, outerRadius: 0.015, thickness: 0.001 },
+      ] },
+      { type: 'stage', id: 'other', nozzleExitDiameter: 0.02, children: [] },
+    ] };
+    const withNozzles = { ...state, tree, savedConfigs: state.savedConfigs.map(c => ({ ...c, nozzles: { s: 0.012, other: 0.02 } })) };
+    const group = groups[0]!;
+    const choice = kind === 'empty' ? { kind } : kind === 'catalogue'
+      ? { kind, motor: group.candidates.find(m => m.designation === 'F67W')! }
+      : { kind, motor: parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]! };
+    const next = await applyOpenMotorChoices(withNozzles, 'a', groups, { [group.key]: choice }, fetchSpec);
+    const switched = planConfigSwitch({ ...next, tree, activeConfigId: 'a' }, next.savedConfigs[1]!, { mass: String, length: String });
+    expect(switched.tree.components[0]!.nozzleExitDiameter).toBeUndefined();
+    expect(switched.tree.components[1]!.nozzleExitDiameter).toBe(0.02);
+    expect(next.savedConfigs[2]!.nozzles).toEqual({ s: 0.012, other: 0.02 });
+    expect(withNozzles.savedConfigs[1]!.nozzles.s).toBe(0.012);
+  });
+
+  it.each(['catalogue', 'ex'] as const)('C3 fills an unresolved occurrence with its validated file ignition for %s', async kind => {
+    const { state, groups } = await fixture();
+    state.savedConfigs[1]!.motors = {};
+    const group = groups[0]!;
+    const choice = kind === 'catalogue' ? { kind, motor: group.candidates[0]! }
+      : { kind, motor: parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]! };
+    for (const [event, expected] of [['burnout', 'burnout'], ['EJECTION_CHARGE', 'ejectioncharge'], ['bogus', 'automatic']]) {
+      const locations = group.locations.map(l => ({ ...l, ref: { ...l.ref, ignitionEvent: event, ignitionDelay: 1.5 } }));
+      const next = await applyOpenMotorChoices(state, 'a', [{ ...group, locations }], { [group.key]: choice }, fetchSpec);
+      expect(next.savedConfigs[1]!.motors.m!.ignition).toEqual({ event: expected, delay: 1.5 });
+    }
+  });
+
+  it.each([false, true])('O1 keeps the existing default motor and off-list delay without fetching (offline %s)', async offline => {
+    const { state, groups } = await fixture();
+    const group = groups[0]!;
+    const row = { ...group.candidates[0]!, delays: '4,6' };
+    const fetch = vi.fn((row: MotorDbEntry, delay: number) => fetchSpec(row, delay));
+    if (offline) fetch.mockRejectedValue(new Error('offline'));
+    const next = await applyOpenMotorChoices(state, 'a', groups, { [group.key]: { kind: 'catalogue', motor: row } }, fetch);
+    expect(fetch).not.toHaveBeenCalled();
+    const { openNote: _note, ...kept } = state.savedConfigs[1]!.motors.m!;
+    expect(next.savedConfigs[1]!.motors.m).toEqual(kept);
+    expect(next.savedConfigs[1]!.motors.m!.spec).toBe(kept.spec);
+    expect(next.savedConfigs[1]!.motors.m!.spec.ejectionDelay).toBe(9);
+  });
+
+  it('O2 changes only config/mount pairs with other-maker match evidence', async () => {
+    const { imported, snapshot } = await fixture();
+    const ex = parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]!;
+    imported.configs!.push(
+      { id: 'embedded', name: '', isDefault: false, motors: { m: { ...ref, exMotorId: ex.motorId, exDefinition: ex } } },
+      { id: 'different', name: '', isDefault: false, motors: { m: { ...ref, diameter: 0.038 } } },
+    );
+    const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { fetchSpec, exMotors: [{ ...ex, diameter: 38 }] }));
+    const groups = collectOpenMotorIdentities(imported, resolved, snapshot);
+    expect(groups[0]!.locations.map(l => l.configId)).toEqual(['a', 'a', 'b']);
+  });
+
   it('groups only another-maker evidence, with all mounts/configurations and the actual rivals', async () => {
     const { groups, imported, resolved, snapshot } = await fixture();
     expect(groups).toHaveLength(1);
@@ -113,7 +173,7 @@ describe('ask at open choices', () => {
     const group = { ...groups[0]!, locations: [{ configId: null, mountId: 'm', ref }] };
     const empty = await applyOpenMotorChoices(state, null, [group], { [group.key]: { kind: 'empty' } });
     expect(empty.mountMotors.m).toBeUndefined();
-    const fail = vi.fn(fetchSpec).mockImplementationOnce(fetchSpec).mockRejectedValueOnce(new Error('offline'));
+    const fail = vi.fn((row: MotorDbEntry, delay: number) => fetchSpec(row, delay)).mockImplementationOnce(fetchSpec).mockRejectedValueOnce(new Error('offline'));
     await expect(applyOpenMotorChoices(state, 'a', groups, { [group.key]: { kind: 'catalogue', motor: findDbMotor('F67W')! } }, fail)).rejects.toThrow('offline');
     expect(state.mountMotors.m!.openNote).toBeDefined();
   });
@@ -134,13 +194,14 @@ describe('ask at open choices', () => {
   it('commits one history step; undo restores all motors and notes, redo restores the answer', async () => {
     const { state, groups, snapshot } = await fixture();
     const next = await applyOpenMotorChoices(state, 'a', groups, { [groups[0]!.key]: { kind: 'empty' } });
-    let current: OpenMotorState = state;
+    const historyState: OpenMotorState = { mountMotors: state.mountMotors, savedConfigs: state.savedConfigs, unmatchedRefs: state.unmatchedRefs };
+    let current: OpenMotorState = historyState;
     let apply: () => void = () => {};
     let undo: () => void = () => {};
     let redo: () => void = () => {};
     let canUndo = false;
     function Harness() {
-      const [value, setValue] = useState<OpenMotorState>(state);
+      const [value, setValue] = useState<OpenMotorState>(historyState);
       const revision = useRef<object>({});
       const history = useTreeHistory(snapshot.tree, {
         captureCompanion: () => ({ revision: revision.current, value }),
@@ -165,7 +226,7 @@ describe('ask at open choices', () => {
       expect(current).toEqual(next);
       expect(canUndo).toBe(true);
       act(() => undo());
-      expect(current).toEqual(state);
+      expect(current).toEqual(historyState);
       expect(canUndo).toBe(false);
       act(() => redo());
       expect(current).toEqual(next);
