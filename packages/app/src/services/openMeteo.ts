@@ -55,6 +55,9 @@ export const HOURLY_VARS = [
   'temperature_2m', 'surface_pressure', 'wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m',
 ] as const;
 
+/** Optional forecast context only; visibility is not available from the ERA5 archive. */
+export const SKY_VARS = ['cloud_cover', 'cloud_cover_low', 'visibility', 'dew_point_2m'] as const;
+
 // Open-Meteo's documented pressure levels: https://open-meteo.com/en/docs#pressure_level_variables
 export const PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 70, 50, 30] as const;
 export const FIXED_WIND_HEIGHTS = [80, 120, 180] as const;
@@ -196,7 +199,7 @@ export function forecastUrl(q: {
   return `${q.endpoint === 'archive' ? ARCHIVE_API : FORECAST_API}`
     + `?latitude=${rep(dp3(q.latitudeDeg))}&longitude=${rep(dp3(q.longitudeDeg))}`
     + `&elevation=${q.elevationsM.map(elev).join(',')}`
-    + `&hourly=${[...HOURLY_VARS, ...(q.endpoint === 'archive' ? [] : ALOFT_VARS)].join(',')}`
+    + `&hourly=${[...HOURLY_VARS, ...(q.endpoint === 'archive' ? [] : [...ALOFT_VARS, ...SKY_VARS])].join(',')}`
     + '&wind_speed_unit=ms&temperature_unit=celsius&timeformat=unixtime&timezone=auto'
     + `&start_date=${q.startDate}&end_date=${q.endDate}`;
 }
@@ -264,6 +267,11 @@ export interface HourSample {
    * profile's relative bearings; Rod aim remains the user's angle to it.
    */
   windFromDeg: number | null;
+  /** Optional information for the review only, never launch-condition inputs. */
+  cloudCoverPct?: number | null;
+  cloudCoverLowPct?: number | null;
+  visibilityM?: number | null;
+  dewPointC?: number | null;
   /** Valid levels above the surface, AGL; bearings still absolute FROM degrees. */
   windsAloft?: { altitude: number; speed: number; fromDeg: number }[];
 }
@@ -339,9 +347,20 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
       return a.map(finiteOrNull);
     });
     const [tC, pH, ws, wg, wd] = series as [(number | null)[], (number | null)[], (number | null)[], (number | null)[], (number | null)[]];
+    // Optional context must not discard usable launch weather. Missing, ragged,
+    // wrong-unit or invalid values stay absent, independently for each field.
+    const context = (key: string, unit: string, j: number, min = -Infinity, max = Infinity) => {
+      const a = h[key];
+      const v = units[key] === unit && Array.isArray(a) && a.length === time.length ? finiteOrNull(a[j]) : null;
+      return v !== null && v >= min && v <= max ? v : null;
+    };
     const samples = (time as number[]).map((unix, j): HourSample => {
       const s = {
         unix, temperatureC: tC[j]!, pressureHPa: pH[j]!, windSpeedMs: ws[j]!, windGustMs: wg[j]!, windFromDeg: wd[j]!,
+        cloudCoverPct: context('cloud_cover', '%', j, 0, 100),
+        cloudCoverLowPct: context('cloud_cover_low', '%', j, 0, 100),
+        visibilityM: context('visibility', 'm', j, 0),
+        dewPointC: context('dew_point_2m', '°C', j, -273.15),
         windsAloft: readWindsAloft(h, units, j, e),
       };
       if (s.temperatureC !== null || s.pressureHPa !== null || s.windSpeedMs !== null) anyValue = true;
@@ -357,6 +376,18 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
   });
   if (!anyValue) throw new WeatherError('no-data', 'Open-Meteo has no data for that date here.');
   return variants;
+}
+
+/** Surface-air lifting condensation estimate, metres ABOVE THE SITE, not a measured ceiling. */
+export function estimatedCloudBaseM(temperatureC: number | null | undefined, dewPointC: number | null | undefined): number | null {
+  if (temperatureC == null || dewPointC == null || !Number.isFinite(temperatureC) || !Number.isFinite(dewPointC)
+      || temperatureC < -273.15 || dewPointC < -273.15 || dewPointC > temperatureC) return null;
+  // CBH ~= 125 * (T - Td), with T and Td in degrees C, height in metres AGL.
+  // Source: "Estimating Cloud Base Height via Shadow-Based Remote Sensing",
+  // Appendix A, equation A4: https://ntrs.nasa.gov/citations/20260000089
+  // This estimates lifted surface air's condensation level, not every cloud layer.
+  const height = 125 * (temperatureC - dewPointC);
+  return Number.isFinite(height) ? height : null;
 }
 
 /** Missing aloft values do not discard usable surface weather. Units are
