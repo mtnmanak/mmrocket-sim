@@ -2,13 +2,14 @@
 import { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { RocketTree } from '@online-openrocket/engine';
 import { useTreeHistory } from '../hooks/useTreeHistory.js';
 import { useNozzleFollow } from '../hooks/useNozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
-import { findDbMotor, type MotorDbEntry } from './motorDb.js';
+import { findDbMotor } from './motorDb.js';
+import type { fetchMotorSpec } from './thrustcurve.js';
 import { matchImportedMotor } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
 import { planConfigSwitch, resolveImportMotors, type ImportedDesign } from './importApply.js';
@@ -16,7 +17,7 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorState } from './openMotorChoices.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const fetchSpec = vi.fn(async (row: MotorDbEntry, delay: number): Promise<MotorSpec> => ({
+const fetchSpec = vi.fn<typeof fetchMotorSpec>(async (row, delay) => ({
   designation: row.designation, diameter: row.diameter / 1000, length: row.length / 1000,
   times: [0, 1], thrusts: [0, 1], masses: [0.1, 0.05], cgX: 0.05, ejectionDelay: delay,
 }));
@@ -28,9 +29,9 @@ async function fixture() {
     name: 'Two mounts', tree: { components: [] }, notes: ['Keep this unrelated warning.'],
     chosenConfigId: 'a', motors: { m: ref, n: ref },
     configs: [
-      { id: 'a', name: 'First', isDefault: true, motors: { m: ref, n: ref } },
-      { id: 'b', name: 'Second', isDefault: false, motors: { m: { ...ref, delay: 9 } } },
-      { id: 'c', name: 'Other maker', isDefault: false, motors: { m: { ...ref, manufacturer: 'AeroTech', designation: 'F67C' } } },
+      { id: 'a', name: 'First', isDefault: true, deployments: {}, separations: {}, motors: { m: ref, n: ref } },
+      { id: 'b', name: 'Second', isDefault: false, deployments: {}, separations: {}, motors: { m: { ...ref, delay: 9 } } },
+      { id: 'c', name: 'Other maker', isDefault: false, deployments: {}, separations: {}, motors: { m: { ...ref, manufacturer: 'AeroTech', designation: 'F67C' } } },
     ],
   };
   const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { fetchSpec, exMotors: [] }));
@@ -130,7 +131,7 @@ describe('ask at open choices', () => {
     const { state, groups } = await fixture();
     const group = groups[0]!;
     const row = { ...group.candidates[0]!, delays: '4,6' };
-    const fetch = vi.fn((row: MotorDbEntry, delay: number) => fetchSpec(row, delay));
+    const fetch = vi.fn<typeof fetchMotorSpec>((...args) => fetchSpec(...args));
     if (offline) fetch.mockRejectedValue(new Error('offline'));
     const next = await applyOpenMotorChoices(state, 'a', groups, { [group.key]: { kind: 'catalogue', motor: row } }, fetch);
     expect(fetch).not.toHaveBeenCalled();
@@ -144,8 +145,8 @@ describe('ask at open choices', () => {
     const { imported, snapshot } = await fixture();
     const ex = parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]!;
     imported.configs!.push(
-      { id: 'embedded', name: '', isDefault: false, motors: { m: { ...ref, exMotorId: ex.motorId, exDefinition: ex } } },
-      { id: 'different', name: '', isDefault: false, motors: { m: { ...ref, diameter: 0.038 } } },
+      { id: 'embedded', name: '', isDefault: false, deployments: {}, separations: {}, motors: { m: { ...ref, exMotorId: ex.motorId, exDefinition: ex } } },
+      { id: 'different', name: '', isDefault: false, deployments: {}, separations: {}, motors: { m: { ...ref, diameter: 0.038 } } },
     );
     const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { fetchSpec, exMotors: [{ ...ex, diameter: 38 }] }));
     const groups = collectOpenMotorIdentities(imported, resolved, snapshot);
@@ -223,7 +224,7 @@ describe('ask at open choices', () => {
     const group = { ...groups[0]!, locations: [{ configId: null, mountId: 'm', ref }] };
     const empty = await applyOpenMotorChoices(state, null, [group], { [group.key]: { kind: 'empty' } });
     expect(empty.mountMotors.m).toBeUndefined();
-    const fail = vi.fn((row: MotorDbEntry, delay: number) => fetchSpec(row, delay)).mockImplementationOnce(fetchSpec).mockRejectedValueOnce(new Error('offline'));
+    const fail = vi.fn<typeof fetchMotorSpec>((...args) => fetchSpec(...args)).mockImplementationOnce(fetchSpec).mockRejectedValueOnce(new Error('offline'));
     await expect(applyOpenMotorChoices(state, 'a', groups, { [group.key]: { kind: 'catalogue', motor: findDbMotor('F67W')! } }, fail)).rejects.toThrow('offline');
     expect(state.mountMotors.m!.openNote).toBeDefined();
   });
