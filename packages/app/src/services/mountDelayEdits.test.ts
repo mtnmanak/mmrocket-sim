@@ -135,7 +135,7 @@ it('keeps the embedded EX file designation through delay edits and the tooltip',
   expect(withDelay(mm, 8).label).toBe('F67-8');
   expect(withAuto(mm, true).label).toBe('F67 (auto delay)');
   expect(withPlugged(mm, true).label).toBe('F67-P');
-  expect(motorTooltip(mm)).toBe('EX F67, 9 s delay (F67-9)');
+  expect(motorTooltip(mm)).toBe('Home (EX) F67, 9 s delay (F67-9)');
 });
 
 it('shows an EX file maker without applying catalogue-specific designation cleanup', () => {
@@ -143,5 +143,5 @@ it('shows an EX file maker without applying catalogue-specific designation clean
   const mm = { ...motor(), spec: exToMotorSpec(ex, 9),
     meta: { label: '1013J453-9', exMotorId: ex.motorId, manufacturer: 'Cesaroni' } };
   expect(withDelay(mm, 8).label).toBe('1013J453-8');
-  expect(motorTooltip(mm)).toBe('Cesaroni 1013J453, 9 s delay (1013J453-9)');
+  expect(motorTooltip(mm)).toBe('Cesaroni (EX) 1013J453, 9 s delay (1013J453-9)');
 });

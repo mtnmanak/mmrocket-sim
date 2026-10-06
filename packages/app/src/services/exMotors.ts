@@ -17,8 +17,8 @@ export function boundedExId(id: string, suffix = ''): string {
 /**
  * User-imported (EX / experimental) motors from RASP .eng or RockSim .rse
  * files. Imported motors persist in localStorage and appear in the motor
- * browser under manufacturer "EX" (the original manufacturer string is kept
- * and shown in the designation tooltip). Thrust curves live locally — no
+ * browser under the "EX" filter, with the original maker shown in its row.
+ * Thrust curves live locally — no
  * network involved.
  */
 
@@ -274,12 +274,13 @@ function totals(samples: { time: number; thrust: number }[]) {
   return { impulse, maxThrust, burnTime };
 }
 
-/** Shape an EX motor as a browser/database row (manufacturer shows as EX). */
+/** Shape an EX motor as a browser/database row, retaining its EX filter identity. */
 export function exToDbEntry(m: ExMotor): MotorDbEntry {
   const { impulse, maxThrust, burnTime } = totals(flownCurve(m.samples).samples);
   return {
     motorId: m.motorId,
     manufacturerAbbrev: 'EX',
+    realManufacturer: m.realManufacturer,
     designation: m.designation,
     commonName: m.designation,
     impulseClass: impulseClassOf(impulse),

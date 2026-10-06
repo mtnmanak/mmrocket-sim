@@ -2962,6 +2962,26 @@ html {
   margin: 10px 0 14px;
 }
 
+/* @atestani TRF #162, Eric 2026-10-06: all file identities fit without hiding Apply. */
+.open-motor-choices {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+.open-motor-choices fieldset {
+  min-width: 0;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+}
+.open-motor-choices label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
 .modal-actions {
   display: flex;
   gap: 8px;

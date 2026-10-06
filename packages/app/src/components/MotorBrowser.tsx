@@ -1,3 +1,4 @@
+import { importMotorFiles as readMotorFiles } from '../services/importMotorFiles.js';
 import {
   useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
@@ -10,12 +11,12 @@ import {
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
   MOTOR_DB_DATE, classLabel, classesFittingMount,
-  displayDesignation, motorLabel, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
+  displayDesignation, displayMotorManufacturer, motorLabel, filterMotors, hasMassData, impulseClassesForMount, isAvailable, isHighPower,
   manufacturersForMount, propellantsForMount, rangesForMount,
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
-  addExMotors, deleteExMotor, exToDbEntry, loadExMotors, parseMotorFile, type ExMotor,
+  deleteExMotor, exToDbEntry, loadExMotors,
 } from '../services/exMotors.js';
 import {
   bundledSimFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, pickSampleFile,
@@ -365,40 +366,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
-    if (motorFiles.length === 0) {
-      setError('No .eng or .rse files found in that selection.');
-      return;
-    }
-    const parsed: ExMotor[] = [];
-    const failed: string[] = [];
-    /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
-    const said: string[] = [];
-    for (const f of motorFiles) {
-      try {
-        const notes: string[] = [];
-        parsed.push(...parseMotorFile(f.name, await f.text(), notes));
-        said.push(...notes.map((n) => `${f.name}: ${n}`));
-      } catch (e) {
-        failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    // ONE library write for the whole selection, not one per file: a folder of
-    // fifty files rewrote an ever-growing list fifty times, and one write means
-    // one honest answer to "did it save?".
-    const imported = parsed.map((m) => m.designation);
-    const write = parsed.length ? addExMotors(parsed) : null;
-    const unsaved = write !== null && !write.stored;
-    const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
-    if (write?.duplicates.length) {
-      said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `
-        + 'as its own entry under the same name.');
-    }
-    if (write?.replaced.length) {
-      said.push(`${write.replaced.length} replaced the library's earlier motor of the same maker and name `
-        + `(${some(write.replaced)}).`);
-    }
-    const problems: string[] = [];
+    const { parsed, write, error, notice } = await readMotorFiles(files);
+    setError(error);
+    setNotice(notice);
     if (write) {
       setExMotors(write.motors);
       setPicked((p) => p?.motorId.startsWith('ex:')
@@ -416,25 +386,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         ...filters, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
         fitsOnly: filters.fitsOnly && !tooLongNow,
       });
-      const list = `${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
-        + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''})`;
-      // Say "survive reloads" only when they do (audit 2026-09-22). A full
-      // browser storage used to be swallowed here, and the motors then could
-      // not even fly: every reader went back to storage and found nothing.
-      if (unsaved) {
-        problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
-          + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
-          + 'table, or imported motors you no longer need) and import them again to keep them.');
-        if (said.length) setNotice(said.join(' · '));
-      } else {
-        setNotice(`Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`
-          + (said.length ? ` ${said.join(' · ')}` : ''));
-      }
     }
-    if (failed.length) {
-      problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
-    }
-    if (problems.length) setError(problems.join(' '));
   };
 
   /**
@@ -866,7 +818,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                         : undefined}
                   >
                     <td>{flagged && '⚠ '}{displayDesignation(m.designation, m.manufacturerAbbrev)}{!isAvailable(m) && <span className="motor-oop">OOP</span>}</td>
-                    <td>{m.manufacturerAbbrev}</td>
+                      <td>{displayMotorManufacturer(m)}</td>
                     <td>{dimUi(m.diameter).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{dimUi(m.length).toFixed(motorSym === 'mm' ? 0 : 2)}</td>
                     <td>{m.burnTimeS.toFixed(1)}</td>
@@ -890,7 +842,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           {picked ? (
             <>
               <span style={{ flex: 1 }}>
-                <strong>{picked.manufacturerAbbrev} {displayDesignation(picked.designation, picked.manufacturerAbbrev)}</strong>
+              <strong>{displayMotorManufacturer(picked)} {displayDesignation(picked.designation, picked.manufacturerAbbrev)}</strong>
                 {picked.motorId.startsWith('ex:') && (
                   <>
                     {' '}

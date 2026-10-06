@@ -277,11 +277,24 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
   let h: Harness;
   afterEach(() => { vi.restoreAllMocks(); closeBrowser(h); });
 
+  it('shows the imported maker in Mfr and details, while the EX chip selects every import', async () => {
+    h = openBrowser({ mountDiameterMm: 29 });
+    await importFiles(h, [{ name: 'makers.eng', text:
+      'F67 28.6 127 6 0.0430 0.1120 Enerjet\n0 0\n0.5 67\n1.2 0\n'
+      + 'F66 28.6 127 6 0.0430 0.1120 EX\n0 0\n0.5 66\n1.2 0\n' }]);
+    const exChip = [...h.host.querySelectorAll('[aria-label="Manufacturers"] button')].find(b => /\bEX\b/.test(b.textContent ?? ''))!;
+    expect(exChip).toBeTruthy();
+    if (exChip.getAttribute('aria-pressed') !== 'true') click(exChip);
+    expect(bodyRows(h).map(row => row.cells[1]?.textContent).sort()).toEqual(['EX', 'Enerjet (EX)']);
+    click(rowFor(h, 'Enerjet (EX)', 'F67')!);
+    expect(h.host.querySelector('.motor-load-row strong')?.textContent).toBe('Enerjet (EX) F67');
+  });
+
   it('imports, says the motors survive reloads, and lists them under EX', async () => {
     h = openBrowser({ mountDiameterMm: 54 });
     await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
     expect(h.host.textContent).toMatch(/Imported 1 EX motor \(K550W\).*survive reloads/);
-    expect(rowFor(h, 'EX', 'K550W')).toBeTruthy();
+    expect(rowFor(h, 'AT (EX)', 'K550W')).toBeTruthy();
   });
 
   it('on a full storage says the motors are NOT saved — and they still load this session', async () => {
@@ -296,7 +309,7 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
     const text = h.host.textContent ?? '';
     expect(text).toMatch(/NOT saved/);
     expect(text).not.toMatch(/survive reloads/);
-    click(rowFor(h, 'EX', 'K550W')!);
+    click(rowFor(h, 'AT (EX)', 'K550W')!);
     click(loadButton(h)!);
     for (let i = 0; i < 20 && h.selected.length === 0; i++) await settle(10);
     expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
@@ -316,7 +329,7 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
     h = openBrowser({ mountDiameterMm: 54 });
     await importFiles(h, [{ name: 'home.eng', text: 'H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n' }]);
     search(h, 'H99');
-    click(rowFor(h, 'EX', 'H99')!);
+    click(rowFor(h, 'Home (EX)', 'H99')!);
     await importFiles(h, [{ name: 'home.eng', text: 'H99 38 250 8 0.2 0.35 Home\n0 0\n0.5 140\n1.5 0\n' }]);
     expect(delaySelect(h)?.textContent).toContain('8');
     click(loadButton(h)!);
@@ -527,10 +540,10 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       await stubWithChanges();
       h = openBrowser({ mountDiameterMm: 54 });
       await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
-      click(rowFor(h, 'EX', 'K550W')!);
+      click(rowFor(h, 'AT (EX)', 'K550W')!);
       await check(h);
       discard(h);
-      expect(loadRow(h)).toMatch(/EX K550W/);
+      expect(loadRow(h)).toMatch(/AT \(EX\) K550W/);
       await loadAndWait(h);
       expect(h.selected.map((s) => s.label)).toEqual(['K550W-10']);
     });
@@ -645,7 +658,7 @@ describe('MotorBrowser — filters that persist where they cannot be seen (audit
       manufacturers: ['AeroTech'], impulse: ['H'], propellants: ['Blue Thunder'], impulseMax: 100, showAll: false,
     } });
     await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
-    expect(rowFor(h, 'EX', 'K550W')).toBeTruthy();
+    expect(rowFor(h, 'AT (EX)', 'K550W')).toBeTruthy();
     expect(stored()).toMatchObject({ manufacturers: [], impulse: [], propellants: [], impulseMax: null });
   });
 });

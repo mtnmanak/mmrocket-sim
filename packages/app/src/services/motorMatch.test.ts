@@ -6,7 +6,8 @@ import {
   baseDesignation, stripDelay, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
   withMountCount,
 } from './motorMatch.js';
-import { exToMotorSpec, parseEng } from './exMotors.js';
+import { exToMotorSpec, parseEng, type ExMotor } from './exMotors.js';
+import { toOrkMotor } from './orkExportMotors.js';
 import { savedConfigLabel } from '../model/design.js';
 import { NoPublishedCurveError } from './thrustcurve.js';
 
@@ -77,7 +78,7 @@ describe('baseDesignation', () => {
   });
 });
 
-describe('matchImportedMotor — the database, and nothing below it', () => {
+describe('matchImportedMotor — catalogue matching', () => {
   it('loads the database motor with its published curve', async () => {
     const estesC6 = dbEntry();
     const fetchSpec = vi.fn(async () => spec('C6', 5));
@@ -504,4 +505,110 @@ it('an embedded EX import uses its file designation and the selected delay in it
   expect(got.motor?.label).toBe('F67-9');
   expect(got.note).toContain('EX F67-9 (loaded');
   expect(got.motor?.spec).toEqual(exToMotorSpec(ex, 9));
+});
+
+describe('imported EX library matching — @atestani, TRF #162, 2026-10-06', () => {
+  const enerjet = (): ExMotor => parseEng('F67 28.6 127 6 0.0430 0.1120 Enerjet\n0 0\n0.5 67\n1.2 0\n')[0]!;
+  const fileRef = (over: Partial<OrkMotorRef> = {}) => ref({ designation: 'F67', manufacturer: 'Enerjet',
+    diameter: 0.0286, length: 0.127, delay: 9, ignitionEvent: 'burnout', ignitionDelay: 1.5,
+    digest: '40ab647d93fd4070f6afdd37e5bbe0e6', motorType: 'single', ...over });
+  const catalogue = MOTOR_DB.filter(m => m.manufacturerAbbrev === 'AeroTech' && /^F67[CW]$/.test(m.designation));
+  const fetchSpec = vi.fn(async (m: MotorDbEntry, d: number) => spec(m.designation, d));
+
+  it.each([true, false])('loads the single EX match with a cross-maker catalogue match present: %s', async (withCatalogue) => {
+    fetchSpec.mockClear();
+    const ex = enerjet();
+    const result = await matchImportedMotor(fileRef(), { catalogue: withCatalogue ? catalogue : [], exMotors: [ex], fetchSpec });
+    expect(result.motor?.spec).toEqual(exToMotorSpec(ex, 9));
+    expect(result.motor?.ignition).toEqual({ event: 'burnout', delay: 1.5 });
+    expect(result.motor?.meta).toMatchObject({ manufacturer: 'EX', exMotorId: ex.motorId,
+      orkManufacturer: 'Enerjet', orkDigest: fileRef().digest, orkType: 'single' });
+    expect(result.note).toBe('Motor “F67”: loaded as your imported EX motor Enerjet F67 — the motor database has no Enerjet F67.');
+    expect(result.openNote).toBeUndefined();
+    expect(result.motor?.openNote).toBeUndefined();
+    expect(fetchSpec).not.toHaveBeenCalled();
+    const saved = toOrkMotor(result.motor!, undefined, () => []);
+    expect(saved).toMatchObject({ designation: 'F67', manufacturer: 'Enerjet', exMotorId: ex.motorId,
+      diameter: 0.0286, length: 0.127, delay: 9, ignitionEvent: 'burnout', ignitionDelay: 1.5, type: 'single' });
+    expect(saved.exMotorSpec).toEqual(result.motor?.spec);
+    expect(saved.digest).toBeUndefined();
+  });
+
+  it('keeps a same-maker catalogue match without consulting the EX library', async () => {
+    const same = dbEntry({ manufacturerAbbrev: 'Enerjet', designation: 'F67', commonName: 'F67', diameter: 28.6 });
+    const getLibrary = vi.fn(() => [enerjet()]);
+    const result = await matchImportedMotor(fileRef(), { catalogue: [same], get exMotors() { return getLibrary(); }, fetchSpec });
+    expect(result.motor?.meta.motorId).toBe(same.motorId);
+    expect(result.motor?.meta.exMotorId).toBeUndefined();
+    expect(getLibrary).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('does not choose between two imports, catalogue present: %s', async (withCatalogue) => {
+    const ex = enerjet();
+    const deps = { catalogue: withCatalogue ? catalogue : [], fetchSpec };
+    const before = await matchImportedMotor(fileRef(), { ...deps, exMotors: [] });
+    const result = await matchImportedMotor(fileRef(), { ...deps, exMotors: [ex, { ...ex, motorId: ex.motorId + '~2' }] });
+    expect(result.motor?.spec).toEqual(before.motor?.spec);
+    expect(result.motor?.meta).toEqual(before.motor?.meta);
+    const sentence = ' Your imported EX motors include 2 that match it (Enerjet F67 [ex:enerjet-f67]; Enerjet F67 [ex:enerjet-f67~2]); pick one via Browse motor database.';
+    if (withCatalogue) {
+      expect(result.openNote).toBe(before.openNote + sentence);
+      expect(result.motor?.openNote).toBe(result.openNote);
+    } else expect(result.note).toBe(before.note + sentence);
+  });
+
+  it.each([
+    [{}, { realManufacturer: 'Enerjet Other' }],
+    [{}, { realManufacturer: 'AeroTech' }],
+    [{}, { diameter: 29.101 }],
+    [{}, { designation: 'F67W' }],
+    [{ manufacturer: '' }, {}],
+    [{ manufacturer: undefined }, {}],
+    [{ manufacturer: ' unknown ' }, {}],
+    [{ manufacturer: 'CUSTOM' }, {}],
+  ] satisfies [Partial<OrkMotorRef>, Partial<ExMotor>][])('leaves a nonmatch unchanged (%j, %j)', async (refOver, exOver) => {
+    const deps = { catalogue, fetchSpec };
+    const input = fileRef(refOver);
+    expect(await matchImportedMotor(input, { ...deps, exMotors: [{ ...enerjet(), ...exOver }] }))
+      .toEqual(await matchImportedMotor(input, { ...deps, exMotors: [] }));
+  });
+
+  it.each([
+    [' f67-9 ', 'F67-6', 28.6, 0.0286],
+    ['F67', 'f67', 29.1, 0.0286],
+    ['F67', 'F67', 28.1, 0.0286],
+    ['F67', 'F67', 38, 0],
+  ])('matches case, delay suffixes and diameter rules (%s / %s)', async (designation, exDesignation, diameter, refDiameter) => {
+    const ex = { ...enerjet(), designation: exDesignation, diameter, realManufacturer: ' eNeRjEt ' };
+    const result = await matchImportedMotor(fileRef({ designation, diameter: refDiameter, manufacturer: ' ENERJET ' }),
+      { catalogue: [], exMotors: [ex] });
+    expect(result.motor?.meta.exMotorId).toBe(ex.motorId);
+  });
+
+  it('keeps the embedded definition authoritative over the library', async () => {
+    const embedded = { ...enerjet(), motorId: 'ex:embedded', totalWeightG: 150 };
+    const result = await matchImportedMotor(fileRef({ exMotorId: embedded.motorId, exDefinition: embedded }),
+      { catalogue, exMotors: [enerjet()], fetchSpec });
+    expect(result.motor?.spec).toEqual(exToMotorSpec(embedded, 9));
+  });
+
+  it('reads a matching motor from the real storage path when no library is injected', async () => {
+    const ex = enerjet();
+    const getItem = vi.fn(() => JSON.stringify([ex]));
+    vi.stubGlobal('localStorage', { getItem });
+    try {
+      const result = await matchImportedMotor(fileRef(), { catalogue, fetchSpec });
+      expect(result.motor?.meta.exMotorId).toBe(ex.motorId);
+      expect(getItem).toHaveBeenCalledWith('online-openrocket.ex-motors.v1');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(['{broken', '{"not":"an array"}', '[null,{"motorId":"bad"}]', 'blocked'])('tolerates bad EX storage: %s', async (raw) => {
+    vi.stubGlobal('localStorage', { getItem: () => { if (raw === 'blocked') throw new Error('blocked'); return raw; } });
+    try {
+      const result = await matchImportedMotor(fileRef(), { catalogue, fetchSpec });
+      expect(result.motor?.meta.manufacturer).toBe('AeroTech');
+      expect(result.openNote).not.toContain('Your imported EX motors');
+    } finally { vi.unstubAllGlobals(); }
+  });
 });
