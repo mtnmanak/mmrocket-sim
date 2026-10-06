@@ -217,8 +217,10 @@ describe('guardPrecache — unregister and reload, once, only where that heals',
 
 describe('the wiring', () => {
   it('runs on every registration main.tsx makes', () => {
-    // main.tsx registers the worker and mounts the app, so no test runs it.
+    // main.tsx registers the worker and mounts the app. Since board row 19
+    // (2026-10-06) the registration goes through offlineStatus.start, whose
+    // second argument becomes onRegisteredSW (main.offlineStatus.test.tsx drives it).
     const main = readFileSync(new URL('../main.tsx', import.meta.url), 'utf8');
-    expect(main).toMatch(/onRegisteredSW:[^\n]*guardPrecache\(reg\)/);
+    expect(main).toMatch(/offlineStatus\.start\(registerSW,[\s\S]*?guardPrecache\(reg\)/);
   });
 });
