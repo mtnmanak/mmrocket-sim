@@ -1,5 +1,5 @@
 import { estimatedCloudBaseM, type HourSample } from '../services/openMeteo.js';
-import { altitudeText, farText } from './weatherText.js';
+import { altitudeText, visibilityText } from './weatherText.js';
 
 /** Display only: no apply controls, thresholds, verdicts or persistence. */
 export function WeatherSkyInfo({ sample, distanceUnit }: { sample: HourSample; distanceUnit: string }) {
@@ -11,7 +11,7 @@ export function WeatherSkyInfo({ sample, distanceUnit }: { sample: HourSample; d
       <ul className="weather-context">
         {sample.cloudCoverPct != null && <li>Cloud cover (total): {sample.cloudCoverPct}%</li>}
         {sample.cloudCoverLowPct != null && <li>Cloud cover (low): {sample.cloudCoverLowPct}%</li>}
-        {sample.visibilityM != null && <li>Visibility: {farText(distanceUnit, sample.visibilityM)}</li>}
+        {sample.visibilityM != null && <li>Visibility: {visibilityText(distanceUnit, sample.visibilityM)}</li>}
         {base !== null && <li>Cloud base (estimate): {altitudeText(distanceUnit, base)} above the site.</li>}
       </ul>
       {base !== null && <p className="weather-small">The estimate uses the surface temperature/dew-point spread for lifted air.

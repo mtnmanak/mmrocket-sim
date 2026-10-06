@@ -430,8 +430,8 @@ describe('the weather dialog', () => {
   });
 
   it.each([
-    ['m', '8.0 km', '1,000 m'], ['ft', '5.0 mi', '3,281 ft'],
-    ['km', '8.0 km', '1 km'], ['yd', '5.0 mi', '1,094 yd'], ['mi', '5.0 mi', '0.62 mi'],
+    ['m', '8.05 km', '1,000 m'], ['ft', '5.00 mi', '3,281 ft'],
+    ['km', '8.05 km', '1 km'], ['yd', '5.00 mi', '1,094 yd'], ['mi', '5.00 mi', '0.62 mi'],
   ])('shows the chosen hour in %s units and never applies the readouts', async (distance, visibility, base) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance } }));
     const route: Route = (u) => {
@@ -470,7 +470,7 @@ describe('the weather dialog', () => {
     expect(info().querySelector('a')!.href).toBe('https://www.ecfr.gov/current/title-14/chapter-I/subchapter-F/part-101/subpart-C/section-101.25');
     choose(q('.weather-when select'), String(SAT_2PM + 3600));
     expect(info().textContent).toContain('Cloud cover (total): 0%');
-    expect(info().textContent).toContain(`Visibility: 0.0 ${distance === 'm' || distance === 'km' ? 'km' : 'mi'}`);
+    expect(info().textContent).toContain(`Visibility: 0.00 ${distance === 'm' || distance === 'km' ? 'km' : 'mi'}`);
     expect(button('Apply')!.disabled).toBe(false);
     expect(applied).toHaveLength(0);
     await click(button('Apply'));
@@ -514,13 +514,13 @@ describe('the weather dialog', () => {
       const info = q('section[aria-label="Cloud and visibility information"]')!;
       expect([...info.querySelectorAll('ul:first-of-type li')].map((li) => li.textContent)).toEqual(lines);
     };
-    const ground2 = ['Cloud cover (total): 65%', 'Cloud cover (low): 20%', 'Visibility: 8.0 km',
+    const ground2 = ['Cloud cover (total): 65%', 'Cloud cover (low): 20%', 'Visibility: 8.00 km',
       'Cloud base (estimate): 1,000 m above the site.'];
-    const site2 = ['Cloud cover (total): 15%', 'Cloud cover (low): 5%', 'Visibility: 4.0 km',
+    const site2 = ['Cloud cover (total): 15%', 'Cloud cover (low): 5%', 'Visibility: 4.00 km',
       'Cloud base (estimate): 500 m above the site.'];
     const site3 = ['Cloud cover (total): 35%', 'Cloud cover (low): 10%',
       'Cloud base (estimate): 1,500 m above the site.'];
-    const ground3 = ['Cloud cover (total): 85%', 'Visibility: 12 km',
+    const ground3 = ['Cloud cover (total): 85%', 'Visibility: 12.00 km',
       'Cloud base (estimate): 2,000 m above the site.'];
     const altitude = (index: number) => host.querySelectorAll('.weather-altitude input[type="radio"]')[index];
     choose(q('.weather-when select'), String(SAT_2PM));
@@ -978,7 +978,7 @@ describe('partial cloud and visibility information', () => {
   const skyFields = [
     ['cloud_cover', '%', 65, 'cloudCoverPct', 'Cloud cover (total): 65%'],
     ['cloud_cover_low', '%', 20, 'cloudCoverLowPct', 'Cloud cover (low): 20%'],
-    ['visibility', 'm', 8000, 'visibilityM', 'Visibility: 8.0 km'],
+    ['visibility', 'm', 8000, 'visibilityM', 'Visibility: 8.00 km'],
     ['dew_point_2m', '°C', 12, 'dewPointC', 'Cloud base (estimate): 1,000 m above the site.'],
   ] as const;
   const partialCases = skyFields.flatMap(([key]) =>
@@ -1009,6 +1009,15 @@ describe('partial cloud and visibility information', () => {
   const sample = { unix: SAT_2PM, temperatureC: 20, pressureHPa: 900, windSpeedMs: 1, windGustMs: 2, windFromDeg: 0,
     cloudCoverPct: 65, cloudCoverLowPct: 20, visibilityM: 8000, dewPointC: 12 };
   it.each([
+    ['mi', 8000, '4.97 mi'], ['km', 8000, '8.00 km'],
+    ['mi', 8046.72, '5.00 mi'], ['km', 8046.72, '8.05 km'],
+  ])('renders visibility near five miles in %s at %s m as %s', (distanceUnit, visibilityM, expected) => {
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={{ ...sample, visibilityM }} distanceUnit={distanceUnit} />);
+    expect(html).toContain(`<li>Visibility: ${expected}</li>`);
+    expect(html).toContain('horizontal visibility is less than five miles');
+  });
+
+  it.each([
     ['cloudCoverPct', 'Cloud cover (total):'], ['cloudCoverLowPct', 'Cloud cover (low):'],
     ['visibilityM', 'Visibility:'], ['dewPointC', 'Cloud base (estimate):'], ['temperatureC', 'Cloud base (estimate):'],
   ])('omits only the unavailable %s line', (key, label) => {
@@ -1020,7 +1029,7 @@ describe('partial cloud and visibility information', () => {
   it('does not present supersaturated input as a zero-height cloud base', () => {
     const html = renderToStaticMarkup(<WeatherSkyInfo sample={{ ...sample, dewPointC: 21 }} distanceUnit="m" />);
     expect(html).not.toContain('Cloud base (estimate):');
-    expect(html).toContain('Visibility: 8.0 km');
+    expect(html).toContain('Visibility: 8.00 km');
   });
 });
 
