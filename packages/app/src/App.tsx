@@ -116,6 +116,7 @@ import {
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
+import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
 import {
   addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   findParent, hasParallelStage, makeNode, motorMounts, moveNode,
@@ -271,6 +272,7 @@ export function App() {
   // "Am I on the current version?" — one cache-busted read of the deployed
   // version.json, plus an on-demand recheck. Never polls.
   const { state: updateState, recheck: recheckVersion } = useVersionCheck();
+  const offlineState = useOfflineStatus();
   // Mountain Man Rockets site band + footer strip, and the feedback routes
   // below. ONE call for all three: the hook fetches once per mount, so the
   // contract is shared state, not three copies of the same request.
@@ -2864,6 +2866,11 @@ export function App() {
                     : updateState.kind === 'checking' ? 'Checking…'
                     : 'Version unknown'}
                 </button>
+              )}
+              {offlineState.kind !== 'unknown' && (
+                <span className="offline-status" title={offlineState.detail}>
+                  {offlineStatusText(offlineState)}
+                </span>
               )}
             </span>
           </div>
