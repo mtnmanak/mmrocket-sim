@@ -162,14 +162,48 @@ export function displayDesignation(designation: string, manufacturer?: string): 
   return d;
 }
 
+const labelGroups = new WeakMap<MotorDbEntry[], Map<string, boolean>>();
+
+function withoutLabelDelay(designation: string): string {
+  // Three or more digits can be an AMW case's impulse, not a delay.
+  return designation.replace(/-(?:\d{1,2}[A-Z]?|P)$/, '');
+}
+
+function labelKey(designation: string, manufacturer: string): string {
+  return `${manufacturer}\0${withoutLabelDelay(displayDesignation(designation, manufacturer))}`;
+}
+
+function catalogueLabelGroups(catalogue: MotorDbEntry[]): Map<string, boolean> {
+  let groups = labelGroups.get(catalogue);
+  if (!groups) {
+    const rows = new Map<string, Map<string, string>>();
+    for (const m of catalogue) {
+      const key = labelKey(m.designation, m.manufacturerAbbrev);
+      const designations = rows.get(key) ?? new Map<string, string>();
+      designations.set(m.motorId, withoutLabelDelay(m.designation));
+      rows.set(key, designations);
+    }
+    // Identical raw names cannot resolve a clash (board row 63, Eric 2026-10-06).
+    // New overlay arrays get a new index; repeated labels reuse this snapshot's.
+    groups = new Map([...rows].map(([key, designations]) => [key, new Set(designations.values()).size > 1]));
+    labelGroups.set(catalogue, groups);
+  }
+  return groups;
+}
+
 /** A loaded motor keeps its propellant letters and replaces only a trailing delay. */
 export function motorLabel(
   entry: { designation: string; manufacturerAbbrev?: string },
   delay: number,
   { autoDelay = false }: { autoDelay?: boolean } = {},
+  catalogue: MotorDbEntry[] = getCatalogue(),
 ): string {
-  // Three or more digits can be an AMW case's impulse, not a delay.
-  const base = displayDesignation(entry.designation, entry.manufacturerAbbrev).replace(/-(?:\d{1,2}[A-Z]?|P)$/, '');
+  const maker = entry.manufacturerAbbrev;
+  // Keep prefixes only where tidying would hide another motor of this maker
+  // (board row 63, Eric 2026-10-06). Browser and run-table names stay tidy.
+  const clashes = maker && maker !== 'EX'
+    && catalogueLabelGroups(catalogue).get(labelKey(entry.designation, maker));
+  const base = withoutLabelDelay(clashes ? entry.designation : displayDesignation(entry.designation, maker));
   if (!autoDelay && !Number.isFinite(delay) && base.endsWith('-PS')) return base;
   return autoDelay ? `${base} (auto delay)` : `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }

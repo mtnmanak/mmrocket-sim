@@ -827,6 +827,67 @@ describe('isBlackPowder', () => {
 
 describe('motorLabel', () => {
   it.each([
+    ['176H123-12A', '176H123-9'],
+    ['232H123-14A', '232H123-9'],
+    ['1013J453-16A', 'J453-9'],
+    ['HP-H45W', 'HP-H45W-9'],
+    ['H45W', 'H45W-9'],
+  ])('labels the shipped %s as %s', (designation, expected) => {
+    const entry = MOTOR_DB.find(m => m.designation === designation)!;
+    expect(entry).toBeDefined();
+    expect(motorLabel(entry, 9)).toBe(expected);
+  });
+
+  it.each([[0, false], [2.5, false], [9, false], [Infinity, false], [9, true]] as const)(
+    'distinguishes shipped motorIds within each maker at delay %s (auto %s)', (delay, autoDelay) => {
+      const groups = new Map<string, typeof MOTOR_DB>();
+      for (const m of MOTOR_DB) {
+        const key = `${m.manufacturerAbbrev} ${motorLabel(m, delay, { autoDelay }, MOTOR_DB)}`;
+        const group = groups.get(key) ?? [];
+        if (!group.some(other => other.motorId === m.motorId)) group.push(m);
+        groups.set(key, group);
+      }
+      const duplicates = [...groups.values()].filter(group => group.length > 1)
+        .map(group => group.map(m => [m.manufacturerAbbrev, m.motorId, m.designation]));
+      // These raw names differ only by the delay we must replace; retaining
+      // the raw prefix cannot distinguish them (board row 63, Eric 2026-10-06).
+      expect(duplicates).toEqual([
+        [['Quest', '5f4294d2000231000000045c', 'B4'], ['Quest', '5f4294d20002310000000310', 'B4-4']],
+        [['Quest', '5f4294d20002310000000376', 'D5'], ['Quest', '5f4294d20002310000000210', 'D5-P']],
+      ]);
+      for (const m of MOTOR_DB) {
+        const oldLabel = motorLabel(m, delay, { autoDelay }, []);
+        const changed = ['1016J360-15A', '1750K650-16A', '1997K650-21A', '176H123-12A', '232H123-14A',
+          '220H160-14A', '312H160-12A', '229H255-14A', '315H255-14A', '41F36-11A', '51F36-14A',
+          '50F51-13A', '75F51-12A'].includes(m.designation) && m.manufacturerAbbrev === 'Cesaroni'
+          || ['HP-G75M', 'HP-H45W', 'HP-H550ST', 'HP-I65W'].includes(m.designation) && m.manufacturerAbbrev === 'AeroTech';
+        if (!changed) expect(motorLabel(m, delay, { autoDelay }, MOTOR_DB), m.motorId).toBe(oldLabel);
+      }
+    },
+  );
+
+  it('limits clashes to different ids of the same maker and leaves EX labels alone', () => {
+    const entry = MOTOR_DB.find(m => m.designation === '176H123-12A')!;
+    const other = MOTOR_DB.find(m => m.designation === '232H123-14A')!;
+    expect(motorLabel(entry, 9, {}, [entry, { ...other, manufacturerAbbrev: 'Other' }])).toBe('H123-9');
+    expect(motorLabel(entry, 9, {}, [entry, { ...other, motorId: entry.motorId }])).toBe('H123-9');
+    expect(motorLabel(entry, 9, {}, [entry, { ...entry, motorId: 'identical-raw' }])).toBe('H123-9');
+    const ex = { ...entry, manufacturerAbbrev: 'EX', designation: 'HP-H45W' };
+    expect(motorLabel(ex, 9, {}, [ex, { ...other, manufacturerAbbrev: 'EX', designation: 'H45W' }])).toBe('H45W-9');
+  });
+
+  it('indexes each catalogue snapshot only once', () => {
+    const entry = MOTOR_DB.find(m => m.designation === '176H123-12A')!;
+    const other = MOTOR_DB.find(m => m.designation === '232H123-14A')!;
+    let reads = 0;
+    const catalogue = [entry, { ...other, get designation() { reads++; return other.designation; } }];
+    expect(motorLabel(entry, 9, {}, catalogue)).toBe('176H123-9');
+    expect(motorLabel(entry, Infinity, {}, catalogue)).toBe('176H123-P');
+    expect(reads).toBe(2);
+    expect(motorLabel(entry, 9, {}, [entry])).toBe('H123-9');
+  });
+
+  it.each([
     ['AeroTech', 'F67C', 9, false, 'F67C-9'],
     ['AeroTech', 'F67W', 9, false, 'F67W-9'],
     ['AeroTech', 'D10W', Infinity, false, 'D10W-P'],
