@@ -1,5 +1,5 @@
 {
-  "version": "0.160",
-  "released": "2026-10-05",
-  "note": "Motor names show the full designation; create, rename and delete flight configurations."
+  "version": "0.161",
+  "released": "2026-10-06",
+  "note": "Choose a motor when the file names another maker; clearer motor names, offline status and weather readouts."
 }
