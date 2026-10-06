@@ -128,10 +128,11 @@ export async function applyOpenMotorChoices(
         await replace(config.motors, mountId, ref, choice);
         const stageId = stageOfMount.get(mountId);
         // @atestani TRF #162, Eric 2026-10-06: inactive configurations have
-        // no nozzle-follow effect. Null explicitly clears on a later switch;
-        // deleting the key would leave the previous configuration's nozzle live.
+        // no nozzle-follow effect. Clear only a nozzle this configuration owns;
+        // an absent stage key leaves nozzle-follow in charge on a later switch.
+        // Null clears an owned nozzle instead of inheriting the previous one.
         if (old && old.spec !== config.motors[mountId]?.spec && stageId !== undefined
-          && config.nozzles?.[stageId] !== 0) {
+          && config.nozzles && stageId in config.nozzles && config.nozzles[stageId] !== 0) {
           config.nozzles = { ...config.nozzles, [stageId]: null };
         }
         if (config.unmatchedRefs?.[mountId]) {

@@ -4,6 +4,9 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { useTreeHistory } from '../hooks/useTreeHistory.js';
+import { useNozzleFollow } from '../hooks/useNozzleFollow.js';
+import { nozzleForMotorId } from './nozzleDb.js';
+import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import { matchImportedMotor } from './motorMatch.js';
@@ -42,6 +45,53 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each([
+    { nozzles: undefined, initialExit: undefined, label: 'absent map fills the published exit' },
+    { nozzles: undefined, initialExit: 0, label: 'absent map preserves whole-rocket OFF' },
+    { nozzles: { other: 0.02 }, initialExit: undefined, label: 'absent stage key fills the published exit' },
+    { nozzles: { other: 0.02 }, initialExit: 0, label: 'absent stage key preserves whole-rocket OFF' },
+  ])('C1 round 2: $label after choosing and switching', async ({ nozzles, initialExit }) => {
+    const { state, groups } = await fixture();
+    const tree: RocketTree = { components: [
+      { type: 'stage', id: 's', nozzleExitDiameter: initialExit, children: [
+        { type: 'innertube', id: 'm', motorMount: true, length: 0.2, outerRadius: 0.015, thickness: 0.001 },
+      ] },
+      { type: 'stage', id: 'other', nozzleExitDiameter: 0.02, children: [] },
+    ] };
+    // Keep the unrelated configuration active so the new motor first becomes
+    // live on the switch, exercising the real nozzle-follow decision.
+    const current = { ...state, tree, mountMotors: state.savedConfigs[2]!.motors,
+      savedConfigs: state.savedConfigs.map(c => ({ ...c, ...(nozzles ? { nozzles } : {}) })) };
+    const row = findDbMotor('H128W')!;
+    const published = await nozzleForMotorId(row.motorId);
+    expect(published?.exitDiameterM).toBeGreaterThan(0);
+    const next = await applyOpenMotorChoices(current, 'c', groups,
+      { [groups[0]!.key]: { kind: 'catalogue', motor: row } }, fetchSpec);
+    const switched = planConfigSwitch({ ...next, tree, activeConfigId: 'c' }, next.savedConfigs[1]!,
+      { mass: String, length: String });
+    const treeRef = { current: tree };
+    const writeTree = (value: RocketTree) => { treeRef.current = value; };
+    let seed!: (stages: readonly StageMotors[]) => void;
+    function Probe({ loadout }: { loadout: StageMotors[] }) {
+      seed = useNozzleFollow({ loadout, treeRef, writeTree }).seed;
+      return null;
+    }
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<Probe loadout={stageMotors(tree, Object.entries(current.mountMotors))} />); });
+      await act(async () => {
+        seed(switched.nozzleStated);
+        treeRef.current = switched.tree;
+        root.render(<Probe loadout={stageMotors(switched.tree, Object.entries(switched.mountMotors))} />);
+      });
+      expect(treeRef.current.components[0]!.nozzleExitDiameter).toBe(initialExit === 0 ? 0 : published!.exitDiameterM);
+      expect(next.savedConfigs[1]!.nozzles).toEqual(nozzles);
+      expect(switched.nozzleStated.some(s => s.stageId === 's')).toBe(false);
+      expect(treeRef.current.components[1]!.nozzleExitDiameter).toBe(0.02);
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it.each(['empty', 'catalogue', 'ex'] as const)('C1 clears the inactive configuration nozzle on %s and keeps other stages', async kind => {
     const { state, groups } = await fixture();
     const tree: RocketTree = { components: [
