@@ -33,6 +33,7 @@ export const XML_JS_SUITES = [
   'src/services/autosaveBackup.test.ts',
   'src/services/exMotors.test.ts',
   'src/services/importApply.repick.test.ts',
+  'src/App.openMotorChoices.test.tsx',
   'src/services/importLimits.test.ts',
   'src/services/motorMatch.policy.test.ts',
   'src/services/nozzleStage.test.ts',
