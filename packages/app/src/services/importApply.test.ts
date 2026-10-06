@@ -6,7 +6,8 @@ import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js
 import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
 import { MOTOR_DB } from './motorDb.js';
 import { savedConfigLabel } from '../model/design.js';
-import type { MotorMatchResult } from './motorMatch.js';
+import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
+import { parseEng } from './exMotors.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
 import {
@@ -115,6 +116,18 @@ describe('resolveImportMotors — the awaits of an open', () => {
 });
 
 describe('planImport — one plan, applied and marked', () => {
+  it('O4 shows a confirmed EX library match once with a mount count as information', async () => {
+    const ex = parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]!;
+    const reference = { ...ref('F67'), manufacturer: 'Enerjet', diameter: 0.0286 };
+    const imported: ImportedDesign = { name: 'EX open', tree: podTree(), notes: [], motors: { mmt: reference, second: reference } };
+    const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { exMotors: [ex] }));
+    const plan = planImport(imported, resolved, { launch: LAUNCH, text: TEXT });
+    expect(plan.note.text.split('\n')).toEqual(['Loaded “EX open”.',
+      'Motor “F67” (2 mounts): loaded as your imported EX motor Enerjet F67 — the motor database has no Enerjet F67.']);
+    expect(plan.note.severity).toBe('info');
+    expect(plan.snapshot.mountMotors.mmt!.openNote).toBeUndefined();
+  });
+
   it('names structural repairs in the import notice', () => {
     const tree = podTree();
     tree.components[0]!.children!.push(null as unknown as ComponentNode);
@@ -339,6 +352,14 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     separations: { s2: { separationEvent: 'bogus-event', separationDelay: 1.5 } },
     nozzles: { s2: 0.02 },
   };
+
+  it('B2 uses the panel label when applying an unnamed configuration', () => {
+    const unnamed = { ...A, name: null };
+    const plan = planConfigSwitch({ savedConfigs: [unnamed], activeConfigId: null,
+      mountMotors: {}, unmatchedRefs: {}, tree: tree() }, unnamed, TEXT);
+    expect(plan.note.text).toBe(`Flight configuration “${savedConfigLabel(plan.config)}” applied — its motors and recovery settings are now live.`);
+    expect(plan.note.text).toContain('[H100-10, I200-10]');
+  });
 
   it('writes the working set back into the configuration being left, then applies the target', () => {
     const working = { ...A.motors, m1: { ...A.motors['m1']!, label: 'H100-14' } };

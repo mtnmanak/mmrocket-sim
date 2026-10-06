@@ -8,7 +8,7 @@ import {
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
-import { displayDesignation, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
+import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { motorLabelEntry } from './motorLabels.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
@@ -250,15 +250,18 @@ export function batchFlownSpec(
  * (batchRowKey).
  */
 export function batchMotorNames(
-  candidates: readonly Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation'>[],
+  candidates: readonly Pick<MotorDbEntry, 'motorId' | 'manufacturerAbbrev' | 'designation' | 'realManufacturer'>[],
+  showImportedMaker = true,
 ): Map<string, string> {
-  const shown = (e: Pick<MotorDbEntry, 'manufacturerAbbrev' | 'designation'>) =>
-    `${e.manufacturerAbbrev} ${displayDesignation(e.designation, e.manufacturerAbbrev)}`;
+  const maker = (e: Pick<MotorDbEntry, 'manufacturerAbbrev' | 'realManufacturer'>) =>
+    showImportedMaker ? displayMotorManufacturer(e) : e.manufacturerAbbrev;
+  const shown = (e: Pick<MotorDbEntry, 'manufacturerAbbrev' | 'designation' | 'realManufacturer'>) =>
+    `${maker(e)} ${displayDesignation(e.designation, e.manufacturerAbbrev)}`;
   const uses = new Map<string, number>();
   for (const e of candidates) uses.set(shown(e), (uses.get(shown(e)) ?? 0) + 1);
   return new Map(candidates.map((e) => [
     e.motorId,
-    (uses.get(shown(e)) ?? 0) > 1 ? `${e.manufacturerAbbrev} ${e.designation}` : shown(e),
+    (uses.get(shown(e)) ?? 0) > 1 ? `${maker(e)} ${e.designation}` : shown(e),
   ]));
 }
 
@@ -606,6 +609,8 @@ export async function runBatchSweep(
   const simOpts = kernelSimOptions(launch);
   const deploysOnCharge = deploysOnEjectionCharge(tree);
   const names = batchMotorNames(candidates);
+  // @atestani, TRF #162, 2026-10-06: maker display must not rewrite exported runs.
+  const storedNames = batchMotorNames(candidates, false);
 
   /**
    * ONE FLIGHT, for either pass: the model choice, the Mach backstop and the
@@ -906,7 +911,9 @@ export async function runBatchSweep(
           motorDataKeys: provenance.motorDataKeys,
         });
         // The stored designation is the combo label so saved runs read right.
-        run.motor = label;
+        run.motor = [...counts.values()]
+          .map(({ entry: e, fires }) => `${fires}× ${storedNames.get(e.motorId)!}`)
+          .join(' + ');
         if (f.optimumForPlugged) notePluggedAtOptimum(run, entries.length);
         out.push({
           key, entry: entries[0]!, label, combo: true, run, exitM,

@@ -18,6 +18,16 @@ import { E31_CORROBORATED, equivalentG80, isE31Conflict, MOTOR_MATCH_POLICY, phy
 export interface MotorDbEntry extends TcMotor {
   /** 'SU' | 'reload' | 'hybrid' */
   type: string;
+  /** Imported maker for display; manufacturerAbbrev stays EX for identity and filters. */
+  realManufacturer?: string;
+}
+
+export function displayMotorManufacturer(m: { manufacturerAbbrev?: string; realManufacturer?: string }): string {
+  // @atestani, TRF #162, 2026-10-06: EX identifies the source, not the maker.
+  const real = m.realManufacturer?.trim();
+  return m.manufacturerAbbrev === 'EX'
+    ? real && real.toUpperCase() !== 'EX' ? `${real} (EX)` : 'EX'
+    : m.manufacturerAbbrev ?? '';
 }
 
 const db = rawDb as { generated: string; count: number; motors: MotorDbEntry[] };

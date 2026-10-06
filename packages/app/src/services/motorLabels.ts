@@ -1,6 +1,6 @@
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { getExMotor } from './exMotors.js';
-import { applyOverlay, getCatalogue, isCatalogueOverlayInitialized, motorLabel } from './motorDb.js';
+import { applyOverlay, displayMotorManufacturer, getCatalogue, isCatalogueOverlayInitialized, motorLabel } from './motorDb.js';
 import { loadStoredOverlay } from './catalogueOverlay.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 
@@ -61,9 +61,10 @@ export function motorTooltip(mm: MountMotor, catalogue = labelCatalogue()): stri
   // Rendering its identity must not parse the entire imported-motor library.
   const isEx = mm.meta.exMotorId || mm.meta.motorId?.startsWith('ex:');
   const entry = isEx
-    ? { designation: (mm.spec as RepairedMotorSpec).exDefinition?.designation ?? mm.spec.designation, manufacturerAbbrev: 'EX' }
+    ? { designation: (mm.spec as RepairedMotorSpec).exDefinition?.designation ?? mm.spec.designation,
+      manufacturerAbbrev: 'EX', realManufacturer: (mm.spec as RepairedMotorSpec).exDefinition?.realManufacturer }
     : motorLabelEntry(mm, catalogue);
-  const manufacturer = isEx ? mm.meta.manufacturer ?? 'EX' : entry.manufacturerAbbrev;
+  const manufacturer = displayMotorManufacturer(entry);
   const label = motorLabel(entry, mm.spec.ejectionDelay, mm.meta, catalogue);
   const delay = mm.meta.autoDelay ? 'automatic delay'
     : Number.isFinite(mm.spec.ejectionDelay) ? `${mm.spec.ejectionDelay} s delay` : 'plugged';

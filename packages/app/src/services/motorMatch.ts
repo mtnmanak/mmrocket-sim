@@ -10,7 +10,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import { bundleHasCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
 import { rocksimCurveNote } from './rocksimCurveNote.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
-import { exToDbEntry, exToMotorSpec } from './exMotors.js';
+import { exToDbEntry, exToMotorSpec, loadExMotors, type ExMotor } from './exMotors.js';
 
 /**
  * Resolving ONE motor reference out of a design file to something the kernel
@@ -78,7 +78,7 @@ export function baseDesignation(designation: string): string {
  * 'unknown' is our reader's fallback and 'custom' our old writer's — both are
  * sentinels, not manufacturers, and must not be re-exported.
  */
-function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
+export function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
   return {
     ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
       ? { orkManufacturer: ref.manufacturer } : {}),
@@ -122,6 +122,8 @@ export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
 
 /** The result of resolving one file reference. */
 export interface MotorMatchResult {
+  /** @atestani TRF #162, Eric 2026-10-06: UI asks from match evidence, not warning text. */
+  otherMaker?: { ref: OrkMotorRef; candidates: MotorDbEntry[] };
   motor?: MountMotor;
   /**
    * What happened, for the import note. The importer surfaces it only when
@@ -131,6 +133,8 @@ export interface MotorMatchResult {
    * that ruling and went, audit 2026-09-22, Dead code row 577.)
    */
   note: string;
+  /** Confirmed EX-library match, informational at open and never repeated on apply. */
+  infoNote?: string;
   /**
    * Why nothing loaded, when nothing did: the catalogue has no such motor, or
    * has it with no thrust curve anywhere. For a sentence that has to say it
@@ -157,6 +161,7 @@ export interface MotorMatchDeps {
   findDb?: typeof findDbMotor;
   /** Keep match tiers, rivals and curve-equivalence policy on the chosen rows (2026-10-01). */
   catalogue?: MotorDbEntry[];
+  exMotors?: ExMotor[];
   fetchSpec?: (motor: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
 }
 
@@ -214,6 +219,16 @@ export async function loadCatalogueMotor(
   return mountMotorFromDb(db, spec, delay, { event: 'automatic', delay: 0 });
 }
 
+/** @atestani TRF #162, Eric 2026-10-06: opening and the import dialog must agree. */
+export function matchingExMotors(ref: OrkMotorRef, library: ExMotor[]): ExMotor[] {
+  const maker = namedMaker(ref);
+  return maker ? library.filter(ex =>
+    ex.realManufacturer.trim().toLowerCase() === maker.toLowerCase()
+    && (ex.designation.trim().toLowerCase() === ref.designation.trim().toLowerCase()
+      || baseDesignation(ex.designation) === baseDesignation(ref.designation))
+    && (!(ref.diameter > 0) || Math.abs(ex.diameter - ref.diameter * 1000) <= 0.5)) : [];
+}
+
 /**
  * Matches ONE imported motor reference against the shipped motor database
  * (published curves, manufacturer-aware). Returns the loaded motor (absent when
@@ -258,6 +273,28 @@ export async function matchImportedMotor(
     ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
       : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
     : how?.motor ?? null;
+  // @atestani, TRF #162, 2026-10-06: an imported curve for the named maker
+  // beats another maker's catalogue guess, but never a same-maker match.
+  const maker = namedMaker(ref);
+  const exMatches = maker && (!dbMatch || namesOtherMaker(ref, dbMatch))
+    ? matchingExMotors(ref, deps.exMotors ?? loadExMotors()) : [];
+  if (exMatches.length === 1 && maker) {
+    const ex = exMatches[0]!;
+    try {
+      const db = exToDbEntry(ex);
+      const spec = exToMotorSpec(ex, ref.delay);
+      const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${ex.designation} — the motor database has no ${maker} ${ref.designation}.`;
+      return {
+        motor: mountMotorFromDb(db, spec, ref.delay, ignition, { ...fileIdentity, exMotorId: ex.motorId }),
+        note, infoNote: note,
+      };
+    } catch (error) {
+      return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+  const exCandidatesNote = exMatches.length > 1
+    ? ` Your imported EX motors include ${exMatches.length} that match it (${exMatches.map(ex => `${ex.realManufacturer.trim()} ${ex.designation} [${ex.motorId}]`).join('; ')}); pick one via Browse motor database.`
+    : '';
   /** Why the curve could not be had, when it could not. */
   let failure: unknown = null;
   if (dbMatch) {
@@ -287,10 +324,13 @@ export async function matchImportedMotor(
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
       const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
-      const openNote = [unconfirmedMatchNote(ref, dbMatch, how), await rocksimCurveNote(ref, dbMatch, spec)]
+      const openNote = [(unconfirmedMatchNote(ref, dbMatch, how) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec)]
         .filter(Boolean).join('\n') || undefined;
       return {
         motor: openNote ? { ...motor, openNote } : motor,
+        ...(namesOtherMaker(ref, dbMatch) ? { otherMaker: {
+          ref, candidates: [dbMatch, ...(how?.motor.motorId === dbMatch.motorId ? how.rivals : [])],
+        } } : {}),
         note: `Motor: ${dbMatch.manufacturerAbbrev} ${motor.label} (loaded from the motor database).`,
         ...(openNote ? { openNote } : {}),
       };
@@ -316,17 +356,17 @@ export async function matchImportedMotor(
   if (dbMatch) {
     if (failure instanceof NoPublishedCurveError || await shippedWithoutCurve(dbMatch)) {
       return {
-        note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.`,
+        note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.${exCandidatesNote}`,
         missing: 'curve',
       };
     }
     return {
       note: `Motor “${ref.designation}” is in the motor database, but its thrust curve could not be loaded: ${
-        failure instanceof Error ? failure.message : String(failure)}`,
+        failure instanceof Error ? failure.message : String(failure)}${exCandidatesNote}`,
     };
   }
   return { note: `Motor “${ref.designation}” ${isE31Conflict(ref.designation)
-    ? E31_CONFLICT : 'matched no motor in the motor database — pick one via Browse motor database.'}`, missing: 'database' };
+    ? E31_CONFLICT : 'matched no motor in the motor database — pick one via Browse motor database.'}${exCandidatesNote}`, missing: 'database' };
 }
 
 /**
@@ -348,7 +388,7 @@ function namedMaker(ref: OrkMotorRef): string | null {
 }
 
 /** Does the file name a maker, and one that is not this row's? */
-function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
+export function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
   return namedMaker(ref) !== null && !manufacturerMatches(ref.manufacturer, db.manufacturerAbbrev);
 }
 
@@ -360,7 +400,7 @@ function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
  * another row in the same note would read the same — AeroTech's HP-H45W and
  * H45W both display as “H45W”, and the note named “AeroTech H45W” twice.
  */
-function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m]): string {
+export function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m]): string {
   const facts = [`${Number(m.diameter.toFixed(1))} mm`, `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
     ...(m.propInfo ? [m.propInfo] : []), ...(isAvailable(m) ? [] : ['out of production'])];
   const shown = displayDesignation(m.designation, m.manufacturerAbbrev);

@@ -1,3 +1,5 @@
+import { OpenMotorDialog } from './components/OpenMotorDialog.js';
+import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
@@ -315,6 +317,8 @@ export function App() {
   // Only crossing a Scale step restores configuration snapshots. An ordinary
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
+  const motorAnswerRevision = useRef<object>({});
+  const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
   // so they may name what is declared further down. A tree off the stack is
@@ -326,11 +330,20 @@ export function App() {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
-    captureCompanion: (): { revision: object; configs: SavedConfig[] } => ({
+    captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState } => ({
       revision: scaleRevision.current,
+      motorRevision: motorAnswerRevision.current,
+      motorState: { mountMotors, savedConfigs, unmatchedRefs },
       configs: withActiveConfigTreeSynced(savedConfigs, activeConfigId, treeRef.current),
     }),
-    restoreCompanion: ({ revision, configs }) => {
+    restoreCompanion: ({ revision, configs, motorRevision, motorState }) => {
+      // @atestani TRF #162, Eric 2026-10-06: only crossing an answer restores motors.
+      if (motorRevision !== motorAnswerRevision.current) {
+        motorAnswerRevision.current = motorRevision;
+        setMountMotors(motorState.mountMotors);
+        setUnmatchedRefs(motorState.unmatchedRefs);
+        setSavedConfigs(motorState.savedConfigs);
+      }
       if (revision === scaleRevision.current) return;
       scaleRevision.current = revision;
       setSavedConfigs(prev => prev.map(c => {
@@ -2338,6 +2351,9 @@ export function App() {
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
     const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
+    const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
+      { launch: launchRef.current, text: statedWeightText }).note.text.split('\n'));
+    const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     motorChoices.current.clear();
     applyImportPlan(plan, {
       history: { reset: resetHistory },
@@ -2347,6 +2363,10 @@ export function App() {
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
     });
+    const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
+    setOpenMotorQuestion(identities.length ? {
+      identities, openId, acceptedLines,
+    } : null);
     const storedCount = imported.storedSimulations?.length ?? 0;
     setImportedDocument(summaryDocument(imported));
     setInspectedSummary(null);
@@ -3237,6 +3257,28 @@ export function App() {
           </div>
         </Modal>
       )}
+      {openMotorQuestion && (
+        <OpenMotorDialog key={openMotorQuestion.openId} identities={openMotorQuestion.identities}
+          onLater={() => setOpenMotorQuestion(null)}
+          onApply={async choices => {
+            const { identities, openId } = openMotorQuestion;
+            const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices);
+            if (!openSeq.isCurrent(openId)) return;
+            commitOpenMotorChoices(next, {
+              commitStep: () => {
+                commitTreeStep(treeRef.current);
+                motorAnswerRevision.current = {};
+              },
+              setMountMotors, setSavedConfigs, setUnmatchedRefs,
+            });
+            setOpenMotorQuestion(null);
+            setFileNoteState(prev => prev ? {
+              // @atestani TRF #162, Eric 2026-10-06: edit the CURRENT notice,
+              // preserving embedded-EX/storage lines and literal dollars in names.
+              ...prev, text: prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)).join('\n'),
+            } : null);
+          }} />
+      )}
       {pendingOpen && (
         <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
           <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
@@ -3308,7 +3350,7 @@ export function App() {
           </div>
         </Modal>
       )}
-      {shroudPrompt && (
+      {shroudPrompt && !openMotorQuestion && (
         <Modal label="Convert camera shrouds" onClose={() => setShroudPrompt(null)}>
           <h2>Camera shroud detected</h2>
           <p>

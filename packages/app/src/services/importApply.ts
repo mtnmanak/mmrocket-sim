@@ -4,6 +4,7 @@ import { restoreExMotors, type ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
+import { savedConfigLabel } from '../model/design.js';
 import { DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
@@ -395,8 +396,9 @@ export function planImport(
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
   const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
   const openNotes: (string | undefined)[] = [];
+  const infoNotes: (string | undefined)[] = [];
   for (const [nodeId, ref] of Object.entries(openRefs)) {
-    const { motor: mm, note, openNote } = openMatches[nodeId] ?? { note: '' };
+    const { motor: mm, note, openNote, infoNote } = openMatches[nodeId] ?? { note: '' };
     // The note rides the motor (MountMotor.openNote), so a switch back to this
     // configuration says it again.
     if (mm) nextMotors[nodeId] = openNote && mm.openNote !== openNote ? { ...mm, openNote } : mm;
@@ -407,7 +409,7 @@ export function planImport(
     // out-of-production guess — in a sentence about the match, not the mount
     // (MotorMatchResult.openNote), so it cannot go stale the way the retired
     // "Motor: … loaded" line did.
-    else openNotes.push(openNote);
+    else { openNotes.push(openNote); infoNotes.push(infoNote); }
   }
   notes.push(...unconfirmedNotes(openNotes));
   // Stage B: every configuration in the file becomes a ready-to-apply
@@ -518,6 +520,9 @@ export function planImport(
   // override still warns. A re-pick is trouble too: the file's own first
   // choice names a motor this app cannot load.
   const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length;
+  // @atestani TRF #162, Eric 2026-10-06: confirmed EX matches are information,
+  // counted like the other open lines but not treated as motor trouble.
+  notes.push(...unconfirmedNotes(infoNotes));
   const spent = reconcileAllIncludedMotors(importedTree, attachedSet(nextMotors), ctx.text);
   importedTree = spent.tree;
   notes.push(...spent.notes);
@@ -764,7 +769,7 @@ export function planConfigSwitch(
     const primary = primaryMountOf(state.tree, Object.keys(cfg.motors));
     const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
     const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-    note = withSpent([`Flight configuration “${cfg.name || cfg.id}” applied — its motors and recovery settings`
+    note = withSpent([`Flight configuration “${savedConfigLabel(cfg)}” applied — its motors and recovery settings`
       + `${hasPad ? ' and weighed pad mass' : ''} are now live.`, ...unconfirmed],
     unconfirmed.length > 0 ? 'warn' : 'info');
   }
