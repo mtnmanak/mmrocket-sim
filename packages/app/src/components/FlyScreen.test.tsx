@@ -6,6 +6,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, rodLengthHelp } from './LaunchPanel.js';
 import { FlyScreen } from './FlyScreen.js';
 import type { SimRun } from '../services/simReport.js';
+import { addRun, loadRuns, runsToTable } from '../services/simStore.js';
 import { layoutSchematic } from '../tree/schematicLayout.js';
 
 // The real layout, counted: how often the drawing walks the design.
@@ -184,6 +185,30 @@ describe('FlyScreen', () => {
       expect(notes()[0]).toMatch(/Flown with Estes C6-3 at .+ — the motor changed since\. Press Launch/);
     });
 
+    it.each([
+      ['176H123-12A', 'H123-12A', '176H123-9', '232H123-9'],
+      ['232H123-14A', 'H123-14A', '232H123-9', '176H123-9'],
+    ])('retains the flown %s identity after reload beside a different loaded motor',
+      (motorDesignation, motor, flownLabel, loadedLabel) => {
+        addRun({ ...FLOWN, id: 'clashing-motor', manufacturer: 'Cesaroni', motor,
+          motorDesignation, delayS: 9 });
+        const [run] = loadRuns();
+        expect(run?.motorDesignation).toBe(motorDesignation);
+        mount({ run, motorLabel: loadedLabel, changedSince: ['the motor'] });
+        expect(notes()[0]).toContain(`Flown with Cesaroni ${flownLabel} at `);
+        expect(host.querySelector('.fly-motor-name')?.textContent).toBe(loadedLabel);
+        const table = runsToTable([run!]);
+        expect(table.rows[0]![table.headers.indexOf('Designation')]).toBe(motor);
+      });
+
+    it('keeps the previous flown-with text for saved runs without a raw designation', () => {
+      addRun({ ...FLOWN, id: 'legacy-motor', manufacturer: 'Cesaroni', motor: 'H123-12A', delayS: 9 });
+      const [run] = loadRuns();
+      expect(run).not.toHaveProperty('motorDesignation');
+      mount({ run, changedSince: ['the motor'] });
+      expect(notes()[0]).toContain('Flown with Cesaroni H123-9 at ');
+    });
+
     it('lists every change, the way the Results tab does', () => {
       mount({ run: FLOWN, changedSince: ['the design', 'the launch conditions'] });
       expect(notes()[0]).toContain('the design and the launch conditions changed since');
@@ -210,6 +235,7 @@ describe('FlyScreen', () => {
       mount({
         run: {
           ...FLOWN, motor: '4× G80 + 2× F39', manufacturer: 'AT+CTI', delayS: 7, motorConfig: 'mixed 4+2',
+          motorDesignation: 'G80',
         },
         changedSince: ['the launch conditions'],
       });

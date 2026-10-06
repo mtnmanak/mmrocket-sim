@@ -251,5 +251,5 @@ function flownMotorLabel(run: SimRun): string {
     return `${run.motor}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
   }
   return `${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
-    { designation: run.motor, manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
+    { designation: run.motorDesignation ?? run.motor, manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
 }

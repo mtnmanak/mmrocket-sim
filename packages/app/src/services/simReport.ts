@@ -422,6 +422,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   rocket: string;
   /** Display designation (Cesaroni impulse prefix / "HP-" already stripped). */
   motor: string;
+  /** Raw flown designation for clash-aware labels; absent on older stored runs. */
+  motorDesignation?: string;
   manufacturer: string;
   motorDiameterMm: number;
   /** 'single-use' | 'reload' | 'hybrid' (optional: older stored runs lack it). */
@@ -2172,6 +2174,7 @@ export function buildSimRun(input: {
     when: Date.now(),
     rocket: rocketName,
     motor: displayDesignation(motor.designation, meta?.manufacturer),
+    motorDesignation: motor.designation,
     manufacturer: meta?.manufacturer ?? '',
     motorDiameterMm: Math.round(motor.diameter * 1000 * 10) / 10,
     motorType: motorTypeLabel(meta?.type),
