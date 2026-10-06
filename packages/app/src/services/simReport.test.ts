@@ -64,6 +64,15 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it.each(['176H123-12A', '232H123-14A'])('preserves raw flown motor designation %s without changing the run-table name', (designation) => {
+  const run = buildSimRun({ result: fakeResult(), info,
+    motor: { ...motor, designation, ejectionDelay: 9 }, meta: { label: designation, manufacturer: 'Cesaroni' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  expect(run.motorDesignation).toBe(designation);
+  expect(run.motor).toBe(designation.replace(/^\d+/, ''));
+  expect(run.delayS).toBe(9);
+});
+
 it('stores ascent load peaks with the flight report', () => {
   const result = fakeResult();
   result.series['ρ'] = result.series.time.map(() => 1.2);
