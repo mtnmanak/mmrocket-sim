@@ -6,7 +6,7 @@ import { NETWORK_HOSTS, NetError } from './net.js';
 import {
   addDaysYmd, clearWeatherCache, compassPoint, DateRefusal, distanceM, fetchElevation, fetchForecast, fetchWeather,
   forecastUrl, formatDay, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
-  MAP_LINK_WITHOUT_COORDINATES,
+  MAP_LINK_WITHOUT_COORDINATES, estimatedCloudBaseM,
   parseForecast, parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
   usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample,
 } from './openMeteo.js';
@@ -105,6 +105,81 @@ describe('the date window', () => {
 });
 
 describe('parseForecast', () => {
+  const skyFields = [
+    ['cloud_cover', '%', 65, 'cloudCoverPct'], ['cloud_cover_low', '%', 20, 'cloudCoverLowPct'],
+    ['visibility', 'm', 8000, 'visibilityM'], ['dew_point_2m', '°C', 12, 'dewPointC'],
+  ] as const;
+  const skyFixture = () => {
+    const body = fixture('forecast-blackrock-1190m.json') as { hourly: Record<string, unknown[]>; hourly_units: Record<string, string> };
+    for (const [key, unit, value] of skyFields) {
+      body.hourly_units[key] = unit;
+      body.hourly[key] = body.hourly.time!.map(() => value);
+    }
+    return body;
+  };
+  const expectOnlySkyFieldMissing = (body: ReturnType<typeof skyFixture>, missing: string) => {
+    const sample = parseForecast(body, [1190])[0]!.samples[0]!;
+    for (const [key, , value, output] of skyFields) {
+      expect(sample[output], output).toBe(key === missing ? null : value);
+    }
+    expect(sample.temperatureC).not.toBeNull();
+  };
+
+  it('requests sky context in the same forecast request, but leaves the archive request unchanged', () => {
+    const q = { latitudeDeg: 40.87, longitudeDeg: -119.06, elevationsM: [1190], startDate: '2026-10-07', endDate: '2026-10-09' };
+    const vars = new URL(forecastUrl({ ...q, endpoint: 'forecast' })).searchParams.get('hourly')!.split(',');
+    for (const key of ['cloud_cover', 'cloud_cover_low', 'visibility', 'dew_point_2m']) {
+      expect(vars.filter((v) => v === key)).toHaveLength(1);
+      expect(forecastUrl({ ...q, endpoint: 'archive' })).not.toContain(key);
+    }
+  });
+
+  it('parses sky fields by hour, including valid zero values', () => {
+    const body = fixture('forecast-blackrock-1190m.json') as { hourly: Record<string, unknown[]>; hourly_units: Record<string, string> };
+    const n = body.hourly.time!.length;
+    for (const [key, unit, value] of [
+      ['cloud_cover', '%', 65], ['cloud_cover_low', '%', 20], ['visibility', 'm', 8046.72], ['dew_point_2m', '°C', -5],
+    ] as const) {
+      body.hourly_units[key] = unit;
+      body.hourly[key] = Array.from({ length: n }, (_, i) => i === 0 ? 0 : value);
+    }
+    const [v] = parseForecast(body, [1190]);
+    expect(v!.samples[0]).toMatchObject({ cloudCoverPct: 0, cloudCoverLowPct: 0, visibilityM: 0, dewPointC: 0 });
+    expect(v!.samples[1]).toMatchObject({ cloudCoverPct: 65, cloudCoverLowPct: 20, visibilityM: 8046.72, dewPointC: -5 });
+  });
+
+  it('keeps omitted sky fields absent without losing surface weather', () => {
+    const [v] = parseForecast(fixture('forecast-blackrock-1190m.json'), [1190]);
+    expect(v!.samples[0]).toMatchObject({ cloudCoverPct: null, cloudCoverLowPct: null, visibilityM: null, dewPointC: null });
+    expect(v!.samples[0]!.temperatureC).not.toBeNull();
+  });
+
+  it.each([
+    ['cloud_cover', '%', -1], ['cloud_cover', '%', 101], ['cloud_cover_low', '%', 101],
+    ['visibility', 'm', -1], ['dew_point_2m', '°C', -274],
+    ['cloud_cover', 'fraction', 0.5], ['cloud_cover_low', 'fraction', 0.5],
+    ['visibility', 'km', 8], ['dew_point_2m', '°F', 50], ['dew_point_2m', '', 10],
+    ['visibility', 'm', null], ['visibility', 'm', '8000'], ['visibility', 'm', Infinity],
+  ])('omits invalid optional %s (%s, %s) without losing valid companions', (key, unit, value) => {
+    const body = skyFixture();
+    body.hourly_units[key] = unit;
+    body.hourly[key] = body.hourly.time!.map(() => value);
+    expectOnlySkyFieldMissing(body, key);
+  });
+
+  it.each(skyFields)('omits only the omitted optional %s field', (key) => {
+    const body = skyFixture();
+    delete body.hourly[key];
+    delete body.hourly_units[key];
+    expectOnlySkyFieldMissing(body, key);
+  });
+
+  it.each(skyFields)('omits only the ragged optional %s series', (key) => {
+    const body = skyFixture();
+    body.hourly[key]!.pop();
+    expectOnlySkyFieldMissing(body, key);
+  });
+
   it('reads a two-elevation answer in request order', () => {
     const [low, high] = parseForecast(fixture('forecast-gerlach-0-1202m.json'), [0, 1202]);
     expect(low!.elevationM).toBe(0);
@@ -189,6 +264,20 @@ describe('parseForecast', () => {
     expect(count('forecast-gerlach-0-1202m.json', [0, 1202])).toEqual([30, 72]);
     expect(count('archive-blackrock-2025-06-14.json', [1190])).toEqual([0, 72]);
   });
+});
+
+describe('cloud-base estimate above the site', () => {
+  it('uses 125 metres per degree C of spread, including freezing and saturated air', () => {
+    expect(estimatedCloudBaseM(20, 12)).toBe(1000);
+    expect(estimatedCloudBaseM(-5, -9)).toBe(500);
+    expect(estimatedCloudBaseM(0, 0)).toBe(0);
+    expect(estimatedCloudBaseM(12.3, 10.1)).toBeCloseTo(275, 10);
+  });
+  it.each([[null, 10], [20, undefined], [NaN, 10], [20, Infinity], [10, 11], [-274, -275], [1e308, 0]])(
+    'omits an estimate for missing or invalid temperatures (%s, %s)', (t, td) => {
+      expect(estimatedCloudBaseM(t, td)).toBeNull();
+    },
+  );
 });
 
 describe('the hours of the site’s day', () => {
@@ -459,6 +548,7 @@ describe('fetchWeather', () => {
     // 2:00 PM PDT on Sat 14 Jun 2025, as ERA5 has it.
     expect(v!.samples.find((s) => s.unix === Date.UTC(2025, 5, 14, 21) / 1000)).toEqual({
       unix: Date.UTC(2025, 5, 14, 21) / 1000,
+      cloudCoverPct: null, cloudCoverLowPct: null, visibilityM: null, dewPointC: null,
       windsAloft: [], temperatureC: 27.3, pressureHPa: 884.5, windSpeedMs: 2.02, windGustMs: 5.3, windFromDeg: 277,
     });
     expect(hoursOnLocalDate(v!.samples, a.timezone, '2025-06-14')).toHaveLength(24);

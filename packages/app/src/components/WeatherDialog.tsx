@@ -18,6 +18,7 @@ import { densityAltitudeM, padAir } from '../services/atmosphere.js';
 import { sigmaFromGust } from '../services/gustSigma.js';
 import { useDialog } from './useDialog.js';
 import { WeatherCredit } from './WeatherCredit.js';
+import { WeatherSkyInfo } from './WeatherSkyInfo.js';
 import { WindProfileTable } from './WindProfile.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import {
@@ -567,6 +568,8 @@ export function WeatherDialog({
                 })}
               </tbody>
             </table>
+
+            <WeatherSkyInfo sample={proposal.sample} distanceUnit={units.distance} />
 
             {checkLongitude && (
               <div className="weather-note" role="status">

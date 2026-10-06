@@ -63,6 +63,15 @@ export function farText(sym: string, m: number): string {
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${imperial ? 'mi' : 'km'}`;
 }
 
+/** Visibility keeps two decimals below 10 mi / 16 km, near the quoted five-mile figure. */
+export function visibilityText(sym: string, m: number): string {
+  const imperial = sym === 'ft' || sym === 'yd' || sym === 'mi';
+  const v = imperial ? m / 1609.344 : m / 1000;
+  return v < (imperial ? 10 : 16)
+    ? `${v.toFixed(2)} ${imperial ? 'mi' : 'km'}`
+    : farText(sym, m);
+}
+
 /**
  * A wind speed (m/s) in the user's unit, with the digits the Wind avg and
  * Wind gusts σ boxes show — NumField's own formatter, not a coarser one. So

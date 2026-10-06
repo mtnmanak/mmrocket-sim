@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
+import { WeatherSkyInfo } from './WeatherSkyInfo.js';
 import { fieldText, gustNote } from './weatherText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
-import { ALOFT_VARS, HOURLY_VARS, clearWeatherCache, ymdInZone, type WeatherPlace } from '../services/openMeteo.js';
+import { ALOFT_VARS, HOURLY_VARS, SKY_VARS, clearWeatherCache, parseForecast, ymdInZone, type WeatherPlace } from '../services/openMeteo.js';
 import { applyProposal, undoApply, validWeatherSnapshot, type WeatherPatch, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -226,7 +228,7 @@ describe('the design-site longitude check', () => {
     expect(q('.wind-profile-table')!.textContent).toContain('180.0° S');
     expect(q('.wind-profile-table')!.textContent).not.toContain('90.0° E');
     for (const url of urls.filter((u) => u.includes('/v1/forecast'))) {
-      expect(new URL(url).searchParams.get('hourly')!.split(',')).toEqual([...HOURLY_VARS, ...ALOFT_VARS]);
+      expect(new URL(url).searchParams.get('hourly')!.split(',')).toEqual([...HOURLY_VARS, ...ALOFT_VARS, ...SKY_VARS]);
     }
     await click(button('Apply'));
     expect(applied).toHaveLength(1);
@@ -421,6 +423,126 @@ async function reviewGerlach(launch?: LaunchConditions) {
 }
 
 describe('the weather dialog', () => {
+  it('omits the information block when the API omits its fields', async () => {
+    await reviewGerlach();
+    expect(q('section[aria-label="Cloud and visibility information"]')).toBeNull();
+    expect(button('Apply')!.disabled).toBe(false);
+  });
+
+  it.each([
+    ['m', '8.05 km', '1,000 m'], ['ft', '5.00 mi', '3,281 ft'],
+    ['km', '8.05 km', '1 km'], ['yd', '5.00 mi', '1,094 yd'], ['mi', '5.00 mi', '0.62 mi'],
+  ])('shows the chosen hour in %s units and never applies the readouts', async (distance, visibility, base) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance } }));
+    const route: Route = (u) => {
+      if (u.includes('/v1/elevation')) return { body: { elevation: [1202] } };
+      const body = fixture('forecast-gerlach-0-1202m.json') as {
+        hourly: Record<string, number[]>; hourly_units: Record<string, string>;
+      }[];
+      for (const variant of body) {
+        const h = variant.hourly;
+        for (const [key, unit, val] of [
+          ['cloud_cover', '%', 65], ['cloud_cover_low', '%', 20], ['visibility', 'm', 8046.72],
+        ] as const) {
+          variant.hourly_units[key] = unit;
+          h[key] = h.time!.map((t) => t === SAT_2PM ? val : 0);
+        }
+        variant.hourly_units.dew_point_2m = '°C';
+        h.dew_point_2m = h.temperature_2m!.map((t) => t - 8);
+      }
+      return { body };
+    };
+    render({ initialPlace: GERLACH_PLACE, route });
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    choose(q('.weather-when select'), String(SAT_2PM));
+    const info = () => q('section[aria-label="Cloud and visibility information"]')!;
+    expect(info().textContent).toContain('Cloud cover (total): 65%');
+    expect(info().textContent).toContain('Cloud cover (low): 20%');
+    expect(info().textContent).toContain(`Visibility: ${visibility}`);
+    expect(info().textContent).toContain(`Cloud base (estimate): ${base} above the site`);
+    expect(info().textContent).toContain('information only');
+    expect(info().textContent).toContain('The waiver holder / RSO decides.');
+    expect(info().textContent).toContain('At any altitude where clouds or obscuring phenomena of more than five-tenths coverage prevails;');
+    expect(info().textContent).toContain('At any altitude where the horizontal visibility is less than five miles;');
+    expect(info().textContent).toContain('Into any cloud;');
+    expect(info().querySelector('input, button, [role="alert"]')).toBeNull();
+    expect(info().querySelector('a')!.href).toBe('https://www.ecfr.gov/current/title-14/chapter-I/subchapter-F/part-101/subpart-C/section-101.25');
+    choose(q('.weather-when select'), String(SAT_2PM + 3600));
+    expect(info().textContent).toContain('Cloud cover (total): 0%');
+    expect(info().textContent).toContain(`Visibility: 0.00 ${distance === 'm' || distance === 'km' ? 'km' : 'mi'}`);
+    expect(button('Apply')!.disabled).toBe(false);
+    expect(applied).toHaveLength(0);
+    await click(button('Apply'));
+    expect(applied).toHaveLength(1);
+    expect(JSON.stringify(applied[0])).not.toMatch(/cloudCover|visibilityM|dewPointC|cloudBase/);
+    expect(Object.keys(applied[0]!.patch).sort()).toEqual([
+      'latitudeDeg', 'launchAltitudeM', 'longitudeDeg', 'pressureHPa', 'temperatureC', 'windAverage',
+    ]);
+    expect(urls.filter((u) => u.includes('/v1/forecast'))).toHaveLength(1);
+  });
+
+  it('keeps sky readouts attached to both the selected elevation and hour', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'm' } }));
+    const route: Route = (u) => {
+      if (u.includes('/v1/elevation')) return { body: { elevation: [1202] } };
+      const body = fixture('forecast-gerlach-0-1202m.json') as {
+        hourly: Record<string, (number | null)[]>; hourly_units: Record<string, string>;
+      }[];
+      body.forEach((variant, elevation) => {
+        const h = variant.hourly;
+        // Four distinct spreads: site 4/12 °C, ground 8/16 °C at 2/3 PM.
+        // At 3 PM different fields disappear at each elevation; 4 PM has none.
+        const at = (t: number | null) => t === SAT_2PM ? 0 : t === SAT_2PM + 3600 ? 1 : 2;
+        h.temperature_2m = h.time!.map(() => 24);
+        for (const [key, unit, values] of [
+          ['cloud_cover', '%', elevation ? [65, 85, null] : [15, 35, null]],
+          ['cloud_cover_low', '%', elevation ? [20, null, null] : [5, 10, null]],
+          ['visibility', 'm', elevation ? [8000, 12000, null] : [4000, null, null]],
+          ['dew_point_2m', '°C', elevation ? [16, 8, null] : [20, 12, null]],
+        ] as const) {
+          variant.hourly_units[key] = unit;
+          h[key] = h.time!.map((t) => values[at(t)]!);
+        }
+      });
+      return { body };
+    };
+    render({ initialPlace: GERLACH_PLACE, route });
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    const assertReadouts = (lines: string[]) => {
+      const info = q('section[aria-label="Cloud and visibility information"]')!;
+      expect([...info.querySelectorAll('ul:first-of-type li')].map((li) => li.textContent)).toEqual(lines);
+    };
+    const ground2 = ['Cloud cover (total): 65%', 'Cloud cover (low): 20%', 'Visibility: 8.00 km',
+      'Cloud base (estimate): 1,000 m above the site.'];
+    const site2 = ['Cloud cover (total): 15%', 'Cloud cover (low): 5%', 'Visibility: 4.00 km',
+      'Cloud base (estimate): 500 m above the site.'];
+    const site3 = ['Cloud cover (total): 35%', 'Cloud cover (low): 10%',
+      'Cloud base (estimate): 1,500 m above the site.'];
+    const ground3 = ['Cloud cover (total): 85%', 'Visibility: 12.00 km',
+      'Cloud base (estimate): 2,000 m above the site.'];
+    const altitude = (index: number) => host.querySelectorAll('.weather-altitude input[type="radio"]')[index];
+    choose(q('.weather-when select'), String(SAT_2PM));
+    assertReadouts(ground2);
+    await click(altitude(0));
+    assertReadouts(site2);
+    choose(q('.weather-when select'), String(SAT_2PM + 3600));
+    assertReadouts(site3);
+    await click(altitude(1));
+    assertReadouts(ground3);
+    choose(q('.weather-when select'), String(SAT_2PM));
+    assertReadouts(ground2);
+    choose(q('.weather-when select'), String(SAT_2PM + 7200));
+    expect(q('section[aria-label="Cloud and visibility information"]')).toBeNull();
+    await click(altitude(0));
+    expect(q('section[aria-label="Cloud and visibility information"]')).toBeNull();
+    choose(q('.weather-when select'), String(SAT_2PM));
+    assertReadouts(site2);
+    expect(urls.filter((u) => u.includes('/v1/forecast'))).toHaveLength(1);
+    expect(applied).toHaveLength(0);
+  });
+
   it('writes NOTHING until Apply — a search, a fetch and a Cancel call onApply zero times', async () => {
     await reviewGerlach();
     expect(q('.weather-review')).toBeTruthy();
@@ -547,7 +669,7 @@ describe('the weather dialog', () => {
     const FIXED: Record<string, string> = {
       count: '10', language: 'en', format: 'json', wind_speed_unit: 'ms', temperature_unit: 'celsius',
       timeformat: 'unixtime', timezone: 'auto',
-      hourly: [...HOURLY_VARS, ...ALOFT_VARS].join(','),
+      hourly: [...HOURLY_VARS, ...ALOFT_VARS, ...SKY_VARS].join(','),
     };
     for (const u of urls) {
       for (const [k, v] of new URL(u).searchParams) {
@@ -849,6 +971,65 @@ describe('the weather dialog', () => {
     render({ initialPlace: { label: 'Gerlach, Nevada, US', latitudeDeg: 40.65157, longitudeDeg: -119.35519, method: 'search' } });
     expect(q('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
     expect(button('Fetch')).toBeTruthy();
+  });
+});
+
+describe('partial cloud and visibility information', () => {
+  const skyFields = [
+    ['cloud_cover', '%', 65, 'cloudCoverPct', 'Cloud cover (total): 65%'],
+    ['cloud_cover_low', '%', 20, 'cloudCoverLowPct', 'Cloud cover (low): 20%'],
+    ['visibility', 'm', 8000, 'visibilityM', 'Visibility: 8.00 km'],
+    ['dew_point_2m', '°C', 12, 'dewPointC', 'Cloud base (estimate): 1,000 m above the site.'],
+  ] as const;
+  const partialCases = skyFields.flatMap(([key]) =>
+    (['invalid', 'omitted', 'ragged', 'wrong-unit'] as const).map((kind) => ({ key, kind })));
+  it.each(partialCases)('parses and renders valid companions beside $kind $key', ({ key, kind }) => {
+    const body = fixture('forecast-blackrock-1190m.json') as { hourly: Record<string, unknown[]>; hourly_units: Record<string, string> };
+    body.hourly.temperature_2m = body.hourly.time!.map(() => 20);
+    for (const [field, unit, value] of skyFields) {
+      body.hourly_units[field] = unit;
+      body.hourly[field] = body.hourly.time!.map(() => value);
+    }
+    if (kind === 'omitted') {
+      delete body.hourly[key];
+      delete body.hourly_units[key];
+    } else if (kind === 'ragged') body.hourly[key]!.pop();
+    else if (kind === 'wrong-unit') body.hourly_units[key] = 'wrong';
+    else body.hourly[key]![0] = key === 'dew_point_2m' ? -274 : -1;
+    const parsed = parseForecast(body, [1190])[0]!.samples[0]!;
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={parsed} distanceUnit="m" />);
+    for (const [field, , value, output, line] of skyFields) {
+      expect(parsed[output], output).toBe(field === key ? null : value);
+      if (field === key) expect(html).not.toContain(line.split(':')[0] + ':');
+      else expect(html).toContain(line);
+    }
+    expect(html).toContain('information only');
+  });
+
+  const sample = { unix: SAT_2PM, temperatureC: 20, pressureHPa: 900, windSpeedMs: 1, windGustMs: 2, windFromDeg: 0,
+    cloudCoverPct: 65, cloudCoverLowPct: 20, visibilityM: 8000, dewPointC: 12 };
+  it.each([
+    ['mi', 8000, '4.97 mi'], ['km', 8000, '8.00 km'],
+    ['mi', 8046.72, '5.00 mi'], ['km', 8046.72, '8.05 km'],
+  ])('renders visibility near five miles in %s at %s m as %s', (distanceUnit, visibilityM, expected) => {
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={{ ...sample, visibilityM }} distanceUnit={distanceUnit} />);
+    expect(html).toContain(`<li>Visibility: ${expected}</li>`);
+    expect(html).toContain('horizontal visibility is less than five miles');
+  });
+
+  it.each([
+    ['cloudCoverPct', 'Cloud cover (total):'], ['cloudCoverLowPct', 'Cloud cover (low):'],
+    ['visibilityM', 'Visibility:'], ['dewPointC', 'Cloud base (estimate):'], ['temperatureC', 'Cloud base (estimate):'],
+  ])('omits only the unavailable %s line', (key, label) => {
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={{ ...sample, [key]: null }} distanceUnit="m" />);
+    expect(html).not.toContain(label);
+    expect(html).toContain('information only');
+    expect(html).toContain(key === 'cloudCoverPct' ? 'Cloud cover (low):' : 'Cloud cover (total):');
+  });
+  it('does not present supersaturated input as a zero-height cloud base', () => {
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={{ ...sample, dewPointC: 21 }} distanceUnit="m" />);
+    expect(html).not.toContain('Cloud base (estimate):');
+    expect(html).toContain('Visibility: 8.00 km');
   });
 });
 
