@@ -10,6 +10,7 @@ import { AppRoot } from './root.js';
 import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
 import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
+import { offlineStatus } from './services/offlineStatus.js';
 
 // Offline-first on the canonical host. On the RETIRED pre-rename host the
 // PWA dismantles itself instead: no SW, caches dropped, banner in App.
@@ -24,9 +25,9 @@ if (isRetiredHost(location.hostname)) {
   // registration also goes past the empty-precache safeguard
   // (services/precacheGuard.ts), which does nothing unless the worker's
   // offline copy is empty.
-  registerSW({
-    immediate: true,
-    onRegisteredSW: (_url, reg) => { setSwRegistration(reg); void guardPrecache(reg); },
+  offlineStatus.start(registerSW, (_url, reg) => {
+    setSwRegistration(reg);
+    void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
   });
 }
 

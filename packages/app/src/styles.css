@@ -2602,9 +2602,20 @@ html {
    version?" is worth its line — that question is a support conversation. */
 .version-check {
   display: inline-flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   flex: 0 1 auto;
   min-width: 0;
+}
+
+.offline-status {
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 8px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .version-ok,
