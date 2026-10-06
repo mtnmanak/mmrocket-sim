@@ -488,6 +488,51 @@ it('restores an overlay-only motor label before App installs the stored overlay'
   expect(getCatalogueOverlay()).toBeNull();
 });
 
+it.each([false, true])('refreshes label clashes when the overlay changes (installed: %s)', async (installed) => {
+  vi.resetModules();
+  const { getCatalogue, motorLabel, setCatalogueOverlay } = await import('./motorDb.js');
+  const { labelCatalogue, motorTooltip, restoreConfigLabels, restoreMotorLabels } = await import('./motorLabels.js');
+  const { withAuto, withDelay, withPlugged } = await import('./mountDelayEdits.js');
+  const entry = MOTOR_DB.find(m => m.designation === '1013J453-16A')!;
+  const added = { ...entry, motorId: 'overlay-clash', designation: '999J453-12A' };
+  const overlay: CatalogueOverlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-06T00:00:00Z',
+    liveCount: MOTOR_DB.length + 1, added: [added], changed: [], removed: [], rejected: [] };
+  const mm = mountMotorFromDb(entry, { designation: entry.designation, ejectionDelay: 9 } as MotorSpec,
+    9, { event: 'automatic', delay: 0 });
+  const before = labelCatalogue();
+  expect(restoreMotorLabels({ mount: mm }).mount!.label).toBe('J453-9');
+  const install = (next: CatalogueOverlay | null) => {
+    if (installed) setCatalogueOverlay(next);
+    else if (next) localStorage.setItem(OVERLAY_KEY, JSON.stringify(next));
+    else localStorage.removeItem(OVERLAY_KEY);
+  };
+  install(overlay);
+  const catalogue = labelCatalogue();
+  expect(catalogue).not.toBe(before);
+  expect(labelCatalogue()).toBe(catalogue);
+  const restored = restoreMotorLabels({ mount: mm }).mount!;
+  expect(restored.label).toBe('1013J453-9');
+  expect(restored.meta.label).toBe(restored.label);
+  expect(restored.spec).toBe(mm.spec);
+  expect(motorLabel(added, 9, {}, catalogue)).toBe('999J453-9');
+  expect(restoreConfigLabels({ id: 'A', name: null, isDefault: true, motors: { mount: mm } }).motors.mount!.label)
+    .toBe(restored.label);
+  expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 9 s delay (1013J453-9)');
+  expect(withDelay(mm, 8).label).toBe('1013J453-8');
+  expect(withAuto(mm, true).label).toBe('1013J453 (auto delay)');
+  expect(withPlugged(mm, true).label).toBe('1013J453-P');
+  if (installed) expect(motorLabel(entry, 9)).toBe('1013J453-9');
+  else expect(getCatalogue()).toBe(before);
+  install({ ...overlay, added: [{ ...added, designation: '999J454-12A' }] });
+  expect(restoreMotorLabels({ mount: restored }).mount!.label).toBe('J453-9');
+  expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 9 s delay (J453-9)');
+  install(overlay);
+  expect(withDelay(mm, 8).label).toBe('1013J453-8');
+  install(null);
+  expect(restoreMotorLabels({ mount: restored }).mount!.label).toBe('J453-9');
+  expect(withDelay(mm, 8).label).toBe('J453-8');
+});
+
 it('does not confuse AMW case impulses when naming changed loaded motors', () => {
   const before = MOTOR_DB.filter(m => m.manufacturerAbbrev === 'AMW'
     && ['BB-54-1050', 'BB-54-2550'].includes(m.designation));
