@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
+import { recoveryMassByStage, type RecoveryByStage, type RecoveryMass } from '../services/recoveryMass.js';
 import * as presetService from '../services/presets.js';
 import { loadPresets } from '../services/presets.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
@@ -117,6 +117,17 @@ describe('RecoverySizingPanel', () => {
     expect(text()).not.toContain('Uses the separations');
   });
 
+  it.each([false, true])('R2 shows a single object note once with byStage=%s', async (grouped) => {
+    const note = 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.';
+    const recovery: RecoveryMass = { ...WILDMAN, note };
+    await mount({ recovery, byStage: grouped ? { state: 'ok', groups: [
+      { stageIds: ['s0'], stageNames: ['Sustainer'], isSustainer: true, mass: recovery },
+    ] } : undefined });
+    expect(text().split(note)).toHaveLength(2);
+    expect(host.querySelector('.recovery-sizing-lede')?.previousElementSibling?.textContent).toBe(note);
+    expect(host.querySelectorAll('.recovery-object')).toHaveLength(0);
+  });
+
   it('ROUND2 shows packing assumptions only after checking published packed dimensions', async () => {
     const load = vi.spyOn(presetService, 'loadPresets').mockReturnValue(new Promise(() => {}));
     await mount();
@@ -198,6 +209,46 @@ describe('RecoverySizingPanel', () => {
         { stageIds: ['s1'], stageNames: ['Booster'], isSustainer: false, mass: { state: 'ok', mass: 2.8, multiStage: true } },
       ],
     };
+
+    it.each(['bt0', 'bt1'])('R2 renders the missing-burnout note only beside the object retaining %s', async (missing) => {
+      const t = structuredClone(twoStageTree);
+      for (const stage of t.components) stage.children![0]!.motorMount = true;
+      const spec: MotorSpec = {
+        designation: 'Test', diameter: 0.018, length: 0.07, cgX: 0.035, ejectionDelay: 5,
+        times: [0, 2], thrusts: [1, 0], masses: [0.021, 0.009],
+      };
+      const byStage = recoveryMassByStage({
+        tree: t, info: { mass: 0.342, massEmpty: 0.3 },
+        motors: [['bt0', { spec }], ['bt1', { spec }]],
+        sectionMass: (id) => id === 's0' ? 0.2 : 0.1,
+        flightEvents: [
+          { type: 'STAGE_SEPARATION', time: 3, sourceId: 's1' },
+          { type: 'BURNOUT', time: 2, motorMountId: missing === 'bt0' ? 'bt1' : 'bt0' },
+        ],
+      });
+      expect(byStage.state).toBe('ok');
+      if (byStage.state !== 'ok') throw new Error('Expected two recovered objects');
+      expect(byStage.groups.map((g) => g.stageIds)).toEqual([['s0'], ['s1']]);
+      await mount({ tree: t, recovery: byStage.groups[0]!.mass, byStage });
+
+      const disclosure = 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.';
+      expect(text().split(disclosure)).toHaveLength(2); // Once, including when only the booster needs it.
+      const headings = [...host.querySelectorAll('.recovery-object')];
+      expect(headings.map((h) => h.textContent)).toEqual(['Sustainer', 'Booster']);
+      const notes = [...host.querySelectorAll('.recovery-sizing-hint')]
+        .filter((p) => p.textContent?.includes('Uses the separations and motor burnouts recorded'));
+      expect(notes).toHaveLength(2); // No extra top-level sustainer note.
+      for (const [i, group] of byStage.groups.entries()) {
+        expect(group.mass.state).toBe('ok');
+        if (group.mass.state !== 'ok') throw new Error('Expected a recovery mass');
+        const affected = missing === (i === 0 ? 'bt0' : 'bt1');
+        expect(group.mass.mass).toBeCloseTo((i === 0 ? 0.2 : 0.1) + (affected ? 0.021 : 0.009), 12);
+        expect(notes[i]!.textContent).toBe(group.mass.note);
+        expect(notes[i]!.previousElementSibling).toBe(headings[i]);
+        expect(notes[i]!.nextElementSibling?.className).toBe('recovery-sizing-lede');
+        expect(notes[i]!.textContent?.includes(disclosure)).toBe(affected);
+      }
+    });
 
     it('renders the sustainer and the booster each with a main and a drogue', async () => {
       await mount({

@@ -15,6 +15,7 @@ import {
   motorBurnoutMass, motorLoadedMass, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
   recoveryMassTitle, sustainerScope,
 } from './recoveryMass.js';
+import type { RecoveryMass, RecoveryMassInput } from './recoveryMass.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): ArrayBuffer => {
@@ -857,6 +858,87 @@ it('ROUND2 S7b-1: upperignition does not need a motor on the separating stage', 
   expect(answer.state).toBe('ok');
 }, 60000);
 
+
+describe('R2 missing-burnout disclosure', () => {
+  // Synthetic completed-flight evidence tests disclosure and unchanged kg
+  // arithmetic; no ignition or partial consumption is inferred from absence.
+  const input = (): RecoveryMassInput => ({
+    tree: singleStage(), info: { mass: 0.221, massEmpty: 0.2 },
+    motors: [['m1', { spec: C6() }]], sectionMass: () => 0.2,
+  });
+  const disclosed = (r: RecoveryMass) => {
+    expect(r).toMatchObject({ state: 'ok', loadedWithoutBurnout: true });
+    if (r.state !== 'ok') return;
+    expect(r.note).toContain('The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.');
+    expect(r).not.toHaveProperty('estimate');
+    expect(recoveryMassTitle(r)).toContain(r.note);
+    expect(recoveryMassTitle(r)).not.toMatch(/spent|gone by apogee|casing at burnout|partly|partially|unburned/);
+    expect(recoveryMassTitle(r)).toContain('not on pad weight');
+  };
+
+  it.each(['motorMountId', 'sourceId'])('keeps normal burnout guidance with a recorded %s', (key) => {
+    const r = recoveryMass({ ...input(), flightEvents: [{ type: 'BURNOUT', time: 2, [key]: 'm1' }] });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(0.209, 12) });
+    expect(r).not.toHaveProperty('note');
+    expect(r).not.toHaveProperty('loadedWithoutBurnout');
+    expect(recoveryMassTitle(r)).toContain('the propellant is gone by apogee');
+  });
+
+  it.each(['automatic', 'never'] as const)('discloses missing burnout for %s ignition without claiming a partial burn', (event) => {
+    const i = input();
+    i.motors = [['m1', { spec: C6(), ignition: { event } }]];
+    const r = recoveryMass({ ...i, flightEvents: [] });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(0.221, 12) });
+    disclosed(r);
+  });
+
+  it.each(['automatic', 'never'] as const)('does not claim missing flight evidence for an unflown %s motor', (event) => {
+    const r = recoveryMass({ ...input(), motors: [['m1', { spec: C6(), ignition: { event } }]] });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(event === 'never' ? 0.221 : 0.209, 12) });
+    expect(r).not.toHaveProperty('note');
+    expect(r).not.toHaveProperty('loadedWithoutBurnout');
+    expect(recoveryMassTitle(r)).toContain('the propellant is gone by apogee');
+  });
+
+  it('discloses a loaded cluster alongside a burned mount without changing either mass', () => {
+    const i = input();
+    i.tree = singleStage({ cluster: '3-ring' });
+    i.tree.components[0]!.children![1]!.children!.push({ type: 'innertube', id: 'm2', motorMount: true } as ComponentNode);
+    i.motors = [...i.motors, ['m2', { spec: C6() }]];
+    i.info = { mass: 0.284, massEmpty: 0.2 }; // Three loaded C6s and one burned C6.
+    const r = recoveryMass({ ...i, flightEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'm2' }] });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(0.272, 12) });
+    disclosed(r);
+  });
+
+  it.each(['m1', 'm2'])('limits disclosure to the separated group retaining %s without burnout', (missing) => {
+    const i: RecoveryMassInput = { ...input(), tree: twoStage(),
+      info: { mass: 0.342, massEmpty: 0.3 },
+      motors: [['m1', { spec: C6() }], ['m2', { spec: C6() }]],
+      sectionMass: (id) => id === 's1' ? 0.2 : 0.1,
+      flightEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 's2' },
+        { type: 'BURNOUT', time: 2, motorMountId: missing === 'm1' ? 'm2' : 'm1' }],
+    };
+    const r = recoveryMassByStage(i);
+    expect(r.state).toBe('ok');
+    if (r.state !== 'ok') return;
+    expect(r.groups.map((g) => g.stageIds)).toEqual([['s1'], ['s2']]);
+    for (const [index, group] of r.groups.entries()) {
+      const affected = missing === `m${index + 1}`;
+      expect(group.mass).toMatchObject({ state: 'ok',
+        mass: expect.closeTo((index === 0 ? 0.2 : 0.1) + (affected ? 0.021 : BURNOUT), 12) });
+      if (affected) disclosed(group.mass);
+      else {
+        expect(group.mass).not.toHaveProperty('loadedWithoutBurnout');
+        expect(recoveryMassTitle(group.mass)).toContain('motor casing at burnout');
+        expect(recoveryMassTitle(group.mass)).not.toContain('full loaded mass');
+      }
+      expect(recoveryMassTitle(group.mass)).toContain('Uses the separations and motor burnouts recorded');
+      expect(recoveryMassTitle(group.mass)).toContain('size those separately');
+    }
+    expect(recoveryMass(i)).toEqual(r.groups[0]!.mass);
+  });
+});
 
 describe('K1 matching flight recovery', () => {
   const input = () => ({ tree: twoStage(), info: { mass: 0.342, massEmpty: 0.3 },

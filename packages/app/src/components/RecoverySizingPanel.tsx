@@ -152,12 +152,12 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
           Parts catalogue could not be loaded. <button type="button" onClick={() => setCatalogueFailed(false)}>Retry</button>
         </p>
       )}
-      {recovery.state === 'ok' && recovery.note && <p className="recovery-sizing-hint">{recovery.note}</p>}
       {objects.map((o, i) => (
         <ObjectSection
           key={o.label || 'rocket'}
           label={objects.length > 1 ? o.label : null}
           sizing={sizings[i]!}
+          note={o.recovery.state === 'ok' ? o.recovery.note : undefined}
           catalogueReady={presets !== null}
           catalogueFailed={catalogueFailed}
           fmt={fmt}
@@ -172,9 +172,10 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
  * drogue. With `label` null (a single-stage design) it renders without a
  * heading — byte-for-byte the pre-v0.115 panel body.
  */
-function ObjectSection({ label, sizing, catalogueReady, catalogueFailed, fmt }: {
+function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, fmt }: {
   label: string | null;
   sizing: RecoverySizing;
+  note?: string;
   catalogueReady: boolean;
   catalogueFailed: boolean;
   fmt: Fmt;
@@ -208,6 +209,7 @@ function ObjectSection({ label, sizing, catalogueReady, catalogueFailed, fmt }: 
   return (
     <>
       {heading}
+      {note && <p className="recovery-sizing-hint">{note}</p>}
       <p className="recovery-sizing-lede">
         Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
         {sizing.elevationM > 0 && (

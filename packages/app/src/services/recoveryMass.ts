@@ -54,7 +54,7 @@ import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } fro
 /** What to put on screen. Never a bare number: the absent cases have reasons. */
 export type RecoveryMass =
   /** A motor is loaded and the number is trustworthy. `mass` is kg. */
-  | { state: 'ok'; mass: number; multiStage: boolean; note?: string; estimate?: true }
+  | { state: 'ok'; mass: number; multiStage: boolean; note?: string; estimate?: true; loadedWithoutBurnout?: true }
   /** No motor anywhere — the owner's explicit rule: show no figure at all. */
   | { state: 'no-motor' }
   /** We know the number would be the mass of no real object. `reason` is UI copy. */
@@ -311,6 +311,18 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     : assumptions.length > 0
       ? `Estimate assuming ${assumptions.join('; ')} and ignition as configured. If stages stay attached, the canopy must carry the larger stack. Launch to confirm.`
       : undefined;
+  // Disclose only motors retained by this group. Missing burnout evidence
+  // does not establish whether a motor ignited or consumed any propellant.
+  const finishGroup = (mass: number, multiStage: boolean, stageIdx?: ReadonlySet<number>): RecoveryMass => {
+    const loadedWithoutBurnout = !!flightEvents && motors.some(([id, mm]) =>
+      (!stageIdx || stageIdx.has(stageIndexOf(tree, id))) && unburned(id, mm));
+    const groupNote = loadedWithoutBurnout
+      ? [note, 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.']
+        .filter(Boolean).join(' ')
+      : note;
+    const result = finish(mass, info, multiStage, groupNote, estimate);
+    return result.state === 'ok' && loadedWithoutBurnout ? { ...result, loadedWithoutBurnout: true } : result;
+  };
   if (motors.length === 0) return { state: 'no-motor' };
   if (!Number.isFinite(info.mass) || !Number.isFinite(info.massEmpty)) {
     return { state: 'unavailable', reason: 'the design has no mass yet' };
@@ -376,7 +388,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     const only = groups[0] ?? [];
     return {
       state: 'ok',
-      groups: [{ ...label(only), isSustainer: true, mass: finish(mass, info, false, note, estimate) }],
+      groups: [{ ...label(only), isSustainer: true, mass: finishGroup(mass, false) }],
     };
   }
 
@@ -479,7 +491,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
       continue;
     }
 
-    out.push({ ...label(group), isSustainer, mass: finish(dry + burnout, info, true, note, estimate) });
+    out.push({ ...label(group), isSustainer, mass: finishGroup(dry + burnout, true, idx) });
   }
   return { state: 'ok', groups: out };
 }
@@ -531,11 +543,14 @@ export function recoveryMassTitle(r: RecoveryMass): string {
       // single-object wording is the true one for it.
       const guidance = r.multiStage
         ? 'What comes down under the SUSTAINER’s recovery device: its dry mass plus its own '
-          + 'motor casing at burnout. Every stage that separates comes down under its own chute '
+          + (r.loadedWithoutBurnout ? 'retained motors. ' : 'motor casing at burnout. ')
+          + 'Every stage that separates comes down under its own chute '
           + 'and has its own weight — size those separately. Size this chute on this figure, '
           + 'not on pad weight.'
-        : 'What comes down under the recovery device: the dry rocket plus the spent motor casing '
-          + '(the propellant is gone by apogee). Size the chute on this, not on pad weight.';
+        : 'What comes down under the recovery device: the dry rocket plus '
+          + (r.loadedWithoutBurnout ? 'its retained motors. '
+            : 'the spent motor casing (the propellant is gone by apogee). ')
+          + 'Size the chute on this, not on pad weight.';
       return r.note ? `${guidance} ${r.note}` : guidance;
     }
   }
