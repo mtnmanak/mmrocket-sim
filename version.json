@@ -1,5 +1,5 @@
 {
-  "version": "0.162",
+  "version": "0.163",
   "released": "2026-10-07",
-  "note": "Solid parts-library nose cones and transitions get solid shoulders; Auto and fixed delays kept apart; a Batch false notice fixed."
+  "note": "Canted fins drawn canted; deployment-speed and angle warnings follow your units; the launch report stops over-claiming a match."
 }

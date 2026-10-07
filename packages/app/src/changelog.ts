@@ -32,6 +32,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.163",
+    "date": "2026-10-07",
+    "title": "Canted fins drawn canted; deployment-speed and angle warnings follow your units; the launch report stops over-claiming a match",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. These are display, export and record fixes; no mass, aerodynamic or flight calculation changed.",
+      "CANTED FINS ARE DRAWN CANTED. Fin cant has always been in the flight; the 3D view drew the fins straight. They now turn by their cant about the middle of the root chord, the same point the simulation uses, in the 3D view, its snapshots, and the OBJ, GLB and whole-rocket STL exports. The per-part STL for printing and the DXF and SVG cutting templates stay flat. OpenRocket fixed a fin-cant drawing fault in its own newer 3D view after 24.12 (OpenRocket issue #3343).",
+      "DEPLOYMENT-SPEED AND ANGLE-OF-ATTACK WARNINGS FOLLOW YOUR UNITS. A flight's high-speed deployment warning and large angle-of-attack warning used to keep the units they were made in. New flights now store the measured opening speed and the angle themselves, so those details show in whatever units you have chosen, in the launch report and after you save, share or reopen the run. Other warnings, the 20 m/s (65.6 ft/s) threshold in the deployment warning's explanation, and warnings saved before this version read as they did. Reported upstream as OpenRocket issue #2475.",
+      "RE-IMPORTING A RUN ADDS ITS WARNINGS. Importing a saved run that you already had, from a newer file that carries its warnings, used to report it as already saved and keep the copy without them; the run is now updated and the notice says so. Undo keeps the warnings from both copies when it restores a run you reopened. Two identical warnings from one flight, such as two charges firing after landing, stay two.",
+      "THE LAUNCH REPORT NO LONGER SAYS \"MATCHES THE DESIGN\" WHEN IT CANNOT KNOW. A run saved without a record of which aerodynamics model flew it read \"matches the design as it stands\" while the app would not reuse it for charts or recovery evidence. If nothing else it can compare has changed, the header now gives only when the run was flown; it still names any change it can establish. The header and the reuse checks now come from the same comparison."
+    ]
+  },
+  {
     "version": "0.162",
     "date": "2026-10-07",
     "title": "Solid parts-library nose cones and transitions get solid shoulders; Auto and fixed delays kept apart; a Batch false notice fixed",
