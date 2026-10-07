@@ -3,7 +3,7 @@ import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
-import { motorDataKeyOf, motorSetKeyOf, type SimRun } from './simReport.js';
+import { designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -674,6 +674,36 @@ describe('flownAutoDelays - complete settled vectors', () => {
     const refused = (over: Partial<FlightDataForExportInput> = {}) => input({
       runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod) }],
       assigned: withPod, mountIds: ['m1', 'side', 'pod'], refusedMountIds: ['pod'], ...over,
+    });
+    it.each(['build', 'ignition'] as const)('R7 refused %s fixed-to-Auto toggle rejects the whole export vector', (reason) => {
+      const pod = reason === 'build' ? MOTOR
+        : { ...MOTOR, ignition: { event: 'sideways', delay: 0 } } as unknown as MountMotor;
+      const motors: [string, MountMotor][] = [...assigned, ['pod', pod]];
+      const matchInput = { physicsKey: 'refused-pod', assigned: motors,
+        refusedMountIds: reason === 'build' ? ['pod'] : [], hardwareDeltaKg: 0,
+        launch: DEFAULT_CONDITIONS, aeroMode: 'supersonic' as const,
+        effectiveKbf: true, autoSupersonic: false, hasNozzle: false };
+      const key = designMatchKeyOf(matchInput);
+      const saved = { ...run(), designKey: key.designKey, conditionsKey: key.conditionsKey,
+        motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey };
+      const toggled: [string, MountMotor][] = [...assigned,
+        ['pod', { ...pod, meta: { ...pod.meta, autoDelay: true } }]];
+      expect(runMatchesDesign(saved, key)).toBe(true);
+      expect(runMatchesDesign(saved, designMatchKeyOf({ ...matchInput, assigned: toggled }))).toBe(false);
+      for (const activeConfigId of ['c1', null]) {
+        const state = refused({ assigned: motors, refusedMountIds: matchInput.refusedMountIds,
+          activeConfigId, savedConfigs: activeConfigId ? [{ ...CONFIG, motors: Object.fromEntries(motors) }] : [],
+          runs: [{ ...saved, flightConfigId: activeConfigId ?? undefined }],
+          designKey: key.designKey, conditionsKey: key.conditionsKey, motorSetKeyOf });
+        // Refused fixed neighbours still allow ALL installed Auto delays to export.
+        expect(flownAutoDelays(state)).toEqual({ [activeConfigId ?? '']: { m1: 7, side: 4 } });
+        // Summary export has the additional requirement that every named motor flew.
+        expect(flightDataForExport(state)).toEqual({});
+        const changed = { ...state, assigned: toggled };
+        expect(flownAutoDelays(changed)).toEqual({});
+        expect(flightDataForExport(changed)).toEqual({});
+        expect(flownAutoDelays(state)).toEqual({ [activeConfigId ?? '']: { m1: 7, side: 4 } });
+      }
     });
     it('reads the run of the mounts that flew', () => {
       expect(flownAutoDelays(refused())).toEqual({ c1: { m1: 7, side: 4 } });

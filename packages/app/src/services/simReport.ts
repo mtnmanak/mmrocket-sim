@@ -857,6 +857,16 @@ export interface DesignMatchInput {
   physicsRevisions?: readonly string[];
 }
 
+/** Expected policy vector shared by design matching and export eligibility. */
+export function expectedDelayMountsOf(
+  assigned: DesignMatchInput['assigned'], refusedMountIds?: readonly string[],
+): DelayMount[] {
+  const installed = new Set(installedMounts(assigned, refusedMountIds).map(([id]) => id));
+  // Refused fixed mounts did not fly. A refused Auto mount cannot settle:
+  // keep it expected so an older fixed flight cannot clear the whole vector.
+  return delayMountsOf(assigned.filter(([id, mm]) => installed.has(id) || mm.meta.autoDelay));
+}
+
 /**
  * The ONE assembly of a run-provenance key: what Launch stamps onto a run, and
  * what a stored run is compared against to be re-flown, marked current or
@@ -865,10 +875,8 @@ export interface DesignMatchInput {
  * others is exactly how a stamp and a comparison drift apart.
  */
 export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
-  const installed = new Set(installedMounts(input.assigned, input.refusedMountIds).map(([id]) => id));
   return {
-    // A refused Auto mount cannot settle: keep it so an older fixed flight cannot clear it.
-    delayMounts: delayMountsOf(input.assigned.filter(([id, mm]) => installed.has(id) || mm.meta.autoDelay)),
+    delayMounts: expectedDelayMountsOf(input.assigned, input.refusedMountIds),
     designKey: shortHash(input.physicsKey),
     motorSetKey: motorSetKeyOf(input.assigned, input.hardwareDeltaKg),
     motorDataKey: motorDataKeyOf(input.assigned),
