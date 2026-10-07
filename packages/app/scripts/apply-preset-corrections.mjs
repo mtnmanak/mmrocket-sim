@@ -57,6 +57,12 @@ const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
  */
 export const CORRECTIONS = [
   {
+    key: 'Transition|semroc|ta5055lr',
+    why: 'desktop 24.12 lists TA-5055L [R] at 20.128 g, 6.10 times its solid balsa body frustum (3.300 g at the stated density). Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.020128161401, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
     key: 'CenteringRing|balsamachining|cr5060w',
     why: 'upstream BMS.ORC ships OD 1.283 in on a T50-to-T60 ring; 1.593 in per bms-legacy.orc + CRDATA.CSV:147 + the CR5060-F sibling',
     fields: { outsideDiameter: { bad: 0.0325882, good: 0.0404622 } },

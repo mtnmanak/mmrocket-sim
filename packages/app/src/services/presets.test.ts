@@ -38,6 +38,33 @@ describe('bundled preset database', () => {
 });
 
 describe('presetPatch', () => {
+  it('uses geometry for SEMROC TA-5055L [R] without replacing a user weighing', async () => {
+    const rows = db.filter((p) => p.kind === 'Transition' && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]');
+    expect(rows).toHaveLength(1);
+    const p = rows[0]!;
+    const patch = presetPatch('transition', p);
+    expect(p.mass).toBeUndefined();
+    expect(patch['overrideMass']).toBeUndefined();
+    expect(patch).toMatchObject({
+      filled: true, shape: 'conical', density: 128.1477072, length: 0.0381,
+      foreRadius: 0.0168275, aftRadius: 0.0123952,
+      foreShoulderRadius: 0.0162941, aftShoulderRadius: 0.012065,
+      foreShoulderLength: 0.0127, aftShoulderLength: 0.0127,
+    });
+    const node: ComponentNode = { type: 'transition', id: 'reducer', overrideMass: 0.006 };
+    const picked = { ...node, ...presetPatch('transition', p, { node, presets: db }) };
+    expect(picked.overrideMass).toBe(0.006);
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const { defaultParams } = await import('../tree/schema.js');
+    resetEngine();
+    const fresh: ComponentNode = { type: 'transition', id: 'reducer', ...defaultParams('transition'), ...patch };
+    const mass = OrkRocket.buildTree(engineTree({ components: [fresh] })).componentInfo('reducer').mass;
+    // Body frustum through fully solid shoulders: 3.300–5.401 g, rounded outwards.
+    expect(mass).toBeGreaterThan(0.00329);
+    expect(mass).toBeLessThan(0.00542);
+  });
+
   it('maps a real body tube preset to node params', () => {
     const p = db.find((x) => x.kind === 'BodyTube'
       && numOpt(x, 'outsideDiameter') !== undefined && numOpt(x, 'insideDiameter') !== undefined)!;
