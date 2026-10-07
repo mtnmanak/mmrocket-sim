@@ -15,7 +15,7 @@ import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
 import { changedSinceRun, commentLevelsAlign, motorDataKeyOf, recommendDelay, runMatchesDesign, storedSimCost } from './simReport.js';
 import { deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, physicsKeyOf, provenanceKeyOf, type DesignState } from './designDerivation.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
-import { flownSpec, motorIdentity } from './hardwareMass.js';
+import { flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity } from './hardwareMass.js';
 import { padMassSetKey } from './configSync.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
@@ -1017,7 +1017,8 @@ it.each([
   { name: 'weighed target', sideMount: false, weighed: true, targetId: 'mount' },
   { name: 'two catalogue mounts', sideMount: true, weighed: false, targetId: 'mount' },
   { name: 'weighed retained mount', sideMount: true, weighed: true, targetId: 'side' },
-])('K7: design-page provenance matches a real batch row with $name', async ({ sideMount, weighed, targetId }) => {
+  { name: 'legacy weighed retained mount', sideMount: true, weighed: true, targetId: 'side', legacy: true },
+])('K7: design-page provenance matches a real batch row with $name', async ({ sideMount, weighed, targetId, legacy }) => {
   const tree = rocket({ sideMount });
   const state = designState(tree, {
     mount: loadedMotor('a', 'E20'),
@@ -1026,7 +1027,7 @@ it.each([
   if (weighed) {
     const dryKg = OrkRocket.buildTree(engineTree(tree)).staticInfo().massEmpty;
     state.mountMotors.mount!.padMassKg = dryKg + (sideMount ? 0.14 : 0.07) + 0.01;
-    state.mountMotors.mount!.padMassWeighedWith = padMassSetKey(tree, state.mountMotors);
+    state.mountMotors.mount!.padMassWeighedWith = legacy ? LEGACY_PAD_MASS_KEY : padMassSetKey(tree, state.mountMotors);
   }
   const derived = deriveLaunchInputs(state, provenanceAero);
   const built = buildDesign(designBuildInputOf({
@@ -1051,7 +1052,8 @@ it.each([
     assignedMotors: Object.fromEntries(derived.assigned.map(([id, motor]) => [id, flownSpec(id, motor.spec, hw)])),
     assignedMotorIds: batchMotorIds(state.mountMotors),
     assignedIgnitions: Object.fromEntries(derived.assigned.map(([id, motor]) => [id, motor.ignition])),
-    ...(hw.state === 'ok' ? { weighed: {
+    ...(hw.state === 'ok' ? { retainedHardware: { mountId: hw.appliedTo, deltaKg: hw.deltaKg } } : {}),
+    ...(hw.state === 'ok' && !legacy ? { weighed: {
       mountId: hw.appliedTo, identity: motorIdentity(state.mountMotors[hw.appliedTo]!.meta, 'E20'),
       pinned: false, name: 'E20', perMotorShiftKg: hw.perMotorShiftKg, deltaKg: hw.deltaKg,
     } } : {}),
@@ -1061,6 +1063,7 @@ it.each([
   });
   expect(rows[0]!.error).toBeUndefined();
   const run = rows[0]!.run!;
+  expect(run.launchMass).toBeCloseTo(built.info.mass, 8);
   expect(run.motorDataKey).toBe(cur.motorDataKey);
   expect(run.motorDataKeys).toEqual(cur.motorDataKeys);
   expect(run.motorSetKey).toBe(cur.motorSetKey);
@@ -1073,6 +1076,57 @@ it.each([
   expect(storedSimCost([run], current(), tree.name!)).toBeNull();
 }, 30000);
 
+
+it.each(['removed', 'refused', 'target'] as const)('R9: excludes retained hardware for a %s mount', async (kind) => {
+  const tree = rocket({ sideMount: true });
+  const motor = loadedMotor('a', 'E20');
+  motor.padMassWeighedWith = LEGACY_PAD_MASS_KEY;
+  const mountId = kind === 'removed' ? 'missing' : kind === 'target' ? 'mount' : 'side';
+  const base = input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false,
+    assignedMountMotors: { [mountId]: motor },
+    assignedMotors: { [mountId]: { ...motor.spec, masses: motor.spec.masses.map((m) => m + 0.01) } },
+    assignedIgnitions: { [mountId]: { event: 'invalid' as MountMotor['ignition']['event'], delay: 0 } },
+  });
+  const deps = { fetchSpec: fetchFrom({ a: motor.spec }), nozzleFor: nozzles({}) };
+  const control = (await sweep(base, deps)).rows[0]!;
+  const result = (await sweep({ ...base, retainedHardware: { mountId, deltaKg: 0.01 } }, deps)).rows[0]!;
+  expect(result.error).toBeUndefined();
+  expect(result.run!.motorSetKey).toBe(control.run!.motorSetKey);
+  expect(result.run!.launchMass).toBeCloseTo(control.run!.launchMass!, 8);
+  if (kind === 'target') {
+    expect(result.run!.launchMass).toBeCloseTo(base.info.massEmpty + 0.07, 8);
+  }
+});
+
+it('R9: retains legacy hardware provenance and flown mass in single and mixed rows', async () => {
+  const tree = clusterRocket('4-ring');
+  tree.components[0]!.children!.find((n) => n.id === 'bt')!.children!.push({ type: 'innertube', id: 'side', length: 0.2,
+    outerRadius: 0.0125, thickness: 0.0005, motorMount: true } as ComponentNode);
+  const split = splitClusterTree(tree, 'mount')!;
+  const side = loadedMotor('c', 'E24');
+  side.padMassWeighedWith = LEGACY_PAD_MASS_KEY;
+  const base = input(tree, {
+    mounts: [{ ...MOUNT, motorCount: 4 }, { ...MOUNT, id: 'side' }],
+    target: { ...MOUNT, motorCount: 4 }, splits: [split],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')], autoDelay: false,
+    assignedMountMotors: { side }, assignedMotorIds: { side: 'c' },
+    assignedMotors: { side: { ...side.spec, masses: side.spec.masses.map((m) => m + 0.01) } },
+    assignedIgnitions: { side: side.ignition },
+  });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) };
+  const control = await sweep(base, deps);
+  const result = await sweep({ ...base, retainedHardware: { mountId: 'side', deltaKg: 0.01 } }, deps);
+  expect(result.rows).toHaveLength(3);
+  expect(result.rows.filter((r) => r.combo)).toHaveLength(1);
+  for (const [index, row] of result.rows.entries()) {
+    expect(row.error).toBeUndefined();
+    expect(row.run!.launchMass).toBeCloseTo(control.rows[index]!.run!.launchMass!, 8);
+    expect(row.run!.launchMass).toBeCloseTo(base.info.massEmpty + 0.36, 8);
+    expect(row.run!.motorSetKey).toBe(`${control.rows[index]!.run!.motorSetKey}|hw:100`);
+    expect(row.run!.motorDataKey).toBe(control.rows[index]!.run!.motorDataKey);
+  }
+});
 
 it('K7: plugged exception provenance matches Auto and rejects P on charge recovery', async () => {
   const tree = rocket({ deployEvent: 'ejection' });

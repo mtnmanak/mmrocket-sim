@@ -1129,4 +1129,6 @@ it('the Batch weighed-pad note receives the loaded designation without its delay
   await act(async () => { button(host, 'Batch simulate motors…').click(); });
   await waitFor(() => batchDialog !== null, 'batch dialog');
   expect(batchDialog!.weighed?.name).toBe('F67C');
+  expect(batchDialog!.retainedHardware?.mountId).toBe(mount);
+  expect(batchDialog!.retainedHardware?.deltaKg).toBeCloseTo(0.005, 8);
 });

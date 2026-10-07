@@ -497,7 +497,7 @@ export function batchProgressAnnouncement(done: number, total: number): string |
   return `${Math.round((done / total) * 100)} percent — ${group(done)} of ${group(total)} flights.`;
 }
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -541,6 +541,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
    *  {@link BatchWeighed}); the candidate matching it on its mount flies
    *  shifted, every other row at catalogue weight. */
   weighed?: BatchWeighed;
+  /** Accepted hardware already in the retained mounts' specs; separate from candidate eligibility. */
+  retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
   launch: LaunchConditions;
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
@@ -705,7 +707,7 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
     try {
       const { rows: out, stopped } = await runBatchSweep({
         tree, info, mounts, target: sel, candidates, splits,
-        assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed,
+        assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,
         model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
       // The run ENDING used to be invisible: the progress bar and its
@@ -851,11 +853,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
   const sweepIdentity = useMemo(() => ({
     totalFlights, candidates, criteria, mountId, comboMode, pairMode, clusterSplit, pairSplit,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
-    assignedIgnitions, assignedAutoDelays, weighed, batchModel, launch, rocketName,
+    assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   }), [
     totalFlights, candidates, criteria, mountId, comboMode, pairMode, clusterSplit, pairSplit,
     tree, info, mounts, sel, assignedMountMotors, assignedMotors, assignedMotorIds,
-    assignedIgnitions, assignedAutoDelays, weighed, batchModel, launch, rocketName,
+    assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, batchModel, launch, rocketName,
   ]);
   const [confirmedSweep, setConfirmedSweep] = useState<object | null>(null);
   const armed = batchConfirmationArmed(confirmedSweep, sweepIdentity, totalFlights, refusal);
