@@ -1,4 +1,4 @@
-import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.js';
+import { delayMountsOf, normalizeDelayResolution, readDelay, resolutionMatches } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { installedMounts } from './flightRunner.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
@@ -269,8 +269,12 @@ export function flownAutoDelays(input: FlightDataForExportInput): Record<string,
     for (const key of keys) {
       if (key in out) continue;
       const described = describedMotors({ ...r, flightConfigId: key || undefined }, input);
-      if (!described || !resolutionMatches(r.delayResolution, delayMountsOf(described.flown))) continue;
-      const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
+      if (!described) continue;
+      const resolution = normalizeDelayResolution(r.delayResolution, { ...r,
+        currentMotorDataKeys: Object.fromEntries(described.motors.map(m => [m[0], motorDataKeyOf([m])])),
+      });
+      if (!resolutionMatches(resolution, delayMountsOf(described.flown))) continue;
+      const autos = resolution.mounts.filter((m) => m.mode === 'auto');
       if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
     }
   }
@@ -290,10 +294,13 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
       // result of a configuration with it. So for a configuration with a
       // refused motor the file names the delays its Auto flew (flownAutoDelays)
       // and carries no flight data.
-      if (!resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
+      const resolution = normalizeDelayResolution(r.delayResolution, { ...r,
+        currentMotorDataKeys: Object.fromEntries(motors.map(m => [m[0], motorDataKeyOf([m])])),
+      });
+      if (!resolutionMatches(resolution, delayMountsOf(motors))) continue;
       if (!motors.every(([id, mm]) => {
         const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
-        return readDelay(r.delayResolution!.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
+        return readDelay(resolution.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
       })) continue;
     } else continue; // A legacy scalar cannot establish the flown delay policy.
     out[r.flightConfigId] = summaryOf(r);

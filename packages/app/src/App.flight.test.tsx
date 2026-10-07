@@ -892,6 +892,61 @@ describe('the time-step caution’s measured cost', () => {
   }, 30000);
 });
 
+describe('R7 historical Batch replay', () => {
+  it.each([false, true])('recovers charts and downloads full series for Auto=%s, then rejects a toggle', async (autoDelay) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const original = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const motor = { ...original, spec: { ...original.spec, designation: 'E22' },
+      meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    let host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the reference flight');
+    await unmountAll();
+    const saved: SimRun[] = JSON.parse(localStorage.getItem(RUNS_KEY)!);
+    saved[0]!.delayResolution!.mounts[0]!.motorIdentity = '/E22';
+    localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
+    const before = localStorage.getItem(RUNS_KEY);
+    host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    if (autoDelay) {
+      expect(host.textContent).toContain('Auto flew');
+      expect(host.textContent).not.toContain('Previous flight: Auto flew');
+    }
+    await openTab(host, 'Results');
+    await openHistory(host);
+    const run = history!.runs[0]!;
+    expect(history!.canShowCharts!(run)).toBe(true);
+    await act(async () => { history!.onShowCharts!(run); });
+    await waitFor(() => !!charts?.onFullSeries && !history!.reflyingId, 'the recovered charts');
+    expect(button(host, '⬇ Flight data (.csv)').disabled).toBe(false);
+    const full = await act(async () => charts!.onFullSeries!());
+    expect(full.series.time.length).toBeGreaterThan(1);
+    expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(RUNS_KEY)).toBe(before);
+    await openTab(host, 'Motors & Launch');
+    if (autoDelay) {
+      const wind = input(host, 'Wind avg');
+      const originalWind = wind.value;
+      await type(wind, '8');
+      expect(host.textContent).toContain('Previous flight: Auto flew');
+      await type(wind, originalWind);
+    }
+    const label = [...host.querySelectorAll('label')].find(el => el.textContent?.trim() === 'auto (optimal)')!;
+    await act(async () => { label.querySelector('input')!.click(); });
+    await openTab(host, 'Results');
+    await openHistory(host);
+    expect(history!.canShowCharts!(run)).toBe(false);
+    expect(hasHeading(host, 'Flight plots')).toBe(false);
+    expect(hasButton(host, '⬇ Flight data (.csv)')).toBe(false);
+    await act(async () => { history!.onShowCharts!(run); });
+    expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
+  }, 30000);
+});
+
 /**
  * THE AUTO-DELAY CARD QUOTES ONLY THIS DESIGN'S FLIGHTS (audit 2026-09-30).
  * With no flight of the design as it stands, the card under an Auto motor falls

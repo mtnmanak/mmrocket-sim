@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { probeFlight, testMotor } from './autoDelay.testSupport.js';
+import { probeFlight, testMotor, testResolution } from './autoDelay.testSupport.js';
 import { addRun, loadRuns } from './simStore.js';
-import type { SimRun } from './simReport.js';
+import { motorDataKeyOf, type SimRun } from './simReport.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -451,4 +451,37 @@ describe('flight runner — a motor whose ignition nothing knows stays OFF the h
     });
     expect(rocket.staticInfo().mass).toBeCloseTo(info.massEmpty, 9);
   }, 60_000);
+});
+
+describe('R7 historical Batch refly', () => {
+  it.each([false, true])('flies the recorded vector with Auto=%s and rejects policy/identity changes', (autoDelay) => {
+    const motor: MountMotor = { ...testMotor(autoDelay, 5),
+      spec: { ...testMotor(autoDelay, 5).spec, designation: 'E22' },
+      meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
+    const assigned: [string, MountMotor][] = [['side', motor]];
+    const resolution = testResolution(assigned, [autoDelay ? 3 : 5]);
+    resolution.mounts[0]!.motorIdentity = '/E22';
+    const saved: Pick<SimRun, 'delayResolution' | 'motorSetKey' | 'motorDataKeys'> = JSON.parse(JSON.stringify({ delayResolution: resolution,
+      motorSetKey: 'side:Acme/E22:5:automatic:0', motorDataKeys: { side: motorDataKeyOf(assigned) } }));
+    const before = JSON.stringify(saved);
+    const delayIdentity = { ...saved, currentMotorDataKeys: { side: motorDataKeyOf(assigned) } };
+    const input = { assigned, hardware: undefined, primaryMountId: 'side',
+      delayS: autoDelay ? 3 : 5, delayResolution: saved.delayResolution, delayIdentity,
+      simOptions: {}, fly: { kbf: false, supersonic: false }, restore: { kbf: false, supersonic: false } };
+    const { handle, calls } = recordingHandle();
+    reflyRun(handle, input);
+    const atFlight = calls.findIndex(c => c[0] === 'simulate');
+    expect(calls.slice(0, atFlight).filter(c => c[0] === 'motor').at(-1)).toEqual(['motor', 'side', autoDelay ? 3 : 5]);
+    expect(calls.filter(c => c[0] === 'motor').at(-1)).toEqual(['motor', 'side', 5]);
+    expect(JSON.stringify(saved)).toBe(before);
+    calls.length = 0;
+    const toggled: [string, MountMotor][] = [['side', { ...motor, meta: { ...motor.meta, autoDelay: !autoDelay } }]];
+    expect(() => reflyRun(handle, { ...input, assigned: toggled })).toThrow('no longer match');
+    for (const identity of [
+      { ...delayIdentity, motorSetKey: 'side:Acme/E20:5:automatic:0' },
+      { ...delayIdentity, currentMotorDataKeys: { side: 'different-curve' } },
+      undefined,
+    ]) expect(() => reflyRun(handle, { ...input, delayIdentity: identity })).toThrow('no longer match');
+    expect(calls.some(c => c[0] === 'simulate')).toBe(false);
+  });
 });

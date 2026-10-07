@@ -74,6 +74,38 @@ export function validDelayResolution(value: unknown): value is DelayResolution {
   });
 }
 
+/** Saved identity evidence plus the current fingerprints used only as a guard. */
+export interface DelayIdentityContext {
+  motorSetKey?: string;
+  motorDataKeys?: Record<string, string>;
+  currentMotorDataKeys?: Record<string, string>;
+}
+
+/** Repair only the historical Batch manufacturer omission, without mutating history. */
+export function normalizeDelayResolution(r: unknown, identity?: DelayIdentityContext): DelayResolution | undefined {
+  if (!validDelayResolution(r)) return undefined;
+  // Old Batch flyLegs omitted manufacturer on retained ID-less motors. Recover
+  // only that identity omission from THIS run's mount entry, never today's motor.
+  // Keep the recorded policy/delay intact and do not rewrite persisted evidence.
+  const mounts = r.mounts.map((flown) => {
+    if (!flown.motorIdentity.startsWith('/') || flown.motorIdentity.length === 1) return flown;
+    const prefix = `${flown.mountId}:`;
+    const entries = identity?.motorSetKey?.split('|').filter((entry) => entry.startsWith(prefix));
+    if (entries?.length !== 1) return flown;
+    const fields = entries[0]!.slice(prefix.length).split(':');
+    // ID-less entries are identity:delay:event:ignitionDelay. Refuse ambiguous
+    // delimiters and EX IDs rather than treating them as manufacturer names.
+    if (fields.length !== 4) return flown;
+    const savedIdentity = fields[0]!;
+    const slash = savedIdentity.indexOf('/');
+    if (slash <= 0 || savedIdentity.slice(slash) !== flown.motorIdentity) return flown;
+    const fingerprint = identity?.motorDataKeys?.[flown.mountId];
+    if (fingerprint !== undefined && fingerprint !== identity?.currentMotorDataKeys?.[flown.mountId]) return flown;
+    return { ...flown, motorIdentity: savedIdentity };
+  });
+  return { ...r, mounts };
+}
+
 export function resolutionMatches(r: unknown, mounts: readonly DelayMount[]): r is DelayResolution {
   return validDelayResolution(r) && r.mounts.length === mounts.length && mounts.every((m) => {
     const flown = r.mounts.find((x) => x.mountId === m.mountId);
@@ -85,10 +117,14 @@ export function resolutionMatches(r: unknown, mounts: readonly DelayMount[]): r 
 /** Legacy scalar replay is unambiguous for one mount, or an unchanged fixed vector. */
 export function canReplayDelays(
   resolution: unknown, assigned: readonly (readonly [string, MountMotor])[], primaryId: string, delayS: number,
+  identity?: DelayIdentityContext,
 ): boolean {
   if (!(delayS === Infinity || (finite(delayS) && delayS >= 0))) return false;
-  if (resolution !== undefined) return resolutionMatches(resolution, delayMountsOf(assigned))
-    && resolution.mounts.some((m) => m.mountId === primaryId && readDelay(m.flownDelay) === delayS);
+  if (resolution !== undefined) {
+    const normalized = normalizeDelayResolution(resolution, identity);
+    return resolutionMatches(normalized, delayMountsOf(assigned))
+      && normalized.mounts.some((m) => m.mountId === primaryId && readDelay(m.flownDelay) === delayS);
+  }
   const primary = assigned.find(([id]) => id === primaryId)?.[1];
   return !!primary && (assigned.length === 1
     || (assigned.every(([, mm]) => !mm.meta.autoDelay) && delayS === primary.spec.ejectionDelay));

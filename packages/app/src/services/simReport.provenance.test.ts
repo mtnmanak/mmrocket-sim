@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { testResolution } from './autoDelay.testSupport.js';
-import { delayMountsOf } from './autoDelaySolver.js';
+import { canReplayDelays, delayMountsOf } from './autoDelaySolver.js';
 import { withAuto } from './mountDelayEdits.js';
 import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { flightDataForExport } from './orkFlightData.js';
@@ -290,6 +290,8 @@ describe('R7 historical Batch manufacturer omission', () => {
     const key = designMatchKeyOf({ ...INPUT, assigned: assigned(auto) });
     expect(changedSinceRun(run, key)).toEqual([]);
     expect(runMatchesDesign(run, key)).toBe(true);
+    expect(canReplayDelays(run.delayResolution, assigned(auto), 'target', 5,
+      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(true);
     expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
     expect(JSON.stringify(run)).toBe(before);
     // Fingerprints were not always persisted; the run's named identity is still evidence.
@@ -303,6 +305,8 @@ describe('R7 historical Batch manufacturer omission', () => {
     expect(run.motorSetKey).toBe(key.motorSetKey);
     expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
     expect(runMatchesDesign(run, key)).toBe(false);
+    expect(canReplayDelays(run.delayResolution, assigned(!auto), 'target', 5,
+      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(false);
     expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
   });
 
@@ -322,6 +326,8 @@ describe('R7 historical Batch manufacturer omission', () => {
     // today's delayMounts name Acme/E22; the run must establish its own identity.
     const comparison = { ...key, motorSetKey: motorSetKey ?? key.motorSetKey };
     expect(runMatchesDesign(run, comparison)).toBe(false);
+    expect(canReplayDelays(run.delayResolution, assigned(false), 'target', 5,
+      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(false);
     expect(matchingRecoveryEvents([run], comparison, () => undefined)).toBeUndefined();
     expect(changedSinceRun(run, comparison)).toEqual(['the motor delay policy']);
   });
@@ -333,6 +339,8 @@ describe('R7 historical Batch manufacturer omission', () => {
     expect(runMatchesDesign(run, otherVendor)).toBe(false);
     expect(runMatchesDesign(run, { ...key, motorDataKey: 'changed-curve' })).toBe(false);
     expect(runMatchesDesign(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
+    expect(canReplayDelays(run.delayResolution, assigned(false), 'target', 5,
+      { ...run, currentMotorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
     run.delayResolution!.mounts[1]!.flownDelay = 6;
     expect(runMatchesDesign(run, key)).toBe(false);
   });

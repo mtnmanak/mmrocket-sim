@@ -6,7 +6,7 @@ import { flownSpec, type HardwareMassResult } from './hardwareMass.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { withLoadSeries } from './flightLoads.js';
 import { MACH_AUTO_THRESHOLD, machProbeSeconds } from './machProbe.js';
-import { canReplayDelays, delayMountsOf, readDelay, solveAutoDelays, type DelayResolution } from './autoDelaySolver.js';
+import { canReplayDelays, delayMountsOf, readDelay, solveAutoDelays, type DelayResolution, type DelayIdentityContext } from './autoDelaySolver.js';
 
 /**
  * THE KERNEL-HANDLE PROTOCOL: every flight the app flies on a design's SHARED
@@ -298,6 +298,7 @@ async function flyFromCleanHandle(
 }
 
 export interface ReflyInput extends AssignedMotors {
+  delayIdentity?: DelayIdentityContext;
   delayResolution?: DelayResolution;
   primaryMountId: string;
   /** The ejection delay the stored run FLEW (`SimRun.delayS`). */
@@ -337,7 +338,7 @@ export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult 
   }
   applyAssignedMotors(rocket, input);
   try {
-    if (!canReplayDelays(input.delayResolution, installed.assigned, primaryMountId, delayS)) {
+    if (!canReplayDelays(input.delayResolution, installed.assigned, primaryMountId, delayS, input.delayIdentity)) {
       throw new Error('Saved mount delays are incomplete or no longer match. Launch again.');
     }
     if (input.delayResolution !== undefined) {

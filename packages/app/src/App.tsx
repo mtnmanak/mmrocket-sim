@@ -84,7 +84,7 @@ import { classLabel, diameterClass } from './services/motorDb.js';
 import { ignitionDefaultFor } from './services/ignitionDefault.js';
 import { orkMotorSet, type FlownAutoDelays } from './services/orkExportMotors.js';
 import { withAuto, withDelay, withPlugged } from './services/mountDelayEdits.js';
-import { canReplayDelays, delayMountsOf, resolutionMatches, validDelayResolution } from './services/autoDelaySolver.js';
+import { canReplayDelays, delayMountsOf, normalizeDelayResolution, resolutionMatches } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
 import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
@@ -1861,7 +1861,8 @@ export function App() {
     // The mounts the run FLEW, as reflyRun will see them — a refused motor
     // was never in its delay vector (flightRunner.installedMounts).
     return runMatchesDesign(run, currentMatchKey)
-      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), primaryMountId, run.delayS);
+      && canReplayDelays(run.delayResolution, installedMounts(assigned, refusedMountIds), primaryMountId, run.delayS,
+        { ...run, currentMotorDataKeys: currentMatchKey.motorDataKeys });
   }, [currentMatchKey, built, primaryMountId, reflightCache, assigned, refusedMountIds]);
 
   /**
@@ -1909,6 +1910,7 @@ export function App() {
       const res = reflyRun(built.rocket, {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
+        delayIdentity: { ...run, currentMotorDataKeys: provenanceKey.motorDataKeys },
         simOptions: kernelSimOptions(launch),
         fly: current,
         restore: current,
@@ -1920,7 +1922,7 @@ export function App() {
     } finally {
       setReflying(null);
     }
-  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, cacheFlight, canShowCharts]);
+  }, [built, primaryMountId, assigned, refusedMountIds, launch, effectiveSupersonic, effectiveKbf, effectiveHybrid, cacheFlight, canShowCharts, provenanceKey.motorDataKeys]);
 
   /**
    * Re-flies the LAST launch with `series: 'full'` for the flight-data CSV.
@@ -1960,6 +1962,7 @@ export function App() {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
+        delayIdentity: { ...lastRun, currentMotorDataKeys: provenanceKey.motorDataKeys },
         simOptions: { ...kernelSimOptions(launch), series: 'full' },
         fly: { supersonic: wasSupersonic, kbf: wasKbf, hybrid: lastRun.aeroModel === 'hybrid' },
         // Hand the shared handle back on the CURRENT model: the drag panel and
@@ -3993,17 +3996,19 @@ export function App() {
               // another design's "Previous flight" under this motor (audit
               // 2026-09-30).
               const delayRun = runs.find((r) => runMatchesDesign(r, provenanceKey)
-                && resolutionMatches(r.delayResolution, flownDelayMounts))
+                && resolutionMatches(normalizeDelayResolution(r.delayResolution,
+                  { ...r, currentMotorDataKeys: provenanceKey.motorDataKeys }), flownDelayMounts))
                 ?? runs.find((r) => r.designKey === provenanceKey.designKey
                   && (typeof r.motorDataKeys === 'object' && r.motorDataKeys !== null && !Array.isArray(r.motorDataKeys)
                     ? r.motorDataKeys[m.id!] !== undefined
                       && r.motorDataKeys[m.id!] === provenanceKey.motorDataKeys?.[m.id!]
                     : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
-                  && validDelayResolution(r.delayResolution)
-                  && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
+                  && normalizeDelayResolution(r.delayResolution,
+                    { ...r, currentMotorDataKeys: provenanceKey.motorDataKeys })?.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
                     && d.motorIdentity === flownDelayMounts.find((mount) => mount.mountId === m.id)?.motorIdentity));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
-                && resolutionMatches(delayRun.delayResolution, flownDelayMounts);
+                && resolutionMatches(normalizeDelayResolution(delayRun.delayResolution,
+                  { ...delayRun, currentMotorDataKeys: provenanceKey.motorDataKeys }), flownDelayMounts);
               return (
                 <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>

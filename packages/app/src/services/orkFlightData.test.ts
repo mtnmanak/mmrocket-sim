@@ -3,7 +3,7 @@ import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
-import { motorDataKeyOf, type SimRun } from './simReport.js';
+import { motorDataKeyOf, motorSetKeyOf, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -512,6 +512,42 @@ describe('flightDataForExport — the flown delay must be the one the file names
  * flight of the design as it stands flew is what the file now names, and the
  * flight data written beside it is that flight's.
  */
+describe('R7 historical Batch export', () => {
+  it.each([false, true])('exports recorded delays and flight data for Auto=%s, rejecting toggles', (autoDelay) => {
+    const motor: MountMotor = { ...MOTOR, spec: { ...MOTOR.spec, designation: 'E22', ejectionDelay: 5 },
+      meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
+    const assigned: [string, MountMotor][] = [['m1', motor]];
+    const resolution = testResolution(assigned, [autoDelay ? 3 : 5]);
+    resolution.mounts[0]!.motorIdentity = '/E22';
+    const run: SimRun = JSON.parse(JSON.stringify({ ...RUN, delayS: autoDelay ? 3 : 5,
+      motorSetKey: 'm1:Acme/E22:5:automatic:0', motorDataKey: motorDataKeyOf(assigned),
+      motorDataKeys: { m1: motorDataKeyOf(assigned) }, delayResolution: resolution }));
+    const before = JSON.stringify(run);
+    const state = base({ runs: [run], assigned, motorSetKeyOf,
+      savedConfigs: [{ ...CONFIG, motors: { m1: motor } }] });
+    const flown = flownAutoDelays(state);
+    expect(flown).toEqual(autoDelay ? { c1: { m1: 3 } } : {});
+    expect(Object.keys(flightDataForExport(state))).toEqual(['c1']);
+    const tree = { components: [{ type: 'stage' as const, id: 'stage', children: [
+      { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+    ] }] };
+    const motors = orkMotorSet({ records: { m1: motor }, refs: {}, tree, flown, configKey: 'c1',
+      exLibrary: () => [], first: 'records' });
+    const xml = exportOrk({ name: 'Historical Batch', tree, launch: DEFAULT_CONDITIONS, motors,
+      configs: [{ ...CONFIG, motors }], activeConfigId: 'c1', flightData: flightDataForExport(state) });
+    expect(Object.values(importOrk(xml).configs[0]!.motors).map(m => m.delay)).toEqual([autoDelay ? 3 : 5]);
+    expect(xml).toContain('<flightdata');
+    expect(JSON.stringify(run)).toBe(before);
+    const toggled = { ...motor, meta: { ...motor.meta, autoDelay: !autoDelay } };
+    const changed = { ...state, assigned: [['m1', toggled]] as [string, MountMotor][] };
+    expect(flownAutoDelays(changed)).toEqual({});
+    expect(flightDataForExport(changed)).toEqual({});
+    const badFingerprint = { ...state, runs: [{ ...run, motorDataKeys: { m1: 'different-curve' } }] };
+    expect(flownAutoDelays(badFingerprint)).toEqual({});
+    expect(flightDataForExport(badFingerprint)).toEqual({});
+  });
+});
+
 describe('flownAutoDelays - complete settled vectors', () => {
   const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
   const assigned: [string, MountMotor][] = [['m1', auto], ['side', auto]];
