@@ -559,6 +559,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     });
   };
 
+  const solidShouldersWithoutRadius: { node: ComponentNode; key: string }[] = [];
+  const readShoulder = (el: XmlElement, node: ComponentNode, key: string, lengthTag: string, diameterTag: string): void => {
+    // Read independently: a stated zero length/radius means no shoulder, whereas
+    // an omitted dimension can be supplied by the catalogue.
+    const length = num(el, lengthTag, NaN) / LEN;
+    const radius = num(el, diameterTag, NaN) / RAD;
+    if (Number.isFinite(length)) node[`${key}Length`] = length;
+    if (Number.isFinite(radius)) node[`${key}Radius`] = radius;
+    // RockSim has one ConstructionType and WallThickness for the whole part,
+    // not a separate shoulder wall/solid flag (desktop *Handler.endHandler).
+    // In particular a hollow file must not acquire a solid catalogue shoulder.
+    if (node['filled'] === true) {
+      if (Number.isFinite(radius)) node[`${key}Thickness`] = radius;
+      else solidShouldersWithoutRadius.push({ node, key });
+    } else {
+      node[`${key}Thickness`] = node['thickness'];
+    }
+  };
+
   const convertPart = (el: XmlElement, parent: ComponentNode | null): ComponentNode | null => {
     const tag = el.tagName;
     const mk = (type: ComponentNode['type']): ComponentNode => {
@@ -581,14 +600,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // unset took the catalogue's `filled: true`, 19.6 g → 107.8 g on a Rocketarium
         // HIPS nose.
         n['filled'] = Math.round(num(el, 'ConstructionType', 1)) === 0;
-        const shoulderLen = num(el, 'ShoulderLen', 0);
-        if (shoulderLen > 0) {
-          n['shoulderLength'] = shoulderLen / LEN;
-          n['shoulderRadius'] = num(el, 'ShoulderOD', 0) / RAD;
-          n['shoulderThickness'] = n['filled'] === true
-            ? (n['shoulderRadius'] as number)
-            : (n['thickness'] as number);
-        }
+        readShoulder(el, n, 'shoulder', 'ShoulderLen', 'ShoulderOD');
         // RockSim's <BaseExtensionLen>: a cylinder at BaseDia, aft of the cone.
         // The file's own <Station> chain proves it — 4in WM Extreme.rkt has
         // Len 495 + BaseExt 14.0005 and the next part's Station is 509;
@@ -616,23 +628,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         readShapeParameter(num, el, n);
         // Either way, for the reason on the NoseCone branch above.
         n['filled'] = Math.round(num(el, 'ConstructionType', 1)) === 0;
-        const fsl = num(el, 'FrontShoulderLen', 0);
-        if (fsl > 0) {
-          n['foreShoulderLength'] = fsl / LEN;
-          n['foreShoulderRadius'] = num(el, 'FrontShoulderDia', 0) / RAD;
-          // K15: desktop TransitionHandler uses wall thickness, or a solid plug.
-          n['foreShoulderThickness'] = n['filled'] === true
-            ? (n['foreShoulderRadius'] as number)
-            : (n['thickness'] as number);
-        }
-        const rsl = num(el, 'RearShoulderLen', 0);
-        if (rsl > 0) {
-          n['aftShoulderLength'] = rsl / LEN;
-          n['aftShoulderRadius'] = num(el, 'RearShoulderDia', 0) / RAD;
-          n['aftShoulderThickness'] = n['filled'] === true
-            ? (n['aftShoulderRadius'] as number)
-            : (n['thickness'] as number);
-        }
+        readShoulder(el, n, 'foreShoulder', 'FrontShoulderLen', 'FrontShoulderDia');
+        readShoulder(el, n, 'aftShoulder', 'RearShoulderLen', 'RearShoulderDia');
         convertAttached(el, n);
         return n;
       }
@@ -1455,6 +1452,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     Object.fromEntries(recoveryNodes.filter((n) => n.id).map((n) => [n.id!, deploymentFor(n, simulation)]));
   for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
+  // ConstructionType also governs a radius the file omitted and the catalogue
+  // supplied. Even a hollow catalogue row cannot undo the file's solid flag.
+  for (const { node, key } of solidShouldersWithoutRadius) {
+    const radius = numOpt(node, `${key}Radius`);
+    if (radius !== undefined) node[`${key}Thickness`] = radius;
+  }
 
   // A nose cone's <BaseExtensionLen> becomes a real body tube directly behind it.
   // Runs AFTER applyPresetLinks so a catalogue row has already filled the cone's

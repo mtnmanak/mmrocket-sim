@@ -1037,6 +1037,11 @@ export function applyPresetLinks(
     const statesHollow = (node.type === 'nosecone' || node.type === 'transition' || node.type === 'bodytube')
       && node['filled'] === undefined && numOpt(node, 'thickness') !== undefined;
     const stated = (key: string): unknown => (key === 'filled' && statesHollow ? false : node[key]);
+    // Either zero dimension states that this shoulder is absent. Do not fill
+    // its other dimensions or wall from a catalogue row, even if omitted.
+    const absentShoulders = (node.type === 'nosecone' ? ['shoulder']
+      : node.type === 'transition' ? ['foreShoulder', 'aftShoulder'] : [])
+      .filter((key) => node[`${key}Radius`] === 0 || node[`${key}Length`] === 0);
     /**
      * THE CONFLICT MARKER, tier (a) — the owner's caveat on the precedence
      * ruling (issues-2026-09-03b.md:26: *"in the case where file's explicit
@@ -1089,6 +1094,7 @@ export function applyPresetLinks(
       // flies, so there is nothing to fill — and "took solid from the
       // catalogue" would be a false note.
       if (key === 'filled' && value === false) continue;
+      if (absentShoulders.some((shoulder) => key.startsWith(shoulder))) continue;
       if (stated(key) === undefined) {
         node[key] = value;
         filled.add(wordsFor(node.type, key));
@@ -1109,7 +1115,7 @@ export function applyPresetLinks(
   if (lines.length > 0) {
     notes.push(
       `${lines.length} part${lines.length === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
-      + `The file's own values stand; the catalogue filled in only what the file left unset: ${lines.join('; ')}.`,
+      + `The file's own values stand, including zero dimensions and thicknesses; the catalogue fills only missing values: ${lines.join('; ')}.`,
     );
     // Said once, after the match sentence, and only when there is something to
     // say. It names the parts and the fields so a reader can go and look, and

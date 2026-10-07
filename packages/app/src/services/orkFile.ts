@@ -761,12 +761,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         }
         n['shape'] = text(el, ':scope > shape') ?? 'ogive';
         n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])), notes);
-        const shR = num(el, 'aftshoulderradius', 0, notes);
-        const shL = num(el, 'aftshoulderlength', 0, notes);
-        if (shR > 0) n['shoulderRadius'] = shR;
-        if (shL > 0) n['shoulderLength'] = shL;
-        const shT = num(el, 'aftshoulderthickness', 0, notes);
-        if (shT > 0) n['shoulderThickness'] = shT;
+        // Zero is stated geometry, not a gap for catalogue enrichment.
+        for (const field of ['Radius', 'Length', 'Thickness'] as const) {
+          const value = num(el, `aftshoulder${field.toLowerCase()}`, NaN, notes);
+          if (Number.isFinite(value)) n[`shoulder${field}`] = value;
+        }
         if (text(el, ':scope > aftshouldercapped') === 'true') n['shoulderCapped'] = true;
         return n;
       }
@@ -797,12 +796,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const clip = text(el, ':scope > shapeclipped');
         if (clip === 'true' || clip === 'false') n['clipped'] = clip === 'true';
         for (const [side, key] of [['fore', 'foreShoulder'], ['aft', 'aftShoulder']] as const) {
-          const r = num(el, `${side}shoulderradius`, 0, notes);
-          const l = num(el, `${side}shoulderlength`, 0, notes);
-          if (r > 0) n[`${key}Radius`] = r;
-          if (l > 0) n[`${key}Length`] = l;
-          const th = num(el, `${side}shoulderthickness`, 0, notes);
-          if (th > 0) n[`${key}Thickness`] = th;
+          for (const field of ['Radius', 'Length', 'Thickness'] as const) {
+            const value = num(el, `${side}shoulder${field.toLowerCase()}`, NaN, notes);
+            if (Number.isFinite(value)) n[`${key}${field}`] = value;
+          }
           // The disc closing the far end of the shoulder — real material the
           // desktop weighs. The nose-cone branch above has always read it, and
           // the exporter has always written it back; this branch did
