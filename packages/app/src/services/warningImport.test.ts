@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineWarning } from '@online-openrocket/engine';
 import { exportOrk, importOrk, type OrkExportFlightData } from './orkFile.js';
 import { planSummaryImport, summaryImportCounts } from './orkFlightData.js';
-import { addRuns, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed } from './simStore.js';
+import { addRuns, appendImportedRuns, deleteRun, loadRuns, MAX_RUNS, persistFailed, restoreRun } from './simStore.js';
+import { mergeStoredWarnings } from './storedRunIdentity.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const text: EngineWarning = { key: 'HighSpeedDeployment', message: 'Deployment at 30 m/s', priority: 'HIGH' };
@@ -38,13 +39,91 @@ describe('warning evidence on matching imported runs', () => {
   it('upgrades text warnings, preserves distinct warnings and makes repeat/older imports no-ops', () => {
     open(write([text, other]));
     const counts = open(write([structured, structured]));
-    expect(loadRuns()[0]!.simWarnings).toEqual([structured, other]);
+    expect(loadRuns()[0]!.simWarnings).toEqual([structured, other, structured]);
     expect(counts).toMatchObject({ added: 0, updated: 1 });
     const saved = localStorage.getItem('online-openrocket.sim-runs.v1');
-    for (const warnings of [[structured], [text], undefined, []]) {
+    for (const warnings of [[structured, structured], [structured], [text], undefined, []]) {
       expect(open(write(warnings))).toEqual({ added: 0, updated: 0, alreadySaved: 1, notKept: 0 });
       expect(localStorage.getItem('online-openrocket.sim-runs.v1')).toBe(saved);
     }
+  });
+
+  it('keeps identical occurrences on first import and takes the larger count on update', () => {
+    open(write([text, text]));
+    expect(loadRuns()[0]!.simWarnings).toEqual([text, text]);
+    expect(open(write([structured, structured, structured]))).toMatchObject({ updated: 1 });
+    expect(loadRuns()[0]!.simWarnings).toEqual([structured, structured, structured]);
+    expect(open(write([structured, structured, structured]))).toMatchObject({ updated: 0 });
+    expect(open(write([text, text]))).toMatchObject({ updated: 0 });
+    expect(loadRuns()[0]!.simWarnings).toHaveLength(3);
+  });
+
+  it('matches exact evidence before text-only occurrences, independently of order', () => {
+    const old = [text, structured];
+    expect(mergeStoredWarnings(old, [structured, text])).toBe(old);
+    expect(mergeStoredWarnings([structured], [text, structured])).toEqual([structured, text]);
+    const conflicting = { ...structured, sources: [{ id: 'other', name: 'Other' }] };
+    expect(mergeStoredWarnings([text, structured], [structured, conflicting]))
+      .toEqual([conflicting, structured]);
+  });
+
+  it('keeps conflicting extension evidence and compares object fields without property-order dependence', () => {
+    const first = { ...text, extra: { id: 1, label: 'one' } };
+    const second = { ...text, extra: { id: 2, label: 'two' } };
+    expect(mergeStoredWarnings([first, first], [second, second])).toEqual([first, first, second, second]);
+    const old = [first, first];
+    const reordered = { ...text, extra: { label: 'one', id: 1 } };
+    expect(mergeStoredWarnings(old, [reordered])).toBe(old);
+  });
+
+  it('pairs complementary partial evidence without reusing or stranding an occurrence', () => {
+    const quantityOnly = { ...text, quantity: structured.quantity };
+    const sourcesOnly = { ...text, sources: structured.sources };
+    const differentValue = { ...text, quantity: { kind: 'velocity' as const, value: 40 } };
+    const old = [text, quantityOnly];
+    const snapshot = structuredClone(old);
+    const merged = mergeStoredWarnings(old, [sourcesOnly, differentValue]);
+    expect(merged).toEqual([differentValue, structured]);
+    expect(old).toEqual(snapshot);
+    expect(mergeStoredWarnings(merged, [sourcesOnly, differentValue])).toBe(merged);
+  });
+
+  it('restores warning occurrences after delete, reopening an older export, and Undo', () => {
+    open(write([structured, structured]));
+    const deleted = loadRuns()[0]!;
+    deleteRun(deleted.id);
+    open(write());
+    restoreRun(deleted, null);
+    expect(loadRuns()).toHaveLength(1);
+    expect(loadRuns()[0]!.simWarnings).toEqual([structured, structured]);
+    expect(restoreRun(deleted, null)[0]!.simWarnings).toEqual([structured, structured]);
+  });
+
+  it.each([true, false])('merges both warning multisets when Undo finds a report (upgrade=%s)', (upgrade) => {
+    open(write([structured, structured, other]));
+    const summary = loadRuns()[0]!;
+    const full = { ...summary, importedSummary: undefined, simWarnings: [text, text], comments: 'Full report' };
+    if (!upgrade) {
+      deleteRun(summary.id);
+      addRuns([full]);
+    }
+    const restored = restoreRun(upgrade ? full : summary, null);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]!.importedSummary).toBeUndefined();
+    expect(restored[0]!.comments).toBe('Full report');
+    expect(restored[0]!.simWarnings).toEqual([structured, structured, other]);
+    expect(loadRuns()[0]!.simWarnings).toEqual([structured, structured, other]);
+  });
+
+  it('uses occurrence counts in repeated file rows and persistence updates', () => {
+    const first = importOrk(write([text, text]));
+    const second = importOrk(write([structured, structured, structured]));
+    const plan = planSummaryImport({ ...first, storedSimulations: [...first.storedSimulations!, ...second.storedSimulations!] });
+    appendImportedRuns(plan.runs, plan.updatedRuns);
+    const saved = loadRuns()[0]!;
+    expect(saved.simWarnings).toEqual([structured, structured, structured]);
+    appendImportedRuns([], [{ ...saved, simWarnings: [structured, structured, structured, structured] }]);
+    expect(loadRuns()[0]!.simWarnings).toEqual([structured, structured, structured, structured]);
   });
 
   it('unions warning subsets without confusing distinct messages or quantities', () => {

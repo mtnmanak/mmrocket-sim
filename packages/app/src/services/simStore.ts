@@ -252,9 +252,14 @@ export function restoreRun(run: SimRun, beforeId: string | null): SimRun[] {
     // Reopening a deleted flight restores only its summary. Undo upgrades that
     // row to the original report, keeping its local ID and every unrelated row.
     const existing = list[same]!;
+    const simWarnings = mergeStoredWarnings(existing.simWarnings, run.simWarnings);
     if (existing.importedSummary && !run.importedSummary) {
-      list[same] = { ...run, id: existing.id,
+      list[same] = { ...run, id: existing.id, simWarnings,
         ...(existing.id !== run.id ? { importedRunId: run.importedRunId ?? run.id } : {}) };
+      return persist(list);
+    }
+    if (simWarnings !== existing.simWarnings) {
+      list[same] = { ...existing, simWarnings };
       return persist(list);
     }
     lastPersistFailed = false;

@@ -3,45 +3,84 @@ import type { OrkExportFlightData } from './orkFile.js';
 import { APP_HYBRID_BAND } from './aeroProvenance.js';
 import type { EngineWarning } from '@online-openrocket/engine';
 
-/** Add evidence without replacing a warning's existing structured payload.
- * Key/message identify the legacy warning; conflicting supplied metadata is
- * separate evidence, not permission to discard either warning. No text parsing.
- * Return the original array when nothing changed so repeat imports are no-ops.
+/** JSON evidence equality, independent of object property insertion order. */
+function sameEvidence(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+      && a.every((value, i) => sameEvidence(value, b[i]));
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  return Object.keys(left).length === Object.keys(right).length
+    && Object.keys(left).every(key => Object.hasOwn(right, key) && sameEvidence(left[key], right[key]));
+}
+
+/** Multiset union of two records of ONE flight: retain the larger occurrence
+ * count for identical evidence, upgrading compatible text-only occurrences.
+ * Match exact evidence first, then missing fields, always one-to-one across the
+ * original arrays. Never coalesce occurrences within either record. Conflicting
+ * evidence (including future fields) stays separate; no message text parsing.
+ * Return the stored array on no change so identical/older imports are no-ops.
  */
 export function mergeStoredWarnings(stored: EngineWarning[] | undefined,
 incoming: EngineWarning[] | undefined): EngineWarning[] | undefined {
   if (!incoming?.length) return stored;
-  const merged = [...(stored ?? [])];
-  let changed = false;
-  for (const warning of incoming) {
-    const at = merged.findIndex((old) => old.key === warning.key && old.message === warning.message
-      && (old.priority === undefined || warning.priority === undefined || old.priority === warning.priority)
-      && (old.quantity == null || warning.quantity == null
-        || (old.quantity.kind === warning.quantity.kind && old.quantity.value === warning.quantity.value))
-      && (old.sources == null || warning.sources == null
-        || (Array.isArray(old.sources) && Array.isArray(warning.sources)
-          && old.sources.length === warning.sources.length
-          && old.sources.every((source, i) => {
-            const other = warning.sources![i];
-            return source === null ? other === null
-              : other != null && source.id === other.id && source.name === other.name;
-          }))));
-    if (at === -1) {
-      merged.push(warning);
-      changed = true;
-      continue;
+  if (!stored?.length) return incoming;
+  const matches = new Map<number, number>(); // stored occurrence -> incoming occurrence
+  const exact = new Set<number>();
+  const matchedIncoming = new Set<number>();
+  incoming.forEach((warning, i) => {
+    const at = stored.findIndex((old, j) => !matches.has(j) && sameEvidence(old, warning));
+    if (at !== -1) {
+      matches.set(at, i);
+      exact.add(at);
+      matchedIncoming.add(i);
     }
-    const old = merged[at]!;
-    // Keep unknown extension fields too, while existing evidence wins conflicts.
-    let enriched = { ...old };
-    for (const [key, value] of Object.entries(warning)) {
-      if (value != null && (!Object.hasOwn(old, key) || (old as unknown as Record<string, unknown>)[key] == null)) {
+  });
+  const compatible = (old: EngineWarning, warning: EngineWarning) =>
+    old.key === warning.key && old.message === warning.message
+      && Object.entries(warning).every(([key, value]) => {
+        const previous = (old as unknown as Record<string, unknown>)[key];
+        return previous == null || value == null || sameEvidence(previous, value);
+      });
+  // Reassign partial matches when necessary: a broad text-only occurrence must
+  // not strand a later occurrence that has only one compatible counterpart.
+  const match = (i: number, visited: Set<number>): boolean => {
+    for (let j = 0; j < stored.length; j++) {
+      if (exact.has(j) || visited.has(j) || !compatible(stored[j]!, incoming[i]!)) continue;
+      visited.add(j);
+      const previous = matches.get(j);
+      if (previous === undefined || match(previous, visited)) {
+        matches.set(j, i);
+        return true;
+      }
+    }
+    return false;
+  };
+  incoming.forEach((_warning, i) => {
+    if (!matchedIncoming.has(i) && match(i, new Set())) matchedIncoming.add(i);
+  });
+  let changed = false;
+  const merged = stored.map((old, j) => {
+    const i = matches.get(j);
+    if (i === undefined) return old;
+    let enriched = old;
+    for (const [key, value] of Object.entries(incoming[i]!)) {
+      if (value != null && (old as unknown as Record<string, unknown>)[key] == null) {
         enriched = { ...enriched, [key]: value };
         changed = true;
       }
     }
-    merged[at] = enriched;
-  }
+    return enriched;
+  });
+  incoming.forEach((warning, i) => {
+    if (!matchedIncoming.has(i)) {
+      merged.push(warning);
+      changed = true;
+    }
+  });
   return changed ? merged : stored;
 }
 

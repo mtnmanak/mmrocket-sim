@@ -4,10 +4,10 @@ import { OrkRocket, resetEngine, type FlightResult, type MotorSpec, type RocketT
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { IMPERIAL_UNITS, METRIC_UNITS } from '../prefs/units.js';
 import { exportOrk, importOrk } from './orkFile.js';
-import { importedSummaryRuns, summaryDocument, summaryOf } from './orkFlightData.js';
+import { importedSummaryRuns, planSummaryImport, summaryDocument, summaryOf } from './orkFlightData.js';
 import { flushSession, loadSession, saveSessionDebounced } from './session.js';
 import { buildSimRun, type SimRun } from './simReport.js';
-import { addRun, loadRuns } from './simStore.js';
+import { addRun, appendImportedRuns, loadRuns } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
 
 const CHUTE_NAME = 'Main <&> "early"';
@@ -38,6 +38,51 @@ const design = (crossSection: string): RocketTree => ({
 });
 
 afterEach(() => { flushSession(); localStorage.clear(); });
+
+it('retains both real identical EventAfterLanding warnings on first import and repeat import', () => {
+  const tree = design('rounded');
+  tree.components[0]!.overrideMass = 0.5;
+  const children = tree.components[1]!.children!;
+  children.splice(2, 1, { ...children[1]!, id: 'mount-2' });
+  const launch = { ...DEFAULT_CONDITIONS, launchRodLengthM: 1, timeStepS: 0.05,
+    windAverage: 0, windStdDev: 0 };
+  resetEngine();
+  let run: SimRun;
+  let result: FlightResult;
+  try {
+    const rocket = OrkRocket.buildTree(tree);
+    const motor = { ...MOTOR, ejectionDelay: 7 };
+    rocket.setMotorById('mount', motor);
+    rocket.setMotorById('mount-2', motor);
+    result = rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42 });
+    run = buildSimRun({ result, info: rocket.staticInfo(), motor, launch,
+      rocketName: tree.name!, execMs: 0, aeroModel: 'classic' });
+  } finally {
+    resetEngine();
+  }
+  expect(result.events.some(e => e.type === 'SIM_ABORT')).toBe(false);
+  const ground = result.events.find(e => e.type === 'GROUND_HIT')!;
+  expect(ground.time).toBeLessThan(9); // Both seven-second delays expire after landing.
+  const duplicates = result.warnings!.filter(w => w.key === 'EventAfterLanding');
+  expect(duplicates).toHaveLength(2);
+  expect(duplicates[0]).toEqual(duplicates[1]);
+  addRun(run);
+  expect(loadRuns()[0]!.simWarnings).toEqual(result.warnings);
+  localStorage.clear();
+  const xml = exportOrk({ name: tree.name!, tree, launch,
+    configs: [{ id: 'c1', name: 'Flight', isDefault: true, motors: {} }],
+    activeConfigId: 'c1', flightData: { c1: summaryOf(run) } });
+  const imported = importOrk(xml);
+  expect(imported.storedSimulations![0]!.data.simWarnings).toEqual(result.warnings);
+  const plan = planSummaryImport(imported);
+  appendImportedRuns(plan.runs, plan.updatedRuns);
+  expect(loadRuns()[0]!.simWarnings).toEqual(result.warnings);
+  const repeat = planSummaryImport(imported, loadRuns());
+  expect(repeat.runs).toEqual([]);
+  expect(repeat.updatedRuns).toEqual([]);
+  appendImportedRuns(repeat.runs, repeat.updatedRuns);
+  expect(loadRuns()[0]!.simWarnings).toEqual(result.warnings);
+});
 
 describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freeform fins)', crossSection => {
   const tree = design(crossSection);
