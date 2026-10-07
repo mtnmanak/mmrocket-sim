@@ -9,8 +9,11 @@ import { compassPoint } from '../services/openMeteo.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import * as units from '../prefs/units.js';
-import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
+import { buildSimRun, changedSinceRun, type DesignMatchKey, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
 } from '../services/simReport.js';
+import { testResolution } from '../services/autoDelay.testSupport.js';
+import { delayMountsOf } from '../services/autoDelaySolver.js';
+import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { gradeBatchRun, type Criteria } from './BatchSimulate.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
@@ -323,6 +326,28 @@ describe('SimRunDetails — the report carries its own provenance (v0.101)', () 
   // timestamp at all. Two investigations on 2026-09-03 turned on "is this
   // report stale?" — a question nothing on screen could answer.
   const whenOf = () => host.querySelector('.simdet-when')?.textContent ?? '';
+
+  it.each(['complete', 'missing model', 'missing Kbf', 'missing both'])(
+    'only claims a match with complete model provenance: %s', (evidence) => {
+      const assigned: [string, MountMotor][] = [['m', {
+        spec: { designation: 'C6', ejectionDelay: 5 }, meta: {},
+        ignition: { event: 'automatic', delay: 0 },
+      } as MountMotor]];
+      const key: DesignMatchKey = {
+        designKey: 'd', motorSetKey: 'm', motorDataKey: 'data', conditionsKey: 'c',
+        delayMounts: delayMountsOf(assigned),
+        aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
+      };
+      const r: SimRun = { ...run(), ...key,
+        delayResolution: testResolution(assigned, [5]),
+        aeroModel: evidence === 'missing model' || evidence === 'missing both' ? undefined : 'classic',
+        rogersKbf: evidence === 'missing Kbf' || evidence === 'missing both' ? undefined : true,
+      };
+      render(<SimRunDetails run={r} changedSince={changedSinceRun(r, key)} />);
+      expect(whenOf().includes('matches the design as it stands')).toBe(evidence === 'complete');
+      expect(whenOf()).not.toContain('changed since');
+    },
+  );
 
   it('always says when the flight was flown, in prose', () => {
     const r = run();
