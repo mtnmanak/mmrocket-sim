@@ -38,6 +38,62 @@ describe('bundled preset database', () => {
 });
 
 describe('presetPatch', () => {
+  describe('retired catalogue masses', () => {
+    const retired = 0.020128161401;
+    const row = db.find((p) => p.kind === 'Transition' && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]')!;
+    const other = db.find((p) => p.kind === 'Transition' && p.mass === undefined && p !== row)!;
+    const saved = (mass = retired): ComponentNode => ({
+      type: 'transition', id: 'old', ...presetPatch('transition', row), overrideMass: mass,
+    });
+    const pick = (node: ComponentNode, target: Preset) =>
+      ({ ...node, ...presetPatch('transition', target, { node, presets: db }) });
+
+    it.each([
+      ['same', false], ['same', true], ['another', false], ['another', true],
+    ] as const)('clears a retired mass when picking %s mass-less part (assembly %s)', (which, assembly) => {
+      const node = { ...saved(), overrideSubcomponentsMass: assembly };
+      const after = pick(node, which === 'same' ? row : other);
+      expect(after.overrideMass).toBeUndefined();
+      expect(after.overrideSubcomponentsMass).toBeUndefined();
+    });
+
+    it.each([false, true])('preserves a different user weighing (assembly %s)', (assembly) => {
+      const node = { ...saved(0.006), overrideSubcomponentsMass: assembly };
+      for (const target of [row, other]) {
+        const after = pick(node, target);
+        expect(after.overrideMass).toBe(0.006);
+        expect(after.overrideSubcomponentsMass).toBe(assembly);
+      }
+    });
+
+    it('recognises retired masses through aliases, rounding and detach, but respects kind and identity', () => {
+      expect(holdsCatalogueMass({ ...saved(retired * (1 + 5e-5)), presetManufacturer: 'SEMROC Astronautics' }, db)).toBe(true);
+      expect(holdsCatalogueMass({ ...saved(), ...detachPatch() }, db)).toBe(true);
+      const renamedRow = { ...row, partNo: 'replacement-number', altPartNos: [row.partNo] };
+      expect(holdsCatalogueMass(saved(), [renamedRow])).toBe(true);
+      expect(holdsCatalogueMass({ ...saved(), presetPartNo: other.partNo }, db)).toBe(false);
+      expect(holdsCatalogueMass({ ...saved(), type: 'nosecone' }, db)).toBe(false);
+      expect(holdsCatalogueMass({ ...saved(), ...detachPatch(), name: 'My weighed reducer' }, db)).toBe(false);
+      expect(holdsCatalogueMass(saved(retired * 1.01), db)).toBe(false);
+    });
+
+    it('recognises a retired mass even when the row has a replacement mass', () => {
+      const replacement = { ...row, mass: 0.004 };
+      const node = { ...saved(), overrideSubcomponentsMass: true };
+      const after: ComponentNode = { ...node, ...presetPatch('transition', replacement, { node, presets: [replacement] }) };
+      expect(after.overrideMass).toBe(0.004);
+      expect(after.overrideSubcomponentsMass).toBeUndefined();
+    });
+
+    it('marks a retired override with an actionable clear, without flagging a user weighing', () => {
+      const node = saved();
+      const diff = catalogueDifferences(node, row).find((d) => d.key === 'overrideMass');
+      expect(diff).toMatchObject({ have: retired, want: 'computed mass', patch: { overrideMass: undefined, overrideSubcomponentsMass: undefined } });
+      expect({ ...node, ...diff!.patch }.overrideMass).toBeUndefined();
+      expect(catalogueDifferences(saved(0.006), row).some((d) => d.key === 'overrideMass')).toBe(false);
+    });
+  });
+
   it('uses geometry for SEMROC TA-5055L [R] without replacing a user weighing', async () => {
     const rows = db.filter((p) => p.kind === 'Transition' && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]');
     expect(rows).toHaveLength(1);

@@ -32,6 +32,7 @@ import { presetKey } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(here, '..', 'src', 'data', 'presets.json');
+const RETIRED_MASSES_PATH = join(here, '..', 'src', 'data', 'retiredPresetMasses.json');
 
 // The key is the shared `presetKey` (scripts/manufacturers.mjs). This file used
 // to carry its own copy under a comment reading "keep in lockstep with
@@ -325,6 +326,18 @@ function main() {
   if (applied > 0) {
     writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   }
+  // Saved designs can still carry these overrides after the catalogue changes.
+  // Generate browser-safe history from the SAME correction table, including
+  // replacements as well as removals. Keep past mass corrections in the table.
+  // Do this even on an already-corrected DB, but only after every guard passed.
+  const retiredMasses = Object.create(null);
+  for (const { key, fields } of CORRECTIONS) {
+    const mass = fields.mass;
+    if (mass && Number.isFinite(mass.bad) && mass.bad > 0 && mass.bad !== mass.good) {
+      (retiredMasses[key] ??= []).push(mass.bad);
+    }
+  }
+  writeFileSync(RETIRED_MASSES_PATH, JSON.stringify(retiredMasses, null, 1) + '\n');
   console.log(`corrections: ${applied} field(s) applied, ${already} already in place — database ${applied > 0 ? 'updated' : 'unchanged'}.`);
 }
 

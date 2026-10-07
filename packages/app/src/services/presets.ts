@@ -6,6 +6,9 @@ import { blankValue } from '../tree/schema.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
+// Small generated history only; the full catalogue below remains lazy-loaded.
+// Never import apply-preset-corrections.mjs here: it depends on Node's fs/path.
+import retiredPresetMasses from '../data/retiredPresetMasses.json';
 
 /**
  * Component preset database (openrocket-database .orc files → presets.json,
@@ -528,6 +531,16 @@ const linkKey = (kind: string, manufacturer: unknown, partNo: unknown): string =
 const partNumbersOf = (p: Preset): unknown[] =>
   [p.partNo, ...(Array.isArray(p['altPartNos']) ? (p['altPartNos'] as unknown[]) : [])];
 
+const retiredMasses: Readonly<Record<string, readonly number[]>> = retiredPresetMasses;
+const matchesMass = (held: number, mass: unknown): boolean =>
+  typeof mass === 'number' && Number.isFinite(mass) && mass > 0
+  && Math.abs(held - mass) <= 1e-4 * mass;
+
+/** A removed/replaced catalogue figure, at the same saved-file tolerance as a current one. */
+const matchesRetiredMass = (held: number, row: Preset): boolean =>
+  partNumbersOf(row).some((pn) =>
+    retiredMasses[linkKey(row.kind, row.manufacturer, pn)]?.some((mass) => matchesMass(held, mass)));
+
 /**
  * Is this node's mass override the catalogue mass of the part it is linked to
  * — one `presetPatch` wrote, or a file copied from the same row — rather than a
@@ -553,8 +566,9 @@ export function holdsCatalogueMass(node: ComponentNode, presets: readonly Preset
   const held = numOpt(node, 'overrideMass');
   const kind = KIND_FOR_TYPE[node.type];
   if (held === undefined || !kind) return false;
-  const weighsAsRow = (p: Preset) => p.kind === kind && typeof p.mass === 'number' && p.mass > 0
-    && Math.abs(held - p.mass) <= 1e-4 * p.mass;
+  // Corrections cannot turn an old catalogue override into a user weighing.
+  const weighsAsRow = (p: Preset) => p.kind === kind
+    && (matchesMass(held, p.mass) || matchesRetiredMass(held, p));
   if (node['presetPartNo'] == null) {
     const name = typeof node.name === 'string' ? node.name.trim() : '';
     return name !== '' && presets.some((p) => weighsAsRow(p) && `${p.manufacturer} ${p.partNo}` === name);
@@ -780,7 +794,7 @@ export interface CatalogueDifference {
   words: string;
   /** What the part flies: its own value, or a blank's. `undefined` is an automatic Cd. */
   have: number | string | boolean | undefined;
-  /** The catalogue row's figure. */
+  /** The catalogue row's figure, or "computed mass" for a retired mass override. */
   want: number | string | boolean;
   /**
    * The edit that takes the catalogue's figure — the field alone, or with the
@@ -832,6 +846,16 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
   const out: CatalogueDifference[] = [];
   const isCanopy = node.type === 'parachute';
   const byDensity = weighsByDensity(node, patch);
+  const heldMass = numOpt(node, 'overrideMass');
+  if (patch['overrideMass'] === undefined && heldMass !== undefined
+    && node['overrideSubcomponentsMass'] !== true && KIND_FOR_TYPE[node.type] === row.kind
+    && matchesRetiredMass(heldMass, row)) {
+    out.push({
+      key: 'overrideMass', words: wordsFor(node.type, 'overrideMass'),
+      have: heldMass, want: 'computed mass',
+      patch: { overrideMass: undefined, overrideSubcomponentsMass: undefined },
+    });
+  }
   for (const [key, want] of Object.entries(patch)) {
     if (!(typeof want === 'number' || typeof want === 'string' || typeof want === 'boolean')) continue;
     const field = catalogueField(node.type, key);

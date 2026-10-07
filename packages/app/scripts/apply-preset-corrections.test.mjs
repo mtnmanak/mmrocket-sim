@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,9 +35,30 @@ describe('SEMROC TA-5055L [R] mass correction CLI', () => {
     expect(first.status, first.stdout + first.stderr).toBe(0);
     delete db.presets.find(isReducer).mass;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
+    const retiredPath = join(dir, 'src/data/retiredPresetMasses.json');
+    const retired = readFileSync(retiredPath, 'utf8');
+    expect(JSON.parse(retired)).toEqual({ 'Transition|semroc|ta5055lr': [0.020128161401] });
+    // The committed browser input must stay in sync with the correction table.
+    expect(readFileSync(join(here, '../src/data/retiredPresetMasses.json'), 'utf8')).toBe(retired);
     const second = run();
     expect(second.status, second.stdout + second.stderr).toBe(0);
     expect(second.stdout).toContain('0 field(s) applied');
+    expect(readFileSync(path, 'utf8')).toBe(serialize(db));
+    expect(readFileSync(retiredPath, 'utf8')).toBe(retired);
+  });
+
+  it('generates retired masses for replacement corrections and for already corrected data', () => {
+    // Exercise the actual CLI with a replacement correction, not only removal.
+    writeFileSync(script, readFileSync(script, 'utf8').replace(
+      'mass: { bad: 0.020128161401, good: undefined }',
+      'mass: { bad: 0.020128161401, good: 0.004 }',
+    ));
+    db.presets.find(isReducer).mass = 0.004;
+    writeFileSync(path, serialize(db));
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, 'src/data/retiredPresetMasses.json'), 'utf8')))
+      .toEqual({ 'Transition|semroc|ta5055lr': [0.020128161401] });
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
   });
 
@@ -52,5 +73,6 @@ describe('SEMROC TA-5055L [R] mass correction CLI', () => {
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain('Transition|semroc|ta5055lr');
     expect(readFileSync(path, 'utf8')).toBe(raw);
+    expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
   });
 });

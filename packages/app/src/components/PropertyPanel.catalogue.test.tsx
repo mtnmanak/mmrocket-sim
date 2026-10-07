@@ -6,6 +6,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { detachPatch, presetPatch, type Preset } from '../services/presets.js';
+import presetsJson from '../data/presets.json';
 
 /**
  * THE CONFLICT MARKER, tiers (b) and (c) — the property-panel half of the
@@ -113,6 +114,20 @@ afterEach(() => {
 });
 
 describe('the conflict marker in the property panel — tier (b), the ≠ chip', () => {
+  it('offers computed mass for a retired catalogue override and clears it in one edit', async () => {
+    const row = (presetsJson.presets as Preset[]).find((p) => p.kind === 'Transition'
+      && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]')!;
+    loadPresets.mockResolvedValue([row]);
+    await show({ type: 'transition', id: 't1', ...presetPatch('transition', row), overrideMass: 0.020128161401 });
+    const use = byLabel('Use catalogue value computed mass for Mass');
+    expect(use).toBeTruthy();
+    click(use!);
+    expect(patches).toEqual([{ overrideMass: undefined, overrideSubcomponentsMass: undefined }]);
+    expect(current['overrideMass']).toBeUndefined();
+    expect(current['presetPartNo']).toBe('TA-5055L [R]');
+    expect(byLabel('Use catalogue value computed mass for Mass')).toBeUndefined();
+  });
+
   it('a field that differs from its catalogue row shows ≠ and a one-click use, naming the figure', async () => {
     await show(linkedChute({ lineCount: 6 }));
     expect(useButtons()).toHaveLength(1);
