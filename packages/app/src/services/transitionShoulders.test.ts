@@ -1,12 +1,15 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Window } from 'happy-dom';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
 import { exportOrk, importOrk } from './orkFile.js';
 import { exportRkt, importRkt } from './rocksimFile.js';
 import { decodeShareFragment, encodeShareFragment } from './shareLink.js';
 import { FIELDS, applyFieldLimit, blankValue, fieldLimit } from '../tree/schema.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
+import { engineTree } from '../tree/treeModel.js';
+import presetsJson from '../data/presets.json';
+import { presetPatch, type Preset } from './presets.js';
 
 // Keep Node's native compression streams/Blob for the real share-link codec.
 const window = new Window();
@@ -24,6 +27,103 @@ const treeOf = (node: ComponentNode): RocketTree => ({
   name: 'K15', components: [{ type: 'stage', id: 'stage', children: [node] }],
 });
 const part = (tree: RocketTree) => tree.components[0]!.children![0]!;
+
+describe('catalogue-linked shoulder import precedence', () => {
+  const presets = (presetsJson as { presets: Preset[] }).presets;
+  const mass = (node: ComponentNode) => OrkRocket.buildTree(engineTree(treeOf(node))).staticInfo().mass;
+  for (const [type, manufacturer, partNo, shoulders] of [
+    ['nosecone', 'Estes', 'BNC-50K, 70262', ['shoulder']],
+    ['transition', 'SEMROC', 'TA-2050', ['foreShoulder', 'aftShoulder']],
+  ] as const) {
+    const row = presets.find((p) => p.manufacturer === manufacturer && p.partNo === partNo)!;
+    const picked = (): ComponentNode => ({ type, id: 'part', ...presetPatch(type, row) });
+    const write = (node: ComponentNode, format: 'ork' | 'rkt') => format === 'ork'
+      // Exercise foreign-file enrichment, not the app-owned identity-only path.
+      ? exportOrk({ name: 'Shoulders', tree: treeOf(node) }).replace(/creator="[^"]*"/, 'creator="OpenRocket 24.12"')
+      : exportRkt({ name: 'Shoulders', tree: treeOf(node) });
+    const read = (xml: string, format: 'ork' | 'rkt') => format === 'ork'
+      ? importOrk(xml, { presets }) : importRkt(xml, { presets });
+
+    it.each([0, 0.001])(`${type} .rkt uses its hollow wall when the catalogue supplies missing shoulder geometry (%s m)`, (thickness) => {
+      const node: ComponentNode = { ...picked(), filled: false, thickness };
+      for (const shoulder of shoulders) node[`${shoulder}Thickness`] = thickness;
+      const xml = write(node, 'rkt').replace(/<([a-zA-Z]*[Ss]houlder[a-zA-Z]*)>[^<]*<\/\1>/g, '');
+      const result = read(xml, 'rkt');
+      const got = part(result.tree);
+      for (const shoulder of shoulders) expect(got[`${shoulder}Thickness`]).toBe(thickness);
+      expect(Math.abs(mass(got) - mass(node))).toBeLessThan(Math.max(mass(node) * 1e-6, 1e-12));
+      expect(result.notes.find((n) => n.includes('matched the parts catalogue'))).not.toMatch(/took [^;]*shoulder thickness/);
+    });
+
+    it(`${type} .rkt keeps its solid construction when a hollow catalogue row supplies shoulder geometry`, () => {
+      const node = picked();
+      const xml = write(node, 'rkt').replace(/<([a-zA-Z]*[Ss]houlder[a-zA-Z]*)>[^<]*<\/\1>/g, '');
+      const got = part(importRkt(xml, { presets: [{ ...row, filled: false }] }).tree);
+      for (const shoulder of shoulders) expect(got[`${shoulder}Thickness`]).toBe(node[`${shoulder}Radius`]);
+      expect(Math.abs(mass(got) - mass(node))).toBeLessThan(mass(node) * 1e-6);
+    });
+
+    for (const format of ['ork', 'rkt'] as const) {
+      for (const dimension of ['Length', 'Radius', 'Thickness'] as const) {
+        it(`${type} .${format} keeps explicit zero ${dimension}, geometry and kernel mass on import and round trip`, () => {
+          const node = picked();
+          expect(row.mass).toBeUndefined();
+          for (const shoulder of shoulders) node[`${shoulder}${dimension}`] = 0;
+          if (format === 'rkt' && dimension === 'Thickness') {
+            // RockSim has one WallThickness and ConstructionType for the whole part.
+            node['filled'] = false;
+            node['thickness'] = 0;
+          }
+          if (format === 'rkt' && dimension === 'Radius') {
+            for (const shoulder of shoulders) node[`${shoulder}Thickness`] = 0;
+          }
+          const expectedMass = mass(node);
+          let xml = write(node, format);
+          for (let pass = 0; pass < 2; pass++) {
+            const result = read(xml, format);
+            const got = part(result.tree);
+            expect(got['presetPartNo']).toBe(partNo);
+            for (const shoulder of shoulders) {
+              for (const field of ['Length', 'Radius', 'Thickness']) {
+                expect.soft(got[`${shoulder}${field}`]).toBeCloseTo(node[`${shoulder}${field}`] as number, 12);
+              }
+            }
+            // Same shipped kernel, before/after serialization; 1 ppm accommodates rounding.
+            expect.soft(Math.abs(mass(got) - expectedMass)).toBeLessThan(Math.max(expectedMass * 1e-6, 1e-12));
+            const matchNote = result.notes.find((n) => n.includes('matched the parts catalogue'))!;
+            expect(matchNote).not.toMatch(/took [^;]*shoulder/);
+            xml = write(got, format);
+          }
+        });
+      }
+
+      it(`${type} .${format} enriches genuinely omitted shoulder dimensions`, () => {
+        const xml = write(picked(), format).replace(/<([a-zA-Z]*[Ss]houlder[a-zA-Z]*)>[^<]*<\/\1>/g, '');
+        const got = part(read(xml, format).tree);
+        for (const shoulder of shoulders) {
+          expect(got[`${shoulder}Length`]).toBe(picked()[`${shoulder}Length`]);
+          expect(got[`${shoulder}Radius`]).toBe(picked()[`${shoulder}Radius`]);
+        }
+      });
+
+      for (const absentBy of ['Length', 'Radius'] as const) {
+        it(`${type} .${format} does not fill a shoulder explicitly absent by zero ${absentBy}`, () => {
+          const node = picked();
+          for (const shoulder of shoulders) node[`${shoulder}${absentBy}`] = 0;
+          const xml = write(node, format).replace(/<([a-zA-Z]*[Ss]houlder[a-zA-Z]*)>([^<]*)<\/\1>/g,
+            (whole, _tag, value) => Number(value) === 0 ? whole : '');
+          const result = read(xml, format);
+          const got = part(result.tree);
+          for (const shoulder of shoulders) {
+            expect(got[`${shoulder}${absentBy}`]).toBe(0);
+            expect(got[`${shoulder}${absentBy === 'Length' ? 'Radius' : 'Length'}`]).toBeUndefined();
+          }
+          expect(result.notes.find((n) => n.includes('matched the parts catalogue'))).not.toMatch(/took [^;]*shoulder/);
+        });
+      }
+    }
+  }
+});
 
 describe('K15 transition shoulder thickness', () => {
   it.each(['fore', 'aft'])('%s field uses the nose thickness units, limits and zero default', (side) => {
