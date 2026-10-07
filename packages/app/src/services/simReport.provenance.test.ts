@@ -264,6 +264,90 @@ describe('R7 delay policy provenance', () => {
   });
 });
 
+describe('R7 historical Batch manufacturer omission', () => {
+  const assigned = (auto: boolean, manufacturer = 'Acme', designation = 'E22'): [string, MountMotor][] => [
+    ['target', mm()], ['side', withAuto(mm({ manufacturer, designation }), auto)],
+  ];
+  const savedBatch = (auto: boolean): SimRun => {
+    const motors = assigned(auto);
+    const evidence = testResolution(motors, [5, 5]);
+    evidence.mounts[1]!.motorIdentity = '/E22';
+    // Serialize the pre-fix Batch shape: the provenance retained manufacturer,
+    // while flyLegs dropped it from the background motor's delay evidence.
+    return JSON.parse(JSON.stringify({
+      ...INPUT_RUN, id: 'old-batch', when: 1,
+      motorSetKey: 'side:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0',
+      motorDataKey: motorDataKeyOf(motors),
+      motorDataKeys: Object.fromEntries(motors.map((m) => [m[0], motorDataKeyOf([m])])),
+      delayResolution: evidence,
+      recoveryEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'side' }],
+    })) as SimRun;
+  };
+
+  it.each([false, true])('matches serialized Auto=%s evidence and supplies recovery without rewriting it', (auto) => {
+    const run = savedBatch(auto);
+    const before = JSON.stringify(run);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(auto) });
+    expect(changedSinceRun(run, key)).toEqual([]);
+    expect(runMatchesDesign(run, key)).toBe(true);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
+    expect(JSON.stringify(run)).toBe(before);
+    // Fingerprints were not always persisted; the run's named identity is still evidence.
+    const older = { ...run, motorDataKey: undefined, motorDataKeys: undefined };
+    expect(runMatchesDesign(older, key)).toBe(true);
+  });
+
+  it.each([false, true])('still rejects a same-delay toggle from Auto=%s', (auto) => {
+    const run = savedBatch(auto);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(!auto) });
+    expect(run.motorSetKey).toBe(key.motorSetKey);
+    expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+  });
+
+  it.each([
+    ['different designation', 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
+    ['different mount', 'other:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
+    ['duplicate mount', 'side:Acme/E22:5:automatic:0|side:Other/E22:5:automatic:0', '/E22'],
+    ['nonempty manufacturer', 'side:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', 'Other/E22'],
+    ['EX identity', 'side:ex:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
+    ['missing key', undefined, '/E22'],
+  ])('does not borrow identity from today with %s in the saved run', (_, motorSetKey, identity) => {
+    const run = savedBatch(false);
+    run.motorSetKey = motorSetKey;
+    run.delayResolution!.mounts[1]!.motorIdentity = identity!;
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    // Equalize the outer stamp guard to isolate the delay identity check. Only
+    // today's delayMounts name Acme/E22; the run must establish its own identity.
+    const comparison = { ...key, motorSetKey: motorSetKey ?? key.motorSetKey };
+    expect(runMatchesDesign(run, comparison)).toBe(false);
+    expect(matchingRecoveryEvents([run], comparison, () => undefined)).toBeUndefined();
+    expect(changedSinceRun(run, comparison)).toEqual(['the motor delay policy']);
+  });
+
+  it('preserves vendor, curve fingerprint and fixed-delay guards', () => {
+    const run = savedBatch(false);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    const otherVendor = designMatchKeyOf({ ...INPUT, assigned: assigned(false, 'Other') });
+    expect(runMatchesDesign(run, otherVendor)).toBe(false);
+    expect(runMatchesDesign(run, { ...key, motorDataKey: 'changed-curve' })).toBe(false);
+    expect(runMatchesDesign(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
+    run.delayResolution!.mounts[1]!.flownDelay = 6;
+    expect(runMatchesDesign(run, key)).toBe(false);
+  });
+
+  it('rejects /E22 when the saved mount and current design both name E20', () => {
+    const run = savedBatch(false);
+    run.motorSetKey = 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0';
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false, 'Acme', 'E20') });
+    expect(run.motorSetKey).toBe(key.motorSetKey);
+    expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+  });
+});
+
 describe('changedSinceRun reads the hardware term motorSetKeyOf writes', () => {
   const current = (hw: number, motor = mm()) => designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]], hardwareDeltaKg: hw });
   const stamped = (hw: number, motor = mm()) => {

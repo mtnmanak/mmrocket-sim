@@ -958,7 +958,26 @@ function runMatchesDelayPolicy(run: SimRun, cur: DesignMatchKey): boolean | null
   if (!validDelayResolution(r) || !cur.delayMounts
     || r.mounts.length !== cur.delayMounts.length
     || !cur.delayMounts.every((m) => r.mounts.some((flown) => flown.mountId === m.mountId))) return null;
-  return resolutionMatches(r, cur.delayMounts);
+  // Old Batch flyLegs omitted manufacturer on retained ID-less motors. Recover
+  // only that identity omission from THIS run's mount entry, never today's motor.
+  // Keep the recorded policy/delay intact and do not rewrite persisted evidence.
+  const mounts = r.mounts.map((flown) => {
+    if (!flown.motorIdentity.startsWith('/') || flown.motorIdentity.length === 1) return flown;
+    const prefix = `${flown.mountId}:`;
+    const entries = run.motorSetKey?.split('|').filter((entry) => entry.startsWith(prefix));
+    if (entries?.length !== 1) return flown;
+    const fields = entries[0]!.slice(prefix.length).split(':');
+    // ID-less entries are identity:delay:event:ignitionDelay. Refuse ambiguous
+    // delimiters and EX IDs rather than treating them as manufacturer names.
+    if (fields.length !== 4) return flown;
+    const identity = fields[0]!;
+    const slash = identity.indexOf('/');
+    if (slash <= 0 || identity.slice(slash) !== flown.motorIdentity) return flown;
+    const fingerprint = run.motorDataKeys?.[flown.mountId];
+    if (fingerprint !== undefined && fingerprint !== cur.motorDataKeys?.[flown.mountId]) return flown;
+    return { ...flown, motorIdentity: identity };
+  });
+  return resolutionMatches({ ...r, mounts }, cur.delayMounts);
 }
 
 export function changedSinceRun(
