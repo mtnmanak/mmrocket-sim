@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
@@ -330,7 +331,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // the slot against before it overwrites anything (see `seenStamp`).
     seenStamp = stampOf(raw);
     if (!raw) return null;
-    let s = JSON.parse(raw) as SessionState;
+    // Older autosaves may carry warning source IDs from a different open.
+    let s = JSON.parse(raw, (key, value) =>
+      key === 'simWarnings' && Array.isArray(value) ? storedWarnings(value) : value) as SessionState;
     if (!s || typeof s !== 'object' || Array.isArray(s)) {
       // Unusable payload: drop it rather than re-parsing the same wreck on
       // every load, and so a corrupted autosave cannot follow the user around.
@@ -524,8 +527,9 @@ function writeNow(): void {
     // silently turn that into null, so round-trip it as a string.
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
-      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1 }, (_k, v) =>
-      typeof v === 'number' && v === Infinity ? 'Infinity' : v);
+      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1 }, (key, v) =>
+      key === 'simWarnings' && Array.isArray(v) ? storedWarnings(v)
+        : typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),
     // so re-writing the same design is the same stamp. Spliced rather than
     // stringified twice: the content is always a non-empty object (appVersion

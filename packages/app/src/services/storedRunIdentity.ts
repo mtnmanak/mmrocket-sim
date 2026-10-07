@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import type { SimRun } from './simReport.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { APP_HYBRID_BAND } from './aeroProvenance.js';
@@ -26,6 +27,8 @@ function sameEvidence(a: unknown, b: unknown): boolean {
  */
 export function mergeStoredWarnings(stored: EngineWarning[] | undefined,
 incoming: EngineWarning[] | undefined): EngineWarning[] | undefined {
+  stored = storedWarnings(stored);
+  incoming = storedWarnings(incoming);
   if (!incoming?.length) return stored;
   if (!stored?.length) return incoming;
   const matches = new Map<number, number>(); // stored occurrence -> incoming occurrence
@@ -88,7 +91,7 @@ incoming: EngineWarning[] | undefined): EngineWarning[] | undefined {
 export function summaryOf(r: SimRun): OrkExportFlightData {
   return {
     runId: r.importedRunId ?? r.id,
-    ...(r.simWarnings !== undefined ? { simWarnings: r.simWarnings } : {}),
+    ...(r.simWarnings !== undefined ? { simWarnings: storedWarnings(r.simWarnings) } : {}),
     ...(r.aeroModel ? { aeroModel: r.aeroModel } : {}),
     ...(r.rogersKbf !== undefined ? { rogersKbf: r.rogersKbf } : {}),
     ...(r.aeroModel === 'hybrid' && (r.hybridBand || !r.importedSummary)

@@ -1021,7 +1021,7 @@ describe('landing drift & max roll rate (symbol-keyed series)', () => {
     expect(0.5).toBeGreaterThan(ROLL_RATE_MEANINGFUL_RAD_S); // real roll → shown
   });
 
-  it('buildSimRun carries drift/roll fields and the raw sim warnings', () => {
+  it('buildSimRun carries drift/roll fields and warning evidence without session IDs', () => {
     const result = fakeResult();
     result.series = withSymbols();
     result.warnings = [
@@ -1037,7 +1037,10 @@ describe('landing drift & max roll rate (symbol-keyed series)', () => {
     expect(run.landingDistanceM).toBe(25);
     expect(run.landingBearingDeg).toBeCloseTo(90, 3);
     expect(run.maxRollRateRadS).toBeCloseTo(0.5);
-    expect(run.simWarnings).toEqual(result.warnings);
+    expect(run.simWarnings).toEqual([
+      result.warnings[0], { ...result.warnings[1], sources: [{ name: 'Main' }] }, result.warnings[2],
+    ]);
+    expect(result.warnings[1]!.sources).toEqual([{ id: 'chute', name: 'Main' }]);
   });
 
   it('pre-warning engine artifact: simWarnings stays ABSENT (unknown ≠ flew clean)', () => {
