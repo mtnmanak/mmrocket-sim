@@ -3,7 +3,7 @@ import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
 import { expectedDelayMountsOf, motorDataKeyOf, motorDataKeysMatch, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
-import { summaryOf, summaryFingerprint } from './storedRunIdentity.js';
+import { mergeStoredWarnings, summaryOf, summaryFingerprint } from './storedRunIdentity.js';
 export { summaryOf } from './storedRunIdentity.js';
 import { MAX_RUNS } from './simStore.js';
 
@@ -54,6 +54,8 @@ existingRuns: readonly SimRun[] = []): SimRun[] {
 
 interface SummaryImportPlan {
   runs: SimRun[];
+  /** Existing rows with additional warning evidence; never consume free slots. */
+  updatedRuns: SimRun[];
   /** Local identity for each considered file row, including duplicate rows. */
   summaryIds: string[];
   total: number;
@@ -62,8 +64,10 @@ interface SummaryImportPlan {
 export function summaryImportCounts(plan: SummaryImportPlan, saved: readonly SimRun[]) {
   const ids = new Set(saved.map((run) => run.id));
   const added = plan.runs.filter((run) => ids.has(run.id)).length;
+  const updated = plan.updatedRuns.filter((run) => saved.some((kept) => kept.id === run.id
+    && JSON.stringify(kept.simWarnings) === JSON.stringify(run.simWarnings))).length;
   const kept = plan.summaryIds.filter((id) => ids.has(id)).length;
-  return { added, alreadySaved: kept - added, notKept: plan.total - kept };
+  return { added, updated, alreadySaved: kept - added - updated, notKept: plan.total - kept };
 }
 
 export function planSummaryImport(imported: Pick<OrkImportResult, 'name'>
@@ -81,6 +85,8 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
   }
   const simulations = imported.storedSimulations ?? [];
   const summaryIds: string[] = [];
+  const rows = new Map(existingRuns.map((run) => [run.id, run]));
+  const updatedRuns = new Map<string, SimRun>();
   // Resolve identities in file order, then choose additions using free slots.
   // Existing history never moves or loses a row to an import.
   const runs = simulations.flatMap((sim): SimRun[] => {
@@ -91,6 +97,13 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       : fingerprints.get(fingerprint);
     if (duplicate !== undefined) {
       summaryIds.push(duplicate);
+      const previous = rows.get(duplicate)!;
+      const simWarnings = mergeStoredWarnings(previous.simWarnings, fd.simWarnings);
+      if (simWarnings !== previous.simWarnings) {
+        const enriched = { ...previous, simWarnings };
+        rows.set(duplicate, enriched);
+        updatedRuns.set(duplicate, enriched);
+      }
       return [];
     }
     let id = fd.runId ?? `ork-summary-v1:${fingerprint}`;
@@ -109,7 +122,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
     // A configuration and its conditions describe the design on disk, not
     // necessarily this historical flight. No per-run motor/conditions snapshot
     // is stored in the tag, so leave those fields unknown, including on resave.
-    return [{
+    const run: SimRun = {
       id, when: NaN, rocket: imported.name,
       importedSummary: true,
       ...(fd.runId ? { importedRunId: fd.runId } : {}),
@@ -118,6 +131,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       flightConfig: config?.name ?? sim.name,
       ...(sim.configId ? { flightConfigId: sim.configId } : {}),
       aeroModel: fd.aeroModel,
+      ...(fd.simWarnings !== undefined ? { simWarnings: mergeStoredWarnings([], fd.simWarnings) } : {}),
       ...(fd.rogersKbf !== undefined ? { rogersKbf: fd.rogersKbf } : {}),
       ...(fd.hybridBand ? { hybridBand: fd.hybridBand } : {}),
       maxAltitude: fd.maxAltitude ?? NaN, maxVelocity: fd.maxVelocity ?? NaN,
@@ -135,9 +149,15 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       windAvg: NaN, execMs: NaN,
       comments: 'Summary imported from .ork; historical motor, delay, launch conditions, flight date, safety assessment and replay evidence are unknown.',
       commentLevels: ['info'],
-    }];
+    };
+    rows.set(id, run);
+    return [run];
   });
-  return { runs: runs.slice(0, Math.max(0, MAX_RUNS - existingRuns.length)), summaryIds, total: simulations.length };
+  return {
+    runs: runs.slice(0, Math.max(0, MAX_RUNS - existingRuns.length)).map((run) => rows.get(run.id)!),
+    updatedRuns: existingRuns.flatMap((run) => updatedRuns.has(run.id) ? [updatedRuns.get(run.id)!] : []),
+    summaryIds, total: simulations.length,
+  };
 }
 
 export interface FlightDataForExportInput {

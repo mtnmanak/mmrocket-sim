@@ -1,17 +1,19 @@
 import type { EngineWarning } from '@online-openrocket/engine';
 import { lookupTable } from './xmlUtil.js';
+import { fmtSi, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Plain-language presentation of the kernel's simulation warnings.
  *
- * The engine emits each flight warning as {key, message, priority}. The key
+ * The engine emits each flight warning as {key, message, priority}, with
+ * optional SI quantity and source snapshots on newer artifacts. The key
  * is the stable machine identity (OrkEngine.warningKey): the typed Warning
  * subclass name ("LargeAOA", "HighSpeedDeployment", "EventAfterLanding",
  * "MissingMotor") or the l10n key of the singleton warnings — the part after
  * "Warning." in the bracketed message the shim's DebugTranslator produces
  * ('[Warning.RECOVERY_HIGH_SPEED] (71.1 m/s):  "BoosterChute"'). "Other" is
  * the kernel's own fallback. This module turns those into the app's voice;
- * the raw triple is what SimRun persists, so wording fixes here apply
+ * the raw payload is what SimRun persists, so wording and unit changes apply
  * retroactively to stored runs.
  */
 
@@ -119,8 +121,8 @@ export interface FormattedWarning {
   high: boolean;
 }
 
-/** One warning in the app's voice; unknown keys fall back to the raw text. */
-export function formatWarning(w: EngineWarning): FormattedWarning {
+/** One warning in current units; unknown/legacy payloads keep their raw text. */
+export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_UNITS): FormattedWarning {
   const label = Object.hasOwn(WARNING_LABEL, w.key) ? WARNING_LABEL[w.key] : undefined;
   const detail = stripBrackets(w.message ?? '');
   if (label === undefined) {
@@ -128,7 +130,21 @@ export function formatWarning(w: EngineWarning): FormattedWarning {
     // the label; show the raw text rather than hiding the warning.
     return { label: detail || w.key, detail: null, high: isHighPriority(w) };
   }
-  return { label, detail: detail || null, high: isHighPriority(w) };
+  return { label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w) };
+}
+
+/** Only typed warnings have enough evidence to replace the entire text suffix. */
+function quantityDetail(w: EngineWarning, units: UnitSelection): string | null {
+  const q = w.quantity;
+  const kind = w.key === 'HighSpeedDeployment' ? 'velocity' : w.key === 'LargeAOA' ? 'angle' : null;
+  // Stored JSON and future kernels can carry unknown shapes. Fall back as a
+  // whole rather than lose a source name or guess what a number measures.
+  if (!kind || q?.kind !== kind || !Number.isFinite(q.value)
+    || !Array.isArray(w.sources) || !w.sources.every(s => s === null
+      || (typeof s === 'object' && typeof s.name === 'string'))) return null;
+  const value = `(${fmtSi(kind, units[kind], q.value, 3)} ${units[kind]})`;
+  const sources = w.sources.map(s => s === null ? 'Removed component' : `"${s.name}"`);
+  return sources.length ? `${value}: ${sources.join(', ')}` : value;
 }
 
 /**

@@ -1242,7 +1242,7 @@ public final class OrkEngine {
         num(sb, "deploymentVelocity", data.getDeploymentVelocity()).append(',');
         num(sb, "optimumDelay", data.getOptimumDelay());
         sb.append("},\"warnings\":");
-        appendWarnings(sb, data.getWarningSet());
+        appendWarnings(sb, data.getWarningSet(), ctx);
         sb.append(",\"warningTexts\":");
         appendWarningTexts(sb, data.getWarningSet());
         sb.append(",\"events\":");
@@ -1318,8 +1318,9 @@ public final class OrkEngine {
      * "key" — stable machine identity (see warningKey), "message" — the human
      * text (Warning.toString(), source component names included), "priority" —
      * LOW|NORMAL|HIGH (MessagePriority's own export labels).
+     * Typed numeric warnings also carry a raw SI quantity and source snapshots.
      */
-    private static void appendWarnings(StringBuilder sb, WarningSet warnings) {
+    private static void appendWarnings(StringBuilder sb, WarningSet warnings, RocketCtx ctx) {
         sb.append('[');
         boolean first = true;
         for (info.openrocket.core.logging.Warning w : warnings) {
@@ -1328,7 +1329,51 @@ public final class OrkEngine {
             sb.append("{\"key\":\"").append(escape(warningKey(w)))
                     .append("\",\"message\":\"").append(escape(String.valueOf(w)))
                     .append("\",\"priority\":\"")
-                    .append(w.getPriority().getExportLabel()).append("\"}");
+                    .append(w.getPriority().getExportLabel()).append('"');
+            appendWarningQuantity(sb, w);
+            appendWarningSources(sb, w, ctx);
+            sb.append('}');
+        }
+        sb.append(']');
+    }
+
+    /** Raw SI only: never recover quantities by parsing the translated text. */
+    private static void appendWarningQuantity(StringBuilder sb, info.openrocket.core.logging.Warning w) {
+        String kind;
+        double value;
+        if (w instanceof info.openrocket.core.logging.Warning.HighSpeedDeployment) {
+            kind = "velocity";
+            value = ((info.openrocket.core.logging.Warning.HighSpeedDeployment) w).getSpeed();
+        } else if (w instanceof info.openrocket.core.logging.Warning.LargeAOA) {
+            kind = "angle";
+            value = ((info.openrocket.core.logging.Warning.LargeAOA) w).getAOA();
+        } else {
+            return;
+        }
+        if (Double.isFinite(value)) {
+            sb.append(",\"quantity\":{\"kind\":\"").append(kind)
+                    .append("\",\"value\":").append(value).append('}');
+        }
+    }
+
+    /** Snapshot names and app IDs; removed sources remain explicit nulls. */
+    private static void appendWarningSources(StringBuilder sb, info.openrocket.core.logging.Warning w, RocketCtx ctx) {
+        sb.append(",\"sources\":[");
+        RocketComponent[] sources = w.getSources();
+        if (sources != null) {
+            boolean first = true;
+            for (RocketComponent source : sources) {
+                if (!first) sb.append(',');
+                first = false;
+                if (source == null) {
+                    sb.append("null");
+                    continue;
+                }
+                sb.append("{\"name\":\"").append(escape(source.getName())).append('"');
+                String id = componentId(ctx, source);
+                if (id != null) sb.append(",\"id\":\"").append(escape(id)).append('"');
+                sb.append('}');
+            }
         }
         sb.append(']');
     }

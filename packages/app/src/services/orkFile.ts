@@ -5,7 +5,7 @@ import type { StageMassOverride } from './stageMassOverrides.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
-import type { ComponentNode, ComponentPosition, ComponentType, MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, ComponentPosition, ComponentType, EngineWarning, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
   canonicalRodAimDeg, DEFAULT_TIME_STEP_S, flownGeodeticMethod, importLaunchValue, KERNEL_DEFAULT_LONGITUDE_DEG,
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
@@ -2164,6 +2164,8 @@ export interface OrkTreeExportInput {
  * column of the simulation table, and correctly refuses to plot.
  */
 export interface OrkExportFlightData extends AeroProvenance {
+  /** App-only warning payload, including SI quantities when recorded. */
+  simWarnings?: EngineWarning[];
   /** Identity of the app run that supplied this summary. */
   runId?: string;
   /** Historical file summary; no assertion that it matches today's design. */
@@ -2181,7 +2183,7 @@ export interface OrkExportFlightData extends AeroProvenance {
 }
 
 /** Attribute name on disk → field, in the desktop writer's own order. */
-const FLIGHTDATA_ATTRS: [string, Exclude<keyof OrkExportFlightData, keyof AeroProvenance | 'runId' | 'importedSummary'>][] = [
+const FLIGHTDATA_ATTRS: [string, Exclude<keyof OrkExportFlightData, keyof AeroProvenance | 'runId' | 'importedSummary' | 'simWarnings'>][] = [
   ['maxaltitude', 'maxAltitude'],
   ['maxvelocity', 'maxVelocity'],
   ['maxacceleration', 'maxAcceleration'],
@@ -2217,6 +2219,21 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
       if (Number.isFinite(value)) data[key] = value;
     }
     if (!flightDataAttrs(data)) continue;
+    const warnings = sim.querySelector(':scope > simwarnings');
+    if (warnings?.getAttribute('version') === '1') {
+      try {
+        const parsed: unknown = JSON.parse(warnings.textContent ?? '');
+        // Reject a damaged array as a whole: filtering could report a clean
+        // flight after silently losing its only warning. Optional new fields
+        // are preserved; the display validates them before replacing text.
+        if (Array.isArray(parsed) && parsed.every(w => w !== null && typeof w === 'object'
+          && !Array.isArray(w) && typeof w.key === 'string' && typeof w.message === 'string')) {
+          data.simWarnings = parsed;
+        } else notes.push('Stored simulation warnings could not be read.');
+      } catch {
+        notes.push('Stored simulation warnings could not be read.');
+      }
+    }
     const kbf = tag.getAttribute('kbf');
     if (kbf === 'true' || kbf === 'false') data.rogersKbf = kbf === 'true';
     const band = tag.getAttribute('band')?.trim().split(/\s+/).map((v) => parseDecimal(v));
@@ -3327,6 +3344,9 @@ export function exportOrk({
           ? ` band="${fd.hybridBand.join(' ')}"` : '';
         const runId = fd.runId ? ` runid="${escapeXmlAttr(fd.runId)}"` : '';
         emit(3, `<aeromodel${kbf}${band}${runId}>${fd.aeroModel}</aeromodel>`);
+        if (fd.simWarnings !== undefined) {
+          emit(3, `<simwarnings version="1">${escapeXml(JSON.stringify(fd.simWarnings))}</simwarnings>`);
+        }
       }
       emit(3, '<conditions>');
       emit(4, `<configid>${escapeXml(c.id)}</configid>`);

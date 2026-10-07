@@ -1026,6 +1026,9 @@ describe('landing drift & max roll rate (symbol-keyed series)', () => {
     result.series = withSymbols();
     result.warnings = [
       { key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]', priority: 'HIGH' },
+      { key: 'HighSpeedDeployment', message: 'fallback', priority: 'HIGH',
+        quantity: { kind: 'velocity', value: 30.48 }, sources: [{ id: 'chute', name: 'Main' }] },
+      { key: 'LargeAOA', message: 'fallback', quantity: { kind: 'angle', value: Math.PI / 6 }, sources: [] },
     ];
     const run = buildSimRun({
       result, info, motor, meta: { label: 'C6-5' },

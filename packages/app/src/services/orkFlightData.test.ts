@@ -249,7 +249,7 @@ describe('flightDataForExport — the baseline qualifies', () => {
     expect(after.slice(0, count)).toEqual(before);
     expect(after.slice(count).map((r) => r.id)).toEqual(count === 500 ? [] : count === 499 ? ['first-new'] : ['first-new', 'second-new']);
     expect(flightDataForExport(base({ runs: after }))).toEqual(selected);
-    expect(summaryImportCounts(plan, after)).toEqual({ added: Math.min(2, 500 - count), alreadySaved: count - 1, notKept: count >= 499 ? 1 : 0 });
+    expect(summaryImportCounts(plan, after)).toEqual({ added: Math.min(2, 500 - count), updated: 0, alreadySaved: count - 1, notKept: count >= 499 ? 1 : 0 });
     expect(runCapNote(runsEvictedByLastWrite(), runsUnsavedByLastWrite())).toBe('');
     const again = planSummaryImport(imported, loadRuns());
     expect(again.runs).toEqual([]);
