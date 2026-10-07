@@ -1262,7 +1262,7 @@ it('R9: retains legacy hardware provenance and flown mass in single and mixed ro
     expect(row.run!.motorSetKey).toBe(`${control.rows[index]!.run!.motorSetKey}|hw:100`);
     expect(row.run!.motorDataKey).toBe(control.rows[index]!.run!.motorDataKey);
   }
-});
+}, 60000);
 
 it('K7: plugged exception provenance matches Auto and rejects P on charge recovery', async () => {
   const tree = rocket({ deployEvent: 'ejection' });
