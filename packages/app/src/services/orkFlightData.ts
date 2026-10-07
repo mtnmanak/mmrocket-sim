@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import { delayMountsOf, readDelay, resolutionMatchesPolicy, type DelayResolution } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
@@ -65,7 +66,7 @@ export function summaryImportCounts(plan: SummaryImportPlan, saved: readonly Sim
   const ids = new Set(saved.map((run) => run.id));
   const added = plan.runs.filter((run) => ids.has(run.id)).length;
   const updated = plan.updatedRuns.filter((run) => saved.some((kept) => kept.id === run.id
-    && JSON.stringify(kept.simWarnings) === JSON.stringify(run.simWarnings))).length;
+    && JSON.stringify(storedWarnings(kept.simWarnings)) === JSON.stringify(storedWarnings(run.simWarnings)))).length;
   const kept = plan.summaryIds.filter((id) => ids.has(id)).length;
   return { added, updated, alreadySaved: kept - added - updated, notKept: plan.total - kept };
 }

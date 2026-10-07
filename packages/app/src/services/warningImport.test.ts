@@ -6,10 +6,13 @@ import { planSummaryImport, summaryImportCounts } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, loadRuns, MAX_RUNS, persistFailed, restoreRun } from './simStore.js';
 import { mergeStoredWarnings } from './storedRunIdentity.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { simulateFile } from './simulateFile.js';
 
 const text: EngineWarning = { key: 'HighSpeedDeployment', message: 'Deployment at 30 m/s', priority: 'HIGH' };
 const structured: EngineWarning = { ...text, quantity: { kind: 'velocity', value: 30 },
-  sources: [{ id: 'chute', name: 'Main' }] };
+  sources: [{ name: 'Main' }] };
 const other: EngineWarning = { key: 'NO_RECOVERY_DEVICE', message: 'No recovery device', priority: 'HIGH' };
 const write = (simWarnings?: EngineWarning[], data: Partial<OrkExportFlightData> = {}) => exportOrk({
   name: 'Warning import', tree: { components: [{ type: 'stage', children: [
@@ -28,6 +31,36 @@ beforeEach(() => localStorage.clear());
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
 describe('warning evidence on matching imported runs', () => {
+  it('stores identical warnings after two fresh opens and does not duplicate them on re-import', async () => {
+    const bytes = new Uint8Array(readFileSync(join(dirname(import.meta.filename), '__fixtures__', 'TubeFins2.rkt')));
+    const first = await simulateFile(bytes, 'TubeFins2.rkt');
+    const second = await simulateFile(bytes, 'TubeFins2.rkt');
+    const source = (warnings: EngineWarning[]) => warnings.find(w => w.sources?.some(s => s?.id))!.sources;
+    expect(source(first.result.warnings!)).not.toEqual(source(second.result.warnings!));
+    expect(first.run.simWarnings!.length).toBeGreaterThan(0);
+    expect(second.run.simWarnings).toEqual(first.run.simWarnings);
+    expect(first.run.simWarnings!.flatMap(w => w.sources ?? []).every(s => s === null || !('id' in s))).toBe(true);
+    open(write(first.run.simWarnings));
+    expect(open(write(second.run.simWarnings))).toEqual({ added: 0, updated: 0, alreadySaved: 1, notKept: 0 });
+    expect(loadRuns()[0]!.simWarnings).toEqual(first.run.simWarnings);
+  }, 60000);
+
+  it('ignores session IDs in multiset matching and Undo while retaining source evidence', () => {
+    const first = { ...text, sources: [{ id: 'c1', name: 'Main', extra: { id: 'evidence' } }, null] };
+    const second = { ...first, sources: [{ id: 'c99', name: 'Main', extra: { id: 'evidence' } }, null] };
+    const expected = { ...text, sources: [{ name: 'Main', extra: { id: 'evidence' } }, null] };
+    const before = structuredClone([first, second]);
+    expect(mergeStoredWarnings([first, first], [second])).toEqual([expected, expected]);
+    expect(mergeStoredWarnings([first], [second, second])).toEqual([expected, expected]);
+    expect(mergeStoredWarnings([first], undefined)).toEqual([expected]);
+    expect(mergeStoredWarnings(undefined, [second])).toEqual([expected]);
+    expect([first, second]).toEqual(before);
+    open(write([first, first]));
+    const saved = loadRuns()[0]!;
+    expect(restoreRun({ ...saved, simWarnings: [second] }, null)[0]!.simWarnings).toEqual([expected, expected]);
+    expect(loadRuns()).toHaveLength(1);
+  });
+
   it.each([{ warnings: undefined }, { warnings: [] }])('enriches an old export with warnings (previous=$warnings)', ({ warnings }) => {
     open(write(warnings));
     const before = loadRuns()[0]!;
@@ -62,9 +95,16 @@ describe('warning evidence on matching imported runs', () => {
     const old = [text, structured];
     expect(mergeStoredWarnings(old, [structured, text])).toBe(old);
     expect(mergeStoredWarnings([structured], [text, structured])).toEqual([structured, text]);
-    const conflicting = { ...structured, sources: [{ id: 'other', name: 'Other' }] };
+    const conflicting = { ...structured, sources: [{ name: 'Other' }] };
     expect(mergeStoredWarnings([text, structured], [structured, conflicting]))
       .toEqual([conflicting, structured]);
+  });
+
+  it('counts persisted updates independently of legacy source IDs in the returned history', () => {
+    open(write([text]));
+    const plan = planSummaryImport(importOrk(write([structured])), loadRuns());
+    const saved = [{ ...plan.updatedRuns[0]!, simWarnings: [{ ...structured, sources: [{ id: 'c99', name: 'Main' }] }] }];
+    expect(summaryImportCounts(plan, saved)).toEqual({ added: 0, updated: 1, alreadySaved: 0, notKept: 0 });
   });
 
   it('keeps conflicting extension evidence and compares object fields without property-order dependence', () => {
@@ -147,7 +187,7 @@ describe('warning evidence on matching imported runs', () => {
   });
 
   it('retains conflicting structured evidence rather than overwriting it', () => {
-    const differentSource = { ...structured, sources: [{ id: 'drogue', name: 'Drogue' }] };
+    const differentSource = { ...structured, sources: [{ name: 'Drogue' }] };
     const differentValue = { ...structured, quantity: { kind: 'velocity' as const, value: 30.01 } };
     open(write([structured]));
     open(write([differentSource, differentValue]));

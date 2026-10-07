@@ -20,6 +20,7 @@ const aoa: EngineWarning = {
   key: 'LargeAOA', message: '[Warning.LargeAOA.str2]30 deg)',
   quantity: { kind: 'angle', value: Math.PI / 6 }, sources: [],
 };
+const savedWarnings = [{ ...speed, sources: [{ name: 'Main <&>' }] }, aoa];
 const tree: RocketTree = { name: 'Warning units', components: [{ type: 'stage', children: [
   { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
 ] }] };
@@ -34,6 +35,32 @@ const write = (data: ReturnType<typeof summaryOf>) => exportOrk({
 afterEach(() => { flushSession(); localStorage.clear(); });
 
 describe('saved warning units', () => {
+  it('strips source IDs at every persistence boundary, including old history, XML and autosaves', () => {
+    const expected = [{ ...speed, sources: [{ name: 'Main <&>' }] }, aoa];
+    const original = structuredClone(run());
+    expect(summaryOf(original).simWarnings).toEqual(expected);
+    expect(original).toEqual(run());
+    expect(addRun(original)[0]!.simWarnings).toEqual(expected);
+    expect(JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1')!)[0].simWarnings).toEqual(expected);
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([original]));
+    expect(loadRuns()[0]!.simWarnings).toEqual(expected);
+    const xml = write({ runId: original.id, aeroModel: 'classic', maxAltitude: 123, simWarnings: original.simWarnings });
+    const payload = (value: unknown) => JSON.stringify(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+    expect(xml).toContain(payload(expected));
+    const oldXml = xml.replace(/<simwarnings[^>]*>.*?<\/simwarnings>/,
+      `<simwarnings version="1">${payload(original.simWarnings)}</simwarnings>`);
+    const imported = importOrk(oldXml);
+    expect(imported.storedSimulations![0]!.data.simWarnings).toEqual(expected);
+    const document = summaryDocument(imported)!;
+    document.storedSimulations[0]!.data.simWarnings = original.simWarnings;
+    saveSessionDebounced({ tree, launch: DEFAULT_CONDITIONS, importedDocument: document });
+    flushSession();
+    expect(JSON.parse(localStorage.getItem('online-openrocket.session.v1')!).importedDocument.storedSimulations[0].data.simWarnings).toEqual(expected);
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, importedDocument: document }));
+    expect(loadSession()!.importedDocument!.storedSimulations[0]!.data.simWarnings).toEqual(expected);
+    expect(document.storedSimulations[0]!.data.simWarnings).toEqual(original.simWarnings);
+  });
+
   it('formats raw SI velocity and radians with the current units, without changing the payload', () => {
     const before = JSON.stringify([speed, aoa]);
     expect(formatWarning(speed, METRIC_UNITS).detail).toBe('(30.48 m/s): "Main <&>"');
@@ -89,20 +116,20 @@ describe('saved warning units', () => {
   it('reloads run history with full-precision SI data and reformats it', () => {
     addRun(run());
     const warnings = loadRuns()[0]!.simWarnings!;
-    expect(warnings).toEqual([speed, aoa]);
+    expect(warnings).toEqual(savedWarnings);
     expect(formatWarning(warnings[0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s): "Main <&>"');
   });
 
   it('round-trips warnings through .ork app data, session autosave, import, and re-save', () => {
     const imported = importOrk(write(summaryOf(run())));
-    expect(imported.storedSimulations?.[0]?.data.simWarnings).toEqual([speed, aoa]);
+    expect(imported.storedSimulations?.[0]?.data.simWarnings).toEqual(savedWarnings);
     saveSessionDebounced({ tree: imported.tree, launch: DEFAULT_CONDITIONS,
       importedDocument: summaryDocument(imported) });
     flushSession();
     const document = loadSession()!.importedDocument!;
-    expect(document.storedSimulations[0]!.data.simWarnings).toEqual([speed, aoa]);
+    expect(document.storedSimulations[0]!.data.simWarnings).toEqual(savedWarnings);
     const restored = importedSummaryRuns(document)[0]!;
-    expect(restored.simWarnings).toEqual([speed, aoa]);
+    expect(restored.simWarnings).toEqual(savedWarnings);
     const reopened = importedSummaryRuns(importOrk(write(summaryOf(restored))))[0]!;
     expect(formatWarning(reopened.simWarnings![0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s): "Main <&>"');
     expect(formatWarning(reopened.simWarnings![1]!, { ...METRIC_UNITS, angle: 'rad' }).detail).toBe('(0.524 rad)');

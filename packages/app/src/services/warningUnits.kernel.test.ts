@@ -96,6 +96,7 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
     ] };
   let result: FlightResult;
   let run: SimRun;
+  let savedWarnings: FlightResult['warnings'];
 
   beforeAll(() => {
     resetEngine();
@@ -104,6 +105,7 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
     result = rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42 });
     run = buildSimRun({ result, info: rocket.staticInfo(), motor: MOTOR,
       launch, rocketName: tree.name!, execMs: 0, aeroModel: 'classic' });
+    savedWarnings = result.warnings!.map(w => ({ ...w, sources: w.sources!.map(s => s === null ? null : { name: s.name }) }));
     resetEngine();
     expect(result.events.some(e => e.type === 'SIM_ABORT')).toBe(false);
     expect(result.events.some(e => e.type === 'GROUND_HIT')).toBe(true);
@@ -163,10 +165,10 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
   });
 
   it('formats the actual payload in current units after saved run history reload', () => {
-    expect(run.simWarnings).toEqual(result.warnings);
+    expect(run.simWarnings).toEqual(savedWarnings);
     addRun(run);
     const saved = loadRuns()[0]!;
-    expect(saved.simWarnings).toEqual(result.warnings);
+    expect(saved.simWarnings).toEqual(savedWarnings);
     assertCurrentUnits(saved);
   });
 
@@ -177,15 +179,15 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
       activeConfigId: 'c1', flightData: { c1: summaryOf(saved) },
     });
     const imported = importOrk(write(run));
-    expect(imported.storedSimulations![0]!.data.simWarnings).toEqual(result.warnings);
+    expect(imported.storedSimulations![0]!.data.simWarnings).toEqual(savedWarnings);
     saveSessionDebounced({ tree: imported.tree, launch, importedDocument: summaryDocument(imported) });
     flushSession();
     const document = loadSession()!.importedDocument!;
-    expect(document.storedSimulations[0]!.data.simWarnings).toEqual(result.warnings);
+    expect(document.storedSimulations[0]!.data.simWarnings).toEqual(savedWarnings);
     const restored = importedSummaryRuns(document)[0]!;
     assertCurrentUnits(restored);
     const reopened = importedSummaryRuns(importOrk(write(restored)))[0]!;
-    expect(reopened.simWarnings).toEqual(result.warnings);
+    expect(reopened.simWarnings).toEqual(savedWarnings);
     assertCurrentUnits(reopened);
   });
 });

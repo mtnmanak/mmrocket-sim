@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
 import { installedMounts } from './flightRunner.js';
@@ -531,7 +532,7 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   weathercockRisk: 'low' | 'moderate' | 'high' | null;
 
   /**
-   * Kernel simulation warnings (raw {key, message, priority} triples —
+   * Kernel simulation warnings (source names only; IDs are session-local —
    * simWarnings.ts renders them in the app's voice). Absent on runs stored
    * before this field OR flown on an engine artifact predating the warning
    * export; an empty array means the flight genuinely raised none.
@@ -2261,7 +2262,7 @@ export function buildSimRun(input: {
     // empty warning list and nothing anywhere saying why. On the beta test
     // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
     ...(result.warnings !== undefined
-      ? { simWarnings: [...abortWarnings(result), ...result.warnings] }
+      ? { simWarnings: storedWarnings([...abortWarnings(result), ...result.warnings]) }
       : {}),
     landingDistanceM: drift.distanceM,
     landingBearingDeg: drift.bearingDeg,

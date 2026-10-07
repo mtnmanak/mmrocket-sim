@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
@@ -2228,7 +2229,7 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
         // are preserved; the display validates them before replacing text.
         if (Array.isArray(parsed) && parsed.every(w => w !== null && typeof w === 'object'
           && !Array.isArray(w) && typeof w.key === 'string' && typeof w.message === 'string')) {
-          data.simWarnings = parsed;
+          data.simWarnings = storedWarnings(parsed);
         } else notes.push('Stored simulation warnings could not be read.');
       } catch {
         notes.push('Stored simulation warnings could not be read.');
@@ -3345,7 +3346,7 @@ export function exportOrk({
         const runId = fd.runId ? ` runid="${escapeXmlAttr(fd.runId)}"` : '';
         emit(3, `<aeromodel${kbf}${band}${runId}>${fd.aeroModel}</aeromodel>`);
         if (fd.simWarnings !== undefined) {
-          emit(3, `<simwarnings version="1">${escapeXml(JSON.stringify(fd.simWarnings))}</simwarnings>`);
+          emit(3, `<simwarnings version="1">${escapeXml(JSON.stringify(storedWarnings(fd.simWarnings)))}</simwarnings>`);
         }
       }
       emit(3, '<conditions>');

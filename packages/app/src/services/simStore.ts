@@ -1,3 +1,4 @@
+import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
@@ -70,6 +71,7 @@ export function loadRuns(): SimRun[] {
         else Object.assign(r, { [k]: entries.filter((v) => k === 'boosterMotors'
           ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
       }
+      if (r.simWarnings !== undefined) r.simWarnings = storedWarnings(r.simWarnings);
       for (const b of r.branches ?? []) {
         if (!Array.isArray(b.deployments)) b.deployments = [];
         else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
@@ -172,9 +174,12 @@ export function runCapNote(evicted: number, unsaved: number, undoEvicted = 0): s
  */
 function persist(runs: SimRun[], fresh = 0, undoPair?: ReadonlySet<string>): SimRun[] {
   let slots = MAX_RUNS - (undoPair?.size ?? 0);
-  const kept = undoPair
+  const kept = (undoPair
     ? runs.filter((run) => undoPair.has(run.id) || slots-- > 0)
-    : runs.slice(0, MAX_RUNS);
+    : runs.slice(0, MAX_RUNS)).map(run => {
+    const simWarnings = storedWarnings(run.simWarnings);
+    return simWarnings === run.simWarnings ? run : { ...run, simWarnings };
+  });
   lastEvicted = 0;
   lastUnsaved = 0;
   lastUndoEvicted = 0;
