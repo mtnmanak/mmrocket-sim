@@ -1230,6 +1230,10 @@ export function App() {
     };
   }, [built, mountMotors]);
 
+  const batchRetainedHardware = useMemo(() => built?.hardware.state === 'ok'
+    ? { mountId: built.hardware.appliedTo, deltaKg: built.hardware.deltaKg }
+    : undefined, [built]);
+
   /**
    * ONE component's own mass (kg), for the recovery-sizing panel's substitution:
    * swapping the chute in the design for a catalogue canopy changes the very
@@ -3227,6 +3231,7 @@ export function App() {
           assignedIgnitions={Object.fromEntries(
             Object.entries(mountMotors).map(([id, mm]) => [id, mm.ignition]))}
           weighed={batchWeighed}
+          retainedHardware={batchRetainedHardware}
           launch={launch}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={recordRuns}

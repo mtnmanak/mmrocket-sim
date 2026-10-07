@@ -441,6 +441,8 @@ export interface BatchSweepInput {
   assignedIgnitions: Record<string, { event: IgnitionEvent; delay: number }>;
   assignedAutoDelays?: Record<string, boolean>;
   weighed?: BatchWeighed;
+  /** Hardware already in assignedMotors, including an accepted legacy weighing. Provenance only. */
+  retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
   model: BatchModel;
   autoDelay: boolean;
   launch: LaunchConditions;
@@ -489,6 +491,7 @@ export async function runBatchSweep(
     weighed, model, autoDelay, launch, rocketName,
   } = input;
   const { signal } = hooks;
+  const retainedHardware = input.retainedHardware ?? weighed;
   const kbf = model !== 'eb';
   const aeroMode: AeroMode = model === 'eb' || model === 'kbf' ? 'classic' : model;
 
@@ -682,8 +685,9 @@ export async function runBatchSweep(
       assigned: assigned.map(([id, mm]): [string, MountMotor] => [id,
         !legs.some((l) => l.mountId === id) ? { ...mm, ...input.assignedMountMotors[id] } : mm,
       ]),
-      otherHardwareDeltaKg: weighed && weighed.mountId !== target.id
-        && assigned.some(([id]) => id === weighed.mountId) ? weighed.deltaKg : 0,
+      otherHardwareDeltaKg: retainedHardware && retainedHardware.mountId !== target.id
+        && flight.delayResolution.mounts.some((m) => m.mountId === retainedHardware.mountId)
+        ? retainedHardware.deltaKg : 0,
     };
   };
 

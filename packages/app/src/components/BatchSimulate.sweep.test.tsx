@@ -104,8 +104,9 @@ const CLUSTER_TREE: RocketTree = {
 };
 const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed }: {
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed, retainedHardware }: {
   strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[]; weighed?: BatchWeighed;
+  retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
 } = {}) {
   const dialog = (
     <PrefsProvider>
@@ -113,6 +114,7 @@ function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mount
         tree={tree} info={{} as never} mounts={mounts} initialMountId="mount"
         assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={launch} rocketName="Sweep bird" weighed={weighed}
+        retainedHardware={retainedHardware}
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}
       />
@@ -677,6 +679,15 @@ it('hands the full profile to the batch sweep', async () => {
   await start();
   expect(sweep).toHaveBeenCalledOnce();
   expect(sweep.mock.calls[0]![0].launch.windLevels).toEqual(windLevels);
+});
+
+it('hands retained hardware to the sweep without enabling weighed candidates', async () => {
+  sweep.mockResolvedValue({ rows: [], stopped: false });
+  mount({ retainedHardware: { mountId: 'other', deltaKg: 0.01 } });
+  await start();
+  expect(sweep).toHaveBeenCalledOnce();
+  expect(sweep.mock.calls[0]![0].retainedHardware).toEqual({ mountId: 'other', deltaKg: 0.01 });
+  expect(sweep.mock.calls[0]![0].weighed).toBeUndefined();
 });
 
 it.each(['auto', 'eb'] as const)('S3a-9: finished %s badges follow the flown model and mount', async (model) => {
