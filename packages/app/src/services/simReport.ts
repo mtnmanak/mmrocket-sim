@@ -1,5 +1,5 @@
 import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
-import { delayMountsOf, normalizeDelayResolution, resolutionMatches, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
+import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
 import { installedMounts } from './flightRunner.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import type { WindProfileConditions } from './windProfile.js';
@@ -966,9 +966,13 @@ function runMatchesDelayPolicy(run: SimRun, cur: DesignMatchKey): boolean | null
   if (!validDelayResolution(r) || !cur.delayMounts
     || r.mounts.length !== cur.delayMounts.length
     || !cur.delayMounts.every((m) => r.mounts.some((flown) => flown.mountId === m.mountId))) return null;
-  return resolutionMatches(normalizeDelayResolution(r, {
-    ...run, currentMotorDataKeys: cur.motorDataKeys,
-  }), cur.delayMounts);
+  return resolutionMatchesPolicy(r, cur.delayMounts);
+}
+
+/** Available per-mount fingerprints remain motor evidence, independent of delay policy. */
+export function motorDataKeysMatch(saved: SimRun['motorDataKeys'], current: DesignMatchKey['motorDataKeys']): boolean {
+  return saved === undefined || (saved !== null && typeof saved === 'object' && !Array.isArray(saved)
+    && Object.entries(saved).every(([id, key]) => typeof key === 'string' && key === current?.[id]));
 }
 
 export function changedSinceRun(
@@ -992,7 +996,8 @@ export function changedSinceRun(
     };
     changed.push(motorsOf(run.motorSetKey) !== motorsOf(cur.motorSetKey) ? 'the motor' : 'the weighed pad mass');
   }
-  if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey && !changed.includes('the motor')) {
+  if (((run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey)
+    || !motorDataKeysMatch(run.motorDataKeys, cur.motorDataKeys)) && !changed.includes('the motor')) {
     changed.push('the motor');
   }
   const delayMatch = runMatchesDelayPolicy(run, cur);
@@ -1037,6 +1042,7 @@ export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
   if (!run.designKey || run.designKey !== cur.designKey) return false;
   if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
   if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey) return false;
+  if (!motorDataKeysMatch(run.motorDataKeys, cur.motorDataKeys)) return false;
   if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
   // Same refusal for a run flown before the pressure-thrust term existed on a
   // design that now spends it — the three keys above cannot see a kernel

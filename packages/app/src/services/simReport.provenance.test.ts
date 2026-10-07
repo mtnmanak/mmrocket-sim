@@ -290,8 +290,7 @@ describe('R7 historical Batch manufacturer omission', () => {
     const key = designMatchKeyOf({ ...INPUT, assigned: assigned(auto) });
     expect(changedSinceRun(run, key)).toEqual([]);
     expect(runMatchesDesign(run, key)).toBe(true);
-    expect(canReplayDelays(run.delayResolution, assigned(auto), 'target', 5,
-      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(true);
+    expect(canReplayDelays(run.delayResolution, assigned(auto), 'target', 5, true)).toBe(true);
     expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
     expect(JSON.stringify(run)).toBe(before);
     // Fingerprints were not always persisted; the run's named identity is still evidence.
@@ -305,31 +304,30 @@ describe('R7 historical Batch manufacturer omission', () => {
     expect(run.motorSetKey).toBe(key.motorSetKey);
     expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
     expect(runMatchesDesign(run, key)).toBe(false);
-    expect(canReplayDelays(run.delayResolution, assigned(!auto), 'target', 5,
-      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(false);
+    expect(canReplayDelays(run.delayResolution, assigned(!auto), 'target', 5, true)).toBe(false);
     expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
   });
 
   it.each([
-    ['different designation', 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
-    ['different mount', 'other:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
-    ['duplicate mount', 'side:Acme/E22:5:automatic:0|side:Other/E22:5:automatic:0', '/E22'],
-    ['nonempty manufacturer', 'side:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', 'Other/E22'],
-    ['EX identity', 'side:ex:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0', '/E22'],
-    ['missing key', undefined, '/E22'],
-  ])('does not borrow identity from today with %s in the saved run', (_, motorSetKey, identity) => {
-    const run = savedBatch(false);
-    run.motorSetKey = motorSetKey;
-    run.delayResolution!.mounts[1]!.motorIdentity = identity!;
+    ['different designation', 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['different mount', 'other:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['duplicate mount', 'side:Acme/E22:5:automatic:0|side:Other/E22:5:automatic:0'],
+    ['EX identity', 'side:ex:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['missing key', undefined],
+  ])('refuses %s through the motor provenance guard', (_, motorSetKey) => {
+    const run = { ...savedBatch(false), motorSetKey };
     const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
-    // Equalize the outer stamp guard to isolate the delay identity check. Only
-    // today's delayMounts name Acme/E22; the run must establish its own identity.
-    const comparison = { ...key, motorSetKey: motorSetKey ?? key.motorSetKey };
-    expect(runMatchesDesign(run, comparison)).toBe(false);
-    expect(canReplayDelays(run.delayResolution, assigned(false), 'target', 5,
-      { ...run, currentMotorDataKeys: key.motorDataKeys })).toBe(false);
-    expect(matchingRecoveryEvents([run], comparison, () => undefined)).toBeUndefined();
-    expect(changedSinceRun(run, comparison)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+    expect(changedSinceRun(run, key)).toEqual(motorSetKey ? ['the motor'] : null);
+  });
+
+  it.each(['/E22', 'Acme/E22', 'catalogue-id', 'Other/E22'])('uses the run motor keys independently of evidence identity %s', (identity) => {
+    const run = savedBatch(false);
+    run.delayResolution!.mounts[1]!.motorIdentity = identity;
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    expect(runMatchesDesign(run, key)).toBe(true);
+    expect(changedSinceRun(run, key)).toEqual([]);
   });
 
   it('preserves vendor, curve fingerprint and fixed-delay guards', () => {
@@ -339,20 +337,9 @@ describe('R7 historical Batch manufacturer omission', () => {
     expect(runMatchesDesign(run, otherVendor)).toBe(false);
     expect(runMatchesDesign(run, { ...key, motorDataKey: 'changed-curve' })).toBe(false);
     expect(runMatchesDesign(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
-    expect(canReplayDelays(run.delayResolution, assigned(false), 'target', 5,
-      { ...run, currentMotorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
+    expect(changedSinceRun(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toEqual(['the motor']);
     run.delayResolution!.mounts[1]!.flownDelay = 6;
     expect(runMatchesDesign(run, key)).toBe(false);
-  });
-
-  it('rejects /E22 when the saved mount and current design both name E20', () => {
-    const run = savedBatch(false);
-    run.motorSetKey = 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0';
-    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false, 'Acme', 'E20') });
-    expect(run.motorSetKey).toBe(key.motorSetKey);
-    expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
-    expect(runMatchesDesign(run, key)).toBe(false);
-    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
   });
 });
 
@@ -431,7 +418,7 @@ describe('motor physics provenance', () => {
       expect(runMatchesDesign(run, cur)).toBe(false);
       expect(changedSinceRun(run, cur)).toEqual(['the motor']);
     }
-    const legacy = { ...run, motorDataKey: undefined };
+    const legacy = { ...run, motorDataKey: undefined, motorDataKeys: undefined };
     expect(runMatchesDesign(legacy, original)).toBe(true);
     expect(changedSinceRun(legacy, original)).toEqual([]);
     const changedCurve = designMatchKeyOf({ ...INPUT,
@@ -439,6 +426,10 @@ describe('motor physics provenance', () => {
     });
     expect(runMatchesDesign(legacy, changedCurve)).toBe(true);
     expect(changedSinceRun(legacy, changedCurve)).toEqual([]);
+    // A saved per-mount fingerprint still detects the change without the aggregate.
+    const perMountOnly = { ...run, motorDataKey: undefined };
+    expect(runMatchesDesign(perMountOnly, changedCurve)).toBe(false);
+    expect(changedSinceRun(perMountOnly, changedCurve)).toEqual(['the motor']);
     expect(runMatchesDesign(legacy, { ...original, motorSetKey: 'another motor' })).toBe(false);
   });
 });

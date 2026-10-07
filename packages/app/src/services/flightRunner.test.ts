@@ -454,7 +454,7 @@ describe('flight runner — a motor whose ignition nothing knows stays OFF the h
 });
 
 describe('R7 historical Batch refly', () => {
-  it.each([false, true])('flies the recorded vector with Auto=%s and rejects policy/identity changes', (autoDelay) => {
+  it.each([false, true])('flies provenance-checked evidence with Auto=%s and refuses toggled or unverified replay', (autoDelay) => {
     const motor: MountMotor = { ...testMotor(autoDelay, 5),
       spec: { ...testMotor(autoDelay, 5).spec, designation: 'E22' },
       meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
@@ -464,9 +464,8 @@ describe('R7 historical Batch refly', () => {
     const saved: Pick<SimRun, 'delayResolution' | 'motorSetKey' | 'motorDataKeys'> = JSON.parse(JSON.stringify({ delayResolution: resolution,
       motorSetKey: 'side:Acme/E22:5:automatic:0', motorDataKeys: { side: motorDataKeyOf(assigned) } }));
     const before = JSON.stringify(saved);
-    const delayIdentity = { ...saved, currentMotorDataKeys: { side: motorDataKeyOf(assigned) } };
     const input = { assigned, hardware: undefined, primaryMountId: 'side',
-      delayS: autoDelay ? 3 : 5, delayResolution: saved.delayResolution, delayIdentity,
+      delayS: autoDelay ? 3 : 5, delayResolution: saved.delayResolution, motorIdentityVerified: true,
       simOptions: {}, fly: { kbf: false, supersonic: false }, restore: { kbf: false, supersonic: false } };
     const { handle, calls } = recordingHandle();
     reflyRun(handle, input);
@@ -477,11 +476,7 @@ describe('R7 historical Batch refly', () => {
     calls.length = 0;
     const toggled: [string, MountMotor][] = [['side', { ...motor, meta: { ...motor.meta, autoDelay: !autoDelay } }]];
     expect(() => reflyRun(handle, { ...input, assigned: toggled })).toThrow('no longer match');
-    for (const identity of [
-      { ...delayIdentity, motorSetKey: 'side:Acme/E20:5:automatic:0' },
-      { ...delayIdentity, currentMotorDataKeys: { side: 'different-curve' } },
-      undefined,
-    ]) expect(() => reflyRun(handle, { ...input, delayIdentity: identity })).toThrow('no longer match');
+    expect(() => reflyRun(handle, { ...input, motorIdentityVerified: false })).toThrow('no longer match');
     expect(calls.some(c => c[0] === 'simulate')).toBe(false);
   });
 });

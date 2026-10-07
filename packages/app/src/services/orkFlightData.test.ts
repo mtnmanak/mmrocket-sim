@@ -512,13 +512,16 @@ describe('flightDataForExport — the flown delay must be the one the file names
  * flight of the design as it stands flew is what the file now names, and the
  * flight data written beside it is that flight's.
  */
-describe('R7 historical Batch export', () => {
-  it.each([false, true])('exports recorded delays and flight data for Auto=%s, rejecting toggles', (autoDelay) => {
+describe('R7 Batch identity-independent export', () => {
+  it.each([
+    { autoDelay: false, identity: '/E22' }, { autoDelay: true, identity: '/E22' },
+    { autoDelay: false, identity: 'catalogue-id' }, { autoDelay: true, identity: 'catalogue-id' },
+  ])('exports recorded delays and flight data for Auto=$autoDelay identity=$identity, rejecting toggles', ({ autoDelay, identity }) => {
     const motor: MountMotor = { ...MOTOR, spec: { ...MOTOR.spec, designation: 'E22', ejectionDelay: 5 },
       meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
     const assigned: [string, MountMotor][] = [['m1', motor]];
     const resolution = testResolution(assigned, [autoDelay ? 3 : 5]);
-    resolution.mounts[0]!.motorIdentity = '/E22';
+    resolution.mounts[0]!.motorIdentity = identity;
     const run: SimRun = JSON.parse(JSON.stringify({ ...RUN, delayS: autoDelay ? 3 : 5,
       motorSetKey: 'm1:Acme/E22:5:automatic:0', motorDataKey: motorDataKeyOf(assigned),
       motorDataKeys: { m1: motorDataKeyOf(assigned) }, delayResolution: resolution }));
@@ -561,7 +564,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
       ['m1', 'side'].map(id => ({ type: 'bodytube' as const, id, motorMount: true,
         length: 0.3, outerRadius: 0.02, thickness: 0.001 })) }] };
     const motors = Object.fromEntries(assigned);
-    const history = [{ ...run(), flightConfigId: action === 'create' ? undefined : 'c1' }];
+    const history = [{ ...run(), motorSetKey: motorSetKeyOf(assigned, 0), flightConfigId: action === 'create' ? undefined : 'c1' }];
     const before = structuredClone(history);
     const originalMotors = action === 'create-from-active'
       ? { ...motors, m1: { ...auto, spec: { ...auto.spec, designation: 'Old motor' } } } : motors;
@@ -570,7 +573,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
     const next = action === 'delete' ? deleted
       : createLoadedConfig({ tree, mountMotors: motors, unmatchedRefs: {},
         ...(action === 'create-from-active' ? original : deleted) })!;
-    const state = input({ ...next, runs: history });
+    const state = input({ ...next, runs: history, motorSetKeyOf });
     const key = next.activeConfigId ?? '';
     const flown = flownAutoDelays(state);
     expect(flown).toEqual({ [key]: { m1: 7, side: 4 } });
@@ -601,7 +604,8 @@ describe('flownAutoDelays - complete settled vectors', () => {
   it('does not count another configuration’s different motor set for the active configuration', () => {
     const other: [string, MountMotor][] = assigned.map(([id, mm]) =>
       [id, { ...mm, spec: { ...mm.spec, designation: 'Different motor' } }]);
-    const state = input({ assigned: other, activeConfigId: 'C', savedConfigs: [
+    const state = input({ assigned: other, activeConfigId: 'C', motorSetKeyOf,
+      runs: [{ ...run(), motorSetKey: motorSetKeyOf(assigned, 0) }], savedConfigs: [
       { ...CONFIG, motors: Object.fromEntries(assigned) },
       { ...CONFIG, id: 'C', motors: Object.fromEntries(other) },
     ] });

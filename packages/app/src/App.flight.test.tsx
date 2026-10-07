@@ -892,13 +892,16 @@ describe('the time-step caution’s measured cost', () => {
   }, 30000);
 });
 
-describe('R7 historical Batch replay', () => {
-  it.each([false, true])('recovers charts and downloads full series for Auto=%s, then rejects a toggle', async (autoDelay) => {
+describe('R7 Batch identity-independent replay', () => {
+  it.each([
+    { autoDelay: false, target: false }, { autoDelay: true, target: false },
+    { autoDelay: false, target: true }, { autoDelay: true, target: true },
+  ])('recovers charts and downloads full series for Auto=$autoDelay target=$target, then rejects a toggle', async ({ autoDelay, target }) => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
     const original = (await loadCatalogueMotor('Estes', 'C6', 5))!;
-    const motor = { ...original, spec: { ...original.spec, designation: 'E22' },
-      meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
+    const motor = { ...original, spec: { ...original.spec, designation: target ? 'C6' : 'E22' },
+      meta: { label: target ? 'C6' : 'E22', manufacturer: target ? 'Estes' : 'Acme', autoDelay } };
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
       launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
     let host = await mountApp();
@@ -906,7 +909,7 @@ describe('R7 historical Batch replay', () => {
     await waitFor(() => runs() === 1, 'the reference flight');
     await unmountAll();
     const saved: SimRun[] = JSON.parse(localStorage.getItem(RUNS_KEY)!);
-    saved[0]!.delayResolution!.mounts[0]!.motorIdentity = '/E22';
+    saved[0]!.delayResolution!.mounts[0]!.motorIdentity = target ? original.meta.motorId! : '/E22';
     localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
     const before = localStorage.getItem(RUNS_KEY);
     host = await mountApp();
@@ -1015,7 +1018,8 @@ describe('the Auto-delay card under a motor', () => {
 });
 
 
-it('Auto-delay Previous flight accepts a legacy design-page run without motorDataKey', async () => {
+it.each(['evidence identity', 'motor-set key', 'motor-data key'] as const)(
+  'Auto-delay Previous flight accepts a legacy run using its %s', async (identityEvidence) => {
   let host = await mountApp();
   await waitFor(starterStored, 'the starter motor');
   await launch(host);
@@ -1025,10 +1029,12 @@ it('Auto-delay Previous flight accepts a legacy design-page run without motorDat
   const run = saved[0]!;
   const session = storedSession()!;
   const mount = motorMounts(session.tree)[0]!.id!;
-  delete run.motorDataKey;
+  if (identityEvidence !== 'motor-data key') delete run.motorDataKey;
   delete run.motorDataKeys;
   const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
   run.delayResolution = testResolution([[mount, autoMotor]], [7]);
+  if (identityEvidence !== 'motor-set key') run.motorSetKey = 'another set';
+  if (identityEvidence !== 'evidence identity') run.delayResolution.mounts[0]!.motorIdentity = 'legacy spelling';
   localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
   const mm = session.mountMotors![mount]!;
   mm.meta = { ...mm.meta, autoDelay: true };
@@ -1059,7 +1065,13 @@ it.each(['motorIdentity', 'motorDataKey', 'motorDataKeys'] as const)(
     const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
     run.conditionsKey = 'previous conditions';
     run.delayResolution = testResolution([[mount, autoMotor]], [7]);
-    if (key === 'motorIdentity') run.delayResolution.mounts[0]!.motorIdentity = 'another batch candidate';
+    if (key === 'motorIdentity') {
+      // Without fingerprints, the historical fallback still needs the evidence identity.
+      delete run.motorDataKey;
+      delete run.motorDataKeys;
+      run.motorSetKey = 'another batch candidate set';
+      run.delayResolution.mounts[0]!.motorIdentity = 'another batch candidate';
+    }
     else if (key === 'motorDataKeys') run.motorDataKeys = { [mount]: 'another curve' };
     else {
       delete run.motorDataKeys; // A saved run before per-mount curve fingerprints.
