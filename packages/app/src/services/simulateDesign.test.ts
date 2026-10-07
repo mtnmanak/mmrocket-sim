@@ -18,6 +18,7 @@ import type { OrkMotorRef } from './orkFile.js';
 import { comparable } from './simulate.testSupport.js';
 import { padMassTextFor } from './unitText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
+import { changedSinceRun, runMatchesDesign } from './simReport.js';
 import {
   APP_DEFAULT_AERO, flyBuiltDesign, simulateDesign, SimulateDesignError, withKernel,
 } from './simulateDesign.js';
@@ -76,6 +77,37 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it.each([false, true])('R7: Launch and headless keep a legacy motor identity with Auto=%s', async (autoDelay) => {
+    const s = await starter();
+    const [id, mm] = Object.entries(s.mountMotors)[0]!;
+    delete mm.meta.motorId;
+    delete mm.meta.exMotorId;
+    mm.meta.autoDelay = autoDelay;
+    const out = await simulateDesign(s, { aero: CLASSIC });
+    const derived = deriveLaunchInputs(s, CLASSIC);
+    const built = buildDesign(designBuildInputOf({
+      tree: s.tree, assigned: derived.assigned, effectiveKbf: true, effectiveSupersonic: false,
+      measuredDryMassKg: null, primaryMountId: id, currentSetKey: derived.currentSetKey,
+    }), KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    const launched = await flyBuiltDesign({
+      built, tree: s.tree, derived: { ...derived, primaryMountId: id },
+      launch: s.launch, aero: CLASSIC, activeConfigId: null, savedConfigs: [],
+      provenance: out.provenance, onSupersonicUpgrade: () => {},
+    });
+    mm.meta.autoDelay = !autoDelay;
+    const changed = provenanceKeyOf({ ...deriveLaunchInputs(s, CLASSIC), tree: s.tree,
+      launch: s.launch, hardwareDeltaKg: 0, aero: CLASSIC });
+    for (const run of [out.run, launched.run]) {
+      expect(run.delayResolution!.mounts[0]!.motorIdentity).toBe('Estes/C6');
+      expect(runMatchesDesign(run, out.provenance)).toBe(true);
+      expect(changedSinceRun(run, out.provenance)).toEqual([]);
+      expect(changed.motorSetKey).toBe(run.motorSetKey);
+      expect(runMatchesDesign(run, changed)).toBe(false);
+      expect(changedSinceRun(run, changed)).toEqual(['the motor delay policy']);
+    }
+  }, 30000);
+
   it('says which build flew it, the state it flew, and the full provenance key', async () => {
     const s = await starter();
     const out = await simulateDesign(s);

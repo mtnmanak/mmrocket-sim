@@ -66,6 +66,19 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it('R7: scalar reports cannot distinguish Auto from fixed at the same flown delay', () => {
+  // This is the pre-vector buildSimRun input shape: meta was an input only,
+  // not part of the persisted report, from ee5ac71 through 9855bb63^.
+  const make = (autoDelay: boolean) => buildSimRun({ result: fakeResult(), info, motor,
+    meta: { label: 'C6', manufacturer: 'Estes', autoDelay },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  const fixed = make(false);
+  const auto = make(true);
+  expect({ ...auto, id: fixed.id, when: fixed.when }).toEqual(fixed);
+  expect(auto.delayS).toBe(auto.recommendedDelayS);
+  expect(auto.delayResolution).toBeUndefined();
+});
+
 it.each(['176H123-12A', '232H123-14A'])('preserves raw flown motor designation %s without changing the run-table name', (designation) => {
   const run = buildSimRun({ result: fakeResult(), info,
     motor: { ...motor, designation, ejectionDelay: 9 }, meta: { label: designation, manufacturer: 'Cesaroni' },

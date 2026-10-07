@@ -181,6 +181,42 @@ const INPUT: DesignMatchInput = {
 };
 
 describe('R7 delay policy provenance', () => {
+  // Before delayResolution (9855bb63), buildSimRun did not persist meta.autoDelay.
+  // The scalar optimum/recommendation was written for fixed flights as well.
+  it.each([
+    { name: 'single mount at the recommended delay', count: 1, delay: 5, flown: 5, recommended: 5 },
+    { name: 'single mount away from its stored delay', count: 1, delay: 5, flown: 3, recommended: 3 },
+    { name: 'single plugged mount', count: 1, delay: Infinity, flown: Infinity, recommended: 5 },
+    { name: 'multiple mounts', count: 2, delay: 5, flown: 5, recommended: 5 },
+  ])('R7: legacy $name stays unknown under either current policy', ({ count, delay, flown, recommended }) => {
+    for (const auto of [false, true]) {
+      const assigned: [string, MountMotor][] = Array.from({ length: count }, (_, i) =>
+        [`m${i + 1}`, withAuto(mm({ delay }), auto)]);
+      const key = designMatchKeyOf({ ...INPUT, assigned });
+      const run = { ...INPUT_RUN, designKey: key.designKey, motorSetKey: key.motorSetKey,
+        motorDataKey: undefined, delayResolution: undefined, delayS: flown,
+        optimumDelayS: recommended, recommendedDelayS: recommended, flightConfigId: 'cfg',
+        recoveryEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'm1' }],
+      } as SimRun;
+      expect(changedSinceRun(run, key)).toBeNull();
+      expect(runMatchesDesign(run, key)).toBe(false);
+      expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+      const exportInput = { runs: [run], assigned,
+        savedConfigs: [{ id: 'cfg', name: 'Config', isDefault: true, motors: Object.fromEntries(assigned) }],
+        activeConfigId: 'cfg', mountIds: assigned.map(([id]) => id), ...key, model: key,
+        hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => 'm1' };
+      expect(flightDataForExport(exportInput)).toEqual({});
+      // An older run with a complete recorded vector can still qualify even
+      // without the later motor-data fingerprints; no policy is guessed.
+      const known = { ...run, delayS: auto ? 5 : delay,
+        delayResolution: testResolution(assigned, assigned.map(() => auto ? 5 : delay)) };
+      expect(changedSinceRun(known, key)).toEqual([]);
+      expect(runMatchesDesign(known, key)).toBe(true);
+      expect(matchingRecoveryEvents([known], key, () => undefined)).toEqual(run.recoveryEvents);
+      expect(flightDataForExport({ ...exportInput, runs: [known] }).cfg).toBeDefined();
+    }
+  });
+
   it.each([false, true])('rejects a same-number policy toggle from Auto=%s on either mount', (auto) => {
     const assigned: [string, MountMotor][] = [['m1', withAuto(mm({ delay: 7 }), auto)], ['m2', withAuto(mm({ delay: 7 }), auto)]];
     const key = designMatchKeyOf({ ...INPUT, assigned });

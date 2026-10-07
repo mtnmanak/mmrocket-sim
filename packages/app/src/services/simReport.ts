@@ -947,7 +947,12 @@ export function formatRunWhenProse(when: number, now: number = Date.now()): stri
  */
 export const AERO_MODEL_CHANGED = 'the aerodynamics model';
 
-/** Missing or partial delay evidence is unknown, never inferred from today's motor. */
+/**
+ * Missing or partial delay evidence is unknown, never inferred from today's motor.
+ * Pre-vector buildSimRun accepted meta.autoDelay but did not store it on SimRun.
+ * Both Auto and fixed flights stored optimumDelayS/recommendedDelayS, so even
+ * a single-mount scalar run cannot establish its policy from those numbers.
+ */
 function runMatchesDelayPolicy(run: SimRun, cur: DesignMatchKey): boolean | null {
   const r = run.delayResolution;
   if (!validDelayResolution(r) || !cur.delayMounts
