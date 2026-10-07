@@ -280,6 +280,18 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     const geo = new THREE.ExtrudeGeometry(shapes, { depth: thickness, bevelEnabled: false });
     geo.translate(0, 0, -thickness / 2);
 
+    // FinSet.getInstanceOffsets (FinSet.java:1762-1770) cants about length/2
+    // before clocking. Use the ROOT chord, not a freeform tip's max-x. Our
+    // frame matches the kernel's +Z, so rotate_y has the same positive sign.
+    // Match setCantAngle's +/-15 degree clamp (FinSet.java:239).
+    const cant = Math.max(-Math.PI / 12, Math.min(Math.PI / 12, num(child, 'cant', 0)));
+    if (cant !== 0) {
+      const halfChord = axialLength(child) / 2;
+      geo.translate(-halfChord, 0, 0);
+      geo.rotateY(cant);
+      geo.translate(halfChord, 0, 0);
+    }
+
     for (let i = 0; i < count; i++) {
       const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
       // Fin lies in the XY plane, root on the surface (+Y), then rotate about X.
