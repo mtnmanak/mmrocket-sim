@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { testMotor, testResolution } from './autoDelay.testSupport.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
@@ -13,7 +14,7 @@ import {
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { reconcileLegacyPadMass, type PadMassText } from './padMassReconcile.js';
-import { designMatchKeyOf, physicsRevisionsFor, requiresPhysicsRevision } from './simReport.js';
+import { changedSinceRun, designMatchKeyOf, physicsRevisionsFor, requiresPhysicsRevision, runMatchesDesign, type SimRun } from './simReport.js';
 import type { HardwareMassResult } from './hardwareMass.js';
 
 /**
@@ -140,6 +141,26 @@ describe('currentSetKeyOf', () => {
 });
 
 describe('provenanceKeyOf', () => {
+  it('R7: compares only installed delay policies while retaining refused motors in the persisted key', () => {
+    const assigned: [string, MountMotor][] = [['m-sus', testMotor()], ['m-boo', testMotor(false, 5)]];
+    const input: Parameters<typeof provenanceKeyOf>[0] = {
+      physicsKey: physicsKeyOf(TWO_STAGE.components), tree: TWO_STAGE, assigned,
+      refusedMountIds: ['m-boo'], hardwareDeltaKg: 0, launch: DEFAULT_CONDITIONS,
+      aero: { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false },
+    };
+    const key = provenanceKeyOf(input);
+    const run = { ...key, aeroModel: 'classic', rogersKbf: false,
+      delayResolution: testResolution([assigned[0]!], [7]),
+    } as unknown as SimRun;
+    expect(key.motorSetKey).toContain('m-boo:');
+    expect(changedSinceRun(run, key)).toEqual([]);
+    expect(runMatchesDesign(run, key)).toBe(true);
+    const changed = provenanceKeyOf({ ...input, assigned: [assigned[0]!, ['m-boo', testMotor(true, 5)]] });
+    expect(changed.motorSetKey).toBe(key.motorSetKey);
+    expect(changedSinceRun(run, changed)).toBeNull();
+    expect(runMatchesDesign(run, changed)).toBe(false);
+  });
+
   const withNozzle = (stageId: string): RocketTree => ({
     ...TWO_STAGE,
     components: TWO_STAGE.components.map((s) => (s.id === stageId ? { ...s, nozzleExitDiameter: 0.02 } : s)),

@@ -371,6 +371,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   const { primaryMountId } = derived;
   if (!primaryMountId) throw new SimulateDesignError('no-motor', 'no motor on the primary mount — assign one first');
   const provenance = provenanceKeyOf({
+    refusedMountIds: refusedMountIdsOf(built.motorFailures),
     physicsKey: derived.physicsKey, tree: state.tree, assigned: derived.assigned,
     hardwareDeltaKg: hardwareDeltaKgOf(built), launch: state.launch, aero,
   });

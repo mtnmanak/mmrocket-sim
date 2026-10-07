@@ -901,6 +901,31 @@ describe('the time-step caution’s measured cost', () => {
  * flew 7 s · ballistic optimum 7.0 s · <that design's branch>" under this motor.
  */
 describe('the Auto-delay card under a motor', () => {
+  it.each([false, true])('R7: the launch report stops matching after toggling Auto from %s at the same delay', async (autoDelay) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 7))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: { ...c6, meta: { ...c6.meta, autoDelay } } },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    expect(host.querySelector('.simdet-when')?.textContent).toContain('matches the design as it stands');
+    await openTab(host, 'Motors & Launch');
+    const delay = input(host, 'Ejection delay for');
+    expect(delay.value).toBe('7');
+    const label = [...host.querySelectorAll('label')].find((el) => el.textContent?.trim() === 'auto (optimal)')!;
+    await act(async () => { label.querySelector('input')!.click(); });
+    expect(input(host, 'Ejection delay for').value).toBe('7');
+    await openTab(host, 'Results');
+    await openHistory(host);
+    await act(async () => { history!.onSelect!(history!.runs[0]!); });
+    expect(host.querySelector('.simdet-when')?.textContent).toContain('the motor delay policy changed since');
+    expect(host.querySelector('.simdet-when')?.textContent).not.toContain('matches the design as it stands');
+  }, 30000);
+
   it('quotes no other design’s flight, even one stored under the same mount id', async () => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;

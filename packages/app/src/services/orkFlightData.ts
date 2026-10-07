@@ -295,12 +295,7 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
         const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
         return readDelay(r.delayResolution!.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
       })) continue;
-    } else {
-      // Legacy scalar evidence cannot establish that today's per-mount Auto settled.
-      if (motors.some(([, mm]) => mm.meta.autoDelay)) continue;
-      const primary = motors.find(([id]) => id === input.primaryMountOf(motors.map(([mount]) => mount)))?.[1];
-      if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
-    }
+    } else continue; // A legacy scalar cannot establish the flown delay policy.
     out[r.flightConfigId] = summaryOf(r);
   }
   // Preserve imported historical summaries only as a fallback for a surviving

@@ -922,6 +922,33 @@ const loadedMotor = (id: string, designation: string): MountMotor => ({
   meta: { label: designation, manufacturer: 'Acme', motorId: id, autoDelay: false },
   ignition: { event: 'automatic', delay: 0 },
 });
+
+it.each([false, true])('R7: Batch Auto=%s rejects a same-number policy toggle on the target or retained mount', async (autoDelay) => {
+  const tree = rocket({ sideMount: true });
+  const mountMotors = { mount: loadedMotor('a', 'E20'), side: loadedMotor('b', 'E22') };
+  for (const mm of Object.values(mountMotors)) mm.meta.autoDelay = autoDelay;
+  const state = designState(tree, mountMotors);
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '3,5')], autoDelay,
+    assignedMountMotors: mountMotors,
+    assignedMotors: { mount: mountMotors.mount.spec, side: mountMotors.side.spec },
+    assignedMotorIds: { mount: 'a', side: 'b' },
+    assignedAutoDelays: { side: autoDelay },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  const run = rows[0]!.run!;
+  expect(rows[0]!.error).toBeUndefined();
+  const current = designPageKey(state);
+  expect(changedSinceRun(run, current)).toEqual([]);
+  expect(runMatchesDesign(run, current)).toBe(true);
+  for (const mm of Object.values(mountMotors)) {
+    mm.meta.autoDelay = !autoDelay;
+    const changed = designPageKey(state);
+    expect(changed.motorSetKey).toBe(current.motorSetKey);
+    expect(changedSinceRun(run, changed)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, changed)).toBe(false);
+    mm.meta.autoDelay = autoDelay;
+  }
+}, 30000);
 const designState = (tree: RocketTree, mountMotors: Record<string, MountMotor>): DesignState => ({
   tree, mountMotors, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
   savedConfigs: [], activeConfigId: null,

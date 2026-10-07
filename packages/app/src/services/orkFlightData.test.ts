@@ -30,6 +30,7 @@ const MOTOR: MountMotor = {
 } as unknown as MountMotor;
 
 const RUN: SimRun = {
+  delayResolution: testResolution([['m1', MOTOR]], [7]),
   id: 'r1',
   flightConfigId: 'c1',
   designKey: 'design-A',
@@ -457,27 +458,27 @@ describe('flightDataForExport — the flown delay must be the one the file names
   const withDelay = (delay: number): MountMotor =>
     ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: delay } }) as MountMotor;
 
-  it('refuses an auto-delay run that flew a delay other than its configuration’s', () => {
+  it('refuses a fixed-delay run that flew a delay other than its configuration’s', () => {
     // RUN flew 7 s; the configuration's motor now says 3 s, with the same key.
     expect(ids({ assigned: [['m1', withDelay(3)]] })).toEqual([]);
   });
 
-  it('writes an auto-delay run whose optimum rounded to the configuration’s own delay', () => {
-    // It flew exactly what the file will say — nothing to refuse.
+  it('refuses fixed-delay evidence after the configuration switches to Auto at the same number', () => {
     const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
-    expect(ids({ assigned: [['m1', auto]] })).toEqual([]); // legacy scalar is insufficient
+    expect(ids({ assigned: [['m1', auto]] })).toEqual([]);
   });
 
-  it('reads the delay off the configuration’s PRIMARY, not its first mount', () => {
-    // `delayS` is the primary's: auto delay writes no other mount.
+  it('checks the complete delay vector independently of the scalar primary', () => {
     const booster = withDelay(0);
     const staged = (primary: string) => ids({
-      runs: [{ ...RUN, motorDataKey: motorDataKeyOf([['b', booster], ['m1', MOTOR]]) }],
+      runs: [{ ...RUN, motorDataKey: motorDataKeyOf([['b', booster], ['m1', MOTOR]]),
+        delayResolution: testResolution([['b', booster], ['m1', MOTOR]], [0, 7]),
+      }],
       assigned: [['b', booster], ['m1', MOTOR]], mountIds: ['b', 'm1'],
       primaryMountOf: () => primary,
     });
     expect(staged('m1')).toEqual(['c1']);
-    expect(staged('b')).toEqual([]);
+    expect(staged('b')).toEqual(['c1']);
   });
 
   it('reads a NON-active configuration against its own motors', () => {
@@ -486,16 +487,20 @@ describe('flightDataForExport — the flown delay must be the one the file names
     } as unknown as SavedConfig;
     const run2 = { ...RUN, id: 'r2', flightConfigId: 'c2' } as SimRun;
     expect(ids({ runs: [run2], savedConfigs: [CONFIG, other] })).toEqual([]);
-    expect(ids({ runs: [{ ...run2, delayS: 10 } as SimRun], savedConfigs: [CONFIG, other] })).toEqual(['c2']);
+    expect(ids({ runs: [{ ...run2, delayS: 10,
+      delayResolution: testResolution([['m1', withDelay(10)]], [10]),
+    } as SimRun], savedConfigs: [CONFIG, other] })).toEqual(['c2']);
   });
 
-  it('refuses when the configuration has no primary to read the delay against', () => {
-    expect(ids({ primaryMountOf: () => null })).toEqual([]);
+  it('refuses legacy scalar evidence even when it equals the fixed delay', () => {
+    expect(ids({ runs: [{ ...RUN, delayResolution: undefined }] })).toEqual([]);
   });
 
   it('writes a plugged motor’s run — Infinity is the delay it flew and the one the file names', () => {
     const plugged = withDelay(Infinity);
-    expect(ids({ runs: [{ ...RUN, delayS: Infinity } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
+    expect(ids({ runs: [{ ...RUN, delayS: Infinity,
+      delayResolution: testResolution([['m1', plugged]], [Infinity]),
+    } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
   });
 });
 

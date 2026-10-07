@@ -1,4 +1,5 @@
 import { testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf } from './autoDelaySolver.js';
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -112,15 +113,19 @@ describe('K9/K15 upgrade provenance', () => {
     const requires = requiresPhysicsRevision(treeWith(node));
     expect(requires).toBe(false);
     const key = { designKey: 'd', motorSetKey: 'm', motorDataKey: 'data', conditionsKey: 'c',
+      delayMounts: delayMountsOf([['mount', motor]]),
       aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false,
       requiresPhysicsRevision: requires };
-    const run = { ...key, aeroModel: 'classic', rogersKbf: false } as unknown as SimRun;
+    const run = { ...key, aeroModel: 'classic', rogersKbf: false,
+      delayResolution: testResolution([['mount', motor]], [5]),
+    } as unknown as SimRun;
     expect(runMatchesDesign(run, key)).toBe(true);
     expect(changedSinceRun(run, key)).toEqual([]);
   });
 
   it('does not attribute an old batch row to the current tree without a design key', () => {
     expect(changedSinceRun({ conditionsKey: 'c' } as SimRun, {
+      delayMounts: delayMountsOf([['mount', motor]]),
       designKey: 'd', motorSetKey: 'm', motorDataKey: 'data', conditionsKey: 'c', requiresPhysicsRevision: true,
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     })).toBeNull();

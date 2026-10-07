@@ -1808,9 +1808,10 @@ export function App() {
   // it too: `currentMatchKey`, `canShowCharts` and so `chartableRun`'s match
   // against every saved run, and `changedSince`.
   const provenanceKey = useMemo<DesignMatchKey>(() => provenanceKeyOf({
+    refusedMountIds,
     physicsKey, tree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  }), [physicsKey, assigned, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
+  }), [physicsKey, assigned, refusedMountIds, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
   const recoveryEvents = useMemo(() => matchingRecoveryEvents(runs, provenanceKey,
     (id) => result?.runId === id ? result.value : reflightCache.get(id)),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Show charts fills the ref-backed cache before clearing reflying
