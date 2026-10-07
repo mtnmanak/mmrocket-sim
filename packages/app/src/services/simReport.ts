@@ -1009,7 +1009,8 @@ export function changedSinceRun(
   // let the header print "matches the design as it stands" directly beneath a
   // banner saying the numbers were flown on a different model and are not
   // comparable — two lines a finger-width apart contradicting each other.
-  if (runMatchesModel(run, cur) === false) changed.push(AERO_MODEL_CHANGED);
+  const modelMatch = runMatchesModel(run, cur);
+  if (modelMatch === false) changed.push(AERO_MODEL_CHANGED);
   // The kernel's own physics is part of "does this still describe my rocket"
   // too, and nothing above can see it — see SimRun.nozzleStages (2026-09-08).
   // Legacy runs without a designKey cannot be attributed to this tree.
@@ -1025,9 +1026,11 @@ export function changedSinceRun(
 
   // NOTHING DIFFERS — but silence and a clean bill of health are not the same
   // claim, and only the second one can be wrong. Clearing a run requires every
-  // design, motor-set and conditions key to be present. Older batch rows
-  // carried conditions alone; current batch rows carry all the match keys.
-  const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey && delayMatch === true;
+  // design, motor-set and conditions key, delay policy and model to be known.
+  // Older batch rows carried conditions alone; current batch rows carry all
+  // the match keys.
+  const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey
+    && delayMatch === true && modelMatch === true;
   return complete ? [] : null;
 }
 
@@ -1038,22 +1041,9 @@ export function listAnd(items: readonly string[]): string {
 }
 
 export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
-  if (runMatchesDelayPolicy(run, cur) !== true) return false;
-  if (!run.designKey || run.designKey !== cur.designKey) return false;
-  if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
-  if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey) return false;
-  if (!motorDataKeysMatch(run.motorDataKeys, cur.motorDataKeys)) return false;
-  if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
-  // Same refusal for a run flown before the pressure-thrust term existed on a
-  // design that now spends it — the three keys above cannot see a kernel
-  // change (2026-09-08).
-  if (!runCarriesNozzleStamp(run, cur)) return false;
-  if (!runCarriesPhysicsRevision(run, cur)) return false;
-  // Unlike the UI's "flown on a different model" mark, an UNKNOWN model is a
-  // refusal here: re-flying reproduces a flight, and reproducing one whose
-  // model we cannot name is exactly the authoritative-looking wrong number
-  // this guard exists to prevent.
-  return runMatchesModel(run, cur) === true;
+  // One comparison owns both the report's claim and replay eligibility.
+  // Unknown evidence (null) refuses a match just as a named change does.
+  return changedSinceRun(run, cur)?.length === 0;
 }
 
 /**

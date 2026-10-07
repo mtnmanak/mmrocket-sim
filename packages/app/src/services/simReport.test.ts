@@ -497,7 +497,7 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
     aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
   };
   const runWith = (over: Partial<SimRun>): SimRun =>
-    ({ delayResolution: testResolution([['m', testMotor()]], [5]), designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', ...over }) as SimRun;
+    ({ delayResolution: testResolution([['m', testMotor()]], [5]), designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true, ...over }) as SimRun;
 
   it('says nothing changed when nothing has', () => {
     expect(changedSinceRun(runWith({}), KEY)).toEqual([]);

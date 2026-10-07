@@ -8,7 +8,7 @@ import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { flightDataForExport } from './orkFlightData.js';
 import {
   changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,
-  type DesignMatchInput, type SimRun,
+  type DesignMatchInput, type DesignMatchKey, type SimRun,
 } from './simReport.js';
 
 /**
@@ -179,6 +179,47 @@ const INPUT: DesignMatchInput = {
   autoSupersonic: false,
   hasNozzle: false,
 };
+
+describe('report and replay share provenance checks', () => {
+  const key = () => designMatchKeyOf(INPUT);
+
+  it.each(['aeroModel', 'rogersKbf', 'designKey', 'motorSetKey', 'conditionsKey', 'delayResolution'] as const)(
+    'does not clear a run missing %s', (field) => {
+      const run = { ...INPUT_RUN, [field]: undefined };
+      expect(runMatchesDesign(run, key())).toBe(false);
+      expect(changedSinceRun(run, key())).toBeNull();
+      expect(changedSinceRun(run, { ...key(), conditionsKey: 'changed' })).toEqual(
+        field === 'conditionsKey' ? null : ['the launch conditions'],
+      );
+    },
+  );
+
+  it('clears complete unchanged evidence', () => {
+    expect(changedSinceRun(INPUT_RUN, key())).toEqual([]);
+    expect(runMatchesDesign(INPUT_RUN, key())).toBe(true);
+  });
+
+  const changes: [string, Partial<DesignMatchKey>, Partial<SimRun>, string][] = [
+    ['design', { designKey: 'changed' }, {}, 'the design'],
+    ['motor identity', { motorSetKey: 'changed' }, {}, 'the motor'],
+    ['weighed hardware', { motorSetKey: `${INPUT_RUN.motorSetKey}|hw:100` }, {}, 'the weighed pad mass'],
+    ['motor data', { motorDataKey: 'changed' }, {}, 'the motor'],
+    ['per-mount motor data', {}, { motorDataKeys: { m1: 'changed' } }, 'the motor'],
+    ['delay policy', { delayMounts: delayMountsOf([['m1', withAuto(mm(), true)]]) }, {}, 'the motor delay policy'],
+    ['conditions', { conditionsKey: 'changed' }, {}, 'the launch conditions'],
+    ['aerodynamics', { aeroMode: 'supersonic' }, {}, 'the aerodynamics model'],
+    ['Kbf', { effectiveKbf: false }, {}, 'the aerodynamics model'],
+    ['hybrid band', { aeroMode: 'hybrid' }, { aeroModel: 'hybrid', hybridBand: [0.5, 2] }, 'the aerodynamics model'],
+    ['pressure thrust', { hasNozzle: true }, {}, 'the motor thrust model'],
+    ['physics revision', { physicsRevisions: ['guide-clearance-transition-mass-v1'] }, {}, 'the launch-guide and transition-shoulder physics'],
+  ];
+  it.each(changes)('names changed %s and refuses replay', (_name, current, stored, label) => {
+    const run = { ...INPUT_RUN, ...stored };
+    const cur = { ...key(), ...current };
+    expect(changedSinceRun(run, cur)).toEqual([label]);
+    expect(runMatchesDesign(run, cur)).toBe(false);
+  });
+});
 
 describe('R7 delay policy provenance', () => {
   // Before delayResolution (9855bb63), buildSimRun did not persist meta.autoDelay.
