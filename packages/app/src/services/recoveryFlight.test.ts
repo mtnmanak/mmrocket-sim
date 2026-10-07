@@ -3,9 +3,13 @@ import type { FlightResult } from '@online-openrocket/engine';
 import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { completedRecoveryEvents } from './recoveryMass.js';
 import type { DesignMatchKey, SimRun } from './simReport.js';
+import { testMotor, testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf } from './autoDelaySolver.js';
 const key: DesignMatchKey = { designKey: 'design', motorSetKey: 'motors', motorDataKey: 'curves',
+  delayMounts: delayMountsOf([['m', testMotor()]]),
   conditionsKey: 'conditions', aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
 const run = (over: Partial<SimRun> = {}): SimRun => ({ ...key, id: 'r', when: 1, aeroModel: 'classic', rogersKbf: false,
+  delayResolution: testResolution([['m', testMotor()]], [5]),
   recoveryEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' }], ...over } as SimRun);
 describe('K1 matching recovery evidence', () => {
   it('uses the newest matching configuration and refuses stale evidence', () => {

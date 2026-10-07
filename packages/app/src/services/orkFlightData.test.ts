@@ -3,7 +3,7 @@ import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
-import { motorDataKeyOf, type SimRun } from './simReport.js';
+import { designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -30,6 +30,7 @@ const MOTOR: MountMotor = {
 } as unknown as MountMotor;
 
 const RUN: SimRun = {
+  delayResolution: testResolution([['m1', MOTOR]], [7]),
   id: 'r1',
   flightConfigId: 'c1',
   designKey: 'design-A',
@@ -457,27 +458,27 @@ describe('flightDataForExport — the flown delay must be the one the file names
   const withDelay = (delay: number): MountMotor =>
     ({ ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: delay } }) as MountMotor;
 
-  it('refuses an auto-delay run that flew a delay other than its configuration’s', () => {
+  it('refuses a fixed-delay run that flew a delay other than its configuration’s', () => {
     // RUN flew 7 s; the configuration's motor now says 3 s, with the same key.
     expect(ids({ assigned: [['m1', withDelay(3)]] })).toEqual([]);
   });
 
-  it('writes an auto-delay run whose optimum rounded to the configuration’s own delay', () => {
-    // It flew exactly what the file will say — nothing to refuse.
+  it('refuses fixed-delay evidence after the configuration switches to Auto at the same number', () => {
     const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
-    expect(ids({ assigned: [['m1', auto]] })).toEqual([]); // legacy scalar is insufficient
+    expect(ids({ assigned: [['m1', auto]] })).toEqual([]);
   });
 
-  it('reads the delay off the configuration’s PRIMARY, not its first mount', () => {
-    // `delayS` is the primary's: auto delay writes no other mount.
+  it('checks the complete delay vector independently of the scalar primary', () => {
     const booster = withDelay(0);
     const staged = (primary: string) => ids({
-      runs: [{ ...RUN, motorDataKey: motorDataKeyOf([['b', booster], ['m1', MOTOR]]) }],
+      runs: [{ ...RUN, motorDataKey: motorDataKeyOf([['b', booster], ['m1', MOTOR]]),
+        delayResolution: testResolution([['b', booster], ['m1', MOTOR]], [0, 7]),
+      }],
       assigned: [['b', booster], ['m1', MOTOR]], mountIds: ['b', 'm1'],
       primaryMountOf: () => primary,
     });
     expect(staged('m1')).toEqual(['c1']);
-    expect(staged('b')).toEqual([]);
+    expect(staged('b')).toEqual(['c1']);
   });
 
   it('reads a NON-active configuration against its own motors', () => {
@@ -486,16 +487,20 @@ describe('flightDataForExport — the flown delay must be the one the file names
     } as unknown as SavedConfig;
     const run2 = { ...RUN, id: 'r2', flightConfigId: 'c2' } as SimRun;
     expect(ids({ runs: [run2], savedConfigs: [CONFIG, other] })).toEqual([]);
-    expect(ids({ runs: [{ ...run2, delayS: 10 } as SimRun], savedConfigs: [CONFIG, other] })).toEqual(['c2']);
+    expect(ids({ runs: [{ ...run2, delayS: 10,
+      delayResolution: testResolution([['m1', withDelay(10)]], [10]),
+    } as SimRun], savedConfigs: [CONFIG, other] })).toEqual(['c2']);
   });
 
-  it('refuses when the configuration has no primary to read the delay against', () => {
-    expect(ids({ primaryMountOf: () => null })).toEqual([]);
+  it('refuses legacy scalar evidence even when it equals the fixed delay', () => {
+    expect(ids({ runs: [{ ...RUN, delayResolution: undefined }] })).toEqual([]);
   });
 
   it('writes a plugged motor’s run — Infinity is the delay it flew and the one the file names', () => {
     const plugged = withDelay(Infinity);
-    expect(ids({ runs: [{ ...RUN, delayS: Infinity } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
+    expect(ids({ runs: [{ ...RUN, delayS: Infinity,
+      delayResolution: testResolution([['m1', plugged]], [Infinity]),
+    } as SimRun], assigned: [['m1', plugged]] })).toEqual(['c1']);
   });
 });
 
@@ -507,6 +512,45 @@ describe('flightDataForExport — the flown delay must be the one the file names
  * flight of the design as it stands flew is what the file now names, and the
  * flight data written beside it is that flight's.
  */
+describe('R7 Batch identity-independent export', () => {
+  it.each([
+    { autoDelay: false, identity: '/E22' }, { autoDelay: true, identity: '/E22' },
+    { autoDelay: false, identity: 'catalogue-id' }, { autoDelay: true, identity: 'catalogue-id' },
+  ])('exports recorded delays and flight data for Auto=$autoDelay identity=$identity, rejecting toggles', ({ autoDelay, identity }) => {
+    const motor: MountMotor = { ...MOTOR, spec: { ...MOTOR.spec, designation: 'E22', ejectionDelay: 5 },
+      meta: { label: 'E22', manufacturer: 'Acme', autoDelay } };
+    const assigned: [string, MountMotor][] = [['m1', motor]];
+    const resolution = testResolution(assigned, [autoDelay ? 3 : 5]);
+    resolution.mounts[0]!.motorIdentity = identity;
+    const run: SimRun = JSON.parse(JSON.stringify({ ...RUN, delayS: autoDelay ? 3 : 5,
+      motorSetKey: 'm1:Acme/E22:5:automatic:0', motorDataKey: motorDataKeyOf(assigned),
+      motorDataKeys: { m1: motorDataKeyOf(assigned) }, delayResolution: resolution }));
+    const before = JSON.stringify(run);
+    const state = base({ runs: [run], assigned, motorSetKeyOf,
+      savedConfigs: [{ ...CONFIG, motors: { m1: motor } }] });
+    const flown = flownAutoDelays(state);
+    expect(flown).toEqual(autoDelay ? { c1: { m1: 3 } } : {});
+    expect(Object.keys(flightDataForExport(state))).toEqual(['c1']);
+    const tree = { components: [{ type: 'stage' as const, id: 'stage', children: [
+      { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+    ] }] };
+    const motors = orkMotorSet({ records: { m1: motor }, refs: {}, tree, flown, configKey: 'c1',
+      exLibrary: () => [], first: 'records' });
+    const xml = exportOrk({ name: 'Historical Batch', tree, launch: DEFAULT_CONDITIONS, motors,
+      configs: [{ ...CONFIG, motors }], activeConfigId: 'c1', flightData: flightDataForExport(state) });
+    expect(Object.values(importOrk(xml).configs[0]!.motors).map(m => m.delay)).toEqual([autoDelay ? 3 : 5]);
+    expect(xml).toContain('<flightdata');
+    expect(JSON.stringify(run)).toBe(before);
+    const toggled = { ...motor, meta: { ...motor.meta, autoDelay: !autoDelay } };
+    const changed = { ...state, assigned: [['m1', toggled]] as [string, MountMotor][] };
+    expect(flownAutoDelays(changed)).toEqual({});
+    expect(flightDataForExport(changed)).toEqual({});
+    const badFingerprint = { ...state, runs: [{ ...run, motorDataKeys: { m1: 'different-curve' } }] };
+    expect(flownAutoDelays(badFingerprint)).toEqual({});
+    expect(flightDataForExport(badFingerprint)).toEqual({});
+  });
+});
+
 describe('flownAutoDelays - complete settled vectors', () => {
   const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } } as MountMotor;
   const assigned: [string, MountMotor][] = [['m1', auto], ['side', auto]];
@@ -520,7 +564,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
       ['m1', 'side'].map(id => ({ type: 'bodytube' as const, id, motorMount: true,
         length: 0.3, outerRadius: 0.02, thickness: 0.001 })) }] };
     const motors = Object.fromEntries(assigned);
-    const history = [{ ...run(), flightConfigId: action === 'create' ? undefined : 'c1' }];
+    const history = [{ ...run(), motorSetKey: motorSetKeyOf(assigned, 0), flightConfigId: action === 'create' ? undefined : 'c1' }];
     const before = structuredClone(history);
     const originalMotors = action === 'create-from-active'
       ? { ...motors, m1: { ...auto, spec: { ...auto.spec, designation: 'Old motor' } } } : motors;
@@ -529,7 +573,7 @@ describe('flownAutoDelays - complete settled vectors', () => {
     const next = action === 'delete' ? deleted
       : createLoadedConfig({ tree, mountMotors: motors, unmatchedRefs: {},
         ...(action === 'create-from-active' ? original : deleted) })!;
-    const state = input({ ...next, runs: history });
+    const state = input({ ...next, runs: history, motorSetKeyOf });
     const key = next.activeConfigId ?? '';
     const flown = flownAutoDelays(state);
     expect(flown).toEqual({ [key]: { m1: 7, side: 4 } });
@@ -560,7 +604,8 @@ describe('flownAutoDelays - complete settled vectors', () => {
   it('does not count another configuration’s different motor set for the active configuration', () => {
     const other: [string, MountMotor][] = assigned.map(([id, mm]) =>
       [id, { ...mm, spec: { ...mm.spec, designation: 'Different motor' } }]);
-    const state = input({ assigned: other, activeConfigId: 'C', savedConfigs: [
+    const state = input({ assigned: other, activeConfigId: 'C', motorSetKeyOf,
+      runs: [{ ...run(), motorSetKey: motorSetKeyOf(assigned, 0) }], savedConfigs: [
       { ...CONFIG, motors: Object.fromEntries(assigned) },
       { ...CONFIG, id: 'C', motors: Object.fromEntries(other) },
     ] });
@@ -633,6 +678,36 @@ describe('flownAutoDelays - complete settled vectors', () => {
     const refused = (over: Partial<FlightDataForExportInput> = {}) => input({
       runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod) }],
       assigned: withPod, mountIds: ['m1', 'side', 'pod'], refusedMountIds: ['pod'], ...over,
+    });
+    it.each(['build', 'ignition'] as const)('R7 refused %s fixed-to-Auto toggle rejects the whole export vector', (reason) => {
+      const pod = reason === 'build' ? MOTOR
+        : { ...MOTOR, ignition: { event: 'sideways', delay: 0 } } as unknown as MountMotor;
+      const motors: [string, MountMotor][] = [...assigned, ['pod', pod]];
+      const matchInput = { physicsKey: 'refused-pod', assigned: motors,
+        refusedMountIds: reason === 'build' ? ['pod'] : [], hardwareDeltaKg: 0,
+        launch: DEFAULT_CONDITIONS, aeroMode: 'supersonic' as const,
+        effectiveKbf: true, autoSupersonic: false, hasNozzle: false };
+      const key = designMatchKeyOf(matchInput);
+      const saved = { ...run(), designKey: key.designKey, conditionsKey: key.conditionsKey,
+        motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey };
+      const toggled: [string, MountMotor][] = [...assigned,
+        ['pod', { ...pod, meta: { ...pod.meta, autoDelay: true } }]];
+      expect(runMatchesDesign(saved, key)).toBe(true);
+      expect(runMatchesDesign(saved, designMatchKeyOf({ ...matchInput, assigned: toggled }))).toBe(false);
+      for (const activeConfigId of ['c1', null]) {
+        const state = refused({ assigned: motors, refusedMountIds: matchInput.refusedMountIds,
+          activeConfigId, savedConfigs: activeConfigId ? [{ ...CONFIG, motors: Object.fromEntries(motors) }] : [],
+          runs: [{ ...saved, flightConfigId: activeConfigId ?? undefined }],
+          designKey: key.designKey, conditionsKey: key.conditionsKey, motorSetKeyOf });
+        // Refused fixed neighbours still allow ALL installed Auto delays to export.
+        expect(flownAutoDelays(state)).toEqual({ [activeConfigId ?? '']: { m1: 7, side: 4 } });
+        // Summary export has the additional requirement that every named motor flew.
+        expect(flightDataForExport(state)).toEqual({});
+        const changed = { ...state, assigned: toggled };
+        expect(flownAutoDelays(changed)).toEqual({});
+        expect(flightDataForExport(changed)).toEqual({});
+        expect(flownAutoDelays(state)).toEqual({ [activeConfigId ?? '']: { m1: 7, side: 4 } });
+      }
     });
     it('reads the run of the mounts that flew', () => {
       expect(flownAutoDelays(refused())).toEqual({ c1: { m1: 7, side: 4 } });

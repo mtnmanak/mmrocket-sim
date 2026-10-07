@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canReplayDelays, delayMountsOf, LATE_BURNOUT_CAUTION, resolutionMatches, solveAutoDelays, validDelayResolution } from './autoDelaySolver.js';
+import { canReplayDelays, delayMountsOf, LATE_BURNOUT_CAUTION, resolutionMatches, resolutionMatchesPolicy, solveAutoDelays, validDelayResolution } from './autoDelaySolver.js';
 import { probeFlight, testMotor } from './autoDelay.testSupport.js';
 
 const mounts = () => delayMountsOf([['a', testMotor()], ['b', testMotor()]], { a: 'Core', b: 'Booster MMT' });
@@ -128,12 +128,16 @@ describe('per-mount recovery-free fixed point', () => {
       { ...r, mounts: [r.mounts[0], r.mounts[0]] }, { ...r, mounts: r.mounts.map((m) => ({ ...m, flownDelay: null })) },
       { ...r, mounts: [...r.mounts, { ...r.mounts[0], mountId: 'extra' }] },
       { ...r, mounts: r.mounts.map((m) => ({ ...m, rawOptimum: 999 })) },
-      { ...r, mounts: r.mounts.map((m) => ({ ...m, caution: {} })) },
-      { ...r, mounts: r.mounts.map((m) => ({ ...m, motorIdentity: 'other' })) }]) {
+      { ...r, mounts: r.mounts.map((m) => ({ ...m, caution: {} })) }]) {
       expect(resolutionMatches(bad, mounts())).toBe(false);
+      expect(resolutionMatchesPolicy(bad, mounts())).toBe(false);
     }
+    const differentlyNamed = { ...r, mounts: r.mounts.map(m => ({ ...m, motorIdentity: 'other' })) };
+    expect(resolutionMatches(differentlyNamed, mounts())).toBe(false);
+    expect(resolutionMatchesPolicy(differentlyNamed, [...mounts()].reverse())).toBe(true);
     const changed = mounts(); changed[1]!.mode = 'manual'; changed[1]!.delay = 7;
     expect(resolutionMatches(r, changed)).toBe(false);
+    expect(resolutionMatchesPolicy(r, changed)).toBe(false);
   });
 
   it('rejects invented branch evidence on fixed records', async () => {
@@ -162,6 +166,7 @@ describe('per-mount recovery-free fixed point', () => {
     const fixed = delayMountsOf([['a', testMotor(false, 2)]]);
     const f = await solveAutoDelays({ mounts: fixed, budget: { probes: 0 }, probe: () => probeFlight() });
     expect(resolutionMatches(f, [{ ...fixed[0]!, delay: 3 }])).toBe(false);
+    expect(resolutionMatchesPolicy(f, [{ ...fixed[0]!, delay: 3 }])).toBe(false);
   });
 
   it('allows unambiguous legacy replay and refuses ambiguous multi-mount scalars', async () => {

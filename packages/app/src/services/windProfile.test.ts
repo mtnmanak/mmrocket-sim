@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs';
+import { testMotor, testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf } from './autoDelaySolver.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -526,9 +528,11 @@ describe('profile persistence', () => {
     expect(flown.series).not.toEqual(rocket.simulate({ ...opts, windLevels: undefined }).series);
     expect(rocket.simulate(opts).series).toEqual(flown.series);
     const run = buildSimRun({ result: flown, info: rocket.staticInfo(), motor, launch,
+      delayResolution: testResolution([[mount.id!, { ...testMotor(false, 5), spec: motor }]], [5]),
       rocketName: read.tree.name!, execMs: 1, designKey: 'same rocket', motorSetKey: 'same motor', motorDataKey: 'same data', aeroModel: 'classic', rogersKbf: false });
     const reopened = { ...DEFAULT_CONDITIONS, ...importOrk(exportOrk({ tree: read.tree, name: 'Small wind test', launch })).launch };
     const current = { designKey: run.designKey!, motorSetKey: run.motorSetKey!, motorDataKey: run.motorDataKey!, conditionsKey: conditionsKeyOf(reopened),
+      delayMounts: delayMountsOf([[mount.id!, { ...testMotor(false, 5), spec: motor }]]),
       aeroMode: 'classic' as const, effectiveKbf: false, autoSupersonic: false };
     expect(reopened.windLevels).toEqual(launch.windLevels);
     addRun(run);

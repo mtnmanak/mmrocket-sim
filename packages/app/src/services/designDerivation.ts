@@ -171,6 +171,7 @@ export function designBuildInputOf(a: {
  * (App.render.test.tsx counts its calls to see this memo re-run).
  */
 export function provenanceKeyOf(a: {
+  refusedMountIds?: readonly string[];
   physicsKey: string;
   tree: RocketTree;
   assigned: Assigned;
@@ -180,6 +181,7 @@ export function provenanceKeyOf(a: {
 }): DesignMatchKey {
   const { tree, assigned } = a;
   return designMatchKeyOf({
+    refusedMountIds: a.refusedMountIds,
     physicsKey: a.physicsKey,
     assigned,
     hardwareDeltaKg: a.hardwareDeltaKg,

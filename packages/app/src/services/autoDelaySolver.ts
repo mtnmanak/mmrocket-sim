@@ -74,21 +74,36 @@ export function validDelayResolution(value: unknown): value is DelayResolution {
   });
 }
 
-export function resolutionMatches(r: unknown, mounts: readonly DelayMount[]): r is DelayResolution {
+/** Compare policy by mount after the caller has checked the run's motor provenance. */
+export function resolutionMatchesPolicy(r: unknown, mounts: readonly DelayMount[]): r is DelayResolution {
   return validDelayResolution(r) && r.mounts.length === mounts.length && mounts.every((m) => {
     const flown = r.mounts.find((x) => x.mountId === m.mountId);
-    return flown?.motorIdentity === m.motorIdentity && flown.mode === m.mode
+    return flown?.mode === m.mode
       && (m.mode === 'auto' || readDelay(flown.flownDelay) === m.delay);
   });
 }
 
-/** Legacy scalar replay is unambiguous for one mount, or an unchanged fixed vector. */
+/** Standalone evidence needs identity too when no run provenance has been checked. */
+export function resolutionMatches(r: unknown, mounts: readonly DelayMount[]): r is DelayResolution {
+  return resolutionMatchesPolicy(r, mounts)
+    && mounts.every(m => r.mounts.find(x => x.mountId === m.mountId)!.motorIdentity === m.motorIdentity);
+}
+
+/**
+ * Replay feasibility, not full currentness. Set motorIdentityVerified only after
+ * checking the run's motor provenance; otherwise evidence identity must match.
+ * Legacy scalar replay is unambiguous for one mount, or an unchanged fixed vector.
+ */
 export function canReplayDelays(
   resolution: unknown, assigned: readonly (readonly [string, MountMotor])[], primaryId: string, delayS: number,
+  motorIdentityVerified = false,
 ): boolean {
   if (!(delayS === Infinity || (finite(delayS) && delayS >= 0))) return false;
-  if (resolution !== undefined) return resolutionMatches(resolution, delayMountsOf(assigned))
-    && resolution.mounts.some((m) => m.mountId === primaryId && readDelay(m.flownDelay) === delayS);
+  if (resolution !== undefined) {
+    const matches = motorIdentityVerified ? resolutionMatchesPolicy : resolutionMatches;
+    return matches(resolution, delayMountsOf(assigned))
+      && resolution.mounts.some((m) => m.mountId === primaryId && readDelay(m.flownDelay) === delayS);
+  }
   const primary = assigned.find(([id]) => id === primaryId)?.[1];
   return !!primary && (assigned.length === 1
     || (assigned.every(([, mm]) => !mm.meta.autoDelay) && delayS === primary.spec.ejectionDelay));

@@ -2,23 +2,26 @@ import * as flightRunner from './flightRunner.js';
 import { flyLaunch } from './flightRunner.js';
 import { readFileSync } from 'node:fs';
 import { probeFlight } from './autoDelay.testSupport.js';
+import { canReplayDelays } from './autoDelaySolver.js';
+import { flightDataForExport, flownAutoDelays } from './orkFlightData.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
-import { applyStageNozzles, engineTree, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
+import { applyStageNozzles, defaultTree, engineTree, motorMounts, splitClusterPairsTree, splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type MotorDbEntry } from './motorDb.js';
 import { diffCatalogue } from './catalogueOverlay.js';
 import type { NozzleEntry } from './nozzleDb.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
-import { changedSinceRun, commentLevelsAlign, motorDataKeyOf, recommendDelay, runMatchesDesign, storedSimCost } from './simReport.js';
+import { changedSinceRun, commentLevelsAlign, motorDataKeyOf, motorSetKeyOf, recommendDelay, runMatchesDesign, storedSimCost } from './simReport.js';
 import { deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, physicsKeyOf, provenanceKeyOf, type DesignState } from './designDerivation.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity } from './hardwareMass.js';
 import { padMassSetKey } from './configSync.js';
 import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
+import { matchingRecoveryEvents } from './recoveryFlight.js';
 import type { MountMotor } from '../model/design.js';
 import { configOntoTree } from './importApply.js';
 import {
@@ -922,6 +925,139 @@ const loadedMotor = (id: string, designation: string): MountMotor => ({
   meta: { label: designation, manufacturer: 'Acme', motorId: id, autoDelay: false },
   ignition: { event: 'automatic', delay: 0 },
 });
+
+it.each([false, true])('R7 ID-less Estes C6 Batch target stays current with Auto=%s until its policy changes', async (autoDelay) => {
+  const tree = defaultTree();
+  const mountId = motorMounts(tree)[0]!.id!;
+  const candidate = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+  const spec = await fetchMotorSpec(candidate, 7);
+  const motor: MountMotor = { label: 'C6-7', spec, meta: { label: 'C6-7', manufacturer: 'Estes', autoDelay },
+    ignition: { event: 'automatic', delay: 0 } };
+  const assigned: [string, MountMotor][] = [[mountId, motor]];
+  const motors = { [mountId]: motor };
+  const target = { ...MOUNT, id: mountId };
+  const state = designState(tree, motors);
+  const { rows } = await sweep(input(tree, { target, mounts: [target], candidates: [candidate], autoDelay,
+    assignedMountMotors: motors, assignedMotors: { [mountId]: spec }, assignedMotorIds: batchMotorIds(motors),
+  }), { fetchSpec: fetchFrom({ [candidate.motorId]: spec }), nozzleFor: nozzles({}) });
+  expect(rows[0]!.error).toBeUndefined();
+  const run = { ...rows[0]!.run!, flightConfigId: 'c1' };
+  const key = designPageKey(state);
+  expect(run.delayResolution!.mounts[0]!.motorIdentity).toBe(candidate.motorId);
+  expect(key.delayMounts![0]!.motorIdentity).toBe('Estes/C6');
+  expect(run.motorSetKey).toBe(key.motorSetKey);
+  expect(run.motorDataKey).toBe(key.motorDataKey);
+  const exportInput = { runs: [run], savedConfigs: [{ id: 'c1', name: 'C6', isDefault: true, motors }], activeConfigId: 'c1',
+    assigned, mountIds: [mountId], designKey: key.designKey, conditionsKey: key.conditionsKey,
+    model: provenanceAero, hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => mountId };
+  const before = JSON.stringify(run);
+  expect(changedSinceRun(run, key)).toEqual([]);
+  expect(runMatchesDesign(run, key)).toBe(true);
+  expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
+  expect(canReplayDelays(run.delayResolution, assigned, mountId, run.delayS, true)).toBe(true);
+  expect(Object.keys(flightDataForExport(exportInput))).toEqual(['c1']);
+  expect(flownAutoDelays(exportInput)).toEqual(autoDelay ? { c1: { [mountId]: run.delayS } } : {});
+  motor.meta.autoDelay = !autoDelay;
+  const toggled = designPageKey(state);
+  expect(toggled.motorSetKey).toBe(key.motorSetKey);
+  expect(changedSinceRun(run, toggled)).toEqual(['the motor delay policy']);
+  expect(runMatchesDesign(run, toggled)).toBe(false);
+  expect(matchingRecoveryEvents([run], toggled, () => undefined)).toBeUndefined();
+  expect(canReplayDelays(run.delayResolution, assigned, mountId, run.delayS, true)).toBe(false);
+  expect(flightDataForExport(exportInput)).toEqual({});
+  expect(flownAutoDelays(exportInput)).toEqual({});
+  expect(JSON.stringify(run)).toBe(before);
+}, 30000);
+
+it.each([
+  { autoDelay: false, legacy: false }, { autoDelay: true, legacy: false },
+  { autoDelay: false, legacy: true }, { autoDelay: true, legacy: true },
+  { autoDelay: false, legacy: true, legacyTarget: true }, { autoDelay: true, legacy: true, legacyTarget: true },
+])('R7: Batch Auto=$autoDelay legacy=$legacy target=$legacyTarget rejects a same-number policy toggle on the target or retained mount', async ({ autoDelay, legacy, legacyTarget }) => {
+  const tree = rocket({ sideMount: true });
+  const mountMotors = { mount: loadedMotor('a', 'E20'), side: loadedMotor('b', 'E22') };
+  if (legacy) {
+    delete mountMotors.side.meta.motorId;
+    delete mountMotors.side.meta.exMotorId;
+  }
+  if (legacyTarget) delete mountMotors.mount.meta.motorId;
+  for (const mm of Object.values(mountMotors)) mm.meta.autoDelay = autoDelay;
+  const state = designState(tree, mountMotors);
+  const { rows } = await sweep(input(tree, {
+    candidates: [entry('a', 'Acme', 'E20', '3,5')], autoDelay,
+    assignedMountMotors: mountMotors,
+    assignedMotors: { mount: mountMotors.mount.spec, side: mountMotors.side.spec },
+    assignedMotorIds: batchMotorIds(mountMotors),
+    assignedAutoDelays: { side: autoDelay },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  const run = rows[0]!.run!;
+  expect(rows[0]!.error).toBeUndefined();
+  const current = designPageKey(state);
+  expect(changedSinceRun(run, current)).toEqual([]);
+  expect(runMatchesDesign(run, current)).toBe(true);
+  expect(run.delayResolution!.mounts.find((m) => m.mountId === 'side')!.motorIdentity)
+    .toBe(legacy ? 'Acme/E22' : 'b');
+  expect(run.recoveryEvents).toBeDefined();
+  expect(matchingRecoveryEvents([run], current, () => undefined)).toEqual(run.recoveryEvents);
+  const assigned = Object.entries(mountMotors);
+  const exportInput = () => ({ runs: [{ ...run, flightConfigId: 'c1' }],
+    savedConfigs: [{ id: 'c1', name: 'Batch', isDefault: true, motors: mountMotors }], activeConfigId: 'c1',
+    assigned, mountIds: ['mount', 'side'], designKey: current.designKey, conditionsKey: current.conditionsKey,
+    model: provenanceAero, hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0,
+    primaryMountOf: () => 'mount',
+  });
+  const expectedAuto = autoDelay ? { c1: Object.fromEntries(run.delayResolution!.mounts.map(m => [m.mountId, m.flownDelay])) } : {};
+  expect(canReplayDelays(run.delayResolution, assigned, 'mount', run.delayS, true)).toBe(true);
+  expect(Object.keys(flightDataForExport(exportInput()))).toEqual(['c1']);
+  expect(flownAutoDelays(exportInput())).toEqual(expectedAuto);
+  for (const mm of Object.values(mountMotors)) {
+    mm.meta.autoDelay = !autoDelay;
+    const changed = designPageKey(state);
+    expect(changed.motorSetKey).toBe(current.motorSetKey);
+    expect(changedSinceRun(run, changed)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, changed)).toBe(false);
+    expect(matchingRecoveryEvents([run], changed, () => undefined)).toBeUndefined();
+    expect(canReplayDelays(run.delayResolution, assigned, 'mount', run.delayS, true)).toBe(false);
+    expect(flightDataForExport(exportInput())).toEqual({});
+    expect(flownAutoDelays(exportInput())).toEqual({});
+    mm.meta.autoDelay = autoDelay;
+  }
+}, 30000);
+
+it.each([false, true])('R7: mixed Batch retains a legacy background motor with Auto=%s', async (autoDelay) => {
+  const tree = clusterRocket('4-ring');
+  tree.components[0]!.children![1]!.children!.push({
+    type: 'innertube', id: 'side', length: 0.2, outerRadius: 0.0125, thickness: 0.0005, motorMount: true,
+  } as ComponentNode);
+  const split = splitClusterTree(tree, 'mount')!;
+  const side = loadedMotor('legacy', 'E22');
+  delete side.meta.motorId;
+  delete side.meta.exMotorId;
+  side.meta.autoDelay = autoDelay;
+  const { rows } = await sweep(input(tree, {
+    mounts: [MOUNT, { ...MOUNT, id: 'side' }],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    splits: [split], autoDelay: false,
+    assignedMountMotors: { side }, assignedMotors: { side: side.spec },
+    assignedMotorIds: batchMotorIds({ side }), assignedAutoDelays: { side: autoDelay },
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) });
+  const row = rows.find((r) => r.combo)!;
+  expect(row.error).toBeUndefined();
+  const run = row.run!;
+  const motors = { side, ...Object.fromEntries(split.mountIds.map((id, i) =>
+    [id, loadedMotor(i === 0 ? 'a' : 'b', i === 0 ? 'E20' : 'E22')])) };
+  const current = () => ({ ...designPageKey(designState(split.tree, motors)),
+    // Batch's temporary group mounts retain the original design's tree stamp.
+    designKey: designPageKey(designState(tree, { side })).designKey });
+  expect(run.delayResolution!.mounts.find((m) => m.mountId === 'side')!.motorIdentity).toBe('Acme/E22');
+  expect(changedSinceRun(run, current())).toEqual([]);
+  expect(runMatchesDesign(run, current())).toBe(true);
+  expect(matchingRecoveryEvents([run], current(), () => undefined)).toEqual(run.recoveryEvents);
+  side.meta.autoDelay = !autoDelay;
+  expect(changedSinceRun(run, current())).toEqual(['the motor delay policy']);
+  expect(runMatchesDesign(run, current())).toBe(false);
+  expect(matchingRecoveryEvents([run], current(), () => undefined)).toBeUndefined();
+}, 30000);
 const designState = (tree: RocketTree, mountMotors: Record<string, MountMotor>): DesignState => ({
   tree, mountMotors, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
   savedConfigs: [], activeConfigId: null,

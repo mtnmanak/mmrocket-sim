@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
+import { testResolution } from './autoDelay.testSupport.js';
+import { canReplayDelays, delayMountsOf } from './autoDelaySolver.js';
+import { withAuto } from './mountDelayEdits.js';
+import { matchingRecoveryEvents } from './recoveryFlight.js';
+import { flightDataForExport } from './orkFlightData.js';
 import {
   changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,
   type DesignMatchInput, type SimRun,
@@ -91,7 +96,9 @@ describe('motorSetKeyOf — the persisted format', () => {
     expect(runMatchesDesign(stored, cur)).toBe(false);
     expect(changedSinceRun(stored, cur)).toEqual(['the motor']);
     // A run flown NOW, without the refused motor, still matches itself.
-    expect(runMatchesDesign({ ...stored, motorDataKey: cur.motorDataKey, motorSetKey: key } as SimRun, cur)).toBe(true);
+    expect(runMatchesDesign({ ...stored, motorDataKey: cur.motorDataKey, motorSetKey: key,
+      delayResolution: testResolution([['mount', mm()]], [5]),
+    } as SimRun, cur)).toBe(true);
   });
 });
 
@@ -102,6 +109,7 @@ describe('motorSetKeyOf — the persisted format', () => {
 const DEFAULT_CONDITIONS_KEY =
   'latitudeDeg=28.61|launchAltitudeM=0|launchRodAngleDeg=0|launchRodLengthM=1|pressureHPa=|temperatureC=|windAverage=0|windStdDev=0';
 const INPUT_RUN = {
+  delayResolution: testResolution([['m1', mm()]], [5]),
   designKey: shortHash('{"stages":[1]}'),
   motorSetKey: 'm1:Estes/C6:5:automatic:0',
   motorDataKey: motorDataKeyOf([['m1', mm()]]),
@@ -172,6 +180,169 @@ const INPUT: DesignMatchInput = {
   hasNozzle: false,
 };
 
+describe('R7 delay policy provenance', () => {
+  // Before delayResolution (9855bb63), buildSimRun did not persist meta.autoDelay.
+  // The scalar optimum/recommendation was written for fixed flights as well.
+  it.each([
+    { name: 'single mount at the recommended delay', count: 1, delay: 5, flown: 5, recommended: 5 },
+    { name: 'single mount away from its stored delay', count: 1, delay: 5, flown: 3, recommended: 3 },
+    { name: 'single plugged mount', count: 1, delay: Infinity, flown: Infinity, recommended: 5 },
+    { name: 'multiple mounts', count: 2, delay: 5, flown: 5, recommended: 5 },
+  ])('R7: legacy $name stays unknown under either current policy', ({ count, delay, flown, recommended }) => {
+    for (const auto of [false, true]) {
+      const assigned: [string, MountMotor][] = Array.from({ length: count }, (_, i) =>
+        [`m${i + 1}`, withAuto(mm({ delay }), auto)]);
+      const key = designMatchKeyOf({ ...INPUT, assigned });
+      const run = { ...INPUT_RUN, designKey: key.designKey, motorSetKey: key.motorSetKey,
+        motorDataKey: undefined, delayResolution: undefined, delayS: flown,
+        optimumDelayS: recommended, recommendedDelayS: recommended, flightConfigId: 'cfg',
+        recoveryEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'm1' }],
+      } as SimRun;
+      expect(changedSinceRun(run, key)).toBeNull();
+      expect(runMatchesDesign(run, key)).toBe(false);
+      expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+      const exportInput = { runs: [run], assigned,
+        savedConfigs: [{ id: 'cfg', name: 'Config', isDefault: true, motors: Object.fromEntries(assigned) }],
+        activeConfigId: 'cfg', mountIds: assigned.map(([id]) => id), ...key, model: key,
+        hasNozzle: false, motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => 'm1' };
+      expect(flightDataForExport(exportInput)).toEqual({});
+      // An older run with a complete recorded vector can still qualify even
+      // without the later motor-data fingerprints; no policy is guessed.
+      const known = { ...run, delayS: auto ? 5 : delay,
+        delayResolution: testResolution(assigned, assigned.map(() => auto ? 5 : delay)) };
+      expect(changedSinceRun(known, key)).toEqual([]);
+      expect(runMatchesDesign(known, key)).toBe(true);
+      expect(matchingRecoveryEvents([known], key, () => undefined)).toEqual(run.recoveryEvents);
+      expect(flightDataForExport({ ...exportInput, runs: [known] }).cfg).toBeDefined();
+    }
+  });
+
+  it.each([false, true])('rejects a same-number policy toggle from Auto=%s on either mount', (auto) => {
+    const assigned: [string, MountMotor][] = [['m1', withAuto(mm({ delay: 7 }), auto)], ['m2', withAuto(mm({ delay: 7 }), auto)]];
+    const key = designMatchKeyOf({ ...INPUT, assigned });
+    const run = { ...INPUT_RUN, ...key, flightConfigId: 'cfg',
+      delayResolution: testResolution(assigned, auto ? [4, 6] : [7, 7]),
+      recoveryEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'm1' }],
+    } as SimRun;
+    expect(changedSinceRun(run, key)).toEqual([]);
+    expect(runMatchesDesign(run, key)).toBe(true);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
+    for (const index of [0, 1]) {
+      const changed = assigned.map(([id, motor], i): [string, MountMotor] => [id, i === index ? withAuto(motor, !auto) : motor]);
+      const current = designMatchKeyOf({ ...INPUT, assigned: changed });
+      expect(current.motorSetKey).toBe(key.motorSetKey);
+      expect(changedSinceRun(run, current)).toEqual(['the motor delay policy']);
+      expect(runMatchesDesign(run, current)).toBe(false);
+      expect(matchingRecoveryEvents([run], current, () => undefined)).toBeUndefined();
+      expect(flightDataForExport({ runs: [run], assigned: changed, savedConfigs: [{ id: 'cfg', name: 'Config', isDefault: true, motors: Object.fromEntries(changed) }],
+        activeConfigId: 'cfg', mountIds: ['m1', 'm2'], ...current, model: current, hasNozzle: false,
+        motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => 'm1',
+      })).toEqual({});
+    }
+    expect(runMatchesDesign(run, designMatchKeyOf({ ...INPUT, assigned: [...assigned].reverse() }))).toBe(true);
+  });
+
+  it.each(['missing', 'malformed', 'partial'] as const)('keeps %s delay evidence unknown and refuses recovery and export', (kind) => {
+    const assigned: [string, MountMotor][] = [['m1', mm()], ['m2', mm()]];
+    const key = designMatchKeyOf({ ...INPUT, assigned });
+    const evidence = testResolution(assigned, [5, 5]);
+    const run = { ...INPUT_RUN, ...key, flightConfigId: 'cfg', delayS: 5,
+      recoveryEvents: [], delayResolution: kind === 'missing' ? undefined
+        : kind === 'partial' ? { ...evidence, mounts: evidence.mounts.slice(0, 1) }
+          : { ...evidence, probes: -1 },
+    } as SimRun;
+    expect(changedSinceRun(run, key)).toBeNull();
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+    expect(changedSinceRun(run, { ...key, conditionsKey: 'changed' })).toEqual(['the launch conditions']);
+    expect(flightDataForExport({ runs: [run], assigned, savedConfigs: [{ id: 'cfg', name: 'Config', isDefault: true, motors: Object.fromEntries(assigned) }],
+      activeConfigId: 'cfg', mountIds: ['m1', 'm2'], ...key, model: key, hasNozzle: false,
+      motorSetKeyOf, hardwareDeltaKg: 0, primaryMountOf: () => 'm1',
+    })).toEqual({});
+    expect(run.delayResolution).toEqual(kind === 'missing' ? undefined
+      : kind === 'partial' ? { ...evidence, mounts: evidence.mounts.slice(0, 1) } : { ...evidence, probes: -1 });
+  });
+});
+
+describe('R7 historical Batch manufacturer omission', () => {
+  const assigned = (auto: boolean, manufacturer = 'Acme', designation = 'E22'): [string, MountMotor][] => [
+    ['target', mm()], ['side', withAuto(mm({ manufacturer, designation }), auto)],
+  ];
+  const savedBatch = (auto: boolean): SimRun => {
+    const motors = assigned(auto);
+    const evidence = testResolution(motors, [5, 5]);
+    evidence.mounts[1]!.motorIdentity = '/E22';
+    // Serialize the pre-fix Batch shape: the provenance retained manufacturer,
+    // while flyLegs dropped it from the background motor's delay evidence.
+    return JSON.parse(JSON.stringify({
+      ...INPUT_RUN, id: 'old-batch', when: 1,
+      motorSetKey: 'side:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0',
+      motorDataKey: motorDataKeyOf(motors),
+      motorDataKeys: Object.fromEntries(motors.map((m) => [m[0], motorDataKeyOf([m])])),
+      delayResolution: evidence,
+      recoveryEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'side' }],
+    })) as SimRun;
+  };
+
+  it.each([false, true])('matches serialized Auto=%s evidence and supplies recovery without rewriting it', (auto) => {
+    const run = savedBatch(auto);
+    const before = JSON.stringify(run);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(auto) });
+    expect(changedSinceRun(run, key)).toEqual([]);
+    expect(runMatchesDesign(run, key)).toBe(true);
+    expect(canReplayDelays(run.delayResolution, assigned(auto), 'target', 5, true)).toBe(true);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toEqual(run.recoveryEvents);
+    expect(JSON.stringify(run)).toBe(before);
+    // Fingerprints were not always persisted; the run's named identity is still evidence.
+    const older = { ...run, motorDataKey: undefined, motorDataKeys: undefined };
+    expect(runMatchesDesign(older, key)).toBe(true);
+  });
+
+  it.each([false, true])('still rejects a same-delay toggle from Auto=%s', (auto) => {
+    const run = savedBatch(auto);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(!auto) });
+    expect(run.motorSetKey).toBe(key.motorSetKey);
+    expect(changedSinceRun(run, key)).toEqual(['the motor delay policy']);
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(canReplayDelays(run.delayResolution, assigned(!auto), 'target', 5, true)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+  });
+
+  it.each([
+    ['different designation', 'side:Acme/E20:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['different mount', 'other:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['duplicate mount', 'side:Acme/E22:5:automatic:0|side:Other/E22:5:automatic:0'],
+    ['EX identity', 'side:ex:Acme/E22:5:automatic:0|target:Estes/C6:5:automatic:0'],
+    ['missing key', undefined],
+  ])('refuses %s through the motor provenance guard', (_, motorSetKey) => {
+    const run = { ...savedBatch(false), motorSetKey };
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    expect(runMatchesDesign(run, key)).toBe(false);
+    expect(matchingRecoveryEvents([run], key, () => undefined)).toBeUndefined();
+    expect(changedSinceRun(run, key)).toEqual(motorSetKey ? ['the motor'] : null);
+  });
+
+  it.each(['/E22', 'Acme/E22', 'catalogue-id', 'Other/E22'])('uses the run motor keys independently of evidence identity %s', (identity) => {
+    const run = savedBatch(false);
+    run.delayResolution!.mounts[1]!.motorIdentity = identity;
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    expect(runMatchesDesign(run, key)).toBe(true);
+    expect(changedSinceRun(run, key)).toEqual([]);
+  });
+
+  it('preserves vendor, curve fingerprint and fixed-delay guards', () => {
+    const run = savedBatch(false);
+    const key = designMatchKeyOf({ ...INPUT, assigned: assigned(false) });
+    const otherVendor = designMatchKeyOf({ ...INPUT, assigned: assigned(false, 'Other') });
+    expect(runMatchesDesign(run, otherVendor)).toBe(false);
+    expect(runMatchesDesign(run, { ...key, motorDataKey: 'changed-curve' })).toBe(false);
+    expect(runMatchesDesign(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toBe(false);
+    expect(changedSinceRun(run, { ...key, motorDataKeys: { ...key.motorDataKeys, side: 'changed-curve' } })).toEqual(['the motor']);
+    run.delayResolution!.mounts[1]!.flownDelay = 6;
+    expect(runMatchesDesign(run, key)).toBe(false);
+  });
+});
+
 describe('changedSinceRun reads the hardware term motorSetKeyOf writes', () => {
   const current = (hw: number, motor = mm()) => designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]], hardwareDeltaKg: hw });
   const stamped = (hw: number, motor = mm()) => {
@@ -191,6 +362,7 @@ describe('changedSinceRun reads the hardware term motorSetKeyOf writes', () => {
 describe('designMatchKeyOf — the ONE assembly', () => {
   it('is every term, each from its own function', () => {
     expect(designMatchKeyOf(INPUT)).toEqual({
+      delayMounts: delayMountsOf(INPUT.assigned),
       designKey: shortHash(INPUT.physicsKey),
       motorSetKey: 'm1:Estes/C6:5:automatic:0',
       motorDataKey: motorDataKeyOf(INPUT.assigned),
@@ -206,6 +378,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
   it('a run stamped from it matches it — the stamp and the comparison cannot drift', () => {
     const key = designMatchKeyOf(INPUT);
     const run = {
+      delayResolution: testResolution([['m1', mm()]], [5]),
       designKey: key.designKey, motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey, conditionsKey: key.conditionsKey,
       aeroModel: 'classic', rogersKbf: true,
     } as SimRun;
@@ -231,7 +404,9 @@ describe('motor physics provenance', () => {
   it.each(['catalogue', 'EX'])('rejects changed samples under the same %s identity', (kind) => {
     const motor = mm(kind === 'EX' ? { exMotorId: 'ex:home-c6' } : {});
     const original = designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]] });
-    const run = { ...original, aeroModel: 'classic', rogersKbf: true } as unknown as SimRun;
+    const run = { ...original, aeroModel: 'classic', rogersKbf: true,
+      delayResolution: testResolution([['m1', motor]], [5]),
+    } as unknown as SimRun;
     expect(runMatchesDesign(run, original)).toBe(true);
     for (const spec of [
       { ...motor.spec, times: [0, 0.2, 1] }, { ...motor.spec, thrusts: [0, 12, 0] },
@@ -243,7 +418,7 @@ describe('motor physics provenance', () => {
       expect(runMatchesDesign(run, cur)).toBe(false);
       expect(changedSinceRun(run, cur)).toEqual(['the motor']);
     }
-    const legacy = { ...run, motorDataKey: undefined };
+    const legacy = { ...run, motorDataKey: undefined, motorDataKeys: undefined };
     expect(runMatchesDesign(legacy, original)).toBe(true);
     expect(changedSinceRun(legacy, original)).toEqual([]);
     const changedCurve = designMatchKeyOf({ ...INPUT,
@@ -251,6 +426,10 @@ describe('motor physics provenance', () => {
     });
     expect(runMatchesDesign(legacy, changedCurve)).toBe(true);
     expect(changedSinceRun(legacy, changedCurve)).toEqual([]);
+    // A saved per-mount fingerprint still detects the change without the aggregate.
+    const perMountOnly = { ...run, motorDataKey: undefined };
+    expect(runMatchesDesign(perMountOnly, changedCurve)).toBe(false);
+    expect(changedSinceRun(perMountOnly, changedCurve)).toEqual(['the motor']);
     expect(runMatchesDesign(legacy, { ...original, motorSetKey: 'another motor' })).toBe(false);
   });
 });

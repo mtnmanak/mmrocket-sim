@@ -644,6 +644,9 @@ export async function runBatchSweep(
         return [id, {
           spec, label,
           meta: {
+            // Legacy motors without either ID use manufacturer/designation,
+            // exactly as Launch and the design-page delay evidence do.
+            ...input.assignedMountMotors[id]?.meta,
             label,
             motorId: assignedMotorIds[id],
             ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),

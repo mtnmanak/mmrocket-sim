@@ -1,5 +1,6 @@
 import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
-import type { DelayResolution } from './autoDelaySolver.js';
+import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
+import { installedMounts } from './flightRunner.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -736,6 +737,8 @@ export function storedSimCost(
  * mismatch.
  */
 export interface DesignMatchKey {
+  /** The expected flight's mount policies; not a persisted key. */
+  delayMounts: readonly DelayMount[];
   designKey: string;
   motorSetKey: string;
   motorDataKey: string;
@@ -836,6 +839,7 @@ export function motorDataKeyOf(assigned: readonly (readonly [string, MountMotor]
 
 /** What {@link designMatchKeyOf} reads: the design, its motors and the conditions, as they stand. */
 export interface DesignMatchInput {
+  refusedMountIds?: readonly string[];
   /** App's `physicsKey`: the physics-relevant tree, names and colours stripped. */
   physicsKey: string;
   /** App's `assigned`: every in-tree mount with a motor. */
@@ -853,6 +857,16 @@ export interface DesignMatchInput {
   physicsRevisions?: readonly string[];
 }
 
+/** Expected policy vector shared by design matching and export eligibility. */
+export function expectedDelayMountsOf(
+  assigned: DesignMatchInput['assigned'], refusedMountIds?: readonly string[],
+): DelayMount[] {
+  const installed = new Set(installedMounts(assigned, refusedMountIds).map(([id]) => id));
+  // Refused fixed mounts did not fly. A refused Auto mount cannot settle:
+  // keep it expected so an older fixed flight cannot clear the whole vector.
+  return delayMountsOf(assigned.filter(([id, mm]) => installed.has(id) || mm.meta.autoDelay));
+}
+
 /**
  * The ONE assembly of a run-provenance key: what Launch stamps onto a run, and
  * what a stored run is compared against to be re-flown, marked current or
@@ -862,6 +876,7 @@ export interface DesignMatchInput {
  */
 export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
   return {
+    delayMounts: expectedDelayMountsOf(input.assigned, input.refusedMountIds),
     designKey: shortHash(input.physicsKey),
     motorSetKey: motorSetKeyOf(input.assigned, input.hardwareDeltaKg),
     motorDataKey: motorDataKeyOf(input.assigned),
@@ -940,6 +955,26 @@ export function formatRunWhenProse(when: number, now: number = Date.now()): stri
  */
 export const AERO_MODEL_CHANGED = 'the aerodynamics model';
 
+/**
+ * Missing or partial delay evidence is unknown, never inferred from today's motor.
+ * Pre-vector buildSimRun accepted meta.autoDelay but did not store it on SimRun.
+ * Both Auto and fixed flights stored optimumDelayS/recommendedDelayS, so even
+ * a single-mount scalar run cannot establish its policy from those numbers.
+ */
+function runMatchesDelayPolicy(run: SimRun, cur: DesignMatchKey): boolean | null {
+  const r = run.delayResolution;
+  if (!validDelayResolution(r) || !cur.delayMounts
+    || r.mounts.length !== cur.delayMounts.length
+    || !cur.delayMounts.every((m) => r.mounts.some((flown) => flown.mountId === m.mountId))) return null;
+  return resolutionMatchesPolicy(r, cur.delayMounts);
+}
+
+/** Available per-mount fingerprints remain motor evidence, independent of delay policy. */
+export function motorDataKeysMatch(saved: SimRun['motorDataKeys'], current: DesignMatchKey['motorDataKeys']): boolean {
+  return saved === undefined || (saved !== null && typeof saved === 'object' && !Array.isArray(saved)
+    && Object.entries(saved).every(([id, key]) => typeof key === 'string' && key === current?.[id]));
+}
+
 export function changedSinceRun(
   run: SimRun, cur: DesignMatchKey | null,
 ): string[] | null {
@@ -961,9 +996,12 @@ export function changedSinceRun(
     };
     changed.push(motorsOf(run.motorSetKey) !== motorsOf(cur.motorSetKey) ? 'the motor' : 'the weighed pad mass');
   }
-  if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey && !changed.includes('the motor')) {
+  if (((run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey)
+    || !motorDataKeysMatch(run.motorDataKeys, cur.motorDataKeys)) && !changed.includes('the motor')) {
     changed.push('the motor');
   }
+  const delayMatch = runMatchesDelayPolicy(run, cur);
+  if (delayMatch === false && !changed.includes('the motor')) changed.push('the motor delay policy');
   if (run.conditionsKey && run.conditionsKey !== cur.conditionsKey) {
     changed.push('the launch conditions');
   }
@@ -989,7 +1027,7 @@ export function changedSinceRun(
   // claim, and only the second one can be wrong. Clearing a run requires every
   // design, motor-set and conditions key to be present. Older batch rows
   // carried conditions alone; current batch rows carry all the match keys.
-  const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey;
+  const complete = !!run.designKey && !!run.motorSetKey && !!run.conditionsKey && delayMatch === true;
   return complete ? [] : null;
 }
 
@@ -1000,9 +1038,11 @@ export function listAnd(items: readonly string[]): string {
 }
 
 export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
+  if (runMatchesDelayPolicy(run, cur) !== true) return false;
   if (!run.designKey || run.designKey !== cur.designKey) return false;
   if (!run.motorSetKey || run.motorSetKey !== cur.motorSetKey) return false;
   if (run.motorDataKey !== undefined && run.motorDataKey !== cur.motorDataKey) return false;
+  if (!motorDataKeysMatch(run.motorDataKeys, cur.motorDataKeys)) return false;
   if (!run.conditionsKey || run.conditionsKey !== cur.conditionsKey) return false;
   // Same refusal for a run flown before the pressure-thrust term existed on a
   // design that now spends it — the three keys above cannot see a kernel

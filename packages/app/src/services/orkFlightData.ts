@@ -1,8 +1,7 @@
-import { delayMountsOf, readDelay, resolutionMatches } from './autoDelaySolver.js';
+import { delayMountsOf, readDelay, resolutionMatchesPolicy, type DelayResolution } from './autoDelaySolver.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { installedMounts } from './flightRunner.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
-import { motorDataKeyOf, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
+import { expectedDelayMountsOf, motorDataKeyOf, motorDataKeysMatch, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
 import { summaryOf, summaryFingerprint } from './storedRunIdentity.js';
 export { summaryOf } from './storedRunIdentity.js';
@@ -192,24 +191,15 @@ export interface FlightDataForExportInput {
 interface DescribedMotors {
   /** Every motor of the configuration: what its key covers and the file names. */
   motors: [string, MountMotor][];
-  /**
-   * The ones a Launch of it flies, which its delay vector names
-   * (flightRunner.installedMounts). A refused motor is in no vector, so a
-   * vector checked against `motors` was a mount short and never matched
-   * (verifier's review of audit 2026-09-30). The build's refusals count for
-   * the ACTIVE configuration only, the one App built; a kernel refusal in
-   * another configuration is unknown, so a run of it is not read, the safe
-   * direction. An ignition event the kernel does not know is left out in
-   * every configuration: the motor set names it (motorSetKeyOf).
-   */
-  flown: readonly (readonly [string, MountMotor])[];
+  /** Complete evidence checked against the same expected vector as design matching. */
+  resolution: DelayResolution;
 }
 
 /**
  * The motors a stored run flew, read from the configuration it names — when
- * the run still describes that configuration as it stands in every way but
- * its delay: this design, these conditions, this model and kernel, these
- * motors. null for a run that does not. A run with no configuration id
+ * the run still describes that configuration: this design, these conditions,
+ * this model and kernel, these motors and delay policies. null for a run that
+ * does not. A run with no configuration id
  * describes the working set of a design that has none (`activeConfigId`
  * null); `flightDataForExport` writes no such run, `flownAutoDelays` reads one.
  */
@@ -252,7 +242,12 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   // file — the same rule the model check above applies to UNKNOWN.
   if (r.motorSetKey !== motorSetKeyOf(cfgMotors, active ? hardwareDeltaKg : 0)) return null;
   if (r.motorDataKey !== undefined && r.motorDataKey !== motorDataKeyOf(cfgMotors)) return null;
-  return { motors: cfgMotors, flown: installedMounts(cfgMotors, active ? input.refusedMountIds : undefined) };
+  if (!motorDataKeysMatch(r.motorDataKeys, Object.fromEntries(cfgMotors.map(m => [m[0], motorDataKeyOf([m])])))) return null;
+  const resolution = r.delayResolution;
+  // Only the active configuration has known build refusals. Unknown ignition
+  // events are refused in every configuration by the shared expected-vector rule.
+  if (!resolutionMatchesPolicy(resolution, expectedDelayMountsOf(cfgMotors, active ? input.refusedMountIds : undefined))) return null;
+  return { motors: cfgMotors, resolution };
 }
 
 /** One complete qualifying run supplies every Auto delay in a configuration. */
@@ -269,8 +264,8 @@ export function flownAutoDelays(input: FlightDataForExportInput): Record<string,
     for (const key of keys) {
       if (key in out) continue;
       const described = describedMotors({ ...r, flightConfigId: key || undefined }, input);
-      if (!described || !resolutionMatches(r.delayResolution, delayMountsOf(described.flown))) continue;
-      const autos = r.delayResolution.mounts.filter((m) => m.mode === 'auto');
+      if (!described) continue;
+      const autos = described.resolution.mounts.filter((m) => m.mode === 'auto');
       if (autos.length) out[key] = lookupTable(Object.fromEntries(autos.map((m) => [m.mountId, readDelay(m.flownDelay)])));
     }
   }
@@ -282,25 +277,19 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
   const out = lookupTable<OrkExportFlightData>({});
   for (const r of input.runs) {
     if (!r.flightConfigId || out[r.flightConfigId]) continue;
-    const motors = describedMotors(r, input)?.motors;
-    if (!motors) continue;
-    if (r.delayResolution !== undefined) {
-      // Against EVERY motor, not the ones that flew: the file names a refused
-      // motor too, and desktop OpenRocket would show a flight without it as the
-      // result of a configuration with it. So for a configuration with a
-      // refused motor the file names the delays its Auto flew (flownAutoDelays)
-      // and carries no flight data.
-      if (!resolutionMatches(r.delayResolution, delayMountsOf(motors))) continue;
-      if (!motors.every(([id, mm]) => {
-        const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
-        return readDelay(r.delayResolution!.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
-      })) continue;
-    } else {
-      // Legacy scalar evidence cannot establish that today's per-mount Auto settled.
-      if (motors.some(([, mm]) => mm.meta.autoDelay)) continue;
-      const primary = motors.find(([id]) => id === input.primaryMountOf(motors.map(([mount]) => mount)))?.[1];
-      if (!primary || r.delayS !== primary.spec.ejectionDelay) continue;
-    }
+    const described = describedMotors(r, input);
+    if (!described) continue;
+    const { motors, resolution } = described;
+    // Against EVERY motor, not the ones that flew: the file names a refused
+    // motor too, and desktop OpenRocket would show a flight without it as the
+    // result of a configuration with it. So for a configuration with a
+    // refused motor the file names the delays its Auto flew (flownAutoDelays)
+    // and carries no flight data.
+    if (!resolutionMatchesPolicy(resolution, delayMountsOf(motors))) continue;
+    if (!motors.every(([id, mm]) => {
+      const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
+      return readDelay(resolution.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
+    })) continue;
     out[r.flightConfigId] = summaryOf(r);
   }
   // Preserve imported historical summaries only as a fallback for a surviving

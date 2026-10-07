@@ -1,3 +1,5 @@
+import { testMotor, testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf } from './autoDelaySolver.js';
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
@@ -63,6 +65,19 @@ const motor = {
   times: [0, 2], thrusts: [10, 0], masses: [0.024, 0.013],
   cgX: 0.035, ejectionDelay: 5,
 };
+
+it('R7: scalar reports cannot distinguish Auto from fixed at the same flown delay', () => {
+  // This is the pre-vector buildSimRun input shape: meta was an input only,
+  // not part of the persisted report, from ee5ac71 through 9855bb63^.
+  const make = (autoDelay: boolean) => buildSimRun({ result: fakeResult(), info, motor,
+    meta: { label: 'C6', manufacturer: 'Estes', autoDelay },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1 });
+  const fixed = make(false);
+  const auto = make(true);
+  expect({ ...auto, id: fixed.id, when: fixed.when }).toEqual(fixed);
+  expect(auto.delayS).toBe(auto.recommendedDelayS);
+  expect(auto.delayResolution).toBeUndefined();
+});
 
 it.each(['176H123-12A', '232H123-14A'])('preserves raw flown motor designation %s without changing the run-table name', (designation) => {
   const run = buildSimRun({ result: fakeResult(), info,
@@ -477,11 +492,12 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
   // every visible column matched. Two investigations in one day turned on
   // "is this report stale?", which nothing on screen could answer.
   const KEY: DesignMatchKey = {
+    delayMounts: delayMountsOf([['m', testMotor()]]),
     designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1',
     aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
   };
   const runWith = (over: Partial<SimRun>): SimRun =>
-    ({ designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', ...over }) as SimRun;
+    ({ delayResolution: testResolution([['m', testMotor()]], [5]), designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', ...over }) as SimRun;
 
   it('says nothing changed when nothing has', () => {
     expect(changedSinceRun(runWith({}), KEY)).toEqual([]);
@@ -1475,6 +1491,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
    * avoid.
    */
   const KEY = {
+    delayMounts: delayMountsOf([['m', testMotor()]]),
     designKey: 'd1',
     motorSetKey: 'm1', motorDataKey: 'data1',
     conditionsKey: 'c1',
@@ -1490,6 +1507,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
       designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
     }),
     conditionsKey: 'c1',
+    delayResolution: testResolution([['m', testMotor()]], [5]),
     ...over,
   } as SimRun);
 
@@ -1720,11 +1738,13 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
 
   it('THE VISIBLE SYMPTOM: the just-flown run is no longer called stale', () => {
     const cur: DesignMatchKey = {
+      delayMounts: delayMountsOf([['m', testMotor()]]),
       designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
       conditionsKey: conditionsKeyOf({ ...DEFAULT_CONDITIONS, timeStepS: null }),
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,
     };
     const run = {
+      delayResolution: testResolution([['m', testMotor()]], [5]),
       designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', aeroModel: 'classic', rogersKbf: false,
       conditionsKey: conditionsKeyOf(DEFAULT_CONDITIONS),
     } as SimRun;
@@ -1775,10 +1795,12 @@ describe('conditionsKeyOf — absent and cleared are the same flight (services-r
       ...DEFAULT_CONDITIONS, launchAltitudeM: 1190, latitudeDeg: 40.844967, timeStepS: 0.05,
     };
     const run = {
+      delayResolution: testResolution([['m', testMotor()]], [5]),
       designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', aeroModel: 'classic', rogersKbf: false,
       conditionsKey: conditionsKeyOf(site),
     } as SimRun;
     const cur: DesignMatchKey = {
+      delayMounts: delayMountsOf([['m', testMotor()]]),
       designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1',
       conditionsKey: conditionsKeyOf({ ...site, longitudeDeg: -119.11217 }),
       aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false,

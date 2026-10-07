@@ -298,6 +298,8 @@ async function flyFromCleanHandle(
 }
 
 export interface ReflyInput extends AssignedMotors {
+  /** Set only after checking the stored run against the current motor provenance. */
+  motorIdentityVerified?: boolean;
   delayResolution?: DelayResolution;
   primaryMountId: string;
   /** The ejection delay the stored run FLEW (`SimRun.delayS`). */
@@ -337,7 +339,7 @@ export function reflyRun(rocket: FlightHandle, input: ReflyInput): FlightResult 
   }
   applyAssignedMotors(rocket, input);
   try {
-    if (!canReplayDelays(input.delayResolution, installed.assigned, primaryMountId, delayS)) {
+    if (!canReplayDelays(input.delayResolution, installed.assigned, primaryMountId, delayS, input.motorIdentityVerified)) {
       throw new Error('Saved mount delays are incomplete or no longer match. Launch again.');
     }
     if (input.delayResolution !== undefined) {

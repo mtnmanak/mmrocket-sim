@@ -892,6 +892,64 @@ describe('the time-step caution’s measured cost', () => {
   }, 30000);
 });
 
+describe('R7 Batch identity-independent replay', () => {
+  it.each([
+    { autoDelay: false, target: false }, { autoDelay: true, target: false },
+    { autoDelay: false, target: true }, { autoDelay: true, target: true },
+  ])('recovers charts and downloads full series for Auto=$autoDelay target=$target, then rejects a toggle', async ({ autoDelay, target }) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const original = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const motor = { ...original, spec: { ...original.spec, designation: target ? 'C6' : 'E22' },
+      meta: { label: target ? 'C6' : 'E22', manufacturer: target ? 'Estes' : 'Acme', autoDelay } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    let host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the reference flight');
+    await unmountAll();
+    const saved: SimRun[] = JSON.parse(localStorage.getItem(RUNS_KEY)!);
+    saved[0]!.delayResolution!.mounts[0]!.motorIdentity = target ? original.meta.motorId! : '/E22';
+    localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
+    const before = localStorage.getItem(RUNS_KEY);
+    host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Launch');
+    if (autoDelay) {
+      expect(host.textContent).toContain('Auto flew');
+      expect(host.textContent).not.toContain('Previous flight: Auto flew');
+    }
+    await openTab(host, 'Results');
+    await openHistory(host);
+    const run = history!.runs[0]!;
+    expect(history!.canShowCharts!(run)).toBe(true);
+    await act(async () => { history!.onShowCharts!(run); });
+    await waitFor(() => !!charts?.onFullSeries && !history!.reflyingId, 'the recovered charts');
+    expect(button(host, '⬇ Flight data (.csv)').disabled).toBe(false);
+    const full = await act(async () => charts!.onFullSeries!());
+    expect(full.series.time.length).toBeGreaterThan(1);
+    expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(RUNS_KEY)).toBe(before);
+    await openTab(host, 'Motors & Launch');
+    if (autoDelay) {
+      const wind = input(host, 'Wind avg');
+      const originalWind = wind.value;
+      await type(wind, '8');
+      expect(host.textContent).toContain('Previous flight: Auto flew');
+      await type(wind, originalWind);
+    }
+    const label = [...host.querySelectorAll('label')].find(el => el.textContent?.trim() === 'auto (optimal)')!;
+    await act(async () => { label.querySelector('input')!.click(); });
+    await openTab(host, 'Results');
+    await openHistory(host);
+    expect(history!.canShowCharts!(run)).toBe(false);
+    expect(hasHeading(host, 'Flight plots')).toBe(false);
+    expect(hasButton(host, '⬇ Flight data (.csv)')).toBe(false);
+    await act(async () => { history!.onShowCharts!(run); });
+    expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
+  }, 30000);
+});
+
 /**
  * THE AUTO-DELAY CARD QUOTES ONLY THIS DESIGN'S FLIGHTS (audit 2026-09-30).
  * With no flight of the design as it stands, the card under an Auto motor falls
@@ -901,6 +959,31 @@ describe('the time-step caution’s measured cost', () => {
  * flew 7 s · ballistic optimum 7.0 s · <that design's branch>" under this motor.
  */
 describe('the Auto-delay card under a motor', () => {
+  it.each([false, true])('R7: the launch report stops matching after toggling Auto from %s at the same delay', async (autoDelay) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 7))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: { ...c6, meta: { ...c6.meta, autoDelay } } },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the flight to be saved');
+    expect(host.querySelector('.simdet-when')?.textContent).toContain('matches the design as it stands');
+    await openTab(host, 'Motors & Launch');
+    const delay = input(host, 'Ejection delay for');
+    expect(delay.value).toBe('7');
+    const label = [...host.querySelectorAll('label')].find((el) => el.textContent?.trim() === 'auto (optimal)')!;
+    await act(async () => { label.querySelector('input')!.click(); });
+    expect(input(host, 'Ejection delay for').value).toBe('7');
+    await openTab(host, 'Results');
+    await openHistory(host);
+    await act(async () => { history!.onSelect!(history!.runs[0]!); });
+    expect(host.querySelector('.simdet-when')?.textContent).toContain('the motor delay policy changed since');
+    expect(host.querySelector('.simdet-when')?.textContent).not.toContain('matches the design as it stands');
+  }, 30000);
+
   it('quotes no other design’s flight, even one stored under the same mount id', async () => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
@@ -935,7 +1018,8 @@ describe('the Auto-delay card under a motor', () => {
 });
 
 
-it('Auto-delay Previous flight accepts a legacy design-page run without motorDataKey', async () => {
+it.each(['evidence identity', 'motor-set key', 'motor-data key'] as const)(
+  'Auto-delay Previous flight accepts a legacy run using its %s', async (identityEvidence) => {
   let host = await mountApp();
   await waitFor(starterStored, 'the starter motor');
   await launch(host);
@@ -945,10 +1029,12 @@ it('Auto-delay Previous flight accepts a legacy design-page run without motorDat
   const run = saved[0]!;
   const session = storedSession()!;
   const mount = motorMounts(session.tree)[0]!.id!;
-  delete run.motorDataKey;
+  if (identityEvidence !== 'motor-data key') delete run.motorDataKey;
   delete run.motorDataKeys;
   const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
   run.delayResolution = testResolution([[mount, autoMotor]], [7]);
+  if (identityEvidence !== 'motor-set key') run.motorSetKey = 'another set';
+  if (identityEvidence !== 'evidence identity') run.delayResolution.mounts[0]!.motorIdentity = 'legacy spelling';
   localStorage.setItem(RUNS_KEY, JSON.stringify(saved));
   const mm = session.mountMotors![mount]!;
   mm.meta = { ...mm.meta, autoDelay: true };
@@ -979,7 +1065,13 @@ it.each(['motorIdentity', 'motorDataKey', 'motorDataKeys'] as const)(
     const autoMotor = { ...session.mountMotors![mount]!, meta: { ...session.mountMotors![mount]!.meta, autoDelay: true } };
     run.conditionsKey = 'previous conditions';
     run.delayResolution = testResolution([[mount, autoMotor]], [7]);
-    if (key === 'motorIdentity') run.delayResolution.mounts[0]!.motorIdentity = 'another batch candidate';
+    if (key === 'motorIdentity') {
+      // Without fingerprints, the historical fallback still needs the evidence identity.
+      delete run.motorDataKey;
+      delete run.motorDataKeys;
+      run.motorSetKey = 'another batch candidate set';
+      run.delayResolution.mounts[0]!.motorIdentity = 'another batch candidate';
+    }
     else if (key === 'motorDataKeys') run.motorDataKeys = { [mount]: 'another curve' };
     else {
       delete run.motorDataKeys; // A saved run before per-mount curve fingerprints.
