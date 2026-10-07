@@ -262,7 +262,9 @@ describe('presetPatch — transition `filled` (ruled 2026-09-03: "Fix it.")', ()
     // only 1.5x — measured 2026-09-03 — and would not make the point.)
     const p = solidNoMass.find((x) => x.manufacturer === 'BalsaMachining' && x.partNo === 'BMS20V2B')!;
     expect(p).toBeTruthy();
-    const patch = presetPatch('transition', p) as Record<string, unknown>;
+    // Isolate the body's filled flag. Solid preset shoulders now have their own
+    // mass, checked analytically in presetShoulders.test.ts.
+    const patch = { ...presetPatch('transition', p), foreShoulderLength: 0, aftShoulderLength: 0 } as Record<string, unknown>;
     const massOf = (children: unknown[]) => {
       const tree = { name: 't', components: [{ type: 'stage', id: 's', children: [
         { type: 'bodytube', id: 'b', length: 0.1, outerRadius: 0.012, thickness: 0.0005, density: 680 },
@@ -276,8 +278,8 @@ describe('presetPatch — transition `filled` (ruled 2026-09-03: "Fix it.")', ()
     const solid = massOf([{ type: 'transition', id: 'x', ...patch }]) - base;
     const shell = massOf([{ type: 'transition', id: 'x', ...hollow }]) - base;
     // Measured 2026-09-03: solid 1.013 g, hollow 0.426 g (2.4x). The solid figure
-    // sits within a conical-frustum estimate of the ogive body (0.887 g) plus its
-    // shoulder — so `filled` is reaching the kernel and doing what it says.
+    // sits within a conical-frustum estimate of the ogive body (0.887 g), so
+    // `filled` is reaching the kernel and doing what it says.
     expect(shell).toBeGreaterThan(0);
     expect(solid).toBeGreaterThan(shell * 2);
     const r1 = (p['foreOutsideDiameter'] as number) / 2, r2 = (p['aftOutsideDiameter'] as number) / 2;
@@ -917,14 +919,16 @@ describe('presetPatch describes the whole part — a second pick keeps nothing o
     expect(tr2['clipped']).toBeUndefined();
   });
 
-  it('the 19490 weighs as a thin wall after a solid cone, through the kernel', async () => {
+  it('the 19490 body weighs as a thin wall after a solid cone, through the kernel', async () => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const { engineTree } = await import('../tree/treeModel.js');
     resetEngine();
     const solid = db.find((x) => x.kind === 'NoseCone' && x['filled'] === true && x.mass === undefined
       && Math.abs((x['outsideDiameter'] as number) - 0.0762) < 0.002)!;
     const massOf = (n: ComponentNode) => OrkRocket.buildTree(engineTree({
-      name: 't', components: [{ type: 'stage', id: 's', children: [n] } as ComponentNode],
+      // Desktop leaves shoulder thickness alone on a hollow pick, so compare
+      // bodies only; the retained shoulder is covered in presetShoulders.test.ts.
+      name: 't', components: [{ type: 'stage', id: 's', children: [{ ...n, shoulderLength: 0 }] } as ComponentNode],
     })).staticInfo().mass;
     const twice = massOf(pick(fresh('nosecone', solid), row('NoseCone', '19490')));
     const once = massOf(fresh('nosecone', row('NoseCone', '19490')));

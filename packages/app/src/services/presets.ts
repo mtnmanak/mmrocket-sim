@@ -239,6 +239,10 @@ export function presetPatch(
       // hollow, part — the 975.8 g thin-wall nose above.
       own('filled', p['filled'] === true);
       set('shoulderRadius', half(n(p, 'shoulderDiameter')));
+      // Desktop's Transition.loadFromPreset makes a filled row's shoulder
+      // solid too. The nose uses its aft shoulder; without a filled row and
+      // a diameter, leave the existing wall alone (set, not own).
+      if (p['filled'] === true) set('shoulderThickness', half(n(p, 'shoulderDiameter')));
       set('shoulderLength', n(p, 'shoulderLength'));
       set('thickness', n(p, 'thickness'));
       break;
@@ -258,6 +262,11 @@ export function presetPatch(
       set('foreShoulderLength', n(p, 'foreShoulderLength'));
       set('aftShoulderRadius', half(n(p, 'aftShoulderDiameter')));
       set('aftShoulderLength', n(p, 'aftShoulderLength'));
+      // Each solid shoulder takes its own radius, as on desktop and the nose.
+      if (p['filled'] === true) {
+        set('foreShoulderThickness', half(n(p, 'foreShoulderDiameter')));
+        set('aftShoulderThickness', half(n(p, 'aftShoulderDiameter')));
+      }
       set('thickness', n(p, 'thickness'));
       break;
     case 'centeringring':
@@ -677,6 +686,9 @@ const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueFi
   shoulderRadius: { words: 'shoulder radius', differs: ACROSS },
   foreShoulderRadius: { words: 'fore shoulder radius', differs: ACROSS },
   aftShoulderRadius: { words: 'aft shoulder radius', differs: ACROSS },
+  shoulderThickness: { words: 'shoulder thickness', differs: ACROSS },
+  foreShoulderThickness: { words: 'fore shoulder thickness', differs: ACROSS },
+  aftShoulderThickness: { words: 'aft shoulder thickness', differs: ACROSS },
   shape: { words: 'shape', differs: SAME },
   filled: { words: 'solid', differs: SAME },
   density: { words: 'material', differs: DENSITY },
