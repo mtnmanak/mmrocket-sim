@@ -2382,13 +2382,13 @@ export function App() {
       const current = loadRuns();
       const summaryPlan = planSummaryImport(imported, current);
       let next = current;
-      if (summaryPlan.runs.length) {
-        next = appendImportedRuns(summaryPlan.runs);
+      if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
+        next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns);
         recordRuns(next);
       }
-      const { added, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
+      const { added, updated, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
       setFileNote([plan.note.text,
-        `Stored runs: ${added} added to Saved runs; ${alreadySaved} already in Saved runs; ${notKept} not kept.`,
+        `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.`,
         `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.`,
       ].filter(Boolean).join('\n'), plan.note.severity);
     }

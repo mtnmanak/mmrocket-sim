@@ -198,19 +198,19 @@ describe('.ork stored-run de-duplication', () => {
     }
     const plan = planSummaryImport(imported, loadRuns());
     const kept = appendImportedRuns(plan.runs);
-    expect(summaryImportCounts(plan, kept)).toEqual({ added: mixed ? 0 : 500, alreadySaved: mixed ? 1 : 0, notKept: mixed ? 500 : 1 });
+    expect(summaryImportCounts(plan, kept)).toEqual({ added: mixed ? 0 : 500, updated: 0, alreadySaved: mixed ? 1 : 0, notKept: mixed ? 500 : 1 });
     expect(kept).toHaveLength(MAX_RUNS);
     const before = localStorage.getItem('online-openrocket.sim-runs.v1');
     for (let attempt = 0; attempt < 3; attempt++) {
       const again = planSummaryImport(imported, loadRuns());
       expect(again.runs).toEqual([]);
-      expect(summaryImportCounts(again, loadRuns())).toEqual({ added: 0, alreadySaved: mixed ? 1 : 500, notKept: mixed ? 500 : 1 });
+      expect(summaryImportCounts(again, loadRuns())).toEqual({ added: 0, updated: 0, alreadySaved: mixed ? 1 : 500, notKept: mixed ? 500 : 1 });
       expect(localStorage.getItem('online-openrocket.sim-runs.v1')).toBe(before);
     }
     if (!mixed) {
       deleteRun('flight-0');
       const freed = planSummaryImport(imported, loadRuns());
-      expect(summaryImportCounts(freed, appendImportedRuns(freed.runs))).toEqual({ added: 1, alreadySaved: 499, notKept: 1 });
+      expect(summaryImportCounts(freed, appendImportedRuns(freed.runs))).toEqual({ added: 1, updated: 0, alreadySaved: 499, notKept: 1 });
     }
   });
 
@@ -224,7 +224,7 @@ describe('.ork stored-run de-duplication', () => {
     });
     try {
       const kept = appendImportedRuns(plan.runs);
-      expect(summaryImportCounts(plan, kept)).toEqual({ added: 0, alreadySaved: 0, notKept: 2 });
+      expect(summaryImportCounts(plan, kept)).toEqual({ added: 0, updated: 0, alreadySaved: 0, notKept: 2 });
     } finally { vi.unstubAllGlobals(); }
   });
 
@@ -238,7 +238,7 @@ describe('.ork stored-run de-duplication', () => {
     ] }, loadRuns());
     const kept = appendImportedRuns(plan.runs);
     expect(kept).toHaveLength(2);
-    expect(summaryImportCounts(plan, kept)).toEqual({ added: 1, alreadySaved: 500, notKept: 0 });
+    expect(summaryImportCounts(plan, kept)).toEqual({ added: 1, updated: 0, alreadySaved: 500, notKept: 0 });
   });
 
   it('fills free slots after duplicate rows, including new summaries beyond file row 500', () => {
@@ -251,7 +251,7 @@ describe('.ork stored-run de-duplication', () => {
     const plan = planSummaryImport(imported, loadRuns());
     const saved = appendImportedRuns(plan.runs);
     expect(saved.map((r) => r.id)).toEqual(['duplicate', 'extra']);
-    expect(summaryImportCounts(plan, saved)).toEqual({ added: 2, alreadySaved: 499, notKept: 0 });
+    expect(summaryImportCounts(plan, saved)).toEqual({ added: 2, updated: 0, alreadySaved: 499, notKept: 0 });
   });
 
   it('legacy fingerprint ignores XML number formatting, names and unknown summary fields', () => {

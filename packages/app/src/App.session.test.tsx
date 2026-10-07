@@ -404,6 +404,43 @@ describe('a SOLID motor mount on Motors & Launch', () => {
     }
   }, 30000);
 
+  it('re-imports warning evidence into the saved report and reports an update', async () => {
+    const warning = { key: 'NO_RECOVERY_DEVICE', message: 'No recovery device', priority: 'HIGH' as const };
+    const write = (withWarnings: boolean) => exportOrk({ name: 'Warning enrichment',
+      tree: { components: [{ type: 'stage', children: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] }, launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
+      flightData: { c1: { runId: 'warning-flight', maxAltitude: 123, aeroModel: 'classic',
+        ...(withWarnings ? { simWarnings: [warning] } : {}) } },
+    });
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const picker = input(host, 'Open a design file');
+    const open = async (withWarnings: boolean) => {
+      Object.defineProperty(picker, 'files', { configurable: true, value: [new File([write(withWarnings)], 'warnings.ork')] });
+      await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+      const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+      if (past) await act(async () => { past.click(); });
+    };
+    await open(false);
+    await waitFor(() => loadRuns().some((r) => r.id === 'warning-flight'), 'old imported report');
+    expect(loadRuns()[0]!.simWarnings).toBeUndefined();
+    await open(true);
+    await waitFor(() => !!loadRuns()[0]?.simWarnings?.length, 'enriched imported report');
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    expect(host.textContent).toContain('Stored runs: 0 added to Saved runs; 1 updated in Saved runs; 0 already in Saved runs; 0 not kept.');
+    expect(loadRuns()).toHaveLength(1);
+    expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
+    for (const withWarnings of [true, false]) {
+      await open(withWarnings);
+      await waitFor(() => !!host.textContent?.includes('Stored runs: 0 added to Saved runs; 1 already in Saved runs; 0 not kept.'), 'unchanged import note');
+      expect(loadRuns()).toHaveLength(1);
+      expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
+    }
+  }, 30000);
+
   it.each([1, 501])('opens %s stored summaries without changing the preference or session override', async (count) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, aeroModel: 'classic', rogersKbf: false }));
     const host = await mountApp();

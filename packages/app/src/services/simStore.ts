@@ -1,7 +1,7 @@
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
-import { sameStoredFlight } from './storedRunIdentity.js';
+import { mergeStoredWarnings, sameStoredFlight } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
@@ -211,17 +211,27 @@ export function addRuns(newRuns: SimRun[]): SimRun[] {
 }
 
 /** Imported summaries fill free slots, in file order, after existing history. */
-export function appendImportedRuns(newRuns: SimRun[]): SimRun[] {
+export function appendImportedRuns(newRuns: SimRun[], updatedRuns: SimRun[] = []): SimRun[] {
   const existing = loadRuns();
+  let changed = false;
+  const updates = new Map(updatedRuns.map((run) => [run.id, run]));
+  const reconciled = existing.map((run) => {
+    const update = updates.get(run.id);
+    if (!update || !sameStoredFlight(run, update)) return run;
+    const simWarnings = mergeStoredWarnings(run.simWarnings, update.simWarnings);
+    if (simWarnings === run.simWarnings) return run;
+    changed = true;
+    return { ...run, simWarnings };
+  });
   const additions = newRuns.slice(0, Math.max(0, MAX_RUNS - existing.length));
-  if (!additions.length) {
+  if (!additions.length && !changed) {
     lastPersistFailed = false;
     lastEvicted = 0;
     lastUnsaved = 0;
     lastUndoEvicted = 0;
     return existing;
   }
-  return persist([...existing, ...additions]);
+  return persist([...reconciled, ...additions]);
 }
 
 export function deleteRun(id: string): SimRun[] {

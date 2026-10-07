@@ -1,6 +1,49 @@
 import type { SimRun } from './simReport.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { APP_HYBRID_BAND } from './aeroProvenance.js';
+import type { EngineWarning } from '@online-openrocket/engine';
+
+/** Add evidence without replacing a warning's existing structured payload.
+ * Key/message identify the legacy warning; conflicting supplied metadata is
+ * separate evidence, not permission to discard either warning. No text parsing.
+ * Return the original array when nothing changed so repeat imports are no-ops.
+ */
+export function mergeStoredWarnings(stored: EngineWarning[] | undefined,
+incoming: EngineWarning[] | undefined): EngineWarning[] | undefined {
+  if (!incoming?.length) return stored;
+  const merged = [...(stored ?? [])];
+  let changed = false;
+  for (const warning of incoming) {
+    const at = merged.findIndex((old) => old.key === warning.key && old.message === warning.message
+      && (old.priority === undefined || warning.priority === undefined || old.priority === warning.priority)
+      && (old.quantity == null || warning.quantity == null
+        || (old.quantity.kind === warning.quantity.kind && old.quantity.value === warning.quantity.value))
+      && (old.sources == null || warning.sources == null
+        || (Array.isArray(old.sources) && Array.isArray(warning.sources)
+          && old.sources.length === warning.sources.length
+          && old.sources.every((source, i) => {
+            const other = warning.sources![i];
+            return source === null ? other === null
+              : other != null && source.id === other.id && source.name === other.name;
+          }))));
+    if (at === -1) {
+      merged.push(warning);
+      changed = true;
+      continue;
+    }
+    const old = merged[at]!;
+    // Keep unknown extension fields too, while existing evidence wins conflicts.
+    let enriched = { ...old };
+    for (const [key, value] of Object.entries(warning)) {
+      if (value != null && (!Object.hasOwn(old, key) || (old as unknown as Record<string, unknown>)[key] == null)) {
+        enriched = { ...enriched, [key]: value };
+        changed = true;
+      }
+    }
+    merged[at] = enriched;
+  }
+  return changed ? merged : stored;
+}
 
 /** Only the evidence carried by a saved .ork summary, including its source ID. */
 export function summaryOf(r: SimRun): OrkExportFlightData {
