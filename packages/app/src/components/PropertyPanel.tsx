@@ -1661,16 +1661,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
             />
             {(() => {
               // A mass this part states against the one its catalogue row
-              // publishes (never the computed mass — catalogueDifferences).
+              // publishes, or an obsolete catalogue override it has retired.
               const md = diffFor('overrideMass');
               const want = md ? numOpt(md.patch, 'overrideMass') : undefined;
-              if (!md || want === undefined) return null;
+              if (!md) return null;
               const fig = (v: number) => `${fmtFieldValue(siToUi('mass', massSym, v))} ${massSym}`;
               const have = markerNumber(md.have);
+              const figure = want === undefined ? 'computed mass' : fig(want);
               return (
-                <CatalogueChip figure={fig(want)} label="Mass"
-                  tip={catalogueTip(md, fig(want), have !== undefined ? fig(have) : String(md.have))}
-                  onUse={() => onPatch({ ...limitCatalogue({ overrideMass: want }), ...statedLaunchMark })} />
+                <CatalogueChip figure={figure} label="Mass"
+                  tip={catalogueTip(md, figure, have !== undefined ? fig(have) : String(md.have))}
+                  onUse={() => onPatch({ ...limitCatalogue(md.patch), ...statedLaunchMark })} />
               );
             })()}
             <SubcomponentsToggle
