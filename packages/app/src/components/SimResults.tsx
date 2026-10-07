@@ -262,7 +262,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
         // the verdict rows); the rest are cautions.
         <div style={{ marginTop: 6 }}>
           {(run.simWarnings ?? []).map((w, i) => {
-            const f = formatWarning(w);
+            const f = formatWarning(w, prefs.units);
             return (
               <p key={i} className={f.high ? 'simdet-comments stability-bad' : 'simdet-comments'}
                 style={{ margin: '2px 0 0' }}>

@@ -118,6 +118,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       flightConfig: config?.name ?? sim.name,
       ...(sim.configId ? { flightConfigId: sim.configId } : {}),
       aeroModel: fd.aeroModel,
+      ...(fd.simWarnings !== undefined ? { simWarnings: fd.simWarnings } : {}),
       ...(fd.rogersKbf !== undefined ? { rogersKbf: fd.rogersKbf } : {}),
       ...(fd.hybridBand ? { hybridBand: fd.hybridBand } : {}),
       maxAltitude: fd.maxAltitude ?? NaN, maxVelocity: fd.maxVelocity ?? NaN,

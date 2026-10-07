@@ -6,7 +6,7 @@ import { SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
 import { importedSummaryRuns } from '../services/orkFlightData.js';
 import { compassPoint } from '../services/openMeteo.js';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi } from '../prefs/units.js';
 import * as units from '../prefs/units.js';
 import { buildSimRun, type DeploymentReport, type SimRun, formatRunWhenProse, runStoppedEarly,
@@ -825,4 +825,22 @@ it.each(['opening', 'descent'] as const)('S3a-4: marks an unknown %s check as no
   const row = [...host.querySelectorAll('tr')].find((tr) => tr.firstElementChild?.textContent === 'Parachute (landing)')!;
   expect(row.lastElementChild?.textContent).toBe('— not measured');
   expect(row.lastElementChild?.className).not.toContain('stability-good');
+});
+
+// A saved report must react immediately to a preference change, without re-flying.
+it('reformats saved warning quantities when the current units change', () => {
+  const saved = run();
+  saved.simWarnings = [{ key: 'HighSpeedDeployment', message: 'old speed',
+    quantity: { kind: 'velocity', value: 30.48 }, sources: [{ id: 'chute', name: 'Main' }] }];
+  addRuns([saved]);
+  const restored = loadRuns()[0]!;
+  function SwitchUnits() {
+    const { prefs, setPrefs } = usePrefs();
+    return <button onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, velocity: 'ft/s' } })}>Switch warning units</button>;
+  }
+  render(<><SwitchUnits /><SimRunDetails run={restored} /></>);
+  expect(host.textContent).toContain('(30.48 m/s): "Main"');
+  act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Switch warning units')!.click());
+  expect(host.textContent).toContain('(100 ft/s): "Main"');
+  expect(host.textContent).not.toContain('(30.48 m/s): "Main"');
 });

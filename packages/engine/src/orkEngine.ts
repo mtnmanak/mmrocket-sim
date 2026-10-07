@@ -493,6 +493,10 @@ export interface EngineWarning {
   message: string;
   /** MessagePriority export label. */
   priority?: 'LOW' | 'NORMAL' | 'HIGH';
+  /** Raw SI value (m/s or radians); absent on older artifacts and text-only warnings. */
+  quantity?: { kind: 'velocity' | 'angle'; value: number };
+  /** Sources at simulation time. IDs use the app's component IDs; null means removed. */
+  sources?: ({ id?: string; name: string } | null)[];
 }
 
 export interface FlightResult {

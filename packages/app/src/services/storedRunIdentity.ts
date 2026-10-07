@@ -6,6 +6,7 @@ import { APP_HYBRID_BAND } from './aeroProvenance.js';
 export function summaryOf(r: SimRun): OrkExportFlightData {
   return {
     runId: r.importedRunId ?? r.id,
+    ...(r.simWarnings !== undefined ? { simWarnings: r.simWarnings } : {}),
     ...(r.aeroModel ? { aeroModel: r.aeroModel } : {}),
     ...(r.rogersKbf !== undefined ? { rogersKbf: r.rogersKbf } : {}),
     ...(r.aeroModel === 'hybrid' && (r.hybridBand || !r.importedSummary)
