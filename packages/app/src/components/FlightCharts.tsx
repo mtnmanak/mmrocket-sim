@@ -326,7 +326,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       {/* The plots block had no heading at all, which is part of why a
           download button floating above it read as ambiguous. */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <h2 style={{ flex: 1 }}>Flight plots — {plotIdentity}</h2>
+        <h2 style={{ flex: 1 }}>Flight plots</h2>
         {onFullSeries && (
           <>
             {/* The caption carries the refusal, not the `title`: a browser
@@ -360,6 +360,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           </>
         )}
       </div>
+      {/* Downloads cover the whole flight; branch identity belongs to each chart. */}
+      <p className="flight-identity chart-comparison-note">{flightName}</p>
       {exportError && (
         // role="alert" (2026-09-08 audit): this is the outcome of a re-fly the
         // user pressed a button for and waited several seconds on, and it was

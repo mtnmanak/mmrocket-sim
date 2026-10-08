@@ -72,7 +72,8 @@ afterEach(() => {
 describe('FlightCharts — the Flight plots block', () => {
   it('has a heading, so the block is named rather than floating', () => {
     mount(() => Promise.resolve(fakeResult()));
-    expect(host.querySelector('h2')?.textContent).toBe('Flight plots — Big Dog 4in · C6 (Estes)');
+    expect(host.querySelector('h2')?.textContent).toBe('Flight plots');
+    expect(host.querySelector('.flight-identity')?.textContent).toBe('Big Dog 4in · C6 (Estes)');
   });
 
   it('captions the pair with what the files actually contain', () => {
@@ -98,7 +99,8 @@ describe('FlightCharts — the Flight plots block', () => {
     expect(labelled('⬇ Flight data (.csv)')).toBeUndefined();
     expect(host.querySelector('.download-caption')).toBeNull();
     // The plots themselves still render.
-    expect(host.querySelector('h2')?.textContent).toBe('Flight plots — Big Dog 4in · C6 (Estes)');
+    expect(host.querySelector('h2')?.textContent).toBe('Flight plots');
+    expect(host.querySelector('.flight-identity')?.textContent).toBe('Big Dog 4in · C6 (Estes)');
   });
 
   it('stamps the design name into both filenames', async () => {
