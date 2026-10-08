@@ -1,4 +1,5 @@
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
+import { hasSimulationExtensions } from './orkExtensions.js';
 import { restoreConfigLabels } from './motorLabels.js';
 import { restoreExMotors, type ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
@@ -577,8 +578,10 @@ export function planImport(
     longitudeCheck: imported.longitudeCheck,
     machAlt: imported.machAlt,
     // A newer format can lose settings on save, so expose its warning even
-    // when every motor matched. Other reader notes retain their severity.
-    note: { text: notes.join('\n'), severity: imported.newerFormat || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
+    // when every motor matched. Extensions also warn: omitting their behavior
+    // can change the flight's numbers. Other reader notes retain their severity.
+    note: { text: notes.join('\n'), severity: imported.newerFormat || hasSimulationExtensions(imported.tree)
+      || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     shrouds: findShroudCandidates(importedTree),

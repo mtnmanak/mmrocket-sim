@@ -1,5 +1,6 @@
 import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
+import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -1706,6 +1707,7 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
 
 export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes }: Cdx1ExportInput): string {
   notes?.push(...filletExportNotes(tree, '.CDX1'));
+  notes?.push(...simulationExtensionLossNotes(tree, '.CDX1'));
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 
