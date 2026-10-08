@@ -57,6 +57,187 @@ public final class GoldenMain {
         zeroTorqueRollControl();
         podsOnlyNozzleScenarios();
         geodeticScenarios();
+        zeroSliceScenarios();
+        assemblyEjectionScenarios();
+    }
+
+    /**
+     * OR #3161: Banshee's zero-material POWER tail slice must not poison mass
+     * moments or the flight. Appended after every older scenario to retain row
+     * indices. Static columns use SI volume, CG, mass and unit inertias.
+     */
+    private static void zeroSliceScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        info.openrocket.core.rocketcomponent.PodSet pod = new info.openrocket.core.rocketcomponent.PodSet();
+        pod.setInstanceCount(1);
+        body.addChild(pod);
+        NoseCone nose = new NoseCone(Transition.Shape.HAACK, 0.15, 0.011);
+        nose.setShapeParameter(0);
+        pod.addChild(nose);
+        NoseCone tail = new NoseCone(Transition.Shape.POWER, 0.001, 0.011);
+        tail.setShapeParameter(0);
+        tail.setThickness(0.002);
+        tail.setFlipped(true);
+        pod.addChild(tail);
+        line("mass.zeroslice.tail", tail.getComponentVolume(), tail.getComponentCG().x,
+                tail.getComponentMass(), tail.getLongitudinalUnitInertia(), tail.getRotationalUnitInertia());
+        RigidBody mass = MassCalculator.calculateStructure(rocket.getSelectedConfiguration());
+        line("mass.zeroslice.structure", mass.getMass(), mass.getCM().x, mass.getIyy());
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "3161");
+        InnerTube mount = (InnerTube) body.getChild(1);
+        regressionMotor(mount, fcid, false, 5);
+        info.openrocket.core.simulation.FlightData data = regressionFlight(rocket, fcid, 0x3161);
+        line("flight.zeroslice.summary", data.getMaxAltitude(), data.getTimeToApogee(), data.getBranchCount());
+    }
+
+    /**
+     * OR #2092: pod/core ejection ownership and simultaneous-charge idempotence.
+     * Source names preserve event order; times are seconds. Flight tags retain
+     * difftest's existing flight tolerance rather than its static mass tolerance.
+     */
+    private static void assemblyEjectionScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        InnerTube coreMount = (InnerTube) body.getChild(1);
+        coreMount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        coreMount.setAxialOffset(0);
+        ((Parachute) body.getChild(2)).setName("CoreChute");
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "2092");
+        regressionMotor(coreMount, fcid, false, 3);
+        info.openrocket.core.rocketcomponent.PodSet pod = new info.openrocket.core.rocketcomponent.PodSet();
+        pod.setName("Pod");
+        pod.setInstanceCount(1);
+        body.addChild(pod);
+        pod.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        pod.setAxialOffset(0);
+        pod.setRadiusMethod(info.openrocket.core.rocketcomponent.position.RadiusMethod.RELATIVE);
+        pod.setRadiusOffset(0);
+        NoseCone nose = new NoseCone(Transition.Shape.OGIVE, 0.03, 0.0075);
+        nose.setThickness(0.0003);
+        pod.addChild(nose);
+        BodyTube podBody = new BodyTube(0.06, 0.0075, 0.0003);
+        pod.addChild(podBody);
+        InnerTube podMount = regressionMount(podBody, true);
+        regressionMotor(podMount, fcid, true, 2);
+        Parachute podChute = new Parachute();
+        podChute.setName("PodChute");
+        podChute.setDiameter(0.08);
+        podBody.addChild(podChute);
+        info.openrocket.core.simulation.FlightData data = regressionFlight(rocket, fcid, 0x2092);
+        java.util.List<Double> times = new java.util.ArrayList<>();
+        StringBuilder sources = new StringBuilder("flight.assembly.sources");
+        for (info.openrocket.core.simulation.FlightEvent event : data.getBranch(0).getEvents()) {
+            if (event.getType() == info.openrocket.core.simulation.FlightEvent.Type.RECOVERY_DEVICE_DEPLOYMENT) {
+                sources.append('|').append(event.getSource().getName());
+                times.add(event.getTime());
+            }
+        }
+        System.out.println(sources);
+        double[] row = new double[times.size()];
+        for (int i = 0; i < row.length; i++) row[i] = times.get(i);
+        line("flight.assembly.times", row);
+
+        Rocket duplicate = buildReferenceRocket();
+        BodyTube duplicateBody = (BodyTube) duplicate.getStage(0).getChild(1);
+        InnerTube first = (InnerTube) duplicateBody.getChild(1);
+        first.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        first.setAxialOffset(0);
+        info.openrocket.core.rocketcomponent.FlightConfigurationId duplicateId = regressionConfiguration(duplicate, "2092");
+        regressionMotor(first, duplicateId, false, 1);
+        regressionMotor(regressionMount(duplicateBody, false), duplicateId, false, 1);
+        info.openrocket.core.simulation.FlightData duplicateData = regressionFlight(duplicate, duplicateId, 0x2092);
+        int deployments = 0;
+        for (info.openrocket.core.simulation.FlightEvent event : duplicateData.getBranch(0).getEvents()) {
+            if (event.getType() == info.openrocket.core.simulation.FlightEvent.Type.RECOVERY_DEVICE_DEPLOYMENT) deployments++;
+        }
+        line("flight.assembly.simultaneous.count", deployments);
+    }
+
+    /** Dedicated configuration for the appended mass/recovery regressions. */
+    private static info.openrocket.core.rocketcomponent.FlightConfigurationId regressionConfiguration(Rocket rocket, String suffix) {
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid =
+                new info.openrocket.core.rocketcomponent.FlightConfigurationId("0000" + suffix + "-0001-4001-8001-000000000001");
+        rocket.createFlightConfiguration(fcid);
+        rocket.setSelectedConfiguration(fcid);
+        return fcid;
+    }
+
+    /** Explicit motor-mount geometry, matching AssemblyRecoveryTest. */
+    private static InnerTube regressionMount(BodyTube body, boolean small) {
+        InnerTube mount = new InnerTube();
+        mount.setLength(small ? 0.045 : 0.07);
+        mount.setOuterRadius(small ? 0.0065 : 0.0095);
+        mount.setThickness(small ? 0.0003 : 0.0005);
+        body.addChild(mount);
+        mount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        mount.setAxialOffset(0);
+        return mount;
+    }
+
+    /** Pinned C6-like or short pod curve; no catalogue/database dependency. */
+    private static void regressionMotor(InnerTube mount,
+            info.openrocket.core.rocketcomponent.FlightConfigurationId fcid, boolean small, double delay) {
+        mount.setMotorMount(true);
+        double[] times = small ? new double[] {0, 0.05, 0.15, 0.4, 0.5}
+                : new double[] {0, 0.1, 0.3, 0.5, 1, 1.5, 1.85, 2};
+        double[] thrusts = small ? new double[] {0, 3, 2, 1.5, 0}
+                : new double[] {0, 12, 6, 5.1, 4.9, 4.8, 4.5, 0};
+        double[] masses = small ? new double[] {0.006, 0.0058, 0.0054, 0.0045, 0.004}
+                : new double[] {0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132};
+        Coordinate[] cg = new Coordinate[masses.length];
+        for (int i = 0; i < cg.length; i++) cg[i] = new Coordinate(small ? 0.0225 : 0.035, 0, 0, masses[i]);
+        info.openrocket.core.motor.ThrustCurveMotor motor = new info.openrocket.core.motor.ThrustCurveMotor.Builder()
+                .setManufacturer(info.openrocket.core.motor.Manufacturer.getManufacturer("Estes"))
+                .setDesignation(small ? "Pod" : "C6").setCommonName(small ? "Pod" : "C6")
+                .setMotorType(info.openrocket.core.motor.Motor.Type.SINGLE).setStandardDelays(new double[] {0, 1, 2, 3, 5})
+                .setDiameter(small ? 0.013 : 0.018).setLength(small ? 0.045 : 0.07)
+                .setTimePoints(times).setThrustPoints(thrusts).setCGPoints(cg)
+                .setDigest(small ? "assembly-pod" : "assembly-c6").build();
+        info.openrocket.core.motor.MotorConfiguration mc = new info.openrocket.core.motor.MotorConfiguration(mount, fcid);
+        mc.setMotor(motor);
+        mc.setEjectionDelay(delay);
+        mc.setIgnitionEvent(info.openrocket.core.motor.IgnitionEvent.AUTOMATIC);
+        mc.setIgnitionDelay(0);
+        mount.setMotorConfig(mc, fcid);
+    }
+
+    /** Direct event-engine flight in calm ISA conditions, as in flightScenarios. */
+    private static info.openrocket.core.simulation.FlightData regressionFlight(Rocket rocket,
+            info.openrocket.core.rocketcomponent.FlightConfigurationId fcid, int seed) {
+        for (info.openrocket.core.rocketcomponent.RocketComponent component : rocket) {
+            if (component instanceof Parachute) {
+                info.openrocket.core.rocketcomponent.DeploymentConfiguration deployment =
+                        ((Parachute) component).getDeploymentConfigurations().getDefault();
+                deployment.setDeployEvent(info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.EJECTION);
+                deployment.setDeployDelay(0);
+            }
+        }
+        info.openrocket.core.simulation.SimulationConditions c = new info.openrocket.core.simulation.SimulationConditions();
+        c.setSimulation(new info.openrocket.core.document.Simulation(rocket, fcid));
+        c.setLaunchRodLength(1);
+        c.setLaunchRodAngle(0);
+        c.setLaunchRodDirection(Math.PI / 2);
+        c.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+        c.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.SPHERICAL);
+        c.setAtmosphericModel(new ExtendedISAModel());
+        c.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+        info.openrocket.core.models.wind.PinkNoiseWindModel wind = new info.openrocket.core.models.wind.PinkNoiseWindModel();
+        wind.setAverage(0);
+        wind.setStandardDeviation(0);
+        c.setWindModel(wind);
+        c.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+        c.setMassCalculator(new MassCalculator());
+        c.setTimeStep(0.05);
+        c.setMaxSimulationTime(1200);
+        c.setRandomSeed(seed);
+        try {
+            info.openrocket.core.simulation.BasicEventSimulationEngine engine = new info.openrocket.core.simulation.BasicEventSimulationEngine();
+            engine.simulate(c);
+            return engine.getFlightData();
+        } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+            throw new IllegalStateException("mass/recovery regression flight failed", e);
+        }
     }
 
     /**

@@ -2063,6 +2063,67 @@ aerodynamic model.
   CODEX-REPORT.md, Fix 2. These checks do not replace an accepted-baseline JVM
   golden comparison, corpus validation or the orchestrator's integration gate.
 
+### rocketcomponent/SymmetricComponent.java - a zero-material slice keeps a finite centroid (OR #3161 / PR #3202, tumble release T1, 2026-10-08)
+
+- **Defect (upstream 24.12):** `calculateProperties` integrates 128 slices and divides
+  each slice's first moment by its material volume `dV`. A slice with NO material
+  (`dV` exactly 0) gave `0/0 = NaN`, and `dV * (x1 + dCG)` / `dV * pow2(x1 + dCG)` then
+  made the whole component's CG and longitudinal inertia NaN while its volume stayed
+  right. Reproducer (upstream Banshee Mk2): a flipped POWER tail, parameter 0, length
+  1 mm, radius 11 mm, wall 2 mm - POWER with parameter 0 has radius 0 for x <= 1e-5 m,
+  so its last slice is empty. The flight threw `BugException: Simulation resulted in
+  not-a-number (NaN) value for structureMass.getCenterOfMass()`.
+- **Change (one expression):** `dCG = dV == 0.0 ? l / 2.0 : (...) / dV`. Exactly zero,
+  NOT an EPSILON test: a very thin but nonzero slice keeps its true centroid. Slices with
+  `dV == 0` contribute zero moment either way; every other slice is bit-identical.
+- **Scope:** shared mass behaviour, every aerodynamic model. Moves numbers only where a
+  component has an empty slice and nonzero total volume (it previously produced NaN).
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/rocketcomponent/ZeroSliceCentroidTest.java`
+  (JUnit 5.10.0, `gradlew test`): tail volume/CG against the analytic profile (126 hollow
+  cylinders, one solid cone slice, one empty slice), assembled structure finite, flight
+  reaches apogee; analytic controls (filled conical frustum: volume, CG and Simpson-
+  quadrature inertias at rel 1e-9; thin 10 um frustum shell: true CG at rel 1e-9; zero-
+  thickness shell; ogive finite-only). Old kernel: 3 of 7 fail (NaN CG, NaN assembled CM,
+  the BugException). Mutations: unconditional division -> those 3 fail; `dV < EPSILON`
+  branch -> the thin-shell true-centroid test fails. GoldenMain `mass.zeroslice.*` and
+  `flight.zeroslice.summary` rows carry it through the JVM/TeaVM differential.
+
+### rocketcomponent/RocketComponent.java + MotorMount.java + DeploymentConfiguration.java + simulation/BasicEventSimulationEngine.java - ejection charges deploy only their own assembly's devices, and a device deploys once (OR #2092 / PR #3204, tumble release T1, 2026-10-08)
+
+- **Defects (upstream 24.12):** (a) `RocketComponent.getAssembly()` never advanced its
+  walk, so any non-assembly caller looped forever (it had no callers, which is why it
+  never showed). (b) An EJECTION-deployed recovery device fired on ANY ejection charge
+  in the same stage NUMBER: a pod motor's charge deployed the core airframe's chute and
+  vice versa. (c) An already-deployed device was deployed again by a later or a
+  simultaneous second charge: a duplicate RECOVERY_DEVICE_DEPLOYMENT event, the landing
+  stepper re-initialised, optimum coast recomputed, and FlightData's deployment velocity
+  overwritten by the LAST deployment event.
+- **Change (five hunks, applied together - the ownership call without the walk fix
+  hangs):** `getAssembly()` uses `instanceof` and steps to the parent (patch on the
+  existing RocketComponent replacement; its memoization/stamps untouched). `MotorMount`
+  declares `getAssembly()` (Coordinate[] kept, not upstream's CoordinateIF[]).
+  `DeployEvent.EJECTION`: when the event data is a `MotorClusterState`, deploy iff the
+  motor mount's innermost assembly equals the device's; otherwise the old stage-number
+  fallback. The event engine skips already-deployed devices when SCHEDULING and when
+  EXECUTING a deployment (the `%g` log fix and K9 rail code untouched). The 1 ms minimum
+  deployment delay is kept.
+- **Not changed, on purpose:** the listener callbacks (`handleFlightEvent`,
+  `recoveryDeviceDeployment`) run before the execution guard, so two duplicates queued
+  at the same instant both still reach listeners; only one is recorded. Two physical
+  instances of one PodSet are still one device; separating parallel boosters unchanged.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/AssemblyRecoveryTest.java`
+  (14 tests; flights and walks under `assertTimeoutPreemptively` so a hang FAILS). Old
+  kernel: 9 of 14 fail (walks time out; pod/core 4 deployments instead of 2; nested pods 6
+  instead of 2; duplicate charges recorded twice); the 5 controls pass on both. Mutations,
+  each restored: no ownership -> 2 ownership tests fail; no ancestor step -> 11 fail (all
+  walks and flights time out); no scheduling guard -> the delayed-charge test fails on the
+  listener count; no execution guard -> the simultaneous-charge test fails. GoldenMain
+  `flight.assembly.*` rows: PodChute 2.501 s then CoreChute 5.001 s; simultaneous charges
+  record 1 deployment.
+- **Before/after `goldenJvm` (Rule 1):** with both fixes the first 421 golden lines are
+  byte-identical to the pre-change kernel; only the 6 appended rows are new. No existing
+  golden scenario had an empty slice, a motorised pod or two charges per device.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
