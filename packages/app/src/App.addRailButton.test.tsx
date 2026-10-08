@@ -50,6 +50,22 @@ function button(host: HTMLElement, text: string): HTMLButtonElement {
   return b;
 }
 
+async function pressActive(key: string, ctrlKey = false): Promise<void> {
+  await act(async () => {
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey, bubbles: true }));
+  });
+}
+
+function selectedRow(host: HTMLElement): HTMLElement {
+  return host.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')!;
+}
+
+function expectTreeFocus(host: HTMLElement): void {
+  expect(document.activeElement === selectedRow(host)).toBe(true);
+  expect(selectedRow(host).tabIndex).toBe(0);
+  expect(host.querySelectorAll('[role="treeitem"][tabindex="0"]')).toHaveLength(1);
+}
+
 /** The starter rocket with its C6 on, and a Rail button added to its Body tube from the Add menu. */
 async function addRailButton(): Promise<HTMLElement> {
   const host = document.createElement('div');
@@ -92,25 +108,71 @@ describe('a Rail button added from the Add menu', () => {
     const host = await addRailButton();
     const selectedLabel = () => host.querySelector('[role="treeitem"][aria-selected="true"] .tree-label')?.textContent;
     expect(selectedLabel()).toBe('Rail button');
-    await act(async () => { button(host, 'Undo').click(); });
+    selectedRow(host).focus();
+    await pressActive('z', true);
     expect(selectedLabel()).toBe('Body tube');
+    expectTreeFocus(host);
     expect(button(host, '+ Add to Body tube')).toBeDefined();
 
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true }));
-    });
+    await pressActive('y', true);
     expect(selectedLabel()).toBe('Rail button');
+    expectTreeFocus(host);
     expect(button(host, 'Auto-place rail buttons').disabled).toBe(false);
 
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-    });
+    await pressActive('z', true);
     expect(selectedLabel()).toBe('Body tube');
-    const row = host.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')!;
-    await act(async () => {
-      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    });
+    await pressActive('ArrowUp');
     expect(selectedLabel()).toBe('Nose cone');
+    expectTreeFocus(host);
+  }, 30000);
+
+  it('moves focus from the root to an undeleted part before navigating with arrows', async () => {
+    const host = await addRailButton();
+    // Keep the deletion separate from the preceding addition's coalescing window.
+    await settle(850);
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Delete Rail button"]')!;
+    remove.focus();
+    await act(async () => { remove.click(); });
+    expect(document.activeElement === host.querySelector('.tree-row-root')).toBe(true);
+    await pressActive('z', true);
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Rail button');
+    expectTreeFocus(host);
+    await pressActive('y', true);
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Body tube');
+    expectTreeFocus(host);
+    await pressActive('z', true);
+    await pressActive('ArrowUp');
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Parachute');
+    expectTreeFocus(host);
+  }, 30000);
+
+  it('keeps focus on a row action when Undo and Redo keep the same selection', async () => {
+    const host = await addRailButton();
+    await settle(850);
+    const move = host.querySelector<HTMLButtonElement>('[aria-label="Move Rail button up"]')!;
+    move.focus();
+    await act(async () => { move.click(); });
+    await pressActive('z', true);
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Rail button');
+    expect(document.activeElement === move).toBe(true);
+    await pressActive('y', true);
+    expect(document.activeElement === move).toBe(true);
+  }, 30000);
+
+  it.each(['property checkbox', 'canvas', 'toolbar button'])('preserves focus outside the tree on a %s', async (kind) => {
+    const host = await addRailButton();
+    const outside = document.createElement(kind === 'canvas' ? 'canvas' : kind === 'toolbar button' ? 'button' : 'input');
+    if (outside instanceof HTMLInputElement) outside.type = 'checkbox';
+    outside.tabIndex = 0;
+    host.appendChild(outside);
+    outside.focus();
+    await pressActive('z', true);
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Body tube');
+    expect(document.activeElement === outside).toBe(true);
+    await pressActive('y', true);
+    expect(selectedRow(host).querySelector('.tree-label')?.textContent).toBe('Rail button');
+    expect(document.activeElement === outside).toBe(true);
+    outside.remove();
   }, 30000);
 
   it('is a pair, where 📍 Auto-place rail buttons puts it on the loaded rocket: pressing it moves nothing', async () => {

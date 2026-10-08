@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { openModalCount } from '../components/useDialog.js';
 import { ancestorsOf, findNode } from '../tree/treeModel.js';
@@ -60,6 +60,8 @@ export interface TreeHistoryOptions<T = undefined> {
 }
 
 export interface TreeHistory {
+  /** ComponentTree's role="tree" element; scopes history focus restoration. */
+  treeElementRef: MutableRefObject<HTMLDivElement | null>;
   /** Session-local UI selection; never part of the saved design tree. */
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
@@ -117,6 +119,17 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   const [tree, setTreeRaw] = useState<RocketTree>(initial);
   const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
   const selectionRef = useRef<string | null>(null);
+  const treeElementRef = useRef<HTMLDivElement | null>(null);
+  const restoreTreeFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!restoreTreeFocus.current) return;
+    restoreTreeFocus.current = false;
+    const box = treeElementRef.current;
+    const active = document.activeElement;
+    // Do not take focus if another action moved it outside before this commit.
+    if (!box || (active && active !== document.body && !box.contains(active))) return;
+    box.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
+  });
   const setSelectedId = useCallback((id: string | null) => {
     selectionRef.current = id;
     setSelectedIdRaw(id);
@@ -168,6 +181,10 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
       const parent = ancestorsOf(previous, current).find(n => n.id && findNode(next, n.id));
       setSelectedId(parent?.id ?? next.components.find(n => n.id)?.id ?? null);
     }
+    // Capture BEFORE React removes rows/buttons. After commit the old focus
+    // may already be on body, or still on a surviving but no longer selected row.
+    restoreTreeFocus.current = selectionRef.current !== current
+      && !!treeElementRef.current?.contains(document.activeElement);
     writeTree(next);
   }, [writeTree, setSelectedId]);
 
@@ -264,6 +281,7 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   }, [undo, redo]);
 
   return {
+    treeElementRef,
     selectedId, setSelectedId,
     tree, treeRef, writeTree, setTree, commitStep, undo, redo, reset,
     canUndo: history.current.length > 0,

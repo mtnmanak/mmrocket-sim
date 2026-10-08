@@ -328,7 +328,7 @@ export function App() {
   // flight-holds-a-handle gate.
   const {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
-    selectedId, setSelectedId,
+    selectedId, setSelectedId, treeElementRef,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
     captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState } => ({
@@ -3639,6 +3639,7 @@ export function App() {
               <input id="rocket-name" value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
             </div>
             <ComponentTree
+              treeElementRef={treeElementRef}
               tree={tree}
               selectedId={selectedId}
               onSelect={(id) => setSelectedId(id || null)}
