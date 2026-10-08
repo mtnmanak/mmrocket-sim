@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
@@ -113,8 +113,10 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
 
 export function ComponentTree({
   tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd, onAddStage,
-  clipboard, onCopy, onCut, onPaste,
+  clipboard, onCopy, onCut, onPaste, treeElementRef,
 }: {
+  /** Allows history to preserve keyboard focus when restoring selection. */
+  treeElementRef?: RefObject<HTMLDivElement>;
   tree: RocketTree;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -199,7 +201,8 @@ export function ComponentTree({
   );
 
   /** The tree container, so arrow navigation can move focus with the selection. */
-  const boxRef = useRef<HTMLDivElement | null>(null);
+  const localBoxRef = useRef<HTMLDivElement | null>(null);
+  const boxRef = treeElementRef ?? localBoxRef;
 
   /**
    * Wraps a structural action from a row's buttons so that, once it has
@@ -294,7 +297,7 @@ export function ComponentTree({
         }
       },
     };
-  }, [rowOrder, selectedId, onSelect]);
+  }, [rowOrder, selectedId, onSelect, boxRef]);
 
   return (
     <div>
