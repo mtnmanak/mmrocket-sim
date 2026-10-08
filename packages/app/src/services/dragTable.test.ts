@@ -69,3 +69,20 @@ describe('dragTableCsv', () => {
     expect(lines[4]!.split(',').at(-1)).toBe('cd_Fin_set_"3"_fins');
   });
 });
+
+// Mutation guard: positive CNa must not turn an undefined high-AOA CP into zero.
+it('preserves null CP with positive CNa as a gap and an empty CSV cell', () => {
+  const data = sweep({ cp: [0.25, null], cna: [12, 12] });
+  expect(sweepCp(data)).toEqual([0.25, null]);
+  const rows = dragTableCsv(data, META).split('\n').filter((line) => !line.startsWith('#'));
+  expect(rows[0]!.split(',')[3]).toBe('cp_mm_from_nose');
+  expect(rows[1]!.split(',')[3]).toBe('250');
+  expect(rows[2]!.split(',').slice(3, 5)).toEqual(['', '12']);
+});
+
+// Regression (decision 66(b) sweepCp guard): a non-finite position with a usable
+// CNa is "no position", never passed through. The old sweepCp tested CNa only.
+it('treats a non-finite CP with positive CNa as missing', () => {
+  const data = sweep({ cp: [0.25, Number.NaN, Number.POSITIVE_INFINITY], cna: [12, 12, 12] });
+  expect(sweepCp(data)).toEqual([0.25, null, null]);
+});

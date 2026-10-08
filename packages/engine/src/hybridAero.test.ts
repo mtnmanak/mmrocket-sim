@@ -16,9 +16,15 @@ function rocket(model: 'kbf' | 'supersonic' | 'hybrid', tree = arcas) {
 // Nonzero AoA and angular rates exercise the final damped moments, not just CD/CP.
 const sample = (r: OrkRocket, ms = machs): AeroForceSample[] => r.forceSamples(ms, 0.04, 0.7, 0.4, 0.9);
 
+function finite(v: number | null | undefined): number {
+  expect(Number.isFinite(v)).toBe(true);
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error('Expected finite kernel value');
+  return v;
+}
+
 function blendCP(a: AeroDiagnostics['cp'], b: AeroDiagnostics['cp'], w: number): AeroDiagnostics['cp'] {
-  const cna = (1 - w) * a[3] + w * b[3];
-  return [0, 1, 2].map((i) => ((1 - w) * a[i]! * a[3] + w * b[i]! * b[3]) / cna)
+  const cna = (1 - w) * finite(a[3]) + w * finite(b[3]);
+  return [0, 1, 2].map((i) => ((1 - w) * finite(a[i]) * finite(a[3]) + w * finite(b[i]) * finite(b[3])) / cna)
     .concat(cna) as AeroDiagnostics['cp'];
 }
 
@@ -71,11 +77,11 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
         const w = t * t * (3 - 2 * t);
         const a = k[i]!;
         const b = s[i]!;
-        const cna = (1 - w) * a[3] + w * b[3];
+        const cna = (1 - w) * finite(a[3]) + w * finite(b[3]);
         for (let f = 0; f < actual.length; f++) {
           const expected = f < 3
-            ? ((1 - w) * a[f]! * a[3] + w * b[f]! * b[3]) / cna
-            : (1 - w) * a[f]! + w * b[f]!;
+            ? ((1 - w) * finite(a[f]) * finite(a[3]) + w * finite(b[f]) * finite(b[3])) / cna
+            : (1 - w) * finite(a[f]) + w * finite(b[f]);
           // 1e-10 absolute covers only floating arithmetic order, not aero error.
           expect(actual[f], `M=${m}, field=${f}`).toBeCloseTo(expected, 10);
         }
@@ -93,7 +99,7 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
       for (let f = 0; f < up[i]!.length; f++) {
         // At 0.005 Mach spacing: <= 10 mm CP and <= 0.25 in coefficient units
         // (CNa per radian). Fixture/rates above; not a universal aerodynamic limit.
-        expect(Math.abs(up[i]![f]! - up[i - 1]![f]!), `M=${ms[i]}, field=${f}`)
+        expect(Math.abs(finite(up[i]![f]) - finite(up[i - 1]![f])), `M=${ms[i]}, field=${f}`)
           .toBeLessThan(f < 3 ? 0.01 : 0.25);
       }
     }
@@ -134,9 +140,9 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
     const a = rocket('kbf').aeroDiagnostics(0.3).cp;
     const b = rocket('supersonic').aeroDiagnostics(0.3).cp;
     const expected = blendCP(a, b, 0.5);
-    expect(Math.abs(expected[0] - a[0])).toBeGreaterThan(1e-5);
-    h.aeroDiagnostics(0.3).cp.forEach((v, i) => expect(v).toBeCloseTo(expected[i]!, 10));
-    expect(h.staticInfo().cp).toBeCloseTo(expected[0], 10);
+    expect(Math.abs(finite(expected[0]) - finite(a[0]))).toBeGreaterThan(1e-5);
+    h.aeroDiagnostics(0.3).cp.forEach((v, i) => expect(v).toBeCloseTo(finite(expected[i]), 10));
+    expect(h.staticInfo().cp).toBeCloseTo(finite(expected[0]), 10);
   });
 
   it('searches blended getCP for asymmetric worst CP inside the band', () => {
@@ -147,19 +153,19 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
     const b = rocket('supersonic', tree).aeroDiagnostics(0.3);
     // Blend each plane FIRST, then minimize; do not blend endpoint minima.
     const planes = a.cpByTheta.map((cp, i) => blendCP(cp, b.cpByTheta[i]!, 0.5));
-    const expected = planes.filter((cp) => cp[3] > 1e-8).reduce((x, y) => x[0] < y[0] ? x : y);
-    expect(Math.max(...planes.map((cp) => cp[0])) - expected[0]).toBeGreaterThan(0.01);
-    expect(Math.abs(expected[0] - a.worstCP[0])).toBeGreaterThan(1e-6);
+    const expected = planes.filter((cp) => finite(cp[3]) > 1e-8).reduce((x, y) => finite(x[0]) < finite(y[0]) ? x : y);
+    expect(Math.max(...planes.map((cp) => finite(cp[0]))) - finite(expected[0])).toBeGreaterThan(0.01);
+    expect(Math.abs(finite(expected[0]) - finite(a.worstCP[0]))).toBeGreaterThan(1e-6);
     const actual = h.aeroDiagnostics(0.3);
-    actual.worstCP.forEach((v, i) => expect(v).toBeCloseTo(expected[i]!, 10));
-    expect(h.staticInfo().cpWorst).toBeCloseTo(expected[0], 10);
+    actual.worstCP.forEach((v, i) => expect(v).toBeCloseTo(finite(expected[i]), 10));
+    expect(h.staticInfo().cpWorst).toBeCloseTo(finite(expected[0]), 10);
   });
 
   it('newInstance preserves a custom band rather than resetting to defaults', () => {
     const h = rocket('hybrid', asymmetricTree());
     h.setHybridBand(0.1, 0.5);
     const original = h.aeroDiagnostics(0.3, 0.04);
-    expect(Math.abs(original.cp[0] - rocket('kbf', asymmetricTree()).aeroDiagnostics(0.3, 0.04).cp[0]))
+    expect(Math.abs(finite(original.cp[0]) - finite(rocket('kbf', asymmetricTree()).aeroDiagnostics(0.3, 0.04).cp[0])))
       .toBeGreaterThan(1e-5);
     expect(h.aeroDiagnostics(0.3, 0.04, true)).toEqual(original);
   });
@@ -210,4 +216,24 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
       expect(row.every(Number.isFinite)).toBe(true);
     }
   });
+});
+
+// Mutation guard: CNa-weighted blending of the corrected endpoint positions.
+it('Hybrid high-AOA midband divides blended normal moment by blended normal force', () => {
+  // Basic Finner separates the competing blends by about 28 micrometres.
+  const tree = JSON.parse(readFileSync(new URL('../../../validation/fixtures/basic-finner.json', import.meta.url), 'utf8')) as RocketTree;
+  const k = rocket('kbf', tree);
+  const s = rocket('supersonic', tree);
+  const h = rocket('hybrid', tree);
+  const aoa = 45 * Math.PI / 180;
+  const a = k.forceSamples([1], aoa)[0]!;
+  const b = s.forceSamples([1], aoa)[0]!;
+  // Positive raw moments: the zero-rate damping clamp leaves Cm untouched.
+  expect(a[6]).toBeGreaterThan(0);
+  expect(b[6]).toBeGreaterThan(0);
+  const expected = h.staticInfo().refDiameter * (0.5 * a[6] + 0.5 * b[6]) / (0.5 * a[4] + 0.5 * b[4]);
+  const actual = finite(h.forceSamples([1], aoa)[0]![0]);
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1e-12 + 1e-10 * Math.abs(expected));
+  const wrong = finite(blendCP(k.aeroDiagnostics(1, aoa).cp, s.aeroDiagnostics(1, aoa).cp, 0.5)[0]);
+  expect(Math.abs(actual - wrong)).toBeGreaterThan(1e-6);
 });

@@ -178,7 +178,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			AerodynamicForces f = new AerodynamicForces();
 			f.setComponent(a.getComponent());
 			f.setAxisymmetric(a.isAxisymmetric() && b.isAxisymmetric());
-			f.setCP(mixCP(a.getCP(), b.getCP(), w));
+			// PATCH (decision 66(b)): blend DERIVATIVE CPs (first moments) only; a
+			// reported force-consistent CP is set afterwards from blended CN/Cm.
+			f.setCP(mixCP(a.getDerivativeCP(), b.getDerivativeCP(), w));
 			f.setCN(mix(a.getCN(), b.getCN(), w));
 			f.setCside(mix(a.getCside(), b.getCside(), w));
 			// Endpoint moments already include damping. Do not subtract it again.
@@ -203,8 +205,19 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			double w = weight(conditions);
 			if (w == 0) return kbf.getCP(configuration, conditions, warnings);
 			if (w == 1) return supersonic.getCP(configuration, conditions, warnings);
-			return mixCP(kbf.getCP(configuration, conditions, warnings),
-					supersonic.getCP(configuration, conditions, warnings), w);
+			if (!aboveForceConsistentAOA(conditions)) {
+				return mixCP(kbf.getCP(configuration, conditions, warnings),
+						supersonic.getCP(configuration, conditions, warnings), w);
+			}
+			// PATCH (decision 66(b)): blend the endpoints' zero-rate CN and undamped
+			// normal Cm, then divide. Never a CNa-weighted blend of corrected positions.
+			kbf.checkCache(configuration);
+			supersonic.checkCache(configuration);
+			FlightConditions zero = zeroRates(conditions);
+			AerodynamicForces a = kbf.calculateNonAxialForces(configuration, zero, warnings);
+			AerodynamicForces b = supersonic.calculateNonAxialForces(configuration, zero, warnings);
+			return forceConsistentCP(mixCP(a.getDerivativeCP(), b.getDerivativeCP(), w),
+					mix(a.getCN(), b.getCN(), w), mix(a.getCm(), b.getCm(), w), conditions.getRefLength());
 		}
 
 		// Inherited getWorstCP searches this getCP, so it searches the blended law.
@@ -222,6 +235,22 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			for (RocketComponent component : a.keySet()) {
 				result.put(component, mixForces(a.get(component), b.get(component), w));
 			}
+			// PATCH (decision 66(b)): each final entry's reported CP from the blended
+			// zero-rate CN and normal Cm of the two endpoints' matching entries.
+			if (aboveForceConsistentAOA(conditions)) {
+				Map<RocketComponent, AerodynamicForces> a0 = kbf.zeroRateNormalForceMap(configuration, conditions);
+				Map<RocketComponent, AerodynamicForces> b0 = supersonic.zeroRateNormalForceMap(configuration, conditions);
+				double refLength = conditions.getRefLength();
+				for (Map.Entry<RocketComponent, AerodynamicForces> e : result.entrySet()) {
+					AerodynamicForces na = a0.get(e.getKey());
+					AerodynamicForces nb = b0.get(e.getKey());
+					AerodynamicForces f = e.getValue();
+					f.setReportedCP((na == null || nb == null)
+							? forceConsistentCP(f.getDerivativeCP(), Double.NaN, Double.NaN, refLength)
+							: forceConsistentCP(f.getDerivativeCP(), mix(na.getCN(), nb.getCN(), w),
+									mix(na.getCm(), nb.getCm(), w), refLength));
+				}
+			}
 			return result;
 		}
 
@@ -237,6 +266,14 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			} else {
 				f = mixForces(kbf.getAerodynamicForces(configuration, conditions, warnings),
 						supersonic.getAerodynamicForces(configuration, conditions, warnings), w);
+				// PATCH (decision 66(b)): reported CP from the blended zero-rate normal
+				// force; every force coefficient and damping field stays the plain blend.
+				if (aboveForceConsistentAOA(conditions)) {
+					AerodynamicForces a = kbf.zeroRateNormalForces(configuration, conditions);
+					AerodynamicForces b = supersonic.zeroRateNormalForces(configuration, conditions);
+					f.setReportedCP(forceConsistentCP(f.getDerivativeCP(), mix(a.getCN(), b.getCN(), w),
+							mix(a.getCm(), b.getCm(), w), conditions.getRefLength()));
+				}
 			}
 			return f;
 		}
@@ -359,14 +396,85 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	public Coordinate getCP(FlightConfiguration configuration, FlightConditions conditions,
 			WarningSet warnings) {
 		checkCache(configuration);
-		AerodynamicForces forces = calculateNonAxialForces(configuration, conditions, warnings);
-		return forces.getCP();
+		// PATCH (decision 66(b)): at and below 20 deg the 24.12 path, untouched.
+		if (!aboveForceConsistentAOA(conditions)) {
+			AerodynamicForces forces = calculateNonAxialForces(configuration, conditions, warnings);
+			return forces.getCP();
+		}
+		// Above 20 deg: the force-consistent CP of the zero-rate normal force.
+		AerodynamicForces normal = calculateNonAxialForces(configuration, zeroRates(conditions), warnings);
+		return forceConsistentCP(normal.getDerivativeCP(), normal.getCN(), normal.getCm(),
+				conditions.getRefLength());
 	}
+
+	/**
+	 * PATCH (decision 66(b), MMRocket Sim 2026-10-08; see patches/LEDGER.md): the raw,
+	 * UNCORRECTED, zero-rate normal-force aggregate (CN and Cm about the reference
+	 * origin, derivative CP). Never calls the public getCP. Warnings go to the
+	 * discarded sink: the caller's own evaluation has already reported them.
+	 */
+	private AerodynamicForces zeroRateNormalForces(FlightConfiguration configuration,
+			FlightConditions conditions) {
+		return calculateNonAxialForces(configuration, zeroRates(conditions), ignoreWarningSet);
+	}
+
+	/**
+	 * PATCH (decision 66(b)): the raw, zero-rate, NON-AXIAL-ONLY force-analysis map
+	 * (no drag loop, no sanitation): assemblies from assemblyMap, aerodynamic
+	 * leaves from eachMap, keyed exactly as getForceAnalysis keys its result.
+	 */
+	private Map<RocketComponent, AerodynamicForces> zeroRateNormalForceMap(FlightConfiguration configuration,
+			FlightConditions conditions) {
+		// No checkCache here, deliberately: this must see exactly the calcMap that the
+		// raw force analysis it annotates just used (24.12's getForceAnalysis does not
+		// call checkCache either), so CN/Cm and the reported CP never mix two cache states.
+		if (calcMap == null) {
+			buildCalcMap(configuration);
+		}
+		InstanceMap instMap = configuration.getActiveInstances();
+		Map<RocketComponent, AerodynamicForces> eachMap = new LinkedHashMap<>();
+		Map<RocketComponent, AerodynamicForces> assemblyMap = new LinkedHashMap<>();
+		calculateForceAnalysis(configuration, zeroRates(conditions), configuration.getRocket(), instMap,
+				eachMap, assemblyMap, ignoreWarningSet);
+		Map<RocketComponent, AerodynamicForces> result = new LinkedHashMap<>();
+		for (final RocketComponent comp : instMap.keySet()) {
+			if (comp instanceof ComponentAssembly) {
+				result.put(comp, assemblyMap.get(comp));
+			} else if (comp.isAerodynamic()) {
+				result.put(comp, eachMap.get(comp));
+			}
+		}
+		return result;
+	}
+
 	
 	
-	
+	/**
+	 * PATCH (decision 66(b)): the public force analysis. The unchanged 24.12 body is
+	 * getRawForceAnalysis; above 20 deg each completed entry (after its NaN
+	 * sanitation) gets the force-consistent reported CP of the matching zero-rate,
+	 * non-axial-only entry. Nothing is corrected while recursion/merging runs.
+	 */
 	@Override
 	public Map<RocketComponent, AerodynamicForces> getForceAnalysis(FlightConfiguration configuration,
+			FlightConditions conditions,
+			WarningSet warnings) {
+		Map<RocketComponent, AerodynamicForces> map = getRawForceAnalysis(configuration, conditions, warnings);
+		if (aboveForceConsistentAOA(conditions)) {
+			Map<RocketComponent, AerodynamicForces> normal = zeroRateNormalForceMap(configuration, conditions);
+			double refLength = conditions.getRefLength();
+			for (Map.Entry<RocketComponent, AerodynamicForces> e : map.entrySet()) {
+				AerodynamicForces n = normal.get(e.getKey());
+				AerodynamicForces f = e.getValue();
+				f.setReportedCP(n == null
+						? forceConsistentCP(f.getDerivativeCP(), Double.NaN, Double.NaN, refLength)
+						: forceConsistentCP(f.getDerivativeCP(), n.getCN(), n.getCm(), refLength));
+			}
+		}
+		return map;
+	}
+
+	private Map<RocketComponent, AerodynamicForces> getRawForceAnalysis(FlightConfiguration configuration,
 			FlightConditions conditions,
 			WarningSet warnings) {
 		if (calcMap == null) {
@@ -496,7 +604,18 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		
 		// Calculate non-axial force data
 		AerodynamicForces total = calculateNonAxialForces(configuration, conditions, warnings);
-		
+
+		// PATCH (decision 66(b)): above 20 deg, the REPORTED CP is the force-consistent
+		// CP of a separate zero-rate normal-force evaluation. The simulation's CN, Cm,
+		// drag and damping below come from `total`, unchanged. At and below 20 deg no
+		// extra work is done.
+		Coordinate reportedCP = null;
+		if (aboveForceConsistentAOA(conditions)) {
+			AerodynamicForces normal = zeroRateNormalForces(configuration, conditions);
+			reportedCP = forceConsistentCP(normal.getDerivativeCP(), normal.getCN(), normal.getCm(),
+					conditions.getRefLength());
+		}
+
 		// Calculate friction data
 		// ORDER IS LOAD-BEARING (MMRocket Sim patch): see the same note in
 		// getForceAnalysis. This is the FLIGHT hot path, and it passes a null force map —
@@ -516,7 +635,11 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		total.setCm(total.getCm() - total.getPitchDampingMoment());
 		total.setCyaw(total.getCyaw() - total.getYawDampingMoment());
 
-		
+		// PATCH (decision 66(b)): set at the completed output boundary.
+		if (reportedCP != null) {
+			total.setReportedCP(reportedCP);
+		}
+
 		return total;
 	}
 

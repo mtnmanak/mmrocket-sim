@@ -12,15 +12,26 @@
 import './kernelLogSink.js';
 import * as ork from '../vendor/orkengine.mjs';
 
-/** CP coordinates in metres, CNa per radian, remaining fields dimensionless. */
-export type AeroForceSample = [cpX: number, cpY: number, cpZ: number, cna: number,
+/**
+ * CP coordinates in metres, CNa per radian, remaining fields dimensionless.
+ * `cpX` is the REPORTED CP: the derivative (CNa-weighted) CP up to 20 degrees
+ * AoA, and above 20 degrees the force-consistent CP of the zero-rate normal
+ * force (x = d * Cm / CN, decision 66(b)) - `null` where that is undefined
+ * (|CN| <= 1e-8). `cna` is always the derivative weight.
+ */
+export type AeroForceSample = [cpX: number | null, cpY: number, cpZ: number, cna: number,
   cn: number, cside: number, cm: number, cyaw: number, croll: number, crollForce: number,
   crollDamp: number, cd: number, cdAxial: number, frictionCD: number, pressureCD: number,
   baseCD: number, overrideCD: number, pitchDamping: number, yawDamping: number];
 
-/** Calculator diagnostics: CP in metres, CNa per radian, stall margin in radians. */
+/**
+ * Calculator diagnostics: CP in metres, CNa per radian, stall margin in radians.
+ * CP x is the reported CP (force-consistent above 20 degrees AoA, decision
+ * 66(b)) and is `null` where undefined; `cna` is the derivative weight, and is
+ * `null` only for a high-AoA worstCP with no defined roll plane at all.
+ */
 export interface AeroDiagnostics {
-  cp: [x: number, y: number, z: number, cna: number];
+  cp: [x: number | null, y: number, z: number, cna: number | null];
   worstCP: AeroDiagnostics['cp'];
   /** 360 roll-plane samples at theta = 2*pi*i/360. */
   cpByTheta: AeroDiagnostics['cp'][];
@@ -597,9 +608,11 @@ export interface DragSweep {
   /**
    * CP location per Mach (m from the nose tip), at the sweep's angle of attack.
    * Power state doesn't move CP, so one curve serves both. Feeds the
-   * validation harness and CP-vs-Mach plotting.
+   * validation harness and CP-vs-Mach plotting. Above 20 degrees AoA it is the
+   * force-consistent CP (x = d * Cm / CN, decision 66(b)), `null` where that is
+   * undefined; `cna` stays the derivative weight.
    */
-  cp: number[];
+  cp: (number | null)[];
   /** Normal-force-coefficient slope CNα per Mach (per radian, kernel reference area). */
   cna: number[];
   /** Coast (motors off) drag. */

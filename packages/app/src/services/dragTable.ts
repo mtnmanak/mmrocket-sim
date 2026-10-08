@@ -24,7 +24,11 @@ import { foldTypography, oneLine } from './textFold.js';
  * a CP at the nose tip — until the 2026-09-22 audit.
  */
 export function sweepCp(sweep: DragSweep): (number | null)[] {
-  return sweep.cp.map((v, i) => (hasAerodynamicForce({ cna: sweep.cna[i] ?? 0 }) ? v : null));
+  // Both tests, explicitly: a usable derivative weight AND a defined position.
+  // Above 20 degrees AoA the kernel reports the force-consistent CP, which is
+  // null (undefined) where |CN| is unusable even though CNa is positive.
+  return sweep.cp.map((v, i) => (hasAerodynamicForce({ cna: sweep.cna[i] ?? 0 })
+    && v != null && Number.isFinite(v) ? v : null));
 }
 
 export interface DragTableMeta {

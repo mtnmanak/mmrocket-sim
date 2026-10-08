@@ -61,6 +61,7 @@ public final class GoldenMain {
         assemblyEjectionScenarios();
         eventThrustScenarios();
         stallAngleScenarios();
+        forceConsistentCpScenarios();
     }
 
     // OR #3375 / #3093: keep these calls last; difftest compares row indices.
@@ -2707,6 +2708,36 @@ public final class GoldenMain {
             sb.append('|').append(v);
         }
         System.out.println(sb);
+    }
+
+
+    /** Decision 66(b): append-only JVM/TeaVM coverage of all reported CP paths. */
+    private static void forceConsistentCpScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator kbf =
+                new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        kbf.setRogersKbf(true);
+        info.openrocket.core.logging.WarningSet warnings = new info.openrocket.core.logging.WarningSet();
+        info.openrocket.core.aerodynamics.FlightConditions fc =
+                new info.openrocket.core.aerodynamics.FlightConditions(config);
+        fc.setMach(0.3);
+        for (double deg : new double[] {10, 20, 25, 45}) {
+            fc.setAOA(deg * Math.PI / 180);
+            Coordinate cp = kbf.getCP(config, fc, warnings);
+            line("aero.forcecp.kbf", deg, cp.x, cp.weight);
+        }
+        fc.setPitchRate(0.7); fc.setYawRate(0.4); fc.setRollRate(0.9);
+        info.openrocket.core.aerodynamics.AerodynamicForces total = kbf.getAerodynamicForces(config, fc, warnings);
+        line("aero.forcecp.rates", total.getCP().x, total.getCN(), total.getCm());
+        fc.setPitchRate(0); fc.setYawRate(0); fc.setRollRate(0);
+        line("aero.forcecp.analysis", kbf.getForceAnalysis(config, fc, warnings).get(rocket).getCP().x);
+        fc.setMach(1.0);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator hybrid =
+                info.openrocket.core.aerodynamics.BarrowmanCalculator.hybrid(0.8, 1.2);
+        line("aero.forcecp.hybrid", hybrid.getCP(config, fc, warnings).x);
+        fc.setMach(0.3);
+        line("aero.forcecp.worst", kbf.getWorstCP(config, fc, warnings).x);
     }
 
     private GoldenMain() {}

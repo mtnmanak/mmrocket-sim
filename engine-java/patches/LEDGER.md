@@ -2196,6 +2196,91 @@ aerodynamic model.
   byte-identical to the T1 kernel's; only the 4 appended rows are new. difftest: 431
   lines (290 bit-identical, 141 within tolerance).
 
+### aerodynamics/AerodynamicForces.java + AbstractAerodynamicCalculator.java + BarrowmanCalculator.java - above 20 deg AOA the REPORTED CP is force-consistent, x = d*Cm/CN; the force law is unchanged (decision 66(b), Eric 2026-10-08, tumble release T3)
+
+- **Defect (upstream 24.12, ours too):** the reported CP is always the CNa-weighted
+  (derivative) CP, sum(CNa_i x_i)/sum(CNa_i). Above the fin-force saturation the
+  component normal forces stop scaling with CNa (body lift ~ sin^2(AOA), saturated fin
+  CN), so the point where the SAME force model's normal force actually acts,
+  x = d*Cm/CN, moves forward of it: at Mach 0.3, Kbf, 45 deg, ARCAS short reads
+  12.0031 cal derivative vs 10.4317 cal force-consistent, Basic Finner 7.3501 vs 6.4962
+  (`docs/open-items.md` CP register block). The flight already flies the force-consistent
+  moment (RK4 shifts the coefficient Cm to the CG); only the CP and stability REPORTED
+  from it were inconsistent with it.
+- **Change (DESIGN section 8):**
+  - `AerodynamicForces` (new replacement, copied from carved == reference 24.12): an
+    output-only `reportedCP` override. `getCP()` returns it when set, otherwise
+    `getDerivativeCP()` (the complete, unchanged 24.12 getCP body). `setReportedCP`
+    sets it; `setCP` (so `zero()`) and `merge` clear it, and `setCP` still renews the
+    modID when it clears an override over an equal derivative CP; `setCm` does NOT clear
+    it (later damping, RK4 noise and listener torques do not move it). The cpCNa
+    first-moment accumulator, CNa and every merge are untouched; `reset()->setCP(null)`
+    is left as it was.
+  - `AbstractAerodynamicCalculator`: `FORCE_CONSISTENT_CP_AOA = 20 deg` (strictly above;
+    not the 17.5 deg warning angle), `FORCE_CONSISTENT_CN_CUTOFF = 1e-8`,
+    `aboveForceConsistentAOA`, `forceConsistentCP` (x = refLength*Cm/CN; NaN x when
+    |CN| <= 1e-8 or anything is nonfinite or refLength <= 0 - never an infinite lever
+    arm, a tip CP or a silent derivative fallback; y, z and the derivative weight kept),
+    `zeroRates` (a clone with pitch/yaw/roll rates 0; the caller's conditions untouched).
+    `getWorstCP` skips planes with nonfinite x, and a HIGH-AOA query in which no plane
+    has a defined CP returns (NaN, 0, 0, NaN) instead of the Double.MAX_VALUE sentinel;
+    low-angle queries keep the sentinel (OrkEngine.getStaticInfo relies on it).
+  - `BarrowmanCalculator`: at and below 20 deg every public method runs its 24.12 path
+    with no extra work. Above 20 deg: `getCP` returns the force-consistent CP of a
+    zero-rate `calculateNonAxialForces`; `getAerodynamicForces` keeps the actual-condition
+    CN/Cm/drag/damping and sets the reported CP from a separate zero-rate normal-force
+    evaluation (warnings to the discarded sink), computed before the drag block (the
+    body-reference ORDER note is untouched) and set after damping; `getForceAnalysis`
+    is a wrapper over the unchanged body (`getRawForceAnalysis`) that, after the NaN
+    sanitation, sets each completed entry's reported CP from the matching entry of a
+    zero-rate NON-AXIAL-ONLY map (`zeroRateNormalForceMap`, `ignoreWarningSet`, assembly
+    and leaf keys as getForceAnalysis keys them). Hybrid: endpoints (w = 0/1) return the
+    endpoint result; `mixForces` blends DERIVATIVE CPs; midband above 20 deg the
+    reported CP (getCP, total forces, every force-analysis entry) is
+    d*mix(Cm0_kbf, Cm0_sup)/mix(CN0_kbf, CN0_sup) from the endpoints' zero-rate raw
+    normal forces - never a CNa-weighted blend of corrected positions; all force and
+    damping fields stay the plain blend.
+  - Outside patches: `packages/engine/src/orkEngine.ts` types (`AeroForceSample.cpX`,
+    the AeroDiagnostics CP tuple's x and cna, `DragSweep.cp` nullable; the bridge's
+    `nums` already writes nonfinite values as null); `packages/app/src/services/dragTable.ts`
+    `sweepCp` requires a usable CNa AND a finite x.
+- **Not changed:** CN, Cm, CD and every drag field, damping, CNa, the flight's moments
+  and kinematics; static info (Mach 0.3, AOA 0), the design canvas and static stability.
+  Consumers that now read the corrected value above 20 deg: recorded TYPE_CP_LOCATION
+  and TYPE_STABILITY, the interim `cg > cp` stall-TUMBLE check (removed by #3183 later in
+  this release), RK4's OPEN_AIRFRAME_FORWARD warning filter, forceSamples /
+  aeroDiagnostics / dragSweep CP. Nothing here validates the high-AOA force model.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/aerodynamics/ForceConsistentCPTest.java`
+  (12 tests): register values (ARCAS 45 deg 10.4317407349 cal, Basic Finner
+  6.4961848984, derivative 12.0030834497 / 7.3501185135 still readable, CNa unchanged);
+  at 0..19.99 deg and EXACTLY 20 deg no override and getCP bitwise == derivative, all
+  four models; just above 20 an override; x*CN == Cm*d at 25-90 deg (classic, Kbf,
+  Supersonic); rates change Cm (damping) but not the reported CP or the caller's
+  conditions; ratio guard (+/-1e-8, nonfinite, d <= 0, overflow, signed, weight kept);
+  representation (setCP/merge/zero clear, setCm and clone keep, modID); per-entry force
+  analysis, including after a geometry edit (CN/Cm and reported CP from one cache state); Hybrid midband blend identity, its derivative CP, endpoints, low-angle mixCP,
+  single damping; worst CP (all-undefined -> NaN, low-angle sentinel, -Inf/NaN skipped,
+  real fixture = min over planes); newInstance; a real crosswind flight whose recorded
+  TYPE_CP_LOCATION/TYPE_STABILITY above 20.5 deg equal the corrected law and below
+  19.5 deg the derivative CP. Nineteen mutations (`.claude/t3-mut-specs.py`,
+  `.claude/t3-mutate.py`) each fail it: every correction site reverted singly and all
+  together, CNa-weighted Hybrid corrected positions, mixForces blending reported CPs,
+  recorded CP/stability reading the derivative CP, damped Cm in the CP, weight = CN, no
+  |CN| guard, threshold at 17.5 deg, worst-CP sentinel/NaN-acceptance, setCP/merge not
+  clearing, setCm clearing, a zero-rate map that calls checkCache (review finding). TS: `packages/engine/src/forceConsistentCp.test.ts`, a new
+  Hybrid test in `hybridAero.test.ts` (fail on the T2 artifact), `dragTable.test.ts`.
+  Old-vs-new artifact sweep (9 fixtures incl. freeform rounded/airfoil and a 2-fin
+  asymmetric variant, 4 models, 12 Mach, 3 rate sets, forceSamples / aeroDiagnostics /
+  dragSweep / staticInfo): every output at <= 20 deg byte-identical, every non-CP output
+  above 20 deg byte-identical. GoldenMain `aero.forcecp.*` rows.
+- **Before/after `goldenJvm` (Rule 1):** 439 lines; of the first 431 (the T2 kernel's) one
+  row moves - `staging.auto.b1.events` gains `TUMBLE` - and nothing else. Mechanism: the
+  separated booster flies backward; at t = 9.735 s, AOA 157.8 deg, its force-consistent
+  CP (0.4581490 m) sits 0.2 um forward of its CG (0.4581491 m) where the derivative CP
+  was 3.5 mm aft, so the INTERIM `cg > cp` stall check fires (ground hit 23.285 s ->
+  22.418 s). That comparator is deleted by #3183 later in this release. 8 appended rows.
+  difftest: 439 lines (295 bit-identical, 144 within tolerance).
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

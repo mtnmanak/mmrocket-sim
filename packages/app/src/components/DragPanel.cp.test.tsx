@@ -36,7 +36,7 @@ vi.mock('uplot', () => ({
 const machs = [0.5, 1, 1.5, 2];
 const flat = (v: number) => machs.map(() => v);
 
-function sweepOf(cp: number[], cna: number[]): DragSweep {
+function sweepOf(cp: (number | null)[], cna: number[]): DragSweep {
   return {
     machs, hasNozzle: false, cp, cna,
     powerOff: { total: flat(0.4), friction: flat(0.1), pressure: flat(0.2), base: flat(0.1) },
@@ -257,4 +257,13 @@ describe('the Drag table (.csv), byte for byte', () => {
       '2.5,0.52,0.47,290,15.5,0.12,0.3,0.1,0.05,0.15,0.19',
     ].join('\n'));
   });
+});
+
+// Mutation guard: undefined reported CP with usable derivative weight is a gap.
+it('keeps a null high-AOA CP missing in the plotted series and downloaded CSV', async () => {
+  open(rocketOf(sweepOf([0.6, null, 0.6, 0.6], flat(12)), { length: 1.2, cp: 0.6, cpWorst: 0.6 }));
+  expect(cpSeries()).toEqual([50, null, 50, 50]);
+  const csv = await csvOf();
+  expect(cpColumn(csv)).toEqual(['600', '', '600', '600']);
+  expect(csv).toContain('\n1,0.4,0.35,,12,');
 });

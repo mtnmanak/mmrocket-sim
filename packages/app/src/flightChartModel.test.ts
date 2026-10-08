@@ -96,3 +96,20 @@ it('marks both repeated-altitude samples even at the boundary of nontrivial runs
   expect(data.values.map((v) => v.times[1])).toEqual([1, 2]);
   expect(phaseData(series([0, 1, 2]), c[0]!, c[1]!).values[0]!.points).toEqual([]);
 });
+
+// Mutation guard: Number(null) / null-coalescing must not fabricate a tip CP or zero stability.
+it('keeps undefined CP and stability missing in individual and comparison charts', () => {
+  // Friendly series names share the nullable JSON wire contract.
+  const input = { ...series([0, 1, 2]), cpLocation: [1, null, 1.2], stability: [2, null, 3] } as unknown as FlightSeries;
+  for (const imperial of [false, true]) {
+    const c = catalog(imperial);
+    const cp = c.find((d) => d.key === 'cpLocation')!;
+    expect(convertedValues(input, cp)[1]).toBeNull();
+    const members = comparisonMembers(PRESETS.find((p) => p.id === 'stability')!, c);
+    expect(members.map((m) => convertedValues(input, m)[1])).toEqual([null, null, imperial ? 0.8 / 0.0254 : 80]);
+    expect(convertedValues(input, cp)[0]).toBeCloseTo(imperial ? 1 / 0.0254 : 100, 10);
+  }
+  const missing = { ...input, time: [1], cpLocation: [null], stability: [null], cgLocation: [0.8] } as unknown as FlightSeries;
+  expect(usableSeries(missing, ['cpLocation'])).toBe(false);
+  expect(usableSeries(missing, ['stability', 'cpLocation', 'cgLocation'])).toBe(false);
+});
