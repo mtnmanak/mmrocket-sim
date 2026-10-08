@@ -762,14 +762,26 @@ describe('lane C2 save and share fidelity', () => {
     }
   }, 30000);
 
-  it('assigning a motor clears both the imported refusal and its visible warning', async () => {
+  it.each(['rkt', 'ork'] as const)('repairing an ambiguous %s loadout reopens a warning and preserves other import notes', async format => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor');
-    const xml = readFileSync(join(here, 'services/__fixtures__/ambiguous-motor-mounts.rkt'), 'utf8');
-    await pick(host, new File([xml], 'ambiguous.rkt'));
+    const rkt = readFileSync(join(here, 'services/__fixtures__/ambiguous-motor-mounts.rkt'), 'utf8');
+    const imported = importRkt(rkt);
+    const xml = format === 'rkt' ? rkt : exportOrk({
+      name: 'Ambiguous motor mounts', tree: imported.tree, configs: imported.configs,
+      launch: DEFAULT_CONDITIONS,
+    }).replace(/<geodeticmethod>.*?<\/geodeticmethod>/g, '<geodeticmethod>unknown-model</geodeticmethod>');
+    await pick(host, new File([xml], `ambiguous.${format}`));
     await waitFor(() => shownName(host) === 'Ambiguous motor mounts', 'ambiguous import');
     await openTab(host, 'Motors & Launch');
-    expect(host.textContent).toContain('Launch refused');
+    const importItem = [...host.querySelectorAll('.notice-item')].find(item => item.textContent?.includes('Launch refused'))!;
+    expect(importItem).toBeDefined();
+    const retainedLines = importItem.querySelector('.notice-text')!.textContent!
+      .replace(/^Warning: /, '').split('\n').filter(line => !line.includes('Launch refused'));
+    expect(retainedLines.length).toBeGreaterThan(0);
+    if (format === 'ork') expect(importItem.textContent).toContain('unknown-model');
+    await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
+    expect(host.querySelector('.notice-toggle')!.getAttribute('aria-expanded')).toBe('false');
     await act(async () => { button(host, 'Browse motors').click(); });
     await type(input(host, 'Search motor designation'), 'B4');
     const row = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(tr =>
@@ -778,9 +790,55 @@ describe('lane C2 save and share fidelity', () => {
     await act(async () => { row()!.click(); });
     await act(async () => { button(host, 'Load motor').click(); });
     await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'repaired Launch');
-    expect(host.textContent).not.toContain('Launch refused');
+    expect.soft(host.querySelector('.notice-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    // Expand manually on a regression so preservation assertions still inspect every notice.
+    if (host.querySelector('.notice-toggle')!.getAttribute('aria-expanded') === 'false') {
+      await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
+    }
+    const bar = host.querySelector('.notice-bar')!;
+    const repair = [...bar.querySelectorAll('.notice-item')].find(item =>
+      item.textContent?.includes('Check all motor assignments before launching.'))!;
+    expect.soft(repair?.classList.contains('notice-warn')).toBe(true);
+    for (const line of retainedLines) expect.soft(bar.textContent).toContain(line);
+    expect(bar.textContent).not.toContain('Launch refused');
     window.dispatchEvent(new Event('pagehide'));
     expect(storedSession()!.savedConfigs![0]!.motorLoadoutRefusal).toBeUndefined();
+    await act(async () => { repair.querySelector<HTMLButtonElement>('.notice-dismiss')!.click(); });
+    expect(bar.textContent).not.toContain('Check all motor assignments before launching.');
+    for (const line of retainedLines) expect.soft(bar.textContent).toContain(line);
+  }, 30000);
+
+  it('a Launch refusal preserves the import warning in its own dismissible notice', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const refusal = 'Launch refused: check the ambiguous imported loadout.';
+    // A saved refused configuration can still carry a motor; exercise the real enabled Launch.
+    const xml = exportOrk({ name: 'Refused with import warning', tree, launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'refused', name: null, isDefault: true, motorLoadoutRefusal: refusal, motors: {
+        [mount]: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 },
+      } }],
+    }).replace(/<geodeticmethod>.*?<\/geodeticmethod>/g, '<geodeticmethod>unknown-model</geodeticmethod>');
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await pick(host, new File([xml], 'refused.ork'));
+    await waitFor(() => shownName(host) === 'Refused with import warning', 'refused import');
+    const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+    await waitFor(() => !launch.disabled, 'loaded motor');
+    const importText = [...host.querySelectorAll('.notice-item')]
+      .find(item => item.textContent?.includes('unknown-model'))!.textContent!;
+    await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
+    await act(async () => { launch.click(); });
+    expect.soft(host.querySelector('.notice-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    if (host.querySelector('.notice-toggle')!.getAttribute('aria-expanded') === 'false') {
+      await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
+    }
+    expect.soft([...host.querySelectorAll('.notice-item')].some(item => item.textContent === importText)).toBe(true);
+    const refusalItem = [...host.querySelectorAll('.notice-item')].find(item =>
+      item.textContent?.includes(refusal) && !item.textContent.includes('unknown-model'))!;
+    expect(refusalItem).toBeDefined();
+    expect(localStorage.getItem(RUNS_KEY) ?? '[]').toBe('[]');
+    await act(async () => { refusalItem.querySelector<HTMLButtonElement>('.notice-dismiss')!.click(); });
+    expect.soft([...host.querySelectorAll('.notice-item')].some(item => item.textContent === importText)).toBe(true);
   }, 30000);
 
   it.each([

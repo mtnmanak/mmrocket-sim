@@ -655,6 +655,8 @@ export function App() {
   const motorsHeading = useRef<HTMLHeadingElement>(null);
   const [flightSaid, setFlightSaid] = useState({ seq: 0, text: '' });
   const [simError, setSimError] = useState<string | null>(null);
+  // Separate from the file note: repairing a loadout must preserve other import warnings.
+  const [motorLoadoutRepair, setMotorLoadoutRepair] = useState<Notice | null>(null);
   /**
    * The file/transient note. Severity was added in 2026-08-23: the same widget
    * carried "share link copied" and "could not open that .ork file", so the
@@ -911,6 +913,7 @@ export function App() {
     // reads like the import happened again - clear both notes.
     setFileNote(null);
     setSimError(null);
+    setMotorLoadoutRepair(null);
     setShroudPrompt(null);
     // And where a restored pad mass went: it names the motors and mounts of the
     // design being cleared (seam review of audit 2026-09-22).
@@ -1517,7 +1520,7 @@ export function App() {
   // The legacy check changes on dismissal without changing components; a
   // Rocket name edit preserves both inputs the notice rules read from tree.
   const legacyPositionCheck = 'legacyPositionCheck' in tree ? tree.legacyPositionCheck : undefined;
-  const notices = useMemo((): Notice[] => designNotices({
+  const notices = useMemo((): Notice[] => [...designNotices({
     error: buildError,
     buildFailed,
     motorFailures,
@@ -1538,9 +1541,9 @@ export function App() {
     fileNote: () => setFileNote(null),
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
     legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
-  }),
+  }), ...(motorLoadoutRepair ? [motorLoadoutRepair] : [])],
   // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
-  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote,
+  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, motorLoadoutRepair,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.length]);
 
@@ -1594,8 +1597,20 @@ export function App() {
     // — never that the motor just loaded is "no longer loaded".
     const repairedConfig = savedConfigs.find(c => c.id === activeConfigId && c.motorLoadoutRefusal);
     if (repairedConfig) {
-      setFileNote(`Your motor assignment replaces the ambiguous imported loadout for “${savedConfigLabel(repairedConfig)}”. `
-        + 'Check all motor assignments before launching.');
+      // Retire only this configuration's obsolete refusal, not the rest of the import note.
+      setFileNoteState(prev => {
+        if (!prev) return prev;
+        const text = prev.text.split('\n').filter(line => line !== repairedConfig.motorLoadoutRefusal).join('\n');
+        return text ? { ...prev, text } : null;
+      });
+      setMotorLoadoutRepair({
+        // A distinct id also opens NoticeBar on builds that key only by id and severity.
+        id: `motor-loadout-repaired:${repairedConfig.id}`,
+        severity: 'warn',
+        text: `Your motor assignment replaces the ambiguous imported loadout for “${savedConfigLabel(repairedConfig)}”. `
+          + 'Check all motor assignments before launching.',
+        onDismiss: () => setMotorLoadoutRepair(null),
+      });
     }
     const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
     if (adoptedKg !== undefined) {
@@ -1709,7 +1724,7 @@ export function App() {
 
   const onLaunch = () => {
     const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
-    if (refusal) { setFileNote(refusal, 'warn'); return; }
+    if (refusal) { setSimError(refusal); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     // The design this flight flies: this render's, the one `built` was built
@@ -2414,6 +2429,7 @@ export function App() {
     // written after this, by the reconcile effect.
     setSimError(null);
     setPadMassNote(null);
+    setMotorLoadoutRepair(null);
     setSelectedId(null);
   };
 
@@ -2423,6 +2439,7 @@ export function App() {
    * back and what it carries across.
    */
   const applyConfig = (requested: SavedConfig) => {
+    setMotorLoadoutRepair(null);
     motorChoices.current.clear();
     const plan = planConfigSwitch(
       { savedConfigs, activeConfigId, mountMotors, unmatchedRefs, tree }, requested, statedWeightText);

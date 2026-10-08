@@ -1816,8 +1816,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const bottomIdx = components.length - 1;
   const motorsBottom = (c: OrkFlightConfig): boolean =>
     Object.keys(c.motors).some((id) => stageOfMount.get(id) === bottomIdx);
-  const flyable = configs.find(motorsBottom);
-  const chosen = flyable ?? configs[0];
+  // Refused rows retain their diagnostics but have no motors. Every other
+  // retained row has motors (empty unrefused groups are skipped above).
+  // Prefer one of those even when none motors the bottom stage; only open a
+  // refused row when all configurations are refused.
+  const available = configs.filter((c) => !c.motorLoadoutRefusal && Object.keys(c.motors).length > 0);
+  const flyable = available.find(motorsBottom);
+  const chosen = flyable ?? available[0] ?? configs[0];
   const simLabel = (c: OrkFlightConfig): string => {
     const s = cfgSim.get(c)!;
     const quoted = s.name ? ` (“${s.name}”)` : '';
@@ -1839,6 +1844,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * fly. It gives the same way out the no-booster case below does instead.
    */
   const openedNoteFor = (c: OrkFlightConfig): string | null => {
+    if (Object.keys(c.motors).length === 0) {
+      return `${simLabel(c)} was opened with no motors loaded.`;
+    }
     if (components.length > 1 && !motorsBottom(c)) {
       return flyable
         ? `${simLabel(c)} puts no motor on ${bottomName}, and no simulation in this file that motors `
