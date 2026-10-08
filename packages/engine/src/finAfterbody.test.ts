@@ -185,6 +185,31 @@ describe('Supersonic afterbody: the carryover sees only the body behind the fin 
     expectSameLoad(overlapped, plain, 'overlap');
   });
 
+  it('stations, not child order: a later-listed part that bridges an apparent gap still counts (A5b)', () => {
+    // Fin trailing edge 5 mm before the tube's end; two 15 mm tubes fill end..end+15 and end+15..end+30,
+    // positioned explicitly. 35 mm of continuous body lies behind the fin (fa < 1) in EITHER list order.
+    // Listed far-part-first, the A5 walk saw a 15 mm gap after the tube and kept 5 mm.
+    const end = 0.26924 + TUBE_LEN;
+    const part = (id: string, offset: number, length = 0.015): Part =>
+      ({ type: 'bodytube', id, length, outerRadius: R, thickness: 0.0015, position: { method: 'absolute', offset } });
+    const near = part('near', end), far = part('far', end + 0.015);
+    const inOrder = finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [near, far], MACHS, 'supersonic');
+    const reversed = finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [far, near], MACHS, 'supersonic');
+    const plain = finLoad(NOSE, tube(TUBE_LEN + 0.03), fins(-0.035), [], MACHS, 'supersonic');
+    expectSameLoad(inOrder, plain, 'in order');
+    expectSameLoad(reversed, plain, 'reversed order');
+    for (const model of ['hybrid', 'classic', 'kbf'] as const) {
+      expectSameLoad(
+        finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [far, near], MACHS, model),
+        finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [near, far], MACHS, model), `${model} reversed`);
+    }
+    // A zero-length part inside a gap has no extent and cannot bridge it: still the tube's own 5 mm.
+    const sliver = part('sliver', end + 0.0075, 0);
+    const gapped = finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [far, sliver], MACHS, 'supersonic');
+    const alone = finLoad(NOSE, tube(TUBE_LEN), fins(-0.005), [], MACHS, 'supersonic');
+    expectSameLoad(gapped, alone, 'zero-length part in a gap');
+  });
+
   it('Classic and Kbf do not use the afterbody; Hybrid below its band is Kbf', () => {
     for (const model of ['classic', 'kbf'] as const) {
       const overhung = finLoad(NOSE, tube(TUBE_LEN), fins(OVERHANG), [ARCAS_BOATTAIL], MACHS, model);

@@ -10730,7 +10730,7 @@ iocab_FinSetCalc__init_0 = var_0 => {
     return var_1;
 },
 iocab_FinSetCalc_calculateAfterbodyFactor = ($this, $component) => {
-    let $rootChord, $parent, $finTopInParent, var$5, $grand, $after, $bodyEnd, $i, $c, $fore, $aft, var$13;
+    let $rootChord, $parent, $finTopInParent, var$5, $grand, $n, $fore, $aft, $len, $m, $i, $c, $f, $l, $j, var$17, var$18, var$19, var$20, $bodyEnd, $k, var$23;
     $rootChord = $component.$getLength();
     $parent = iocr_RocketComponent_getParent($component);
     if ($parent !== null && $rootChord > 1.0E-8) {
@@ -10742,27 +10742,62 @@ iocab_FinSetCalc_calculateAfterbodyFactor = ($this, $component) => {
         a: {
             $grand = iocr_RocketComponent_getParent($parent);
             if ($grand !== null) {
-                $after = 0;
-                $bodyEnd = ($parent.$getPosition()).$x + $parent.$getLength();
+                $n = iocr_RocketComponent_getChildCount($grand);
+                $fore = $rt_createDoubleArray($n);
+                $aft = $rt_createDoubleArray($n);
+                $len = $rt_createDoubleArray($n);
+                $m = 0;
                 $i = 0;
-                while ($i < iocr_RocketComponent_getChildCount($grand)) {
+                while ($i < $n) {
                     $c = iocr_RocketComponent_getChild($grand, $i);
-                    if ($c === $parent)
-                        $after = 1;
-                    else if ($after && $c instanceof iocr_SymmetricComponent) {
-                        $fore = ($c.$getPosition()).$x;
-                        $aft = $fore + $c.$getLength();
-                        if ($fore > $bodyEnd + 1.0E-6)
-                            break a;
-                        var$5 = $fore >= $bodyEnd - 1.0E-6 ? var$5 + $c.$getLength() : var$5 + jl_Math_max(0.0, $aft - $bodyEnd);
-                        $bodyEnd = jl_Math_max($bodyEnd, $aft);
+                    if ($c !== $parent && $c instanceof iocr_SymmetricComponent) {
+                        $f = ($c.$getPosition()).$x;
+                        $l = $c.$getLength();
+                        $j = $m;
+                        while ($j > 0) {
+                            var$17 = $fore.data;
+                            var$18 = $j - 1 | 0;
+                            if (!(var$17[var$18] > $f))
+                                break;
+                            var$19 = $len.data;
+                            var$20 = $aft.data;
+                            var$17[$j] = var$17[var$18];
+                            var$20[$j] = var$20[var$18];
+                            var$19[$j] = var$19[var$18];
+                            $j = $j + (-1) | 0;
+                        }
+                        var$19 = $len.data;
+                        var$20 = $aft.data;
+                        $fore.data[$j] = $f;
+                        var$20[$j] = $f + $l;
+                        var$19[$j] = $l;
+                        $m = $m + 1 | 0;
                     }
                     $i = $i + 1 | 0;
                 }
+                $bodyEnd = ($parent.$getPosition()).$x + $parent.$getLength();
+                $k = 0;
+                while ($k < $m) {
+                    var$17 = $fore.data;
+                    if (var$17[$k] > $bodyEnd + 1.0E-6)
+                        break a;
+                    if (var$17[$k] >= $bodyEnd - 1.0E-6) {
+                        var$20 = $aft.data;
+                        var$5 = var$5 + $len.data[$k];
+                        $bodyEnd = jl_Math_max($bodyEnd, var$20[$k]);
+                    } else {
+                        var$17 = $aft.data;
+                        if (var$17[$k] > $bodyEnd) {
+                            var$5 = var$5 + jl_Math_max(0.0, var$17[$k] - $bodyEnd);
+                            $bodyEnd = var$17[$k];
+                        }
+                    }
+                    $k = $k + 1 | 0;
+                }
             }
         }
-        var$13 = jl_Math_max(0.0, var$5);
-        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$13 / $rootChord);
+        var$23 = jl_Math_max(0.0, var$5);
+        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$23 / $rootChord);
     } else
         $this.$afterbodyFactor = 1.0;
 },

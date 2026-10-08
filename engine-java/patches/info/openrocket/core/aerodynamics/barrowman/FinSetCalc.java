@@ -145,14 +145,26 @@ public class FinSetCalc extends RocketComponentCalc {
 	 * overhang now uses up the following components' length instead of being
 	 * discarded (before: max(0, ...) on the parent alone, then the full length
 	 * of every later sibling, so ARCAS counted its whole 45.974 mm boattail
-	 * where 6.858 mm lies behind the fin and fa saturated at 1). The walk
-	 * follows actual stations: a following body counts only while it is
-	 * contiguous with the body before it (a gap ends the afterbody; an overlap
-	 * counts only the part past the previous end). The total is clamped at
-	 * zero, so a fin overhanging the whole body - or more than one following
-	 * part - gets the flush-base half. A remainder within the station
-	 * tolerance of zero is flush, as before. A fin that does not overhang, on
-	 * a contiguous body, takes the same arithmetic in the same order as before.
+	 * where 6.858 mm lies behind the fin and fa saturated at 1).
+	 *
+	 * The walk follows STATIONS, not child order (A5b): the body chain is the
+	 * parent plus every SymmetricComponent sibling in the parent's own
+	 * container (the fin's stage, or its pod), taken as intervals
+	 * [getPosition().x, + getLength()] in that container's frame and sorted
+	 * by fore station (stable, so ties keep child order). Starting from the
+	 * parent's aft end, a part whose fore end is within the tolerance of the
+	 * body end so far is contiguous and adds its full length; a part that
+	 * starts inside the body so far adds only its length past that end
+	 * (overlap); a part wholly inside adds nothing (this also skips the parts
+	 * ahead of the parent, and zero-length parts, which cannot bridge a gap);
+	 * the first part starting beyond the body end is a gap, and since the
+	 * parts are station-ordered nothing later can bridge it. Parts in other
+	 * stages, pods or inner assemblies are not in the chain (unchanged). The
+	 * total is clamped at zero, so a fin overhanging the whole body - or more
+	 * than one following part - gets the flush-base half. A remainder within
+	 * the tolerance of zero is flush, as before. A fin that does not overhang,
+	 * on a contiguous body listed in station order, takes the same arithmetic
+	 * in the same order as before.
 	 */
 	private void calculateAfterbodyFactor(FinSet component) {
 		double rootChord = component.getLength();
@@ -168,30 +180,47 @@ public class FinSetCalc extends RocketComponentCalc {
 			}
 			RocketComponent grand = parent.getParent();
 			if (grand != null) {
-				boolean after = false;
-				// Aft end of the contiguous body so far, in the grand's frame.
-				double bodyEnd = parent.getPosition().x + parent.getLength();
-				for (int i = 0; i < grand.getChildCount(); i++) {
+				int n = grand.getChildCount();
+				double[] fore = new double[n];
+				double[] aft = new double[n];
+				double[] len = new double[n];
+				int m = 0;
+				for (int i = 0; i < n; i++) {
 					RocketComponent c = grand.getChild(i);
-					if (c == parent) {
-						after = true;
+					if (c == parent || !(c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent)) {
 						continue;
 					}
-					if (after && c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent) {
-						double fore = c.getPosition().x;
-						double aft = fore + c.getLength();
-						if (fore > bodyEnd + AFTERBODY_STATION_TOL) {
-							break; // gap: the body behind the fin ends here
-						}
-						if (fore >= bodyEnd - AFTERBODY_STATION_TOL) {
-							afterLen += c.getLength(); // contiguous: the normal case
-						} else {
-							// Overlap: only the length past the previous end. Math.max
-							// keeps TeaVM from re-associating a + (b - c) as (a + b) - c.
-							afterLen += Math.max(0.0, aft - bodyEnd);
-						}
-						bodyEnd = Math.max(bodyEnd, aft);
+					double f = c.getPosition().x;
+					double l = c.getLength();
+					// Stable insertion by fore station.
+					int j = m;
+					while (j > 0 && fore[j - 1] > f) {
+						fore[j] = fore[j - 1];
+						aft[j] = aft[j - 1];
+						len[j] = len[j - 1];
+						j--;
 					}
+					fore[j] = f;
+					aft[j] = f + l;
+					len[j] = l;
+					m++;
+				}
+				// Aft end of the contiguous body so far, in the container's frame.
+				double bodyEnd = parent.getPosition().x + parent.getLength();
+				for (int k = 0; k < m; k++) {
+					if (fore[k] > bodyEnd + AFTERBODY_STATION_TOL) {
+						break; // gap: station-ordered, so nothing later can bridge it
+					}
+					if (fore[k] >= bodyEnd - AFTERBODY_STATION_TOL) {
+						afterLen += len[k]; // contiguous: the normal case
+						bodyEnd = Math.max(bodyEnd, aft[k]);
+					} else if (aft[k] > bodyEnd) {
+						// Overlap: only the length past the previous end. Math.max
+						// keeps TeaVM from re-associating a + (b - c) as (a + b) - c.
+						afterLen += Math.max(0.0, aft[k] - bodyEnd);
+						bodyEnd = aft[k];
+					}
+					// else wholly inside the body so far: nothing to add
 				}
 			}
 			afterLen = Math.max(0, afterLen);

@@ -2302,6 +2302,26 @@ aerodynamic model.
   Informational rows: Short M4.5/M4.63 and Long M4.5/M4.63 ok -> off (-2.7 to -3.6 %L), Long M4 off -> ok.
   No drag row moved. No tolerance changed. This is a bookkeeping fix inside a provisional model, not CP
   validation complete (REPORT section 8).
+- **A5b (review fix, 2026-10-08): station order, not child order.** The first version walked the siblings in
+  CHILD order and stopped at the first gap, so a part listed later that bridges that gap was lost (Codex
+  review: tube ending 5 mm behind the fin TE, two following tubes positioned explicitly and listed far-first
+  -> afterbody 5 mm instead of the continuous length; Supersonic fin CNa off 10-11 %). **Rule now:** the
+  chain is the parent plus every `SymmetricComponent` sibling in the parent's own container (the fin's stage
+  or pod - other stages, pods and inner assemblies never count, as before), as intervals
+  `[getPosition().x, + getLength()]`, stable-sorted by fore station (ties keep child order); from the
+  parent's aft end, contiguous (within 1e-6 m) adds the full length, a part starting inside the body adds
+  only its length past the end, a part wholly inside (parts ahead of the parent, zero-length parts) adds
+  nothing, and the first part starting past the body end is a gap that nothing later can bridge. A
+  station-ordered contiguous body is summed in the old order, so the arithmetic is unchanged there.
+  **Artifact:** md5 `81a8c799a7aa6cc131a5104ef53639b4` -> `13a9104e2275ac9eb47ea07c6c0adf84` (three
+  `$rt_createDoubleArray` arrays and the insertion sort in `calculateAfterbodyFactor`). **Differential** exit 0
+  (`421 lines (278 bit-identical, 143 within tolerance)`); `goldenJvm` byte-identical. **Guard:** new
+  `finAfterbody.test.ts` case "stations, not child order" (both list orders == plain tube, Supersonic; both
+  orders equal in Hybrid/Classic/Kbf; a zero-length part in a gap does not bridge it) - on the A5 artifact
+  `81a8c799...` exit 1 (that test only, reversed order CNa off 10.3 %), on `108eb93c...` exit 1 (7 of 9),
+  new exit 0 9/9, Node 22 9/9. **Measured vs A5:** all 113 docs/User files designs + 22 repo fixtures +
+  LEM-IV + ARCAS fixtures byte-identical in all four models; score.mjs output identical (13/22/83/79);
+  C6 flight identical. Engine vitest 260/260.
 
 ## Rules
 
