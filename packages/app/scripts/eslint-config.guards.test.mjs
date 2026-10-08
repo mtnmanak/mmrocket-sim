@@ -86,7 +86,8 @@ describe('eslint.config.mjs — app accessibility guards', () => {
     }
     const engine = await rulesFor('packages/engine/src/index.ts', enabled);
     expect(enabled.map((name) => engine[name])).toEqual(enabled.map(() => 'off'));
-  });
+    // First ESLint config load in the file: 0.3-2.5 s alone, ~11 s under full-suite load (2026-10-08).
+  }, 30_000);
 
   it('rejects missing associations, alt text and invalid ARIA while accepting real labels and NumField', async () => {
     const names = ['jsx-a11y/label-has-associated-control', 'jsx-a11y/alt-text', 'jsx-a11y/aria-props'];

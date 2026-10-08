@@ -273,7 +273,8 @@ describe('.rkt component nesting is capped as .ork nesting is', () => {
     // per-level indentation made it quadratic in depth (8.9 MB at 500 levels
     // before the cap).
     expect(exportOrk({ name: 'Deep', tree: r.tree }).length).toBeLessThan(500_000);
-  });
+    // Under full-suite load on the desktop this exceeded the 5 s default (2026-10-08).
+  }, 30_000);
 
   it('counts a pod as a level too', () => {
     // A pod's chain is converted without AttachedParts, so a counter kept only
