@@ -132,9 +132,12 @@ row's grade can change with neither the model nor the denominator moving. *(Hois
 | Classic, fins-off curve gated from TN D-4013 (175) | 10/175 (5.7%) | `scorecard-transition-2026-08-25.md` (11 → 10), gates from `scorecard-finsoff-figs-2026-08-25.md` |
 | Rogers Kbf, same revision (175) | 17/175 (9.7%) | `scorecard-transition-2026-08-25.md` (15 → 17), unchanged by `scorecard-airfoil-le-2026-08-27.md` |
 | Supersonic, same revision (175) | 71/175 (40.6%) | `scorecard-finsoff-figs-2026-08-25.md` |
-| **Current: classic, + the sharp-airfoil cell** | **13/191 (6.8%)** | `scorecard-nosection-2026-08-29.md` — the 3 gains are the parent cell's own passes double-counted (classic parity, by construction) |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT** | **21/191 (11.0%)** | `scorecard-nosection-2026-08-29.md` — subsonic tight, M0.95+ runs 16–27% LOW on the desktop-import fin path |
-| **Current: supersonic, + the sharp-airfoil cell** | **77/191 (40.3%)** | `scorecard-nosection-2026-08-29.md` |
+| Classic, + the sharp-airfoil cell | 13/191 (6.8%) | `scorecard-nosection-2026-08-29.md` — the 3 gains are the parent cell's own passes double-counted (classic parity, by construction) |
+| Rogers Kbf, same revision | 21/191 (11.0%) | `scorecard-nosection-2026-08-29.md` — subsonic tight, M0.95+ runs 16–27% LOW on the desktop-import fin path |
+| Supersonic, + the sharp-airfoil cell | 77/191 (40.3%) | `scorecard-nosection-2026-08-29.md` |
+| **Current: classic, upstream aero fixes #3262/#3236/#3237 (191 gates)** | **13/191 (6.8%)** | `scorecard-aerofix-2026-10-08.md` — one gain (RMA53D02 M1.06) and one loss (ARCAS-Long M1.8) |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same kernel** | **22/191 (11.5%)** | `scorecard-aerofix-2026-10-08.md` — basic-finner CP M1.056 now passes |
+| **Current: supersonic, same kernel** | **78/191 (40.8%)** | `scorecard-aerofix-2026-10-08.md` — RMA53D02 M1.53 now passes; Hybrid 73 → 74 the same way |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
 *fell* from the 2026-08-04 line (47.4% → 42.7%) while the model got materially better,
@@ -233,12 +236,16 @@ node validation/score.mjs > validation/scorecard.md
   `_readme`; `gate: false` series are informational)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `scorecard-r100-fig13a-2026-10-07.md` — **the newest scorecard**; six new
+- `scorecard-aerofix-2026-10-08.md` — **the newest scorecard**: no anchor or tolerance
+  changed, the kernel did (three upstream aero fixes, all four models). Gate scores
+  13/191 · 22/191 · 78/191 · 74/191 (Classic · Kbf · Supersonic · Hybrid), with every
+  verdict that changed listed.
+- `scorecard-r100-fig13a-2026-10-07.md` — six new
   informational points and all four models measured, with every prior output
   byte unchanged. Gate scores remain 13/191 · 21/191 · 77/191 · 73/191
   (Classic · Kbf · Supersonic · Hybrid).
 - `scorecard-nosection-2026-08-29.md` — the latest gate-set revision. It is where
-  the current **13/191 · 21/191 · 77/191** was set. Walk back through the entries below for how
+  the **13/191 · 21/191 · 77/191** that held until the 2026-10-08 kernel change was set. Walk back through the entries below for how
   each earlier revision's denominator was reached. *(This line named the 27 August scorecard and
   its 10/17/71 until 2026-09-21 — two revisions of the gate set out of date, in the one place
   that tells a reader where to start.)*
