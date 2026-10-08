@@ -500,6 +500,28 @@ html {
   gap: 8px;
 }
 
+/* Outside the crowded toolbar, including on the phone's Fly tab. Keep the
+   status readable while a long rocket name yields the available width. */
+.design-file {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.design-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-save-status {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
 /* Wordmark + version badge move as one unit when the row wraps. The auto
    margin (formerly inline on the badge) splits brand from buttons whenever
    they share a line. */
