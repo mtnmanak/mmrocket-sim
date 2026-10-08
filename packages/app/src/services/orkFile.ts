@@ -1,4 +1,5 @@
 import { storedWarnings } from './storedWarnings.js';
+import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
@@ -336,6 +337,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   xml = xml.replace(/^﻿?\s*<\?xml[^?]*\?>/, '');
   // Through the parser seam (xmlParse.ts): the browser's own DOMParser, as
   // before, or the JS parser a Node/Workers entry installs. Same message.
+  const rawExtensions = extensionXmlBySimulation(xml);
   const doc = parseXml(xml, 'Not a valid .ork file (XML parse error)');
   const rocketEl = doc.querySelector('openrocket > rocket');
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
@@ -1494,15 +1496,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // A clean unknown file needs no XML stamp, but its checked state must follow
   // future edits. Legacy writer versions never establish a clean origin.
   const currentPlacement = !appFile || root?.getAttribute('mmrsim-placement') === 'current';
-  const tree = currentPlacement || !legacyPositionCandidates(importedTree).length
+  const placedTree = currentPlacement || !legacyPositionCandidates(importedTree).length
     ? recordCurrentPlacement(importedTree)
     : checkLegacyPositions(importedTree, appFile, notes);
 
+  const tree = preserveSimulationExtensions(placedTree, rawExtensions, simEls, chosenConfigId, configs.length > 0, notes);
   const storedSimulations = readStoredSimulations(simEls, notes);
   // Dry saves need a simulation to carry launch conditions, not a panel row.
-  // Keep configurations with results, including untagged desktop flight data.
-  const emptyDefault = isLoneEmptyConfig(configs, id => simEls.some(sim => simulationConfigId(sim) === id
-    && sim.querySelector(':scope > flightdata')));
+  // Keep configurations owning extensions too, including the untagged fallback.
+  const emptyDefault = isLoneEmptyConfig(configs, id => hasSimulationExtensions(tree, id)
+    || simEls.some(sim => simulationConfigId(sim) === id && sim.querySelector(':scope > flightdata')));
   // Definitions stay document-local. Only an accepted, current open persists them.
   const exIds = readArchivedExMotors(rocketEl, notes);
   const savedExNotes = rocketEl.querySelector(`:scope > ${EX_MOTOR_NOTES_TAG}`)?.textContent;
@@ -3316,11 +3319,25 @@ export function exportOrk({
   emit(2, '</subcomponents>');
   emit(1, '</rocket>');
   emit(1, '<simulations>');
+  const preservedExtensions = preservedSimulationExtensions(tree);
+  const mappedExtensions = new Set<typeof preservedExtensions[number]>();
+  const simulationWrites = writeConfigs.flatMap<{
+    config: typeof writeConfigs[number]; group?: typeof preservedExtensions[number];
+  }>(c => {
+    const groups = preservedExtensions.filter(g => g.defaultSimulation ? c.id === defaultId : g.configId === c.id);
+    for (const group of groups) if (launch) mappedExtensions.add(group);
+    return groups.length ? groups.map(group => ({ config: c, group })) : [{ config: c, group: undefined }];
+  });
+  const droppedExtensions = preservedExtensions.filter(g => !mappedExtensions.has(g)).reduce((n, g) => n + g.xml.length, 0);
+  if (droppedExtensions) notes?.push(`${droppedExtensions} simulation extension${droppedExtensions === 1 ? '' : 's'} `
+    + 'not saved: the corresponding simulation is no longer present or cannot be mapped to a simulation in this .ork file.');
+  if (mappedExtensions.size) notes?.push('Simulation extensions are preserved but were not run by the app. '
+    + 'Saved flight results for simulations with extensions are marked outdated; run them again in desktop OpenRocket.');
   if (launch) {
-    // One <simulation> PER configuration, each in the exact shape of the
+    // One <simulation> per configuration (or per preserved extension owner), in the shape of the
     // desktop's OpenRocketSaver.saveSimulation() so 24.12 opens it cleanly.
     // The desktop restores EVERY <simulation> unconditionally
-    // (SingleSimulationHandler), and writes one per configuration itself —
+    // (SingleSimulationHandler), including multiple runs of one configuration —
     // the old single minted block meant a file saved here with seven
     // configurations came back to the desktop with six sims gone. Its loader
     // tolerates missing elements but WARNS on any simulator/calculator other
@@ -3340,7 +3357,7 @@ export function exportOrk({
     // answers NaN for anything that is not a finite number, absent included.
     const aimDeg = canonicalRodAimDeg(launch.launchRodAimDeg ?? NaN);
     const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
-    writeConfigs.forEach((c, i) => {
+    simulationWrites.forEach(({ config: c, group }, i) => {
       // App flights have passed the caller's design/motor/conditions checks.
       // Imported historical summaries retain OUTDATED in desktop's loader:
       // preserving numbers does not assert they match the current design.
@@ -3349,10 +3366,10 @@ export function exportOrk({
       const fdAttrs = flightDataAttrs(fd);
       // The app flew all stages, so its results cannot validate an inactive-stage configuration.
       const hasInactiveStage = numberedStages.some((s) => c.stageActiveness?.[s.id!] === false);
-      emit(2, `<simulation status="${fdAttrs ? fd?.importedSummary || hasInactiveStage ? 'outdated' : 'uptodate' : 'notsimulated'}">`);
+      emit(2, `<simulation status="${fdAttrs ? fd?.importedSummary || hasInactiveStage || group?.xml.length ? 'outdated' : 'uptodate' : 'notsimulated'}">`);
       // The desktop's sim table shows this name — a renamed configuration
       // reads as itself; unnamed ones get the desktop's own "Simulation N".
-      emit(3, `<name>${escapeXml(c.name ?? `Simulation ${i + 1}`)}</name>`);
+      emit(3, `<name>${escapeXml(group?.name ?? c.name ?? `Simulation ${i + 1}`)}</name>`);
       emit(3, '<simulator>RK4Simulator</simulator>');
       emit(3, '<calculator>BarrowmanCalculator</calculator>');
       // Extension tag (desktop warns-and-ignores): SingleSimulationHandler
@@ -3457,6 +3474,9 @@ export function exportOrk({
       emit(4, `<timestep>${launch.timeStepS ?? DEFAULT_TIME_STEP_S}</timestep>`);
       emit(4, '<maxtime>1200.0</maxtime>');
       emit(3, '</conditions>');
+      // OpenRocketSaver: extensions follow conditions, before flightdata.
+      // Push whole source slices: indenting their lines would change script bytes.
+      for (const raw of group?.xml ?? []) lines.push(raw);
       // Sibling of <conditions>, inside <simulation> — the desktop's own
       // placement. Self-closing: run history stores summaries, not series, so
       // there are no <databranch> points to write. Desktop handles that shape
