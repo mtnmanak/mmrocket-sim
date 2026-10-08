@@ -1,6 +1,7 @@
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
+import { filletExportNotes } from './filletExport.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
@@ -2315,6 +2316,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
 
 export function exportRkt({ name, tree, motors, compInfo, measured, notes }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
+  notes?.push(...filletExportNotes(tree, '.rkt'));
   const lines: string[] = [];
   const emit = (s: string) => lines.push(s);
   let serial = 0;

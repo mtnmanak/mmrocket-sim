@@ -1,4 +1,5 @@
 import { captureStageMass } from './stageMassOverrides.js';
+import { filletExportNotes } from './filletExport.js';
 import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -1638,6 +1639,8 @@ export interface Cdx1ExportEngine {
 }
 
 export interface Cdx1ExportInput {
+  /** Losses for the existing export notice. */
+  notes?: string[];
   name: string;
   tree: RocketTree;
   /** Loaded launch mass (kg) and CG (m), for the mandatory simulation block. */
@@ -1701,7 +1704,8 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
-export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes }: Cdx1ExportInput): string {
+  notes?.push(...filletExportNotes(tree, '.CDX1'));
   const stagesIn = asStageNodes(tree);
   if (stagesIn.length > 3) throw new Error('RASAero supports at most 3 stages.');
 

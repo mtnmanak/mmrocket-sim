@@ -2250,12 +2250,14 @@ export function App() {
 
   const onSaveCdx1 = async () => {
     try {
+      const filletNotes: string[] = [];
       // The RASAero writer THROWS on ordinary designs it cannot represent
       // (>3 stages, two fin sets on a tube, freeform/elliptical fins,
       // non-conical transitions, unsupported nose shapes). The catch below is
       // the only thing between that and a silent no-file — which is a second,
       // entirely separate explanation for "I don't know where it went".
       await download(exportCdx1({
+        notes: filletNotes,
         name: tree.name ?? 'My Rocket',
         tree,
         // Loaded mass WITH the weighed hardware when a pad mass is set — the
@@ -2272,7 +2274,7 @@ export function App() {
         motors: exportMotorsMap(),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), cdx1RecoveryDelayNote(tree), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
+      }), 'CDX1', '', [...filletNotes, ...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), cdx1RecoveryDelayNote(tree), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
     } catch (e) {
       setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }

@@ -91,6 +91,9 @@ export const XML_JS_SUITES = [
   // the importers, which is exactly the path a server takes under this parser.
   'src/services/simulateFile.test.ts',
   'src/services/flyBuiltDesign.test.ts',
+  // Fin root fillets (C-B14): .ork reopen and the .rkt/.CDX1 loss notes.
+  'src/components/PropertyPanel.fillets.test.tsx',
+  'src/services/filletExport.test.ts',
 ];
 
 /** Files that call an importer but are NOT run twice, each with the reason. */
