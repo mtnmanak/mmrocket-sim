@@ -574,7 +574,8 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		double sq = MathUtil.safeSqrt(1 + (1 - pow2(CNA_SUBSONIC)) * pow2(span * span / (finArea * cosGamma)));
 		subV = 2 * Math.PI * pow2(span) / ref / (1 + sq);
-		subD = 2 * mach * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
+		// PATCH (OpenRocket PR #3236, decision 70): d(CNa)/dM at the FIXED endpoint CNA_SUBSONIC, not at the queried Mach; see LEDGER.md.
+		subD = 2 * CNA_SUBSONIC * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
 				sq * pow2(1 + sq));
 
 		// (feature #1 Phase 1: the supersonic endpoint of the bridge scales with

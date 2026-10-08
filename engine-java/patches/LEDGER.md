@@ -2120,6 +2120,72 @@ aerodynamic model.
   unchanged to 1 um at every Mach sampled. Aft CP = more displayed margin for tube-fin designs between
   M0.5 and M2, where the old kernel UNDERSTATED it.
 
+### aerodynamics/barrowman/FinSetCalc.java + aerodynamics/BarrowmanCalculator.java - transonic CNa lower-endpoint slope (OpenRocket PR #3236) and body-friction fineness on the DIAMETER (OpenRocket PR #3237; 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, decision 70 (as the #3262 entry above): ALL models, Classic included, no
+  flag. Neither line was model-gated, so Classic, Kbf, Supersonic and Hybrid (both endpoint calculators)
+  take both changes. Plan: `BUG-PLAN.md` sections 22 and 23.
+- **#3236 defect:** `calculateFinCNa1` bridges M0.9-1.5 with a quartic `PolyInterpolator` (value and
+  slope at both ends, zero curvature at 0.9). The lower slope `subD` - d(CNa)/dM of the subsonic formula
+  at M0.9 - was written with the QUERIED `mach` in place of `CNA_SUBSONIC`, so the endpoint data moved
+  with every query and the curve was not the interpolant (its value/slope at 0.9 and 1.5 happened to
+  survive, because the slope's basis function vanishes at both ends; only the interior was wrong).
+  **Change:** `2 * mach * Math.PI` -> `2 * CNA_SUBSONIC * Math.PI` (TeaVM folds it to
+  `5.654866776461628`). Nothing else in FinSetCalc moved.
+- **#3237 defect:** the body skin-friction wetted-area correction `1 + 1/(2 fB)` (technical documentation
+  eq. 3.85) took fB = length / max RADIUS; the equation's fB is length / max DIAMETER, so the correction
+  term was halved (L/D 10: 1.025 where 1.05 is right; body friction +2.4 %, NOT total CD). **Change:**
+  upstream's `static calculateBodyFrictionCorrection(bodyLength, maxRadius)` added to our monolithic
+  BarrowmanCalculator (upstream has split it into BarrowmanDragCalculator); `calculateFrictionCD` calls it
+  with the same `maxX - minX + 0.0001` length. `maxR = 0` still gives correction 1. The per-component
+  forceMap correction, `lastBodyFrictionCD` (the body-ratio override reference) and the return value all
+  use the one `correction`, so every drag breakdown still sums; fins and appendages stay outside it.
+- **Known defect left in place (BUG-PLAN 23, its own item):** with `supersonicAero` the bridge's upper
+  slope is `sscale * dK1/dM`; it omits `d(ssaeroScale)/dM * K1` (ssaeroScale depends on Mach through beta
+  above its 0.25 floor). Measured on the new kernel (fin CNa slope at M1.5 from the supersonic side vs the
+  coded `superD`): rectangle AR 1.6 -38.8 %, a 3FNC-like trapezoid -28.8 %, AR 0.8 -127 % (sign flips),
+  AR 3.2 -16.2 %; refitting the quartic with the true slope would move the Supersonic/Hybrid fin CNa in
+  the bridge by up to 2.7 % (AR 1.6), 1.9 %, 9.4 % (AR 0.8) and 1.0 % around M1.35. Classic/Kbf's upper
+  slope is the analytic `-2M/beta^3` of K1 while their supersonic side is the 0.1-Mach K1 grid's secant
+  (upstream behaviour, not touched). Not fixed here: it needs its own ruling, change and test.
+- **Behavioural guards:** `packages/engine/src/transonicFinCNa.test.ts` (8 tests): the M0.9 slope equals
+  the analytic `0.9 k^2/(sq(1+sq))` ratio for three rectangles (finite-difference check of the endpoint);
+  every interior Mach 0.92-1.48 lies on the ONE quartic the endpoint data define (rect at three spans in
+  Classic/Kbf/Supersonic; rounded and airfoil freeform fins in Classic/Kbf/Supersonic; Hybrid = the
+  smoothstep mix of the Kbf and Supersonic quartics), 1e-7 relative; values and one-sided slopes at both
+  endpoints (guard; passes on both kernels). `packages/engine/src/bodyFrictionFineness.test.ts` (2 tests,
+  all four models, flight path AND drag sweep): two lone tubes of one length and two radii scale by exactly
+  corr(R1)/corr(R2) with corr = 1 + R/(L + 1e-4) (Cf cancels); the fin increment divided by the bare
+  tube's implied Cf is the same at L 0.3/0.6/1.2 (fins uncorrected), and in Classic equals
+  `n (1 + 2t/c) 2S / Aref`. The body-ratio override's decomposition is guarded by the existing
+  `orkEngine.test.ts` "a body-proportional CD override" tests.
+  **Fail-on-old:** pre-change artifact - transonicFinCNa exit 1 (6 of 8 fail; the 2 endpoint guards pass),
+  bodyFrictionFineness exit 1 (2 of 2 fail). **Mutations** (each a rebuilt artifact): `subD` back to
+  `mach` -> transonicFinCNa exit 1 (6 fail), bodyFrictionFineness exit 0; `bodyDiameter = maxRadius` ->
+  bodyFrictionFineness exit 1 (2 fail), transonicFinCNa exit 0; `lastBodyFrictionCD` on the old radius
+  correction -> orkEngine body-ratio exit 1 (both method tests fail, including the unpinned no-base one).
+  Restored artifact md5 identical to the pre-mutation build.
+- **Artifact:** md5 `c72255847906eaecc4cefe08e5ad2316` -> `d9bb4cdc6f87644c152d00ad4c563e44`;
+  `calculateBodyFrictionCorrection` 0 -> 2, `$fB` 3 -> 0, `2.0 * $mach * 3.141592653589793` 1 -> 0,
+  `5.654866776461628` 0 -> 1 occurrences.
+- **Goldens (JVM before/after `goldenJvm`, 421 lines):** 218 move. CP/CNa: only `aero.cp` at M0.95 and
+  M1.05 (8 of 32) and `ssaero.1.2` (1 of 4) - nothing at M <= 0.8 or M >= 1.5, `rogerskbf.*` unchanged.
+  Drag: every friction consumer (all 32 `aero.forces`, `dragsweep`, `cdratio`, `finish.*`, `ssaerocd`,
+  `ssphase5/6`, `transition.*`, `fins.crosssection.*`, `finsection.*`, `ssjunction`, `nozzle.basecd`,
+  `podnozzle.*`) and every flight. Mass,
+  inertia, geometry, ISA, tree and event-structure lines unchanged. C6 reference flight 331.7669 ->
+  330.7504 m (-0.31 %), mindia 329.6097 -> 328.6945 m.
+- **Differential: `DIFFERENTIAL FAILURE: 5 mismatched line(s) of 421`** - all 416 non-flight lines (every
+  aero/drag line) agree; the five are flights: `flight.geodetic.absent/spherical/flat` (flightTime 7.3e-7
+  rel), `flight.offaxis.split.canted` (1.5e-9 rel vs 1e-9) and the turbulent `flight.conditions.summaryext`
+  (1.1e-4 rel vs 1e-5). Same five with #3237 alone (mutation build, #3236 reverted); #3236 alone passes
+  (`421 lines (284 bit-identical, 137 within tolerance)`). Diagnosed as a step-count knife edge, not a
+  fidelity break: in the JVM run itself `geodetic.absent` and `geodetic.wgs84` (same dynamics, ULP-different
+  coordinates) now land 7.5e-5 s apart (were 4.8e-11 s), and JS `absent` equals JVM `wgs84` to 2e-13;
+  in JS alone, 6 of 48 single-input perturbations of 1-4 ulp (rodAngle, launchAltitude, pressure,
+  rodLength, temperature) reproduce the JVM's 103.600745357 s exactly - one extra integration row
+  (743 vs 742). The tolerance was NOT widened.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger

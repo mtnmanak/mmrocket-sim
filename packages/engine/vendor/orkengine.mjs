@@ -11035,15 +11035,15 @@ iocab_FinSetCalc_calculateFinCNa1 = ($this, $conditions) => {
         var$4 = 6.283185307179586 * iocu_MathUtil_pow2($this.$span0) / $ref;
         var$5 = 1.0 + $sq;
         $subV = var$4 / var$5;
-        var$4 = 2.0 * $mach * 3.141592653589793 * jl_Math_pow($this.$span0, 6.0);
+        var$4 = 5.654866776461628 * jl_Math_pow($this.$span0, 6.0);
         var$9 = iocu_MathUtil_pow2($this.$finArea * $this.$cosGamma) * $ref * $sq;
         $subD = var$4 / (var$9 * iocu_MathUtil_pow2(var$5));
         $sscale = !$this.$supersonicAero ? 1.0 : iocab_FinSetCalc_ssaeroScale($this, 1.5);
         var$4 = $sscale * $this.$finArea;
         iocab_FinSetCalc_$callClinit();
-        var$9 = iocab_FinSetCalc_K1.$getValue1(1.5) + iocab_FinSetCalc_K2.$getValue1(1.5) * $alpha;
+        var$5 = iocab_FinSetCalc_K1.$getValue1(1.5) + iocab_FinSetCalc_K2.$getValue1(1.5) * $alpha;
         var$10 = iocab_FinSetCalc_K3;
-        $superV = var$4 * (var$9 + var$10.$getValue1(1.5) * iocu_MathUtil_pow2($alpha)) / $ref;
+        $superV = var$4 * (var$5 + var$10.$getValue1(1.5) * iocu_MathUtil_pow2($alpha)) / $ref;
         $superD = $sscale *  -$this.$finArea / $ref * 2.0 * 1.5 / iocab_FinSetCalc_CNA_SUPERSONIC_B;
         return iocab_FinSetCalc_cnaInterpolator.$interpolate0($mach, $rt_createDoubleArrayFromData([$subV, $superV, $subD, $superD, 0.0]));
     }
@@ -48619,7 +48619,7 @@ ioca_BarrowmanCalculator_addDirectChildStagesToQueue = ($this, $configuration, $
     }
 },
 ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditions, $forceMap, $warningSet) => {
-    let $mach, $Re, $Cf, $roughnessCorrection, $otherFrictionCD, $bodyFrictionCD, $maxR, $minX, $maxX, $roughnessLimited, $imap, var$16, $entry, $c, var$19, $finish, var$21, $componentCf, $componentFrictionCD, $instanceCount, $s, $componentMinX, $componentMaxX, $componentMaxR, var$29, var$30, var$31, $fB, $correction, var$34;
+    let $mach, $Re, $Cf, $roughnessCorrection, $otherFrictionCD, $bodyFrictionCD, $maxR, $minX, $maxX, $roughnessLimited, $imap, var$16, $entry, $c, var$19, $finish, var$21, $componentCf, $componentFrictionCD, $instanceCount, $s, $componentMinX, $componentMaxX, $componentMaxR, var$29, var$30, var$31, $bodyLength, $correction, var$34;
     $mach = $conditions.$getMach();
     $Re = ioca_BarrowmanCalculator_calculateReynoldsNumber($this, $configuration, $conditions);
     $Cf = ioca_BarrowmanCalculator_calculateFrictionCoefficient($this, $configuration, $mach, $Re);
@@ -48678,14 +48678,14 @@ ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditio
         }
     }
     a: {
-        $fB = ($maxX - $minX + 1.0E-4) / $maxR;
-        $correction = 1.0 + 1.0 / (2.0 * $fB);
+        $bodyLength = $maxX - $minX + 1.0E-4;
+        $correction = ioca_BarrowmanCalculator_calculateBodyFrictionCorrection($bodyLength, $maxR);
         if ($forceMap !== null) {
-            var$16 = ($forceMap.$entrySet()).$iterator();
+            var$29 = ($forceMap.$entrySet()).$iterator();
             while (true) {
-                if (!var$16.$hasNext())
+                if (!var$29.$hasNext())
                     break a;
-                $entry = var$16.$next();
+                $entry = var$29.$next();
                 if ($entry.$getKey() instanceof iocr_SymmetricComponent)
                     ($entry.$getValue()).$setFrictionCD(($entry.$getValue()).$getFrictionCD() * $correction);
             }
@@ -48694,6 +48694,13 @@ ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditio
     var$34 = $correction * $bodyFrictionCD;
     $this.$lastBodyFrictionCD = var$34;
     return $otherFrictionCD + var$34;
+},
+ioca_BarrowmanCalculator_calculateBodyFrictionCorrection = ($bodyLength, $maxRadius) => {
+    let $bodyDiameter, $finenessRatio;
+    ioca_BarrowmanCalculator_$callClinit();
+    $bodyDiameter = 2.0 * $maxRadius;
+    $finenessRatio = $bodyLength / $bodyDiameter;
+    return 1.0 + 1.0 / (2.0 * $finenessRatio);
 },
 ioca_BarrowmanCalculator_calculateReynoldsNumber = ($this, $configuration, $conditions) => {
     let var$3;

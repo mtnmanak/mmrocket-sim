@@ -360,7 +360,7 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
     // a synchronous test; vitest 3.1 and later fail one past 5 s (AUDIT row 528).
   }, 60000);
 
-  it('leaves the minimum-diameter parity flight at 329.6097045289919 m', () => {
+  it('leaves the minimum-diameter parity flight at 328.6945074324822 m', () => {
     // The regression that pins the WHOLE gate end to end: the mindia design carries
     // a 14 mm nozzle exit and flies flags-off, so neither half of the nozzle model
     // may touch it. Same number as orkEngine.test.ts and the flight.mindia golden.
@@ -388,7 +388,8 @@ describe('RASAero pressure thrust (kernel feature #5)', () => {
       masses: [0.024, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132],
       cgX: 0.035, ejectionDelay: 5.0,
     });
-    expect(rocket.simulate({}).summary.maxAltitude).toBeCloseTo(329.6097045289919, 4);
+    // 329.6097045289919 before OpenRocket #3237 (2026-10-08, body friction fineness on the diameter).
+    expect(rocket.simulate({}).summary.maxAltitude).toBeCloseTo(328.6945074324822, 4);
   });
 
   /**

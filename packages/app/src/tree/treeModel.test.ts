@@ -917,14 +917,16 @@ describe('engineTree — protuberance lowering', () => {
    * quietly different protuberance drag.
    *
    * MEASURED 2026-08-25, sea level, Mach 0.3, classic aero: this 0.4 m ogive +
-   * 0.5 m tube of 200 mm diameter with its 3 fins stripped.
+   * 0.5 m tube of 200 mm diameter with its 3 fins stripped. RE-MEASURED 2026-10-08
+   * after OpenRocket #3237 (the body friction's fineness correction divides by the
+   * DIAMETER, eq. 3.85; decision 70): 0.0783270 / 0.2100270 -> 0.0823252 / 0.2140252.
    */
   it('measures the design\'s own body CD, fins and appendages stripped', () => {
     const body = bodyDragReference(protTree({}));
     expect(body.measured).toBe(true);
     expect(body.mach).toBe(PROTUBERANCE_REF_MACH);
-    expect(body.noBase).toBeCloseTo(0.0783270, 6);
-    expect(body.withBase).toBeCloseTo(0.2100270, 6);
+    expect(body.noBase).toBeCloseTo(0.0823252, 6);
+    expect(body.withBase).toBeCloseTo(0.2140252, 6);
     // The difference IS the kernel's own base CD — `noBase` is `total − base`,
     // so that much holds by construction — and this airframe's base area
     // equals its reference area (no boat tail), so it must land on the
@@ -965,6 +967,11 @@ describe('engineTree — protuberance lowering', () => {
    * 0.1583143 / 0.2057263; with a 0.05 override on the tube 0.1606667 /
    * 0.2080787. The old form gave noBase 0.1106667 there — a "base drag" of
    * 0.0974120 against the kernel's own 0.0474120.
+   *
+   * RE-MEASURED 2026-10-08 after OpenRocket #3237 (body friction fineness on the
+   * DIAMETER; decision 70): 0.1622286 / 0.2096406 without the override, 0.1623123 /
+   * 0.2097243 with it (the old form's noBase would now read 0.1123123; the base-drag
+   * figures above do not move - base drag is not friction).
    */
   it('keeps a component CD override in BOTH halves of the body-CD pair', () => {
     const boatTail = (over: boolean): RocketTree => ({
@@ -998,14 +1005,14 @@ describe('engineTree — protuberance lowering', () => {
 
     const plain = bodyDragReference(boatTail(false));
     expect(plain.measured).toBe(true);
-    expect(plain.noBase).toBeCloseTo(0.1583143, 6);
-    expect(plain.withBase).toBeCloseTo(0.2057263, 6);
+    expect(plain.noBase).toBeCloseTo(0.1622286, 6);
+    expect(plain.withBase).toBeCloseTo(0.2096406, 6);
     expect(plain.withBase - plain.noBase).toBeCloseTo(baseCd, 9);
 
     const over = bodyDragReference(boatTail(true));
     expect(over.measured).toBe(true);
-    expect(over.noBase).toBeCloseTo(0.1606667, 6);
-    expect(over.withBase).toBeCloseTo(0.2080787, 6);
+    expect(over.noBase).toBeCloseTo(0.1623123, 6);
+    expect(over.withBase).toBeCloseTo(0.2097243, 6);
     // withBase − noBase IS the base-drag law, override or no override.
     expect(over.withBase - over.noBase).toBeCloseTo(baseCd, 9);
     // …and the override moved BOTH halves by the same amount (it replaces the
@@ -1289,6 +1296,11 @@ describe('engineTree — a protuberance mass is billed exactly, at its own stati
  * Mach 0.3). Taking the tube fin's 20 mm instead — what a scan of every node's
  * `outerRadius` does — is 2.7778× the area and delivers +0.0730819: a third of
  * the drag, with the property panel printing the third as fact.
+ *
+ * RE-MEASURED 2026-10-08 after OpenRocket #3237 (body friction fineness on the
+ * DIAMETER; decision 70): body CD 0.459187 -> 0.464385, +0.2030053 -> +0.2053033,
+ * the tube-fin third 0.0730819 -> 0.0739092; the per-Mach increment below now spans
+ * 0.0933375 (M3.0) to 0.2560497 (M1.05, was 0.0924524 to 0.2540888 at M1.10).
  */
 describe('engineTree — the protuberance reference area is the kernel\'s own', () => {
   // 3 tubes of 40 mm cannot touch each other on a 24 mm body, so the kernel
@@ -1331,12 +1343,12 @@ describe('engineTree — the protuberance reference area is the kernel\'s own', 
 
     const body = bodyDragReference(tree);
     expect(body.measured).toBe(true);
-    expect(body.withBase).toBeCloseTo(0.459187, 6);
+    expect(body.withBase).toBeCloseTo(0.464385, 6);
     const asked = protuberanceDeliveredCd(tree, findNode(tree, 'x1')!);
-    expect(asked).toBeCloseTo(0.2030053, 7);
+    expect(asked).toBeCloseTo(0.2053033, 7);
     // The bug this pins: referencing to the tube fin instead of the body was
-    // (12/20)² of the CD — 0.0730819, which is what used to be delivered.
-    expect(asked * (0.012 ** 2 / 0.02 ** 2)).toBeCloseTo(0.0730819, 7);
+    // (12/20)² of the CD — 0.0739092, which is what used to be delivered.
+    expect(asked * (0.012 ** 2 / 0.02 ** 2)).toBeCloseTo(0.0739092, 7);
 
     const dropIds = (ns: ComponentNode[], ids: string[]): ComponentNode[] => ns
       .filter((n) => !ids.includes(n.id as string))
@@ -1370,8 +1382,8 @@ describe('engineTree — the protuberance reference area is the kernel\'s own', 
     // …and the delivered drag is Rogers' method at EVERY Mach, not the M0.3 reading
     // held for the whole flight (v0.103). `asked` is still exactly what arrives at
     // M0.3 — it is the number the property panel quotes — and the increment then
-    // follows this airframe's own drag curve: measured here it spans 0.0924524 (M3.0)
-    // to 0.2540888 (M1.10), a 2.75x swing that the old frozen 0.2030053 flattened away.
+    // follows this airframe's own drag curve: measured here it spans 0.0933375 (M3.0)
+    // to 0.2560497 (M1.05), a 2.74x swing that the old frozen 0.2053033 flattened away.
     const ratio = protuberanceFrontalArea(findNode(tree, 'x1')!) / referenceArea(tree);
     const delivered = a.sweep.machs.map((_, i) =>
       a.sweep.powerOff.total[i]! - b.sweep.powerOff.total[i]!);
@@ -1386,8 +1398,8 @@ describe('engineTree — the protuberance reference area is the kernel\'s own', 
       expect(a.sweep.powerOff.base[i]!).toBeCloseTo(b.sweep.powerOff.base[i]!, 12);
     }
     expect(Math.max(...delivered) / Math.min(...delivered)).toBeGreaterThan(2.5);
-    expect(Math.min(...delivered)).toBeCloseTo(0.0924524, 7);
-    expect(Math.max(...delivered)).toBeCloseTo(0.2540888, 7);
+    expect(Math.min(...delivered)).toBeCloseTo(0.0933375, 7);
+    expect(Math.max(...delivered)).toBeCloseTo(0.2560497, 7);
   }, 60000);
 
   it('ignores every other outerRadius in the tree — lug, mount, coupler', () => {
