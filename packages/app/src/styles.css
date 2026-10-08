@@ -3536,9 +3536,11 @@ select.unit-chip:hover {
 /* --- Motor database browser --- */
 .motor-browser {
   max-width: 860px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 80px);
+  overflow-y: auto;
 }
 
 .motor-db-meta {
@@ -3719,8 +3721,20 @@ select.unit-chip:hover {
   vertical-align: middle;
 }
 
+.motor-status-note {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 8px 0;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .motor-load-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-top: 8px;
