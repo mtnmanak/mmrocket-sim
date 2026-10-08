@@ -44,7 +44,6 @@ public class FinSetCalc extends RocketComponentCalc {
 	
 	protected final WarningSet geometryWarnings = new WarningSet();
 	
-	private final double[] poly = new double[6];
 
 	private final double thickness;
 	private final double bodyRadius;
@@ -130,7 +129,6 @@ public class FinSetCalc extends RocketComponentCalc {
 		this.finLeRadius = component.getFinLeRadius();
 		
 		calculateFinGeometry(component);
-		calculatePoly();
 		calculateInterferenceFinCount(component);
 		calculateAfterbodyFactor(component);
 	}
@@ -817,52 +815,17 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		if (m <= 0.5) {
 			// At subsonic speeds CP at quarter chord
-			return 0.25;
+			return SUBSONIC_CP_POS;
 		}
 		if (m >= 2) {
 			// At supersonic speeds use empirical formula
-			double beta = cond.getBeta();
-			return (ar * beta - 0.67) / (2 * ar * beta - 1);
+			return supersonicCPPos(ar * cond.getBeta());
 		}
 		
-		// In between use interpolation polynomial
-		double x = 1.0;
-		double val = 0;
-
-		for (double v : poly) {
-			val += v * x;
-			x *= m;
-		}
-
-		return val;
+		// PATCH (OpenRocket PR #3262): shared bounded interpolation; see LEDGER.md.
+		return transonicCPPos(m, ar);
 	}
 	
-	/**
-	 * Calculate CP position interpolation polynomial coefficients from the
-	 * fin geometry.  This is a fifth order polynomial that satisfies
-	 * 
-	 * p(0.5)=0.25
-	 * p'(0.5)=0
-	 * p(2) = f(2)
-	 * p'(2) = f'(2)
-	 * p''(2) = 0
-	 * p'''(2) = 0
-	 * 
-	 * where f(M) = (ar*sqrt(M^2-1) - 0.67) / (2*ar*sqrt(M^2-1) - 1).
-	 * 
-	 * The values were calculated analytically in Mathematica.  The coefficients
-	 * are used as poly[0] + poly[1]*x + poly[2]*x^2 + ...
-	 */
-	private void calculatePoly() {
-		double denom = pow2(1 - 3.4641 * ar); // common denominator
-		
-		poly[5] = (-1.58025 * (-0.728769 + ar) * (-0.192105 + ar)) / denom;
-		poly[4] = (12.8395 * (-0.725688 + ar) * (-0.19292 + ar)) / denom;
-		poly[3] = (-39.5062 * (-0.72074 + ar) * (-0.194245 + ar)) / denom;
-		poly[2] = (55.3086 * (-0.711482 + ar) * (-0.196772 + ar)) / denom;
-		poly[1] = (-31.6049 * (-0.705375 + ar) * (-0.198476 + ar)) / denom;
-		poly[0] = (9.16049 * (-0.588838 + ar) * (-0.20624 + ar)) / denom;
-	}
 	
 	
 	//	@SuppressWarnings("null")

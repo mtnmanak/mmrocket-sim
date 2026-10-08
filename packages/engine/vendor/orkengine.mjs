@@ -6894,6 +6894,69 @@ iocab_RocketComponentCalc_calculateReynoldsNumber = ($this, $length, $conditions
     var$3 = $conditions.$getVelocity() * $length;
     var$3 = var$3 / ($conditions.$getAtmosphericConditions()).$getKinematicViscosity();
     return var$3;
+},
+iocab_RocketComponentCalc_supersonicCPPos = $arBeta => {
+    let $t, $t2, $t3, $sourcePosition, $sourceGradient, var$7, var$8, $startBasis, $endBasis, $endGradientBasis;
+    if ($arBeta <= 0.8400000000000001)
+        return 0.25;
+    if ($arBeta >= 1.0)
+        return iocab_RocketComponentCalc_sourceSupersonicCPPos($arBeta);
+    $t = ($arBeta - 0.8400000000000001) / 0.15999999999999992;
+    $t2 = $t * $t;
+    $t3 = $t2 * $t;
+    $sourcePosition = iocab_RocketComponentCalc_sourceSupersonicCPPos(1.0);
+    $sourceGradient = iocab_RocketComponentCalc_sourceSupersonicCPGradient(1.0);
+    var$7 = 2.0 * $t3;
+    var$8 = 3.0 * $t2;
+    $startBasis = var$7 - var$8 + 1.0;
+    $endBasis = (-2.0) * $t3 + var$8;
+    $endGradientBasis = $t3 - $t2;
+    return $startBasis * 0.25 + $endBasis * $sourcePosition + $endGradientBasis * 0.15999999999999992 * $sourceGradient;
+},
+iocab_RocketComponentCalc_transonicCPPos = ($mach, $aspectRatio) => {
+    let $t, $arBetaAtMach2, $endpointPosition, $delta, $normalizedEndpointSlope, $slopeRatio, $t2, $t3, $limitingQuintic, $t4, $t5;
+    $t = ($mach - 0.5) / 1.5;
+    $arBetaAtMach2 = $aspectRatio * jl_Math_sqrt(3.0);
+    $endpointPosition = iocab_RocketComponentCalc_supersonicCPPos($arBetaAtMach2);
+    $delta = $endpointPosition - 0.25;
+    if ($delta <= 0.0)
+        return 0.25;
+    $normalizedEndpointSlope = $arBetaAtMach2 * iocab_RocketComponentCalc_supersonicCPGradient($arBetaAtMach2);
+    $slopeRatio = $normalizedEndpointSlope / $delta;
+    if (!($slopeRatio <= 1.6666666666666667)) {
+        $t2 = $t * $t;
+        $t3 = $t2 * $t;
+        $limitingQuintic = $t3 * (3.3333333333333335 - 3.3333333333333335 * $t + $t2);
+        return 0.25 + $delta * jl_Math_pow($limitingQuintic, $slopeRatio / 1.6666666666666667);
+    }
+    $t2 = $t * $t;
+    $t3 = $t2 * $t;
+    $t4 = $t3 * $t;
+    $t5 = $t4 * $t;
+    return 0.25 + (10.0 * $delta - 6.0 * $normalizedEndpointSlope) * $t2 + ((-20.0) * $delta + 14.0 * $normalizedEndpointSlope) * $t3 + (15.0 * $delta - 11.0 * $normalizedEndpointSlope) * $t4 + (3.0 * $normalizedEndpointSlope - 4.0 * $delta) * $t5;
+},
+iocab_RocketComponentCalc_sourceSupersonicCPPos = $arBeta => {
+    return ($arBeta - 0.67) / (2.0 * $arBeta - 1.0);
+},
+iocab_RocketComponentCalc_sourceSupersonicCPGradient = $arBeta => {
+    let $denominator;
+    $denominator = 2.0 * $arBeta - 1.0;
+    return 0.3400000000000001 / ($denominator * $denominator);
+},
+iocab_RocketComponentCalc_supersonicCPGradient = $arBeta => {
+    let $t, $t2, $sourcePosition, $sourceGradient, $startBasisGradient, $endBasisGradient, $endGradientBasisGradient;
+    if ($arBeta <= 0.8400000000000001)
+        return 0.0;
+    if ($arBeta >= 1.0)
+        return iocab_RocketComponentCalc_sourceSupersonicCPGradient($arBeta);
+    $t = ($arBeta - 0.8400000000000001) / 0.15999999999999992;
+    $t2 = $t * $t;
+    $sourcePosition = iocab_RocketComponentCalc_sourceSupersonicCPPos(1.0);
+    $sourceGradient = iocab_RocketComponentCalc_sourceSupersonicCPGradient(1.0);
+    $startBasisGradient = 6.0 * $t2 - 6.0 * $t;
+    $endBasisGradient =  -$startBasisGradient;
+    $endGradientBasisGradient = 3.0 * $t2 - 2.0 * $t;
+    return ($startBasisGradient * 0.25 + $endBasisGradient * $sourcePosition) / 0.15999999999999992 + $endGradientBasisGradient * $sourceGradient;
 };
 function iocab_RailButtonCalc() {
     iocab_RocketComponentCalc.call(this);
@@ -10598,7 +10661,6 @@ function iocab_FinSetCalc() {
     a.$chordTrail = null;
     a.$chordLength = null;
     a.$geometryWarnings = null;
-    a.$poly = null;
     a.$thickness3 = 0.0;
     a.$bodyRadius = 0.0;
     a.$finCount0 = 0;
@@ -10644,7 +10706,6 @@ iocab_FinSetCalc__init_ = ($this, $component) => {
     $this.$chordTrail = $rt_createDoubleArray(48);
     $this.$chordLength = $rt_createDoubleArray(48);
     $this.$geometryWarnings = iocl_WarningSet__init_();
-    $this.$poly = $rt_createDoubleArray(6);
     $this.$rogersKbf0 = 0;
     $this.$supersonicAero = 0;
     $this.$afterbodyFactor = 1.0;
@@ -10660,7 +10721,6 @@ iocab_FinSetCalc__init_ = ($this, $component) => {
     $this.$airfoilTeDiamond0 = $component.$getAirfoilTeDiamond();
     $this.$finLeRadius0 = $component.$getFinLeRadius();
     $this.$calculateFinGeometry($component);
-    iocab_FinSetCalc_calculatePoly($this);
     iocab_FinSetCalc_calculateInterferenceFinCount($this, $component);
     iocab_FinSetCalc_calculateAfterbodyFactor($this, $component);
 },
@@ -11114,36 +11174,13 @@ iocab_FinSetCalc_calculateDampingMoment = ($this, $conditions) => {
     return var$9;
 },
 iocab_FinSetCalc_calculateCPPos = ($this, $cond) => {
-    let $m, $beta, $x, $val, var$6, var$7, var$8, $v;
+    let $m;
     $m = $cond.$getMach();
     if ($m <= 0.5)
         return 0.25;
-    if ($m >= 2.0) {
-        $beta = $cond.$getBeta();
-        return ($this.$ar * $beta - 0.67) / (2.0 * $this.$ar * $beta - 1.0);
-    }
-    $x = 1.0;
-    $val = 0.0;
-    var$6 = $this.$poly.data;
-    var$7 = var$6.length;
-    var$8 = 0;
-    while (var$8 < var$7) {
-        $v = var$6[var$8];
-        $val = $val + $v * $x;
-        $x = $x * $m;
-        var$8 = var$8 + 1 | 0;
-    }
-    return $val;
-},
-iocab_FinSetCalc_calculatePoly = $this => {
-    let $denom;
-    $denom = iocu_MathUtil_pow2(1.0 - 3.4641 * $this.$ar);
-    $this.$poly.data[5] = (-1.58025) * ((-0.728769) + $this.$ar) * ((-0.192105) + $this.$ar) / $denom;
-    $this.$poly.data[4] = 12.8395 * ((-0.725688) + $this.$ar) * ((-0.19292) + $this.$ar) / $denom;
-    $this.$poly.data[3] = (-39.5062) * ((-0.72074) + $this.$ar) * ((-0.194245) + $this.$ar) / $denom;
-    $this.$poly.data[2] = 55.3086 * ((-0.711482) + $this.$ar) * ((-0.196772) + $this.$ar) / $denom;
-    $this.$poly.data[1] = (-31.6049) * ((-0.705375) + $this.$ar) * ((-0.198476) + $this.$ar) / $denom;
-    $this.$poly.data[0] = 9.16049 * ((-0.588838) + $this.$ar) * ((-0.20624) + $this.$ar) / $denom;
+    if (!($m >= 2.0))
+        return iocab_RocketComponentCalc_transonicCPPos($m, $this.$ar);
+    return iocab_RocketComponentCalc_supersonicCPPos($this.$ar * $cond.$getBeta());
 },
 iocab_FinSetCalc_calculateFrictionCD = ($this, $conditions, $componentCf, $warnings) => {
     let $cd;
@@ -11426,11 +11463,11 @@ iocsl_AbstractSimulationListener_preFlightConditions = ($this, $status) => {
 },
 iocsl_AbstractSimulationListener_preGravityModel = ($this, $status) => {
     return NaN;
-};
-let iocsl_AbstractSimulationListener_preMassCalculation = ($this, $status) => {
-    return null;
 },
-iocsl_AbstractSimulationListener_preSimpleThrustCalculation = ($this, $status) => {
+iocsl_AbstractSimulationListener_preMassCalculation = ($this, $status) => {
+    return null;
+};
+let iocsl_AbstractSimulationListener_preSimpleThrustCalculation = ($this, $status) => {
     return NaN;
 },
 iocsl_AbstractSimulationListener_preWindModel = ($this, $status) => {
@@ -51361,7 +51398,6 @@ iocrp_AngleMethod__clinit_ = () => {
 };
 function iocab_TubeFinSetCalc() {
     let a = this; iocab_TubeCalc.call(a);
-    a.$poly0 = null;
     a.$tubes = null;
     a.$bodyRadius0 = 0.0;
     a.$chord = 0.0;
@@ -51385,7 +51421,6 @@ iocab_TubeFinSetCalc__init_ = ($this, $component) => {
     let var$2, var$3, var$4, var$5, $d, $a, $theta1, $a1, $theta2, $a2, $outerArea, $maskedArea, $arprime, var$15, var$16;
     iocab_TubeFinSetCalc_$callClinit();
     iocab_TubeCalc__init_($this, $component);
-    $this.$poly0 = $rt_createDoubleArray(6);
     $this.$geometryWarnings0 = iocl_WarningSet__init_();
     if (!($component instanceof iocr_TubeFinSet)) {
         var$2 = new jl_IllegalArgumentException;
@@ -51495,26 +51530,13 @@ iocab_TubeFinSetCalc_calculateNonaxialForces = ($this, $conditions, $transform, 
     iocab_TubeFinSetCalc_log.$debug($forces.$toString());
 },
 iocab_TubeFinSetCalc_calculateCPPos = ($this, $cond) => {
-    let $m, $beta, $x, $val, var$6, var$7, var$8, $v;
+    let $m;
     $m = $cond.$getMach();
     if ($m <= 0.5)
         return 0.25;
-    if ($m >= 2.0) {
-        $beta = $cond.$getBeta();
-        return ($this.$ar0 * $beta - 0.67) / (2.0 * $this.$ar0 * $beta - 1.0);
-    }
-    $x = 1.0;
-    $val = 0.0;
-    var$6 = $this.$poly0.data;
-    var$7 = var$6.length;
-    var$8 = 0;
-    while (var$8 < var$7) {
-        $v = var$6[var$8];
-        $val = $val + $v * $x;
-        $x = $x * $m;
-        var$8 = var$8 + 1 | 0;
-    }
-    return $val;
+    if (!($m >= 2.0))
+        return iocab_RocketComponentCalc_transonicCPPos($m, $this.$ar0);
+    return iocab_RocketComponentCalc_supersonicCPPos($this.$ar0 * $cond.$getBeta());
 },
 iocab_TubeFinSetCalc_calculateFrictionCD = ($this, $conditions, $componentCf, $warnings) => {
     let $frictionCD;

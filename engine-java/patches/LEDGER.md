@@ -2063,6 +2063,63 @@ aerodynamic model.
   CODEX-REPORT.md, Fix 2. These checks do not replace an accepted-baseline JVM
   golden comparison, corpus validation or the orchestrator's integration gate.
 
+### aerodynamics/barrowman/RocketComponentCalc.java (NEW patch) + FinSetCalc.java + TubeFinSetCalc.java (NEW patch) - bounded fin CP at low aspect ratio (OpenRocket #3196 / PR #3262, superseding #3235; 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, decision 70 - apply the upstream aerodynamic fixes in ALL models,
+  Classic included. No flag and no Classic-parity exception. `calculateCPPos` was never model-gated, so
+  Classic, Kbf, Supersonic and Hybrid (through its two endpoint calculators) all take the change.
+  Plan: `docs/research/or-issues-sweep-2026-10-07/BUG-PLAN.md` sections 12 and 24; worktree plan
+  `.claude/aero-plan.md`.
+- **Defects:** (1) above Mach 2 the fin CP fraction along the MAC is `(AR*beta - 0.67)/(2*AR*beta - 1)`,
+  which has a POLE at AR*beta = 0.5 (NACA 1307 eq. 63 holds only for AR*beta > 1). A fin with
+  AR < 0.289 crosses it above Mach 2: measured on a 3-fin AR 0.2 rectangle on a 25 mm body, whole-rocket
+  CP read 4,078 mm on a 400 mm rocket at M2.69 (Classic). (2) Between Mach 0.5 and 2 a fifth-order
+  polynomial with Mathematica coefficients rounded to six figures and the common denominator
+  `(1 - 3.4641*AR)^2` - singular at AR 0.2887 (AR 0.29: CP fraction -2.0 at M0.51) and forward-moving
+  for low/intermediate AR (AR 0.6). (3) #3235: TubeFinSetCalc in 24.12 allocates the same polynomial
+  but never fills it, so a tube fin's CP between M0.5 and M2 sat at the tube's LEADING EDGE (fraction 0).
+- **Change:** upstream PR #3262 ported, merged onto OUR files. RocketComponentCalc gains upstream's
+  block verbatim (`SUBSONIC_CP_POS`, `supersonicCPPos` - quarter chord below AR*beta 0.84, a cubic Hermite
+  bridge to the source formula at AR*beta = 1, the source formula above; `transonicCPPos` - the same
+  quintic computed from exact endpoint constraints, and above slope ratio 5/3 a monotone continuation
+  `0.25 + delta * B(t)^(k/(5/3))`). FinSetCalc (our feature patch) loses `poly`, the constructor's
+  `calculatePoly()` call and `calculatePoly()` itself; its `calculateCPPos` calls the two helpers.
+  Nothing else in FinSetCalc moved - the Kbf root-quarter-chord carryover, the NACA-1307 split, the
+  ssaero scale, cross-section/airfoil drag and `calculateAfterbodyFactor` are untouched (the last is a
+  separate known defect, docs/research/supersonic-cp-2026-10-08/REPORT.md, deliberately out of scope).
+  TubeFinSetCalc (new patch, upstream 24.12 + #3262's hunks) does the same; #3235's `calculatePoly()`
+  call is NOT taken - #3262 deletes the polynomial it would fill.
+- **Limit (upstream's own, kept):** the low-AR quarter-chord fallback and bridge are a bounded continuity
+  device, not a measured low-aspect-ratio CP; they remove the singularity, not the model gap.
+- **Behavioural guard:** `packages/engine/src/lowArFinCP.test.ts` (9 tests, through the shipped bridge,
+  fin CP isolated exactly by subtracting the same rocket without fins): AR 0.2 through the old pole
+  (finite, aft-moving, < 1 % chord per 0.01 Mach, quarter chord at M4, source branch at M5.2); AR 0.29 and
+  AR 0.6 transonic; Classic equals the regularised curve at AR 0.2/0.35/0.6/2.5 (1e-9, a TS transcription,
+  no kernel float literals); continuity at M0.5 and M2; tube fins AR 0.2 and AR 1 in all four models;
+  rounded and airfoil low-AR freeform fins in all four models.
+  **Fail-on-old:** against the pre-change artifact all 9 fail (vitest exit 1). **Mutations** (each a rebuilt
+  artifact, exit 1): tube-fin patch removed -> the 2 tube tests fail, the 7 others pass; low-AR bridge
+  bypassed (`supersonicCPPos` returns the source formula) -> 7 fail; monotone continuation bypassed (always
+  the quintic) -> the AR 0.6 test fails. Restored artifact md5 identical to the pre-mutation build.
+- **Artifact:** md5 `270fc0d6e7cd46afc4ec5e7e24e13f9d` -> `c72255847906eaecc4cefe08e5ad2316`;
+  `transonicCPPos` 0 -> 3, `supersonicCPPos` 0 -> 4, `sourceSupersonicCPGradient` 0 -> 4,
+  `calculatePoly` 2 -> 0 occurrences.
+- **Goldens (JVM before/after `goldenJvm`, 421 lines):** 32 lines move, all fin-CP consumers on ordinary-AR
+  fins: 16 `aero.cp` + 12 `aero.forces` (M0.8-1.5, CP x by at most 4.9e-8 m - the six-figure coefficient
+  rounding, nothing else), `rogerskbf.0.8`, `ssaero.1.2`, and two flights by ULP-chaos
+  (`flight.offaxis.split.canted` max speed 323.576 -> 323.617 m/s, 1.3e-4 rel, apogee +1.3e-5 m;
+  `flight.podnozzle.podmotors.kbf` apogee 1.2e-11 m). Lines at M <= 0.5 and at M >= 2 with AR*beta >= 1 are
+  bit-identical. Differential: `differential ok: 421 lines (283 bit-identical, 138 within tolerance)`.
+- **Validation harness (`validation/score.mjs`, all four models, old vs new artifact):** gate points
+  unchanged - Classic 13/191, Kbf 21/191, Supersonic 77/191, Hybrid 73/191; 4-5 rows per model move in the
+  fourth decimal of %L (e.g. 70.9611 -> 70.9612).
+- **Measured design-level change (whole-rocket CP x, 400 mm rocket, 25 mm body, Classic):** 6 tube fins
+  AR 1: M0.8 344.9 -> 358.9 mm, M1.0 344.9 -> 360.7, M1.5 344.9 -> 364.3 (+14 to +19 mm, 0.6-0.8 cal, aft);
+  6 tube fins AR 0.4: M0.8-1.99 327.1 -> 338.6 mm (+11.6 mm); 3 rectangular fins AR 0.2: M2.69
+  4,077.6 -> 177.5 mm, M2.5 245.2 -> 184.0, M1.5 253.3 -> 238.5; an ordinary trapezoid (50/30/20/30 mm):
+  unchanged to 1 um at every Mach sampled. Aft CP = more displayed margin for tube-fin designs between
+  M0.5 and M2, where the old kernel UNDERSTATED it.
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
