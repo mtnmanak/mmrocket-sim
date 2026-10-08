@@ -152,7 +152,9 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
     expect(warning).toBeDefined();
     expect(warning.quantity?.kind).toBe('angle');
     expect(warning.sources).toEqual([]); // LargeAOA has no component source in the kernel.
-    expect(warning.priority).toBe('NORMAL');
+    // OR #3183 (tumble release): LargeAOA is informative, LOW (was NORMAL). The
+    // app only singles out HIGH, so nothing it shows changes.
+    expect(warning.priority).toBe('LOW');
     // This fixture reaches its greatest AoA during the shear, while warnings
     // are enabled. 1e-12 rad tolerates last-bit runtime differences.
     const maxAoa = Math.max(...result.series.aoa.filter(Number.isFinite));

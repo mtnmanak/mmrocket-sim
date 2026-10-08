@@ -50,6 +50,26 @@ dependencies {
     implementation 'org.teavm:teavm-extras-slf4j:0.15.0'
     // @JSExport / JS interop annotations for the API facade.
     implementation 'org.teavm:teavm-jso:0.15.0'
+
+    // JVM-only regression tests (src/test/java, `gradlew test`). Test scope only:
+    // nothing here reaches TeaVM, whose classpath is the MAIN runtime classpath.
+    // 5.10.0 = the Jupiter version of the OpenRocket reference build. JVM/TeaVM
+    // parity for the same paths stays with the GoldenMain harness + difftest.mjs.
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    // A regression for a non-advancing parent walk must FAIL, never hang the
+    // build: per-test assertTimeoutPreemptively runs on daemon threads, and this
+    // bounds the whole worker as a second line.
+    timeout = java.time.Duration.ofMinutes(10)
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat 'full'
+    }
 }
 
 java {

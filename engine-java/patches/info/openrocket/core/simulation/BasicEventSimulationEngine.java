@@ -274,31 +274,44 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 //					}
 //				}
 				
-				// Check for fin stall and either set tumbling or LargeAOA warning depending on
-				// rocket stability margin
+				// PATCH (OR #3183 / PR #3190, see patches/LEDGER.md): check for
+				// tumbling, and otherwise for fin stall.
+				// Tumbling is decided by the branch's sustained-AOA detector (how long a
+				// high AOA has persisted against the rocket's own pitch period), not by
+				// one step's AOA and the instantaneous cg > cp comparison, which is
+				// removed. CP still enters INDIRECTLY: the recorded natural frequency
+				// (CNa * (xCP - xCG)) sets the detector's time constant.
+				// A large instantaneous AOA (recorded, OR #3093; fixed stall angle) is
+				// still reported, at LOW priority, but not for a separated stage, whose
+				// fall at large AOA is expected. The detector's time is the status time
+				// after the step, its data the branch's last (k1) row, as upstream.
 				// Inhibited if already tumbling, parachutes deployed, or on the ground
 				if (!currentStatus.isTumbling() &&
 					(currentStatus.getDeployedRecoveryDevices().size() == 0) &&
 					!currentStatus.isLanded()) {
-					final double cp = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CP_LOCATION);
-					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
-					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
-					final double margin =
-						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallMargin();
+					final FlightDataBranch branch = currentStatus.getFlightDataBranch();
+					final double aoa = branch.getLast(FlightDataType.TYPE_AOA);
+					final double stallAngle =
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle();
+					// Air-relative speed, recovered from the recorded Mach number and
+					// speed of sound of the same row.
+					final double airSpeed = branch.getLast(FlightDataType.TYPE_MACH_NUMBER)
+							* branch.getLast(FlightDataType.TYPE_SPEED_OF_SOUND);
 
-					// large AOA -- stalling.					
-					if (margin < 0) {
-						// If we're stable, put a warning about large AOA
-						// note -- if cp is NaN (which it is while on the rod) cg > cp is false
-						if (cg > cp) {
-							// Not stable, so transition to tumbling
-							currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
-						} else {
-							// Stable, so warning about AOA
-							if (currentStatus.recordWarnings()) {
-								currentStatus.addWarning(new Warning.LargeAOA(aoa));
-							}
-						}
+					final boolean tumbling = currentStatus.getTumbleDetector().update(
+							currentStatus.getSimulationTime(),
+							currentStatus.isLaunchRodCleared(),
+							aoa,
+							airSpeed,
+							branch.getLast(FlightDataType.TYPE_AIR_DENSITY),
+							branch.getLast(FlightDataType.TYPE_NATURAL_FREQUENCY));
+
+					if (tumbling) {
+						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
+					} else if (aoa > stallAngle
+							&& !currentStatus.isSeparatedStage()
+							&& currentStatus.recordWarnings()) {
+						currentStatus.addWarning(new Warning.LargeAOA(aoa));
 					}
 				}
 
@@ -383,6 +396,11 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			// TODO: LOW: check if deprecated function getActiveComponents needs to be replaced
 			for (RocketComponent c : currentStatus.getConfiguration().getActiveComponents()) {
 				if (!(c instanceof RecoveryDevice))
+					continue;
+				// OR #2092 / PR #3204 (patch): a recovery device can only deploy once, so ignore
+				// any further triggers (for example a second motor's ejection charge in the same
+				// airframe).
+				if (currentStatus.getDeployedRecoveryDevices().contains(c))
 					continue;
 				DeploymentConfiguration deployConfig = ((RecoveryDevice) c).getDeploymentConfigurations().get(this.fcid);
 				if (deployConfig.isActivationEvent(event, c)) {
@@ -518,6 +536,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 					// Create a new simulation branch for the booster
 					SimulationStatus boosterStatus = new SimulationStatus(currentStatus);
+					// PATCH (OR #3183): the booster branch is a separated stage (its large-AOA
+					// fall is expected, so it raises no LargeAOA warning); the continuing
+					// sustainer is not marked.
+					boosterStatus.setSeparatedStage(true);
 
 					// Prepare the new simulation branch
 					boosterStatus.setFlightDataBranch(new FlightDataBranch(boosterStage.getName(), boosterStage, currentStatus.getFlightDataBranch()));
@@ -564,8 +586,12 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				RocketComponent c = event.getSource();
 				int n = c.getStageNumber();
 
-				// Ignore event if stage not active
-				if (currentStatus.getConfiguration().isStageActive(n)) {
+				// Ignore event if stage not active, or if the device is already deployed.
+				// OR #2092 / PR #3204 (patch): the latter can still happen after the check made
+				// when the event was queued, since two motors may fire their ejection charges at
+				// the very same instant. (The listener callbacks above still see the duplicate.)
+				if (currentStatus.getConfiguration().isStageActive(n) &&
+						!currentStatus.getDeployedRecoveryDevices().contains(c)) {
 					// TODO: HIGH: Check stage activeness for other events as well?
 
 					// Check whether any motor in the active stages is active anymore
@@ -645,7 +671,17 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				if ((currentStatus.getDeployedRecoveryDevices().size() > 0) || currentStatus.isLanded())
 					break;
 				
-				final boolean tooMuchThrust = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_THRUST_FORCE) > THRUST_TUMBLE_CONDITION;
+				// PATCH (OR #3375 / PR #3382, narrow port; see patches/LEDGER.md): judge
+				// thrust at the time the TUMBLE is HANDLED, from the active motors, with the
+				// same pressure-thrust and listener path RK4 flies - not the last recorded
+				// sample, which may predate burnout (stale-high: a coasting rocket aborted
+				// TUMBLE_UNDER_THRUST) or ignition (stale-low). The flight stepper is used for
+				// its thrust arithmetic only; it is not stepped or re-initialised, so this is
+				// valid whichever stepper is current. RECOVERY_DEVICE_DEPLOYMENT keeps its own,
+				// unchanged policy (any motor's curve thrust > MathUtil.EPSILON); upstream's
+				// change of that threshold is deliberately NOT ported.
+				final boolean tooMuchThrust = ((RK4SimulationStepper) flightStepper)
+						.calculateEventThrust(currentStatus) > THRUST_TUMBLE_CONDITION;
 				if (tooMuchThrust) {
 					currentStatus.abortSimulation(SimulationAbort.Cause.TUMBLE_UNDER_THRUST);
 				} else {

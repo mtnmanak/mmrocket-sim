@@ -106,6 +106,25 @@ describe('flightDataCsv', () => {
 });
 
 describe('unit-preference export', () => {
+  it('exports angular natural frequency in rad/s under SI and imperial selections', () => {
+    // Mutations: missing omega-n metadata, Hz labeling/conversion, null coerced to zero.
+    const series = fakeSeries();
+    series['\u03c9n'] = [0, 4 * Math.PI / 10, null];
+    const result: FlightResult = { summary, events: [], series };
+    for (const units of [undefined, IMPERIAL_UNITS]) {
+      const csv = flightDataCsv(result, units).split('\n');
+      // Symbol extras retain the exporter's existing symbol-prefixed header convention.
+      const header = '\u03c9n — Natural frequency (rad/s)';
+      const index = csv[0]!.split(',').indexOf(header);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(csv[1]!.split(',')[index]).toBe('0');
+      expect(Number(csv[2]!.split(',')[index])).toBeCloseTo(4 * Math.PI / 10, 12);
+      expect(csv[3]!.split(',')[index]).toBe('');
+      expect(seriesColumns(series, '', units).find((column) => column.header === header)!.values)
+        .toEqual(series['\u03c9n']);
+    }
+  });
+
   it('converts headers and values to the selection; force and roll rate stay SI', () => {
     const s = fakeSeries();
     s['T'] = [288.15, 287, 286];

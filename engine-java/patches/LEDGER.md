@@ -2323,6 +2323,231 @@ aerodynamic model.
   LEM-IV + ARCAS fixtures byte-identical in all four models; score.mjs output identical (13/22/83/79);
   C6 flight identical. Engine vitest 260/260.
 
+### rocketcomponent/SymmetricComponent.java - a zero-material slice keeps a finite centroid (OR #3161 / PR #3202, tumble release T1, 2026-10-08)
+
+- **Defect (upstream 24.12):** `calculateProperties` integrates 128 slices and divides
+  each slice's first moment by its material volume `dV`. A slice with NO material
+  (`dV` exactly 0) gave `0/0 = NaN`, and `dV * (x1 + dCG)` / `dV * pow2(x1 + dCG)` then
+  made the whole component's CG and longitudinal inertia NaN while its volume stayed
+  right. Reproducer (upstream Banshee Mk2): a flipped POWER tail, parameter 0, length
+  1 mm, radius 11 mm, wall 2 mm - POWER with parameter 0 has radius 0 for x <= 1e-5 m,
+  so its last slice is empty. The flight threw `BugException: Simulation resulted in
+  not-a-number (NaN) value for structureMass.getCenterOfMass()`.
+- **Change (one expression):** `dCG = dV == 0.0 ? l / 2.0 : (...) / dV`. Exactly zero,
+  NOT an EPSILON test: a very thin but nonzero slice keeps its true centroid. Slices with
+  `dV == 0` contribute zero moment either way; every other slice is bit-identical.
+- **Scope:** shared mass behaviour, every aerodynamic model. Moves numbers only where a
+  component has an empty slice and nonzero total volume (it previously produced NaN).
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/rocketcomponent/ZeroSliceCentroidTest.java`
+  (JUnit 5.10.0, `gradlew test`): tail volume/CG against the analytic profile (126 hollow
+  cylinders, one solid cone slice, one empty slice), assembled structure finite, flight
+  reaches apogee; analytic controls (filled conical frustum: volume, CG and Simpson-
+  quadrature inertias at rel 1e-9; thin 10 um frustum shell: true CG at rel 1e-9; zero-
+  thickness shell; ogive finite-only). Old kernel: 3 of 7 fail (NaN CG, NaN assembled CM,
+  the BugException). Mutations: unconditional division -> those 3 fail; `dV < EPSILON`
+  branch -> the thin-shell true-centroid test fails. GoldenMain `mass.zeroslice.*` and
+  `flight.zeroslice.summary` rows carry it through the JVM/TeaVM differential.
+
+### rocketcomponent/RocketComponent.java + MotorMount.java + DeploymentConfiguration.java + simulation/BasicEventSimulationEngine.java - ejection charges deploy only their own assembly's devices, and a device deploys once (OR #2092 / PR #3204, tumble release T1, 2026-10-08)
+
+- **Defects (upstream 24.12):** (a) `RocketComponent.getAssembly()` never advanced its
+  walk, so any non-assembly caller looped forever (it had no callers, which is why it
+  never showed). (b) An EJECTION-deployed recovery device fired on ANY ejection charge
+  in the same stage NUMBER: a pod motor's charge deployed the core airframe's chute and
+  vice versa. (c) An already-deployed device was deployed again by a later or a
+  simultaneous second charge: a duplicate RECOVERY_DEVICE_DEPLOYMENT event, the landing
+  stepper re-initialised, optimum coast recomputed, and FlightData's deployment velocity
+  overwritten by the LAST deployment event.
+- **Change (five hunks, applied together - the ownership call without the walk fix
+  hangs):** `getAssembly()` uses `instanceof` and steps to the parent (patch on the
+  existing RocketComponent replacement; its memoization/stamps untouched). `MotorMount`
+  declares `getAssembly()` (Coordinate[] kept, not upstream's CoordinateIF[]).
+  `DeployEvent.EJECTION`: when the event data is a `MotorClusterState`, deploy iff the
+  motor mount's innermost assembly equals the device's; otherwise the old stage-number
+  fallback. The event engine skips already-deployed devices when SCHEDULING and when
+  EXECUTING a deployment (the `%g` log fix and K9 rail code untouched). The 1 ms minimum
+  deployment delay is kept.
+- **Not changed, on purpose:** the listener callbacks (`handleFlightEvent`,
+  `recoveryDeviceDeployment`) run before the execution guard, so two duplicates queued
+  at the same instant both still reach listeners; only one is recorded. Two physical
+  instances of one PodSet are still one device; separating parallel boosters unchanged.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/AssemblyRecoveryTest.java`
+  (14 tests; flights and walks under `assertTimeoutPreemptively` so a hang FAILS). Old
+  kernel: 9 of 14 fail (walks time out; pod/core 4 deployments instead of 2; nested pods 6
+  instead of 2; duplicate charges recorded twice); the 5 controls pass on both. Mutations,
+  each restored: no ownership -> 2 ownership tests fail; no ancestor step -> 11 fail (all
+  walks and flights time out); no scheduling guard -> the delayed-charge test fails on the
+  listener count; no execution guard -> the simultaneous-charge test fails. GoldenMain
+  `flight.assembly.*` rows: PodChute 2.501 s then CoreChute 5.001 s; simultaneous charges
+  record 1 deployment.
+- **Before/after `goldenJvm` (Rule 1):** with both fixes the first 421 golden lines are
+  byte-identical to the pre-change kernel; only the 6 appended rows are new. No existing
+  golden scenario had an empty slice, a motorised pod or two charges per device.
+
+### simulation/RK4SimulationStepper.java + BasicEventSimulationEngine.java - TUMBLE judges thrust at the event, not from the last recorded sample (OR #3375 / PR #3382, NARROW port, tumble release T2, 2026-10-08)
+
+- **Defect (upstream 24.12):** the TUMBLE handler decided "tumble" vs abort
+  `TUMBLE_UNDER_THRUST` from `getFlightDataBranch().getLast(TYPE_THRUST_FORCE)`, the
+  thrust recorded at the START of the last accepted step. That sample can predate
+  burnout (a coasting rocket aborted under a thrust it no longer has) or ignition (a
+  burning rocket entered the tumble stepper). Worst case: a separated booster branch
+  copies its parent's rows, so a finless booster's geometry TUMBLE at separation read
+  the parent's powered sample (measured in the CHAD fixture: 1.5 N copied, 0 N actual).
+- **Change:** new package-private `RK4SimulationStepper.calculateEventThrust(status)`: a
+  fresh local DataStore holding only the atmosphere at position.z + launch-site
+  altitude (atmosphere listeners fire; the wind model is never sampled), then the
+  existing `calculateThrust` - active motors at the status time, pre/post thrust
+  listeners, the model-gated signed pressure term once per thrusting stage INSTANCE, its
+  zero floor - plus a NaN/non-finite guard. The TUMBLE handler calls it on the engine's
+  `flightStepper` (explicit cast; no step/initialize, so valid whichever stepper is
+  current) with the unchanged strict `> 0.01 N` threshold, landed/deployed inhibition,
+  abort cause and stepper transition.
+- **Deliberately NOT ported:** upstream also changed RECOVERY_DEVICE_DEPLOYMENT's
+  under-thrust policy (any motor's curve thrust > `MathUtil.EPSILON` -> summed corrected
+  thrust > 0.01 N, non-RK steppers exempt). That is a separate policy change, not the
+  stale-sample fix; the deployment check is UNCHANGED and pinned by a control test
+  (0.005 N curve thrust still aborts DEPLOY_UNDER_THRUST). This is therefore not a
+  byte-for-byte port of PR #3382.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/EventThrustTest.java`
+  (8 tests): seeded stale-high after burnout -> tumbles (two steps); seeded stale-low
+  mid-burn -> TUMBLE_UNDER_THRUST; the same either side of burnout on a linear tail;
+  unseeded finless separated booster (CHAD) tumbles, sustainer ignites at separation;
+  helper arithmetic for Classic/Kbf/Supersonic/Hybrid at site 0 and 1500 m (0.005 N
+  curve + pressure term > 0.01 N under the gated models), zero exit, zero floor at
+  105000 Pa, two-instance ParallelStage, inactive stage, no wind sample, motor state and
+  time untouched; pre/post thrust listener overrides; recovery-policy control. Mutation
+  (`.claude/t2-mutate.py`, each restored byte-exact): event expression back to `getLast`
+  -> 5 fail (all staleness tests incl. CHAD); no atmosphere in the event store -> the
+  arithmetic test fails; no per-instance multiplication -> the arithmetic test fails.
+  GoldenMain `flight.eventthrust.stalehigh|stalelow` rows.
+- **Integration 2026-10-08 (v0.165 merge with aerofix): golden SCENARIO re-drawn; no kernel, tolerance or
+  difftest.mjs change.** On the merged kernel `flight.eventthrust.stalehigh` failed difftest (ground hit JVM
+  31.75875431920723 vs TeaVM 31.758721583985132 s, 1.0e-6 rel). Row dump: rows 0-223 bit-identical; at row 224
+  (the tumble stepper landing apogee) residual vz +5.55e-17 (2^-54) on the JVM, -5.55e-17 on TeaVM, so the JVM
+  alone takes one 1 ms step - the knife edge of Stage A4's geodetic case. Twelve triggers 2.2-3.0 s all agree
+  within the flight tolerance; injecting after apogee is impossible (the #3183 detector's own TUMBLE ~1 s after
+  apogee pre-empts it). GoldenMain trigger 2.5 -> 2.45 s, a re-drawn ticket, said so in the harness comment.
+
+### aerodynamics/AerodynamicCalculator.java + AbstractAerodynamicCalculator.java + BarrowmanCalculator.java + simulation/BasicEventSimulationEngine.java + api/OrkEngine.java - stall is judged from the recorded AOA against a fixed stall angle (OR #3093, tumble release T2, 2026-10-08)
+
+- **Defect (upstream 24.12):** `getStallMargin()` returned `17.5 deg - AOA` of the
+  calculator's LAST `getAerodynamicForces` call - RK4's k4 sub-step, or any diagnostic
+  or listener call made after the step - while the event engine compared it with the
+  RECORDED k1 row's CP/CG. A stall warning or stall TUMBLE could follow an AOA that was
+  never recorded, and miss one that was.
+- **Change (upstream's contract, mapped onto our monolithic calculator):**
+  `getStallMargin()` -> `getStallAngle()` (radians, constant, independent of evaluation)
+  in the interface and abstract class (new replacement files, copied from carved ==
+  reference). BarrowmanCalculator keeps `stallAngle = 17.5*PI/180`, drops the mutable
+  `stallMargin` field and its assignment; HybridCalculator drops its `margin` field and
+  its three assignments and inherits the constant (endpoints, flags, smoothstep and
+  newInstance band untouched). The event engine computes `margin = getStallAngle() -
+  aoa` with `aoa` = the branch's recorded TYPE_AOA (strict `< 0` kept; this block is
+  replaced wholesale by #3183 later in this release). API `getAeroDiagnostics` keeps its
+  JSON `stallMargin` field (radians) as `getStallAngle() - queried AOA` and no longer
+  runs a force evaluation just to populate it.
+- **Not changed:** the 17.5 deg warning angle and the 20 deg fin-force saturation remain
+  distinct; no force arithmetic moves.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/RecordedStallAngleTest.java`
+  (6 tests): getStallAngle 17.5 deg before/after getCP, getWorstCP, forces at 30 and 0
+  deg, at Mach 0.3/1/1.5, and on newInstance, all four models; calculator poisoned at 30
+  deg after every step with recorded AOA below stall -> no LargeAOA/TUMBLE; recorded 30
+  deg with calculator reset to 0 -> LargeAOA at that row (or TUMBLE when recorded CG >
+  CP); boundaries stall-1e-9 and stall (no) and stall+1e-9 (yes). Mutation: reinstating
+  last-evaluation semantics (a static last-AOA set in getAerodynamicForces, read by the
+  event engine) -> all 5 event-level tests fail. `packages/engine/src/hybridAero.test.ts`
+  pins the bridge field after a different-AOA forceSamples call and with clone=true
+  (a contract pin only: the old bridge re-evaluated at the queried AOA, so it was
+  already right there). GoldenMain `aero.stallangle`, `flight.stallangle.poisoned`.
+- **Before/after `goldenJvm` (Rule 1), both T2 fixes together:** the first 427 lines are
+  byte-identical to the T1 kernel's; only the 4 appended rows are new. difftest: 431
+  lines (290 bit-identical, 141 within tolerance).
+
+### aerodynamics/AerodynamicForces.java + AbstractAerodynamicCalculator.java + BarrowmanCalculator.java - above 20 deg AOA the REPORTED CP is force-consistent, x = d*Cm/CN; the force law is unchanged (decision 66(b), Eric 2026-10-08, tumble release T3)
+
+- **Defect (upstream 24.12, ours too):** the reported CP is always the CNa-weighted
+  (derivative) CP, sum(CNa_i x_i)/sum(CNa_i). Above the fin-force saturation the
+  component normal forces stop scaling with CNa (body lift ~ sin^2(AOA), saturated fin
+  CN), so the point where the SAME force model's normal force actually acts,
+  x = d*Cm/CN, moves forward of it: at Mach 0.3, Kbf, 45 deg, ARCAS short reads
+  12.0031 cal derivative vs 10.4317 cal force-consistent, Basic Finner 7.3501 vs 6.4962
+  (`docs/open-items.md` CP register block). The flight already flies the force-consistent
+  moment (RK4 shifts the coefficient Cm to the CG); only the CP and stability REPORTED
+  from it were inconsistent with it.
+- **Change (DESIGN section 8):**
+  - `AerodynamicForces` (new replacement, copied from carved == reference 24.12): an
+    output-only `reportedCP` override. `getCP()` returns it when set, otherwise
+    `getDerivativeCP()` (the complete, unchanged 24.12 getCP body). `setReportedCP`
+    sets it; `setCP` (so `zero()`) and `merge` clear it, and `setCP` still renews the
+    modID when it clears an override over an equal derivative CP; `setCm` does NOT clear
+    it (later damping, RK4 noise and listener torques do not move it). The cpCNa
+    first-moment accumulator, CNa and every merge are untouched; `reset()->setCP(null)`
+    is left as it was.
+  - `AbstractAerodynamicCalculator`: `FORCE_CONSISTENT_CP_AOA = 20 deg` (strictly above;
+    not the 17.5 deg warning angle), `FORCE_CONSISTENT_CN_CUTOFF = 1e-8`,
+    `aboveForceConsistentAOA`, `forceConsistentCP` (x = refLength*Cm/CN; NaN x when
+    |CN| <= 1e-8 or anything is nonfinite or refLength <= 0 - never an infinite lever
+    arm, a tip CP or a silent derivative fallback; y, z and the derivative weight kept),
+    `zeroRates` (a clone with pitch/yaw/roll rates 0; the caller's conditions untouched).
+    `getWorstCP` skips planes with nonfinite x, and a HIGH-AOA query in which no plane
+    has a defined CP returns (NaN, 0, 0, NaN) instead of the Double.MAX_VALUE sentinel;
+    low-angle queries keep the sentinel (OrkEngine.getStaticInfo relies on it).
+  - `BarrowmanCalculator`: at and below 20 deg every public method runs its 24.12 path
+    with no extra work. Above 20 deg: `getCP` returns the force-consistent CP of a
+    zero-rate `calculateNonAxialForces`; `getAerodynamicForces` keeps the actual-condition
+    CN/Cm/drag/damping and sets the reported CP from a separate zero-rate normal-force
+    evaluation (warnings to the discarded sink), computed before the drag block (the
+    body-reference ORDER note is untouched) and set after damping; `getForceAnalysis`
+    is a wrapper over the unchanged body (`getRawForceAnalysis`) that, after the NaN
+    sanitation, sets each completed entry's reported CP from the matching entry of a
+    zero-rate NON-AXIAL-ONLY map (`zeroRateNormalForceMap`, `ignoreWarningSet`, assembly
+    and leaf keys as getForceAnalysis keys them). Hybrid: endpoints (w = 0/1) return the
+    endpoint result; `mixForces` blends DERIVATIVE CPs; midband above 20 deg the
+    reported CP (getCP, total forces, every force-analysis entry) is
+    d*mix(Cm0_kbf, Cm0_sup)/mix(CN0_kbf, CN0_sup) from the endpoints' zero-rate raw
+    normal forces - never a CNa-weighted blend of corrected positions; all force and
+    damping fields stay the plain blend.
+  - Outside patches: `packages/engine/src/orkEngine.ts` types (`AeroForceSample.cpX`,
+    the AeroDiagnostics CP tuple's x and cna, `DragSweep.cp` nullable; the bridge's
+    `nums` already writes nonfinite values as null); `packages/app/src/services/dragTable.ts`
+    `sweepCp` requires a usable CNa AND a finite x.
+- **Not changed:** CN, Cm, CD and every drag field, damping, CNa, the flight's moments
+  and kinematics; static info (Mach 0.3, AOA 0), the design canvas and static stability.
+  Consumers that now read the corrected value above 20 deg: recorded TYPE_CP_LOCATION
+  and TYPE_STABILITY, the interim `cg > cp` stall-TUMBLE check (removed by #3183 later in
+  this release), RK4's OPEN_AIRFRAME_FORWARD warning filter, forceSamples /
+  aeroDiagnostics / dragSweep CP. Nothing here validates the high-AOA force model.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/aerodynamics/ForceConsistentCPTest.java`
+  (12 tests): register values (ARCAS 45 deg 10.4317407349 cal, Basic Finner
+  6.4961848984, derivative 12.0030834497 / 7.3501185135 still readable, CNa unchanged);
+  at 0..19.99 deg and EXACTLY 20 deg no override and getCP bitwise == derivative, all
+  four models; just above 20 an override; x*CN == Cm*d at 25-90 deg (classic, Kbf,
+  Supersonic); rates change Cm (damping) but not the reported CP or the caller's
+  conditions; ratio guard (+/-1e-8, nonfinite, d <= 0, overflow, signed, weight kept);
+  representation (setCP/merge/zero clear, setCm and clone keep, modID); per-entry force
+  analysis, including after a geometry edit (CN/Cm and reported CP from one cache state); Hybrid midband blend identity, its derivative CP, endpoints, low-angle mixCP,
+  single damping; worst CP (all-undefined -> NaN, low-angle sentinel, -Inf/NaN skipped,
+  real fixture = min over planes); newInstance; a real crosswind flight whose recorded
+  TYPE_CP_LOCATION/TYPE_STABILITY above 20.5 deg equal the corrected law and below
+  19.5 deg the derivative CP. Nineteen mutations (`.claude/t3-mut-specs.py`,
+  `.claude/t3-mutate.py`) each fail it: every correction site reverted singly and all
+  together, CNa-weighted Hybrid corrected positions, mixForces blending reported CPs,
+  recorded CP/stability reading the derivative CP, damped Cm in the CP, weight = CN, no
+  |CN| guard, threshold at 17.5 deg, worst-CP sentinel/NaN-acceptance, setCP/merge not
+  clearing, setCm clearing, a zero-rate map that calls checkCache (review finding). TS: `packages/engine/src/forceConsistentCp.test.ts`, a new
+  Hybrid test in `hybridAero.test.ts` (fail on the T2 artifact), `dragTable.test.ts`.
+  Old-vs-new artifact sweep (9 fixtures incl. freeform rounded/airfoil and a 2-fin
+  asymmetric variant, 4 models, 12 Mach, 3 rate sets, forceSamples / aeroDiagnostics /
+  dragSweep / staticInfo): every output at <= 20 deg byte-identical, every non-CP output
+  above 20 deg byte-identical. GoldenMain `aero.forcecp.*` rows.
+- **Before/after `goldenJvm` (Rule 1):** 439 lines; of the first 431 (the T2 kernel's) one
+  row moves - `staging.auto.b1.events` gains `TUMBLE` - and nothing else. Mechanism: the
+  separated booster flies backward; at t = 9.735 s, AOA 157.8 deg, its force-consistent
+  CP (0.4581490 m) sits 0.2 um forward of its CG (0.4581491 m) where the derivative CP
+  was 3.5 mm aft, so the INTERIM `cg > cp` stall check fires (ground hit 23.285 s ->
+  22.418 s). That comparator is deleted by #3183 later in this release. 8 appended rows.
+  difftest: 439 lines (295 bit-identical, 144 within tolerance).
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
@@ -2336,3 +2561,117 @@ aerodynamic model.
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.
+
+### simulation/FlightDataType.java + AbstractSimulationStepper.java - recorded pitch natural frequency, rad/s (OR #3002 prerequisite ONLY, tumble release T4, 2026-10-08)
+
+- **Why:** #3183's sustained-AOA detector (next entry) takes its time constant from the
+  rocket's pitch natural frequency, which upstream added in PR #3002 together with five
+  damping/corrective diagnostics. Only the frequency is a dependency.
+- **Change:** new replacement `FlightDataType.java` (copied from carved == reference):
+  `TYPE_NATURAL_FREQUENCY`, symbol `"ωn"`, `UnitGroup.UNITS_ROLL` (rad/s - NOT
+  UNITS_FREQUENCY/Hz), group STABILITY, priority 4, in `ALL_TYPES` right after
+  TYPE_STABILITY. `AbstractSimulationStepper.DataStore.storeData` records it on every
+  row from that store's OWN k1 conditions/mass/forces (the same row as the recorded AOA,
+  CP and density - never the calculator's last k4 state) via a private
+  `computeNaturalFrequency`: `sqrt(0.5 rho v^2 A_ref CNa (xCP - xCG) / I_long)`, CNa =
+  the reported CP's weight (per rad, unchanged by 66(b)), xCP = the REPORTED CP (so
+  above 20 deg AOA the force-consistent CP of decision 66(b)), I_long =
+  `getLongitudinalInertia()` (pitch/yaw, kg m^2; not roll). 0 on the launch guide and
+  for neutral stiffness; NaN for negative stiffness or any missing/non-finite/invalid
+  input (our hardening: upstream checks NaN only).
+- **Deliberately NOT ported:** the corrective-moment, damping-ratio and three damping
+  moment types, the jet-damping diagnostic (signed motor-mass derivative and mount-X
+  "nozzle" proxy), UnitGroup moment groups, the Hz alias, localisation resources and the
+  extension deprecation. The shim's DebugTranslator names the type
+  `[FlightDataType.TYPE_NATURAL_FREQUENCY]`; no resource bundle is introduced. Physical
+  pitch/yaw/roll damping in Barrowman/RK4 is untouched.
+- **Limit (stated, not hidden):** above 20 deg AOA this is upstream's stiffness PROXY fed
+  with the force-consistent CP, not the tangent stiffness of the nonlinear moment law;
+  a corrected CP forward of the CG gives NaN and the detector's 0.05 s fallback.
+- **Bridge/app:** no new friendly field or API method. Full-series payloads carry the new
+  symbol key (summary mode does not); `packages/app/src/services/flightDataCsv.ts`
+  labels it "Natural frequency (rad/s)".
+- **Evidence:** see the #3183 entry below (shared test run and mutations).
+
+### simulation/SimulationStatus.java + BasicEventSimulationEngine.java + logging/Warning.java - tumbling is decided by a SUSTAINED-AOA detector; the instantaneous cg > cp comparator is removed (OR #3183 / PR #3190, tumble release T4, 2026-10-08)
+
+- **Defect (upstream 24.12, and our T2/T3 interim):** after every accepted step the engine
+  queued TUMBLE when the recorded AOA exceeded the 17.5 deg stall angle AND the recorded
+  CG lay aft of the recorded CP. One step was enough, so a gust or the rail-exit
+  transient of a STABLE rocket in a steady crosswind tumbled it (under thrust: abort
+  TUMBLE_UNDER_THRUST), and the CP it compared is produced by a model outside its
+  envelope at exactly those angles.
+- **Change:** upstream's `TumbleDetector`, nested as `SimulationStatus.TumbleDetector`
+  (carve.mjs refuses orphan patch files, so no new `TumbleDetector.java`). It low-pass
+  filters the recorded AOA (rad) with `tau = 2 periods * 2 pi / omega_n` clamped to
+  [0.05, 2] s (0.05 s when omega_n is NaN/zero/negative/non-finite), and the branch is
+  tumbling while the filtered AOA exceeds 60 deg. Samples on the guide, below 1 Pa
+  dynamic pressure, with a non-finite input or with no time advance HOLD the value (no
+  reset) and still advance the last time, so an unobservable gap is never integrated
+  later; the first sample only establishes time. Our adaptation: finite-input guards.
+  SimulationStatus carries the detector and a `separatedStage` flag, deep-copied by the
+  copy constructor and by `clone()` (RK trial states never share it), NOT by
+  `copyProperties` (a kinematics-only copy). The engine block after the apogee check:
+  detector updated with the status time, `isLaunchRodCleared`, the recorded TYPE_AOA,
+  airspeed = recorded Mach x recorded speed of sound, recorded density and recorded
+  TYPE_NATURAL_FREQUENCY; tumbling -> TUMBLE at the status time; otherwise a LargeAOA
+  warning when the recorded AOA > `getStallAngle()` (OR #3093 kept), the branch is not a
+  separated stage and `recordWarnings()`. The `cg`, `cp`, `margin`, `cg > cp` lines are
+  gone. Booster branches get `setSeparatedStage(true)` at STAGE_SEPARATION (the sustainer
+  never). New replacement `Warning.java`: LargeAOA priority NORMAL -> LOW (type, text and
+  value unchanged; the app only distinguishes HIGH, so nothing it shows moves).
+- **Kept as upstream, stated:** the detector's time is the END-of-step status time while
+  its data is the branch's last (k1, start-of-step) row - a bounded one-step sample lag,
+  not the stale-k4 bug #3093 fixed. No ascent-only gate; the detector is not latched (the
+  engine's switch to the tumble stepper is the latch). CP still enters, INDIRECTLY,
+  through omega_n's lever arm (see the previous entry): the detector is not independent of
+  aerodynamics, whatever upstream's class comment says.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/`
+  `NaturalFrequencyTest.java` (6: type contract - symbol, UNITS_ROLL, STABILITY, ALL_TYPES
+  order; storeData synthetic oracle sqrt(0.5*1.2*50^2*0.01*4*0.3/0.02) = 30 rad/s, v x2 ->
+  x2, I_long x4 -> /2; rail 0, neutral 0, negative NaN; every non-finite/negative input
+  NaN, including forward-CP cases where only the sign guard can say NaN; reported vs
+  derivative CP decides NaN vs finite and so the 0.05 s fallback; a real ballasted flight
+  where EVERY powered-ascent row matches an independent recomputation from its recorded
+  fields, NaN where the predicted stiffness is negative), `TumbleDetectorTest.java` (9:
+  tau = 4 pi/10 at omega 10 and the clamps/fallbacks; the exact exponential recurrence at
+  0.005/0.01/0.05 s and alternating 0.01/0.04 s with the crossing strictly after
+  tau ln 2 and within one step; first sample; brief 150 deg gust of 0.1 pitch period and a
+  one-step 179 deg spike never tumble; 120/95 deg sustained do; rail, q 0.999/1/1.001 Pa,
+  hold without reset, a 10 s low-q gap not integrated, invalid inputs, repeated/backward/
+  non-finite time; copy independence), `TumbleReleaseIntegrationTest.java` (8, real
+  BasicEventSimulationEngine: brief forced 150 deg gust with recorded CG > CP (the OLD
+  comparator's trigger, asserted as a precondition) -> no TUMBLE, LOW LargeAOA, flight
+  completes, two steps; sustained forced 120 deg with CP held AFT of CG -> powered abort
+  TUMBLE_UNDER_THRUST, coast and descent TUMBLE, each after the minimum dwell and within the
+  analytic bound, and at exactly the step a fresh detector replaying the recorded inputs
+  crosses; detection dwell converges with step (0.11672 / 0.11552 / 0.11454 s at 0.005 /
+  0.0025 / 0.00125 s, each within one step) and the k1-row lag is one accepted step;
+  ballasted stable rocket, 0.5 m rod, steady 8 m/s crosswind: the old comparator fires at
+  rail exit (0.119 s, AOA 29.8 deg, force-consistent CP 3.8 mm forward of CG) and the new
+  kernel flies to 414.3 m (calm 434.3 m; 6 m/s control 420.6 m, old comparator silent);
+  finless rocket still departs via the NaN fallback; separated flag suppresses only the
+  warning; booster flagged, sustainer never; copy/clone inherit but never share,
+  copyProperties excludes), `RecordedStallAngleTest.java` updated to the #3183 contract (a
+  single forced row warns from its recorded AOA, LOW, never tumbles). JUnit: 70/70.
+  Mutations (`.claude/t4-mutate.py`, specs `.claude/t4-mut-specs.py`, 24, each exit 1 and
+  restored byte-exact): old behaviour combined (11 fail), instantaneous comparator (6), no
+  rail gate, no q gate, reset on low q, Hz, always-minimum tau, clone shares, copy
+  constructor shares, no booster flag, warning ignores flag, no producer, roll inertia,
+  no sqrt, /2 pi, derivative CP, NORMAL priority, copyProperties copies, hold without
+  time advance, first sample integrates, no rho/inertia/area sign guard, negative
+  stiffness -> 0. TS: `packages/engine/src/tumbleRelease.test.ts` (full-series omega_n
+  oracle, summary omits it, LOW LargeAOA through the bridge; 2 of 3 fail on the T3
+  artifact, the summary test is a pin), `flightDataCsv.test.ts` (+1, fails without the
+  metadata), `warningUnits.kernel.test.ts` priority pin NORMAL -> LOW. GoldenMain
+  `tumbleReleaseScenarios` (7 rows, appended last; the forced sustained-coast row carries
+  discrete outcomes, not event times, because JVM/TeaVM step-size drift in that violent
+  flight measured 1.2e-9 / 2.4e-9 relative, over the unchanged 1e-9 budget).
+- **Measured number changes (old = T3 artifact):** no existing golden row moved (439/439
+  byte-identical). Ballasted stable rocket in a steady 8 m/s crosswind off a 0.5 m rod:
+  previously aborted TUMBLE_UNDER_THRUST at rail exit; now completes to 414.3 m. Same
+  rocket, calm, no recovery device: previously no TUMBLE, ground 19.858 s; now TUMBLE
+  1.03 s after apogee (falls tail-first), ground 44.246 s (3 m/s wind: unchanged, it arcs
+  over). Two-stage staging fixture's booster: TUMBLE 9.735 s (T3's interim comparator;
+  T2: none, ground 23.285 s) -> 5.971 s, ground 22.418 -> 22.661 s. NOT corpus-measured
+  in this stage.

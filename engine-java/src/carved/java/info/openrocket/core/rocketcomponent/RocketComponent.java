@@ -2486,18 +2486,23 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	}
 	
 	/**
-	 * Return the first component assembly component that this component belongs to.
+	 * Return the innermost component assembly (pod set, stage, ...) that this component belongs to.
+	 * If this component is itself a component assembly, it is returned.
 	 *
-	 * @return	The Stage component this component belongs to.
-	 * @throws	IllegalStateException   if we cannot find an AxialStage above <code>this</code> 
+	 * OR #2092 / PR #3204 (patch): the 24.12 loop never advanced curComponent, so every
+	 * non-assembly caller spun forever; the walk now steps to the parent.
+	 *
+	 * @return	The ComponentAssembly this component belongs to.
+	 * @throws	IllegalStateException   if we cannot find a ComponentAssembly above <code>this</code>
 	 */
 	public final ComponentAssembly getAssembly() {
 		checkState();
 
 		RocketComponent curComponent = this;
 		while (null != curComponent) {
-			if (ComponentAssembly.class.isAssignableFrom(curComponent.getClass()))
+			if (curComponent instanceof ComponentAssembly)
 				return (ComponentAssembly) curComponent;
+			curComponent = curComponent.parent;
 		}
 		throw new IllegalStateException("getAssembly() called on hierarchy without a ComponentAssembly.");
 	}

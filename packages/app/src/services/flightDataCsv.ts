@@ -85,6 +85,7 @@ const SYMBOL_SPEC: Record<string, ColSpec> = {
   mp: { name: 'Motor mass', si: 'kg', quantity: 'mass' },
   Il: { name: 'Longitudinal moment of inertia', si: 'kg·m²' },
   Ir: { name: 'Rotational moment of inertia', si: 'kg·m²' },
+  '\u03c9n': { name: 'Natural frequency', si: 'rad/s' },
   g: { name: 'Gravitational acceleration', si: 'm/s²', quantity: 'acceleration' },
   R: { name: 'Reynolds number', si: '' },
   Twr: { name: 'Thrust-to-weight ratio', si: '' },

@@ -536,7 +536,8 @@ public final class OrkEngine {
     }
 
     /** Calculator-contract diagnostics. CP coordinates are metres, weights per radian;
-     * theta samples match the inherited worst-CP search, and stall margin is radians.
+     * theta samples match the inherited worst-CP search, and stall margin is radians
+     * (stall angle minus the queried AOA, OR #3093).
      * The clone switch calls the real newInstance(), not the bridge factory twice.
      */
     @JSExport
@@ -562,8 +563,10 @@ public final class OrkEngine {
             nums(sb, new double[] {c.x, c.y, c.z, c.weight});
         }
         conditions.setTheta(0);
-        calc.getAerodynamicForces(config, conditions, new WarningSet());
-        return sb.append("],\"stallMargin\":").append(calc.getStallMargin()).append('}').toString();
+        // OR #3093: the margin is the calculator's fixed stall angle minus THIS query's
+        // AOA (radians). No force evaluation is needed to populate it any more.
+        return sb.append("],\"stallMargin\":").append(calc.getStallAngle() - conditions.getAOA())
+                .append('}').toString();
     }
 
     @JSExport

@@ -57,6 +57,509 @@ public final class GoldenMain {
         zeroTorqueRollControl();
         podsOnlyNozzleScenarios();
         geodeticScenarios();
+        zeroSliceScenarios();
+        assemblyEjectionScenarios();
+        eventThrustScenarios();
+        stallAngleScenarios();
+        forceConsistentCpScenarios();
+        tumbleReleaseScenarios();
+    }
+
+    // OR #3002/#3183: append-only differential rows. No old scenario is changed.
+    private static void tumbleReleaseScenarios() {
+        info.openrocket.core.simulation.FlightData stable = t2Flight(new T2MainListener(), true);
+        info.openrocket.core.simulation.FlightDataBranch b = stable.getBranch(0);
+        double rail = t2EventTime(b, info.openrocket.core.simulation.FlightEvent.Type.LAUNCHROD);
+        double[] offsets = {0.05, 0.5, 1.0};
+        for (int sample = 0; sample < offsets.length; sample++) {
+            boolean found = false;
+            for (int i = 0; i < b.getLength(); i++) {
+                double time = b.get(info.openrocket.core.simulation.FlightDataType.TYPE_TIME).get(i);
+                double omega = b.get(info.openrocket.core.simulation.FlightDataType.TYPE_NATURAL_FREQUENCY).get(i);
+                if (time >= rail + offsets[sample] && Double.isFinite(omega) && omega > 1) {
+                    line("flight.tumble.frequency." + sample, time, omega);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) throw new IllegalStateException("tumble release: missing positive post-rail frequency");
+        }
+        double tau = info.openrocket.core.simulation.SimulationStatus.TumbleDetector.timeConstant(10);
+        double fallback = info.openrocket.core.simulation.SimulationStatus.TumbleDetector.timeConstant(Double.NaN);
+        line("tumble.detector.tau", tau, fallback);
+        info.openrocket.core.simulation.SimulationStatus.TumbleDetector detector =
+                new info.openrocket.core.simulation.SimulationStatus.TumbleDetector();
+        detector.update(0, true, 120 * Math.PI / 180, 20, 1.225, 10);
+        double crossing = Double.NaN;
+        for (int i = 1; i <= 500; i++) {
+            double t = i * 0.01;
+            if (detector.update(t, true, 120 * Math.PI / 180, 20, 1.225, 10)) {
+                crossing = t;
+                break;
+            }
+        }
+        if (!(crossing > tau * Math.log(2) && crossing <= tau * Math.log(2) + 0.01)) {
+            throw new IllegalStateException("tumble release: detector crossing outside analytic one-step bound");
+        }
+        line("tumble.detector.crossing", crossing);
+
+        T4DepartureListener gust = new T4DepartureListener(false);
+        info.openrocket.core.simulation.FlightData gustData = t2Flight(gust, true);
+        info.openrocket.core.simulation.FlightDataBranch gb = gustData.getBranch(0);
+        int tumbles = 0, warnings = 0;
+        for (info.openrocket.core.simulation.FlightEvent e : gb.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) tumbles++;
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.SIM_WARN
+                    && e.getData() instanceof info.openrocket.core.logging.Warning.LargeAOA) warnings++;
+        }
+        if (tumbles != 0 || t2Aborted(gb) || warnings == 0 || gust.observed[0] == 0) {
+            throw new IllegalStateException("tumble release: brief gust failed its old-comparator precondition or new outcome");
+        }
+        line("flight.tumble.brief", tumbles, warnings, gustData.getMaxAltitude());
+
+        T4DepartureListener departure = new T4DepartureListener(true);
+        info.openrocket.core.simulation.FlightDataBranch db = t2Flight(departure, false).getBranch(0);
+        double tumble = t2EventTime(db, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE);
+        double ground = t2EventTime(db, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT);
+        if (!Double.isFinite(tumble) || !Double.isFinite(ground) || t2Aborted(db) || departure.observed[1] == 0) {
+            throw new IllegalStateException("tumble release: sustained coast did not tumble to ground with CP aft of CG");
+        }
+        // Forced 120 deg AOA is violent: JVM/TeaVM last-bit drift in the adaptive
+        // step sizes grows past the 1e-9 flight budget in the event TIMES (measured
+        // 1.2e-9 at detection, 2.4e-9 at ground hit). The tolerance is not widened;
+        // the row carries the discrete outcome instead: rows recorded before the
+        // detection, forced rows observed, and the event counts.
+        int rowsBeforeTumble = 0;
+        java.util.List<Double> times = db.get(info.openrocket.core.simulation.FlightDataType.TYPE_TIME);
+        for (int i = 0; i < times.size(); i++) if (times.get(i) < tumble) rowsBeforeTumble++;
+        line("flight.tumble.sustainedcoast", rowsBeforeTumble, departure.observed[1],
+                t2Count(db, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE),
+                t2Count(db, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT));
+    }
+
+    private static int t2Count(info.openrocket.core.simulation.FlightDataBranch b,
+            info.openrocket.core.simulation.FlightEvent.Type type) {
+        int n = 0;
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) if (e.getType() == type) n++;
+        return n;
+    }
+
+    private static final class T4DepartureListener extends T2MainListener {
+        final boolean sustained;
+        final int[] observed = new int[2]; // shared by listener clones
+        T4DepartureListener(boolean sustained) { this.sustained = sustained; }
+        @Override public void startSimulation(info.openrocket.core.simulation.SimulationStatus s) {
+            super.startSimulation(s);
+            s.getSimulationConditions().setTimeStep(0.005);
+        }
+        private boolean inWindow(double t) {
+            if (sustained) return t >= 2.1; // T2 burnout is 2 s.
+            return Double.isFinite(clearance) && t >= clearance + 0.35 && t < clearance + 0.37;
+        }
+        @Override public info.openrocket.core.aerodynamics.FlightConditions postFlightConditions(
+                info.openrocket.core.simulation.SimulationStatus s, info.openrocket.core.aerodynamics.FlightConditions fc) {
+            if (!coast && inWindow(s.getSimulationTime())) {
+                fc.setAOA((sustained ? 120 : 150) * Math.PI / 180);
+                return fc;
+            }
+            return null;
+        }
+        @Override public info.openrocket.core.aerodynamics.AerodynamicForces postAerodynamicCalculation(
+                info.openrocket.core.simulation.SimulationStatus s, info.openrocket.core.aerodynamics.AerodynamicForces forces) {
+            if (!coast && sustained && inWindow(s.getSimulationTime())) {
+                double cg = MassCalculator.calculateStructure(s.getConfiguration()).add(MassCalculator.calculateMotor(s)).getCM().x;
+                forces.setReportedCP(new Coordinate(cg + 0.05, 0, 0, forces.getCP().weight));
+                return forces;
+            }
+            return null;
+        }
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s) {
+            if (coast || s.isTumbling()) return;
+            info.openrocket.core.simulation.FlightDataBranch b = s.getFlightDataBranch();
+            if (!inWindow(b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_TIME))) return;
+            double cp = b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_CP_LOCATION);
+            double cg = b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_CG_LOCATION);
+            if (!sustained && cg > cp) observed[0]++;
+            if (sustained) {
+                if (!(cp > cg)) throw new IllegalStateException("tumble release: sustained row must have aft CP");
+                observed[1]++;
+            }
+        }
+    }
+
+    // OR #3375 / #3093: keep these calls last; difftest compares row indices.
+    // All new values are SI; event and status times are checked independently.
+    private static void eventThrustScenarios() {
+        // v0.165 integration (2026-10-08): trigger 2.5 -> 2.45 s, a RE-DRAWN TICKET. On the merged
+        // kernel (tumble + aerofix's drag changes) a 2.5 s tumble made the 3DOF tumble stepper land
+        // apogee with a residual vz of +2^-54 on the JVM and -2^-54 on TeaVM: one extra 1 ms step on
+        // the JVM only, ground hit 1.0e-6 rel apart; rows 0-223 bit-identical. Same knife edge as
+        // aerofix's geodetic scenario (LEDGER, Stage A4). Twelve triggers 2.2-3.0 s all agree within
+        // the flight tolerance; injecting after apogee is not possible (the detector's own TUMBLE
+        // ~1 s after apogee would pre-empt it). A coasting rocket, zero thrust, stale 12 N sample:
+        // still the case under test. No tolerance changed.
+        T2EventListener high = new T2EventListener(2.45, 12);
+        info.openrocket.core.simulation.FlightData coast = t2Flight(high, false);
+        info.openrocket.core.simulation.FlightDataBranch cb = coast.getBranch(0);
+        double tumble = t2EventTime(cb, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE);
+        double ground = t2EventTime(cb, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT);
+        boolean aborted = t2Aborted(cb);
+        if (aborted || !Double.isFinite(tumble) || !Double.isFinite(ground) || !high.counts.tumblingAtGround) {
+            throw new IllegalStateException("event thrust: stale-high sample aborted coasting rocket or lost ground hit");
+        }
+        t2CheckEventTimes(high.counts);
+        line("flight.eventthrust.stalehigh", tumble, coast.getMaxAltitude(), aborted ? 1 : 0, ground);
+
+        T2EventListener low = new T2EventListener(0.75, 0);
+        info.openrocket.core.simulation.FlightData powered = t2Flight(low, false);
+        info.openrocket.core.simulation.FlightDataBranch pb = powered.getBranch(0);
+        boolean thrustAbort = false;
+        for (info.openrocket.core.simulation.FlightEvent e : pb.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT
+                    && ((info.openrocket.core.logging.SimulationAbort) e.getData()).getCause()
+                    == info.openrocket.core.logging.SimulationAbort.Cause.TUMBLE_UNDER_THRUST) thrustAbort = true;
+        }
+        if (!thrustAbort) throw new IllegalStateException("event thrust: stale-low sample let burning rocket tumble");
+        t2CheckEventTimes(low.counts);
+        line("flight.eventthrust.stalelow", thrustAbort ? 1 : 0,
+                t2EventTime(pb, info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT));
+    }
+
+    private static void stallAngleScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator classic = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator kbf = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        kbf.setRogersKbf(true);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator supersonic = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        supersonic.setSupersonicAero(true);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator hybrid = info.openrocket.core.aerodynamics.BarrowmanCalculator.hybrid(0.8, 1.2);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator[] calculators = {classic, kbf, supersonic, hybrid};
+        double[] angles = new double[calculators.length];
+        for (int i = 0; i < calculators.length; i++) {
+            info.openrocket.core.aerodynamics.FlightConditions fc = new info.openrocket.core.aerodynamics.FlightConditions(rocket.getSelectedConfiguration());
+            fc.setMach(1); fc.setAOA(30 * Math.PI / 180);
+            calculators[i].getAerodynamicForces(rocket.getSelectedConfiguration(), fc, new info.openrocket.core.logging.WarningSet());
+            angles[i] = calculators[i].getStallAngle();
+            cgNear("stall angle: independent of last evaluation", 17.5 * Math.PI / 180, angles[i]);
+        }
+        line("aero.stallangle", angles);
+        T2PoisonListener poison = new T2PoisonListener();
+        info.openrocket.core.simulation.FlightData data = t2Flight(poison, true);
+        int warnings = 0, tumbles = 0;
+        for (info.openrocket.core.logging.Warning w : data.getWarningSet()) {
+            if (w instanceof info.openrocket.core.logging.Warning.LargeAOA) warnings++;
+        }
+        info.openrocket.core.simulation.FlightDataBranch b = data.getBranch(0);
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) tumbles++;
+        }
+        double maxAOA = 0;
+        for (double aoa : b.get(info.openrocket.core.simulation.FlightDataType.TYPE_AOA)) {
+            if (Double.isFinite(aoa)) maxAOA = Math.max(maxAOA, aoa);
+        }
+        if (poison.counts.poisoned == 0 || maxAOA >= 17.5 * Math.PI / 180 || warnings != 0 || tumbles != 0 || t2Aborted(b)) {
+            throw new IllegalStateException("recorded stall: poisoned calculator overrode low recorded AOA");
+        }
+        line("flight.stallangle.poisoned", warnings, tumbles, data.getMaxAltitude());
+    }
+
+    private static final class T2Counts {
+        int injected, handled, poisoned;
+        double queuedTime, eventTime, statusTime;
+        boolean tumblingAtGround;
+    }
+
+    private static class T2MainListener extends info.openrocket.core.simulation.listeners.AbstractSimulationListener {
+        final T2Counts counts = new T2Counts(); // shared by listener clones
+        boolean coast;
+        double clearance = Double.NaN;
+        @Override public void startSimulation(info.openrocket.core.simulation.SimulationStatus s) {
+            coast = s.getSimulationConditions().getSimulationListenerList().contains(
+                    info.openrocket.core.simulation.listeners.system.OptimumCoastListener.INSTANCE);
+        }
+        @Override public boolean handleFlightEvent(info.openrocket.core.simulation.SimulationStatus s,
+                info.openrocket.core.simulation.FlightEvent e) {
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.LAUNCHROD) clearance = s.getSimulationTime();
+            return true;
+        }
+    }
+
+    private static final class T2EventListener extends T2MainListener {
+        final double trigger, seed;
+        T2EventListener(double trigger, double seed) { this.trigger = trigger; this.seed = seed; }
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s)
+                throws info.openrocket.core.simulation.exception.SimulationException {
+            if (coast || counts.injected != 0 || s.getSimulationTime() < trigger) return;
+            double current = 0;
+            for (info.openrocket.core.simulation.MotorClusterState motor : s.getActiveMotors()) current += motor.getThrust(s.getSimulationTime());
+            if ((seed == 0 && current <= 0.01) || (seed > 0 && current != 0)) {
+                throw new IllegalStateException("event thrust: current curve thrust does not oppose stale seed");
+            }
+            counts.injected++;
+            counts.queuedTime = s.getSimulationTime();
+            int length = s.getFlightDataBranch().getLength();
+            s.getFlightDataBranch().setValue(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE, seed);
+            if (s.getFlightDataBranch().getLast(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE) != seed
+                    || s.getFlightDataBranch().getLength() != length) throw new IllegalStateException("event thrust: seed must replace last row");
+            s.addEvent(new info.openrocket.core.simulation.FlightEvent(
+                    info.openrocket.core.simulation.FlightEvent.Type.TUMBLE, s.getSimulationTime()));
+        }
+        @Override public boolean handleFlightEvent(info.openrocket.core.simulation.SimulationStatus s,
+                info.openrocket.core.simulation.FlightEvent e) {
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) {
+                counts.handled++; counts.eventTime = e.getTime(); counts.statusTime = s.getSimulationTime();
+                if (s.getFlightDataBranch().getLast(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE) != seed) {
+                    throw new IllegalStateException("event thrust: sample overwritten before event decision");
+                }
+            }
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT) counts.tumblingAtGround = s.isTumbling();
+            return super.handleFlightEvent(s, e);
+        }
+    }
+
+    private static final class T2PoisonListener extends T2MainListener {
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s) {
+            // recordWarnings is package-private. Mirror its delay/speed predicates
+            // here, without using reflection (this class is compiled by TeaVM).
+            if (coast || !s.isLaunchRodCleared() || s.getSimulationTime() < clearance + 0.3
+                    || s.getRocketVelocity().z < s.getMaxZVelocity() * 0.2) return;
+            info.openrocket.core.aerodynamics.FlightConditions fc = new info.openrocket.core.aerodynamics.FlightConditions(s.getConfiguration());
+            fc.setMach(0.3); fc.setAOA(30 * Math.PI / 180);
+            s.getSimulationConditions().getAerodynamicCalculator().getAerodynamicForces(
+                    s.getConfiguration(), fc, new info.openrocket.core.logging.WarningSet());
+            counts.poisoned++;
+        }
+    }
+
+    private static void t2CheckEventTimes(T2Counts c) {
+        if (c.injected != 1 || c.handled != 1 || c.queuedTime != c.eventTime || c.eventTime != c.statusTime) {
+            throw new IllegalStateException("event thrust: queue/event/status time disagreement: "
+                    + c.queuedTime + "/" + c.eventTime + "/" + c.statusTime);
+        }
+    }
+
+    private static boolean t2Aborted(info.openrocket.core.simulation.FlightDataBranch b) {
+        return Double.isFinite(t2EventTime(b, info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT));
+    }
+
+    private static double t2EventTime(info.openrocket.core.simulation.FlightDataBranch b,
+            info.openrocket.core.simulation.FlightEvent.Type type) {
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) if (e.getType() == type) return e.getTime();
+        return Double.NaN;
+    }
+
+    private static info.openrocket.core.simulation.FlightData t2Flight(T2MainListener listener, boolean recovery) {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        ((TrapezoidFinSet) body.getChild(0)).setCrossSection(info.openrocket.core.rocketcomponent.FinSet.CrossSection.ROUNDED);
+        InnerTube mount = (InnerTube) body.getChild(1);
+        mount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        mount.setAxialOffset(0);
+        Parachute chute = (Parachute) body.getChild(2);
+        chute.getDeploymentConfigurations().getDefault().setDeployEvent(recovery
+                ? info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.EJECTION
+                : info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.NEVER);
+        chute.getDeploymentConfigurations().getDefault().setDeployDelay(0);
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "3375");
+        regressionMotor(mount, fcid, false, recovery ? 1 : info.openrocket.core.motor.Motor.PLUGGED_DELAY);
+        info.openrocket.core.simulation.SimulationConditions c = new info.openrocket.core.simulation.SimulationConditions();
+        c.setSimulation(new info.openrocket.core.document.Simulation(rocket, fcid));
+        c.setLaunchRodLength(1); c.setLaunchRodAngle(0); c.setLaunchRodDirection(Math.PI / 2);
+        c.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+        c.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.SPHERICAL);
+        c.setAtmosphericModel(new ExtendedISAModel());
+        c.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+        info.openrocket.core.models.wind.PinkNoiseWindModel wind = new info.openrocket.core.models.wind.PinkNoiseWindModel();
+        wind.setAverage(0); wind.setStandardDeviation(0); c.setWindModel(wind);
+        c.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+        c.setMassCalculator(new MassCalculator()); c.setTimeStep(0.025); c.setMaxSimulationTime(1200); c.setRandomSeed(0x3375);
+        c.getSimulationListenerList().add(listener);
+        try {
+            info.openrocket.core.simulation.BasicEventSimulationEngine engine = new info.openrocket.core.simulation.BasicEventSimulationEngine();
+            engine.simulate(c);
+            return engine.getFlightData();
+        } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+            throw new IllegalStateException("event thrust/stall angle regression flight failed", e);
+        }
+    }
+
+    /**
+     * OR #3161: Banshee's zero-material POWER tail slice must not poison mass
+     * moments or the flight. Appended after every older scenario to retain row
+     * indices. Static columns use SI volume, CG, mass and unit inertias.
+     */
+    private static void zeroSliceScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        info.openrocket.core.rocketcomponent.PodSet pod = new info.openrocket.core.rocketcomponent.PodSet();
+        pod.setInstanceCount(1);
+        body.addChild(pod);
+        NoseCone nose = new NoseCone(Transition.Shape.HAACK, 0.15, 0.011);
+        nose.setShapeParameter(0);
+        pod.addChild(nose);
+        NoseCone tail = new NoseCone(Transition.Shape.POWER, 0.001, 0.011);
+        tail.setShapeParameter(0);
+        tail.setThickness(0.002);
+        tail.setFlipped(true);
+        pod.addChild(tail);
+        line("mass.zeroslice.tail", tail.getComponentVolume(), tail.getComponentCG().x,
+                tail.getComponentMass(), tail.getLongitudinalUnitInertia(), tail.getRotationalUnitInertia());
+        RigidBody mass = MassCalculator.calculateStructure(rocket.getSelectedConfiguration());
+        line("mass.zeroslice.structure", mass.getMass(), mass.getCM().x, mass.getIyy());
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "3161");
+        InnerTube mount = (InnerTube) body.getChild(1);
+        regressionMotor(mount, fcid, false, 5);
+        info.openrocket.core.simulation.FlightData data = regressionFlight(rocket, fcid, 0x3161);
+        line("flight.zeroslice.summary", data.getMaxAltitude(), data.getTimeToApogee(), data.getBranchCount());
+    }
+
+    /**
+     * OR #2092: pod/core ejection ownership and simultaneous-charge idempotence.
+     * Source names preserve event order; times are seconds. Flight tags retain
+     * difftest's existing flight tolerance rather than its static mass tolerance.
+     */
+    private static void assemblyEjectionScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        InnerTube coreMount = (InnerTube) body.getChild(1);
+        coreMount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        coreMount.setAxialOffset(0);
+        ((Parachute) body.getChild(2)).setName("CoreChute");
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "2092");
+        regressionMotor(coreMount, fcid, false, 3);
+        info.openrocket.core.rocketcomponent.PodSet pod = new info.openrocket.core.rocketcomponent.PodSet();
+        pod.setName("Pod");
+        pod.setInstanceCount(1);
+        body.addChild(pod);
+        pod.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        pod.setAxialOffset(0);
+        pod.setRadiusMethod(info.openrocket.core.rocketcomponent.position.RadiusMethod.RELATIVE);
+        pod.setRadiusOffset(0);
+        NoseCone nose = new NoseCone(Transition.Shape.OGIVE, 0.03, 0.0075);
+        nose.setThickness(0.0003);
+        pod.addChild(nose);
+        BodyTube podBody = new BodyTube(0.06, 0.0075, 0.0003);
+        pod.addChild(podBody);
+        InnerTube podMount = regressionMount(podBody, true);
+        regressionMotor(podMount, fcid, true, 2);
+        Parachute podChute = new Parachute();
+        podChute.setName("PodChute");
+        podChute.setDiameter(0.08);
+        podBody.addChild(podChute);
+        info.openrocket.core.simulation.FlightData data = regressionFlight(rocket, fcid, 0x2092);
+        java.util.List<Double> times = new java.util.ArrayList<>();
+        StringBuilder sources = new StringBuilder("flight.assembly.sources");
+        for (info.openrocket.core.simulation.FlightEvent event : data.getBranch(0).getEvents()) {
+            if (event.getType() == info.openrocket.core.simulation.FlightEvent.Type.RECOVERY_DEVICE_DEPLOYMENT) {
+                sources.append('|').append(event.getSource().getName());
+                times.add(event.getTime());
+            }
+        }
+        System.out.println(sources);
+        double[] row = new double[times.size()];
+        for (int i = 0; i < row.length; i++) row[i] = times.get(i);
+        line("flight.assembly.times", row);
+
+        Rocket duplicate = buildReferenceRocket();
+        BodyTube duplicateBody = (BodyTube) duplicate.getStage(0).getChild(1);
+        InnerTube first = (InnerTube) duplicateBody.getChild(1);
+        first.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        first.setAxialOffset(0);
+        info.openrocket.core.rocketcomponent.FlightConfigurationId duplicateId = regressionConfiguration(duplicate, "2092");
+        regressionMotor(first, duplicateId, false, 1);
+        regressionMotor(regressionMount(duplicateBody, false), duplicateId, false, 1);
+        info.openrocket.core.simulation.FlightData duplicateData = regressionFlight(duplicate, duplicateId, 0x2092);
+        int deployments = 0;
+        for (info.openrocket.core.simulation.FlightEvent event : duplicateData.getBranch(0).getEvents()) {
+            if (event.getType() == info.openrocket.core.simulation.FlightEvent.Type.RECOVERY_DEVICE_DEPLOYMENT) deployments++;
+        }
+        line("flight.assembly.simultaneous.count", deployments);
+    }
+
+    /** Dedicated configuration for the appended mass/recovery regressions. */
+    private static info.openrocket.core.rocketcomponent.FlightConfigurationId regressionConfiguration(Rocket rocket, String suffix) {
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid =
+                new info.openrocket.core.rocketcomponent.FlightConfigurationId("0000" + suffix + "-0001-4001-8001-000000000001");
+        rocket.createFlightConfiguration(fcid);
+        rocket.setSelectedConfiguration(fcid);
+        return fcid;
+    }
+
+    /** Explicit motor-mount geometry, matching AssemblyRecoveryTest. */
+    private static InnerTube regressionMount(BodyTube body, boolean small) {
+        InnerTube mount = new InnerTube();
+        mount.setLength(small ? 0.045 : 0.07);
+        mount.setOuterRadius(small ? 0.0065 : 0.0095);
+        mount.setThickness(small ? 0.0003 : 0.0005);
+        body.addChild(mount);
+        mount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        mount.setAxialOffset(0);
+        return mount;
+    }
+
+    /** Pinned C6-like or short pod curve; no catalogue/database dependency. */
+    private static void regressionMotor(InnerTube mount,
+            info.openrocket.core.rocketcomponent.FlightConfigurationId fcid, boolean small, double delay) {
+        mount.setMotorMount(true);
+        double[] times = small ? new double[] {0, 0.05, 0.15, 0.4, 0.5}
+                : new double[] {0, 0.1, 0.3, 0.5, 1, 1.5, 1.85, 2};
+        double[] thrusts = small ? new double[] {0, 3, 2, 1.5, 0}
+                : new double[] {0, 12, 6, 5.1, 4.9, 4.8, 4.5, 0};
+        double[] masses = small ? new double[] {0.006, 0.0058, 0.0054, 0.0045, 0.004}
+                : new double[] {0.0240, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132};
+        Coordinate[] cg = new Coordinate[masses.length];
+        for (int i = 0; i < cg.length; i++) cg[i] = new Coordinate(small ? 0.0225 : 0.035, 0, 0, masses[i]);
+        info.openrocket.core.motor.ThrustCurveMotor motor = new info.openrocket.core.motor.ThrustCurveMotor.Builder()
+                .setManufacturer(info.openrocket.core.motor.Manufacturer.getManufacturer("Estes"))
+                .setDesignation(small ? "Pod" : "C6").setCommonName(small ? "Pod" : "C6")
+                .setMotorType(info.openrocket.core.motor.Motor.Type.SINGLE).setStandardDelays(new double[] {0, 1, 2, 3, 5})
+                .setDiameter(small ? 0.013 : 0.018).setLength(small ? 0.045 : 0.07)
+                .setTimePoints(times).setThrustPoints(thrusts).setCGPoints(cg)
+                .setDigest(small ? "assembly-pod" : "assembly-c6").build();
+        info.openrocket.core.motor.MotorConfiguration mc = new info.openrocket.core.motor.MotorConfiguration(mount, fcid);
+        mc.setMotor(motor);
+        mc.setEjectionDelay(delay);
+        mc.setIgnitionEvent(info.openrocket.core.motor.IgnitionEvent.AUTOMATIC);
+        mc.setIgnitionDelay(0);
+        mount.setMotorConfig(mc, fcid);
+    }
+
+    /** Direct event-engine flight in calm ISA conditions, as in flightScenarios. */
+    private static info.openrocket.core.simulation.FlightData regressionFlight(Rocket rocket,
+            info.openrocket.core.rocketcomponent.FlightConfigurationId fcid, int seed) {
+        for (info.openrocket.core.rocketcomponent.RocketComponent component : rocket) {
+            if (component instanceof Parachute) {
+                info.openrocket.core.rocketcomponent.DeploymentConfiguration deployment =
+                        ((Parachute) component).getDeploymentConfigurations().getDefault();
+                deployment.setDeployEvent(info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.EJECTION);
+                deployment.setDeployDelay(0);
+            }
+        }
+        info.openrocket.core.simulation.SimulationConditions c = new info.openrocket.core.simulation.SimulationConditions();
+        c.setSimulation(new info.openrocket.core.document.Simulation(rocket, fcid));
+        c.setLaunchRodLength(1);
+        c.setLaunchRodAngle(0);
+        c.setLaunchRodDirection(Math.PI / 2);
+        c.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+        c.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.SPHERICAL);
+        c.setAtmosphericModel(new ExtendedISAModel());
+        c.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+        info.openrocket.core.models.wind.PinkNoiseWindModel wind = new info.openrocket.core.models.wind.PinkNoiseWindModel();
+        wind.setAverage(0);
+        wind.setStandardDeviation(0);
+        c.setWindModel(wind);
+        c.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+        c.setMassCalculator(new MassCalculator());
+        c.setTimeStep(0.05);
+        c.setMaxSimulationTime(1200);
+        c.setRandomSeed(seed);
+        try {
+            info.openrocket.core.simulation.BasicEventSimulationEngine engine = new info.openrocket.core.simulation.BasicEventSimulationEngine();
+            engine.simulate(c);
+            return engine.getFlightData();
+        } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+            throw new IllegalStateException("mass/recovery regression flight failed", e);
+        }
     }
 
     /**
@@ -2370,6 +2873,36 @@ public final class GoldenMain {
             sb.append('|').append(v);
         }
         System.out.println(sb);
+    }
+
+
+    /** Decision 66(b): append-only JVM/TeaVM coverage of all reported CP paths. */
+    private static void forceConsistentCpScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        FlightConfiguration config = rocket.getSelectedConfiguration();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator kbf =
+                new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        kbf.setRogersKbf(true);
+        info.openrocket.core.logging.WarningSet warnings = new info.openrocket.core.logging.WarningSet();
+        info.openrocket.core.aerodynamics.FlightConditions fc =
+                new info.openrocket.core.aerodynamics.FlightConditions(config);
+        fc.setMach(0.3);
+        for (double deg : new double[] {10, 20, 25, 45}) {
+            fc.setAOA(deg * Math.PI / 180);
+            Coordinate cp = kbf.getCP(config, fc, warnings);
+            line("aero.forcecp.kbf", deg, cp.x, cp.weight);
+        }
+        fc.setPitchRate(0.7); fc.setYawRate(0.4); fc.setRollRate(0.9);
+        info.openrocket.core.aerodynamics.AerodynamicForces total = kbf.getAerodynamicForces(config, fc, warnings);
+        line("aero.forcecp.rates", total.getCP().x, total.getCN(), total.getCm());
+        fc.setPitchRate(0); fc.setYawRate(0); fc.setRollRate(0);
+        line("aero.forcecp.analysis", kbf.getForceAnalysis(config, fc, warnings).get(rocket).getCP().x);
+        fc.setMach(1.0);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator hybrid =
+                info.openrocket.core.aerodynamics.BarrowmanCalculator.hybrid(0.8, 1.2);
+        line("aero.forcecp.hybrid", hybrid.getCP(config, fc, warnings).x);
+        fc.setMach(0.3);
+        line("aero.forcecp.worst", kbf.getWorstCP(config, fc, warnings).x);
     }
 
     private GoldenMain() {}
