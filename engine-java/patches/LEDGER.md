@@ -349,7 +349,9 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
   stays continuous. (2) Body-fin interference `(1+τ)` replaced by the exact NACA Report
   1307 Eq. 14 split `K_W(B) + fa·K_B(W)` at all Mach, with afterbody carryover factor
   `fa = min(1, 0.5 + afterbody/rootChord)` (computed in the constructor by walking the
-  parent body + aft symmetric siblings; fins flush with the base get half carryover).
+  parent body + aft symmetric siblings; fins flush with the base get half carryover; since
+  2026-10-08 the walk follows stations and an overhanging fin's overhang uses up the following parts -
+  see the row 75 entry below).
   The `rogersKbf` term is suppressed while this flag is on (1307 already contains the
   full carryover — double counting otherwise).
 - **aerodynamics/barrowman/SymmetricComponentCalc.java** (NEW patch — first SCC patch):
@@ -2235,6 +2237,71 @@ aerodynamic model.
   - The off-axis and turbulent lines remain lotteries by construction (a vertical windless flight; a
     chaotic one); a later kernel change may re-draw them. Re-pick the same way: sweep one input on both
     runtimes, take a value that agrees with margin on the old and the new kernel, and record it here.
+
+### aerodynamics/barrowman/FinSetCalc.java - Supersonic afterbody: count only the body behind the fin (board Tier 0 row 75, option (a); 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, board Tier 0 row 75, option (a): fix the Supersonic model's afterbody
+  bookkeeping AT EVERY MACH (subsonic Supersonic and Hybrid's blend may move; Classic and Kbf must not).
+  Investigation: `docs/research/supersonic-cp-2026-10-08/REPORT.md` (section "Body-fin interference:
+  confirmed geometry defect"); results: `docs/research/supersonic-cp-2026-10-08/FIX-RESULTS.md`.
+- **Defect (our feature #1 Phase 1 patch, not upstream):** `calculateAfterbodyFactor` set the afterbody
+  to `max(0, parentLength - (finTop + rootChord))` and then added the FULL length of every later
+  `SymmetricComponent` sibling. A fin overhanging the aft end of its tube has a negative remainder; the
+  `max(0, ...)` threw the overhang away and the boattail behind it was counted whole. ARCAS (fins 39.1161 mm
+  past the tube onto a 45.974 mm boattail): afterbody 45.974 mm where 6.8579 mm lies behind the root
+  trailing edge, `fa = min(1, 0.5 + afterbody/rootChord)` saturated at 1 instead of
+  0.5 + 6.8579/85.852 = 0.579880, fin+carryover CNa x1.1364 (K_W(B) + fa K_B(W): 1.818487 vs 1.600229,
+  tau 0.348513) - the CP aft at every Mach. Kbf and Classic never read `afterbodyFactor`.
+- **Change:** the remainder is kept SIGNED and the walk follows stations in the grand's frame
+  (`getPosition().x`): a following symmetric body counts while contiguous with the body before it
+  (`|fore - bodyEnd| <= 1e-6 m`: its full `getLength()`, the old arithmetic in the old order); a gap
+  (`fore > bodyEnd + 1e-6`) ends the afterbody; an overlap adds only `max(0, aft - bodyEnd)`. The total is
+  clamped at zero AFTER the walk, so an overhang uses up as many following parts as it covers and a fin
+  overhanging the whole body gets the flush-base 0.5. A remainder within 1e-6 m of zero is flush (0), as the
+  old `max(0, ...)` had it. A non-overhanging fin on a contiguous body is unchanged bit for bit. The overlap
+  term is written `Math.max(0.0, aft - bodyEnd)` because the first build emitted `afterLen + aft - bodyEnd`
+  (TeaVM printed `a + (b - c)` without its parentheses, i.e. `(a + b) - c` in JS - a JVM/JS rounding
+  difference on that branch); the call keeps the grouping. Out of scope, unchanged: the walk stays inside
+  the fin's own (pod/)stage; the `fa` heuristic itself, and where the carryover acts (fin CP), are the
+  REPORT's open steps 2-4.
+- **Artifact:** md5 `108eb93c223a23e74c0175f7a2bfa0c9` -> `81a8c799a7aa6cc131a5104ef53639b4`; grep:
+  `$bodyEnd` 0 -> 5 lines, `1.0E-6` in the afterbody walk 3, `jl_Math_max(0.0, $aft - $bodyEnd)` 1. Vite
+  cache cleared. Build via `npm run engine:js` (JAVA_HOME = jdk-17.0.19+10) after `carve.mjs`.
+- **Differential:** `differential ok: 421 lines (278 bit-identical, 143 within tolerance)`, exit 0.
+  **Goldens:** `goldenJvm` before/after byte-identical (421/421 lines) - no golden scenario has a fin
+  overhanging its tube (the ARCAS fixtures live in `validation/`, not the harness), which is why the
+  vitest guard below carries the behaviour.
+- **Behavioural guard:** `packages/engine/src/finAfterbody.test.ts` (8 tests, M0.3/0.8/1.2/2/3, fin load
+  isolated by subtracting the finless rocket): the ARCAS fin overhanging onto its boattail loads exactly
+  like the same fin with 6.8579 mm of plain tube behind it (Supersonic and Hybrid, CNa 1e-9 rel, CP 1e-9 m -
+  station-arithmetic rounding only); its CNa against a long-afterbody copy is K(fa)/K(1) = 0.880 from a TS
+  transcription of NACA 1307 eq. 14; an overhang through two following parts; an overhang past the whole
+  body = flush; a rounded freeform fin with PK-68's planform overhanging onto a tail cone; gap and overlap
+  stations; control (no overhang, fa < 1, unchanged rule); Classic/Kbf independent of the afterbody and
+  Hybrid below its band identical to Kbf. **Fail-on-old:** pre-change artifact `108eb93c...` -> exit 1,
+  6 of 8 fail (the control and the Classic/Kbf guard pass on both). **Mutations** (each a rebuilt artifact,
+  exit 1): final clamp removed -> the past-the-whole-body test fails; gap `break` removed -> the station
+  test fails; overlap counted whole -> the station test fails. Restored build md5 identical
+  (`81a8c799...`).
+- **Measured, every design in `docs/User files` (113) + 22 repo fixtures + LEM-IV + the two ARCAS fixtures,
+  19 Machs 0.1-4.63 x AoA 0 and 0.1 rad, all four models, old vs new artifact:** Classic and Kbf
+  byte-identical on every design. Changed: ARCAS (both fixtures and Chuck Rogers' `ARCAS-Long - 2.CDX1`)
+  and one tester design, `Buckeye Files/PK-68 Minie-Magg_UPDATED-MylesAZ.ork` (rounded freeform fins
+  6.35 mm past the tube onto a 75 mm tail part: fa 0.751 -> 0.730, Supersonic CP -0.3 to -0.5 mm,
+  -0.03 to -0.05 %L, CNa -0.25 to -0.46 %). Everything else, LEM-IV and WM 4 Extreme included, identical.
+  **ARCAS Short, Supersonic, whole-rocket CP:** M0.3 832.8 -> 814.1 mm (-1.802 %L), M0.8 -1.701 %L,
+  M1.0 -1.627 %L, M1.5 -1.586 %L, M2 -2.099 %L, M3 -2.975 %L; whole-rocket CNa -11.3 % subsonic, -9.5 %
+  at M4.63; Long -1.880 %L at M0.3. Forward CP = LESS displayed margin (Short -0.33 cal subsonic).
+  **Hybrid:** identical to Kbf below M0.8 (its band), then blends in: M0.9 -0.241 %L, M1.0 -0.782 %L,
+  equal to Supersonic from M1.2. C6 reference flight (fins flush on the last tube): identical in all models.
+- **Validation (`validation/score.mjs`, old vs new):** Classic 13/191 and Kbf 22/191 output byte-identical;
+  **Supersonic 78 -> 83, Hybrid 74 -> 79** (Hybrid is Supersonic above M1.2, so the same rows). ARCAS CP
+  gates **2/9 -> 7/9**: Short M2 +3.502 -> +1.403, M2.5 +2.243 -> -0.319, M3 +2.274 -> -0.701 %L and Long
+  M2 +3.822 -> +1.634, M2.5 +2.362 -> -0.308, M3 +2.405 -> -0.696 FAIL -> PASS; Short M3.5 +1.410 -> -1.929
+  stays PASS; **Long M3.5 +1.360 -> -2.120 PASS -> FAIL; Short M1.5 +4.900 -> +3.314 stays FAIL.**
+  Informational rows: Short M4.5/M4.63 and Long M4.5/M4.63 ok -> off (-2.7 to -3.6 %L), Long M4 off -> ok.
+  No drag row moved. No tolerance changed. This is a bookkeeping fix inside a provisional model, not CP
+  validation complete (REPORT section 8).
 
 ## Rules
 

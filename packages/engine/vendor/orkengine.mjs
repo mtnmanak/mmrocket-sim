@@ -10730,27 +10730,39 @@ iocab_FinSetCalc__init_0 = var_0 => {
     return var_1;
 },
 iocab_FinSetCalc_calculateAfterbodyFactor = ($this, $component) => {
-    let $rootChord, $parent, $finTopInParent, var$5, $grand, $after, $i, $c;
+    let $rootChord, $parent, $finTopInParent, var$5, $grand, $after, $bodyEnd, $i, $c, $fore, $aft, var$13;
     $rootChord = $component.$getLength();
     $parent = iocr_RocketComponent_getParent($component);
     if ($parent !== null && $rootChord > 1.0E-8) {
         iocrp_AxialMethod_$callClinit();
         $finTopInParent = $component.$getAxialOffset(iocrp_AxialMethod_TOP);
-        var$5 = jl_Math_max(0.0, $parent.$getLength() - ($finTopInParent + $rootChord));
-        $grand = iocr_RocketComponent_getParent($parent);
-        if ($grand !== null) {
-            $after = 0;
-            $i = 0;
-            while ($i < iocr_RocketComponent_getChildCount($grand)) {
-                $c = iocr_RocketComponent_getChild($grand, $i);
-                if ($c === $parent)
-                    $after = 1;
-                else if ($after && $c instanceof iocr_SymmetricComponent)
-                    var$5 = var$5 + $c.$getLength();
-                $i = $i + 1 | 0;
+        var$5 = $parent.$getLength() - ($finTopInParent + $rootChord);
+        if (var$5 < 0.0 && var$5 > (-1.0E-6))
+            var$5 = 0.0;
+        a: {
+            $grand = iocr_RocketComponent_getParent($parent);
+            if ($grand !== null) {
+                $after = 0;
+                $bodyEnd = ($parent.$getPosition()).$x + $parent.$getLength();
+                $i = 0;
+                while ($i < iocr_RocketComponent_getChildCount($grand)) {
+                    $c = iocr_RocketComponent_getChild($grand, $i);
+                    if ($c === $parent)
+                        $after = 1;
+                    else if ($after && $c instanceof iocr_SymmetricComponent) {
+                        $fore = ($c.$getPosition()).$x;
+                        $aft = $fore + $c.$getLength();
+                        if ($fore > $bodyEnd + 1.0E-6)
+                            break a;
+                        var$5 = $fore >= $bodyEnd - 1.0E-6 ? var$5 + $c.$getLength() : var$5 + jl_Math_max(0.0, $aft - $bodyEnd);
+                        $bodyEnd = jl_Math_max($bodyEnd, $aft);
+                    }
+                    $i = $i + 1 | 0;
+                }
             }
         }
-        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$5 / $rootChord);
+        var$13 = jl_Math_max(0.0, var$5);
+        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$13 / $rootChord);
     } else
         $this.$afterbodyFactor = 1.0;
 },

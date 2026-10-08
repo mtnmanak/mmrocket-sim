@@ -138,6 +138,21 @@ public class FinSetCalc extends RocketComponentCalc {
 	 * trailing edge, in root chords — drives the NACA-1307 carryover weight
 	 * min(1, 0.5 + afterbody/rootChord). Walks the parent body and any
 	 * symmetric siblings aft of it inside the same (pod/)stage.
+	 *
+	 * Row 75 fix (Eric, 2026-10-08, all Mach): the afterbody is the PHYSICAL
+	 * body length behind the fin root trailing edge. A fin that overhangs the
+	 * aft end of its mounting tube leaves a NEGATIVE remainder, and that
+	 * overhang now uses up the following components' length instead of being
+	 * discarded (before: max(0, ...) on the parent alone, then the full length
+	 * of every later sibling, so ARCAS counted its whole 45.974 mm boattail
+	 * where 6.858 mm lies behind the fin and fa saturated at 1). The walk
+	 * follows actual stations: a following body counts only while it is
+	 * contiguous with the body before it (a gap ends the afterbody; an overlap
+	 * counts only the part past the previous end). The total is clamped at
+	 * zero, so a fin overhanging the whole body - or more than one following
+	 * part - gets the flush-base half. A remainder within the station
+	 * tolerance of zero is flush, as before. A fin that does not overhang, on
+	 * a contiguous body, takes the same arithmetic in the same order as before.
 	 */
 	private void calculateAfterbodyFactor(FinSet component) {
 		double rootChord = component.getLength();
@@ -146,10 +161,16 @@ public class FinSetCalc extends RocketComponentCalc {
 		if (parent != null && rootChord > MathUtil.EPSILON) {
 			double finTopInParent = component.getAxialOffset(
 					info.openrocket.core.rocketcomponent.position.AxialMethod.TOP);
-			afterLen = Math.max(0, parent.getLength() - (finTopInParent + rootChord));
+			// Signed: negative when the fin root overhangs the parent's aft end.
+			afterLen = parent.getLength() - (finTopInParent + rootChord);
+			if (afterLen < 0 && afterLen > -AFTERBODY_STATION_TOL) {
+				afterLen = 0; // flush with the parent's aft end
+			}
 			RocketComponent grand = parent.getParent();
 			if (grand != null) {
 				boolean after = false;
+				// Aft end of the contiguous body so far, in the grand's frame.
+				double bodyEnd = parent.getPosition().x + parent.getLength();
 				for (int i = 0; i < grand.getChildCount(); i++) {
 					RocketComponent c = grand.getChild(i);
 					if (c == parent) {
@@ -157,15 +178,31 @@ public class FinSetCalc extends RocketComponentCalc {
 						continue;
 					}
 					if (after && c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent) {
-						afterLen += c.getLength();
+						double fore = c.getPosition().x;
+						double aft = fore + c.getLength();
+						if (fore > bodyEnd + AFTERBODY_STATION_TOL) {
+							break; // gap: the body behind the fin ends here
+						}
+						if (fore >= bodyEnd - AFTERBODY_STATION_TOL) {
+							afterLen += c.getLength(); // contiguous: the normal case
+						} else {
+							// Overlap: only the length past the previous end. Math.max
+							// keeps TeaVM from re-associating a + (b - c) as (a + b) - c.
+							afterLen += Math.max(0.0, aft - bodyEnd);
+						}
+						bodyEnd = Math.max(bodyEnd, aft);
 					}
 				}
 			}
+			afterLen = Math.max(0, afterLen);
 			afterbodyFactor = Math.min(1.0, 0.5 + afterLen / rootChord);
 		} else {
 			afterbodyFactor = 1.0;
 		}
 	}
+
+	/** Row 75: station tolerance (m) for "flush" and "contiguous" in the afterbody walk. */
+	private static final double AFTERBODY_STATION_TOL = 1e-6;
 	
 	/*
 	 * Calculates the non-axial forces produced by each set of fins.
