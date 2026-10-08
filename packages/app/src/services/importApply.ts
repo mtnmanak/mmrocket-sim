@@ -488,6 +488,7 @@ export function planImport(
     }
     nextConfigs.push({
       id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
+      ...(cfg.motorLoadoutRefusal ? { motorLoadoutRefusal: cfg.motorLoadoutRefusal } : {}),
       ...(cfg.stageMassOverrides ? { stageMassOverrides: cfg.stageMassOverrides } : {}),
       ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
@@ -519,7 +520,11 @@ export function planImport(
   // severity is ORed in separately, so a reconcile that had to CLEAR an
   // override still warns. A re-pick is trouble too: the file's own first
   // choice names a motor this app cannot load.
-  const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length;
+  for (const config of nextConfigs) {
+    if (config.motorLoadoutRefusal && !notes.includes(config.motorLoadoutRefusal)) notes.push(config.motorLoadoutRefusal);
+  }
+  const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length
+    || nextConfigs.some(c => !!c.motorLoadoutRefusal);
   // @atestani TRF #162, Eric 2026-10-06: confirmed EX matches are information,
   // counted like the other open lines but not treated as motor trouble.
   notes.push(...unconfirmedNotes(infoNotes));
@@ -756,7 +761,9 @@ export function planConfigSwitch(
   const unconfirmed = unconfirmedNotes(Object.entries(cfg.motors)
     .filter(([id]) => mountIds.has(id)).map(([, m]) => m.openNote));
   let note: ConfigSwitchPlan['note'];
-  if (cfg.unmatched?.length) {
+  if (cfg.motorLoadoutRefusal) {
+    note = withSpent([cfg.motorLoadoutRefusal], 'warn');
+  } else if (cfg.unmatched?.length) {
     // Quiet at import time (only the applied config reports) — the debt
     // comes due when the user actually loads this preset.
     note = withSpent([...cfg.unmatched.map((d) =>

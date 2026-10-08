@@ -72,6 +72,8 @@ export interface MountMotor {
  * reads; applying a preset copies its motors in and marks it active.
  */
 export interface SavedConfig {
+  /** Unresolved imported loadout: human-readable, with no component ids. Cleared by a motor assignment. */
+  motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
   stageMassOverrides?: Record<string, StageMassOverride>;
   /** File stage activeness keyed by node id; kept through save and session restore. */

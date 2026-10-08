@@ -1,4 +1,5 @@
 interface ConfigContent {
+  motorLoadoutRefusal?: string;
   id: string;
   name: string | null;
   motors: Record<string, unknown>;
@@ -13,6 +14,7 @@ export function isLoneEmptyConfig(
 ): boolean {
   const lone = configs.length === 1 ? configs[0] : undefined;
   return !!lone && !lone.name?.trim() && Object.keys(lone.motors).length === 0
+    && !lone.motorLoadoutRefusal
     && Object.keys(lone.unmatchedRefs ?? {}).length === 0
     && !Object.values(lone.stageActiveness ?? {}).includes(false)
     // A v0.116/v0.117 file hangs its weighed pad mass on this configuration;

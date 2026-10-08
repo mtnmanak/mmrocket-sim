@@ -97,6 +97,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   input: BuiltLaunchInput<R>,
 ): Promise<{ flight: LaunchFlight; run: FreshSimRun }> {
   const { built, tree, derived, launch, aero, activeConfigId, savedConfigs, provenance, signal, now } = input;
+  const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
+  if (refusal) throw new Error(refusal);
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
   // The keys and their order are onLaunch's at 78d3015; `signal` and `now` are
@@ -350,6 +352,8 @@ function buildOrThrow(
 }
 
 async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions): Promise<SimulateDesignResult> {
+  const refusal = input.savedConfigs.find(c => c.id === input.activeConfigId)?.motorLoadoutRefusal;
+  if (refusal) throw new SimulateDesignError('flight', refusal);
   const aero = opts.aero ?? APP_DEFAULT_AERO;
   const handles = opts.handles ?? KERNEL_HANDLES;
   let state = input;

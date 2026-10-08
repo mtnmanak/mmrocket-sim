@@ -1150,6 +1150,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   /** The first mount of an engine set's stage: where readEngineSet sends a set nothing else places. */
   const stageFallbackMount = (engineSet: XmlElement): ComponentNode | undefined =>
     mountsIn(components[stageOfSet(engineSet)]?.children ?? [])[0];
+  // Count BEFORE regrouping real tubes into clusters. Refuse a configuration
+  // iff, in any stage, at least one motor-bearing EngineSet names no surviving
+  // mount AND its motor-bearing sets outnumber that stage's real mounts. Each
+  // set declares one motor (not one cluster); the old fallback would overwrite
+  // a motor or drop it altogether. One stale set and one mount stays valid,
+  // as do the existing repairs that distribute sets across enough real tubes.
+  // This records only counts; session-local component ids never leave the parse.
+  const missingMotorCounts = new Map<XmlElement, number>();
+  const looseSets = Array.from(doc.querySelectorAll('EngineSet')).filter(e => !e.closest('SimulationResults'));
+  for (const sets of [looseSets, ...simEls.map(s => Array.from(s.querySelectorAll('EngineSet')))]) {
+    const bearing = sets.filter(e => !!text(e, ':scope > EngineCode'));
+    const overflow = bearing.some(e => {
+      const stage = stageOfSet(e);
+      return !namedMount(e) && bearing.filter(s => stageOfSet(s) === stage).length
+        > mountsIn(components[stage]?.children ?? []).length;
+    });
+    if (overflow) {
+      const missing = bearing.filter(e => !namedMount(e)).length;
+      for (const e of sets) missingMotorCounts.set(e, missing);
+    }
+  }
   /**
    * Engine sets that fly on another mount than their MountSerialNo names, for
    * readEngineSet: a set whose serial names no motor mount (simSets, below),
@@ -1711,13 +1732,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const seenSets = new Map<string, OrkFlightConfig>();
   let engineSims = 0;
   for (const g of simGroups) {
+    const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
+    const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${g.name.trim()}\u201d)` : ''}`;
+    const motorLoadoutRefusal = missing === undefined ? undefined
+      : `Launch refused for ${source}: the file names ${missing} motor${missing === 1 ? '' : 's'} for mounts that no longer exist in the design. `
+        + 'The app will not guess which tube each motor belongs in. Assign motors on Motors & Launch to real mounts, '
+        + 'or add the missing mounts and assign their motors. No motors from this configuration were loaded.';
+    if (motorLoadoutRefusal) notes.push(motorLoadoutRefusal);
     const cfgMotors: Record<string, OrkMotorRef> = {};
-    for (const es of g.sets) {
+    for (const es of motorLoadoutRefusal ? [] : g.sets) {
       const ref = readEngineSet(es);
       if (ref?.mountId) cfgMotors[ref.mountId] = ref;
     }
     const entries = Object.entries(cfgMotors);
-    if (entries.length === 0) continue;
+    if (entries.length === 0 && !motorLoadoutRefusal) continue;
     engineSims++;
     const stageOf = (mountId: string): number => stageOfMount.get(mountId) ?? 0;
     // Which motor lights at launch — importCdx1's rule. Keyed per mount on the
@@ -1743,7 +1771,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // first and a kept unmatched −1 is plugged, so without them a simulation on
     // an explicit 0 s, or on RockSim's −2, would fold into one that is not.
     const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
-    const key = JSON.stringify(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
+    const key = (motorLoadoutRefusal ?? '') + JSON.stringify(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
       r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : '', /^(26[- _]*E31[- _]+WH[- _]+15A|K700[- _]*BB)$/i.test(r.designation)
         ? JSON.stringify(r.matchContext) : ''].join('|')).sort().join('\n');
@@ -1765,9 +1793,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       // changed. Such a name is not kept, so configLabel names the
       // configuration from its motors, live, as desktop does an unnamed one;
       // the note below still quotes it. A name typed in RockSim is kept.
-      name: name && !/^(\[[^\]]*\]\s*)+$/.test(name) ? name : null,
+      name: motorLoadoutRefusal ? source : name && !/^(\[[^\]]*\]\s*)+$/.test(name) ? name : null,
       isDefault: configs.length === 0,
       motors: cfgMotors, deployments, separations: {},
+      ...(motorLoadoutRefusal ? { motorLoadoutRefusal } : {}),
     };
     seenSets.set(key, cfg);
     foldedSources.set(cfg, []);

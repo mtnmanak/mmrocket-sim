@@ -173,6 +173,18 @@ describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
   // The recording handle's flight is not one the report can read: stubbed.
   beforeEach(() => { vi.mocked(buildSimRun).mockImplementation(() => ({ id: 'stub' }) as FreshSimRun); });
 
+  it('refuses an ambiguous active configuration before calling the flight runner', async () => {
+    const input = recorded({});
+    input.savedConfigs = input.savedConfigs.map(c => c.id === input.activeConfigId
+      ? { ...c, motorLoadoutRefusal: 'Launch refused: repair the missing motor mounts.' } : c);
+    await expect(flyBuiltDesign(input)).rejects.toThrow('Launch refused');
+    expect(flyLaunch).not.toHaveBeenCalled();
+    // Another configuration remains flyable; refusal belongs to its owner.
+    input.activeConfigId = 'c2';
+    await flyBuiltDesign(input);
+    expect(flyLaunch).toHaveBeenCalledTimes(1);
+  });
+
   it('the handle, the build’s refusals and hardware, the conditions, the model and the names', async () => {
     const input = recorded({ supersonic: true, aeroMode: 'supersonic' });
     await flyBuiltDesign(input);
