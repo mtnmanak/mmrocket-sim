@@ -283,8 +283,12 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 					final double cp = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CP_LOCATION);
 					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
 					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
+					// PATCH (OR #3093, see patches/LEDGER.md): judge stall from the RECORDED
+					// AOA of this accepted step against the calculator's fixed stall angle.
+					// 24.12 read getStallMargin(), i.e. the AOA of the calculator's LAST
+					// evaluation (RK4's k4 sub-step, or any diagnostic call in between).
 					final double margin =
-						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallMargin();
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle() - aoa;
 
 					// large AOA -- stalling.					
 					if (margin < 0) {
@@ -654,7 +658,17 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				if ((currentStatus.getDeployedRecoveryDevices().size() > 0) || currentStatus.isLanded())
 					break;
 				
-				final boolean tooMuchThrust = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_THRUST_FORCE) > THRUST_TUMBLE_CONDITION;
+				// PATCH (OR #3375 / PR #3382, narrow port; see patches/LEDGER.md): judge
+				// thrust at the time the TUMBLE is HANDLED, from the active motors, with the
+				// same pressure-thrust and listener path RK4 flies - not the last recorded
+				// sample, which may predate burnout (stale-high: a coasting rocket aborted
+				// TUMBLE_UNDER_THRUST) or ignition (stale-low). The flight stepper is used for
+				// its thrust arithmetic only; it is not stepped or re-initialised, so this is
+				// valid whichever stepper is current. RECOVERY_DEVICE_DEPLOYMENT keeps its own,
+				// unchanged policy (any motor's curve thrust > MathUtil.EPSILON); upstream's
+				// change of that threshold is deliberately NOT ported.
+				final boolean tooMuchThrust = ((RK4SimulationStepper) flightStepper)
+						.calculateEventThrust(currentStatus) > THRUST_TUMBLE_CONDITION;
 				if (tooMuchThrust) {
 					currentStatus.abortSimulation(SimulationAbort.Cause.TUMBLE_UNDER_THRUST);
 				} else {

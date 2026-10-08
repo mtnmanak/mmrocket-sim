@@ -59,6 +59,196 @@ public final class GoldenMain {
         geodeticScenarios();
         zeroSliceScenarios();
         assemblyEjectionScenarios();
+        eventThrustScenarios();
+        stallAngleScenarios();
+    }
+
+    // OR #3375 / #3093: keep these calls last; difftest compares row indices.
+    // All new values are SI; event and status times are checked independently.
+    private static void eventThrustScenarios() {
+        T2EventListener high = new T2EventListener(2.5, 12);
+        info.openrocket.core.simulation.FlightData coast = t2Flight(high, false);
+        info.openrocket.core.simulation.FlightDataBranch cb = coast.getBranch(0);
+        double tumble = t2EventTime(cb, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE);
+        double ground = t2EventTime(cb, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT);
+        boolean aborted = t2Aborted(cb);
+        if (aborted || !Double.isFinite(tumble) || !Double.isFinite(ground) || !high.counts.tumblingAtGround) {
+            throw new IllegalStateException("event thrust: stale-high sample aborted coasting rocket or lost ground hit");
+        }
+        t2CheckEventTimes(high.counts);
+        line("flight.eventthrust.stalehigh", tumble, coast.getMaxAltitude(), aborted ? 1 : 0, ground);
+
+        T2EventListener low = new T2EventListener(0.75, 0);
+        info.openrocket.core.simulation.FlightData powered = t2Flight(low, false);
+        info.openrocket.core.simulation.FlightDataBranch pb = powered.getBranch(0);
+        boolean thrustAbort = false;
+        for (info.openrocket.core.simulation.FlightEvent e : pb.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT
+                    && ((info.openrocket.core.logging.SimulationAbort) e.getData()).getCause()
+                    == info.openrocket.core.logging.SimulationAbort.Cause.TUMBLE_UNDER_THRUST) thrustAbort = true;
+        }
+        if (!thrustAbort) throw new IllegalStateException("event thrust: stale-low sample let burning rocket tumble");
+        t2CheckEventTimes(low.counts);
+        line("flight.eventthrust.stalelow", thrustAbort ? 1 : 0,
+                t2EventTime(pb, info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT));
+    }
+
+    private static void stallAngleScenarios() {
+        Rocket rocket = buildReferenceRocket();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator classic = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        info.openrocket.core.aerodynamics.BarrowmanCalculator kbf = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        kbf.setRogersKbf(true);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator supersonic = new info.openrocket.core.aerodynamics.BarrowmanCalculator();
+        supersonic.setSupersonicAero(true);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator hybrid = info.openrocket.core.aerodynamics.BarrowmanCalculator.hybrid(0.8, 1.2);
+        info.openrocket.core.aerodynamics.BarrowmanCalculator[] calculators = {classic, kbf, supersonic, hybrid};
+        double[] angles = new double[calculators.length];
+        for (int i = 0; i < calculators.length; i++) {
+            info.openrocket.core.aerodynamics.FlightConditions fc = new info.openrocket.core.aerodynamics.FlightConditions(rocket.getSelectedConfiguration());
+            fc.setMach(1); fc.setAOA(30 * Math.PI / 180);
+            calculators[i].getAerodynamicForces(rocket.getSelectedConfiguration(), fc, new info.openrocket.core.logging.WarningSet());
+            angles[i] = calculators[i].getStallAngle();
+            cgNear("stall angle: independent of last evaluation", 17.5 * Math.PI / 180, angles[i]);
+        }
+        line("aero.stallangle", angles);
+        T2PoisonListener poison = new T2PoisonListener();
+        info.openrocket.core.simulation.FlightData data = t2Flight(poison, true);
+        int warnings = 0, tumbles = 0;
+        for (info.openrocket.core.logging.Warning w : data.getWarningSet()) {
+            if (w instanceof info.openrocket.core.logging.Warning.LargeAOA) warnings++;
+        }
+        info.openrocket.core.simulation.FlightDataBranch b = data.getBranch(0);
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) tumbles++;
+        }
+        double maxAOA = 0;
+        for (double aoa : b.get(info.openrocket.core.simulation.FlightDataType.TYPE_AOA)) {
+            if (Double.isFinite(aoa)) maxAOA = Math.max(maxAOA, aoa);
+        }
+        if (poison.counts.poisoned == 0 || maxAOA >= 17.5 * Math.PI / 180 || warnings != 0 || tumbles != 0 || t2Aborted(b)) {
+            throw new IllegalStateException("recorded stall: poisoned calculator overrode low recorded AOA");
+        }
+        line("flight.stallangle.poisoned", warnings, tumbles, data.getMaxAltitude());
+    }
+
+    private static final class T2Counts {
+        int injected, handled, poisoned;
+        double queuedTime, eventTime, statusTime;
+        boolean tumblingAtGround;
+    }
+
+    private static class T2MainListener extends info.openrocket.core.simulation.listeners.AbstractSimulationListener {
+        final T2Counts counts = new T2Counts(); // shared by listener clones
+        boolean coast;
+        double clearance = Double.NaN;
+        @Override public void startSimulation(info.openrocket.core.simulation.SimulationStatus s) {
+            coast = s.getSimulationConditions().getSimulationListenerList().contains(
+                    info.openrocket.core.simulation.listeners.system.OptimumCoastListener.INSTANCE);
+        }
+        @Override public boolean handleFlightEvent(info.openrocket.core.simulation.SimulationStatus s,
+                info.openrocket.core.simulation.FlightEvent e) {
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.LAUNCHROD) clearance = s.getSimulationTime();
+            return true;
+        }
+    }
+
+    private static final class T2EventListener extends T2MainListener {
+        final double trigger, seed;
+        T2EventListener(double trigger, double seed) { this.trigger = trigger; this.seed = seed; }
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s)
+                throws info.openrocket.core.simulation.exception.SimulationException {
+            if (coast || counts.injected != 0 || s.getSimulationTime() < trigger) return;
+            double current = 0;
+            for (info.openrocket.core.simulation.MotorClusterState motor : s.getActiveMotors()) current += motor.getThrust(s.getSimulationTime());
+            if ((seed == 0 && current <= 0.01) || (seed > 0 && current != 0)) {
+                throw new IllegalStateException("event thrust: current curve thrust does not oppose stale seed");
+            }
+            counts.injected++;
+            counts.queuedTime = s.getSimulationTime();
+            int length = s.getFlightDataBranch().getLength();
+            s.getFlightDataBranch().setValue(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE, seed);
+            if (s.getFlightDataBranch().getLast(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE) != seed
+                    || s.getFlightDataBranch().getLength() != length) throw new IllegalStateException("event thrust: seed must replace last row");
+            s.addEvent(new info.openrocket.core.simulation.FlightEvent(
+                    info.openrocket.core.simulation.FlightEvent.Type.TUMBLE, s.getSimulationTime()));
+        }
+        @Override public boolean handleFlightEvent(info.openrocket.core.simulation.SimulationStatus s,
+                info.openrocket.core.simulation.FlightEvent e) {
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) {
+                counts.handled++; counts.eventTime = e.getTime(); counts.statusTime = s.getSimulationTime();
+                if (s.getFlightDataBranch().getLast(info.openrocket.core.simulation.FlightDataType.TYPE_THRUST_FORCE) != seed) {
+                    throw new IllegalStateException("event thrust: sample overwritten before event decision");
+                }
+            }
+            if (!coast && e.getType() == info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT) counts.tumblingAtGround = s.isTumbling();
+            return super.handleFlightEvent(s, e);
+        }
+    }
+
+    private static final class T2PoisonListener extends T2MainListener {
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s) {
+            // recordWarnings is package-private. Mirror its delay/speed predicates
+            // here, without using reflection (this class is compiled by TeaVM).
+            if (coast || !s.isLaunchRodCleared() || s.getSimulationTime() < clearance + 0.3
+                    || s.getRocketVelocity().z < s.getMaxZVelocity() * 0.2) return;
+            info.openrocket.core.aerodynamics.FlightConditions fc = new info.openrocket.core.aerodynamics.FlightConditions(s.getConfiguration());
+            fc.setMach(0.3); fc.setAOA(30 * Math.PI / 180);
+            s.getSimulationConditions().getAerodynamicCalculator().getAerodynamicForces(
+                    s.getConfiguration(), fc, new info.openrocket.core.logging.WarningSet());
+            counts.poisoned++;
+        }
+    }
+
+    private static void t2CheckEventTimes(T2Counts c) {
+        if (c.injected != 1 || c.handled != 1 || c.queuedTime != c.eventTime || c.eventTime != c.statusTime) {
+            throw new IllegalStateException("event thrust: queue/event/status time disagreement: "
+                    + c.queuedTime + "/" + c.eventTime + "/" + c.statusTime);
+        }
+    }
+
+    private static boolean t2Aborted(info.openrocket.core.simulation.FlightDataBranch b) {
+        return Double.isFinite(t2EventTime(b, info.openrocket.core.simulation.FlightEvent.Type.SIM_ABORT));
+    }
+
+    private static double t2EventTime(info.openrocket.core.simulation.FlightDataBranch b,
+            info.openrocket.core.simulation.FlightEvent.Type type) {
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) if (e.getType() == type) return e.getTime();
+        return Double.NaN;
+    }
+
+    private static info.openrocket.core.simulation.FlightData t2Flight(T2MainListener listener, boolean recovery) {
+        Rocket rocket = buildReferenceRocket();
+        BodyTube body = (BodyTube) rocket.getStage(0).getChild(1);
+        ((TrapezoidFinSet) body.getChild(0)).setCrossSection(info.openrocket.core.rocketcomponent.FinSet.CrossSection.ROUNDED);
+        InnerTube mount = (InnerTube) body.getChild(1);
+        mount.setAxialMethod(info.openrocket.core.rocketcomponent.position.AxialMethod.BOTTOM);
+        mount.setAxialOffset(0);
+        Parachute chute = (Parachute) body.getChild(2);
+        chute.getDeploymentConfigurations().getDefault().setDeployEvent(recovery
+                ? info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.EJECTION
+                : info.openrocket.core.rocketcomponent.DeploymentConfiguration.DeployEvent.NEVER);
+        chute.getDeploymentConfigurations().getDefault().setDeployDelay(0);
+        info.openrocket.core.rocketcomponent.FlightConfigurationId fcid = regressionConfiguration(rocket, "3375");
+        regressionMotor(mount, fcid, false, recovery ? 1 : info.openrocket.core.motor.Motor.PLUGGED_DELAY);
+        info.openrocket.core.simulation.SimulationConditions c = new info.openrocket.core.simulation.SimulationConditions();
+        c.setSimulation(new info.openrocket.core.document.Simulation(rocket, fcid));
+        c.setLaunchRodLength(1); c.setLaunchRodAngle(0); c.setLaunchRodDirection(Math.PI / 2);
+        c.setLaunchSite(new info.openrocket.core.util.WorldCoordinate(28.61, -80.60, 0));
+        c.setGeodeticComputation(info.openrocket.core.util.GeodeticComputationStrategy.SPHERICAL);
+        c.setAtmosphericModel(new ExtendedISAModel());
+        c.setGravityModel(new info.openrocket.core.models.gravity.WGSGravityModel());
+        info.openrocket.core.models.wind.PinkNoiseWindModel wind = new info.openrocket.core.models.wind.PinkNoiseWindModel();
+        wind.setAverage(0); wind.setStandardDeviation(0); c.setWindModel(wind);
+        c.setAerodynamicCalculator(new info.openrocket.core.aerodynamics.BarrowmanCalculator());
+        c.setMassCalculator(new MassCalculator()); c.setTimeStep(0.025); c.setMaxSimulationTime(1200); c.setRandomSeed(0x3375);
+        c.getSimulationListenerList().add(listener);
+        try {
+            info.openrocket.core.simulation.BasicEventSimulationEngine engine = new info.openrocket.core.simulation.BasicEventSimulationEngine();
+            engine.simulate(c);
+            return engine.getFlightData();
+        } catch (info.openrocket.core.simulation.exception.SimulationException e) {
+            throw new IllegalStateException("event thrust/stall angle regression flight failed", e);
+        }
     }
 
     /**

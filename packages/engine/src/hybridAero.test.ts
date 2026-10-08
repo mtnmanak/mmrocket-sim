@@ -181,6 +181,25 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
     }
   });
 
+  it('pins queried stall margin after a different AOA evaluation, including clones', () => {
+    // Contract control: the old bridge re-evaluated forces at the queried AOA
+    // before reading its mutable margin. Java event tests reproduce the kernel bug.
+    for (const model of ['classic', 'kbf', 'supersonic', 'hybrid'] as const) {
+      const r = model === 'classic' ? OrkRocket.buildTree(arcas) : rocket(model);
+      for (const mach of [0.3, 1, 1.5]) {
+        for (const aoa of [0, 0.04, 30 * Math.PI / 180]) {
+          for (const clone of [false, true]) {
+            const otherAoa = aoa === 0 ? 30 * Math.PI / 180 : 0;
+            r.forceSamples([mach], otherAoa);
+            expect(r.aeroDiagnostics(mach, aoa, clone).stallMargin,
+              `${model}, Mach=${mach}, AOA=${aoa}, clone=${clone}`)
+              .toBeCloseTo(17.5 * Math.PI / 180 - aoa, 12);
+          }
+        }
+      }
+    }
+  });
+
   it('reports an explicit zero CP for zero normal-force weight', () => {
     const r = rocket('hybrid', { name: 'Bare cylinder', components: [
       { type: 'bodytube', length: 0.5, outerRadius: 0.02, thickness: 0.001 },

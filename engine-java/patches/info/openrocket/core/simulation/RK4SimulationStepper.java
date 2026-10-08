@@ -357,6 +357,35 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	}
 
 	/**
+	 * PATCH (OR #3375 / PR #3382, narrow port, 2026-10-08; see patches/LEDGER.md).
+	 * Total thrust at the status's CURRENT time and position, for an event decision
+	 * (TUMBLE vs TUMBLE_UNDER_THRUST). Uses a fresh, local DataStore whose only content
+	 * is the atmosphere at the current altitude (position.z + launch-site altitude,
+	 * through the atmosphere listeners; the wind model is never sampled), so it shares
+	 * no state with any integration step and needs no initialize(). Everything else -
+	 * the active motors and their order, pre/post thrust listeners, the model-gated
+	 * signed pressure correction once per thrusting stage instance, and its zero
+	 * floor - is calculateThrust itself, so the event decision cannot disagree with
+	 * the thrust RK4 flies. Motor state is read, never advanced.
+	 *
+	 * @param status the simulation status at the event being handled
+	 * @return thrust in newtons
+	 * @throws SimulationException if a listener throws, or the thrust is not finite
+	 */
+	double calculateEventThrust(SimulationStatus status) throws SimulationException {
+		DataStore eventStore = new DataStore();
+		eventStore.flightConditions = new FlightConditions(status.getConfiguration());
+		eventStore.flightConditions.setAtmosphericConditions(modelAtmosphericConditions(status));
+		double thrust = calculateThrust(status, eventStore);
+		checkNaN(thrust, "event thrust");
+		if (!Double.isFinite(thrust)) {
+			throw new SimulationCalculationException("Non-finite event thrust",
+					status.getFlightDataBranch());
+		}
+		return thrust;
+	}
+
+	/**
 	 * PATCH (see engine-java/patches/LEDGER.md, RASAero feature #5, 2026-09-08).
 	 * The ambient pressure a published thrust curve is ASSUMED to be referenced to (Pa).
 	 * <p>

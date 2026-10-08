@@ -102,7 +102,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	 * friction, then pressure, then base, then the override, in that order and with
 	 * nothing between; these three are written at the end of those three methods and read
 	 * only by the fourth. The calculator is single-threaded (the whole kernel is: `core`
-	 * has no threading), which is the same assumption `stallMargin` and `calcMap` already
+	 * has no threading), which is the same assumption `calcMap` already
 	 * make. Initialised to 0 so a hypothetical future caller that skipped the three would
 	 * charge zero rather than a stale number or a NaN.
 	 *
@@ -121,7 +121,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	private double lastBodyBaseCD = 0;
 
 	private final double stallAngle = 17.5 * Math.PI / 180;
-	private double stallMargin;
+	// PATCH (OR #3093): no mutable stallMargin; see getStallAngle().
 	
 	public BarrowmanCalculator() {
 		
@@ -141,7 +141,6 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		private final BarrowmanCalculator supersonic = new BarrowmanCalculator();
 		private final double low;
 		private final double high;
-		private double margin;
 
 		HybridCalculator(double low, double high) {
 			this.low = low;
@@ -233,22 +232,15 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			AerodynamicForces f;
 			if (w == 0) {
 				f = kbf.getAerodynamicForces(configuration, conditions, warnings);
-				margin = kbf.getStallMargin();
 			} else if (w == 1) {
 				f = supersonic.getAerodynamicForces(configuration, conditions, warnings);
-				margin = supersonic.getStallMargin();
 			} else {
 				f = mixForces(kbf.getAerodynamicForces(configuration, conditions, warnings),
 						supersonic.getAerodynamicForces(configuration, conditions, warnings), w);
-				margin = mix(kbf.getStallMargin(), supersonic.getStallMargin(), w);
 			}
 			return f;
 		}
-
-		@Override
-		public double getStallMargin() {
-			return margin;
-		}
+		// PATCH (OR #3093): inherits getStallAngle(); both endpoints share the constant.
 	}
 	
 	
@@ -346,17 +338,18 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	}
 
 	/**
-	 * Determine whether calculations are suspect because we are stalling
+	 * PATCH (OR #3093, MMRocket Sim 2026-10-08; see patches/LEDGER.md): the angle of
+	 * attack at which the fins are considered stalled, in RADIANS. A property of the
+	 * calculator, independent of whatever it last evaluated: callers compare it with
+	 * the AOA they actually hold (e.g. the recorded TYPE_AOA), never with the AOA of
+	 * the calculator's most recent - possibly RK4 sub-step or diagnostic - call.
+	 * Replaces 24.12's getStallMargin(), which returned (stall angle - last AOA).
 	 *
-	 * @return               whether we are stalling, and the margin
-	 *                       between our AOA and a stall
-	 *                       If the return is positive we aren't;
-	 *                       If it's negative we are.
-	 *             
+	 * @return the stall angle in radians
 	 */
 	@Override
-	public double getStallMargin() {
-		return stallMargin;
+	public double getStallAngle() {
+		return stallAngle;
 	}
 	
 	/**
@@ -523,8 +516,6 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		total.setCm(total.getCm() - total.getPitchDampingMoment());
 		total.setCyaw(total.getCyaw() - total.getYawDampingMoment());
 
-		// How far are we from stalling?
-		stallMargin = stallAngle - conditions.getAOA();
 		
 		return total;
 	}

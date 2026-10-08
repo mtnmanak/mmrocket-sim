@@ -2124,6 +2124,78 @@ aerodynamic model.
   byte-identical to the pre-change kernel; only the 6 appended rows are new. No existing
   golden scenario had an empty slice, a motorised pod or two charges per device.
 
+### simulation/RK4SimulationStepper.java + BasicEventSimulationEngine.java - TUMBLE judges thrust at the event, not from the last recorded sample (OR #3375 / PR #3382, NARROW port, tumble release T2, 2026-10-08)
+
+- **Defect (upstream 24.12):** the TUMBLE handler decided "tumble" vs abort
+  `TUMBLE_UNDER_THRUST` from `getFlightDataBranch().getLast(TYPE_THRUST_FORCE)`, the
+  thrust recorded at the START of the last accepted step. That sample can predate
+  burnout (a coasting rocket aborted under a thrust it no longer has) or ignition (a
+  burning rocket entered the tumble stepper). Worst case: a separated booster branch
+  copies its parent's rows, so a finless booster's geometry TUMBLE at separation read
+  the parent's powered sample (measured in the CHAD fixture: 1.5 N copied, 0 N actual).
+- **Change:** new package-private `RK4SimulationStepper.calculateEventThrust(status)`: a
+  fresh local DataStore holding only the atmosphere at position.z + launch-site
+  altitude (atmosphere listeners fire; the wind model is never sampled), then the
+  existing `calculateThrust` - active motors at the status time, pre/post thrust
+  listeners, the model-gated signed pressure term once per thrusting stage INSTANCE, its
+  zero floor - plus a NaN/non-finite guard. The TUMBLE handler calls it on the engine's
+  `flightStepper` (explicit cast; no step/initialize, so valid whichever stepper is
+  current) with the unchanged strict `> 0.01 N` threshold, landed/deployed inhibition,
+  abort cause and stepper transition.
+- **Deliberately NOT ported:** upstream also changed RECOVERY_DEVICE_DEPLOYMENT's
+  under-thrust policy (any motor's curve thrust > `MathUtil.EPSILON` -> summed corrected
+  thrust > 0.01 N, non-RK steppers exempt). That is a separate policy change, not the
+  stale-sample fix; the deployment check is UNCHANGED and pinned by a control test
+  (0.005 N curve thrust still aborts DEPLOY_UNDER_THRUST). This is therefore not a
+  byte-for-byte port of PR #3382.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/EventThrustTest.java`
+  (8 tests): seeded stale-high after burnout -> tumbles (two steps); seeded stale-low
+  mid-burn -> TUMBLE_UNDER_THRUST; the same either side of burnout on a linear tail;
+  unseeded finless separated booster (CHAD) tumbles, sustainer ignites at separation;
+  helper arithmetic for Classic/Kbf/Supersonic/Hybrid at site 0 and 1500 m (0.005 N
+  curve + pressure term > 0.01 N under the gated models), zero exit, zero floor at
+  105000 Pa, two-instance ParallelStage, inactive stage, no wind sample, motor state and
+  time untouched; pre/post thrust listener overrides; recovery-policy control. Mutation
+  (`.claude/t2-mutate.py`, each restored byte-exact): event expression back to `getLast`
+  -> 5 fail (all staleness tests incl. CHAD); no atmosphere in the event store -> the
+  arithmetic test fails; no per-instance multiplication -> the arithmetic test fails.
+  GoldenMain `flight.eventthrust.stalehigh|stalelow` rows.
+
+### aerodynamics/AerodynamicCalculator.java + AbstractAerodynamicCalculator.java + BarrowmanCalculator.java + simulation/BasicEventSimulationEngine.java + api/OrkEngine.java - stall is judged from the recorded AOA against a fixed stall angle (OR #3093, tumble release T2, 2026-10-08)
+
+- **Defect (upstream 24.12):** `getStallMargin()` returned `17.5 deg - AOA` of the
+  calculator's LAST `getAerodynamicForces` call - RK4's k4 sub-step, or any diagnostic
+  or listener call made after the step - while the event engine compared it with the
+  RECORDED k1 row's CP/CG. A stall warning or stall TUMBLE could follow an AOA that was
+  never recorded, and miss one that was.
+- **Change (upstream's contract, mapped onto our monolithic calculator):**
+  `getStallMargin()` -> `getStallAngle()` (radians, constant, independent of evaluation)
+  in the interface and abstract class (new replacement files, copied from carved ==
+  reference). BarrowmanCalculator keeps `stallAngle = 17.5*PI/180`, drops the mutable
+  `stallMargin` field and its assignment; HybridCalculator drops its `margin` field and
+  its three assignments and inherits the constant (endpoints, flags, smoothstep and
+  newInstance band untouched). The event engine computes `margin = getStallAngle() -
+  aoa` with `aoa` = the branch's recorded TYPE_AOA (strict `< 0` kept; this block is
+  replaced wholesale by #3183 later in this release). API `getAeroDiagnostics` keeps its
+  JSON `stallMargin` field (radians) as `getStallAngle() - queried AOA` and no longer
+  runs a force evaluation just to populate it.
+- **Not changed:** the 17.5 deg warning angle and the 20 deg fin-force saturation remain
+  distinct; no force arithmetic moves.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/RecordedStallAngleTest.java`
+  (6 tests): getStallAngle 17.5 deg before/after getCP, getWorstCP, forces at 30 and 0
+  deg, at Mach 0.3/1/1.5, and on newInstance, all four models; calculator poisoned at 30
+  deg after every step with recorded AOA below stall -> no LargeAOA/TUMBLE; recorded 30
+  deg with calculator reset to 0 -> LargeAOA at that row (or TUMBLE when recorded CG >
+  CP); boundaries stall-1e-9 and stall (no) and stall+1e-9 (yes). Mutation: reinstating
+  last-evaluation semantics (a static last-AOA set in getAerodynamicForces, read by the
+  event engine) -> all 5 event-level tests fail. `packages/engine/src/hybridAero.test.ts`
+  pins the bridge field after a different-AOA forceSamples call and with clone=true
+  (a contract pin only: the old bridge re-evaluated at the queried AOA, so it was
+  already right there). GoldenMain `aero.stallangle`, `flight.stallangle.poisoned`.
+- **Before/after `goldenJvm` (Rule 1), both T2 fixes together:** the first 427 lines are
+  byte-identical to the T1 kernel's; only the 4 appended rows are new. difftest: 431
+  lines (290 bit-identical, 141 within tolerance).
+
 ## Rules
 
 1. A patch NEVER changes physics or observable behavior (except documented quirks-ledger
