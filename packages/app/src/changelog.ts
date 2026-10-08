@@ -32,6 +32,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.166",
+    "date": "2026-10-08",
+    "title": "AeroTech status notes removed; the catalogue's thrustcurve.org availability stands on its own",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No motor, mass, aerodynamic or flight calculation changed, and the motor catalogue is the same as in v0.165.",
+      "THE AEROTECH STATUS NOTES ARE REMOVED. v0.164 added a status note to 95 AeroTech motors that thrustcurve.org lists as in production, citing AeroTech staff statements or a dealer notice relayed on TRF. The motor browser and each mount's loaded-motor card no longer show them, and the guide paragraph describing them is gone. The app no longer adds production-status notes of its own on top of the motor catalogue, as before v0.164. This release does not change the out-of-production filter or any motor's availability. Corrections to a motor's thrustcurve.org listing belong with thrustcurve.org."
+    ]
+  },
+  {
     "version": "0.165",
     "date": "2026-10-08",
     "title": "Aerodynamic corrections and sustained tumble detection; recovery ownership, catalogue masses, epoxy fillets and desktop extensions",

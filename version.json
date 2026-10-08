@@ -1,5 +1,5 @@
 {
-  "version": "0.165",
+  "version": "0.166",
   "released": "2026-10-08",
-  "note": "Aerodynamic corrections and sustained tumble detection; recovery ownership, catalogue masses, epoxy fillets and desktop extensions."
+  "note": "AeroTech status notes removed; the catalogue's thrustcurve.org availability stands on its own."
 }
