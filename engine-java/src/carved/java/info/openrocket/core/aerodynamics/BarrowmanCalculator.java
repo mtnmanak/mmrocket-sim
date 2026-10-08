@@ -880,9 +880,11 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			}
 		}
 		
-		// fB may be POSITIVE_INFINITY, but that's ok for us
-		double fB = (maxX - minX + 0.0001) / maxR;
-		double correction = (1 + 1.0 / (2 * fB));
+		// PATCH (OpenRocket PR #3237, decision 70): the body fineness ratio is length / max DIAMETER,
+		// not length / max radius; see calculateBodyFrictionCorrection and LEDGER.md.
+		// The fineness ratio may be POSITIVE_INFINITY (maxR = 0); the correction is then 1, as before.
+		double bodyLength = maxX - minX + 0.0001;
+		double correction = calculateBodyFrictionCorrection(bodyLength, maxR);
 		
 		// Correct body data in map
 		if (forceMap != null) {
@@ -902,6 +904,23 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		lastBodyFrictionCD = correction * bodyFrictionCD;
 
 		return otherFrictionCD + correction * bodyFrictionCD;
+	}
+
+	/**
+	 * PATCH (OpenRocket PR #3237, decision 70; see engine-java/patches/LEDGER.md).
+	 * Cylindrical-body wetted-area correction, OpenRocket technical documentation
+	 * equation (3.85). The body fineness ratio is the body length divided by its
+	 * maximum DIAMETER, not its maximum radius (24.12 used the radius, which halved
+	 * the correction term).
+	 *
+	 * @param bodyLength aerodynamic body length
+	 * @param maxRadius maximum body radius
+	 * @return body skin-friction correction multiplier
+	 */
+	static double calculateBodyFrictionCorrection(double bodyLength, double maxRadius) {
+		double bodyDiameter = 2 * maxRadius;
+		double finenessRatio = bodyLength / bodyDiameter;
+		return 1 + 1.0 / (2 * finenessRatio);
 	}
 
 

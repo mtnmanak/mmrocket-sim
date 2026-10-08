@@ -6894,6 +6894,69 @@ iocab_RocketComponentCalc_calculateReynoldsNumber = ($this, $length, $conditions
     var$3 = $conditions.$getVelocity() * $length;
     var$3 = var$3 / ($conditions.$getAtmosphericConditions()).$getKinematicViscosity();
     return var$3;
+},
+iocab_RocketComponentCalc_supersonicCPPos = $arBeta => {
+    let $t, $t2, $t3, $sourcePosition, $sourceGradient, var$7, var$8, $startBasis, $endBasis, $endGradientBasis;
+    if ($arBeta <= 0.8400000000000001)
+        return 0.25;
+    if ($arBeta >= 1.0)
+        return iocab_RocketComponentCalc_sourceSupersonicCPPos($arBeta);
+    $t = ($arBeta - 0.8400000000000001) / 0.15999999999999992;
+    $t2 = $t * $t;
+    $t3 = $t2 * $t;
+    $sourcePosition = iocab_RocketComponentCalc_sourceSupersonicCPPos(1.0);
+    $sourceGradient = iocab_RocketComponentCalc_sourceSupersonicCPGradient(1.0);
+    var$7 = 2.0 * $t3;
+    var$8 = 3.0 * $t2;
+    $startBasis = var$7 - var$8 + 1.0;
+    $endBasis = (-2.0) * $t3 + var$8;
+    $endGradientBasis = $t3 - $t2;
+    return $startBasis * 0.25 + $endBasis * $sourcePosition + $endGradientBasis * 0.15999999999999992 * $sourceGradient;
+},
+iocab_RocketComponentCalc_transonicCPPos = ($mach, $aspectRatio) => {
+    let $t, $arBetaAtMach2, $endpointPosition, $delta, $normalizedEndpointSlope, $slopeRatio, $t2, $t3, $limitingQuintic, $t4, $t5;
+    $t = ($mach - 0.5) / 1.5;
+    $arBetaAtMach2 = $aspectRatio * jl_Math_sqrt(3.0);
+    $endpointPosition = iocab_RocketComponentCalc_supersonicCPPos($arBetaAtMach2);
+    $delta = $endpointPosition - 0.25;
+    if ($delta <= 0.0)
+        return 0.25;
+    $normalizedEndpointSlope = $arBetaAtMach2 * iocab_RocketComponentCalc_supersonicCPGradient($arBetaAtMach2);
+    $slopeRatio = $normalizedEndpointSlope / $delta;
+    if (!($slopeRatio <= 1.6666666666666667)) {
+        $t2 = $t * $t;
+        $t3 = $t2 * $t;
+        $limitingQuintic = $t3 * (3.3333333333333335 - 3.3333333333333335 * $t + $t2);
+        return 0.25 + $delta * jl_Math_pow($limitingQuintic, $slopeRatio / 1.6666666666666667);
+    }
+    $t2 = $t * $t;
+    $t3 = $t2 * $t;
+    $t4 = $t3 * $t;
+    $t5 = $t4 * $t;
+    return 0.25 + (10.0 * $delta - 6.0 * $normalizedEndpointSlope) * $t2 + ((-20.0) * $delta + 14.0 * $normalizedEndpointSlope) * $t3 + (15.0 * $delta - 11.0 * $normalizedEndpointSlope) * $t4 + (3.0 * $normalizedEndpointSlope - 4.0 * $delta) * $t5;
+},
+iocab_RocketComponentCalc_sourceSupersonicCPPos = $arBeta => {
+    return ($arBeta - 0.67) / (2.0 * $arBeta - 1.0);
+},
+iocab_RocketComponentCalc_sourceSupersonicCPGradient = $arBeta => {
+    let $denominator;
+    $denominator = 2.0 * $arBeta - 1.0;
+    return 0.3400000000000001 / ($denominator * $denominator);
+},
+iocab_RocketComponentCalc_supersonicCPGradient = $arBeta => {
+    let $t, $t2, $sourcePosition, $sourceGradient, $startBasisGradient, $endBasisGradient, $endGradientBasisGradient;
+    if ($arBeta <= 0.8400000000000001)
+        return 0.0;
+    if ($arBeta >= 1.0)
+        return iocab_RocketComponentCalc_sourceSupersonicCPGradient($arBeta);
+    $t = ($arBeta - 0.8400000000000001) / 0.15999999999999992;
+    $t2 = $t * $t;
+    $sourcePosition = iocab_RocketComponentCalc_sourceSupersonicCPPos(1.0);
+    $sourceGradient = iocab_RocketComponentCalc_sourceSupersonicCPGradient(1.0);
+    $startBasisGradient = 6.0 * $t2 - 6.0 * $t;
+    $endBasisGradient =  -$startBasisGradient;
+    $endGradientBasisGradient = 3.0 * $t2 - 2.0 * $t;
+    return ($startBasisGradient * 0.25 + $endBasisGradient * $sourcePosition) / 0.15999999999999992 + $endGradientBasisGradient * $sourceGradient;
 };
 function iocab_RailButtonCalc() {
     iocab_RocketComponentCalc.call(this);
@@ -10598,7 +10661,6 @@ function iocab_FinSetCalc() {
     a.$chordTrail = null;
     a.$chordLength = null;
     a.$geometryWarnings = null;
-    a.$poly = null;
     a.$thickness3 = 0.0;
     a.$bodyRadius = 0.0;
     a.$finCount0 = 0;
@@ -10644,7 +10706,6 @@ iocab_FinSetCalc__init_ = ($this, $component) => {
     $this.$chordTrail = $rt_createDoubleArray(48);
     $this.$chordLength = $rt_createDoubleArray(48);
     $this.$geometryWarnings = iocl_WarningSet__init_();
-    $this.$poly = $rt_createDoubleArray(6);
     $this.$rogersKbf0 = 0;
     $this.$supersonicAero = 0;
     $this.$afterbodyFactor = 1.0;
@@ -10660,7 +10721,6 @@ iocab_FinSetCalc__init_ = ($this, $component) => {
     $this.$airfoilTeDiamond0 = $component.$getAirfoilTeDiamond();
     $this.$finLeRadius0 = $component.$getFinLeRadius();
     $this.$calculateFinGeometry($component);
-    iocab_FinSetCalc_calculatePoly($this);
     iocab_FinSetCalc_calculateInterferenceFinCount($this, $component);
     iocab_FinSetCalc_calculateAfterbodyFactor($this, $component);
 },
@@ -10670,27 +10730,74 @@ iocab_FinSetCalc__init_0 = var_0 => {
     return var_1;
 },
 iocab_FinSetCalc_calculateAfterbodyFactor = ($this, $component) => {
-    let $rootChord, $parent, $finTopInParent, var$5, $grand, $after, $i, $c;
+    let $rootChord, $parent, $finTopInParent, var$5, $grand, $n, $fore, $aft, $len, $m, $i, $c, $f, $l, $j, var$17, var$18, var$19, var$20, $bodyEnd, $k, var$23;
     $rootChord = $component.$getLength();
     $parent = iocr_RocketComponent_getParent($component);
     if ($parent !== null && $rootChord > 1.0E-8) {
         iocrp_AxialMethod_$callClinit();
         $finTopInParent = $component.$getAxialOffset(iocrp_AxialMethod_TOP);
-        var$5 = jl_Math_max(0.0, $parent.$getLength() - ($finTopInParent + $rootChord));
-        $grand = iocr_RocketComponent_getParent($parent);
-        if ($grand !== null) {
-            $after = 0;
-            $i = 0;
-            while ($i < iocr_RocketComponent_getChildCount($grand)) {
-                $c = iocr_RocketComponent_getChild($grand, $i);
-                if ($c === $parent)
-                    $after = 1;
-                else if ($after && $c instanceof iocr_SymmetricComponent)
-                    var$5 = var$5 + $c.$getLength();
-                $i = $i + 1 | 0;
+        var$5 = $parent.$getLength() - ($finTopInParent + $rootChord);
+        if (var$5 < 0.0 && var$5 > (-1.0E-6))
+            var$5 = 0.0;
+        a: {
+            $grand = iocr_RocketComponent_getParent($parent);
+            if ($grand !== null) {
+                $n = iocr_RocketComponent_getChildCount($grand);
+                $fore = $rt_createDoubleArray($n);
+                $aft = $rt_createDoubleArray($n);
+                $len = $rt_createDoubleArray($n);
+                $m = 0;
+                $i = 0;
+                while ($i < $n) {
+                    $c = iocr_RocketComponent_getChild($grand, $i);
+                    if ($c !== $parent && $c instanceof iocr_SymmetricComponent) {
+                        $f = ($c.$getPosition()).$x;
+                        $l = $c.$getLength();
+                        $j = $m;
+                        while ($j > 0) {
+                            var$17 = $fore.data;
+                            var$18 = $j - 1 | 0;
+                            if (!(var$17[var$18] > $f))
+                                break;
+                            var$19 = $len.data;
+                            var$20 = $aft.data;
+                            var$17[$j] = var$17[var$18];
+                            var$20[$j] = var$20[var$18];
+                            var$19[$j] = var$19[var$18];
+                            $j = $j + (-1) | 0;
+                        }
+                        var$19 = $len.data;
+                        var$20 = $aft.data;
+                        $fore.data[$j] = $f;
+                        var$20[$j] = $f + $l;
+                        var$19[$j] = $l;
+                        $m = $m + 1 | 0;
+                    }
+                    $i = $i + 1 | 0;
+                }
+                $bodyEnd = ($parent.$getPosition()).$x + $parent.$getLength();
+                $k = 0;
+                while ($k < $m) {
+                    var$17 = $fore.data;
+                    if (var$17[$k] > $bodyEnd + 1.0E-6)
+                        break a;
+                    if (var$17[$k] >= $bodyEnd - 1.0E-6) {
+                        var$20 = $aft.data;
+                        var$5 = var$5 + $len.data[$k];
+                        $bodyEnd = jl_Math_max($bodyEnd, var$20[$k]);
+                    } else {
+                        var$17 = $aft.data;
+                        if (var$17[$k] > $bodyEnd) {
+                            var$5 = var$5 + jl_Math_max(0.0, var$17[$k] - $bodyEnd);
+                            $bodyEnd = var$17[$k];
+                        }
+                    }
+                    $k = $k + 1 | 0;
+                }
             }
         }
-        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$5 / $rootChord);
+        var$23 = jl_Math_max(0.0, var$5);
+        $this.$afterbodyFactor = jl_Math_min0(1.0, 0.5 + var$23 / $rootChord);
     } else
         $this.$afterbodyFactor = 1.0;
 },
@@ -10975,15 +11082,15 @@ iocab_FinSetCalc_calculateFinCNa1 = ($this, $conditions) => {
         var$4 = 6.283185307179586 * iocu_MathUtil_pow2($this.$span0) / $ref;
         var$5 = 1.0 + $sq;
         $subV = var$4 / var$5;
-        var$4 = 2.0 * $mach * 3.141592653589793 * jl_Math_pow($this.$span0, 6.0);
+        var$4 = 5.654866776461628 * jl_Math_pow($this.$span0, 6.0);
         var$9 = iocu_MathUtil_pow2($this.$finArea * $this.$cosGamma) * $ref * $sq;
         $subD = var$4 / (var$9 * iocu_MathUtil_pow2(var$5));
         $sscale = !$this.$supersonicAero ? 1.0 : iocab_FinSetCalc_ssaeroScale($this, 1.5);
         var$4 = $sscale * $this.$finArea;
         iocab_FinSetCalc_$callClinit();
-        var$9 = iocab_FinSetCalc_K1.$getValue1(1.5) + iocab_FinSetCalc_K2.$getValue1(1.5) * $alpha;
+        var$5 = iocab_FinSetCalc_K1.$getValue1(1.5) + iocab_FinSetCalc_K2.$getValue1(1.5) * $alpha;
         var$10 = iocab_FinSetCalc_K3;
-        $superV = var$4 * (var$9 + var$10.$getValue1(1.5) * iocu_MathUtil_pow2($alpha)) / $ref;
+        $superV = var$4 * (var$5 + var$10.$getValue1(1.5) * iocu_MathUtil_pow2($alpha)) / $ref;
         $superD = $sscale *  -$this.$finArea / $ref * 2.0 * 1.5 / iocab_FinSetCalc_CNA_SUPERSONIC_B;
         return iocab_FinSetCalc_cnaInterpolator.$interpolate0($mach, $rt_createDoubleArrayFromData([$subV, $superV, $subD, $superD, 0.0]));
     }
@@ -11114,36 +11221,13 @@ iocab_FinSetCalc_calculateDampingMoment = ($this, $conditions) => {
     return var$9;
 },
 iocab_FinSetCalc_calculateCPPos = ($this, $cond) => {
-    let $m, $beta, $x, $val, var$6, var$7, var$8, $v;
+    let $m;
     $m = $cond.$getMach();
     if ($m <= 0.5)
         return 0.25;
-    if ($m >= 2.0) {
-        $beta = $cond.$getBeta();
-        return ($this.$ar * $beta - 0.67) / (2.0 * $this.$ar * $beta - 1.0);
-    }
-    $x = 1.0;
-    $val = 0.0;
-    var$6 = $this.$poly.data;
-    var$7 = var$6.length;
-    var$8 = 0;
-    while (var$8 < var$7) {
-        $v = var$6[var$8];
-        $val = $val + $v * $x;
-        $x = $x * $m;
-        var$8 = var$8 + 1 | 0;
-    }
-    return $val;
-},
-iocab_FinSetCalc_calculatePoly = $this => {
-    let $denom;
-    $denom = iocu_MathUtil_pow2(1.0 - 3.4641 * $this.$ar);
-    $this.$poly.data[5] = (-1.58025) * ((-0.728769) + $this.$ar) * ((-0.192105) + $this.$ar) / $denom;
-    $this.$poly.data[4] = 12.8395 * ((-0.725688) + $this.$ar) * ((-0.19292) + $this.$ar) / $denom;
-    $this.$poly.data[3] = (-39.5062) * ((-0.72074) + $this.$ar) * ((-0.194245) + $this.$ar) / $denom;
-    $this.$poly.data[2] = 55.3086 * ((-0.711482) + $this.$ar) * ((-0.196772) + $this.$ar) / $denom;
-    $this.$poly.data[1] = (-31.6049) * ((-0.705375) + $this.$ar) * ((-0.198476) + $this.$ar) / $denom;
-    $this.$poly.data[0] = 9.16049 * ((-0.588838) + $this.$ar) * ((-0.20624) + $this.$ar) / $denom;
+    if (!($m >= 2.0))
+        return iocab_RocketComponentCalc_transonicCPPos($m, $this.$ar);
+    return iocab_RocketComponentCalc_supersonicCPPos($this.$ar * $cond.$getBeta());
 },
 iocab_FinSetCalc_calculateFrictionCD = ($this, $conditions, $componentCf, $warnings) => {
     let $cd;
@@ -11426,11 +11510,11 @@ iocsl_AbstractSimulationListener_preFlightConditions = ($this, $status) => {
 },
 iocsl_AbstractSimulationListener_preGravityModel = ($this, $status) => {
     return NaN;
-};
-let iocsl_AbstractSimulationListener_preMassCalculation = ($this, $status) => {
-    return null;
 },
-iocsl_AbstractSimulationListener_preSimpleThrustCalculation = ($this, $status) => {
+iocsl_AbstractSimulationListener_preMassCalculation = ($this, $status) => {
+    return null;
+};
+let iocsl_AbstractSimulationListener_preSimpleThrustCalculation = ($this, $status) => {
     return NaN;
 },
 iocsl_AbstractSimulationListener_preWindModel = ($this, $status) => {
@@ -25767,7 +25851,7 @@ h_GoldenMain_geodeticScenarios = () => {
     while ($k < var$5) {
         $m = var$4[$k];
         $r = a_OrkEngine_buildRocket($reference);
-        a_OrkEngine_setMotorById($r, $rt_s(623), $rt_s(624), 0.018, 0.07, $rt_createDoubleArrayFromData([0.0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0]), $rt_createDoubleArrayFromData([0.0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0.0]), $rt_createDoubleArrayFromData([0.024, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132]), 0.035, 5.0);
+        a_OrkEngine_setMotorById($r, $rt_s(623), $rt_s(624), 0.018, 0.07, $rt_createDoubleArrayFromData([0.0, 0.1, 0.3, 0.5, 1.0, 1.5, 1.85, 2.0]), $rt_createDoubleArrayFromData([0.0, 12.0, 6.0, 5.1, 4.9, 4.8, 4.5, 0.0]), $rt_createDoubleArrayFromData([0.024, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132]), 0.035, 7.0);
         if ($m === null)
             var$10 = $rt_s(13);
         else {
@@ -48582,7 +48666,7 @@ ioca_BarrowmanCalculator_addDirectChildStagesToQueue = ($this, $configuration, $
     }
 },
 ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditions, $forceMap, $warningSet) => {
-    let $mach, $Re, $Cf, $roughnessCorrection, $otherFrictionCD, $bodyFrictionCD, $maxR, $minX, $maxX, $roughnessLimited, $imap, var$16, $entry, $c, var$19, $finish, var$21, $componentCf, $componentFrictionCD, $instanceCount, $s, $componentMinX, $componentMaxX, $componentMaxR, var$29, var$30, var$31, $fB, $correction, var$34;
+    let $mach, $Re, $Cf, $roughnessCorrection, $otherFrictionCD, $bodyFrictionCD, $maxR, $minX, $maxX, $roughnessLimited, $imap, var$16, $entry, $c, var$19, $finish, var$21, $componentCf, $componentFrictionCD, $instanceCount, $s, $componentMinX, $componentMaxX, $componentMaxR, var$29, var$30, var$31, $bodyLength, $correction, var$34;
     $mach = $conditions.$getMach();
     $Re = ioca_BarrowmanCalculator_calculateReynoldsNumber($this, $configuration, $conditions);
     $Cf = ioca_BarrowmanCalculator_calculateFrictionCoefficient($this, $configuration, $mach, $Re);
@@ -48641,14 +48725,14 @@ ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditio
         }
     }
     a: {
-        $fB = ($maxX - $minX + 1.0E-4) / $maxR;
-        $correction = 1.0 + 1.0 / (2.0 * $fB);
+        $bodyLength = $maxX - $minX + 1.0E-4;
+        $correction = ioca_BarrowmanCalculator_calculateBodyFrictionCorrection($bodyLength, $maxR);
         if ($forceMap !== null) {
-            var$16 = ($forceMap.$entrySet()).$iterator();
+            var$29 = ($forceMap.$entrySet()).$iterator();
             while (true) {
-                if (!var$16.$hasNext())
+                if (!var$29.$hasNext())
                     break a;
-                $entry = var$16.$next();
+                $entry = var$29.$next();
                 if ($entry.$getKey() instanceof iocr_SymmetricComponent)
                     ($entry.$getValue()).$setFrictionCD(($entry.$getValue()).$getFrictionCD() * $correction);
             }
@@ -48657,6 +48741,13 @@ ioca_BarrowmanCalculator_calculateFrictionCD = ($this, $configuration, $conditio
     var$34 = $correction * $bodyFrictionCD;
     $this.$lastBodyFrictionCD = var$34;
     return $otherFrictionCD + var$34;
+},
+ioca_BarrowmanCalculator_calculateBodyFrictionCorrection = ($bodyLength, $maxRadius) => {
+    let $bodyDiameter, $finenessRatio;
+    ioca_BarrowmanCalculator_$callClinit();
+    $bodyDiameter = 2.0 * $maxRadius;
+    $finenessRatio = $bodyLength / $bodyDiameter;
+    return 1.0 + 1.0 / (2.0 * $finenessRatio);
 },
 ioca_BarrowmanCalculator_calculateReynoldsNumber = ($this, $configuration, $conditions) => {
     let var$3;
@@ -51361,7 +51452,6 @@ iocrp_AngleMethod__clinit_ = () => {
 };
 function iocab_TubeFinSetCalc() {
     let a = this; iocab_TubeCalc.call(a);
-    a.$poly0 = null;
     a.$tubes = null;
     a.$bodyRadius0 = 0.0;
     a.$chord = 0.0;
@@ -51385,7 +51475,6 @@ iocab_TubeFinSetCalc__init_ = ($this, $component) => {
     let var$2, var$3, var$4, var$5, $d, $a, $theta1, $a1, $theta2, $a2, $outerArea, $maskedArea, $arprime, var$15, var$16;
     iocab_TubeFinSetCalc_$callClinit();
     iocab_TubeCalc__init_($this, $component);
-    $this.$poly0 = $rt_createDoubleArray(6);
     $this.$geometryWarnings0 = iocl_WarningSet__init_();
     if (!($component instanceof iocr_TubeFinSet)) {
         var$2 = new jl_IllegalArgumentException;
@@ -51495,26 +51584,13 @@ iocab_TubeFinSetCalc_calculateNonaxialForces = ($this, $conditions, $transform, 
     iocab_TubeFinSetCalc_log.$debug($forces.$toString());
 },
 iocab_TubeFinSetCalc_calculateCPPos = ($this, $cond) => {
-    let $m, $beta, $x, $val, var$6, var$7, var$8, $v;
+    let $m;
     $m = $cond.$getMach();
     if ($m <= 0.5)
         return 0.25;
-    if ($m >= 2.0) {
-        $beta = $cond.$getBeta();
-        return ($this.$ar0 * $beta - 0.67) / (2.0 * $this.$ar0 * $beta - 1.0);
-    }
-    $x = 1.0;
-    $val = 0.0;
-    var$6 = $this.$poly0.data;
-    var$7 = var$6.length;
-    var$8 = 0;
-    while (var$8 < var$7) {
-        $v = var$6[var$8];
-        $val = $val + $v * $x;
-        $x = $x * $m;
-        var$8 = var$8 + 1 | 0;
-    }
-    return $val;
+    if (!($m >= 2.0))
+        return iocab_RocketComponentCalc_transonicCPPos($m, $this.$ar0);
+    return iocab_RocketComponentCalc_supersonicCPPos($this.$ar0 * $cond.$getBeta());
 },
 iocab_TubeFinSetCalc_calculateFrictionCD = ($this, $conditions, $componentCf, $warnings) => {
     let $frictionCD;
@@ -58488,13 +58564,13 @@ $rt_stringPool(["Can\'t enter monitor from another thread synchronously", "(this
 + "008,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0.003,\"shape\":\"conical\",\"thickness\":0.001}]}]}",
 "podsonly.small", "{\"name\":\"PodsOnly\",\"components\":[{\"type\":\"stage\",\"nozzleExitDiameter\":0.1,\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.03,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.03,\"thickness\":0.001,\"children\":[{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.01,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.01,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm0\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.0"
 + "08,\"thickness\":0.001}]}]},{\"type\":\"podset\",\"instanceCount\":2,\"children\":[{\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.015,\"thickness\":0.001},{\"type\":\"bodytube\",\"length\":0.2,\"outerRadius\":0.015,\"thickness\":0.001,\"children\":[{\"type\":\"innertube\",\"id\":\"pm1\",\"motorMount\":true,\"length\":0.1,\"outerRadius\":0.008,\"thickness\":0.001}]}]}]},{\"type\":\"transition\",\"length\":0.1,\"foreRadius\":0.03,\"aftRadius\":0,\"shape\":\"conical\",\"thickness\":0.001}]}]}", "podsonly.capped",
-"pm0", "CONST8", "podsonly.loaded", "\"rodLength\":1.2,\"rodAngle\":0.087,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7,\"maxTime\":8", "conditions.windlevels.single", "\"windAverage\":3.0,\"windStdDeviation\":0.6", "conditions.windlevels.one", "\"windLevels\":[{\"altitude\":0,\"speed\":3.0,\"direction\":", ",\"standardDeviation\":0.6}]", "conditions.windlevels.shear", "\"windLevels\":[{\"altitude\":1400,\"speed\":1.0,\"direction\":", ",\"standardDeviation\":0.2},{\"altitude\":1600,\"speed\":6.0,\"direction\":2.0,\"standardDeviation\":0.8},{\"altitude\":2000,\"speed\":12.0,\"direction\":3.141592653589793,\"standardDeviation\":1.5}]",
+"pm0", "CONST8", "podsonly.loaded", "\"rodLength\":1.2,\"rodAngle\":0.087,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":4,\"maxTime\":8", "conditions.windlevels.single", "\"windAverage\":3.0,\"windStdDeviation\":0.6", "conditions.windlevels.one", "\"windLevels\":[{\"altitude\":0,\"speed\":3.0,\"direction\":", ",\"standardDeviation\":0.6}]", "conditions.windlevels.shear", "\"windLevels\":[{\"altitude\":1400,\"speed\":1.0,\"direction\":", ",\"standardDeviation\":0.2},{\"altitude\":1600,\"speed\":6.0,\"direction\":2.0,\"standardDeviation\":0.8},{\"altitude\":2000,\"speed\":12.0,\"direction\":3.141592653589793,\"standardDeviation\":1.5}]",
 "windlevels.steady.msl", "\"windLevels\":[{\"altitude\":0,\"speed\":0,\"direction\":", "},{\"altitude\":300,\"speed\":4.0,\"direction\":", "}]", "windlevels.steady.agl", "}],\"windAltitudeReference\":\"AGL\"", "flight.", "maxVelocity", "timeToApogee", "altitude", "bare", "pods", "step", "pods.ss", "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.6}", "machs", "podnozzle.", "total", "pods.kbf", "0.020", "pods.classic", "podmotors.kbf", "0.015", "cmount", "CONST16", "pmount", "{\"rodLength\":1.0}", "flight.podnozzle.",
 ",\"children\":[{\"type\":\"innertube\",\"id\":\"pmount\",\"length\":0.07,\"outerRadius\":0.0095,\"thickness\":0.0005,\"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}}]", ",{\"type\":\"podset\",\"id\":\"pods\",\"instanceCount\":2,\"radiusMethod\":\"relative\",\"radiusOffset\":0,\"angleOffset\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":[  {\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.012,\"thickness\":0.002},  {\"type\":\"bodytube\",\"length\":0.25,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950",
 "}]}", "{\"type\":\"nosecone\",\"length\":0.12,\"aftRadius\":0.0145,\"thickness\":0.002},", "{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.02,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.3,\"outerRadius\":0.02,\"thickness\":0.0005,\"density\":950},", "{\"name\":\"PodNozzle\",\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":", ",\"children\":[", "{\"type\":\"bodytube\",\"length\":0.6,\"outerRadius\":0.0145,\"thickness\":0.0005,\"density\":950,\"children\":[  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.07,\"tipChord\":0.035,\"sweep\":0.04,\"height\":0.05,\"thickness\":0.003},  {\"type\":\"innertube\",\"id\":\"cmount\",\"length\":0.1,\"outerRadius\":0.0125,\"thickness\":0.0005,   \"motorMount\":true,\"position\":{\"method\":\"bottom\",\"offset\":0}},  {\"type\":\"parachute\",\"diameter\":0.45}",
 "]}]}]}", "valid", "[[0,0],[0.02,0.03],[0.045,0.03],[0.06,0]]", "crossing", "[[0,0],[0.02,0.03],[0.005,0.02],[0.06,0]]", "repeated", "[[0,0],[0.02,0.03],[0.02,0.03],[0.06,0]]", "{\"components\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.02,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.4,\"outerRadius\":0.02,\"thickness\":0.001,\"children\":[  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"name\":\"Fins\",\"finCount\":3,\"thickness\":0.003,   \"points\":", "}]}]}", "freeform.outline.", ".info",
 ".refused|", "m1", ",\"radialPosition\":0.03,\"radialDirection\":0", "m2", ",\"radialPosition\":0.03,\"radialDirection\":3.141592653589793", "centre", ",\"radialPosition\":0", "split", "double", ",\"cluster\":\"double\",\"clusterScale\":1.9354838709677418,\"clusterRotation\":0", "single", "ring3", ",\"cluster\":\"3-ring\",\"clusterScale\":1.0,\"clusterRotation\":0", "ring3zero", ",\"cluster\":\"3-ring\",\"clusterScale\":0,\"clusterRotation\":0", "split.canted", "{\"name\":\"OffAxis\",\"components\":[{\"type\":\"nosecone\",\"length\":0.25,\"aftRadius\":0.049,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.9,\"outerRadius\":0.049,\"thickness\":0.0012,\"density\":950,\"children\":[  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.14,\"tipChord\":0.07,\"sweep\":0.07,   \"height\":0.09,\"thickness\":0.003,\"cant\":",
-"},", ",  {\"type\":\"parachute\",\"diameter\":0.9}]}]}", "\"m2\"", "M29", ".canted", "{\"rodLength\":1.5}", "flight.offaxis.", "inertia.offaxis.", "mass", "massEmpty", "cg", "rotationalInertia", "longitudinalInertia", "rotationalInertiaEmpty", "longitudinalInertiaEmpty", "{\"type\":\"innertube\",\"id\":\"", "\",\"length\":0.2,\"outerRadius\":0.0155,\"thickness\":0.0005,\"density\":1000,\"motorMount\":true", ",\"position\":{\"method\":\"bottom\",\"offset\":0}}", "{\"name\":\"StrapOns\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":[{\"type\":\"nosecone\",\"length\":0.2,\"aftRadius\":0.029,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.8,\"outerRadius\":0.029,\"thickness\":0.001,\"density\":950,\"children\":[  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.15,\"tipChord\":0.08,\"sweep\":0.07,\"height\":0.10,\"thickness\":0.003},  {\"type\":\"parachute\",\"diameter\":0.6},  {\"type\":\"parallelstage\",\"id\":\"boost\",\"instanceCount\":",
+"},", ",  {\"type\":\"parachute\",\"diameter\":0.9}]}]}", "\"m2\"", "M29", ".canted", "{\"rodLength\":1.497}", "flight.offaxis.", "inertia.offaxis.", "mass", "massEmpty", "cg", "rotationalInertia", "longitudinalInertia", "rotationalInertiaEmpty", "longitudinalInertiaEmpty", "{\"type\":\"innertube\",\"id\":\"", "\",\"length\":0.2,\"outerRadius\":0.0155,\"thickness\":0.0005,\"density\":1000,\"motorMount\":true", ",\"position\":{\"method\":\"bottom\",\"offset\":0}}", "{\"name\":\"StrapOns\",\"components\":[{\"type\":\"stage\",\"name\":\"Core\",\"children\":[{\"type\":\"nosecone\",\"length\":0.2,\"aftRadius\":0.029,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.8,\"outerRadius\":0.029,\"thickness\":0.001,\"density\":950,\"children\":[  {\"type\":\"trapezoidfinset\",\"finCount\":4,\"rootChord\":0.15,\"tipChord\":0.08,\"sweep\":0.07,\"height\":0.10,\"thickness\":0.003},  {\"type\":\"parachute\",\"diameter\":0.6},  {\"type\":\"parallelstage\",\"id\":\"boost\",\"instanceCount\":",
 ",\"nozzleExitDiameter\":0.010,   \"radiusMethod\":\"relative\",\"radiusOffset\":0,\"angleOffset\":0,\"angleMethod\":\"relative\",   \"separationEvent\":\"burnout\",\"separationDelay\":0,\"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":[    {\"type\":\"nosecone\",\"length\":0.06,\"aftRadius\":0.0155,\"thickness\":0.002},    {\"type\":\"bodytube\",\"id\":\"bmount\",\"length\":0.3,\"outerRadius\":0.0155,\"thickness\":0.0005,\"density\":950,\"motorMount\":true}  ]}]}]}]}", "bmount", "CONST32", "{\"rodLength\":1.0,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000,\"maxTime\":3,\"series\":\"full\"}",
 "flight.pthrust.para", "time", "P", ".sample.", "{\"name\":\"MinDia\",\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"nozzleExitDiameter\":%NOZ%,\"children\":[{\"type\":\"nosecone\",\"length\":0.10,\"aftRadius\":0.012,\"thickness\":0.002},{\"type\":\"bodytube\",\"id\":\"body\",\"length\":0.45,\"outerRadius\":0.012,\"thickness\":0.0005,\"density\":950,\"motorMount\":true,\"motorOverhang\":0.006,\"children\":[  {\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.025,\"thickness\":0.003},  {\"type\":\"parachute\",\"diameter\":0.30}]}]}]}",
 "classic", "0.014", "kbf", "ss", "nonozzle", "kbf.pad", "{\"rodLength\":1.0,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000}", "%NOZ%", "body", "flight.pthrust.", "pthrust.term", "{\"type\":\"trapezoidfinset\",\"finCount\":3,\"rootChord\":0.08,\"tipChord\":0.04,\"sweep\":0.03,\"height\":0.05,\"thickness\":0.003,\"position\":{\"method\":\"bottom\",\"offset\":0}}", "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":[{\"type\":\"nosecone\",\"length\":0.15,\"aftRadius\":0.025,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.50,\"outerRadius\":0.025,\"thickness\":0.001,\"density\":680,  \"children\":[",
@@ -58520,7 +58596,7 @@ $rt_stringPool(["Can\'t enter monitor from another thread synchronously", "(this
 "finish.", "{\"components\":[{\"type\":\"nosecone\",\"length\":0.217424,\"aftRadius\":0.02032,\"thickness\":0.001524,\"density\":1850},{\"type\":\"bodytube\",\"length\":0.7366,\"outerRadius\":0.02032,\"thickness\":0.001016,\"density\":1954.89,\"children\":[  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"finCount\":3,\"thickness\":0.00254,\"crossSection\":\"rounded\",\"density\":1556.99,   \"filletRadius\":", ",\"filletDensity\":1729.99404,   \"points\":[[0,0],[0.1397,0.0508],[0.1905,0.0508],[0.2159,0]]}]}]}",
 "fins.fillet.", ".comp", "ff", "{\"components\":[{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":[  {\"type\":\"freeformfinset\",\"finCount\":3,\"thickness\":0.003,\"crossSection\":\"airfoil\",   \"points\":[[0,0],[0.03,0.035],[0.055,0.035],[0.06,0.0]],   \"position\":{\"method\":\"bottom\",\"offset\":0}}]}]}", "fins.freeform.info", "{\"components\":[{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},{\"type\":\"bodytube\",\"id\":\"body\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":[  {\"type\":\"trapezoidfinset\",\"id\":\"fins\",\"finCount\":3,\"rootChord\":0.05,\"tipChord\":0.03,\"sweep\":0.02,\"height\":0.03,\"thickness\":0.003,\"density\":680,   \"position\":{\"method\":\"bottom\",\"offset\":0}}]}]}",
 "fins.tab.none", "fins.tab.none.comp", "fins", "\"position\":{\"method\":\"bottom\",\"offset\":0}}", "\"position\":{\"method\":\"bottom\",\"offset\":0},\"tabHeight\":0.010,\"tabLength\":0.030,\"tabOffset\":0,\"tabOffsetMethod\":\"middle\"}", "fins.tab.10mm", "fins.tab.10mm.comp", "fins.tab.10mm.body", "\"position\":{\"method\":\"bottom\",\"offset\":0},\"tabHeight\":0.5,\"tabLength\":0.030}", "fins.tab.clamped.comp", "{\"components\":[{\"type\":\"nosecone\",\"length\":0.07,\"aftRadius\":0.012,\"thickness\":0.002},{\"type\":\"bodytube\",\"length\":0.30,\"outerRadius\":0.012,\"thickness\":0.0003,\"density\":950,\"children\":[  {\"type\":\"freeformfinset\",\"id\":\"ff\",\"finCount\":3,\"thickness\":0.003,\"crossSection\":\"airfoil\",\"density\":680,   \"points\":[[0,0],[0.03,0.035],[0.055,0.035],[0.06,0.0]],   \"tabHeight\":0.008,\"tabLength\":0.025,\"tabOffset\":0,\"tabOffsetMethod\":\"middle\",   \"position\":{\"method\":\"bottom\",\"offset\":0}}]}]}",
-"fins.tab.freeform", "fins.tab.freeform.comp", "length", "sectionMass", "cgX", "positionX", "{\"rodLength\":1.2,\"rodAngle\":0.087,\"windAverage\":3.0,\"windStdDeviation\":0.6,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":7,\"maxTime\":8}", "groundHitVelocity", "flight.conditions.summary", "maxMachNumber", "launchRodVelocity", "deploymentVelocity", "optimumDelay", "flight.conditions.summaryext", "velocity", "acceleration", "drag", "mach", "stability", "cpLocation", "cgLocation",
+"fins.tab.freeform", "fins.tab.freeform.comp", "length", "sectionMass", "cgX", "positionX", "{\"rodLength\":1.2,\"rodAngle\":0.087,\"windAverage\":3.0,\"windStdDeviation\":0.6,\"launchAltitude\":1400,\"temperature\":303.15,\"pressure\":86000,\"randomSeed\":4,\"maxTime\":8}", "groundHitVelocity", "flight.conditions.summary", "maxMachNumber", "launchRodVelocity", "deploymentVelocity", "optimumDelay", "flight.conditions.summaryext", "velocity", "acceleration", "drag", "mach", "stability", "cpLocation", "cgLocation",
 "aoa", "flight.conditions.serieslens", "tree.api.ref", "tree.info.ref", "{\"name\":\"Extended\",\"components\":[{\"type\":\"nosecone\",\"length\":0.1,\"aftRadius\":0.0125,\"thickness\":0.002,\"shape\":\"haack\"},{\"type\":\"bodytube\",\"length\":0.35,\"outerRadius\":0.0125,\"thickness\":0.0005,\"density\":950,\"children\":[  {\"type\":\"ellipticalfinset\",\"finCount\":4,\"rootChord\":0.06,\"height\":0.04,\"thickness\":0.003},  {\"type\":\"launchlug\",\"length\":0.05,\"outerRadius\":0.0025,\"thickness\":0.0004,   \"position\":{\"method\":\"middle\",\"offset\":0}},  {\"type\":\"innertube\",\"id\":\"mount\",\"length\":0.08,\"outerRadius\":0.012,\"thickness\""
 + ":0.0005,\"motorMount\":true,   \"position\":{\"method\":\"bottom\",\"offset\":0},\"children\":[    {\"type\":\"engineblock\",\"length\":0.005,\"thickness\":0.001,\"position\":{\"method\":\"top\",\"offset\":0}}  ]},  {\"type\":\"centeringring\",\"length\":0.002,\"position\":{\"method\":\"bottom\",\"offset\":-0.01}},  {\"type\":\"centeringring\",\"length\":0.002,\"position\":{\"method\":\"bottom\",\"offset\":-0.07}},  {\"type\":\"streamer\",\"stripLength\":0.6,\"stripWidth\":0.05,\"position\":{\"method\":\"top\",\"offset\":0.02}},  {\"type\":\"shockcord\",\"cordLength\":0.4,\"position\":"
 + "{\"method\":\"top\",\"offset\":0.01}},  {\"type\":\"masscomponent\",\"mass\":0.015,\"length\":0.02,\"radius\":0.006,\"position\":{\"method\":\"top\",\"offset\":0.05}}]},{\"type\":\"transition\",\"length\":0.04,\"foreRadius\":0.0125,\"aftRadius\":0.009,\"thickness\":0.001,\"shape\":\"conical\",\"density\":680}]}", "tree.info.ext", "cna", "stabilityCalibers", "warnings", "random.seeded42", "00000001-0001-4001-8001-000000000001", "Estes", "harness-c6", "flight.summary", "flight.event.", "flight.eventdata|",

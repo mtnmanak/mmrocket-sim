@@ -349,7 +349,9 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
   stays continuous. (2) Body-fin interference `(1+τ)` replaced by the exact NACA Report
   1307 Eq. 14 split `K_W(B) + fa·K_B(W)` at all Mach, with afterbody carryover factor
   `fa = min(1, 0.5 + afterbody/rootChord)` (computed in the constructor by walking the
-  parent body + aft symmetric siblings; fins flush with the base get half carryover).
+  parent body + aft symmetric siblings; fins flush with the base get half carryover; since
+  2026-10-08 the walk follows stations and an overhanging fin's overhang uses up the following parts -
+  see the row 75 entry below).
   The `rogersKbf` term is suppressed while this flag is on (1307 already contains the
   full carryover — double counting otherwise).
 - **aerodynamics/barrowman/SymmetricComponentCalc.java** (NEW patch — first SCC patch):
@@ -2062,6 +2064,264 @@ aerodynamic model.
   passed. Exact mutation counts, commands and remaining limits are recorded in
   CODEX-REPORT.md, Fix 2. These checks do not replace an accepted-baseline JVM
   golden comparison, corpus validation or the orchestrator's integration gate.
+
+### aerodynamics/barrowman/RocketComponentCalc.java (NEW patch) + FinSetCalc.java + TubeFinSetCalc.java (NEW patch) - bounded fin CP at low aspect ratio (OpenRocket #3196 / PR #3262, superseding #3235; 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, decision 70 - apply the upstream aerodynamic fixes in ALL models,
+  Classic included. No flag and no Classic-parity exception. `calculateCPPos` was never model-gated, so
+  Classic, Kbf, Supersonic and Hybrid (through its two endpoint calculators) all take the change.
+  Plan: `docs/research/or-issues-sweep-2026-10-07/BUG-PLAN.md` sections 12 and 24; worktree plan
+  `.claude/aero-plan.md`.
+- **Defects:** (1) above Mach 2 the fin CP fraction along the MAC is `(AR*beta - 0.67)/(2*AR*beta - 1)`,
+  which has a POLE at AR*beta = 0.5 (NACA 1307 eq. 63 holds only for AR*beta > 1). A fin with
+  AR < 0.289 crosses it above Mach 2: measured on a 3-fin AR 0.2 rectangle on a 25 mm body, whole-rocket
+  CP read 4,078 mm on a 400 mm rocket at M2.69 (Classic). (2) Between Mach 0.5 and 2 a fifth-order
+  polynomial with Mathematica coefficients rounded to six figures and the common denominator
+  `(1 - 3.4641*AR)^2` - singular at AR 0.2887 (AR 0.29: CP fraction -2.0 at M0.51) and forward-moving
+  for low/intermediate AR (AR 0.6). (3) #3235: TubeFinSetCalc in 24.12 allocates the same polynomial
+  but never fills it, so a tube fin's CP between M0.5 and M2 sat at the tube's LEADING EDGE (fraction 0).
+- **Change:** upstream PR #3262 ported, merged onto OUR files. RocketComponentCalc gains upstream's
+  block verbatim (`SUBSONIC_CP_POS`, `supersonicCPPos` - quarter chord below AR*beta 0.84, a cubic Hermite
+  bridge to the source formula at AR*beta = 1, the source formula above; `transonicCPPos` - the same
+  quintic computed from exact endpoint constraints, and above slope ratio 5/3 a monotone continuation
+  `0.25 + delta * B(t)^(k/(5/3))`). FinSetCalc (our feature patch) loses `poly`, the constructor's
+  `calculatePoly()` call and `calculatePoly()` itself; its `calculateCPPos` calls the two helpers.
+  Nothing else in FinSetCalc moved - the Kbf root-quarter-chord carryover, the NACA-1307 split, the
+  ssaero scale, cross-section/airfoil drag and `calculateAfterbodyFactor` are untouched (the last is a
+  separate known defect, docs/research/supersonic-cp-2026-10-08/REPORT.md, deliberately out of scope).
+  TubeFinSetCalc (new patch, upstream 24.12 + #3262's hunks) does the same; #3235's `calculatePoly()`
+  call is NOT taken - #3262 deletes the polynomial it would fill.
+- **Limit (upstream's own, kept):** the low-AR quarter-chord fallback and bridge are a bounded continuity
+  device, not a measured low-aspect-ratio CP; they remove the singularity, not the model gap.
+- **Behavioural guard:** `packages/engine/src/lowArFinCP.test.ts` (9 tests, through the shipped bridge,
+  fin CP isolated exactly by subtracting the same rocket without fins): AR 0.2 through the old pole
+  (finite, aft-moving, < 1 % chord per 0.01 Mach, quarter chord at M4, source branch at M5.2); AR 0.29 and
+  AR 0.6 transonic; Classic equals the regularised curve at AR 0.2/0.35/0.6/2.5 (1e-9, a TS transcription,
+  no kernel float literals); continuity at M0.5 and M2; tube fins AR 0.2 and AR 1 in all four models;
+  rounded and airfoil low-AR freeform fins in all four models.
+  **Fail-on-old:** against the pre-change artifact all 9 fail (vitest exit 1). **Mutations** (each a rebuilt
+  artifact, exit 1): tube-fin patch removed -> the 2 tube tests fail, the 7 others pass; low-AR bridge
+  bypassed (`supersonicCPPos` returns the source formula) -> 7 fail; monotone continuation bypassed (always
+  the quintic) -> the AR 0.6 test fails. Restored artifact md5 identical to the pre-mutation build.
+- **Artifact:** md5 `270fc0d6e7cd46afc4ec5e7e24e13f9d` -> `c72255847906eaecc4cefe08e5ad2316`;
+  `transonicCPPos` 0 -> 3, `supersonicCPPos` 0 -> 4, `sourceSupersonicCPGradient` 0 -> 4,
+  `calculatePoly` 2 -> 0 occurrences.
+- **Goldens (JVM before/after `goldenJvm`, 421 lines):** 32 lines move, all fin-CP consumers on ordinary-AR
+  fins: 16 `aero.cp` + 12 `aero.forces` (M0.8-1.5, CP x by at most 4.9e-8 m - the six-figure coefficient
+  rounding, nothing else), `rogerskbf.0.8`, `ssaero.1.2`, and two flights by ULP-chaos
+  (`flight.offaxis.split.canted` max speed 323.576 -> 323.617 m/s, 1.3e-4 rel, apogee +1.3e-5 m;
+  `flight.podnozzle.podmotors.kbf` apogee 1.2e-11 m). Lines at M <= 0.5 and at M >= 2 with AR*beta >= 1 are
+  bit-identical. Differential: `differential ok: 421 lines (283 bit-identical, 138 within tolerance)`.
+- **Validation harness (`validation/score.mjs`, all four models, old vs new artifact):** gate points
+  unchanged - Classic 13/191, Kbf 21/191, Supersonic 77/191, Hybrid 73/191; 4-5 rows per model move in the
+  fourth decimal of %L (e.g. 70.9611 -> 70.9612).
+- **Measured design-level change (whole-rocket CP x, 400 mm rocket, 25 mm body, Classic):** 6 tube fins
+  AR 1: M0.8 344.9 -> 358.9 mm, M1.0 344.9 -> 360.7, M1.5 344.9 -> 364.3 (+14 to +19 mm, 0.6-0.8 cal, aft);
+  6 tube fins AR 0.4: M0.8-1.99 327.1 -> 338.6 mm (+11.6 mm); 3 rectangular fins AR 0.2: M2.69
+  4,077.6 -> 177.5 mm, M2.5 245.2 -> 184.0, M1.5 253.3 -> 238.5; an ordinary trapezoid (50/30/20/30 mm):
+  unchanged to 1 um at every Mach sampled. Aft CP = more displayed margin for tube-fin designs between
+  M0.5 and M2, where the old kernel UNDERSTATED it.
+
+### aerodynamics/barrowman/FinSetCalc.java + aerodynamics/BarrowmanCalculator.java - transonic CNa lower-endpoint slope (OpenRocket PR #3236) and body-friction fineness on the DIAMETER (OpenRocket PR #3237; 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, decision 70 (as the #3262 entry above): ALL models, Classic included, no
+  flag. Neither line was model-gated, so Classic, Kbf, Supersonic and Hybrid (both endpoint calculators)
+  take both changes. Plan: `BUG-PLAN.md` sections 22 and 23.
+- **#3236 defect:** `calculateFinCNa1` bridges M0.9-1.5 with a quartic `PolyInterpolator` (value and
+  slope at both ends, zero curvature at 0.9). The lower slope `subD` - d(CNa)/dM of the subsonic formula
+  at M0.9 - was written with the QUERIED `mach` in place of `CNA_SUBSONIC`, so the endpoint data moved
+  with every query and the curve was not the interpolant (its value/slope at 0.9 and 1.5 happened to
+  survive, because the slope's basis function vanishes at both ends; only the interior was wrong).
+  **Change:** `2 * mach * Math.PI` -> `2 * CNA_SUBSONIC * Math.PI` (TeaVM folds it to
+  `5.654866776461628`). Nothing else in FinSetCalc moved.
+- **#3237 defect:** the body skin-friction wetted-area correction `1 + 1/(2 fB)` (technical documentation
+  eq. 3.85) took fB = length / max RADIUS; the equation's fB is length / max DIAMETER, so the correction
+  term was halved (L/D 10: 1.025 where 1.05 is right; body friction +2.4 %, NOT total CD). **Change:**
+  upstream's `static calculateBodyFrictionCorrection(bodyLength, maxRadius)` added to our monolithic
+  BarrowmanCalculator (upstream has split it into BarrowmanDragCalculator); `calculateFrictionCD` calls it
+  with the same `maxX - minX + 0.0001` length. `maxR = 0` still gives correction 1. The per-component
+  forceMap correction, `lastBodyFrictionCD` (the body-ratio override reference) and the return value all
+  use the one `correction`, so every drag breakdown still sums; fins and appendages stay outside it.
+- **Known defect left in place (BUG-PLAN 23, its own item):** with `supersonicAero` the bridge's upper
+  slope is `sscale * dK1/dM`; it omits `d(ssaeroScale)/dM * K1` (ssaeroScale depends on Mach through beta
+  above its 0.25 floor). Measured on the new kernel (fin CNa slope at M1.5 from the supersonic side vs the
+  coded `superD`): rectangle AR 1.6 -38.8 %, a 3FNC-like trapezoid -28.8 %, AR 0.8 -127 % (sign flips),
+  AR 3.2 -16.2 %; refitting the quartic with the true slope would move the Supersonic/Hybrid fin CNa in
+  the bridge by up to 2.7 % (AR 1.6), 1.9 %, 9.4 % (AR 0.8) and 1.0 % around M1.35. Classic/Kbf's upper
+  slope is the analytic `-2M/beta^3` of K1 while their supersonic side is the 0.1-Mach K1 grid's secant
+  (upstream behaviour, not touched). Not fixed here: it needs its own ruling, change and test.
+- **Behavioural guards:** `packages/engine/src/transonicFinCNa.test.ts` (8 tests): the M0.9 slope equals
+  the analytic `0.9 k^2/(sq(1+sq))` ratio for three rectangles (finite-difference check of the endpoint);
+  every interior Mach 0.92-1.48 lies on the ONE quartic the endpoint data define (rect at three spans in
+  Classic/Kbf/Supersonic; rounded and airfoil freeform fins in Classic/Kbf/Supersonic; Hybrid = the
+  smoothstep mix of the Kbf and Supersonic quartics), 1e-7 relative; values and one-sided slopes at both
+  endpoints (guard; passes on both kernels). `packages/engine/src/bodyFrictionFineness.test.ts` (2 tests,
+  all four models, flight path AND drag sweep): two lone tubes of one length and two radii scale by exactly
+  corr(R1)/corr(R2) with corr = 1 + R/(L + 1e-4) (Cf cancels); the fin increment divided by the bare
+  tube's implied Cf is the same at L 0.3/0.6/1.2 (fins uncorrected), and in Classic equals
+  `n (1 + 2t/c) 2S / Aref`. The body-ratio override's decomposition is guarded by the existing
+  `orkEngine.test.ts` "a body-proportional CD override" tests.
+  **Fail-on-old:** pre-change artifact - transonicFinCNa exit 1 (6 of 8 fail; the 2 endpoint guards pass),
+  bodyFrictionFineness exit 1 (2 of 2 fail). **Mutations** (each a rebuilt artifact): `subD` back to
+  `mach` -> transonicFinCNa exit 1 (6 fail), bodyFrictionFineness exit 0; `bodyDiameter = maxRadius` ->
+  bodyFrictionFineness exit 1 (2 fail), transonicFinCNa exit 0; `lastBodyFrictionCD` on the old radius
+  correction -> orkEngine body-ratio exit 1 (both method tests fail, including the unpinned no-base one).
+  Restored artifact md5 identical to the pre-mutation build.
+- **Artifact:** md5 `c72255847906eaecc4cefe08e5ad2316` -> `d9bb4cdc6f87644c152d00ad4c563e44`;
+  `calculateBodyFrictionCorrection` 0 -> 2, `$fB` 3 -> 0, `2.0 * $mach * 3.141592653589793` 1 -> 0,
+  `5.654866776461628` 0 -> 1 occurrences.
+- **Goldens (JVM before/after `goldenJvm`, 421 lines):** 218 move. CP/CNa: only `aero.cp` at M0.95 and
+  M1.05 (8 of 32) and `ssaero.1.2` (1 of 4) - nothing at M <= 0.8 or M >= 1.5, `rogerskbf.*` unchanged.
+  Drag: every friction consumer (all 32 `aero.forces`, `dragsweep`, `cdratio`, `finish.*`, `ssaerocd`,
+  `ssphase5/6`, `transition.*`, `fins.crosssection.*`, `finsection.*`, `ssjunction`, `nozzle.basecd`,
+  `podnozzle.*`) and every flight. Mass,
+  inertia, geometry, ISA, tree and event-structure lines unchanged. C6 reference flight 331.7669 ->
+  330.7504 m (-0.31 %), mindia 329.6097 -> 328.6945 m.
+- **Differential: `DIFFERENTIAL FAILURE: 5 mismatched line(s) of 421`** - all 416 non-flight lines (every
+  aero/drag line) agree; the five are flights: `flight.geodetic.absent/spherical/flat` (flightTime 7.3e-7
+  rel), `flight.offaxis.split.canted` (1.5e-9 rel vs 1e-9) and the turbulent `flight.conditions.summaryext`
+  (1.1e-4 rel vs 1e-5). Same five with #3237 alone (mutation build, #3236 reverted); #3236 alone passes
+  (`421 lines (284 bit-identical, 137 within tolerance)`). Diagnosed as a step-count knife edge, not a
+  fidelity break: in the JVM run itself `geodetic.absent` and `geodetic.wgs84` (same dynamics, ULP-different
+  coordinates) now land 7.5e-5 s apart (were 4.8e-11 s), and JS `absent` equals JVM `wgs84` to 2e-13;
+  in JS alone, 6 of 48 single-input perturbations of 1-4 ulp (rodAngle, launchAltitude, pressure,
+  rodLength, temperature) reproduce the JVM's 103.600745357 s exactly - one extra integration row
+  (743 vs 742). The tolerance was NOT widened.
+- **Resolved 2026-10-08 (Stage A4): three golden SCENARIOS moved off their knife edges; no kernel, tolerance
+  or difftest change.** Re-diagnosed independently by dumping every integration row of each failing flight
+  on both runtimes (`api.OrkEngine.simulateJson`, series `full`) and on the kernel before #3236/#3237:
+  - *Not a #3237 runtime divergence.* `calculateBodyFrictionCorrection` is `2*R`, `L/D`, `1 + 1/(2 fB)`:
+    IEEE-exact `+ - * /` on both runtimes, no transcendental; every aero/drag line through it agrees.
+    In the geodetic and off-axis flights the first rows agree to 1e-16..1e-13 relative and the state stays
+    within ~1e-11 (near-zero crosswind components aside) until one discrete step decision; the turbulent
+    flight grows chaotically instead (1e-5 in step size by t = 2.4 s).
+  - *Geodetic (absent/spherical/flat): a last-bit coin flip.* C6-5 ejected at 7.0 s, before apogee (~7.17
+    s), so the 3DOF Euler recovery stepper landed apogee itself (`AbstractEulerStepper`, t = |v/a|).
+    Rows 0-242 agree (v at row 242: 0.49213449572114 JVM vs 0.49213449570823 JS); row 243 leaves
+    v + a t = 5.55e-17 (2^-54) on the JVM and exactly 0 on TeaVM. The JVM's positive residual is a
+    second "apogee", a 1 ms MIN_TIME_STEP step (row 244 at 7.1678 s against JS 7.2381 s), and the
+    descent is resampled: flightTime 7.3e-7 apart, 743 vs 742 rows. Across 12 rod angles
+    0.0864-0.0875 x {absent, flat, wgs84}: **9 of 36 fail with delay 5, 0 of 36 with delay 7** (worst
+    6.3e-11). The kernel before #3237 already failed 1 of 12 (absent). **Change:** `geodeticScenarios`
+    ejection delay 5 -> 7 s (C6-7): ejection follows apogee, so the Euler stepper never lands one.
+  - *Off-axis canted: a lottery draw.* A windless vertical flight whose only pitch/yaw motion is the
+    stepper's seeded random moment (`RK4SimulationStepper` PITCH_YAW_RANDOM). At t = 1.73 s (row 326),
+    where the pitch rate crosses zero, the JVM/JS pitch-rate difference jumps from 1e-11 to 5e-7 relative
+    and step sizes then differ by up to 1e-4 relative: timeToApogee ends 1.47e-9 apart (budget 1e-9).
+    The same amplification is intrinsic to the flight: on the JVM alone a 1-ulp rodLength change moves
+    timeToApogee 4.2e-8. Rods 1.495-1.505 m: 2 of 11 fail on the #3237 kernel, 5 of 11 on the one
+    before; launch altitudes 0-70 m: 3 of 11 and 2 of 11. No structural setting was found (timeStep
+    0.02/0.01, flat geodetics, a 0.087 rod angle, later ejection, 100 N thrust all still fail 1-11 of 11).
+    **Change:** `offAxisInertiaScenarios` canted flight rod 1.5 -> 1.497 m, which agrees to ~3e-15 with
+    equal row counts on BOTH kernels. A re-drawn ticket, stated as one in the code.
+  - *Turbulent conditions: a lottery per seed.* The 8 s windy flight's drift past the 1e-5 budget sits
+    near apogee (deploymentVelocity, optimumDelay - small speeds). Seeds 1-16 fail 11 of 16 on the
+    kernel before #3237 and 11 of 16 on the #3237 kernel (not the same eleven); seed 7 drew 2.0e-6 before and 1.1e-4 after.
+    Earlier ejection (delay 3 or 4) fails 10 and 9 of 16. Seed 4 drew 2.1e-7 before and 7.3e-9 after,
+    and failed 2 of 11 rod angles 0.0865-0.0870 where seed 7 failed 8 of 11 and seed 5 failed 5.
+    **Change:** `conditionsScenarios` randomSeed 7 -> 4, and `windLevelScenarios`' pad with it (its
+    `single` row reprints this flight; seed 7's `single` driftAtApogee sat at 8.2e-6 of the 1e-5 budget).
+  - **Goldens (JVM before/after `goldenJvm`, 421 lines): 13 move, all in the three changed scenarios**
+    (difftest keeps no stored baseline, so nothing else is regenerated): `flight.conditions.summary`,
+    `.summaryext`, `.serieslens` (372 -> 364 rows), the five `windlevels` rows (seed 4; the two steady
+    rows move too, because the stepper's random pitch/yaw moment is seeded by randomSeed - their wind
+    does not move: steady.msl reads exactly 4 m/s throughout on seeds 7, 4 and 1), `flight.offaxis.split.canted`, and the four `flight.geodetic.*`
+    rows (C6-7: apogee 365.0989 -> 365.2777 m, flightTime 103.60 -> 101.33 s, landing 215.46 -> 195.27 m
+    from the pad). The geodetic harness checks (absent == spherical bit for bit; flat lands elsewhere;
+    wgs84 reports another longitude) hold on both runtimes. Worst JVM/JS difference now, line by line:
+    conditions 2.3e-10 / 7.3e-9 / 0 rows, windlevels 5.5e-9 / 5.5e-9 / 1.7e-10 (turbulent budget 1e-5)
+    and 2.5e-11 / 5.4e-11 (steady, 1e-9), offaxis 2.9e-15, geodetic 7.2e-12 / 7.2e-12 / 4.0e-12 /
+    1.9e-12. Artifact: harness strings only (8 lines of `orkengine.mjs`), md5
+    `d9bb4cdc6f87644c152d00ad4c563e44` -> `108eb93c223a23e74c0175f7a2bfa0c9`.
+  - **Differential:** `differential ok: 421 lines (278 bit-identical, 143 within tolerance)`, exit 0.
+  - The off-axis and turbulent lines remain lotteries by construction (a vertical windless flight; a
+    chaotic one); a later kernel change may re-draw them. Re-pick the same way: sweep one input on both
+    runtimes, take a value that agrees with margin on the old and the new kernel, and record it here.
+
+### aerodynamics/barrowman/FinSetCalc.java - Supersonic afterbody: count only the body behind the fin (board Tier 0 row 75, option (a); 2026-10-08)
+
+- **Ruling:** Eric, 2026-10-08, board Tier 0 row 75, option (a): fix the Supersonic model's afterbody
+  bookkeeping AT EVERY MACH (subsonic Supersonic and Hybrid's blend may move; Classic and Kbf must not).
+  Investigation: `docs/research/supersonic-cp-2026-10-08/REPORT.md` (section "Body-fin interference:
+  confirmed geometry defect"); results: `docs/research/supersonic-cp-2026-10-08/FIX-RESULTS.md`.
+- **Defect (our feature #1 Phase 1 patch, not upstream):** `calculateAfterbodyFactor` set the afterbody
+  to `max(0, parentLength - (finTop + rootChord))` and then added the FULL length of every later
+  `SymmetricComponent` sibling. A fin overhanging the aft end of its tube has a negative remainder; the
+  `max(0, ...)` threw the overhang away and the boattail behind it was counted whole. ARCAS (fins 39.1161 mm
+  past the tube onto a 45.974 mm boattail): afterbody 45.974 mm where 6.8579 mm lies behind the root
+  trailing edge, `fa = min(1, 0.5 + afterbody/rootChord)` saturated at 1 instead of
+  0.5 + 6.8579/85.852 = 0.579880, fin+carryover CNa x1.1364 (K_W(B) + fa K_B(W): 1.818487 vs 1.600229,
+  tau 0.348513) - the CP aft at every Mach. Kbf and Classic never read `afterbodyFactor`.
+- **Change:** the remainder is kept SIGNED and the walk follows stations in the grand's frame
+  (`getPosition().x`): a following symmetric body counts while contiguous with the body before it
+  (`|fore - bodyEnd| <= 1e-6 m`: its full `getLength()`, the old arithmetic in the old order); a gap
+  (`fore > bodyEnd + 1e-6`) ends the afterbody; an overlap adds only `max(0, aft - bodyEnd)`. The total is
+  clamped at zero AFTER the walk, so an overhang uses up as many following parts as it covers and a fin
+  overhanging the whole body gets the flush-base 0.5. A remainder within 1e-6 m of zero is flush (0), as the
+  old `max(0, ...)` had it. A non-overhanging fin on a contiguous body is unchanged bit for bit. The overlap
+  term is written `Math.max(0.0, aft - bodyEnd)` because the first build emitted `afterLen + aft - bodyEnd`
+  (TeaVM printed `a + (b - c)` without its parentheses, i.e. `(a + b) - c` in JS - a JVM/JS rounding
+  difference on that branch); the call keeps the grouping. Out of scope, unchanged: the walk stays inside
+  the fin's own (pod/)stage; the `fa` heuristic itself, and where the carryover acts (fin CP), are the
+  REPORT's open steps 2-4.
+- **Artifact:** md5 `108eb93c223a23e74c0175f7a2bfa0c9` -> `81a8c799a7aa6cc131a5104ef53639b4`; grep:
+  `$bodyEnd` 0 -> 5 lines, `1.0E-6` in the afterbody walk 3, `jl_Math_max(0.0, $aft - $bodyEnd)` 1. Vite
+  cache cleared. Build via `npm run engine:js` (JAVA_HOME = jdk-17.0.19+10) after `carve.mjs`.
+- **Differential:** `differential ok: 421 lines (278 bit-identical, 143 within tolerance)`, exit 0.
+  **Goldens:** `goldenJvm` before/after byte-identical (421/421 lines) - no golden scenario has a fin
+  overhanging its tube (the ARCAS fixtures live in `validation/`, not the harness), which is why the
+  vitest guard below carries the behaviour.
+- **Behavioural guard:** `packages/engine/src/finAfterbody.test.ts` (8 tests, M0.3/0.8/1.2/2/3, fin load
+  isolated by subtracting the finless rocket): the ARCAS fin overhanging onto its boattail loads exactly
+  like the same fin with 6.8579 mm of plain tube behind it (Supersonic and Hybrid, CNa 1e-9 rel, CP 1e-9 m -
+  station-arithmetic rounding only); its CNa against a long-afterbody copy is K(fa)/K(1) = 0.880 from a TS
+  transcription of NACA 1307 eq. 14; an overhang through two following parts; an overhang past the whole
+  body = flush; a rounded freeform fin with PK-68's planform overhanging onto a tail cone; gap and overlap
+  stations; control (no overhang, fa < 1, unchanged rule); Classic/Kbf independent of the afterbody and
+  Hybrid below its band identical to Kbf. **Fail-on-old:** pre-change artifact `108eb93c...` -> exit 1,
+  6 of 8 fail (the control and the Classic/Kbf guard pass on both). **Mutations** (each a rebuilt artifact,
+  exit 1): final clamp removed -> the past-the-whole-body test fails; gap `break` removed -> the station
+  test fails; overlap counted whole -> the station test fails. Restored build md5 identical
+  (`81a8c799...`).
+- **Measured, every design in `docs/User files` (113) + 22 repo fixtures + LEM-IV + the two ARCAS fixtures,
+  19 Machs 0.1-4.63 x AoA 0 and 0.1 rad, all four models, old vs new artifact:** Classic and Kbf
+  byte-identical on every design. Changed: ARCAS (both fixtures and Chuck Rogers' `ARCAS-Long - 2.CDX1`)
+  and one tester design, `Buckeye Files/PK-68 Minie-Magg_UPDATED-MylesAZ.ork` (rounded freeform fins
+  6.35 mm past the tube onto a 75 mm tail part: fa 0.751 -> 0.730, Supersonic CP -0.3 to -0.5 mm,
+  -0.03 to -0.05 %L, CNa -0.25 to -0.46 %). Everything else, LEM-IV and WM 4 Extreme included, identical.
+  **ARCAS Short, Supersonic, whole-rocket CP:** M0.3 832.8 -> 814.1 mm (-1.802 %L), M0.8 -1.701 %L,
+  M1.0 -1.627 %L, M1.5 -1.586 %L, M2 -2.099 %L, M3 -2.975 %L; whole-rocket CNa -11.3 % subsonic, -9.5 %
+  at M4.63; Long -1.880 %L at M0.3. Forward CP = LESS displayed margin (Short -0.33 cal subsonic).
+  **Hybrid:** identical to Kbf below M0.8 (its band), then blends in: M0.9 -0.241 %L, M1.0 -0.782 %L,
+  equal to Supersonic from M1.2. C6 reference flight (fins flush on the last tube): identical in all models.
+- **Validation (`validation/score.mjs`, old vs new):** Classic 13/191 and Kbf 22/191 output byte-identical;
+  **Supersonic 78 -> 83, Hybrid 74 -> 79** (Hybrid is Supersonic above M1.2, so the same rows). ARCAS CP
+  gates **2/9 -> 7/9**: Short M2 +3.502 -> +1.403, M2.5 +2.243 -> -0.319, M3 +2.274 -> -0.701 %L and Long
+  M2 +3.822 -> +1.634, M2.5 +2.362 -> -0.308, M3 +2.405 -> -0.696 FAIL -> PASS; Short M3.5 +1.410 -> -1.929
+  stays PASS; **Long M3.5 +1.360 -> -2.120 PASS -> FAIL; Short M1.5 +4.900 -> +3.314 stays FAIL.**
+  Informational rows: Short M4.5/M4.63 and Long M4.5/M4.63 ok -> off (-2.7 to -3.6 %L), Long M4 off -> ok.
+  No drag row moved. No tolerance changed. This is a bookkeeping fix inside a provisional model, not CP
+  validation complete (REPORT section 8).
+- **A5b (review fix, 2026-10-08): station order, not child order.** The first version walked the siblings in
+  CHILD order and stopped at the first gap, so a part listed later that bridges that gap was lost (Codex
+  review: tube ending 5 mm behind the fin TE, two following tubes positioned explicitly and listed far-first
+  -> afterbody 5 mm instead of the continuous length; Supersonic fin CNa off 10-11 %). **Rule now:** the
+  chain is the parent plus every `SymmetricComponent` sibling in the parent's own container (the fin's stage
+  or pod - other stages, pods and inner assemblies never count, as before), as intervals
+  `[getPosition().x, + getLength()]`, stable-sorted by fore station (ties keep child order); from the
+  parent's aft end, contiguous (within 1e-6 m) adds the full length, a part starting inside the body adds
+  only its length past the end, a part wholly inside (parts ahead of the parent, zero-length parts) adds
+  nothing, and the first part starting past the body end is a gap that nothing later can bridge. A
+  station-ordered contiguous body is summed in the old order, so the arithmetic is unchanged there.
+  **Artifact:** md5 `81a8c799a7aa6cc131a5104ef53639b4` -> `13a9104e2275ac9eb47ea07c6c0adf84` (three
+  `$rt_createDoubleArray` arrays and the insertion sort in `calculateAfterbodyFactor`). **Differential** exit 0
+  (`421 lines (278 bit-identical, 143 within tolerance)`); `goldenJvm` byte-identical. **Guard:** new
+  `finAfterbody.test.ts` case "stations, not child order" (both list orders == plain tube, Supersonic; both
+  orders equal in Hybrid/Classic/Kbf; a zero-length part in a gap does not bridge it) - on the A5 artifact
+  `81a8c799...` exit 1 (that test only, reversed order CNa off 10.3 %), on `108eb93c...` exit 1 (7 of 9),
+  new exit 0 9/9, Node 22 9/9. **Measured vs A5:** all 113 docs/User files designs + 22 repo fixtures +
+  LEM-IV + ARCAS fixtures byte-identical in all four models; score.mjs output identical (13/22/83/79);
+  C6 flight identical. Engine vitest 260/260.
 
 ## Rules
 

@@ -259,9 +259,16 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
         <p className="prefs-hint">
-          <strong>Classic Extended Barrowman</strong> is the desktop OpenRocket 24.12
-          kernel's own aerodynamics, with every addition below switched off. It is not a
-          promise that a flight here matches one particular desktop run: the app seeds
+          <strong>Classic Extended Barrowman</strong> is OpenRocket 24.12's Barrowman
+          model with three later upstream OpenRocket corrections: bounded fin CP at
+          low aspect ratio, including tube fins (#3196/#3262); the transonic fin
+          normal-force slope (#3236); and body skin friction using the body diameter
+          (#3237). These corrections stay on in every model. Classic switches off the
+          optional additions below and stays the closest match for comparison with
+          desktop OpenRocket, not an exact one. Results can differ slightly from
+          desktop 24.12, most near Mach 1 and on low-aspect-ratio or tube fins. The
+          low-aspect-ratio fallback keeps CP bounded and continuous; it does not
+          establish measured accuracy. Other differences remain too: the app seeds
           wind turbulence from a fixed number, 42, so the same design always flies the
           same flight, while desktop OpenRocket draws a random seed for each simulation
           and does not save it, so the same design opened there again does not repeat
@@ -269,7 +276,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic Barrowman
           drops — a slightly more aft CP that tracks real flight data
           better, so it's the default. An aft CP RAISES the stability margin shown,
-          so it is not the safer answer by itself; it is the closer one. <strong>Our supersonic model</strong> extends the
+          so it is not the safer answer by itself; it is the closer one. <strong>The app's supersonic model</strong> extends the
           same kernel with corrected supersonic fin lift (2D Busemann level), the exact
           NACA&nbsp;1307 interference, Mach-dependent nose lift, per-shape wave drag with
           physical hypersonic decay, and Van&nbsp;Driest&nbsp;II friction — CP and drag

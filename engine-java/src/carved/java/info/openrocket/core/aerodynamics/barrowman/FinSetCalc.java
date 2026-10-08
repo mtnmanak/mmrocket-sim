@@ -44,7 +44,6 @@ public class FinSetCalc extends RocketComponentCalc {
 	
 	protected final WarningSet geometryWarnings = new WarningSet();
 	
-	private final double[] poly = new double[6];
 
 	private final double thickness;
 	private final double bodyRadius;
@@ -130,7 +129,6 @@ public class FinSetCalc extends RocketComponentCalc {
 		this.finLeRadius = component.getFinLeRadius();
 		
 		calculateFinGeometry(component);
-		calculatePoly();
 		calculateInterferenceFinCount(component);
 		calculateAfterbodyFactor(component);
 	}
@@ -140,6 +138,33 @@ public class FinSetCalc extends RocketComponentCalc {
 	 * trailing edge, in root chords — drives the NACA-1307 carryover weight
 	 * min(1, 0.5 + afterbody/rootChord). Walks the parent body and any
 	 * symmetric siblings aft of it inside the same (pod/)stage.
+	 *
+	 * Row 75 fix (Eric, 2026-10-08, all Mach): the afterbody is the PHYSICAL
+	 * body length behind the fin root trailing edge. A fin that overhangs the
+	 * aft end of its mounting tube leaves a NEGATIVE remainder, and that
+	 * overhang now uses up the following components' length instead of being
+	 * discarded (before: max(0, ...) on the parent alone, then the full length
+	 * of every later sibling, so ARCAS counted its whole 45.974 mm boattail
+	 * where 6.858 mm lies behind the fin and fa saturated at 1).
+	 *
+	 * The walk follows STATIONS, not child order (A5b): the body chain is the
+	 * parent plus every SymmetricComponent sibling in the parent's own
+	 * container (the fin's stage, or its pod), taken as intervals
+	 * [getPosition().x, + getLength()] in that container's frame and sorted
+	 * by fore station (stable, so ties keep child order). Starting from the
+	 * parent's aft end, a part whose fore end is within the tolerance of the
+	 * body end so far is contiguous and adds its full length; a part that
+	 * starts inside the body so far adds only its length past that end
+	 * (overlap); a part wholly inside adds nothing (this also skips the parts
+	 * ahead of the parent, and zero-length parts, which cannot bridge a gap);
+	 * the first part starting beyond the body end is a gap, and since the
+	 * parts are station-ordered nothing later can bridge it. Parts in other
+	 * stages, pods or inner assemblies are not in the chain (unchanged). The
+	 * total is clamped at zero, so a fin overhanging the whole body - or more
+	 * than one following part - gets the flush-base half. A remainder within
+	 * the tolerance of zero is flush, as before. A fin that does not overhang,
+	 * on a contiguous body listed in station order, takes the same arithmetic
+	 * in the same order as before.
 	 */
 	private void calculateAfterbodyFactor(FinSet component) {
 		double rootChord = component.getLength();
@@ -148,26 +173,65 @@ public class FinSetCalc extends RocketComponentCalc {
 		if (parent != null && rootChord > MathUtil.EPSILON) {
 			double finTopInParent = component.getAxialOffset(
 					info.openrocket.core.rocketcomponent.position.AxialMethod.TOP);
-			afterLen = Math.max(0, parent.getLength() - (finTopInParent + rootChord));
+			// Signed: negative when the fin root overhangs the parent's aft end.
+			afterLen = parent.getLength() - (finTopInParent + rootChord);
+			if (afterLen < 0 && afterLen > -AFTERBODY_STATION_TOL) {
+				afterLen = 0; // flush with the parent's aft end
+			}
 			RocketComponent grand = parent.getParent();
 			if (grand != null) {
-				boolean after = false;
-				for (int i = 0; i < grand.getChildCount(); i++) {
+				int n = grand.getChildCount();
+				double[] fore = new double[n];
+				double[] aft = new double[n];
+				double[] len = new double[n];
+				int m = 0;
+				for (int i = 0; i < n; i++) {
 					RocketComponent c = grand.getChild(i);
-					if (c == parent) {
-						after = true;
+					if (c == parent || !(c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent)) {
 						continue;
 					}
-					if (after && c instanceof info.openrocket.core.rocketcomponent.SymmetricComponent) {
-						afterLen += c.getLength();
+					double f = c.getPosition().x;
+					double l = c.getLength();
+					// Stable insertion by fore station.
+					int j = m;
+					while (j > 0 && fore[j - 1] > f) {
+						fore[j] = fore[j - 1];
+						aft[j] = aft[j - 1];
+						len[j] = len[j - 1];
+						j--;
 					}
+					fore[j] = f;
+					aft[j] = f + l;
+					len[j] = l;
+					m++;
+				}
+				// Aft end of the contiguous body so far, in the container's frame.
+				double bodyEnd = parent.getPosition().x + parent.getLength();
+				for (int k = 0; k < m; k++) {
+					if (fore[k] > bodyEnd + AFTERBODY_STATION_TOL) {
+						break; // gap: station-ordered, so nothing later can bridge it
+					}
+					if (fore[k] >= bodyEnd - AFTERBODY_STATION_TOL) {
+						afterLen += len[k]; // contiguous: the normal case
+						bodyEnd = Math.max(bodyEnd, aft[k]);
+					} else if (aft[k] > bodyEnd) {
+						// Overlap: only the length past the previous end. Math.max
+						// keeps TeaVM from re-associating a + (b - c) as (a + b) - c.
+						afterLen += Math.max(0.0, aft[k] - bodyEnd);
+						bodyEnd = aft[k];
+					}
+					// else wholly inside the body so far: nothing to add
 				}
 			}
+			afterLen = Math.max(0, afterLen);
 			afterbodyFactor = Math.min(1.0, 0.5 + afterLen / rootChord);
 		} else {
 			afterbodyFactor = 1.0;
 		}
 	}
+
+	/** Row 75: station tolerance (m) for "flush" and "contiguous" in the afterbody walk. */
+	private static final double AFTERBODY_STATION_TOL = 1e-6;
 	
 	/*
 	 * Calculates the non-axial forces produced by each set of fins.
@@ -576,7 +640,8 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		double sq = MathUtil.safeSqrt(1 + (1 - pow2(CNA_SUBSONIC)) * pow2(span * span / (finArea * cosGamma)));
 		subV = 2 * Math.PI * pow2(span) / ref / (1 + sq);
-		subD = 2 * mach * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
+		// PATCH (OpenRocket PR #3236, decision 70): d(CNa)/dM at the FIXED endpoint CNA_SUBSONIC, not at the queried Mach; see LEDGER.md.
+		subD = 2 * CNA_SUBSONIC * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
 				sq * pow2(1 + sq));
 
 		// (feature #1 Phase 1: the supersonic endpoint of the bridge scales with
@@ -817,52 +882,17 @@ public class FinSetCalc extends RocketComponentCalc {
 
 		if (m <= 0.5) {
 			// At subsonic speeds CP at quarter chord
-			return 0.25;
+			return SUBSONIC_CP_POS;
 		}
 		if (m >= 2) {
 			// At supersonic speeds use empirical formula
-			double beta = cond.getBeta();
-			return (ar * beta - 0.67) / (2 * ar * beta - 1);
+			return supersonicCPPos(ar * cond.getBeta());
 		}
 		
-		// In between use interpolation polynomial
-		double x = 1.0;
-		double val = 0;
-
-		for (double v : poly) {
-			val += v * x;
-			x *= m;
-		}
-
-		return val;
+		// PATCH (OpenRocket PR #3262): shared bounded interpolation; see LEDGER.md.
+		return transonicCPPos(m, ar);
 	}
 	
-	/**
-	 * Calculate CP position interpolation polynomial coefficients from the
-	 * fin geometry.  This is a fifth order polynomial that satisfies
-	 * 
-	 * p(0.5)=0.25
-	 * p'(0.5)=0
-	 * p(2) = f(2)
-	 * p'(2) = f'(2)
-	 * p''(2) = 0
-	 * p'''(2) = 0
-	 * 
-	 * where f(M) = (ar*sqrt(M^2-1) - 0.67) / (2*ar*sqrt(M^2-1) - 1).
-	 * 
-	 * The values were calculated analytically in Mathematica.  The coefficients
-	 * are used as poly[0] + poly[1]*x + poly[2]*x^2 + ...
-	 */
-	private void calculatePoly() {
-		double denom = pow2(1 - 3.4641 * ar); // common denominator
-		
-		poly[5] = (-1.58025 * (-0.728769 + ar) * (-0.192105 + ar)) / denom;
-		poly[4] = (12.8395 * (-0.725688 + ar) * (-0.19292 + ar)) / denom;
-		poly[3] = (-39.5062 * (-0.72074 + ar) * (-0.194245 + ar)) / denom;
-		poly[2] = (55.3086 * (-0.711482 + ar) * (-0.196772 + ar)) / denom;
-		poly[1] = (-31.6049 * (-0.705375 + ar) * (-0.198476 + ar)) / denom;
-		poly[0] = (9.16049 * (-0.588838 + ar) * (-0.20624 + ar)) / denom;
-	}
 	
 	
 	//	@SuppressWarnings("null")

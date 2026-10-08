@@ -48,12 +48,16 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     rocket.setMotor(C6_MOTOR);
     const result = rocket.simulate({ launchRodLength: 1.0, timeStep: 0.05 });
 
-    // JVM goldens: 331.76687245462836 m apogee, 116.16566819089638 m/s, etc.
-    expect(result.summary.maxAltitude).toBeCloseTo(331.766872454628, 6);
-    expect(result.summary.maxVelocity).toBeCloseTo(116.165668190896, 6);
-    expect(result.summary.maxAcceleration).toBeCloseTo(227.494097892678, 6);
-    expect(result.summary.timeToApogee).toBeCloseTo(6.848273507164, 6);
-    expect(result.summary.groundHitVelocity).toBeCloseTo(3.385373780151, 6);
+    // JVM goldens: 330.7503876479498 m apogee, 115.94396061912278 m/s, etc.
+    // 2026-10-08 (OpenRocket #3237, decision 70): the body skin-friction fineness
+    // correction now divides by the body DIAMETER, as eq. 3.85 has it; 24.12's radius
+    // gave 331.766872454628 m / 116.165668190896 m/s / 227.494097892678 /
+    // 6.848273507164 s / 3.385373780151 m/s on this flight.
+    expect(result.summary.maxAltitude).toBeCloseTo(330.750387647950, 6);
+    expect(result.summary.maxVelocity).toBeCloseTo(115.943960619123, 6);
+    expect(result.summary.maxAcceleration).toBeCloseTo(227.490603816629, 6);
+    expect(result.summary.timeToApogee).toBeCloseTo(6.85, 6);
+    expect(result.summary.groundHitVelocity).toBeCloseTo(3.385373776916, 6);
 
     const types = result.events.map((e) => e.type);
     expect(types).toEqual([
@@ -62,8 +66,9 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
       'GROUND_HIT', 'SIMULATION_END',
     ]);
 
-    expect(result.series.time.length).toBe(721);
-    expect(result.series.altitude.length).toBe(721);
+    // 721 before OpenRocket #3237 (2026-10-08): the flight is 0.31 s shorter now.
+    expect(result.series.time.length).toBe(719);
+    expect(result.series.altitude.length).toBe(719);
     // Monotonic time, sane altitude bounds.
     for (let i = 1; i < result.series.time.length; i++) {
       expect(result.series.time[i]!).toBeGreaterThanOrEqual(result.series.time[i - 1]!);
@@ -93,7 +98,8 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     expect(info.warningTexts).toEqual([]);
 
     const result = rocket.simulate({});
-    expect(result.summary.maxAltitude).toBeCloseTo(331.766872454628, 5);
+    // 331.766872454628 before OpenRocket #3237 (2026-10-08); see the C6 flight above.
+    expect(result.summary.maxAltitude).toBeCloseTo(330.750387647950, 5);
   });
 
   it('flies a minimum-diameter rocket: the body tube IS the motor mount', () => {
@@ -132,8 +138,10 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     // now gated to Rogers Kbf / Supersonic like every other extension, so this
     // flag-free flight keeps its full base drag through boost and lands 3.85 m
     // lower. See validation/scorecard-transition-2026-08-25.md.
+    // 2026-10-08: 329.6097045289919 -> 328.6945074324822, OpenRocket #3237 (body
+    // friction fineness on the diameter; decision 70 applies it in every model).
     const result = rocket.simulate({});
-    expect(result.summary.maxAltitude).toBeCloseTo(329.6097045289919, 4);
+    expect(result.summary.maxAltitude).toBeCloseTo(328.6945074324822, 4);
   });
 
   it('rejects a motor on a component that is not a mount', () => {
@@ -1195,10 +1203,13 @@ describe('override semantics through the component hierarchy', () => {
  * fins shortens getLengthAerodynamic() and moves Re; here it is 0.65 m either way.)
  *
  * THE NUMBERS THIS PINS, measured on the airframe below (nose 0.15 m ogive + 0.5 m
- * 50 mm tube, ratio 0.08): body CD with base drag runs 0.267830153 (M2.00) to
- * 0.503845206 (M1.10), a span of 1.88x, so the honest increment runs 0.021426412 to
- * 0.040307616 where the frozen scalar sat at 0.030077691 — the M0.3 value — for the
- * whole flight.
+ * 50 mm tube, ratio 0.08): body CD with base drag runs 0.270515720 (M2.00) to
+ * 0.507638254 (M1.10), a span of 1.88x, so the honest increment runs 0.021641258 to
+ * 0.040611060 where the frozen scalar sat at 0.030443899 — the M0.3 value — for the
+ * whole flight. (Re-measured 2026-10-08 after OpenRocket #3237 put the body friction's
+ * fineness correction on the diameter, as eq. 3.85 has it; under the radius-based
+ * correction these read 0.267830153 / 0.503845206 / 0.021426412 / 0.040307616 /
+ * 0.030077691. The method assertions below are unchanged.)
  */
 describe('a body-proportional CD override tracks the body CD at every Mach', () => {
   const RATIO = 0.08;
@@ -1249,7 +1260,7 @@ describe('a body-proportional CD override tracks the body CD at every Mach', () 
     // that the ratio WINS over it when both are present.
     const i03 = machs.findIndex((m) => Math.abs(m - 0.3) < 1e-9);
     const frozen = RATIO * bodyOnly.powerOff.total[i03]!;
-    expect(frozen).toBeCloseTo(0.030077691, 9);
+    expect(frozen).toBeCloseTo(0.030443899, 9);
 
     const withRatio = sweep(airframe([FINS, carrier({
       overrideCD: frozen, overrideCDBodyRatio: RATIO, overrideCDBodyIncludesBase: true,
@@ -1257,11 +1268,11 @@ describe('a body-proportional CD override tracks the body CD at every Mach', () 
     const delivered = machs.map((_, i) => withRatio.powerOff.total[i]! - finned.powerOff.total[i]!);
 
     // (a) IT IS NOT CONSTANT. This is the whole defect in one assertion: before the
-    // kernel change every one of these 20 points read 0.030077691.
+    // kernel change every one of these 20 points read the M0.3 value (then 0.030077691).
     const lo = Math.min(...delivered), hi = Math.max(...delivered);
     expect(hi / lo).toBeGreaterThan(1.5);
-    expect(lo).toBeCloseTo(0.021426412, 9);   // M2.00
-    expect(hi).toBeCloseTo(0.040307616, 9);   // M1.10, the transonic peak
+    expect(lo).toBeCloseTo(0.021641258, 9);   // M2.00
+    expect(hi).toBeCloseTo(0.040611060, 9);   // M1.10, the transonic peak
 
     // (b) IT IS THE METHOD, at every Mach: ratio x this body's own CD including base
     // drag, measured from the stripped rocket.

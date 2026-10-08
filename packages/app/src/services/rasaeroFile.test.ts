@@ -933,6 +933,16 @@ describe('RASAero export', () => {
    * the 198 points, and `lengthAerodynamic` is 1.3589027178054358 m with the
    * fins and without — which is why the two are identical and not merely close.
    *
+   * RE-MEASURED 2026-10-08 (OpenRocket #3237, decision 70: body skin-friction
+   * fineness taken on the DIAMETER, all models). Body friction rises by
+   * (1+R/L)/(1+R/2L), so the body-CD reference and everything proportional to it
+   * moved: body CD at M0.3 0.311401 -> 0.314104 without base, 0.354024 ->
+   * 0.356727 with it; quoted increment 0.0158488 -> 0.0159699 (+0.76 %);
+   * delivered 0.0159279 / 0.0159665 / 0.0181676 / 0.0132012 at M0.3 / 0.6 /
+   * 1.0 / 1.8; grid +0.0060865 (M5.0) to +0.0207165 (M1.10); panel-vs-flown
+   * gap 0.26 % as before. The area ratio and the method are unchanged; the
+   * figures above this note are the earlier measurements, kept as history.
+   *
    * And the things that must NOT move: friction, pressure and base CD, mass,
    * CG, CP, the reference diameter and the aerodynamic length — a protuberance
    * is drag and nothing else, exactly as RASAero prints it.
@@ -944,17 +954,17 @@ describe('RASAero export', () => {
     const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
     const prot = flatten(r.tree.components).find((c) => (c.type as string) === 'protuberance')!;
     const expected = protuberanceDeliveredCd(r.tree, prot);
-    expect(expected).toBeCloseTo(0.0158488, 7);
+    expect(expected).toBeCloseTo(0.0159699, 7);
     // …and it IS the method, not a number: area ratio × this body's own CD.
     const body = bodyDragReference(r.tree);
     expect(body.measured).toBe(true);
-    expect(body.noBase).toBeCloseTo(0.311401, 6);
-    expect(body.withBase).toBeCloseTo(0.354024, 6);
+    expect(body.noBase).toBeCloseTo(0.3141045, 6);
+    expect(body.withBase).toBeCloseTo(0.356727, 6);
     const ratio = protuberanceFrontalArea(prot) / referenceArea(r.tree);
     expect(ratio).toBeCloseTo(0.044768, 6);
     expect(expected).toBeCloseTo(ratio * body.withBase, 12);
     // The retired constant was 1.61× low on this design.
-    expect(expected / (0.22 * ratio)).toBeCloseTo(1.6095, 3);
+    expect(expected / (0.22 * ratio)).toBeCloseTo(1.6215, 3);
 
     const strip = (ns: ComponentNode[], types: string[]): ComponentNode[] => ns
       .filter((n) => !types.includes(n.type as string))
@@ -1001,20 +1011,21 @@ describe('RASAero export', () => {
     // agree to 0-1 ulp on a body-only fixture, but this one's fins overhang the
     // airframe, and `getLengthAerodynamic()` - which sets both the Reynolds number
     // and the roughness limit - shortens when the fins come off. Measured here:
-    // panel 0.01584884, flown 0.01580732, a 0.26 % gap, i.e. 0.0000415 of CD.
+    // panel 0.01584884, flown 0.01580732, a 0.26 % gap, i.e. 0.0000415 of CD
+    // (2026-10-08, after #3237: panel 0.01596987, flown 0.01592791, 0.26 %, 0.0000420).
     // THE FLOWN NUMBER IS THE TRUTH; the panel's is an estimate of it.
     const at = (m: number) => a.sweep.machs.findIndex((x) => Math.abs(x - m) < 1e-9);
     expect(delivered[at(0.3)]!).toBeCloseTo(expected, 4);
     expect(Math.abs(delivered[at(0.3)]! - expected) / expected).toBeLessThan(0.005);
     // …and the four points the previous, Mach-flat version of this test predicted
     // RASAero would give, which are now what the kernel actually delivers.
-    expect(delivered[at(0.3)]!).toBeCloseTo(0.0158073, 7);
-    expect(delivered[at(0.6)]!).toBeCloseTo(0.0158569, 7);
-    expect(delivered[at(1.0)]!).toBeCloseTo(0.0180625, 7);
-    expect(delivered[at(1.8)]!).toBeCloseTo(0.0131107, 7);
+    expect(delivered[at(0.3)]!).toBeCloseTo(0.0159279, 7);
+    expect(delivered[at(0.6)]!).toBeCloseTo(0.0159665, 7);
+    expect(delivered[at(1.0)]!).toBeCloseTo(0.0181676, 7);
+    expect(delivered[at(1.8)]!).toBeCloseTo(0.0132012, 7);
     // The whole curve: a 3.4× swing, where the frozen scalar had a span of exactly 1.
-    expect(Math.min(...delivered)).toBeCloseTo(0.0060402, 7);   // M5.0
-    expect(Math.max(...delivered)).toBeCloseTo(0.0206119, 7);   // M1.10, transonic peak
+    expect(Math.min(...delivered)).toBeCloseTo(0.0060865, 7);   // M5.0
+    expect(Math.max(...delivered)).toBeCloseTo(0.0207165, 7);   // M1.10, transonic peak
     expect(Math.max(...delivered) / Math.min(...delivered)).toBeGreaterThan(3);
     // Statics: untouched, to the last bit.
     expect(a.info.mass).toBe(b.info.mass);
