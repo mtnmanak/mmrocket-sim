@@ -1592,6 +1592,11 @@ export function App() {
     // the value with it and the field under it shows what it carries; any
     // other motor drops it, and the note says which motor it was weighed with
     // — never that the motor just loaded is "no longer loaded".
+    const repairedConfig = savedConfigs.find(c => c.id === activeConfigId && c.motorLoadoutRefusal);
+    if (repairedConfig) {
+      setFileNote(`Your motor assignment replaces the ambiguous imported loadout for “${savedConfigLabel(repairedConfig)}”. `
+        + 'Check all motor assignments before launching.');
+    }
     const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
     if (adoptedKg !== undefined) {
       setFileNote(`The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${droppedRef!.designation},`
@@ -1703,6 +1708,8 @@ export function App() {
   };
 
   const onLaunch = () => {
+    const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
+    if (refusal) { setFileNote(refusal, 'warn'); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     // The design this flight flies: this render's, the one `built` was built
@@ -2102,6 +2109,7 @@ export function App() {
   ): OrkExportConfig[] => configs.map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
     ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
+    ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
     // The same mapping as exportMotorsMap: what the file said, re-emitted
     // verbatim for any mount this configuration could not match, so a preset
     // the user has never applied does not quietly lose its motors on the way
@@ -3533,8 +3541,8 @@ export function App() {
             data-tour="launch"
             onClick={onLaunch}
             disabled={!built || !primaryMountId || simulating || nozzlePending}
-            title={nozzlePending ? 'Updating the nozzle for this motor before launch'
-              : !primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight'}
+            title={savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal ?? (nozzlePending ? 'Updating the nozzle for this motor before launch'
+              : !primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight')}
           >
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>

@@ -57,6 +57,7 @@ export const XML_JS_SUITES = [
   'src/services/rasaeroFile.test.ts',
   'src/services/recoveryMass.test.ts',
   'src/services/rocksimFile.test.ts',
+  'src/services/rocksimAmbiguousLoadout.test.ts',
   'src/services/rocksimFileHardening.test.ts',
   'src/services/rocksimFileIgnored.test.ts',
   'src/services/rocksimRecovery.test.ts',

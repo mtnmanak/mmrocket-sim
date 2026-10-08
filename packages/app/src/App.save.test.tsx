@@ -716,6 +716,64 @@ describe('lane C2 save and share fidelity', () => {
     }
   }, 30000);
 
+  it('keeps an ambiguous imported loadout refused through save, share and session reload', async () => {
+    const xml = readFileSync(join(here, 'services/__fixtures__/ambiguous-motor-mounts.rkt'), 'utf8');
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    await pick(host, new File([xml], 'ambiguous.rkt'));
+    await waitFor(() => shownName(host) === 'Ambiguous motor mounts', 'ambiguous import');
+    expect(host.textContent).toContain('The app will not guess which tube each motor belongs in.');
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const expectRefused = (saved: string) => {
+      const reopened = importOrk(saved);
+      expect(reopened.configs[0]!.motorLoadoutRefusal).toContain('Launch refused');
+      expect(reopened.motors).toEqual({});
+    };
+    try {
+      for (let round = 0; round < 2; round++) {
+        const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+        expect(launch.disabled).toBe(true);
+        expect(launch.title).toContain('Launch refused');
+        await saveAs(host, 'Save .ork');
+        expectRefused(vi.mocked(exportOrk).mock.results.at(-1)!.value as string);
+        await saveAs(host, 'Copy share link');
+        await waitFor(() => writeText.mock.calls.length === round + 1, 'share copy');
+        expectRefused(await decodeShareFragment(new URL(writeText.mock.calls.at(-1)![0]).hash));
+        window.dispatchEvent(new Event('pagehide'));
+        expectRefused(autosavedDesignFile()!.data);
+        if (round === 0) {
+          await unmountAll();
+          host = await mountApp();
+          await waitFor(() => shownName(host) === 'Ambiguous motor mounts', 'restored design');
+        }
+      }
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  }, 30000);
+
+  it('assigning a motor clears both the imported refusal and its visible warning', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor');
+    const xml = readFileSync(join(here, 'services/__fixtures__/ambiguous-motor-mounts.rkt'), 'utf8');
+    await pick(host, new File([xml], 'ambiguous.rkt'));
+    await waitFor(() => shownName(host) === 'Ambiguous motor mounts', 'ambiguous import');
+    await openTab(host, 'Motors & Launch');
+    expect(host.textContent).toContain('Launch refused');
+    await act(async () => { button(host, 'Browse motors').click(); });
+    await type(input(host, 'Search motor designation'), 'B4');
+    const row = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(tr =>
+      tr.cells[1]?.textContent === 'Estes' && tr.cells[0]?.textContent?.trim() === 'B4');
+    await waitFor(() => !!row(), 'catalogue row');
+    await act(async () => { row()!.click(); });
+    await act(async () => { button(host, 'Load motor').click(); });
+    await waitFor(() => !host.querySelector<HTMLButtonElement>('.vitals-launch')!.disabled, 'repaired Launch');
+    expect(host.textContent).not.toContain('Launch refused');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.savedConfigs![0]!.motorLoadoutRefusal).toBeUndefined();
+  }, 30000);
+
   it.each([
     ['Save .ork', 'too many stored'], ['Copy share link', 'too many stored'],
     ['Save .ork', 'extra custom set'], ['Copy share link', 'extra custom set'],

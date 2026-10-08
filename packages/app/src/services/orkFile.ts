@@ -154,6 +154,8 @@ export interface MeasuredFigures {
 
 /** One rocket-level <motorconfiguration> declaration. */
 export interface OrkFlightConfig {
+  /** Imported ambiguous motor loadout; id-free reason, retained until explicitly repaired. */
+  motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
   stageMassOverrides?: Record<string, StageMassOverride>;
   id: string;
@@ -460,6 +462,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       id: c.getAttribute('configid') ?? '',
       name: text(c, ':scope > name'),
       isDefault: c.getAttribute('default') === 'true',
+      ...(text(c, ':scope > motorloadoutrefusal')
+        ? { motorLoadoutRefusal: text(c, ':scope > motorloadoutrefusal')! } : {}),
       motors: {},
       deployments: {},
       separations: {},
@@ -2076,6 +2080,7 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): s
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
 export interface OrkExportConfig {
+  motorLoadoutRefusal?: string;
   stageMassOverrides?: Record<string, StageMassOverride>;
   id: string;
   /** Preserved file flags keyed by stage node id, including parallel boosters. */
@@ -2313,6 +2318,7 @@ export function exportOrk({
     deployments: Record<string, OrkDeployOverride> | null;
     /** null for the ACTIVE config: its separation comes from the live tree. */
     separations: Record<string, OrkSeparationOverride> | null;
+    motorLoadoutRefusal?: string;
     stageActiveness?: Record<string, boolean>;
     stageMassOverrides?: Record<string, StageMassOverride>;
   }> =
@@ -2324,6 +2330,7 @@ export function exportOrk({
         deployments: c === active ? null : (c.deployments ?? {}),
         separations: c === active ? null : (c.separations ?? {}),
         stageActiveness: c.stageActiveness,
+        ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
         stageMassOverrides: c.stageMassOverrides,
       }))
       : [snapshotLoadedConfig(tree, motorMap)];
@@ -3240,6 +3247,9 @@ export function exportOrk({
   for (const c of writeConfigs) {
     emit(2, `<motorconfiguration configid="${escapeXmlAttr(c.id)}"${c.id === defaultId ? ' default="true"' : ''}>`);
     if (c.name !== null) emit(3, `<name>${escapeXml(c.name)}</name>`);
+    // App extension: a reason, never a session-local mount id. Desktop ignores
+    // it; ambiguous imports carry no guessed motors for desktop to fly either.
+    if (c.motorLoadoutRefusal) emit(3, `<motorloadoutrefusal>${escapeXml(c.motorLoadoutRefusal)}</motorloadoutrefusal>`);
     for (let i = 0; i < numberedStages.length; i++) {
       emit(3, `<stage number="${i}" active="${c.stageActiveness?.[numberedStages[i]!.id!] === false ? 'false' : 'true'}"/>`);
     }
