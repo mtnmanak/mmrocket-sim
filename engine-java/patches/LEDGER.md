@@ -2185,6 +2185,56 @@ aerodynamic model.
   in JS alone, 6 of 48 single-input perturbations of 1-4 ulp (rodAngle, launchAltitude, pressure,
   rodLength, temperature) reproduce the JVM's 103.600745357 s exactly - one extra integration row
   (743 vs 742). The tolerance was NOT widened.
+- **Resolved 2026-10-08 (Stage A4): three golden SCENARIOS moved off their knife edges; no kernel, tolerance
+  or difftest change.** Re-diagnosed independently by dumping every integration row of each failing flight
+  on both runtimes (`api.OrkEngine.simulateJson`, series `full`) and on the kernel before #3236/#3237:
+  - *Not a #3237 runtime divergence.* `calculateBodyFrictionCorrection` is `2*R`, `L/D`, `1 + 1/(2 fB)`:
+    IEEE-exact `+ - * /` on both runtimes, no transcendental; every aero/drag line through it agrees.
+    In the geodetic and off-axis flights the first rows agree to 1e-16..1e-13 relative and the state stays
+    within ~1e-11 (near-zero crosswind components aside) until one discrete step decision; the turbulent
+    flight grows chaotically instead (1e-5 in step size by t = 2.4 s).
+  - *Geodetic (absent/spherical/flat): a last-bit coin flip.* C6-5 ejected at 7.0 s, before apogee (~7.17
+    s), so the 3DOF Euler recovery stepper landed apogee itself (`AbstractEulerStepper`, t = |v/a|).
+    Rows 0-242 agree (v at row 242: 0.49213449572114 JVM vs 0.49213449570823 JS); row 243 leaves
+    v + a t = 5.55e-17 (2^-54) on the JVM and exactly 0 on TeaVM. The JVM's positive residual is a
+    second "apogee", a 1 ms MIN_TIME_STEP step (row 244 at 7.1678 s against JS 7.2381 s), and the
+    descent is resampled: flightTime 7.3e-7 apart, 743 vs 742 rows. Across 12 rod angles
+    0.0864-0.0875 x {absent, flat, wgs84}: **9 of 36 fail with delay 5, 0 of 36 with delay 7** (worst
+    6.3e-11). The kernel before #3237 already failed 1 of 12 (absent). **Change:** `geodeticScenarios`
+    ejection delay 5 -> 7 s (C6-7): ejection follows apogee, so the Euler stepper never lands one.
+  - *Off-axis canted: a lottery draw.* A windless vertical flight whose only pitch/yaw motion is the
+    stepper's seeded random moment (`RK4SimulationStepper` PITCH_YAW_RANDOM). At t = 1.73 s (row 326),
+    where the pitch rate crosses zero, the JVM/JS pitch-rate difference jumps from 1e-11 to 5e-7 relative
+    and step sizes then differ by up to 1e-4 relative: timeToApogee ends 1.47e-9 apart (budget 1e-9).
+    The same amplification is intrinsic to the flight: on the JVM alone a 1-ulp rodLength change moves
+    timeToApogee 4.2e-8. Rods 1.495-1.505 m: 2 of 11 fail on the #3237 kernel, 5 of 11 on the one
+    before; launch altitudes 0-70 m: 3 of 11 and 2 of 11. No structural setting was found (timeStep
+    0.02/0.01, flat geodetics, a 0.087 rod angle, later ejection, 100 N thrust all still fail 1-11 of 11).
+    **Change:** `offAxisInertiaScenarios` canted flight rod 1.5 -> 1.497 m, which agrees to ~3e-15 with
+    equal row counts on BOTH kernels. A re-drawn ticket, stated as one in the code.
+  - *Turbulent conditions: a lottery per seed.* The 8 s windy flight's drift past the 1e-5 budget sits
+    near apogee (deploymentVelocity, optimumDelay - small speeds). Seeds 1-16 fail 11 of 16 on the
+    kernel before #3237 and 11 of 16 on the #3237 kernel (not the same eleven); seed 7 drew 2.0e-6 before and 1.1e-4 after.
+    Earlier ejection (delay 3 or 4) fails 10 and 9 of 16. Seed 4 drew 2.1e-7 before and 7.3e-9 after,
+    and failed 2 of 11 rod angles 0.0865-0.0870 where seed 7 failed 8 of 11 and seed 5 failed 5.
+    **Change:** `conditionsScenarios` randomSeed 7 -> 4, and `windLevelScenarios`' pad with it (its
+    `single` row reprints this flight; seed 7's `single` driftAtApogee sat at 8.2e-6 of the 1e-5 budget).
+  - **Goldens (JVM before/after `goldenJvm`, 421 lines): 13 move, all in the three changed scenarios**
+    (difftest keeps no stored baseline, so nothing else is regenerated): `flight.conditions.summary`,
+    `.summaryext`, `.serieslens` (372 -> 364 rows), the five `windlevels` rows (seed 4; the two steady
+    rows move too, because the stepper's random pitch/yaw moment is seeded by randomSeed - their wind
+    does not move: steady.msl reads exactly 4 m/s throughout on seeds 7, 4 and 1), `flight.offaxis.split.canted`, and the four `flight.geodetic.*`
+    rows (C6-7: apogee 365.0989 -> 365.2777 m, flightTime 103.60 -> 101.33 s, landing 215.46 -> 195.27 m
+    from the pad). The geodetic harness checks (absent == spherical bit for bit; flat lands elsewhere;
+    wgs84 reports another longitude) hold on both runtimes. Worst JVM/JS difference now, line by line:
+    conditions 2.3e-10 / 7.3e-9 / 0 rows, windlevels 5.5e-9 / 5.5e-9 / 1.7e-10 (turbulent budget 1e-5)
+    and 2.5e-11 / 5.4e-11 (steady, 1e-9), offaxis 2.9e-15, geodetic 7.2e-12 / 7.2e-12 / 4.0e-12 /
+    1.9e-12. Artifact: harness strings only (8 lines of `orkengine.mjs`), md5
+    `d9bb4cdc6f87644c152d00ad4c563e44` -> `108eb93c223a23e74c0175f7a2bfa0c9`.
+  - **Differential:** `differential ok: 421 lines (278 bit-identical, 143 within tolerance)`, exit 0.
+  - The off-axis and turbulent lines remain lotteries by construction (a vertical windless flight; a
+    chaotic one); a later kernel change may re-draw them. Re-pick the same way: sweep one input on both
+    runtimes, take a value that agrees with margin on the old and the new kernel, and record it here.
 
 ## Rules
 

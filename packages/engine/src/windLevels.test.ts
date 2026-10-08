@@ -55,7 +55,8 @@ const C6: MotorSpec = {
 const HALF_PI = Math.PI / 2;
 
 /**
- * The goldens' pad: 1,400 m, 303.15 K, 86 kPa, 5 degree rod, seed 7 — cut at 3 s,
+ * The goldens' pad: 1,400 m, 303.15 K, 86 kPa, 5 degree rod, seed 7 (the goldens
+ * themselves moved to seed 4 on 2026-10-08 - LEDGER, the #3236/#3237 entry) — cut at 3 s,
  * about 150 m up and a second into the coast. Every flight on this pad is judged on
  * its ascent, and the cut keeps the file's TeaVM flights cheap: flown on to the 8 s
  * the goldens use, the same assertions cost several times as long.
