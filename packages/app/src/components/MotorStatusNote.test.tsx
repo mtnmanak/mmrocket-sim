@@ -32,8 +32,15 @@ it.each([
   </PrefsProvider>));
   const note = host.querySelector('.motor-status-note');
   expect(note?.textContent).toContain(text);
-  expect(note?.textContent?.endsWith('ThrustCurve.org still lists it as in production.')).toBe(true);
-  expect(note?.querySelector('a')?.getAttribute('rel')).toBe('noopener noreferrer');
+  // The claim reads first; the sources follow it, each named by its forum post.
+  expect(note?.querySelector('.motor-status-note-text')?.textContent?.endsWith('ThrustCurve.org still lists it as in production.')).toBe(true);
+  const links = [...(note?.querySelectorAll('a') ?? [])];
+  expect(links.length).toBeGreaterThan(0);
+  for (const link of links) {
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent).toMatch(/^TRF post \d+$/);
+  }
+  expect(note?.textContent?.indexOf('ThrustCurve.org')).toBeLessThan(note?.textContent?.indexOf('TRF post') ?? -1);
 });
 
 it.each([undefined, 'ex:custom', '5f4294d20002310000000034', '__proto__'])('has no note for %s', motorId => {
