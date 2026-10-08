@@ -1789,7 +1789,8 @@ describe('RockSim ejection-delay sentinels', () => {
     expect(importRkt(rkt([...sets, sets[0]!])).configs).toHaveLength(256);
     expect(() => importRkt(rkt([...sets, '<EjectionDelay>256</EjectionDelay>'])))
       .toThrow('This file would open as more than 256 flight configurations, past the 256 the app will open. Reduce the simulations in RockSim and save it again.');
-  });
+    // Three 256-configuration imports: ~1 s alone in the jsxml project, past 5 s under full-suite load (2026-10-08).
+  }, 30_000);
   /** A cluster built as three separate mounts, one engine set each (PELTZER_Swarm_JR.rkt's shape). */
   const cluster = (code: string, mfr: string, ejectionDelay: string) => {
     const mounts = [7, 8, 9];
