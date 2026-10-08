@@ -60,7 +60,7 @@ import {
  * flight-configuration fields.
  */
 export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations'>>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & { machAlt?: [number, number][] };
@@ -571,10 +571,9 @@ export function planImport(
     unmatchedRefs: nextUnmatchedRefs,
     longitudeCheck: imported.longitudeCheck,
     machAlt: imported.machAlt,
-    // A file whose motors all matched is routine information; one that lost a
-    // motor is a warning the user has to act on (motorTrouble was counted
-    // before the time-step note, which is information either way).
-    note: { text: notes.join('\n'), severity: motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
+    // A newer format can lose settings on save, so expose its warning even
+    // when every motor matched. Other reader notes retain their severity.
+    note: { text: notes.join('\n'), severity: imported.newerFormat || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     shrouds: findShroudCandidates(importedTree),
