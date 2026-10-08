@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { openModalCount } from '../components/useDialog.js';
+import { ancestorsOf, findNode } from '../tree/treeModel.js';
 
 /**
  * THE DESIGN TREE AND ITS UNDO / REDO HISTORY (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
@@ -59,6 +60,9 @@ export interface TreeHistoryOptions<T = undefined> {
 }
 
 export interface TreeHistory {
+  /** Session-local UI selection; never part of the saved design tree. */
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
   /** The tree as last rendered. */
   tree: RocketTree;
   /**
@@ -111,10 +115,16 @@ function pushCapped<T>(stack: T[], t: T): void {
 
 export function useTreeHistory<T = undefined>(initial: RocketTree, options: TreeHistoryOptions<T> = {}): TreeHistory {
   const [tree, setTreeRaw] = useState<RocketTree>(initial);
+  const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
+  const selectionRef = useRef<string | null>(null);
+  const setSelectedId = useCallback((id: string | null) => {
+    selectionRef.current = id;
+    setSelectedIdRaw(id);
+  }, []);
   // The stacks are REFS — they must not re-render the whole App on every push —
   // so a tiny version counter is bumped wherever they change, and THAT is what
   // the buttons' disabled state renders from.
-  type Entry = { tree: RocketTree; companion?: T };
+  type Entry = { tree: RocketTree; selectedId: string | null; companion?: T };
   const history = useRef<Entry[]>([]);
   const future = useRef<Entry[]>([]);
   const lastEditAt = useRef(0);
@@ -141,12 +151,25 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   }, []);
 
   const capture = useCallback((): Entry => ({
-    tree: treeRef.current, companion: optionsRef.current.captureCompanion?.(),
+    tree: treeRef.current, selectedId: selectionRef.current,
+    companion: optionsRef.current.captureCompanion?.(),
   }), []);
   const restore = useCallback((entry: Entry) => {
     if (entry.companion !== undefined) optionsRef.current.restoreCompanion?.(entry.companion);
-    writeTree(optionsRef.current.onRestore?.(entry.tree) ?? entry.tree);
-  }, [writeTree]);
+    const next = optionsRef.current.onRestore?.(entry.tree) ?? entry.tree;
+    const previous = treeRef.current;
+    const current = selectionRef.current;
+    // A returning part regains its selection (Redo addition / Undo deletion).
+    // Ordinary property undo keeps the user's current, still-valid selection.
+    if (entry.selectedId && findNode(next, entry.selectedId) && !findNode(previous, entry.selectedId)) {
+      setSelectedId(entry.selectedId);
+    } else if (current && !findNode(next, current)) {
+      // Coalesced edits can remove a whole subtree: climb to the first survivor.
+      const parent = ancestorsOf(previous, current).find(n => n.id && findNode(next, n.id));
+      setSelectedId(parent?.id ?? next.components.find(n => n.id)?.id ?? null);
+    }
+    writeTree(next);
+  }, [writeTree, setSelectedId]);
 
   const setTree = useCallback((next: RocketTree) => {
     // Coalesce rapid-fire edits (slider moves, keystrokes) into ONE undo step
@@ -241,6 +264,7 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   }, [undo, redo]);
 
   return {
+    selectedId, setSelectedId,
     tree, treeRef, writeTree, setTree, commitStep, undo, redo, reset,
     canUndo: history.current.length > 0,
     canRedo: future.current.length > 0,

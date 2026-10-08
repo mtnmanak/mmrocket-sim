@@ -328,6 +328,7 @@ export function App() {
   // flight-holds-a-handle gate.
   const {
     tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
+    selectedId, setSelectedId,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
     captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState } => ({
@@ -359,7 +360,6 @@ export function App() {
     },
     blocked: () => flightHoldsHandle.current || fullSeriesHolds.current > 0,
   });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Component clipboard (copy/cut → paste into another parent). Holds the
   // node AS COPIED — a later cut/delete of the original doesn't affect it.
   const [clipboard, setClipboard] = useState<ComponentNode | null>(null);
@@ -1504,7 +1504,7 @@ export function App() {
       + ` and CG ${fmtSi('length', prefs.units.length, measured.cgM, 3)} ${prefs.units.length}. `
       + 'Clear it under Overrides to go back to the computed geometry.');
     setSelectedId(blocker.id);
-  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree]);
+  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree, setSelectedId]);
 
   /**
    * Everything transient the user should see, in one channel with a severity

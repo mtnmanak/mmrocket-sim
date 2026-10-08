@@ -88,6 +88,31 @@ afterEach(async () => {
 });
 
 describe('a Rail button added from the Add menu', () => {
+  it('selects the parent on Undo and the restored part on Redo, with keyboard and properties usable', async () => {
+    const host = await addRailButton();
+    const selectedLabel = () => host.querySelector('[role="treeitem"][aria-selected="true"] .tree-label')?.textContent;
+    expect(selectedLabel()).toBe('Rail button');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(selectedLabel()).toBe('Body tube');
+    expect(button(host, '+ Add to Body tube')).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true }));
+    });
+    expect(selectedLabel()).toBe('Rail button');
+    expect(button(host, 'Auto-place rail buttons').disabled).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    });
+    expect(selectedLabel()).toBe('Body tube');
+    const row = host.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')!;
+    await act(async () => {
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    expect(selectedLabel()).toBe('Nose cone');
+  }, 30000);
+
   it('is a pair, where 📍 Auto-place rail buttons puts it on the loaded rocket: pressing it moves nothing', async () => {
     const host = await addRailButton();
     const [added] = railButtons();

@@ -3,6 +3,7 @@ import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
+import { addChild, removeNode } from '../tree/treeModel.js';
 import { FirstRunTour } from '../components/FirstRunTour.js';
 import { Modal } from '../components/Modal.js';
 import {
@@ -74,6 +75,106 @@ const editApart = (h: { current: TreeHistory }, next: RocketTree) => {
   act(() => h.current.setTree(next));
   vi.advanceTimersByTime(HISTORY_COALESCE_MS + 1);
 };
+
+describe('useTreeHistory — selection', () => {
+  const initial: RocketTree = {
+    components: [{ type: 'stage', id: 'stage', children: [
+      { type: 'nosecone', id: 'nose' },
+      { type: 'bodytube', id: 'body', children: [{ type: 'freeformfinset', id: 'fins' }] },
+    ] }],
+  };
+
+  it('uses the removed part\'s parent even if a different part was selected before adding', () => {
+    const h = renderHistory(initial);
+    act(() => h.current.setSelectedId('nose'));
+    act(() => {
+      h.current.setTree(addChild(initial, 'body', { type: 'masscomponent', id: 'added' }));
+      h.current.setSelectedId('added');
+    });
+    act(() => h.current.undo());
+    expect(h.current.selectedId).toBe('body');
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe('added');
+  });
+
+  it('climbs past a parent removed by the same coalesced undo and restores the descendant on redo', () => {
+    const h = renderHistory(initial);
+    act(() => h.current.setTree(addChild(initial, 'body', { type: 'innertube', id: 'tube' })));
+    act(() => {
+      h.current.setTree(addChild(h.current.tree, 'tube', { type: 'masscomponent', id: 'mass' }));
+      h.current.setSelectedId('mass');
+    });
+    key('z');
+    expect(h.current.selectedId).toBe('body');
+    key('y');
+    expect(h.current.selectedId).toBe('mass');
+  });
+
+  it('repairs a descendant selection when redo removes its ancestor', () => {
+    const h = renderHistory(initial);
+    act(() => h.current.setSelectedId('fins'));
+    act(() => {
+      h.current.commitStep(removeNode(initial, 'body'));
+      h.current.setSelectedId(null);
+    });
+    act(() => h.current.undo());
+    expect(h.current.selectedId).toBe('fins');
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe('stage');
+  });
+
+  it.each<[string | null, RocketTree]>([
+    ['stage', initial],
+    [null, { components: [] }],
+  ])('repairs an already-missing id to %s without retaining a dangling selection', (expected, target) => {
+    const h = renderHistory(target);
+    act(() => h.current.setSelectedId('missing'));
+    act(() => h.current.commitStep({ ...target, name: 'edited' }));
+    act(() => h.current.undo());
+    expect(h.current.selectedId).toBe(expected);
+    act(() => h.current.setSelectedId('also-missing'));
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe(expected);
+  });
+
+  it('falls back to a surviving stage when undo removes the selected top-level stage', () => {
+    const h = renderHistory(initial);
+    act(() => {
+      h.current.commitStep({ components: [...initial.components, { type: 'stage', id: 'booster' }] });
+      h.current.setSelectedId('booster');
+    });
+    act(() => h.current.undo());
+    expect(h.current.selectedId).toBe('stage');
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe('booster');
+  });
+
+  it('captures the latest selection across add, undo and redo in one React batch', () => {
+    const h = renderHistory(initial);
+    act(() => {
+      h.current.setTree(addChild(initial, 'body', { type: 'masscomponent', id: 'added' }));
+      h.current.setSelectedId('added');
+      h.current.undo();
+      h.current.redo();
+      h.current.undo();
+    });
+    expect(h.current.selectedId).toBe('body');
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe('added');
+  });
+
+  it('keeps a valid current selection on property undo, and selection alone makes no history', () => {
+    const h = renderHistory(initial);
+    act(() => h.current.setSelectedId('body'));
+    expect(h.current.canUndo).toBe(false);
+    act(() => h.current.setTree({ ...initial, name: 'renamed' }));
+    act(() => h.current.setSelectedId('fins'));
+    act(() => h.current.undo());
+    expect(h.current.selectedId).toBe('fins');
+    act(() => h.current.redo());
+    expect(h.current.selectedId).toBe('fins');
+  });
+});
 
 describe('useTreeHistory — steps', () => {
   it('coalesces edits less than 800 ms apart into ONE undo step, and starts a new one after', () => {

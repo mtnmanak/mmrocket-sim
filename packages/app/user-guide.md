@@ -121,6 +121,8 @@ A button that cannot apply is left off rather than greyed out: a stage has no **
 
 **The tree works from the keyboard.** ↑ and ↓ move the selection, Home and End jump to the ends of the tree, Enter or Space selects, and Tab reaches the buttons on the selected row. Ctrl+Z takes back anything here that changed the design — a move, a duplicate, a cut, a paste or a delete. **Copy** changes nothing, so there is nothing to undo.
 
+If **Undo** removes the selected part, selection moves to its nearest surviving parent, or a remaining stage if no parent survives. **Redo** selects the part again when it returns.
+
 A copy is a new part with its own identity in the design, and anything attached to the original by that identity stays behind: duplicate or paste a motor mount and the new mount has no motor in it, so load one on **Motors & Launch**.
 
 ## The component types
