@@ -274,35 +274,44 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 //					}
 //				}
 				
-				// Check for fin stall and either set tumbling or LargeAOA warning depending on
-				// rocket stability margin
+				// PATCH (OR #3183 / PR #3190, see patches/LEDGER.md): check for
+				// tumbling, and otherwise for fin stall.
+				// Tumbling is decided by the branch's sustained-AOA detector (how long a
+				// high AOA has persisted against the rocket's own pitch period), not by
+				// one step's AOA and the instantaneous cg > cp comparison, which is
+				// removed. CP still enters INDIRECTLY: the recorded natural frequency
+				// (CNa * (xCP - xCG)) sets the detector's time constant.
+				// A large instantaneous AOA (recorded, OR #3093; fixed stall angle) is
+				// still reported, at LOW priority, but not for a separated stage, whose
+				// fall at large AOA is expected. The detector's time is the status time
+				// after the step, its data the branch's last (k1) row, as upstream.
 				// Inhibited if already tumbling, parachutes deployed, or on the ground
 				if (!currentStatus.isTumbling() &&
 					(currentStatus.getDeployedRecoveryDevices().size() == 0) &&
 					!currentStatus.isLanded()) {
-					final double cp = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CP_LOCATION);
-					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
-					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
-					// PATCH (OR #3093, see patches/LEDGER.md): judge stall from the RECORDED
-					// AOA of this accepted step against the calculator's fixed stall angle.
-					// 24.12 read getStallMargin(), i.e. the AOA of the calculator's LAST
-					// evaluation (RK4's k4 sub-step, or any diagnostic call in between).
-					final double margin =
-						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle() - aoa;
+					final FlightDataBranch branch = currentStatus.getFlightDataBranch();
+					final double aoa = branch.getLast(FlightDataType.TYPE_AOA);
+					final double stallAngle =
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle();
+					// Air-relative speed, recovered from the recorded Mach number and
+					// speed of sound of the same row.
+					final double airSpeed = branch.getLast(FlightDataType.TYPE_MACH_NUMBER)
+							* branch.getLast(FlightDataType.TYPE_SPEED_OF_SOUND);
 
-					// large AOA -- stalling.					
-					if (margin < 0) {
-						// If we're stable, put a warning about large AOA
-						// note -- if cp is NaN (which it is while on the rod) cg > cp is false
-						if (cg > cp) {
-							// Not stable, so transition to tumbling
-							currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
-						} else {
-							// Stable, so warning about AOA
-							if (currentStatus.recordWarnings()) {
-								currentStatus.addWarning(new Warning.LargeAOA(aoa));
-							}
-						}
+					final boolean tumbling = currentStatus.getTumbleDetector().update(
+							currentStatus.getSimulationTime(),
+							currentStatus.isLaunchRodCleared(),
+							aoa,
+							airSpeed,
+							branch.getLast(FlightDataType.TYPE_AIR_DENSITY),
+							branch.getLast(FlightDataType.TYPE_NATURAL_FREQUENCY));
+
+					if (tumbling) {
+						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
+					} else if (aoa > stallAngle
+							&& !currentStatus.isSeparatedStage()
+							&& currentStatus.recordWarnings()) {
+						currentStatus.addWarning(new Warning.LargeAOA(aoa));
 					}
 				}
 
@@ -527,6 +536,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 					// Create a new simulation branch for the booster
 					SimulationStatus boosterStatus = new SimulationStatus(currentStatus);
+					// PATCH (OR #3183): the booster branch is a separated stage (its large-AOA
+					// fall is expected, so it raises no LargeAOA warning); the continuing
+					// sustainer is not marked.
+					boosterStatus.setSeparatedStage(true);
 
 					// Prepare the new simulation branch
 					boosterStatus.setFlightDataBranch(new FlightDataBranch(boosterStage.getName(), boosterStage, currentStatus.getFlightDataBranch()));

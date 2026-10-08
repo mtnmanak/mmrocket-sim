@@ -69,7 +69,13 @@ public class SimulationStatus implements Cloneable, Monitorable {
 
 	private double maxZVelocity = Double.NEGATIVE_INFINITY;
 	private double startWarningsTime = RK4SimulationStepper.RECOMMENDED_MAX_TIME;
-	
+
+	// PATCH (OR #3183 / PR #3190, see patches/LEDGER.md): the sustained-AOA tumble
+	// detector's filter state for THIS branch (deep-copied by the copy constructor
+	// and clone(), never shared), and whether this branch is a separated stage.
+	private TumbleDetector tumbleDetector = new TumbleDetector();
+	private boolean separatedStage = false;
+
 	private double effectiveLaunchRodLength;
 
 	/**
@@ -290,7 +296,10 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.landed = orig.landed;
 		this.maxZVelocity = orig.maxZVelocity;
 		this.startWarningsTime = orig.startWarningsTime;
-		
+		// PATCH (OR #3183): inherit, but never share, the detector history.
+		this.tumbleDetector = new TumbleDetector(orig.tumbleDetector);
+		this.separatedStage = orig.separatedStage;
+
 		this.configuration.copyStages(orig.configuration);
 
 		this.deployedRecoveryDevices.clear();
@@ -635,6 +644,9 @@ public class SimulationStatus implements Cloneable, Monitorable {
 	public SimulationStatus clone() {
 		try {
 			SimulationStatus clone = (SimulationStatus) super.clone();
+			// PATCH (OR #3183): a field-by-field clone would SHARE the detector with
+			// RK trial states; give the clone its own copy of the history.
+			clone.tumbleDetector = new TumbleDetector(this.tumbleDetector);
 			return clone;
 		} catch (CloneNotSupportedException e) {
 			throw new BugException("CloneNotSupportedException?!?", e);
@@ -758,6 +770,137 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		}
 	}
 	
+	/**
+	 * PATCH (OR #3183): the sustained-AOA tumble detector of this branch.
+	 */
+	public TumbleDetector getTumbleDetector() {
+		return tumbleDetector;
+	}
+
+	/**
+	 * PATCH (OR #3183): whether this branch simulates a stage that has been
+	 * separated and left behind, rather than the rocket that flew on.
+	 */
+	public boolean isSeparatedStage() {
+		return separatedStage;
+	}
+
+	/**
+	 * PATCH (OR #3183): mark this branch as a separated stage (set on the
+	 * booster branch at STAGE_SEPARATION, never on the continuing sustainer).
+	 */
+	public void setSeparatedStage(boolean separatedStage) {
+		this.separatedStage = separatedStage;
+	}
+
+	/**
+	 * PATCH (OR #3183 / PR #3190, see patches/LEDGER.md). Upstream's standalone
+	 * TumbleDetector, nested here because carve.mjs accepts only replacement
+	 * copies of reference sources (no orphan new files).
+	 * <p>
+	 * Decides tumbling from how long a high angle of attack has PERSISTED,
+	 * measured against the rocket's own pitch period, not from its value at one
+	 * step: the AOA (radians) is low-pass filtered with time constant
+	 * tau = DWELL_PERIODS * 2 pi / omega_n, clamped to [MIN, MAX], and the branch
+	 * is tumbling while the filtered AOA exceeds 60 degrees. A brief gust cannot
+	 * sustain that; a real departure cannot avoid it.
+	 * <p>
+	 * NOT independent of aerodynamics: omega_n comes from CNa * (xCP - xCG), so a
+	 * zero, negative (NaN) or missing frequency selects the shortest time
+	 * constant. Samples on the launch guide, below 1 Pa dynamic pressure, with
+	 * a non-finite input, or with no time advance HOLD the filtered value (no
+	 * reset) while still advancing the last time, so unobservable time is never
+	 * integrated later. The first sample only establishes time. Not latched:
+	 * the engine's switch to the tumble stepper is the latch.
+	 * <p>
+	 * Our adaptation of upstream: finite-input guards (upstream checks NaN only).
+	 */
+	public static final class TumbleDetector {
+
+		/** Filtered AOA above which the branch is tumbling, rad (60 degrees). */
+		public static final double TUMBLE_THRESHOLD = 60 * Math.PI / 180;
+
+		/** Dynamic pressure below which the airflow direction is meaningless, Pa. */
+		public static final double MIN_DYNAMIC_PRESSURE = 1.0;
+
+		/** Filter time constant, in pitch natural periods. */
+		public static final double DWELL_PERIODS = 2.0;
+
+		/** Time-constant bounds, s; MIN is also the no-frequency fallback. */
+		public static final double MIN_TIME_CONSTANT = 0.05;
+		public static final double MAX_TIME_CONSTANT = 2.0;
+
+		private double filteredAOA = 0.0;
+		private double lastTime = Double.NaN;
+
+		public TumbleDetector() {
+		}
+
+		/** Copy constructor: inherits the filter state, shares nothing. */
+		public TumbleDetector(TumbleDetector orig) {
+			this.filteredAOA = orig.filteredAOA;
+			this.lastTime = orig.lastTime;
+		}
+
+		/**
+		 * Advance the detector by one accepted step.
+		 *
+		 * @param time             simulation time, s
+		 * @param guideCleared     whether the rocket has left the launch guide
+		 * @param aoa              angle of attack, rad
+		 * @param airSpeed         air-relative speed, m/s
+		 * @param airDensity       air density, kg/m^3
+		 * @param naturalFrequency pitch natural frequency, rad/s (NaN, zero or
+		 *                         negative selects the shortest time constant)
+		 * @return whether the branch is now tumbling
+		 */
+		public boolean update(double time, boolean guideCleared, double aoa,
+				double airSpeed, double airDensity, double naturalFrequency) {
+			if (!Double.isFinite(time))
+				return isTumbling();
+			final double dt = Double.isNaN(lastTime) ? 0.0 : time - lastTime;
+			lastTime = time;
+
+			final double dynamicPressure = 0.5 * airDensity * airSpeed * airSpeed;
+			if (!(dt > 0) || !guideCleared || !Double.isFinite(aoa)
+					|| !Double.isFinite(airSpeed) || airSpeed < 0
+					|| !Double.isFinite(airDensity) || airDensity < 0
+					|| !Double.isFinite(dynamicPressure)
+					|| dynamicPressure < MIN_DYNAMIC_PRESSURE) {
+				return isTumbling();
+			}
+
+			final double gain = 1.0 - Math.exp(-dt / timeConstant(naturalFrequency));
+			filteredAOA += gain * (aoa - filteredAOA);
+			return isTumbling();
+		}
+
+		/** Whether the filtered AOA currently exceeds the tumbling threshold. */
+		public boolean isTumbling() {
+			return filteredAOA > TUMBLE_THRESHOLD;
+		}
+
+		/** The filtered angle of attack, rad. */
+		public double getFilteredAOA() {
+			return filteredAOA;
+		}
+
+		/** The time of the last finite update, s (NaN before the first). */
+		public double getLastTime() {
+			return lastTime;
+		}
+
+		/**
+		 * The filter time constant, s, for a pitch natural frequency in rad/s.
+		 */
+		public static double timeConstant(double naturalFrequency) {
+			if (!Double.isFinite(naturalFrequency) || naturalFrequency <= 0)
+				return MIN_TIME_CONSTANT;
+			return MathUtil.clamp(DWELL_PERIODS * 2 * Math.PI / naturalFrequency,
+					MIN_TIME_CONSTANT, MAX_TIME_CONSTANT);
+		}
+	}
+
 	/**
 	 * Determine whether (most) flight event warnings are currently being saved.
 	 * Warnings are not saved until 0.25 seconds after leaving the rail, and again

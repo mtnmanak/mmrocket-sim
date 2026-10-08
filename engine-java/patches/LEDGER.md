@@ -2294,3 +2294,117 @@ aerodynamic model.
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.
+
+### simulation/FlightDataType.java + AbstractSimulationStepper.java - recorded pitch natural frequency, rad/s (OR #3002 prerequisite ONLY, tumble release T4, 2026-10-08)
+
+- **Why:** #3183's sustained-AOA detector (next entry) takes its time constant from the
+  rocket's pitch natural frequency, which upstream added in PR #3002 together with five
+  damping/corrective diagnostics. Only the frequency is a dependency.
+- **Change:** new replacement `FlightDataType.java` (copied from carved == reference):
+  `TYPE_NATURAL_FREQUENCY`, symbol `"ωn"`, `UnitGroup.UNITS_ROLL` (rad/s - NOT
+  UNITS_FREQUENCY/Hz), group STABILITY, priority 4, in `ALL_TYPES` right after
+  TYPE_STABILITY. `AbstractSimulationStepper.DataStore.storeData` records it on every
+  row from that store's OWN k1 conditions/mass/forces (the same row as the recorded AOA,
+  CP and density - never the calculator's last k4 state) via a private
+  `computeNaturalFrequency`: `sqrt(0.5 rho v^2 A_ref CNa (xCP - xCG) / I_long)`, CNa =
+  the reported CP's weight (per rad, unchanged by 66(b)), xCP = the REPORTED CP (so
+  above 20 deg AOA the force-consistent CP of decision 66(b)), I_long =
+  `getLongitudinalInertia()` (pitch/yaw, kg m^2; not roll). 0 on the launch guide and
+  for neutral stiffness; NaN for negative stiffness or any missing/non-finite/invalid
+  input (our hardening: upstream checks NaN only).
+- **Deliberately NOT ported:** the corrective-moment, damping-ratio and three damping
+  moment types, the jet-damping diagnostic (signed motor-mass derivative and mount-X
+  "nozzle" proxy), UnitGroup moment groups, the Hz alias, localisation resources and the
+  extension deprecation. The shim's DebugTranslator names the type
+  `[FlightDataType.TYPE_NATURAL_FREQUENCY]`; no resource bundle is introduced. Physical
+  pitch/yaw/roll damping in Barrowman/RK4 is untouched.
+- **Limit (stated, not hidden):** above 20 deg AOA this is upstream's stiffness PROXY fed
+  with the force-consistent CP, not the tangent stiffness of the nonlinear moment law;
+  a corrected CP forward of the CG gives NaN and the detector's 0.05 s fallback.
+- **Bridge/app:** no new friendly field or API method. Full-series payloads carry the new
+  symbol key (summary mode does not); `packages/app/src/services/flightDataCsv.ts`
+  labels it "Natural frequency (rad/s)".
+- **Evidence:** see the #3183 entry below (shared test run and mutations).
+
+### simulation/SimulationStatus.java + BasicEventSimulationEngine.java + logging/Warning.java - tumbling is decided by a SUSTAINED-AOA detector; the instantaneous cg > cp comparator is removed (OR #3183 / PR #3190, tumble release T4, 2026-10-08)
+
+- **Defect (upstream 24.12, and our T2/T3 interim):** after every accepted step the engine
+  queued TUMBLE when the recorded AOA exceeded the 17.5 deg stall angle AND the recorded
+  CG lay aft of the recorded CP. One step was enough, so a gust or the rail-exit
+  transient of a STABLE rocket in a steady crosswind tumbled it (under thrust: abort
+  TUMBLE_UNDER_THRUST), and the CP it compared is produced by a model outside its
+  envelope at exactly those angles.
+- **Change:** upstream's `TumbleDetector`, nested as `SimulationStatus.TumbleDetector`
+  (carve.mjs refuses orphan patch files, so no new `TumbleDetector.java`). It low-pass
+  filters the recorded AOA (rad) with `tau = 2 periods * 2 pi / omega_n` clamped to
+  [0.05, 2] s (0.05 s when omega_n is NaN/zero/negative/non-finite), and the branch is
+  tumbling while the filtered AOA exceeds 60 deg. Samples on the guide, below 1 Pa
+  dynamic pressure, with a non-finite input or with no time advance HOLD the value (no
+  reset) and still advance the last time, so an unobservable gap is never integrated
+  later; the first sample only establishes time. Our adaptation: finite-input guards.
+  SimulationStatus carries the detector and a `separatedStage` flag, deep-copied by the
+  copy constructor and by `clone()` (RK trial states never share it), NOT by
+  `copyProperties` (a kinematics-only copy). The engine block after the apogee check:
+  detector updated with the status time, `isLaunchRodCleared`, the recorded TYPE_AOA,
+  airspeed = recorded Mach x recorded speed of sound, recorded density and recorded
+  TYPE_NATURAL_FREQUENCY; tumbling -> TUMBLE at the status time; otherwise a LargeAOA
+  warning when the recorded AOA > `getStallAngle()` (OR #3093 kept), the branch is not a
+  separated stage and `recordWarnings()`. The `cg`, `cp`, `margin`, `cg > cp` lines are
+  gone. Booster branches get `setSeparatedStage(true)` at STAGE_SEPARATION (the sustainer
+  never). New replacement `Warning.java`: LargeAOA priority NORMAL -> LOW (type, text and
+  value unchanged; the app only distinguishes HIGH, so nothing it shows moves).
+- **Kept as upstream, stated:** the detector's time is the END-of-step status time while
+  its data is the branch's last (k1, start-of-step) row - a bounded one-step sample lag,
+  not the stale-k4 bug #3093 fixed. No ascent-only gate; the detector is not latched (the
+  engine's switch to the tumble stepper is the latch). CP still enters, INDIRECTLY,
+  through omega_n's lever arm (see the previous entry): the detector is not independent of
+  aerodynamics, whatever upstream's class comment says.
+- **Evidence:** `engine-java/src/test/java/info/openrocket/core/simulation/`
+  `NaturalFrequencyTest.java` (6: type contract - symbol, UNITS_ROLL, STABILITY, ALL_TYPES
+  order; storeData synthetic oracle sqrt(0.5*1.2*50^2*0.01*4*0.3/0.02) = 30 rad/s, v x2 ->
+  x2, I_long x4 -> /2; rail 0, neutral 0, negative NaN; every non-finite/negative input
+  NaN, including forward-CP cases where only the sign guard can say NaN; reported vs
+  derivative CP decides NaN vs finite and so the 0.05 s fallback; a real ballasted flight
+  where EVERY powered-ascent row matches an independent recomputation from its recorded
+  fields, NaN where the predicted stiffness is negative), `TumbleDetectorTest.java` (9:
+  tau = 4 pi/10 at omega 10 and the clamps/fallbacks; the exact exponential recurrence at
+  0.005/0.01/0.05 s and alternating 0.01/0.04 s with the crossing strictly after
+  tau ln 2 and within one step; first sample; brief 150 deg gust of 0.1 pitch period and a
+  one-step 179 deg spike never tumble; 120/95 deg sustained do; rail, q 0.999/1/1.001 Pa,
+  hold without reset, a 10 s low-q gap not integrated, invalid inputs, repeated/backward/
+  non-finite time; copy independence), `TumbleReleaseIntegrationTest.java` (8, real
+  BasicEventSimulationEngine: brief forced 150 deg gust with recorded CG > CP (the OLD
+  comparator's trigger, asserted as a precondition) -> no TUMBLE, LOW LargeAOA, flight
+  completes, two steps; sustained forced 120 deg with CP held AFT of CG -> powered abort
+  TUMBLE_UNDER_THRUST, coast and descent TUMBLE, each after the minimum dwell and within the
+  analytic bound, and at exactly the step a fresh detector replaying the recorded inputs
+  crosses; detection dwell converges with step (0.11672 / 0.11552 / 0.11454 s at 0.005 /
+  0.0025 / 0.00125 s, each within one step) and the k1-row lag is one accepted step;
+  ballasted stable rocket, 0.5 m rod, steady 8 m/s crosswind: the old comparator fires at
+  rail exit (0.119 s, AOA 29.8 deg, force-consistent CP 3.8 mm forward of CG) and the new
+  kernel flies to 414.3 m (calm 434.3 m; 6 m/s control 420.6 m, old comparator silent);
+  finless rocket still departs via the NaN fallback; separated flag suppresses only the
+  warning; booster flagged, sustainer never; copy/clone inherit but never share,
+  copyProperties excludes), `RecordedStallAngleTest.java` updated to the #3183 contract (a
+  single forced row warns from its recorded AOA, LOW, never tumbles). JUnit: 70/70.
+  Mutations (`.claude/t4-mutate.py`, specs `.claude/t4-mut-specs.py`, 24, each exit 1 and
+  restored byte-exact): old behaviour combined (11 fail), instantaneous comparator (6), no
+  rail gate, no q gate, reset on low q, Hz, always-minimum tau, clone shares, copy
+  constructor shares, no booster flag, warning ignores flag, no producer, roll inertia,
+  no sqrt, /2 pi, derivative CP, NORMAL priority, copyProperties copies, hold without
+  time advance, first sample integrates, no rho/inertia/area sign guard, negative
+  stiffness -> 0. TS: `packages/engine/src/tumbleRelease.test.ts` (full-series omega_n
+  oracle, summary omits it, LOW LargeAOA through the bridge; 2 of 3 fail on the T3
+  artifact, the summary test is a pin), `flightDataCsv.test.ts` (+1, fails without the
+  metadata), `warningUnits.kernel.test.ts` priority pin NORMAL -> LOW. GoldenMain
+  `tumbleReleaseScenarios` (7 rows, appended last; the forced sustained-coast row carries
+  discrete outcomes, not event times, because JVM/TeaVM step-size drift in that violent
+  flight measured 1.2e-9 / 2.4e-9 relative, over the unchanged 1e-9 budget).
+- **Measured number changes (old = T3 artifact):** no existing golden row moved (439/439
+  byte-identical). Ballasted stable rocket in a steady 8 m/s crosswind off a 0.5 m rod:
+  previously aborted TUMBLE_UNDER_THRUST at rail exit; now completes to 414.3 m. Same
+  rocket, calm, no recovery device: previously no TUMBLE, ground 19.858 s; now TUMBLE
+  1.03 s after apogee (falls tail-first), ground 44.246 s (3 m/s wind: unchanged, it arcs
+  over). Two-stage staging fixture's booster: TUMBLE 9.735 s (T3's interim comparator;
+  T2: none, ground 23.285 s) -> 5.971 s, ground 22.418 -> 22.661 s. NOT corpus-measured
+  in this stage.

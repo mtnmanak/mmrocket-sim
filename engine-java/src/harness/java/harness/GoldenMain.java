@@ -62,6 +62,129 @@ public final class GoldenMain {
         eventThrustScenarios();
         stallAngleScenarios();
         forceConsistentCpScenarios();
+        tumbleReleaseScenarios();
+    }
+
+    // OR #3002/#3183: append-only differential rows. No old scenario is changed.
+    private static void tumbleReleaseScenarios() {
+        info.openrocket.core.simulation.FlightData stable = t2Flight(new T2MainListener(), true);
+        info.openrocket.core.simulation.FlightDataBranch b = stable.getBranch(0);
+        double rail = t2EventTime(b, info.openrocket.core.simulation.FlightEvent.Type.LAUNCHROD);
+        double[] offsets = {0.05, 0.5, 1.0};
+        for (int sample = 0; sample < offsets.length; sample++) {
+            boolean found = false;
+            for (int i = 0; i < b.getLength(); i++) {
+                double time = b.get(info.openrocket.core.simulation.FlightDataType.TYPE_TIME).get(i);
+                double omega = b.get(info.openrocket.core.simulation.FlightDataType.TYPE_NATURAL_FREQUENCY).get(i);
+                if (time >= rail + offsets[sample] && Double.isFinite(omega) && omega > 1) {
+                    line("flight.tumble.frequency." + sample, time, omega);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) throw new IllegalStateException("tumble release: missing positive post-rail frequency");
+        }
+        double tau = info.openrocket.core.simulation.SimulationStatus.TumbleDetector.timeConstant(10);
+        double fallback = info.openrocket.core.simulation.SimulationStatus.TumbleDetector.timeConstant(Double.NaN);
+        line("tumble.detector.tau", tau, fallback);
+        info.openrocket.core.simulation.SimulationStatus.TumbleDetector detector =
+                new info.openrocket.core.simulation.SimulationStatus.TumbleDetector();
+        detector.update(0, true, 120 * Math.PI / 180, 20, 1.225, 10);
+        double crossing = Double.NaN;
+        for (int i = 1; i <= 500; i++) {
+            double t = i * 0.01;
+            if (detector.update(t, true, 120 * Math.PI / 180, 20, 1.225, 10)) {
+                crossing = t;
+                break;
+            }
+        }
+        if (!(crossing > tau * Math.log(2) && crossing <= tau * Math.log(2) + 0.01)) {
+            throw new IllegalStateException("tumble release: detector crossing outside analytic one-step bound");
+        }
+        line("tumble.detector.crossing", crossing);
+
+        T4DepartureListener gust = new T4DepartureListener(false);
+        info.openrocket.core.simulation.FlightData gustData = t2Flight(gust, true);
+        info.openrocket.core.simulation.FlightDataBranch gb = gustData.getBranch(0);
+        int tumbles = 0, warnings = 0;
+        for (info.openrocket.core.simulation.FlightEvent e : gb.getEvents()) {
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.TUMBLE) tumbles++;
+            if (e.getType() == info.openrocket.core.simulation.FlightEvent.Type.SIM_WARN
+                    && e.getData() instanceof info.openrocket.core.logging.Warning.LargeAOA) warnings++;
+        }
+        if (tumbles != 0 || t2Aborted(gb) || warnings == 0 || gust.observed[0] == 0) {
+            throw new IllegalStateException("tumble release: brief gust failed its old-comparator precondition or new outcome");
+        }
+        line("flight.tumble.brief", tumbles, warnings, gustData.getMaxAltitude());
+
+        T4DepartureListener departure = new T4DepartureListener(true);
+        info.openrocket.core.simulation.FlightDataBranch db = t2Flight(departure, false).getBranch(0);
+        double tumble = t2EventTime(db, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE);
+        double ground = t2EventTime(db, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT);
+        if (!Double.isFinite(tumble) || !Double.isFinite(ground) || t2Aborted(db) || departure.observed[1] == 0) {
+            throw new IllegalStateException("tumble release: sustained coast did not tumble to ground with CP aft of CG");
+        }
+        // Forced 120 deg AOA is violent: JVM/TeaVM last-bit drift in the adaptive
+        // step sizes grows past the 1e-9 flight budget in the event TIMES (measured
+        // 1.2e-9 at detection, 2.4e-9 at ground hit). The tolerance is not widened;
+        // the row carries the discrete outcome instead: rows recorded before the
+        // detection, forced rows observed, and the event counts.
+        int rowsBeforeTumble = 0;
+        java.util.List<Double> times = db.get(info.openrocket.core.simulation.FlightDataType.TYPE_TIME);
+        for (int i = 0; i < times.size(); i++) if (times.get(i) < tumble) rowsBeforeTumble++;
+        line("flight.tumble.sustainedcoast", rowsBeforeTumble, departure.observed[1],
+                t2Count(db, info.openrocket.core.simulation.FlightEvent.Type.TUMBLE),
+                t2Count(db, info.openrocket.core.simulation.FlightEvent.Type.GROUND_HIT));
+    }
+
+    private static int t2Count(info.openrocket.core.simulation.FlightDataBranch b,
+            info.openrocket.core.simulation.FlightEvent.Type type) {
+        int n = 0;
+        for (info.openrocket.core.simulation.FlightEvent e : b.getEvents()) if (e.getType() == type) n++;
+        return n;
+    }
+
+    private static final class T4DepartureListener extends T2MainListener {
+        final boolean sustained;
+        final int[] observed = new int[2]; // shared by listener clones
+        T4DepartureListener(boolean sustained) { this.sustained = sustained; }
+        @Override public void startSimulation(info.openrocket.core.simulation.SimulationStatus s) {
+            super.startSimulation(s);
+            s.getSimulationConditions().setTimeStep(0.005);
+        }
+        private boolean inWindow(double t) {
+            if (sustained) return t >= 2.1; // T2 burnout is 2 s.
+            return Double.isFinite(clearance) && t >= clearance + 0.35 && t < clearance + 0.37;
+        }
+        @Override public info.openrocket.core.aerodynamics.FlightConditions postFlightConditions(
+                info.openrocket.core.simulation.SimulationStatus s, info.openrocket.core.aerodynamics.FlightConditions fc) {
+            if (!coast && inWindow(s.getSimulationTime())) {
+                fc.setAOA((sustained ? 120 : 150) * Math.PI / 180);
+                return fc;
+            }
+            return null;
+        }
+        @Override public info.openrocket.core.aerodynamics.AerodynamicForces postAerodynamicCalculation(
+                info.openrocket.core.simulation.SimulationStatus s, info.openrocket.core.aerodynamics.AerodynamicForces forces) {
+            if (!coast && sustained && inWindow(s.getSimulationTime())) {
+                double cg = MassCalculator.calculateStructure(s.getConfiguration()).add(MassCalculator.calculateMotor(s)).getCM().x;
+                forces.setReportedCP(new Coordinate(cg + 0.05, 0, 0, forces.getCP().weight));
+                return forces;
+            }
+            return null;
+        }
+        @Override public void postStep(info.openrocket.core.simulation.SimulationStatus s) {
+            if (coast || s.isTumbling()) return;
+            info.openrocket.core.simulation.FlightDataBranch b = s.getFlightDataBranch();
+            if (!inWindow(b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_TIME))) return;
+            double cp = b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_CP_LOCATION);
+            double cg = b.getLast(info.openrocket.core.simulation.FlightDataType.TYPE_CG_LOCATION);
+            if (!sustained && cg > cp) observed[0]++;
+            if (sustained) {
+                if (!(cp > cg)) throw new IllegalStateException("tumble release: sustained row must have aft CP");
+                observed[1]++;
+            }
+        }
     }
 
     // OR #3375 / #3093: keep these calls last; difftest compares row indices.

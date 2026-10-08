@@ -10,7 +10,7 @@ import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.motor.IgnitionEvent;
 import info.openrocket.core.motor.Motor;
-import info.openrocket.core.logging.SimulationAbort;
+import info.openrocket.core.logging.MessagePriority;
 import info.openrocket.core.simulation.exception.SimulationException;
 
 /** OR #3093: last calculator evaluation must not decide an accepted step's stall. */
@@ -86,24 +86,23 @@ class RecordedStallAngleTest {
         assertTrue(Double.isFinite(counts.cp) && Double.isFinite(counts.cg), "recorded stall: CP/CG row must be finite (m)");
         boolean tumbled = !events(b, FlightEvent.Type.TUMBLE).isEmpty();
         if (expectedStall) {
-            // Pin the branch selected by the RECORDED row, not the poison evaluation.
-            if (counts.cg > counts.cp) {
-                // Under power the TUMBLE event can abort rather than enter the tumble stepper.
-                assertTrue(counts.tumbleCallbacks > 0, "recorded stall: recorded CG > CP did not queue TUMBLE");
-                assertTrue(tumbled || aborted(b, SimulationAbort.Cause.TUMBLE_UNDER_THRUST),
-                        "recorded stall: queued TUMBLE neither transitioned nor aborted under thrust");
-            } else {
-                assertTrue(largeWarnings(data) > 0, "recorded stall: stale low calculator suppressed recorded high AOA warning");
-                boolean warningAtDecision = false;
-                // SimulationStatus.addWarning writes SIM_WARN straight to the
-                // branch, so handleFlightEvent does not observe these warnings.
-                for (FlightEvent e : events(b, FlightEvent.Type.SIM_WARN)) {
-                    if (e.getData() instanceof Warning.LargeAOA && Math.abs(e.getTime() - counts.decisionTime) <= 1e-12) {
-                        warningAtDecision = true;
-                    }
+            // Mutations: restore last-evaluation stall semantics (#3093), the
+            // instantaneous cg > cp TUMBLE, or NORMAL priority (#3183).
+            // One forced accepted row warns from its RECORDED AOA regardless of
+            // CG/CP; it cannot satisfy the sustained tumble detector.
+            assertTrue(largeWarnings(data) > 0, "recorded stall: stale low calculator suppressed recorded high AOA warning");
+            boolean warningAtDecision = false;
+            // addWarning writes SIM_WARN directly; handleFlightEvent cannot see it.
+            for (FlightEvent e : events(b, FlightEvent.Type.SIM_WARN)) {
+                if (e.getData() instanceof Warning.LargeAOA w) {
+                    assertSame(MessagePriority.LOW, w.getPriority());
+                    if (Math.abs(e.getTime() - counts.decisionTime) <= 1e-12) warningAtDecision = true;
                 }
-                assertTrue(warningAtDecision, "recorded stall: LargeAOA did not correspond to the forced accepted row");
             }
+            assertTrue(warningAtDecision, "recorded stall: LargeAOA did not correspond to the forced accepted row");
+            assertFalse(tumbled, "recorded stall: a single high row must not tumble");
+            assertEquals(0, counts.tumbleCallbacks, "recorded stall: a single high row queued TUMBLE");
+            assertTrue(events(b, FlightEvent.Type.SIM_ABORT).isEmpty(), "recorded stall: single-row experiment aborted");
         } else {
             assertEquals(0, largeWarnings(data), "recorded stall: margin < 0 boundary incorrectly warned at/below stall");
             assertFalse(tumbled, "recorded stall: margin < 0 boundary incorrectly tumbled at/below stall");

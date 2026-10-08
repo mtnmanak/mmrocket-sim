@@ -441,7 +441,13 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 				dataBranch.setValue(FlightDataType.TYPE_SPEED_OF_SOUND,
 									flightConditions.getAtmosphericConditions().getMachSpeed());
 			}
-			
+
+			// PATCH (OR #3002 prerequisite for #3183, see patches/LEDGER.md): record
+			// the pitch natural frequency from THIS store's own k1 conditions, mass
+			// and forces (the same row as the recorded AOA, CP and density).
+			dataBranch.setValue(FlightDataType.TYPE_NATURAL_FREQUENCY,
+					computeNaturalFrequency(status));
+
 			if (null != forces) {
 				dataBranch.setValue(FlightDataType.TYPE_DRAG_COEFF, forces.getCD());
 				dataBranch.setValue(FlightDataType.TYPE_AXIAL_DRAG_COEFF, forces.getCDaxial());
@@ -472,6 +478,42 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 										forces.getCyaw() - forces.getCside() * rocketMass.getCM().x / flightConditions.getRefLength());
 				}
 			}
+		}
+
+		/**
+		 * PATCH (OR #3002 prerequisite for #3183, see patches/LEDGER.md).
+		 * Pitch natural frequency, ANGULAR, in rad/s:
+		 * omega_n = sqrt(q * A_ref * CNa * (xCP - xCG) / I_long), q = rho v^2 / 2.
+		 * CNa is the reported CP's weight (per radian); I_long is the
+		 * longitudinal (pitch/yaw) inertia in kg m^2, NOT the roll inertia.
+		 * Above the force-consistent CP threshold this is upstream's stiffness
+		 * PROXY fed with the force-consistent CP, not a tangent stiffness.
+		 * Upstream's damping diagnostics are deliberately not ported.
+		 *
+		 * @return 0 on the launch guide (and for neutral stiffness); NaN for
+		 *         negative stiffness, missing data, or any non-finite input.
+		 */
+		private double computeNaturalFrequency(SimulationStatus status) {
+			if (!status.isLaunchRodCleared())
+				return 0.0;
+			if (flightConditions == null || rocketMass == null || forces == null)
+				return Double.NaN;
+			Coordinate cp = forces.getCP();
+			if (cp == null || !Double.isFinite(flightConditions.getAOA()))
+				return Double.NaN;
+			double rho = flightConditions.getAtmosphericConditions().getDensity();
+			double v = flightConditions.getVelocity();
+			double area = flightConditions.getRefArea();
+			double cg = rocketMass.getCM().x;
+			double inertia = rocketMass.getLongitudinalInertia();
+			if (!Double.isFinite(rho) || rho < 0 || !Double.isFinite(v) || v < 0
+					|| !Double.isFinite(area) || area <= 0 || !Double.isFinite(cg)
+					|| !Double.isFinite(cp.x) || !Double.isFinite(cp.weight)
+					|| !Double.isFinite(inertia) || inertia <= 0)
+				return Double.NaN;
+			double stiffness = 0.5 * rho * MathUtil.pow2(v) * area * cp.weight * (cp.x - cg);
+			double ratio = stiffness / inertia;
+			return (Double.isFinite(ratio) && ratio >= 0) ? Math.sqrt(ratio) : Double.NaN;
 		}
 
 		/**
