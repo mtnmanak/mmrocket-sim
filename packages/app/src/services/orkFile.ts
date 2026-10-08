@@ -2553,17 +2553,17 @@ export function exportOrk({
   /**
    * Writes back whatever fillet the file came in with (see readFillet). The old
    * hard-coded 0.0 + Cardboard silently deleted a designer's epoxy fillets from
-   * their own .ork on every save; these defaults are the same literals, used
-   * only when the design genuinely has no fillet.
+   * their own .ork on every save. Missing radius/material use the kernel's
+   * existing defaults; an edited unnamed density is a custom material.
    */
   const filletXml = (depth: number, node: ComponentNode) => {
     emit(depth, `<filletradius>${n(node, 'filletRadius', 0)}</filletradius>`);
     const density = n(node, 'filletDensity', 680);
     const group = typeof node['filletMaterialGroup'] === 'string'
-      ? node['filletMaterialGroup'] as string : 'PaperProducts';
+      ? ` group="${escapeXmlAttr(node['filletMaterialGroup'] as string)}"` : '';
     const matName = typeof node['filletMaterialName'] === 'string'
-      ? node['filletMaterialName'] as string : 'Cardboard';
-    emit(depth, `<filletmaterial type="bulk" density="${density}" group="${escapeXmlAttr(group)}">`
+      ? node['filletMaterialName'] as string : numOpt(node, 'filletDensity') !== undefined ? 'custom' : 'Cardboard';
+    emit(depth, `<filletmaterial type="bulk" density="${density}"${group}>`
       + `${escapeXml(matName)}</filletmaterial>`);
   };
 
@@ -3904,8 +3904,9 @@ function readAirfoil(el: XmlElement, node: ComponentNode, notes: string[]): void
  */
 function readFillet(el: XmlElement, node: ComponentNode, notes: string[]): void {
   const r = num(el, 'filletradius', 0, notes);
-  if (!(r > 0)) return;
-  node['filletRadius'] = r;
+  if (r > 0) node['filletRadius'] = r;
+  // Keep the chosen material even with fillets disabled; increasing the
+  // radius after reopening must use the density the user already selected.
   const m = el.querySelector(':scope > filletmaterial');
   if (!m) return;
   const d = parseDecimal(m.getAttribute('density'));
@@ -3913,7 +3914,7 @@ function readFillet(el: XmlElement, node: ComponentNode, notes: string[]): void 
   const group = m.getAttribute('group');
   if (group) node['filletMaterialGroup'] = group;
   const name = (m.textContent ?? '').trim();
-  if (name) node['filletMaterialName'] = name;
+  if (name && name.toLowerCase() !== 'custom') node['filletMaterialName'] = name;
 }
 
 /**

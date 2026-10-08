@@ -229,12 +229,13 @@ const markerNumber = (v: CatalogueDifference['have']): number | undefined => num
  *
  * "Custom" now means what it says: no name at all.
  */
-function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch, catalogue }: {
+function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch, catalogue, foreignSource = 'from the parts database' }: {
   label: string;
   list: MaterialDef[];
   nameKey: string;
   densityKey: string;
   densityUnit: string;
+  foreignSource?: string;
   node: ComponentNode;
   onPatch: (patch: Partial<ComponentNode>) => void;
   /** The conflict marker for this material, when the part's catalogue row names another. */
@@ -270,7 +271,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
         {foreign !== null && (
           <option value={foreign}>
             {foreign}{foreignDensity !== undefined ? ` (${foreignDensity} ${densityUnit})` : ''}
-            {' — from the parts database'}
+            {` — ${foreignSource}`}
           </option>
         )}
         {list.map((m) => (
@@ -854,6 +855,11 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
       const patch: Partial<ComponentNode> = limitCatalogue({ ...partner, [f.key]: next });
       // A hand-typed density is no longer the named material's density.
       if (f.key === 'density' && !('materialName' in partner)) patch['materialName'] = undefined;
+      if (f.key === 'filletDensity') {
+        if (!(next > 0)) return; // The bridge ignores zero density and would fly Cardboard instead.
+        patch['filletMaterialName'] = undefined;
+        patch['filletMaterialGroup'] = undefined;
+      }
       onPatch(patch);
     };
     // A count's display value IS its SI value (no unit, never a radius).
@@ -939,7 +945,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
           integer={f.unit === 'count'}
           min={f.unit === 'count' ? (f.smin ?? 1) : undefined}
           max={maxUi}
-          validate={(v) => Number.isFinite(fromDisplay(v))}
+          validate={(v) => Number.isFinite(fromDisplay(v)) && (f.key !== 'filletDensity' || v > 0)}
           clampToMax={f.unit === 'count'}
           placeholder={autoPlaceholder}
           autoValue={autoValue}
@@ -1332,6 +1338,24 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                 <MaterialSelect label="Material" list={BULK_MATERIALS}
                   nameKey="materialName" densityKey="density" densityUnit="kg/m³"
                   node={node} onPatch={onPatch} />
+                {renderNumeric(f)}
+              </Fragment>
+            );
+          }
+          if (f.key === 'filletDensity') {
+            // Reflect the kernel's existing Cardboard fallback without writing
+            // defaults on selection. A custom density keeps the Custom option.
+            const filletNode = numOpt(node, 'filletDensity') === undefined && !node['filletMaterialName']
+              ? { ...node, filletMaterialName: 'Cardboard' } : node;
+            return (
+              <Fragment key={f.key}>
+                <MaterialSelect label="Fillet material" list={BULK_MATERIALS}
+                  nameKey="filletMaterialName" densityKey="filletDensity" densityUnit="kg/m³"
+                  foreignSource="from this design" node={filletNode}
+                  onPatch={(patch) => onPatch({
+                    ...(numOpt(node, 'filletDensity') === undefined ? { filletDensity: 680 } : {}),
+                    ...patch, filletMaterialGroup: undefined,
+                  })} />
                 {renderNumeric(f)}
               </Fragment>
             );

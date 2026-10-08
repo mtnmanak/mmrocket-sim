@@ -556,6 +556,13 @@ const CANT: FieldDef = { key: 'cant', label: 'Cant angle', unit: 'deg', step: 0.
 // baseRotation) — lets straight fins sit BETWEEN tube fins (2026-08-05d).
 const FIN_ROTATION: FieldDef = { key: 'rotation', label: 'Rotation (about body axis)', unit: 'deg', step: 5, smin: -180, smax: 180 };
 
+const FIN_FILLETS: FieldDef[] = [
+  // A fillet is specified by radius even when tube dimensions show diameters.
+  lenMM('filletRadius', 'Fillet radius', 0.1, 10),
+  { key: 'filletDensity', label: 'Fillet material density', unit: 'kg/m3', step: 10,
+    help: 'Use a density greater than zero. Set Fillet radius to 0 to remove the fillets.' },
+];
+
 /**
  * Through-the-wall fin tabs. A tab exists when BOTH depth and length are > 0
  * (OpenRocket semantics); the engine clamps depth to the body radius. Tab
@@ -856,6 +863,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
+    ...FIN_FILLETS,
     FINISH,
     DENSITY,
   ],
@@ -867,6 +875,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
+    ...FIN_FILLETS,
     FINISH,
     DENSITY,
   ],
@@ -880,6 +889,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'crossSection', label: 'Cross section', unit: 'none', options: CROSS_SECTIONS },
     ...AIRFOIL_FIELDS,
     ...FIN_TABS,
+    ...FIN_FILLETS,
     FINISH,
     DENSITY,
   ],
@@ -1203,6 +1213,8 @@ const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
   cant: 0, // :173, :184, :193
   rotation: 0, // :229 (tube fins), :530 (fin sets)
   tabHeight: 0, tabLength: 0, tabOffset: 0, // applyFinTabs :758-765 — no tab
+  filletRadius: 0,
+  filletDensity: 680, // ApplicationPreferences: BULK defaults to Cardboard, not epoxy.
   airfoilLeDiamond: 0, airfoilTeDiamond: 0, finLeRadius: 0, // :554-556
   motorOverhang: 0, // :161, :253
   radialPosition: 0, radialDirection: 0, // :260-261
