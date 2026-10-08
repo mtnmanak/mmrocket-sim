@@ -40,7 +40,7 @@ import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtFieldValue, fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
-import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { BULK_MATERIALS, DEFAULT_FILLET_MATERIAL, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import {
   catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
@@ -859,6 +859,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         if (!(next > 0)) return; // The bridge ignores zero density and would fly Cardboard instead.
         patch['filletMaterialName'] = undefined;
         patch['filletMaterialGroup'] = undefined;
+      }
+      // Set the new-fillet default only on the first zero-to-positive edit.
+      // Never migrate a loaded design or replace any stored material metadata.
+      if (f.key === 'filletRadius' && next > 0 && (numOpt(node, 'filletRadius') ?? 0) === 0
+        && node['filletDensity'] === undefined && node['filletMaterialName'] === undefined
+        && node['filletMaterialGroup'] === undefined) {
+        patch['filletDensity'] = DEFAULT_FILLET_MATERIAL.density;
+        patch['filletMaterialName'] = DEFAULT_FILLET_MATERIAL.name;
       }
       onPatch(patch);
     };

@@ -65,15 +65,104 @@ describe('fin root fillet editing', () => {
       expect(patches).toEqual([]);
       expect(JSON.stringify(node)).toBe(before);
       spin(radius);
-      expect(patches).toEqual([{ filletRadius: 0.0001 }]);
-      show({ ...node, ...patches[0] });
+      expect(patches).toEqual([{ filletRadius: 0.0001,
+        filletDensity: 1200, filletMaterialName: 'Epoxy + silica (fillet paste)' }]);
+      const enabled = { ...node, ...patches[0] };
+      show(enabled);
+      expect(material().value).toBe('Epoxy + silica (fillet paste)');
       spin(box('Fillet radius (mm)'), true);
       expect(patches.at(-1)).toEqual({ filletRadius: 0 });
       pick('');
-      expect(patches.at(-1)).toEqual({ filletDensity: 680, filletMaterialName: undefined, filletMaterialGroup: undefined });
-      show({ ...node, ...patches.at(-1) });
+      expect(patches.at(-1)).toEqual({ filletMaterialName: undefined, filletMaterialGroup: undefined });
+      show({ ...enabled, filletRadius: 0, ...patches.at(-1) });
       expect(material().value).toBe('');
     });
+
+  it.each([
+    { filletDensity: 680, filletMaterialName: 'Cardboard', filletMaterialGroup: 'PaperProducts' },
+    { filletDensity: 1350 },
+    { filletDensity: 980, filletMaterialName: 'My epoxy', filletMaterialGroup: 'Custom' },
+    { filletMaterialName: 'Imported name without density' },
+    { filletMaterialGroup: 'Custom' },
+  ])('keeps stored material on first enable and re-enable: %j', (stored) => {
+    const node = { ...makeNode('freeformfinset'), ...stored, filletRadius: 0 };
+    show(node);
+    type(box('Fillet radius (mm)'), '3');
+    expect(patches).toEqual([{ filletRadius: 0.003 }]);
+    show({ ...node, ...patches.at(-1) });
+    type(box('Fillet radius (mm)'), '0');
+    show({ ...node, ...patches.at(-1) });
+    spin(box('Fillet radius (mm)'));
+    expect(patches.at(-1)).toEqual({ filletRadius: 0.0001 });
+  });
+
+  it('does not assign a new material when resizing an existing material-less fillet', () => {
+    show({ ...makeNode('freeformfinset'), filletRadius: 0.002 });
+    type(box('Fillet radius (mm)'), '3');
+    expect(patches).toEqual([{ filletRadius: 0.003 }]);
+  });
+
+  it.each([
+    ['Epoxy, unfilled (cured)', 1150],
+    ['Epoxy + silica (fillet paste)', 1200],
+    ['Epoxy + high-density filler', 1290],
+    ['Epoxy + microfibers', 1080],
+    ['Epoxy + microballoons', 450],
+    ['RocketPoxy', 1500],
+  ] as const)('selects and round-trips %s with its density', (name, density) => {
+    const node = { ...makeNode('freeformfinset'), filletRadius: 0.003,
+      filletMaterialGroup: 'Custom' };
+    show(node);
+    expect([...material().options].some((o) => o.value === name)).toBe(true);
+    pick(name);
+    const edited = { ...node, ...patches.at(-1) };
+    const xml = exportOrk({ name: 'Fillets', tree: treeFor(edited) });
+    // Like other app-only materials, omit the local group: desktop 24.12
+    // accepts the unknown name and explicit density as a custom BULK material.
+    expect(xml).toContain(`<filletmaterial type="bulk" density="${density}">${name}</filletmaterial>`);
+    const back = reopenedFin(edited);
+    expect(back['filletMaterialName']).toBe(name);
+    expect(back['filletDensity']).toBe(density);
+    expect(back['filletMaterialGroup']).toBeUndefined();
+  });
+
+  it.each([undefined, { filletDensity: 680, filletMaterialName: 'Cardboard' },
+    { filletDensity: 1330, filletMaterialName: 'My epoxy', filletMaterialGroup: 'Custom' }])(
+    'opening an existing filleted design leaves its material and kernel mass unchanged: %j', async (stored) => {
+      const { OrkRocket } = await import('@online-openrocket/engine');
+      const original = { ...makeNode('freeformfinset'), crossSection: 'rounded',
+        filletRadius: 0.003, ...stored };
+      const mass = (tree: RocketTree) => OrkRocket.buildTree(engineTree(tree)).staticInfo().mass;
+      const before = mass(treeFor(original));
+      const xml = exportOrk({ name: 'Existing', tree: treeFor(original) });
+      // Old files may omit the material element entirely.
+      const opened = importOrk(stored ? xml : xml.replace(/<filletmaterial\b[^>]*>[^<]*<\/filletmaterial>/g, '')).tree;
+      const node = opened.components[0]!.children![0]!.children![0]!;
+      const snapshot = JSON.stringify(opened);
+      show(node);
+      expect(patches).toEqual([]);
+      expect(JSON.stringify(opened)).toBe(snapshot);
+      expect(node['filletDensity']).toBe(stored?.filletDensity);
+      expect(node['filletMaterialName']).toBe(stored?.filletMaterialName);
+      expect(mass(opened)).toBeCloseTo(before, 10);
+    }, 20_000);
+
+  it.each(['rounded', 'airfoil'] as const)('new %s fillet mass follows radius squared, both sides, root length and silica density', async (crossSection) => {
+    const { OrkRocket } = await import('@online-openrocket/engine');
+    const original = { ...makeNode('freeformfinset'), crossSection, finCount: 3,
+      points: [[0, 0], [0.02, 0.04], [0.08, 0.04], [0.1, 0]], density: 170 };
+    const mass = (node: ComponentNode) => OrkRocket.buildTree(engineTree(treeFor(node))).staticInfo().mass;
+    const before = mass(original);
+    for (const radius of [0.00005, 0.0001]) {
+      show(original);
+      type(box('Fillet radius (mm)'), String(radius * 1000));
+      const edited = { ...original, ...patches.at(-1) };
+      const expected = 0.2146 * radius ** 2 * 2 * 3 * 0.1 * 1200;
+      // Flat-surface approximation: r/R <= 0.005 on this 20 mm-radius tube.
+      // Allow 1% for tube curvature and coefficient rounding, not a pinned float.
+      expect(Math.abs((mass(edited) - before) - expected)).toBeLessThan(expected * 0.01);
+    }
+  }, 20_000);
 
   it.each(['rounded', 'airfoil'] as const)('edits freeform %s fillets and reopens them from .ork', (crossSection) => {
     let node: ComponentNode = { ...makeNode('freeformfinset'), crossSection, density: 170,
