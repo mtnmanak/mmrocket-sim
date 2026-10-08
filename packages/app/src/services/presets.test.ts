@@ -44,6 +44,11 @@ describe('presetPatch', () => {
     ['transition', 'SEMROC', 'BC-1050 [R]', 0.030900980179, 6.770961],
     ['nosecone', 'FlisKits', 'NCB-2-01-O', 0.000283495231, 0.071023],
     ['nosecone', 'FlisKits', 'NCB-2.5P', 0.000283495231, 0.087322],
+    ['engineblock', 'Quest', '14101', 0.00001, 0.656115],
+    ['bodytube', 'Quest', '10315', 0.000283495231, 1.864386],
+    ['bodytube', 'FlisKits', 'BT-5-0529', 0.0005953399851, 1.958422],
+    ['nosecone', 'SEMROC', 'BNC-3A', 0.000283495231, 0.108205],
+    ['bodytube', 'Quest', '9527', 0.001417476155, 0.502016],
   ] as const)('cleared catalogue mass: %s %s %s', (type, manufacturer, partNo, retired, geometryGrams) => {
     const rows = db.filter((p) => p.kind === KIND_FOR_TYPE[type] && p.manufacturer === manufacturer && p.partNo === partNo);
     const row = rows[0]!;
@@ -62,7 +67,7 @@ describe('presetPatch', () => {
         ? { type: 'bodytube', id: 'parent', ...defaultParams('bodytube'), children: [node] }
         : node;
       const massGrams = OrkRocket.buildTree(engineTree({ components: [root] })).componentInfo('corrected').mass * 1000;
-      // Independent annulus / ellipsoid / tangent-ogive calculations, with solid
+      // Independent annulus / cone / ellipsoid / tangent-ogive calculations, with solid
       // shoulders. Allow 1% for the kernel's numerical shape integration.
       expect(Math.abs(massGrams - geometryGrams)).toBeLessThan(geometryGrams * 0.01);
     }, 20_000); // real kernel: explicit timeout (CI is slower than the desktop)
@@ -83,6 +88,52 @@ describe('presetPatch', () => {
         expect(kept.overrideMass).toBe(0.006);
         expect(kept.overrideSubcomponentsMass).toBe(assembly);
         expect(catalogueDifferences(weighed, row).some((d) => d.key === 'overrideMass')).toBe(false);
+      }
+    });
+  });
+
+  describe.each([
+    ['Rocketarium', 'BT-80K Nose Cone. 8.25" Long', 0.076, 0.072],
+    ['Rocketarium', 'BT-70 Nose Cone. 7.5" Long', 0.059, 0.062],
+    ['AeroTech', '11261', 0.0680389, 0.106],
+  ] as const)('replaced catalogue mass: %s %s', (manufacturer, partNo, retired, mass) => {
+    const rows = db.filter((p) => p.kind === 'NoseCone' && p.manufacturer === manufacturer && p.partNo === partNo);
+    const row = rows[0]!;
+
+    it('uses the maker mass through the static kernel', async () => {
+      expect(rows).toHaveLength(1);
+      expect(row.mass).toBe(mass);
+      const patch = presetPatch('nosecone', row);
+      expect(patch.overrideMass).toBe(mass);
+      const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+      const { engineTree } = await import('../tree/treeModel.js');
+      const { defaultParams } = await import('../tree/schema.js');
+      resetEngine();
+      const node: ComponentNode = { type: 'nosecone', id: 'corrected', ...defaultParams('nosecone'), ...patch };
+      const actual = OrkRocket.buildTree(engineTree({ components: [node] })).componentInfo('corrected').mass;
+      // The override passes through in SI; allow 1 nanogram for runtime roundoff.
+      expect(Math.abs(actual - mass)).toBeLessThan(1e-12);
+    }, 20_000);
+
+    it('offers the new catalogue mass for a saved old override and updates it on re-pick', () => {
+      const saved: ComponentNode = { type: 'nosecone', id: 'saved', ...presetPatch('nosecone', row), overrideMass: retired };
+      expect(holdsCatalogueMass(saved, db)).toBe(true);
+      const diff = catalogueDifferences(saved, row).find((d) => d.key === 'overrideMass');
+      expect(diff).toMatchObject({ have: retired, want: mass, patch: { overrideMass: mass } });
+      expect({ ...saved, ...diff!.patch }.overrideMass).toBe(mass);
+      expect(catalogueDifferences({ ...saved, ...diff!.patch }, row).some((d) => d.key === 'overrideMass')).toBe(false);
+      for (const assembly of [false, true]) {
+        const node = { ...saved, overrideSubcomponentsMass: assembly };
+        const picked: ComponentNode = { ...node, ...presetPatch('nosecone', row, { node, presets: db }) };
+        expect(picked.overrideMass).toBe(mass);
+        expect(picked.overrideSubcomponentsMass).toBeUndefined();
+        // A real weighing stays distinct from both catalogue values. Existing
+        // picker policy preserves weighed assemblies even on a mass-bearing pick.
+        const weighed = { ...node, overrideMass: 0.123, overrideSubcomponentsMass: true };
+        expect(holdsCatalogueMass(weighed, db)).toBe(false);
+        const kept = { ...weighed, ...presetPatch('nosecone', row, { node: weighed, presets: db }) };
+        expect(kept.overrideMass).toBe(0.123);
+        expect(kept.overrideSubcomponentsMass).toBe(true);
       }
     });
   });

@@ -5862,7 +5862,6 @@
     "type": "BULK",
     "density": 1047.66483507
    },
-   "mass": 0.0005953399851,
    "insideDiameter": 0.013081,
    "outsideDiameter": 0.0137414,
    "length": 0.134366,
@@ -9896,7 +9895,6 @@
     "type": "BULK",
     "density": 608.7016092
    },
-   "mass": 0.000283495231,
    "insideDiameter": 0.020193,
    "outsideDiameter": 0.021209,
    "length": 0.09271,
@@ -10001,7 +9999,6 @@
     "type": "BULK",
     "density": 608.7016092
    },
-   "mass": 0.001417476155,
    "insideDiameter": 0.0065278,
    "outsideDiameter": 0.0070358,
    "length": 0.1524,
@@ -32531,7 +32528,6 @@
     "type": "BULK",
     "density": 608.7016092
    },
-   "mass": 0.00001,
    "insideDiameter": 0.013843,
    "outsideDiameter": 0.020193,
    "length": 0.00635,
@@ -34362,7 +34358,7 @@
     "type": "BULK",
     "density": 1050
    },
-   "mass": 0.0680389,
+   "mass": 0.106,
    "length": 0.3175,
    "outsideDiameter": 0.06604,
    "shoulderLength": 0.0762,
@@ -41881,7 +41877,7 @@
     "type": "BULK",
     "density": 950
    },
-   "mass": 0.059,
+   "mass": 0.062,
    "filled": true,
    "shape": "OGIVE",
    "outsideDiameter": 0.0564896,
@@ -41899,7 +41895,7 @@
     "type": "BULK",
     "density": 950
    },
-   "mass": 0.076,
+   "mass": 0.072,
    "filled": true,
    "shape": "OGIVE",
    "outsideDiameter": 0.066294,
@@ -48407,7 +48403,6 @@
     "type": "BULK",
     "density": 128.1477072
    },
-   "mass": 0.000283495231,
    "filled": true,
    "shape": "CONICAL",
    "outsideDiameter": 0.009525,

@@ -57,6 +57,61 @@ const RETIRED_MASSES_PATH = join(here, '..', 'src', 'data', 'retiredPresetMasses
  * third party sources."*
  */
 export const CORRECTIONS = [
+  // 2026-10-08 too-light screen: only the eight ruled CLEAR/REPLACE rows.
+  {
+    key: 'EngineBlock|quest|14101',
+    why: 'desktop 24.12 Quest-legacy.orc gives this D5 thrust ring 1.0E-5 kg (0.01 g), a data-entry slip against its 0.656 g paper annulus. Sibling thrust rings 14000 and 14103 have no mass override. Clear the unsupported mass to use geometry; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.00001, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'BodyTube|quest|10315',
+    why: 'desktop 24.12 gives this D5 motor-mount tube the 0.01 oz placeholder (0.2835 g), against 1.864 g from its paper wall at the stated density; the catalogue mass would require paper at about 93 kg/m3. Clear the unsupported mass to use geometry; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.000283495231, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'BodyTube|fliskits|bt50529',
+    why: 'desktop 24.12 fliskits-legacy.orc repeats the 1.75 in BT-5-0175 mass (0.5953 g) on this 5.29 in tube. Its wall computes 1.958 g, consistent with the longer BT-5-08, BT-5-0944 and BT-5-18 siblings. Clear the copied mass to use geometry; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.0005953399851, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'NoseCone|semroc|bnc3a',
+    why: 'desktop 24.12 semroc-legacy.orc and its RockSim source give this small conical balsa nose the 0.01 oz placeholder (0.2835 g), against 0.1082 g for its solid cone and shoulder at the stated density. Clear the unsupported mass to use geometry; no published replacement mass was found.',
+    fields: { mass: { bad: 0.000283495231, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'BodyTube|quest|9527',
+    why: 'desktop 24.12 Quest-legacy.orc repeats the 0.05 oz placeholder (1.4175 g) on the 7 mm and 10 mm MMX tubes; this 7 mm tube computes 0.5020 g at the stated paper density. Its Q9527 counterpart also uses geometry without a mass override. Clear only 9527; the separate 9528 verdict is KEEP and no measured replacement mass is known.',
+    fields: { mass: { bad: 0.001417476155, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'NoseCone|rocketarium|bt80knosecone825long',
+    why: 'Rocketarium BT-80k maker page https://www.rocketarium.com/index.php?main_page=product_info&cPath=19_59&products_id=1529 publishes 2.54 oz (72 g), replacing the 76 g in ROCKETARIUM.ORC. Retain a catalogue override: the filled geometry is not a measured plastic shell.',
+    fields: { mass: { bad: 0.076, good: 0.072 } },
+    upstream: {
+      file: 'ROCKETARIUM.ORC', element: 'NoseCone', partNo: 'BT-80K Nose Cone. 8.25" Long',
+      fields: { Mass: { bad: '76', good: '72' } },
+    },
+  },
+  {
+    key: 'NoseCone|rocketarium|bt70nosecone75long',
+    why: 'Rocketarium BT-70 maker page https://www.rocketarium.com/Build/Nose-Cones/NC-70 publishes 2.19 oz (62 g), replacing the 59 g in ROCKETARIUM.ORC. Retain a catalogue override: the filled geometry is not a measured plastic shell.',
+    fields: { mass: { bad: 0.059, good: 0.062 } },
+    upstream: {
+      file: 'ROCKETARIUM.ORC', element: 'NoseCone', partNo: 'BT-70 Nose Cone. 7.5" Long',
+      fields: { Mass: { bad: '59', good: '62' } },
+    },
+  },
+  {
+    key: 'NoseCone|aerotech|11261',
+    why: 'AeroTech 2.6 inch 5:1 Ogive Plastic Nose Cone - 11261 maker page https://aerotech-rocketry.com/products/product_637eb802-7393-2cb9-d471-c0b15a4ccce1 publishes Weight 3.75 oz. (106 g), replacing the RockSim catalogue value 68.0389 g. Keep the maker mass as an override rather than using the approximate shell geometry.',
+    fields: { mass: { bad: 0.0680389, good: 0.106 } },
+    unwatched: 'value comes from the local RockSim NoseconeDATA.CSV, not a watched github .orc',
+  },
   {
     key: 'BodyTube|quest|10311',
     why: 'desktop 24.12 lists this bare MMX engine tube at the 0.05 oz placeholder (1.417 g), 14.28 times its paper wall (0.0993 g at the stated density) and 2.38 times even a solid cylinder. Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
