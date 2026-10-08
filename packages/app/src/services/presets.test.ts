@@ -38,6 +38,55 @@ describe('bundled preset database', () => {
 });
 
 describe('presetPatch', () => {
+  describe.each([
+    ['bodytube', 'Quest', '10311', 0.001417476155, 0.099275],
+    ['engineblock', 'Quest', '14005', 0.000283495231, 0.077559],
+    ['transition', 'SEMROC', 'BC-1050 [R]', 0.030900980179, 6.770961],
+    ['nosecone', 'FlisKits', 'NCB-2-01-O', 0.000283495231, 0.071023],
+    ['nosecone', 'FlisKits', 'NCB-2.5P', 0.000283495231, 0.087322],
+  ] as const)('cleared catalogue mass: %s %s %s', (type, manufacturer, partNo, retired, geometryGrams) => {
+    const rows = db.filter((p) => p.kind === KIND_FOR_TYPE[type] && p.manufacturer === manufacturer && p.partNo === partNo);
+    const row = rows[0]!;
+
+    it('uses the shipped geometry through the static kernel', async () => {
+      expect(rows).toHaveLength(1);
+      expect(row.mass).toBeUndefined();
+      const patch = presetPatch(type, row);
+      expect(patch.overrideMass).toBeUndefined();
+      const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+      const { engineTree } = await import('../tree/treeModel.js');
+      const { defaultParams } = await import('../tree/schema.js');
+      resetEngine();
+      const node: ComponentNode = { type, id: 'corrected', ...defaultParams(type), ...patch };
+      const root: ComponentNode = type === 'engineblock'
+        ? { type: 'bodytube', id: 'parent', ...defaultParams('bodytube'), children: [node] }
+        : node;
+      const massGrams = OrkRocket.buildTree(engineTree({ components: [root] })).componentInfo('corrected').mass * 1000;
+      // Independent annulus / ellipsoid / tangent-ogive calculations, with solid
+      // shoulders. Allow 1% for the kernel's numerical shape integration.
+      expect(Math.abs(massGrams - geometryGrams)).toBeLessThan(geometryGrams * 0.01);
+    });
+
+    it('recognises saved retired overrides and preserves a different user weighing', () => {
+      const saved: ComponentNode = { type, id: 'saved', ...presetPatch(type, row), overrideMass: retired };
+      expect(holdsCatalogueMass(saved, db)).toBe(true);
+      expect(catalogueDifferences(saved, row).find((d) => d.key === 'overrideMass')).toMatchObject({
+        have: retired, want: 'computed mass', patch: { overrideMass: undefined, overrideSubcomponentsMass: undefined },
+      });
+      for (const assembly of [false, true]) {
+        const node = { ...saved, overrideSubcomponentsMass: assembly };
+        const picked: ComponentNode = { ...node, ...presetPatch(type, row, { node, presets: db }) };
+        expect(picked.overrideMass).toBeUndefined();
+        expect(picked.overrideSubcomponentsMass).toBeUndefined();
+        const weighed = { ...node, overrideMass: 0.006 };
+        const kept = { ...weighed, ...presetPatch(type, row, { node: weighed, presets: db }) };
+        expect(kept.overrideMass).toBe(0.006);
+        expect(kept.overrideSubcomponentsMass).toBe(assembly);
+        expect(catalogueDifferences(weighed, row).some((d) => d.key === 'overrideMass')).toBe(false);
+      }
+    });
+  });
+
   describe('retired catalogue masses', () => {
     const retired = 0.020128161401;
     const row = db.find((p) => p.kind === 'Transition' && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]')!;

@@ -3,13 +3,22 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { presetKey } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shipped = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));
-const isReducer = (p) => p.kind === 'Transition' && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]';
+const retiredMasses = {
+  'Transition|semroc|ta5055lr': [0.020128161401],
+  'BodyTube|quest|10311': [0.001417476155],
+  'EngineBlock|quest|14005': [0.000283495231],
+  'Transition|semroc|bc1050r': [0.030900980179],
+  'NoseCone|fliskits|ncb201o': [0.000283495231],
+  'NoseCone|fliskits|ncb25p': [0.000283495231],
+};
 const serialize = (db) => JSON.stringify(db, null, 1) + '\n';
 
-describe('SEMROC TA-5055L [R] mass correction CLI', () => {
+describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [bad]) => {
+  const isTarget = (p) => presetKey(p) === key;
   let dir, path, script, db;
   beforeEach(() => {
     dir = mkdtempSync(join(here, '.preset-corrections-'));
@@ -21,8 +30,8 @@ describe('SEMROC TA-5055L [R] mass correction CLI', () => {
     script = join(dir, 'scripts/apply-preset-corrections.mjs');
     path = join(dir, 'src/data/presets.json');
     db = structuredClone(shipped);
-    expect(db.presets.filter(isReducer)).toHaveLength(1);
-    db.presets.find(isReducer).mass = 0.020128161401;
+    expect(db.presets.filter(isTarget)).toHaveLength(1);
+    db.presets.find(isTarget).mass = bad;
   });
   afterEach(() => {
     if (dir && dirname(dir) === here) rmSync(dir, { recursive: true, force: true });
@@ -33,11 +42,11 @@ describe('SEMROC TA-5055L [R] mass correction CLI', () => {
     writeFileSync(path, serialize(db));
     const first = run();
     expect(first.status, first.stdout + first.stderr).toBe(0);
-    delete db.presets.find(isReducer).mass;
+    delete db.presets.find(isTarget).mass;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
     const retiredPath = join(dir, 'src/data/retiredPresetMasses.json');
     const retired = readFileSync(retiredPath, 'utf8');
-    expect(JSON.parse(retired)).toEqual({ 'Transition|semroc|ta5055lr': [0.020128161401] });
+    expect(JSON.parse(retired)).toEqual(retiredMasses);
     // The committed browser input must stay in sync with the correction table.
     expect(readFileSync(join(here, '../src/data/retiredPresetMasses.json'), 'utf8')).toBe(retired);
     const second = run();
@@ -49,29 +58,32 @@ describe('SEMROC TA-5055L [R] mass correction CLI', () => {
 
   it('generates retired masses for replacement corrections and for already corrected data', () => {
     // Exercise the actual CLI with a replacement correction, not only removal.
-    writeFileSync(script, readFileSync(script, 'utf8').replace(
-      'mass: { bad: 0.020128161401, good: undefined }',
-      'mass: { bad: 0.020128161401, good: 0.004 }',
+    // Scope the replacement to this entry: three parts share the 0.01 oz value.
+    const source = readFileSync(script, 'utf8');
+    const start = source.indexOf(`key: '${key}',`);
+    writeFileSync(script, source.slice(0, start) + source.slice(start).replace(
+      `mass: { bad: ${bad}, good: undefined }`,
+      `mass: { bad: ${bad}, good: 0.004 }`,
     ));
-    db.presets.find(isReducer).mass = 0.004;
+    db.presets.find(isTarget).mass = 0.004;
     writeFileSync(path, serialize(db));
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, 'src/data/retiredPresetMasses.json'), 'utf8')))
-      .toEqual({ 'Transition|semroc|ta5055lr': [0.020128161401] });
+      .toEqual(retiredMasses);
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
   });
 
   it.each(['unexpected mass', 'missing row', 'duplicate key'])('refuses %s without writing', (surprise) => {
-    const row = db.presets.find(isReducer);
+    const row = db.presets.find(isTarget);
     if (surprise === 'unexpected mass') row.mass = 0.01;
-    if (surprise === 'missing row') db.presets = db.presets.filter((p) => !isReducer(p));
+    if (surprise === 'missing row') db.presets = db.presets.filter((p) => !isTarget(p));
     if (surprise === 'duplicate key') db.presets.push({ ...row });
     const raw = serialize(db);
     writeFileSync(path, raw);
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(result.stderr).toContain('Transition|semroc|ta5055lr');
+    expect(result.stderr).toContain(key);
     expect(readFileSync(path, 'utf8')).toBe(raw);
     expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
   });
