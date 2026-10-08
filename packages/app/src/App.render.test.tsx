@@ -930,6 +930,26 @@ describe('the Batch simulate button', () => {
  * carrying the class and no inline flex of its own.
  */
 describe('the panel header rows', () => {
+  it('names plots after the flown rocket and motor even after the rocket is renamed', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Flown rocket');
+    await act(async () => { button(host, 'Launch').click(); });
+    await waitFor(() => !!host.querySelector('.chart-panel h3'), 'flight plots');
+    const report = [...host.querySelectorAll('h2')].find((h) => h.textContent?.startsWith('Launch report'))!;
+    const identity = report.textContent!.replace('Launch report — ', '');
+    expect(identity).toContain('Flown rocket · ');
+    for (const h of host.querySelectorAll('.chart-panel h3')) expect(h.textContent).toContain(identity);
+    await openTab(host, 'Design');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited rocket');
+    await openTab(host, 'Results');
+    expect(host.querySelectorAll('.charts-grid h3').length).toBeGreaterThan(0);
+    for (const h of host.querySelectorAll('.charts-grid h3')) {
+      expect(h.textContent).toContain(identity);
+      expect(h.textContent).not.toContain('Edited rocket');
+    }
+  }, 30000);
+
   const headOf = (host: HTMLElement, title: string): HTMLElement => {
     const h2 = [...host.querySelectorAll('h2')].find((h) => h.textContent?.trim().startsWith(title));
     if (!h2) throw new Error(`no panel "${title}"`);

@@ -55,9 +55,10 @@ export function GestureHints() {
   );
 }
 
-function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csvNote }: {
+function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoomChange, csvNote }: {
   result: FlightResult;
   def: SeriesDef;
+  flightName: string;
   /**
    * The closing sentence of the canvas's spoken summary, naming the download
    * that holds the same data — absent where no download is offered, or where
@@ -90,12 +91,12 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
   // The canvas's name (audit 2026-09-22): each plot was a bare canvas, so a
   // screen reader got its heading and the legend's series name, never the curve.
   const summary = useMemo(() => chartSummary({
-    title: `${def.title}${def.unit ? ` (${def.unit})` : ''} over time`,
+    title: `${def.title}${def.unit ? ` (${def.unit})` : ''} over time — ${flightName}`,
     x: result.series.time,
     at: (t) => `${formatReadout(t, 3)} s`,
     series: [{ label: def.title, values }],
     source: csvNote,
-  }), [result, def, values, csvNote]);
+  }), [result, def, values, csvNote, flightName]);
   // Read through a ref by the plot effect, and applied on its own below: the
   // download note changes when the design moves under a flight (staleReason),
   // and that must re-word the canvas, not destroy and rebuild the plot.
@@ -180,6 +181,7 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
           {def.quantity
             ? <> <UnitChip quantity={def.quantity} /></>
             : def.unit ? ` (${def.unit})` : ''}
+          {' — '}{flightName}
         </h3>
         <button className="chart-btn" onClick={onToggleExpand} aria-pressed={expanded}
           title={expanded ? 'Restore chart size' : 'Expand chart (full width, taller)'}
@@ -192,8 +194,10 @@ function Panel({ result, def, plots, expanded, onToggleExpand, onZoomChange, csv
   );
 }
 
-export function FlightCharts({ result, onFullSeries, designName, staleReason, flightRunning }: {
+export function FlightCharts({ result, flightName, onFullSeries, designName, staleReason, flightRunning }: {
   result: FlightResult;
+  /** Saved run label, shared with the launch report; never the edited design. */
+  flightName: string;
   /**
    * Re-flies the shown flight with the full series payload. Absent = the
    * download pair is not offered (nothing here can produce it).
@@ -235,6 +239,7 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason, fl
   const branchIndex = branchChoice.result === result ? branchChoice.index : 0;
   const branch = boosters[branchIndex - 1];
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
+  const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
   const shown = useMemo(() => branch ? { ...result, series: branch.series } : result, [result, branch]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = PRESETS.find((p) => p.id === comparison);
@@ -321,7 +326,7 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason, fl
       {/* The plots block had no heading at all, which is part of why a
           download button floating above it read as ambiguous. */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <h2 style={{ flex: 1 }}>Flight plots</h2>
+        <h2 style={{ flex: 1 }}>Flight plots — {plotIdentity}</h2>
         {onFullSeries && (
           <>
             {/* The caption carries the refusal, not the `title`: a browser
@@ -421,12 +426,12 @@ export function FlightCharts({ result, onFullSeries, designName, staleReason, fl
         </div>
       )}
       {preset && <ComparisonChart key={`${panelKey}-${preset.id}`} series={shown.series} preset={preset}
-        branchName={branchName} catalog={catalog} plots={plotsRef.current}
+        flightName={plotIdentity} catalog={catalog} plots={plotsRef.current}
         onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
         csvNote={onFullSeries && !staleReason ? 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (
-          <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} plots={plotsRef.current}
+          <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} flightName={plotIdentity} plots={plotsRef.current}
             csvNote={onFullSeries && !staleReason
               ? 'The Flight data (.csv) download above holds every timestep.' : undefined}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}

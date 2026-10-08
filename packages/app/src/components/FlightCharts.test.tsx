@@ -48,7 +48,7 @@ function fakeResult(): FlightResult {
 
 const mount = (onFullSeries?: () => Promise<FlightResult>, staleReason?: string | null) => act(() => root.render(
   <PrefsProvider>
-    <FlightCharts result={fakeResult()} onFullSeries={onFullSeries} designName="Big Dog 4in"
+    <FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={fakeResult()} onFullSeries={onFullSeries} designName="Big Dog 4in"
       staleReason={staleReason} />
   </PrefsProvider>,
 ));
@@ -72,7 +72,7 @@ afterEach(() => {
 describe('FlightCharts — the Flight plots block', () => {
   it('has a heading, so the block is named rather than floating', () => {
     mount(() => Promise.resolve(fakeResult()));
-    expect(host.querySelector('h2')?.textContent).toBe('Flight plots');
+    expect(host.querySelector('h2')?.textContent).toBe('Flight plots — Big Dog 4in · C6 (Estes)');
   });
 
   it('captions the pair with what the files actually contain', () => {
@@ -98,7 +98,7 @@ describe('FlightCharts — the Flight plots block', () => {
     expect(labelled('⬇ Flight data (.csv)')).toBeUndefined();
     expect(host.querySelector('.download-caption')).toBeNull();
     // The plots themselves still render.
-    expect(host.querySelector('h2')?.textContent).toBe('Flight plots');
+    expect(host.querySelector('h2')?.textContent).toBe('Flight plots — Big Dog 4in · C6 (Estes)');
   });
 
   it('stamps the design name into both filenames', async () => {
@@ -188,7 +188,7 @@ describe('FlightCharts — the Flight plots block', () => {
   describe('the downloads wait while a flight is running', () => {
     const running = (full: () => Promise<FlightResult>, staleReason: string | null = null) => act(() => root.render(
       <PrefsProvider>
-        <FlightCharts result={fakeResult()} onFullSeries={full} designName="Big Dog 4in"
+        <FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={fakeResult()} onFullSeries={full} designName="Big Dog 4in"
           staleReason={staleReason} flightRunning />
       </PrefsProvider>,
     ));
@@ -224,7 +224,7 @@ describe('FlightCharts — each chart is named, in words', () => {
     const named = canvases().map((c) => c.getAttribute('aria-label') ?? '');
     const altitude = named.find((n) => n.startsWith('Altitude'));
     expect(altitude, named.join(' | ')).toBeDefined();
-    expect(altitude).toMatch(/^Altitude \(\w+\) over time, 0 s to 1 s\./);
+    expect(altitude).toMatch(/^Altitude \(\w+\) over time — Big Dog 4in · C6 \(Estes\), 0 s to 1 s\./);
     expect(altitude).toContain('The Flight data (.csv) download above holds every timestep.');
     expect(named.some((n) => n.startsWith('Velocity'))).toBe(true);
   });
@@ -244,7 +244,7 @@ describe('FlightCharts — a refused download is not promised', () => {
     const full = () => Promise.resolve(result);
     const show = (staleReason: string | null) => act(() => root.render(
       <PrefsProvider>
-        <FlightCharts result={result} onFullSeries={full} designName="Big Dog 4in" staleReason={staleReason} />
+        <FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={result} onFullSeries={full} designName="Big Dog 4in" staleReason={staleReason} />
       </PrefsProvider>,
     ));
     show('the weighed pad mass');
@@ -267,7 +267,7 @@ it('constructs all comparisons with real uPlot options (canvas calls stubbed)', 
   flight.series.cpLocation = [1, 1, 1];
   flight.series.cgLocation = [0.8, 0.8, 0.8];
   flight.series.altitude = [0, 100, 30];
-  await act(async () => { root.render(<PrefsProvider><FlightCharts result={flight} /></PrefsProvider>); });
+  await act(async () => { root.render(<PrefsProvider><FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={flight} /></PrefsProvider>); });
   const chooser = host.querySelector('.comparison-controls select') as HTMLSelectElement;
   for (const option of [...chooser.options].slice(1)) {
     await act(async () => {
@@ -286,7 +286,7 @@ it.each([false, true])('S3b-3: StrictMode clears export busy after rejection=%s'
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   const full = vi.fn(() => reject ? Promise.reject(new Error('export failed')) : Promise.resolve(fakeResult()));
   await act(async () => root.render(<StrictMode><PrefsProvider>
-    <FlightCharts result={fakeResult()} onFullSeries={full} designName="Strict bird" />
+    <FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={fakeResult()} onFullSeries={full} designName="Strict bird" />
   </PrefsProvider></StrictMode>));
   const csv = labelled('Flight data (.csv)')!;
   await act(async () => { csv.click(); });

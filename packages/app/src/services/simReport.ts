@@ -892,6 +892,12 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
   };
 }
 
+/** The launch report's compact identity, taken from the flight as flown. */
+export function formatRunLabel(run: Pick<SimRun, 'rocket' | 'motor' | 'manufacturer' | 'importedSummary'>): string {
+  return `${run.rocket ? `${run.rocket} · ` : ''}${run.motor || (run.importedSummary ? 'Unknown motor' : '')}`
+    + (run.manufacturer ? ` (${run.manufacturer})` : '');
+}
+
 /**
  * When a run was flown, written so a stale one cannot pass for a fresh one.
  *

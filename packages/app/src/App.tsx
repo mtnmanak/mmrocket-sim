@@ -107,7 +107,7 @@ import {
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun,
-  currentModelLabel, formatRunWhenProse, formatStability, listAnd,
+  currentModelLabel, formatRunLabel, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
@@ -4373,6 +4373,7 @@ export function App() {
               </PanelBoundary>
               <PanelBoundary what="The flight plots" resetKey={shownResult}>
                 <FlightCharts result={shownResult} onFullSeries={fetchFullSeriesResult}
+                  flightName={formatRunLabel(lastRun)}
                   designName={tree.name}
                   /* The two downloads re-fly the design AS IT STANDS, so they
                      refuse where the 📈 Charts button already does. The

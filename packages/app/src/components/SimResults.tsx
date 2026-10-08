@@ -9,7 +9,7 @@ import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
@@ -212,8 +212,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
     <div className="panel" style={{ marginTop: 10 }}>
       <div className="panel-head">
         <h2 style={{ flex: 1 }}>
-          Launch report — {run.rocket ? `${run.rocket} · ` : ''}{run.motor || (run.importedSummary ? 'Unknown motor' : '')}
-          {run.manufacturer ? ` (${run.manufacturer})` : ''}
+          Launch report — {formatRunLabel(run)}
         </h2>
         {/* The report's own provenance, in its header, because this panel is
             what gets screenshotted and forwarded — and a report with no date on
