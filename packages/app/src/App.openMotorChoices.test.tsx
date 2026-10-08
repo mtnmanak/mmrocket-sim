@@ -121,3 +121,25 @@ it('Escape leaves the imported motors and repeating notes untouched', async () =
   expect(stored().mountMotors).toEqual(before.mountMotors);
   expect(stored().savedConfigs).toEqual(before.savedConfigs);
 }, 20000);
+
+it('expands a clean newer-format import after a prior import warning was collapsed', async () => {
+  await open();
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  const toggle = () => host.querySelector<HTMLButtonElement>('.notice-toggle')!;
+  expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  await act(async () => toggle().click());
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+
+  const xml = `<openrocket version="1.11" creator="OpenRocket 24.12"><rocket><name>Future format</name>
+    <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><name>Body</name>
+    <length>0.4</length><radius>0.025</radius><thickness>0.001</thickness>
+    </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+  const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'Future.ork')] });
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  const discard = button('Open without saving');
+  if (discard) await act(async () => discard.click());
+  await waitFor(() => !!host.querySelector('[aria-label="Notices"]')?.textContent?.includes('Future format'));
+  expect.soft(toggle().getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Warning: this file uses format 1.11');
+}, 20000);

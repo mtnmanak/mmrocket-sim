@@ -227,6 +227,23 @@ describe('NoticeBar', () => {
     expect(bar()!.className).not.toContain('expanded');
   });
 
+  it.each([warn, err])('reopens for changed $severity text but respects collapse on unchanged renders', (problem) => {
+    draw([problem]);
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    draw([{ ...problem, onDismiss: () => undefined }]);
+    expect(bar()!.className).not.toContain('expanded');
+
+    const changed = { ...problem, text: `${problem.text}\nAnother problem needs attention.` };
+    draw([changed]);
+    expect(bar()!.className).toContain('expanded');
+    expect(bar()!.textContent).toContain('Another problem needs attention.');
+    act(() => { buttonByLabel(/collapse notices/i).click(); });
+    draw([{ ...changed }, info]);
+    expect(bar()!.className).not.toContain('expanded');
+    draw([{ ...changed }, { ...info, text: 'Share link copied.' }]);
+    expect(bar()!.className).not.toContain('expanded');
+  });
+
   it('still opens for a NEW problem, and for one that escalates', () => {
     draw([warn]);
     act(() => { buttonByLabel(/collapse notices/i).click(); });
