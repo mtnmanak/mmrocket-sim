@@ -36,7 +36,7 @@ import { useEffect, useRef, useState } from 'react';
 export type NoticeSeverity = 'info' | 'warn' | 'error';
 
 export interface Notice {
-  /** Stable within a kind, so re-notifying the same thing does not re-open the bar. */
+  /** Stable within a kind; unchanged severity and text do not re-open the bar. */
   id: string;
   severity: NoticeSeverity;
   text: string;
@@ -61,7 +61,7 @@ const firstLine = (text: string): string => {
 };
 
 /**
- * What makes a notice NEW for the announcer and for "newest first": its words
+ * What makes a notice NEW for expansion, the announcer and "newest first": its words
  * as well as its id. The file note is ONE id ('file-note') whose text is
  * replaced — "Saved “X”", then "Share link copied" — so an id-only key would
  * never hear the second.
@@ -78,7 +78,7 @@ const spoken = (n: Notice): string =>
 
 export function NoticeBar({ notices }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
-  // Track what the user has already been shown — every `id:severity` on the
+  // Track what the user has already been shown — every id, severity and text on the
   // bar — so a warning opens it the first time it appears and does NOT re-open
   // it every render, nor fight the user if they collapse it again.
   const announced = useRef<ReadonlySet<string>>(new Set());
@@ -134,16 +134,16 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
 
   useEffect(() => {
     const seen = announced.current;
-    announced.current = new Set(notices.map((n) => `${n.id}:${n.severity}`));
+    announced.current = new Set(notices.map(noticeKey));
     // Problems open themselves; routine information does not. Only a problem
     // NOT already on the bar counts (audit 2026-09-22): testing "is any
     // problem present" re-opened a bar the user had collapsed over a warning
     // every time a routine notice ("Share link copied") came or went beside it.
-    // A notice that escalates under the same id is new information, and opens it.
-    if (notices.some((n) => n.severity !== 'info' && !seen.has(`${n.id}:${n.severity}`))) {
+    // Changed problem text or severity under the same id is new information.
+    if (notices.some((n) => n.severity !== 'info' && !seen.has(noticeKey(n)))) {
       setExpanded(true);
     }
-  }, [key, notices]);
+  }, [textKey, notices]);
 
   useEffect(() => {
     document.body.classList.toggle('has-notice', notices.length > 0);

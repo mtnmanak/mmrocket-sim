@@ -251,6 +251,8 @@ export interface OrkDeployOverride {
  * offer a picker and re-import with `{ configId }`.
  */
 export interface OrkImportResult extends OrkTreeImportResult {
+  /** Transient import warning: the file format is newer than the app understands. */
+  newerFormat?: boolean;
   /** Only simulations carrying a recognised app provenance tag and summary. */
   storedSimulations?: OrkStoredSimulation[];
   /** Declared flight configurations in file order (empty when none). */
@@ -355,6 +357,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   const ignored = new Set<string>();
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  // Format 1.10 is the newest the app understands (and the format we write).
+  const newerFormat = fileVersion > 110;
+  if (newerFormat) {
+    notes.push(`Warning: this file uses format ${versionMatch![0]} from a newer OpenRocket than the app understands. `
+      + 'Some settings may be ignored or lost if you save it again.');
+  }
   /**
    * Enum strings the kernel refuses, met OUTSIDE the tree — a configuration's
    * separation, a motor's ignition — where the sanitize pass at the end never
@@ -1506,7 +1514,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     }
   }
   return {
-    name, tree, motors, configs: emptyDefault ? [] : configs,
+    name, tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
