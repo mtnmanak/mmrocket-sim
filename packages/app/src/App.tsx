@@ -4053,6 +4053,7 @@ export function App() {
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
+                    selectedMotorId={mm?.meta.motorId}
                     beginSelection={() => beginMotorChoice(m.id!)}
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }))}

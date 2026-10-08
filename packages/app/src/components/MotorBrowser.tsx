@@ -26,6 +26,7 @@ import { siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import type { MotorMeta } from '../services/simReport.js';
+import { MotorStatusNote } from './MotorStatusNote.js';
 
 /**
  * Full-database motor browser: manufacturer + diameter-class toggles (motors
@@ -901,6 +902,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             </span>
           )}
         </div>
+        {picked && <MotorStatusNote motorId={picked.motorId} />}
         {/* Live regions, ALWAYS mounted (audit 2026-09-22). These were plain
             <p>s, so a Load that failed offline and an import's result or its
             "NOT saved" warning reached nobody who could not see them; and a

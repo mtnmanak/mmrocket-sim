@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
+import { MotorStatusNote } from './MotorStatusNote.js';
 import { useCatalogue } from './useCatalogue.js';
 import type { MotorMeta } from '../services/simReport.js';
 import { loadCatalogueMotor } from '../services/motorMatch.js';
@@ -43,11 +44,13 @@ const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = 
 
 const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
-export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, selectedMotorId, onSelect, beginSelection, loadedMotors, showQuickPicks }: {
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
   selectedLabel: string;
+  /** Exact catalogue identity; never infer status from a display label. */
+  selectedMotorId?: string;
   onSelect: (label: string, spec: MotorSpec, meta: MotorMeta) => void;
   /** App owns the choice across tab remounts and retires it on unload/open. */
   beginSelection?: () => () => boolean;
@@ -153,6 +156,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
           // hiding the block would strip the motor's name off every card.
           <p className="motor-db-meta" style={{ margin: 0 }}>{selectedLabel || '— no motor —'}</p>
         )}
+        <MotorStatusNote motorId={selectedMotorId} />
         {problem && <p className="print-note print-note-warn" role="alert">{problem}</p>}
       </div>
       <button
