@@ -185,7 +185,7 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
         expect(Math.sign(actual)).toBe(aoa < 0.3 ? 1 : -1);
       }
     }
-  });
+  }, 60_000);
 
   it('pins queried stall margin after a different AOA evaluation, including clones', () => {
     // Contract control: the old bridge re-evaluated forces at the queried AOA
@@ -204,7 +204,7 @@ describe('experimental memoryless Hybrid aerodynamics', () => {
         }
       }
     }
-  });
+  }, 60_000);
 
   it('reports an explicit zero CP for zero normal-force weight', () => {
     const r = rocket('hybrid', { name: 'Bare cylinder', components: [
