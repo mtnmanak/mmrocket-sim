@@ -14,10 +14,24 @@ const retiredMasses = {
   'Transition|semroc|bc1050r': [0.030900980179],
   'NoseCone|fliskits|ncb201o': [0.000283495231],
   'NoseCone|fliskits|ncb25p': [0.000283495231],
+  'EngineBlock|quest|14101': [0.00001],
+  'BodyTube|quest|10315': [0.000283495231],
+  'BodyTube|fliskits|bt50529': [0.0005953399851],
+  'NoseCone|semroc|bnc3a': [0.000283495231],
+  'BodyTube|quest|9527': [0.001417476155],
+  'NoseCone|rocketarium|bt80knosecone825long': [0.076],
+  'NoseCone|rocketarium|bt70nosecone75long': [0.059],
+  'NoseCone|aerotech|11261': [0.0680389],
+};
+const replacementMasses = {
+  'NoseCone|rocketarium|bt80knosecone825long': 0.072,
+  'NoseCone|rocketarium|bt70nosecone75long': 0.062,
+  'NoseCone|aerotech|11261': 0.106,
 };
 const serialize = (db) => JSON.stringify(db, null, 1) + '\n';
 
 describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [bad]) => {
+  const good = replacementMasses[key];
   const isTarget = (p) => presetKey(p) === key;
   let dir, path, script, db;
   beforeEach(() => {
@@ -38,11 +52,12 @@ describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [ba
   });
   const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
 
-  it('removes only the known bad mass and is byte-stable on a second run', () => {
+  it('corrects only the known bad mass and is byte-stable on a second run', () => {
     writeFileSync(path, serialize(db));
     const first = run();
     expect(first.status, first.stdout + first.stderr).toBe(0);
-    delete db.presets.find(isTarget).mass;
+    if (good === undefined) delete db.presets.find(isTarget).mass;
+    else db.presets.find(isTarget).mass = good;
     expect(readFileSync(path, 'utf8')).toBe(serialize(db));
     const retiredPath = join(dir, 'src/data/retiredPresetMasses.json');
     const retired = readFileSync(retiredPath, 'utf8');
@@ -62,7 +77,7 @@ describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [ba
     const source = readFileSync(script, 'utf8');
     const start = source.indexOf(`key: '${key}',`);
     writeFileSync(script, source.slice(0, start) + source.slice(start).replace(
-      `mass: { bad: ${bad}, good: undefined }`,
+      `mass: { bad: ${bad}, good: ${good} }`,
       `mass: { bad: ${bad}, good: 0.004 }`,
     ));
     db.presets.find(isTarget).mass = 0.004;
