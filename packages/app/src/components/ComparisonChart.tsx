@@ -14,11 +14,11 @@ import { UnitChip } from './UnitChip.js';
 const labelled = (d: SeriesDef) => `${d.title}${d.unit ? ` (${d.unit})` : ''}`;
 
 /** One branch, real scales. Phase plots never enter either time-sync bus. */
-export function ComparisonChart({ series, preset, catalog, branchName, plots, onZoomChange, csvNote }: {
+export function ComparisonChart({ series, preset, catalog, flightName, plots, onZoomChange, csvNote }: {
   series: FlightSeries;
   preset: ComparisonPreset;
   catalog: SeriesDef[];
-  branchName: string;
+  flightName: string;
   plots: Set<uPlot>;
   onZoomChange: (zoomed: boolean, percent: number) => void;
   csvNote?: string;
@@ -45,17 +45,17 @@ export function ComparisonChart({ series, preset, catalog, branchName, plots, on
     const axes = members.map((d) => `${d.axis} axis: ${labelled(d)}`).join('; ');
     if (prepared) {
       const range = prepared.xs.length ? `${formatReadout(prepared.xs[0])} to ${formatReadout(prepared.xs.at(-1))} ${altitude.unit}` : 'no data';
-      return `${preset.title}. Flight branch: ${branchName}. ${axes}. Altitude above launch: ${range}. `
+      return `${preset.title} — ${flightName}. ${axes}. Altitude above launch: ${range}. `
         + prepared.runs.map((run, i) => chartSummary({
           title: `${run.direction} portion ${i + 1}`, x: run.samples.map((s) => s.time),
           at: (t) => `${formatReadout(t)} s`,
           series: [{ label: labelled(members[0]!), values: run.samples.map((s) => members[0]!.f?.(s.velocity) ?? s.velocity) }],
         })).join(' ') + (csvNote ? ` ${csvNote}` : '');
     }
-    return chartSummary({ title: `${preset.title}. Flight branch: ${branchName}. ${axes}. Time (s)`,
+    return chartSummary({ title: `${preset.title} — ${flightName}. ${axes}. Time (s)`,
       x: series.time, at: (t) => `${formatReadout(t)} s`,
       series: members.map((d, i) => ({ label: labelled(d), values: values[i]! })), source: csvNote });
-  }, [members, prepared, altitude.unit, preset.title, branchName, series, values, csvNote]);
+  }, [members, prepared, altitude.unit, preset.title, flightName, series, values, csvNote]);
   const summaryRef = useRef(summary);
   summaryRef.current = summary;
   useEffect(() => { if (ref.current) nameChartCanvas(ref.current, summary); }, [summary]);
@@ -137,7 +137,7 @@ export function ComparisonChart({ series, preset, catalog, branchName, plots, on
   const start = Math.min(page * pageSize, Math.max(0, Math.floor((series.time.length - 1) / pageSize) * pageSize));
   return <section className="chart-panel comparison-panel">
     <div className="chart-panel-head">
-      <h3>{preset.title}</h3>
+      <h3>{preset.title} — {flightName}</h3>
       <button className="chart-btn" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}
         aria-label={`${expanded ? 'Restore' : 'Expand'} ${preset.title} chart`}>{expanded ? 'Restore size' : 'Expand'}</button>
     </div>
@@ -167,7 +167,7 @@ export function ComparisonChart({ series, preset, catalog, branchName, plots, on
         {tableOpen && <>
           <div className="comparison-table-scroll" tabIndex={0} role="region" aria-label="Comparison samples">
             <table>
-              <caption>{preset.title} - {branchName}. Recorded samples, six significant digits.</caption>
+              <caption>{preset.title} — {flightName}. Recorded samples, six significant digits.</caption>
               <thead><tr><th scope="col">Time (s)</th>{tableMembers.map((d) => <th scope="col" key={String(d.key)}>{labelled(d)}</th>)}</tr></thead>
               <tbody>{series.time.slice(start, start + pageSize).map((t, i) => <tr key={start + i}>
                 <td>{formatReadout(t)}</td>{tableValues.map((v, j) => <td key={j}>{formatReadout(v[start + i])}</td>)}

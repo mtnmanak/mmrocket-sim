@@ -974,6 +974,8 @@ On a phone the app opens on **Fly** unless you were last working in another work
 
 ## Flight plots
 
+The line under **Flight plots** names the flown rocket and motor, matching the launch report. It describes the whole flight; the downloads include all flight branches. Each chart's own heading repeats the flight identity and, for staged flights, names the selected **Sustainer stack** or **Booster** branch. These chart headings stay visible when charts are expanded or zoomed, so include them in screenshots.
+
 Flight plots open as separate charts for **Altitude, Velocity and Acceleration**. The series chips add or remove individual charts, up to thirteen quantities: Altitude, Velocity, Acceleration, Mass, Thrust, Drag force, Mach number, Stability margin (cal), CP location, CG location, Angle of attack, Dynamic pressure, and q·α. A series appears only when the branch has usable recorded samples. Choose a **Comparison chart** to add a named group above them; **None** returns to the separate charts alone.
 
 The five comparisons are **Altitude + velocity**, **Altitude + vertical velocity**, **Velocity + acceleration**, **Stability + CP + CG**, and **Velocity vs altitude**. Each side of a time comparison has its own labelled unit and scale. Read each curve against its labelled axis; a crossing does not mean equal values. The axis keys show each curve's colour and line pattern; CP and CG share the right-hand length scale. Unit chips change the corresponding unit throughout the app. Legend labels retain their live readouts but cannot hide a curve; use the comparison chooser or series chips to remove charts.

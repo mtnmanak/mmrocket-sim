@@ -61,8 +61,8 @@ function ThemeControl() {
   const { prefs, setPrefs } = usePrefs();
   return <button onClick={() => setPrefs({ ...prefs, theme: 'light', themeExplicit: true })}>Light</button>;
 }
-const render = (flight: FlightResult, full?: () => Promise<FlightResult>) => act(() => root.render(
-  <PrefsProvider><ThemeControl /><FlightCharts result={flight} onFullSeries={full} /></PrefsProvider>,
+const render = (flight: FlightResult, full?: () => Promise<FlightResult>, flightName = 'Test rocket · C6 (Estes)') => act(() => root.render(
+  <PrefsProvider><ThemeControl /><FlightCharts result={flight} onFullSeries={full} flightName={flightName} /></PrefsProvider>,
 ));
 const wheel = (p: Plot) => act(() => { p.over.dispatchEvent(Object.assign(new Event('wheel', { cancelable: true }), { deltaY: -100, deltaMode: 0, clientX: 1 })); });
 beforeEach(() => {
@@ -72,6 +72,45 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('flight comparisons wiring', () => {
+  it('identifies every single-stage plot in normal, expanded and zoomed views', () => {
+    render(result());
+    const check = () => {
+      const headings = [...host.querySelectorAll('.chart-panel h3')];
+      expect(headings.length).toBeGreaterThanOrEqual(3);
+      for (const h of headings) {
+        expect(h.textContent).toContain('Test rocket · C6 (Estes)');
+        expect(h.textContent).not.toContain('Sustainer stack');
+      }
+      for (const c of host.querySelectorAll('canvas')) expect(c.getAttribute('aria-label')).toContain('Test rocket · C6 (Estes)');
+    };
+    check();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Expand Altitude chart"]')!.click());
+    wheel(timePlots()[0]!); check();
+    for (const preset of ['altitude-velocity', 'altitude-vertical', 'velocity-acceleration', 'stability', 'phase']) {
+      select('Comparison chart', preset); check();
+      act(() => button('Expand').click()); wheel(overlay()); check();
+    }
+  });
+  it('identifies the selected staged branch, including duplicate names, and resets for a new flight', () => {
+    const flight = result();
+    flight.branches = [{ name: 'Same', series: flight.series, events: [] },
+      { name: 'Same', series: data(10), events: [] }, { name: 'Same', series: data(20), events: [] }];
+    render(flight); select('Comparison chart', 'phase');
+    const check = (identity: string, flightName = 'Test rocket · C6 (Estes)') => {
+      expect(host.querySelector('h2')!.textContent).toBe('Flight plots');
+      expect(host.querySelector('.flight-identity')?.textContent).toBe(flightName);
+      for (const h of host.querySelectorAll('.chart-panel h3')) expect(h.textContent).toContain(identity);
+      for (const c of host.querySelectorAll('canvas')) expect(c.getAttribute('aria-label')).toContain(identity);
+    };
+    check('Test rocket · C6 (Estes) · Sustainer stack');
+    select('Flight branch', '1'); check('Test rocket · C6 (Estes) · Booster 1: Same');
+    select('Flight branch', '2'); check('Test rocket · C6 (Estes) · Booster 2: Same');
+    act(() => button('Expand').click()); wheel(overlay());
+    check('Test rocket · C6 (Estes) · Booster 2: Same');
+    render(result(), undefined, 'Next rocket · D12 (Estes)');
+    check('Next rocket · D12 (Estes)', 'Next rocket · D12 (Estes)');
+    expect(host.querySelector('.chart-panel h3')!.textContent).not.toContain('Booster');
+  });
   it('keeps three separate defaults and all five optional presets with summary Vz', () => {
     render(result()); expect(live()).toHaveLength(3); expect(host.querySelector('.comparison-panel')).toBeNull();
     expect([...host.querySelectorAll('.comparison-controls option')].map((o) => o.textContent)).toEqual([
@@ -144,7 +183,7 @@ describe('flight comparisons wiring', () => {
     expect(host.querySelector('table')!.textContent).toContain('Altitude (m)'); expect(host.querySelector('table')!.textContent).toContain('Velocity (m/s)');
     expect([...host.querySelectorAll('tbody tr')].map((r) => r.firstElementChild?.textContent)).toEqual(['0', '1', '2', '3', '4']);
   });
-  it('downloads the whole recording regardless of branch, comparison and zoom', async () => {
+  it('downloads the whole recording regardless of branch, comparison and zoom, with flight-only block identity', async () => {
     const flight = result(); flight.branches = [{ name: 'S', series: flight.series, events: [] }, { name: 'B', series: data(10), events: [] }];
     const fullFlight = structuredClone(flight);
     fullFlight.series['Cdf'] = [0.01, 0.02, 0.03, 0.02, 0.01];
@@ -167,6 +206,21 @@ describe('flight comparisons wiring', () => {
     const canonical = unzipSync(flightXlsx(fullFlight, METRIC_UNITS));
     expect(Object.keys(workbook).sort()).toEqual(Object.keys(canonical).sort());
     for (const key of Object.keys(canonical)) expect(strFromU8(workbook[key]!)).toBe(strFromU8(canonical[key]!));
+    // The block names the whole flight exported above; only chart headings
+    // name the branch whose samples are currently plotted.
+    const checkIdentity = (branchName: string) => {
+      const heading = host.querySelector('h2')!;
+      const identity = host.querySelector('.flight-identity');
+      expect(identity?.textContent).toBe('Test rocket · C6 (Estes)');
+      expect(heading.parentElement!.nextElementSibling).toBe(identity);
+      expect(heading.parentElement!.textContent).not.toContain(branchName);
+      for (const h of host.querySelectorAll('.chart-panel h3')) {
+        expect(h.textContent).toContain(`Test rocket · C6 (Estes) · ${branchName}`);
+      }
+    };
+    checkIdentity('Booster 1: B');
+    select('Flight branch', '0'); checkIdentity('Sustainer stack');
+    select('Flight branch', '1'); checkIdentity('Booster 1: B');
   });
 });
 
