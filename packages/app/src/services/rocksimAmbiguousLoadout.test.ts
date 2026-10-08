@@ -16,6 +16,10 @@ import { autosaveToOrk } from './autosaveBackup.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = readFileSync(join(here, '__fixtures__/ambiguous-motor-mounts.rkt'), 'utf8');
+const stagedFixture = fixture.replace('<StageCount>1</StageCount>', '<StageCount>2</StageCount>')
+  .replace('<Stage2Parts></Stage2Parts>', `<Stage2Parts><BodyTube><Name>Booster mount</Name>
+    <SerialNo>20</SerialNo><OD>24.8</OD><ID>24.1</ID><Len>200</Len>
+    <IsMotorMount>1</IsMotorMount></BodyTube></Stage2Parts>`);
 const text = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
 async function open(xml = fixture) {
   const imported = importRkt(xml);
@@ -34,6 +38,41 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ambiguous RockSim motor loadouts', () => {
+  it('opens the valid sustainer-only simulation after a refused first row and describes its motors', async () => {
+    const valid = `<SimulationResults><SimulationName>Sustainer only</SimulationName><Stage3Engines>
+      <EngineSet><EngineCount>1</EngineCount><EngineCode>B4</EngineCode><EngineMfg>Estes</EngineMfg>
+      <MountSerialNo>7</MountSerialNo><EjectionDelay>4</EjectionDelay><IgnitionDelay>2</IgnitionDelay>
+      </EngineSet></Stage3Engines></SimulationResults>`;
+    const imported = importRkt(stagedFixture.replace('</SimulationResultsList>', `${valid}</SimulationResultsList>`));
+    const motor = (await loadCatalogueMotor('Estes', 'B4', 4))!;
+    expect(motor).toBeTruthy();
+    const resolved = await resolveImportMotors(imported, async () => ({ motor, note: '' }));
+    const plan = planImport(imported, resolved, { launch: DEFAULT_CONDITIONS, text });
+    expect(imported.configs).toHaveLength(2);
+    expect(imported.configs[0]!.motorLoadoutRefusal).toMatch(/4 motors/);
+    expect(imported.configs[0]!.motors).toEqual({});
+    expect.soft(imported.chosenConfigId).toBe('rocksim-sim-2');
+    expect.soft(plan.snapshot.activeConfigId).toBe('rocksim-sim-2');
+    expect.soft(Object.values(plan.snapshot.mountMotors).map(m => m.spec.designation)).toEqual(['B4']);
+    expect.soft(plan.snapshot.savedConfigs.find(c => c.id === plan.snapshot.activeConfigId)?.motorLoadoutRefusal)
+      .toBeUndefined();
+    expect.soft(plan.note.text).toMatch(/Simulation 2 .*Sustainer only.*lowest stage's motors timed from launch/);
+    expect.soft(plan.note.text).not.toMatch(/Simulation 1 .*lowest stage's motors timed from launch/);
+    expect(plan.note.text).toMatch(/Launch refused for Simulation 1/);
+    expect(plan.note.severity).toBe('warn');
+    expect(Object.values(imported.configs[1]!.motors)[0]).toMatchObject({ ignitionEvent: 'launch', ignitionDelay: 2 });
+  });
+
+  it('opens a refused row when all staged configurations are refused without claiming motor timing', async () => {
+    const plan = await open(stagedFixture);
+    expect(plan.snapshot.activeConfigId).toBe('rocksim-sim-1');
+    expect(plan.snapshot.mountMotors).toEqual({});
+    expect(plan.note.severity).toBe('warn');
+    expect(plan.note.text).toMatch(/Launch refused for Simulation 1/);
+    expect(plan.note.text).toMatch(/Simulation 1 .*was opened with no motors loaded/);
+    expect(plan.note.text).not.toMatch(/lowest stage's motors timed from launch|flies along unpowered/);
+  });
+
   it('keeps valid and ambiguous simulations separate, even with the same final motor', () => {
     const sim = fixture.match(/<SimulationResults>[\s\S]*?<\/SimulationResults>/)![0];
     const valid = sim.replace(/<EngineSet>[\s\S]*?<\/EngineSet>/g, set =>
@@ -114,6 +153,17 @@ describe('ambiguous RockSim motor loadouts', () => {
       const plan = await open(readFileSync(path!, 'utf8'));
       expect(motorMounts(plan.snapshot.tree)).toHaveLength(1);
       expect(plan.note.text).toMatch(new RegExp(`${count} motors.*mounts that no longer exist`));
+      const active = plan.snapshot.savedConfigs.find(c => c.id === plan.snapshot.activeConfigId)!;
+      if (name === 'Quest/Quest_Lil_Grunt.rkt') {
+        expect(plan.snapshot.savedConfigs.every(c => !!c.motorLoadoutRefusal)).toBe(true);
+        expect(active.motorLoadoutRefusal).toMatch(/Launch refused/);
+        expect(plan.snapshot.mountMotors).toEqual({});
+        expect(plan.note.severity).toBe('warn');
+        expect(plan.note.text).toMatch(/was opened with no motors loaded/);
+      } else {
+        expect(active.motorLoadoutRefusal).toBeUndefined();
+        expect(Object.keys(plan.snapshot.mountMotors)).toHaveLength(1);
+      }
       // Hydra also has valid configurations: open may prefer one of those.
       // Applying the refused row must still refuse, without blocking the others.
       const blocked = plan.snapshot.savedConfigs.find(c => c.motorLoadoutRefusal)!;
