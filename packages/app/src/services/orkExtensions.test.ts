@@ -165,10 +165,35 @@ describe('opaque desktop simulation extensions', () => {
     expect(save(opened)).toContain(disabled);
   });
 
-  it('preserves extensions under an unknown wrapper', () => {
-    const opened = importOrk(fixture(sim('A', '<wrapper>' + air + '</wrapper>')));
-    expect(save(opened)).toContain(air);
-    expect(opened.notes.join(' ')).toContain('1 simulation extension (Air-start)');
+  it.each(['<wrapper>', '<wrapper><simulation>'])('keeps ignored nested Air-start ignored after save (%s)', wrapper => {
+    const close = wrapper === '<wrapper>' ? '</wrapper>' : '</simulation></wrapper>';
+    const input = fixture(sim('A', wrapper + air + close));
+    // SingleSimulationHandler only recognizes direct children; DelegatorHandler
+    // skips unknown wrappers and their descendants in OpenRocket 24.12.
+    expect(simulations(input)[0]!.querySelectorAll(':scope > extension')).toHaveLength(0);
+    const opened = importOrk(input);
+    const output = save(opened);
+    expect(simulations(output).flatMap(s => Array.from(s.querySelectorAll(':scope > extension')))).toHaveLength(0);
+    expect(output).not.toContain(air);
+    expect(preservedSimulationExtensions(importOrk(output).tree)).toHaveLength(0);
+    expect(opened.notes.join(' ')).toMatch(/nested simulation extension.*not preserved.*save/i);
+    expect(opened.notes.join(' ')).not.toContain('Air-start');
+    expect(opened.notes.join(' ')).not.toContain('the app keeps them');
+  });
+
+  it('preserves direct extension payloads while omitting wrapped siblings', () => {
+    const nested = '<extension extensionid="custom.Container"><entry>' + air + '</entry></extension>';
+    const opened = importOrk(fixture(sim('A', '<wrapper>' + air + '</wrapper>' + script + nested)));
+    const output = save(opened);
+    const direct = simulations(output).flatMap(s => Array.from(s.querySelectorAll(':scope > extension')));
+    expect(direct.map(e => e.getAttribute('extensionid'))).toEqual([
+      'info.openrocket.core.simulation.extension.impl.ScriptingExtension', 'custom.Container',
+    ]);
+    expect(output).toContain(script);
+    expect(output).toContain(nested);
+    expect(opened.notes.join(' ')).toContain('This file contains 2 simulation extensions');
+    expect(opened.notes.join(' ')).toMatch(/1 nested simulation extension.*not preserved.*save/i);
+    expect(opened.notes.join(' ')).not.toContain('Air-start');
   });
 
   it('refuses corrupt or oversized raw XML restored from a session before emitting it', () => {

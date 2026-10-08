@@ -72,9 +72,9 @@ export function extensionXmlBySimulation(xml: string): string[][] {
         simulation = [];
         result.push(simulation);
       }
-      // Keep the outermost block if an unknown extension itself nests one.
-      // This also finds extensions inside unknown wrappers under a simulation.
-      if (simulation && tag === 'extension' && extensionStart < 0) {
+      // SingleSimulationHandler recognizes only direct simulation children.
+      // Keep their entire payload, but never hoist a descendant of a wrapper.
+      if (simulation && stack.length === 3 && tag === 'extension' && extensionStart < 0) {
         extensionStart = start;
         extensionDepth = stack.length;
       }
@@ -95,7 +95,15 @@ export function preserveSimulationExtensions(
   tree: RocketTree, raw: string[][], sims: XmlElement[], chosenConfigId: string | null,
   hasConfigurations: boolean, notes: string[],
 ): RocketTree {
-  const extensions = sims.flatMap(s => Array.from(s.querySelectorAll('extension')));
+  const extensions = sims.flatMap(s => Array.from(s.querySelectorAll(':scope > extension')));
+  // Descendants of a retained extension remain opaque payload. Only descendants
+  // of other simulation children are omitted by the writer and need a loss note.
+  const ignored = sims.flatMap(s => Array.from(s.children))
+    .filter(child => child.tagName !== 'extension')
+    .reduce((count, child) => count + child.querySelectorAll('extension').length, 0);
+  if (ignored) notes.push(`${ignored} nested simulation extension${ignored === 1 ? '' : 's'} inside other elements `
+    + `${ignored === 1 ? 'is' : 'are'} not preserved: those enclosing elements and their payloads are omitted when you save. `
+    + 'Only direct simulation extensions are kept.');
   if (!extensions.length) return tree;
   const kinds = new Set<string>();
   let enabled = 0;
