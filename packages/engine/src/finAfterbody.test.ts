@@ -43,6 +43,12 @@ function rocket(nose: Part, tube: Part, fins: Part | null, after: Part[]): Rocke
   } as RocketTree;
 }
 
+/** The kernel's CP x is `number | null` (null only where the force-consistent CP is undefined above 20 deg). */
+function finite(v: number | null | undefined): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error('Expected finite kernel value');
+  return v;
+}
+
 /** The fin set's CNa weight and absolute CP x at each Mach, isolated by subtraction. */
 function finLoad(nose: Part, tube: Part, fins: Part, after: Part[], machs: number[], model: Model) {
   const withFins = build(rocket(nose, tube, fins, after), model).forceSamples(machs);
@@ -50,7 +56,7 @@ function finLoad(nose: Part, tube: Part, fins: Part, after: Part[], machs: numbe
   return machs.map((_, i) => {
     const [x, , , w] = withFins[i]!;
     const [x0, , , w0] = bare[i]!;
-    return { w: w - w0, x: (x * w - x0 * w0) / (w - w0) };
+    return { w: w - w0, x: (finite(x) * w - finite(x0) * w0) / (w - w0) };
   });
 }
 

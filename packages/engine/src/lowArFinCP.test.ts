@@ -39,6 +39,12 @@ function build(t: RocketTree, model: Model): OrkRocket {
   return r;
 }
 
+/** The kernel's CP x is `number | null` (null only where the force-consistent CP is undefined above 20 deg). */
+function finite(v: number | null | undefined): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error('Expected finite kernel value');
+  return v;
+}
+
 /** Absolute x of the fin set's own CP at each Mach (metres), isolated by subtraction. */
 function finCP(fins: Record<string, unknown>, machs: number[], model: Model): number[] {
   const withFins = build(tree(fins), model).forceSamples(machs);
@@ -46,7 +52,7 @@ function finCP(fins: Record<string, unknown>, machs: number[], model: Model): nu
   return machs.map((_, i) => {
     const [cp, , , w] = withFins[i]!;
     const [cp0, , , w0] = bare[i]!;
-    return (cp * w - cp0 * w0) / (w - w0);
+    return (finite(cp) * w - finite(cp0) * w0) / (w - w0);
   });
 }
 
