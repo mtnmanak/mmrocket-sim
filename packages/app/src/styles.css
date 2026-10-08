@@ -3721,17 +3721,6 @@ select.unit-chip:hover {
   vertical-align: middle;
 }
 
-.motor-status-note {
-  flex-shrink: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  margin: 8px 0;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 .motor-load-row {
   display: flex;
   flex-wrap: wrap;
