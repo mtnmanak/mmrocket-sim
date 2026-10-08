@@ -3,6 +3,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { DEFAULT_DRAG_ANALYSIS, type DragAnalysisPrefs } from '../prefs/dragAnalysis.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -178,7 +179,7 @@ function ChartHeadButtons({ chart, zoomed, expanded, plot, onToggleExpand }: {
  * fixture, biggest subsonic). Entering 0 therefore falls back to the default
  * rather than manufacturing a second, almost-identical curve.
  */
-type Conditions = 'sealevel' | 'altitude' | 'file';
+type Conditions = DragAnalysisPrefs['conditions'];
 
 /** `[mach, altitude m]` pairs — the shape `DragSweepOptions.machAlt` takes. */
 type MachAlt = [number, number][];
@@ -236,8 +237,6 @@ function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
     stampedName(meta.design, 'drag-table', 'csv'));
 }
 
-type BreakdownMode = 'component' | 'type';
-type CpView = 'pct' | 'unit';
 type DragChartId = 'cd' | 'cp' | 'breakdown';
 
 /** The highest Max Mach the Barrowman models are offered (the menu stops here). */
@@ -343,14 +342,14 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   fileMachAlt?: MachAlt;
 }) {
   const [open, setOpen] = useState(false);
-  const [machMax, setMachMax] = useState(3);
-  const [conditions, setConditions] = useState<Conditions>('sealevel');
-  // The sweep altitude, stored in SI so it is the same PHYSICAL altitude
-  // whatever the distance unit (10000 ft becomes 3048 m, not 10000 m). The
-  // box itself is a NumField, which keeps its own draft while typing.
-  const [altM, setAltM] = useState(0);
-  const [mode, setMode] = useState<BreakdownMode>('component');
-  const [cpView, setCpView] = useState<CpView>('pct');
+  const { prefs, setPrefs, daylight, resolvedTheme } = usePrefs();
+  const settings = prefs.dragAnalysis ?? DEFAULT_DRAG_ANALYSIS;
+  const { machMax, altM, mode, cpView } = settings;
+  const hasFileTable = !!fileMachAlt?.length;
+  const conditions = settings.conditions === 'file' && !hasFileTable ? 'sealevel' : settings.conditions;
+  const updateSettings = (patch: Partial<DragAnalysisPrefs>) => {
+    setPrefs({ ...prefs, dragAnalysis: { ...settings, ...patch } });
+  };
   // ⤢-expanded charts and which are zoomed in (per-chart: these three don't
   // share an x window, unlike the flight group). Session-only, not persisted.
   const [bigCharts, setBigCharts] = useState<Set<DragChartId>>(new Set());
@@ -375,7 +374,6 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
       return next;
     });
   };
-  const { prefs, daylight, resolvedTheme } = usePrefs();
   const C = seriesPalette(daylight, resolvedTheme);
   const lenUnit = prefs.units.length;
   const distUnit = prefs.units.distance;
@@ -390,15 +388,13 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   // back on starts from 5 as it always has; by then the sweep is already the
   // right one and its memo does not re-run.
   const machTop = supersonicModel ? machMax : Math.min(machMax, CLASSIC_MACH_MAX);
+  // Apply both fallbacks in one write so they cannot overwrite each other.
+  // Neither imported tables nor computed sweeps are saved in preferences.
   useEffect(() => {
-    if (!supersonicModel && machMax > CLASSIC_MACH_MAX) setMachMax(CLASSIC_MACH_MAX);
-  }, [supersonicModel, machMax]);
-
-  // Loading a design without a table must not leave the panel claiming to be
-  // sweeping at one.
-  useEffect(() => {
-    if (conditions === 'file' && !(fileMachAlt && fileMachAlt.length > 0)) setConditions('sealevel');
-  }, [conditions, fileMachAlt]);
+    if (settings.machMax !== machTop || settings.conditions !== conditions) {
+      setPrefs({ ...prefs, dragAnalysis: { ...settings, machMax: machTop, conditions } });
+    }
+  }, [settings, machTop, conditions, prefs, setPrefs]);
 
   /**
    * The conditions table handed to the kernel. `undefined` — never `[]` — for
@@ -514,7 +510,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
           <div className="series-picker" role="group" aria-label="Drag analysis controls">
             <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
               Max Mach
-              <select value={machTop} onChange={(e) => setMachMax(Number(e.target.value))} style={{ marginLeft: 4 }}>
+              <select value={machTop} onChange={(e) => updateSettings({ machMax: Number(e.target.value) })} style={{ marginLeft: 4 }}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
@@ -527,7 +523,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
               Conditions
               <select value={conditions} aria-label="Sweep conditions"
                 title="The air the sweep runs in. Sea level is the default; matching a wind tunnel or a published curve means running at the altitude it was taken at."
-                onChange={(e) => setConditions(e.target.value as Conditions)} style={{ marginLeft: 4 }}>
+                onChange={(e) => updateSettings({ conditions: e.target.value as Conditions })} style={{ marginLeft: 4 }}>
                 <option value="sealevel">Sea level</option>
                 <option value="altitude">At altitude…</option>
                 {fileMachAlt && fileMachAlt.length > 0 && (
@@ -548,7 +544,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                     invalid and commits nothing, as in every other field.
                     What it does commit waits for the box to let go
                     (SweepAltitudeBox). */}
-                <SweepAltitudeBox altM={altM} distUnit={distUnit} onCommit={setAltM} />
+                <SweepAltitudeBox altM={altM} distUnit={distUnit} onCommit={(altM) => updateSettings({ altM })} />
               </span>
             )}
             <span style={{ flex: 1 }} />
@@ -616,9 +612,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                     all. aria-pressed describes what these actually are. */}
                 <div className="view-toggle" role="group" aria-label="Center of pressure units">
                   <button className={cpView === 'pct' ? 'active' : ''}
-                    aria-pressed={cpView === 'pct'} onClick={() => setCpView('pct')}>% of length</button>
+                    aria-pressed={cpView === 'pct'} onClick={() => updateSettings({ cpView: 'pct' })}>% of length</button>
                   <button className={cpView === 'unit' ? 'active' : ''}
-                    aria-pressed={cpView === 'unit'} onClick={() => setCpView('unit')}>{lenUnit} from nose</button>
+                    aria-pressed={cpView === 'unit'} onClick={() => updateSettings({ cpView: 'unit' })}>{lenUnit} from nose</button>
                 </div>
                 <ChartHeadButtons chart="center of pressure" zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
@@ -677,9 +673,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
               {/* Same fix as the CP toggle above — toggle buttons, not tabs. */}
               <div className="view-toggle" role="group" aria-label="Drag breakdown grouping">
                 <button className={mode === 'component' ? 'active' : ''}
-                  aria-pressed={mode === 'component'} onClick={() => setMode('component')}>By component</button>
+                  aria-pressed={mode === 'component'} onClick={() => updateSettings({ mode: 'component' })}>By component</button>
                 <button className={mode === 'type' ? 'active' : ''}
-                  aria-pressed={mode === 'type'} onClick={() => setMode('type')}>By type</button>
+                  aria-pressed={mode === 'type'} onClick={() => updateSettings({ mode: 'type' })}>By type</button>
               </div>
               <ChartHeadButtons chart="drag breakdown" zoomed={zoomedCharts.has('breakdown')} expanded={bigCharts.has('breakdown')}
                 plot={bdPlot} onToggleExpand={() => toggleBig('breakdown')} />

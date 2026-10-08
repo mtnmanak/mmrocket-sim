@@ -57,6 +57,34 @@ describe('storage hardening: result tiles', () => {
   });
 });
 
+describe('N015: stored drag analysis inputs', () => {
+  it.each([null, 'bad', [], 5].map((v) => [v]))('drops a malformed settings object (%j)', (dragAnalysis) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ dragAnalysis, radiusMode: 'radius' }));
+    mount();
+    expect(seen.prefs.dragAnalysis).toBeUndefined();
+    expect(seen.prefs.radiusMode).toBe('radius');
+  });
+
+  it.each([0, -1, 4, 26, '25', null])('rejects an unsupported Mach range (%j), invalid inputs and extra saved data', (machMax) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ dragAnalysis: {
+      machMax, conditions: 'unknown', altM: -1, mode: 'unknown', cpView: 'unknown',
+      sweep: { machs: [1, 2] }, componentId: 'session-local-id',
+    } }));
+    mount();
+    expect(seen.prefs.dragAnalysis).toEqual({
+      machMax: 3, conditions: 'sealevel', altM: 0, mode: 'component', cpView: 'pct',
+    });
+  });
+
+  it('rejects nonfinite altitude without discarding valid choices', () => {
+    localStorage.setItem(STORAGE_KEY, '{"dragAnalysis":{"machMax":10,"altM":1e999,"conditions":"altitude","mode":"type","cpView":"unit"}}');
+    mount();
+    expect(seen.prefs.dragAnalysis).toEqual({
+      machMax: 10, conditions: 'altitude', altM: 0, mode: 'type', cpView: 'unit',
+    });
+  });
+});
+
 describe('the printer preference round-trips', () => {
   it('a stored blob from before this feature loads unchanged, with no printer', () => {
     const old = {

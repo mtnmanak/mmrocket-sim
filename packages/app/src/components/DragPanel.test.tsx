@@ -110,6 +110,65 @@ describe('DragPanel — sweep conditions', () => {
   const caption = () => Array.from(host.querySelectorAll('p'))
     .map((p) => p.textContent ?? '').find((t) => t.startsWith('Conditions:')) ?? '';
 
+  it.each(['navigation', 'reload', 'blocked storage'])('N015: retains analysis inputs after %s and recomputes for the current rocket', (leaving) => {
+    if (leaving === 'blocked storage') {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    }
+    mount();
+    openPanel();
+    setSelect(host.querySelector('select')!, '2');
+    setSelect(condSelect(), 'altitude');
+    type(altInput()!, '1200');
+    const button = (label: string) => Array.from(host.querySelectorAll('button')).find((b) => b.textContent === label)!;
+    act(() => button('By type').click());
+    act(() => button('mm from nose').click());
+
+    if (leaving === 'reload') {
+      act(() => root.unmount());
+      root = createRoot(host);
+    } else {
+      // Results unmounts its panels but leaves the app's preference provider alive.
+      act(() => root.render(<PrefsProvider><div>Design</div></PrefsProvider>));
+    }
+    calls = [];
+    mount(); // a new rocket handle: no previous computed results can be reused
+    expect(calls).toEqual([]); // the panel still starts collapsed
+    openPanel();
+    expect((host.querySelector('select') as HTMLSelectElement).value).toBe('2');
+    expect(condSelect().value).toBe('altitude');
+    expect(altInput()!.value).toBe('1200');
+    expect(button('By type').getAttribute('aria-pressed')).toBe('true');
+    expect(button('mm from nose').getAttribute('aria-pressed')).toBe('true');
+    expect(calls).toEqual([{ machMax: 2, machAlt: [[0, 1200], [100, 1200]] }]);
+    if (leaving !== 'blocked storage') {
+      // Only input settings, with SI altitude; no results or component ids.
+      expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).dragAnalysis)
+        .toEqual({ machMax: 2, conditions: 'altitude', altM: 1200, mode: 'type', cpView: 'unit' });
+    }
+  });
+
+  it('N015: restores file conditions only while a table is available and clamps restored Mach for Barrowman', () => {
+    const table: [number, number][] = [[0, 100], [5, 2000]];
+    act(() => root.render(<PrefsProvider><DragPanel rocket={stubRocket(calls)} supersonicModel fileMachAlt={table} /></PrefsProvider>));
+    openPanel();
+    setSelect(host.querySelector('select')!, '25');
+    setSelect(condSelect(), 'file');
+    act(() => root.render(<PrefsProvider><div>Design</div></PrefsProvider>));
+    calls = [];
+    mount(table);
+    openPanel();
+    expect(condSelect().value).toBe('file');
+    expect(calls).toEqual([{ machMax: 5, machAlt: table }]);
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    calls = [];
+    mount(); // reload does not retain the imported table
+    openPanel();
+    expect(condSelect().value).toBe('sealevel');
+    expect(calls).toEqual([{ machMax: 5 }]);
+  });
+
   it.each(['altitude', 'file'])('S3b-2: discloses the ISA ceiling in the %s caption and CSV', async (mode) => {
     mount([[0, 0], [2, 100000]]);
     openPanel();
