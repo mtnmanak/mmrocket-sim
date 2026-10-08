@@ -1,5 +1,5 @@
 {
-  "version": "0.164",
+  "version": "0.165",
   "released": "2026-10-08",
-  "note": "Five parts-library masses removed; ambiguous RockSim motor loads refused; editable fin fillets; clearer save status and plot headings."
+  "note": "Aerodynamic corrections and sustained tumble detection; recovery ownership, catalogue masses, epoxy fillets and desktop extensions."
 }
