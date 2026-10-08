@@ -9881,7 +9881,6 @@
     "type": "BULK",
     "density": 608.7016092
    },
-   "mass": 0.001417476155,
    "insideDiameter": 0.0064008,
    "outsideDiameter": 0.0070104,
    "length": 0.0254,
@@ -32517,7 +32516,6 @@
     "type": "BULK",
     "density": 608.7016092
    },
-   "mass": 0.000283495231,
    "insideDiameter": 0.0037592,
    "outsideDiameter": 0.0062992,
    "length": 0.00635,
@@ -38636,7 +38634,6 @@
     "type": "BULK",
     "density": 128.1477072
    },
-   "mass": 0.000283495231,
    "filled": true,
    "shape": "OGIVE",
    "outsideDiameter": 0.0062484,
@@ -38709,7 +38706,6 @@
     "type": "BULK",
     "density": 128.1477072
    },
-   "mass": 0.000283495231,
    "filled": true,
    "shape": "ELLIPSOID",
    "outsideDiameter": 0.0086868,
@@ -68454,7 +68450,6 @@
     "type": "BULK",
     "density": 128.1477072
    },
-   "mass": 0.030900980179,
    "filled": true,
    "shape": "ELLIPSOID",
    "foreOutsideDiameter": 0.026416,

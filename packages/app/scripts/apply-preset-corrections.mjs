@@ -58,6 +58,36 @@ const RETIRED_MASSES_PATH = join(here, '..', 'src', 'data', 'retiredPresetMasses
  */
 export const CORRECTIONS = [
   {
+    key: 'BodyTube|quest|10311',
+    why: 'desktop 24.12 lists this bare MMX engine tube at the 0.05 oz placeholder (1.417 g), 14.28 times its paper wall (0.0993 g at the stated density) and 2.38 times even a solid cylinder. Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.001417476155, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'EngineBlock|quest|14005',
+    why: 'desktop 24.12 lists this bare MMX thrust ring at the 0.01 oz placeholder (0.2835 g), 3.66 times its paper annulus (0.0776 g at the stated density) and 2.35 times even a solid cylinder. Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.000283495231, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'Transition|semroc|bc1050r',
+    why: 'desktop 24.12 lists BC-1050 [R] at 30.901 g, 4.56 times its ellipsoid and solid shoulder (6.771 g at the stated balsa density), 3.17 times the solid-cylinder envelope, and 5.45 times the forward copy in that legacy source. Clear the unsupported mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.030900980179, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'NoseCone|fliskits|ncb201o',
+    why: 'desktop 24.12 lists this tiny solid balsa ogive at the 0.01 oz placeholder (0.2835 g), 3.99 times its ogive and solid shoulder (0.0710 g at the stated density) and 2.42 times the solid-cylinder envelope; the research found no indication of ballast. Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.000283495231, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
+    key: 'NoseCone|fliskits|ncb25p',
+    why: 'desktop 24.12 lists this tiny solid balsa nose at the 0.01 oz placeholder (0.2835 g), 3.25 times its modelled ellipsoid and solid shoulder (0.0873 g at the stated density) and 2.40 times even the solid-cylinder envelope despite its special blunt profile; the research found no indication of ballast. Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
+    fields: { mass: { bad: 0.000283495231, good: undefined } },
+    unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
+  },
+  {
     key: 'Transition|semroc|ta5055lr',
     why: 'desktop 24.12 lists TA-5055L [R] at 20.128 g, 6.10 times its solid balsa body frustum (3.300 g at the stated density). Clear the mass to use the geometry-derived path; no measured replacement mass is known.',
     fields: { mass: { bad: 0.020128161401, good: undefined } },
