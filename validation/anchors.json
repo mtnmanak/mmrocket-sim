@@ -1,7 +1,8 @@
 {
   "_readme": [
+    "cdAfterbody = fixture pressure CD - nose-only pressure CD + fixture base CD; cylindrical afterbodies contribute base CD only. Coefficients use kernel max-diameter area, then refAreaScale. R-100 Figure 13(a), added 2026-10-07: six informational points, no gate changes; friction excluded, ISA sea level acceptable. Equation (1) is not used.",
     "Machine-readable validation anchors. Provenance, tolerances and caveats for each dataset are recorded in the project's research notes; every anchor cites its source report below.",
-    "Scored by validation/score.mjs. Each series: quantity is one of cd | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
+    "Scored by validation/score.mjs. Each series: quantity is one of cd | cdAfterbody | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
     "cd series carry base: 'included' (compare kernel total CD) or 'excluded' (compare kernel total minus base CD) to match each dataset's accounting.",
     "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",
     "gateMinMach/gateMaxMach restrict which points count toward the gate; outside points report as info.",
@@ -229,6 +230,138 @@
         "id": "cna-vti-transonic", "quantity": "cnaPerRad", "gate": false, "tol": 0.3,
         "source": "VTI T-38 2025 75mm Able Mk18 CNa per rad (EXACT published; info only)",
         "points": [[0.7, 4.74], [0.79, 4.96], [0.9, 5.53], [1.0, 4.78], [1.1, 4.79], [1.19, 4.76], [1.28, 4.69], [1.39, 4.66]]
+      }
+    ]
+  },
+  "r100-82": {
+    "fixture": "r100-82.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 82; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=1.78; r_b/R=0.438; A_b/A_max=0.19; theta_b=9 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.007,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 82: conical afterbody, M=1.2; two-reader mean +/-0.007 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.142
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-83": {
+    "fixture": "r100-83.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 83; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=1.78; r_b/R=0.7; A_b/A_max=0.49; theta_b=4.87 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.005,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 83: conical afterbody, M=1.2; two-reader mean +/-0.005 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.114
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-101": {
+    "fixture": "r100-101.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 101; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=5; r_b/R=0.438; A_b/A_max=0.19; theta_b=3.2 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.005,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 101: conical afterbody, M=1.2; two-reader mean +/-0.005 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.059
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-100": {
+    "fixture": "r100-100.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 100; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=5; r_b/R=0.7; A_b/A_max=0.49; theta_b=1.7 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.005,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 100: conical afterbody, M=1.2; two-reader mean +/-0.005 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.083
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-92": {
+    "fixture": "r100-92.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 92; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=3.5; r_b/R=1; A_b/A_max=1; theta_b=0 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.005,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 92: cylindrical afterbody (base only), M=1.2; two-reader mean +/-0.005 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.205
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-98": {
+    "fixture": "r100-98.json",
+    "refAreaScale": 1,
+    "maxMach": 1.2,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100, William E. Stoney Jr. (1961), Collection of zero-lift drag data on bodies of revolution from free-flight investigations, Figure 13(a), PDF p21, config 98; https://ntrs.nasa.gov/citations/19630004995 . M=1.2 afterbody pressure + base C_D,A, referenced to maximum body cross-section; friction and fins excluded. Helium-gun free flight (no sting), Re ~8-12 x 10^6 on length; ISA sea level acceptable because friction is excluded. d=1.50 in; l_N/d=7.13 full parabola; l_A/d=5; r_b/R=1; A_b/A_max=1; theta_b=0 deg (rounded source geometry). No midbody; real three fins (1.8 in root, 45 deg sweep) omitted for this quantity. Assignment's mean of two independent 300-dpi reads (Claude; Gemini), tolerance=half their difference plus reading resolution, not tuned to the kernel. These supplied readings supersede the research report's preliminary approximate reads for these six points; this task did not re-digitize them. Research context: docs/research/Boat-tails/REPORT-2026-10-07.md. Its equation (1) has an unresolved angle/curve interpretation (about half the plotted value in the cited check); NOT used.",
+    "series": [
+      {
+        "id": "cd-afterbody-fig13a",
+        "quantity": "cdAfterbody",
+        "gate": false,
+        "tol": 0.005,
+        "source": "NASA TR R-100 Fig 13(a), PDF p21, config 98: cylindrical afterbody (base only), M=1.2; two-reader mean +/-0.005 (half-difference plus reading resolution); informational, never counted.",
+        "points": [
+          [
+            1.2,
+            0.19
+          ]
+        ]
       }
     ]
   }

@@ -116,6 +116,31 @@ for (const [name, spec] of Object.entries(anchors)) {
   });
   const scale = spec.refAreaScale ?? 1;
 
+  // R-100 C_D,A excludes nose pressure and all skin friction. The supported
+  // fixture is a nose immediately followed by a conical transition or tube.
+  // Build its nose-only reference with identical model and sweep conditions.
+  let noseSweep;
+  let cylindricalAfterbody = false;
+  if (spec.series.some(series => series.quantity === 'cdAfterbody')) {
+    const [nose, afterbody] = tree.components;
+    if (tree.components.length !== 2 || nose.type !== 'nosecone'
+      || !['transition', 'bodytube'].includes(afterbody.type)
+      || tree.components.some(component => component.children?.length)) {
+      throw new Error(`${name}: cdAfterbody requires only a nose and an afterbody`);
+    }
+    cylindricalAfterbody = afterbody.type === 'bodytube';
+    if (!cylindricalAfterbody) {
+      const noseRocket = OrkRocket.buildTree({ ...tree, components: [nose] });
+      if (supersonic) noseRocket.setSupersonicAero(true);
+      if (hybrid) noseRocket.setHybridAero(true);
+      if (kbf) noseRocket.setRogersModifiedBarrowman(true);
+      noseSweep = noseRocket.dragSweep({
+        machMin: 0.05, machMax: spec.maxMach ?? 10, machStep: 0.025,
+        aoaDeg: spec.aoaDeg ?? 0, machAlt: spec.machAlt,
+      });
+    }
+  }
+
   out.push(`## ${name} — ${tree.name}`);
   out.push('');
   out.push(`Length ${info.length.toFixed(4)} m, kernel ref diameter ${info.refDiameter.toFixed(4)} m, dataset ref-area scale x${scale}.`);
@@ -123,6 +148,13 @@ for (const [name, spec] of Object.entries(anchors)) {
 
   const model = (series, mach) => {
     switch (series.quantity) {
+      case 'cdAfterbody': {
+        const base = interp(sweep.machs, sweep.powerOff.base, mach);
+        if (cylindricalAfterbody) return base * scale;
+        const pressure = interp(sweep.machs, sweep.powerOff.pressure, mach);
+        const nosePressure = interp(noseSweep.machs, noseSweep.powerOff.pressure, mach);
+        return (pressure - nosePressure + base) * scale;
+      }
       case 'cd': {
         let cd = interp(sweep.machs, sweep.powerOff.total, mach);
         if (series.base === 'excluded') cd -= interp(sweep.machs, sweep.powerOff.base, mach);

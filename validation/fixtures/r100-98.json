@@ -1,0 +1,29 @@
+{
+  "name": "NASA TR R-100 config 98 (cylindrical afterbody, fins excluded)",
+  "_notes": [
+    "Stoney (1961), NASA TR R-100, Figure 13(a), PDF page 21; config sheets (e.g. 82 on PDF page 99). d = 1.50 in = 0.0381 m; l_N/d = 7.13; l_A/d = 5; r_b/R = 1; tabulated A_b/A_max = 1; tabulated theta_b = 0 deg. Rounded sheet area and angle are provenance, not independent geometry constraints; radii and lengths define the fixture.",
+    "Full parabolic nose: shape='parabolic', shapeParameter=1, r/R=2(x/l_N)-(x/l_N)^2. App shapeProfile.ts and OpenRocket Transition.Shape.PARABOLIC use (2u-p*u^2)/(2-p); p=1 gives the full parabola.",
+    "NO cylindrical midbody: the afterbody immediately follows the nose. NO fins: the real helium-gun models have three fins (1.8 in root, 45 deg sweep), but Figure 13(a) C_D,A excludes them.",
+    "Free flight, no sting; Re approximately 8-12 million based on model length. C_D,A is afterbody pressure plus base drag, excluding friction, so ISA sea-level scoring is acceptable. Polished finish and 1 mm wall are fixture assumptions, not measured drag inputs for this quantity.",
+    "Cylindrical afterbody is a body tube; C_D,A is base CD only.",
+    "Figure reads supplied in the assignment: mean of independent Claude and Gemini 300-dpi reads, uncertainty half their difference plus reading resolution. Informational only. Equation (1) is unresolved and is NOT used."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "polished",
+      "shape": "parabolic",
+      "shapeParameter": 1,
+      "length": 0.271653,
+      "aftRadius": 0.01905,
+      "thickness": 0.001
+    },
+    {
+      "type": "bodytube",
+      "finish": "polished",
+      "length": 0.1905,
+      "outerRadius": 0.01905,
+      "thickness": 0.001
+    }
+  ]
+}

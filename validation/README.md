@@ -12,10 +12,24 @@ npm run build -w @online-openrocket/engine   # harness imports packages/engine/d
 node validation/score.mjs                    # classic Extended Barrowman (flag off)
 node validation/score.mjs --kbf              # Rogers Kbf — THE MODEL THE APP LAUNCHES WITH
 node validation/score.mjs --supersonic       # the opt-in supersonic aero model
+node validation/score.mjs --hybrid           # experimental Kbf/Supersonic blend
 node validation/score.mjs --strict           # exit 1 unless every gate point passes
+node --test validation/score.test.mjs        # R-100 fixture and scoring regression checks
 ```
 
 ## Scoreboard
+
+**INFORMATIONAL ADDITION (2026-10-07, gates unchanged at 191): NASA TR R-100
+Figure 13(a).** Six helium-gun free-flight points at M1.2 (no sting) compare
+afterbody pressure plus base drag, `cdAfterbody`, with friction and fins excluded.
+Four conical afterbodies and two cylindrical afterbodies use the report's full
+parabolic nose, with no cylindrical midbody. All six series are `gate: false`:
+reported, never counted. Classic and Kbf are low on configs 82/83/101 and high on
+100; Supersonic and Hybrid are high on all four conical cases. All four models
+are within the supplied reading uncertainty on cylinder 92 and high on cylinder
+98. These are six measurements at one Mach, not flight-validation results or a
+default-model decision. Full provenance, geometry, per-model tables, exact commands
+and byte-identical before/after proof: `scorecard-r100-fig13a-2026-10-07.md`.
 
 **ANCHOR REVISION (2026-08-25, 166 → 175 gates): the fins-off cells re-sourced from
 NASA TN D-4013 ITSELF.** The report was retrieved from NTRS and its Figures 11 and 12
@@ -201,11 +215,29 @@ node validation/score.mjs > validation/scorecard.md
     hexagonal-blunt-base fins, measured data to M10 (the finned M3–10 cell and
     the only non-airfoil fin-section cell; interim figure-read anchors until
     the report number arrives)
+  - `r100-{82,83,101,100,92,98}.json` — NASA TR R-100 Figure 13(a), full
+    parabolic nose (`shapeParameter: 1`, l_N/d = 7.13) directly followed by a
+    conical transition or cylindrical body tube. d = 0.0381 m; no fins or
+    midbody. `cdAfterbody` subtracts the same nose-only fixture's pressure CD
+    from the full fixture's pressure CD, adds its base CD, then applies
+    `refAreaScale` (1 here). A cylindrical afterbody contributes base CD only.
+    Identical model flags and Mach/altitude conditions apply to both sweeps.
+    Re was approximately 8–12 million on length; sea-level ISA is acceptable
+    for this pressure-plus-base quantity because friction is excluded.
+    Uncertainties are the supplied two-reader half-difference plus reading
+    resolution (±0.007 for config 82, ±0.005 for the other five), not fitted
+    tolerances. The research report's equation (1) remains unresolved and is
+    not used. These fixtures isolate the reported fin-excluded quantity;
+    the real models were fin-stabilised.
 - `anchors.json` — machine-readable anchor tables (units/conventions in its
   `_readme`; `gate: false` series are informational)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `scorecard-nosection-2026-08-29.md` — **the NEWEST scorecard**; read it first. It is where
+- `scorecard-r100-fig13a-2026-10-07.md` — **the newest scorecard**; six new
+  informational points and all four models measured, with every prior output
+  byte unchanged. Gate scores remain 13/191 · 21/191 · 77/191 · 73/191
+  (Classic · Kbf · Supersonic · Hybrid).
+- `scorecard-nosection-2026-08-29.md` — the latest gate-set revision. It is where
   the current **13/191 · 21/191 · 77/191** was set. Walk back through the entries below for how
   each earlier revision's denominator was reached. *(This line named the 27 August scorecard and
   its 10/17/71 until 2026-09-21 — two revisions of the gate set out of date, in the one place
@@ -288,6 +320,8 @@ tolerances come from the datasets' own stated accuracies.
   and is corrected: **TN D-4013 fins-off CA was pulled and gated the same day**
   (`scorecard-finsoff-2026-08-25.md`), but its body keeps the 15° boat tail, so
   it is not the plain-body cell. Remaining candidate: TM X-1771 Cajun.
+  R-100 configs 92/98 now provide informational cylinder **base-only** points
+  at M1.2; a plain-body total-drag gate is still absent.
 - **Fins-off data above M1.2** — TN D-4013's stops there, so no supersonic gate
   can be attributed to the fin term versus the body. This is the single missing
   measurement blocking the ×1.8 question (`scorecard-junction-2026-08-25.md`).
@@ -312,7 +346,10 @@ tolerances come from the datasets' own stated accuracies.
   reads as base *thrust* subsonically, which our kernel cannot and should not
   reproduce. Values are in the two cells' `_provenance`. Gating them would need
   a `cdBase` quantity in `score.mjs`; do not add one until there is a base
-  measurement with no sting in it. The same caveat is now open against
+  measurement with no sting in it. R-100 Figure 13(a) now supplies sting-free
+  cylinder base-only points through `cdAfterbody`, informational only; this
+  does not change the TN D-4013 sting caveat or authorize its gating.
+  The same caveat is now open against
   `cd-supersonic-tunnel`, which gates our base-INCLUDED CD against TN D-4014's
   *uncorrected* C_A — that report prints its chamber axial force separately
   (its Fig 4) and is retrievable the same way.
