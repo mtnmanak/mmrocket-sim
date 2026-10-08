@@ -40,7 +40,7 @@ import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtFieldValue, fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
-import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { BULK_MATERIALS, DEFAULT_FILLET_MATERIAL, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import {
   catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
@@ -859,6 +859,22 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         if (!(next > 0)) return; // The bridge ignores zero density and would fly Cardboard instead.
         patch['filletMaterialName'] = undefined;
         patch['filletMaterialGroup'] = undefined;
+      }
+      // Preserve both stored material and material supplied by this edit.
+      if (f.key === 'filletRadius'
+        && !('filletDensity' in patch) && !('filletMaterialName' in patch) && !('filletMaterialGroup' in patch)
+        && node['filletDensity'] === undefined && node['filletMaterialName'] === undefined
+        && node['filletMaterialGroup'] === undefined) {
+        const previous = numOpt(node, 'filletRadius') ?? 0;
+        if (next === 0 && previous > 0) {
+          // Retain the kernel's implicit Cardboard before disabling, so a later
+          // re-enable (including after reload) is not mistaken for first creation.
+          patch['filletDensity'] = blankValue(node.type, 'filletDensity');
+          patch['filletMaterialName'] = 'Cardboard';
+        } else if (next > 0 && previous === 0) {
+          patch['filletDensity'] = DEFAULT_FILLET_MATERIAL.density;
+          patch['filletMaterialName'] = DEFAULT_FILLET_MATERIAL.name;
+        }
       }
       onPatch(patch);
     };

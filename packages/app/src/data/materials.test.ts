@@ -106,7 +106,12 @@ describe('the built-in material tables', () => {
    * looking like the other's failure.
    */
   const LOCAL_ADDITIONS: Record<string, string[]> = {
-    BULK_MATERIALS: [],
+    // Eric's 2026-10-08 ruling: sourced adhesive mixes, with silica the new-fillet default.
+    BULK_MATERIALS: [
+      'Epoxy, unfilled (cured)', 'Epoxy + silica (fillet paste)',
+      'Epoxy + high-density filler', 'Epoxy + microfibers',
+      'Epoxy + microballoons', 'RocketPoxy',
+    ],
     SURFACE_MATERIALS: [],
     // Owner's ruling 2026-09-07 — an opt-in corrected pair beside the two
     // upstream rows that are ~10x light. NEW names, so no existing design and

@@ -1,8 +1,8 @@
 /**
  * Desktop OpenRocket 24.12 built-in materials, extracted verbatim from
- * info.openrocket.core.database.Databases. Densities: BULK kg/m3,
- * SURFACE kg/m2, LINE kg/m. Names/values must track the desktop so .ork
- * files exchange cleanly.
+ * info.openrocket.core.database.Databases, plus documented app-only additions.
+ * Densities: BULK kg/m3, SURFACE kg/m2, LINE kg/m. Upstream names/values stay
+ * unchanged; app-only names travel in .ork with their explicit density.
  */
 
 export interface MaterialDef {
@@ -11,6 +11,12 @@ export interface MaterialDef {
   density: number;
   group: string;
 }
+
+// WEST SYSTEM Six10 Thickened Epoxy Adhesive TDS: cured SG 1.18,
+// rounded to a typical silica fillet paste. Eric's default ruling, 2026-10-08.
+export const DEFAULT_FILLET_MATERIAL: MaterialDef = {
+  name: 'Epoxy + silica (fillet paste)', density: 1200, group: 'ADHESIVES',
+};
 
 export const BULK_MATERIALS: MaterialDef[] = [
   { name: 'Acrylic', density: 1190, group: 'PLASTICS' },
@@ -46,6 +52,21 @@ export const BULK_MATERIALS: MaterialDef[] = [
   { name: 'PLA - 100% infill', density: 1250, group: 'PLASTICS' },
   { name: 'PETG - 100% infill', density: 1250, group: 'PLASTICS' },
   { name: 'ABS - 100% infill', density: 1050, group: 'PLASTICS' },
+  // Adhesives are mixed/cured systems, not filler powders. ADHESIVES is local
+  // catalogue metadata; omit it from .ork, like other newly selected materials.
+  // Desktop 24.12 accepts the name + density as custom, but not an unknown group.
+  // WEST SYSTEM 105/205 and 105/207 TDS; Devcon 5 Minute Epoxy TDS: cured 1100-1180.
+  { name: 'Epoxy, unfilled (cured)', density: 1150, group: 'ADHESIVES' },
+  DEFAULT_FILLET_MATERIAL,
+  // WEST SYSTEM 404 High-Density TDS: peanut-butter mix; cured/mixed unspecified.
+  { name: 'Epoxy + high-density filler', density: 1290, group: 'ADHESIVES' },
+  // WEST SYSTEM 403 Microfibers TDS: peanut-butter mix; cured/mixed unspecified.
+  { name: 'Epoxy + microfibers', density: 1080, group: 'ADHESIVES' },
+  // WEST SYSTEM 410 Microlight TDS (2013): cured 105/206 mix, 430-530; not phenolic powder.
+  { name: 'Epoxy + microballoons', density: 450, group: 'ADHESIVES' },
+  // Glenmarc G5000 RocketPoxy data sheet: mixed SG 1.50; no published cured figure.
+  // Epoxy loses roughly 1% mass during cure; that is not a measured cured density.
+  { name: 'RocketPoxy', density: 1500, group: 'ADHESIVES' },
 ];
 
 export const SURFACE_MATERIALS: MaterialDef[] = [
