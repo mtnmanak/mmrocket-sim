@@ -3069,6 +3069,12 @@ export function App() {
             <Icon name="sliders" /> Preferences
           </button>
         </div>
+        <div className="design-file">
+          <span className="design-file-name" title={tree.name || 'Rocket'}>{tree.name || 'Rocket'}</span>
+          <span className="design-save-status" role="status" aria-label="Design save status" aria-live="polite">
+            {dirty ? 'Unsaved changes' : 'No unsaved changes'}
+          </span>
+        </div>
         {/* the owner's chosen identity line (2026-08-05b #9) — the per-model detail
             lives in Preferences and the launch report's "Aero model" row. */}
         <p className="app-tagline">

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Window as HappyWindow } from 'happy-dom';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { App } from './App.js';
@@ -168,8 +169,16 @@ async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | '
  * design on screen is replaced by an empty one.
  */
 async function guarded(host: HTMLElement): Promise<boolean> {
+  const status = host.querySelector('.app-header [role="status"][aria-label="Design save status"]');
+  expect(status).not.toBeNull();
+  const indicatedDirty = status!.textContent === 'Unsaved changes';
   await act(async () => { button(host, '✕ New').click(); });
-  if (!(host.textContent ?? '').includes('Start a new design?')) return false;
+  if (!(host.textContent ?? '').includes('Start a new design?')) {
+    expect(indicatedDirty).toBe(false);
+    expect(status!.textContent).toBe('No unsaved changes');
+    return false;
+  }
+  expect(indicatedDirty).toBe(true);
   const modal = [...document.querySelectorAll('.modal-actions')]
     .find((m) => m.textContent?.includes('Discard & start new'))!;
   await act(async () => { button(modal, 'Cancel').click(); });
@@ -764,6 +773,86 @@ describe('lane C2 save and share fidelity', () => {
  * one on Launch did before the flight case below (AUDIT row 477, review).
  */
 describe('only a full-fidelity save clears the unsaved-work guard', () => {
+  it.each([1020, 390])('keeps the design save status readable by CSS at %i px, including Fly', async width => {
+    const dom = (window as unknown as HappyWindow).happyDOM;
+    const originalWidth = window.innerWidth;
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(here, 'styles.css'), 'utf8');
+    document.head.appendChild(style);
+    await act(async () => { dom.setWindowSize({ width }); });
+    try {
+      const host = await mountApp();
+      const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+      await type(name, 'LongRocketName'.repeat(20));
+      const row = host.querySelector<HTMLElement>('.design-file')!;
+      const label = host.querySelector<HTMLElement>('.design-file-name')!;
+      const status = host.querySelector<HTMLElement>('.design-save-status')!;
+      expect(row).not.toBeNull();
+      expect(row.closest('.app-header-row')).toBeNull();
+      expect(getComputedStyle(row).display).toBe('flex');
+      expect(getComputedStyle(label).minWidth).toBe('0');
+      expect(getComputedStyle(label).textOverflow).toBe('ellipsis');
+      expect(getComputedStyle(label).overflow).toBe('hidden');
+      expect(getComputedStyle(status).flexShrink).toBe('0');
+      expect(status.textContent).toBe('Unsaved changes');
+      const fly = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
+        .find(b => b.textContent?.trim() === 'Fly')!;
+      await act(async () => { fly.click(); });
+      // Applied CSS, not browser geometry: real clipping still needs browser QA.
+      for (let el: HTMLElement | null = status; el; el = el.parentElement) {
+        expect(getComputedStyle(el).display).not.toBe('none');
+      }
+    } finally {
+      await act(async () => { dom.setWindowSize({ width: originalWidth }); });
+      style.remove();
+    }
+  }, 30000);
+
+  it('shows the design save status across tabs, edits, undo, autosave and reload', async () => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    const status = () => host.querySelector('.app-header [role="status"][aria-label="Design save status"]');
+    expect(status()?.textContent).toBe('No unsaved changes');
+    expect(status()?.getAttribute('aria-live')).toBe('polite');
+    const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
+    const originalName = name.value;
+    await type(name, 'A very long rocket name for the persistent header');
+    expect(status()?.textContent).toBe('Unsaved changes');
+    expect(host.querySelector('.app-header .design-file-name')?.textContent)
+      .toBe('A very long rocket name for the persistent header');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(name.value).toBe(originalName);
+    expect(status()?.textContent).toBe('No unsaved changes');
+    await act(async () => { button(host, 'Redo').click(); });
+    for (const tab of ['Motors & Launch', 'Results', 'Fly'] as const) {
+      const tabButton = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
+        .find(b => b.textContent?.trim() === tab)!;
+      await act(async () => { tabButton.click(); });
+      expect(status()?.textContent).toBe('Unsaved changes');
+    }
+    await unmountAll(); // flush autosave, which must not clear the indicator
+    host = await mountApp();
+    expect(status()?.textContent).toBe('Unsaved changes');
+    await openTab(host, 'Design');
+    await saveAs(host, 'Save .ork');
+    await settle();
+    expect(status()?.textContent).toBe('No unsaved changes');
+    await unmountAll();
+    host = await mountApp();
+    expect(status()?.textContent).toBe('No unsaved changes');
+  }, 30000);
+
+  it('keeps the design save status unsaved after a failed file write', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await type(input(host, 'Measured mass'), '31');
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('disk unavailable'));
+    await saveAs(host, 'Save .ork');
+    await settle();
+    expect(host.textContent).toContain('Save .ork failed');
+    expect(await guarded(host)).toBe(true);
+  }, 30000);
+
   it('every Save As / Export entry but Save .ork — the share link among them — leaves the design unsaved', async () => {
     const writeText = vi.fn(async (_url: string) => {});
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
