@@ -331,9 +331,17 @@ it('the shipped engine deploys at the switched altitude or delayed charge', () =
     } else {
       const apogee = flight.events.find((e) => e.type === 'APOGEE')!;
       expect(deployed.time).toBeGreaterThan(apogee.time);
-      const at = flight.series.time.findIndex((t) => t >= deployed.time);
-      // Descending integration step plus sample placement: within 2 m of the requested 50 m.
-      expect(Math.abs(flight.series.altitude[at]! - 50)).toBeLessThan(2);
+      // The altitude event fires on the first recorded row at or below the requested
+      // 50 m, not a row earlier or later. A fixed metres allowance does not hold: this
+      // calm vertical flight tumbles after apogee (OR #3183) and the tumble stepper's
+      // rows are ~0.5 s / ~5 m apart, so the crossing row can sit anywhere in that span.
+      const { time, altitude } = flight.series;
+      const fromApogee = time.findIndex((t) => t >= apogee.time);
+      const cross = altitude.findIndex((a, i) => i > fromApogee && a <= 50);
+      expect(cross).toBeGreaterThan(fromApogee);
+      expect(altitude[cross - 1]!).toBeGreaterThan(50);
+      expect(deployed.time).toBeGreaterThanOrEqual(time[cross]!);
+      expect(deployed.time - time[cross]!).toBeLessThan(0.01);
     }
   }
 });
