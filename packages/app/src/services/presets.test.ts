@@ -65,7 +65,7 @@ describe('presetPatch', () => {
       // Independent annulus / ellipsoid / tangent-ogive calculations, with solid
       // shoulders. Allow 1% for the kernel's numerical shape integration.
       expect(Math.abs(massGrams - geometryGrams)).toBeLessThan(geometryGrams * 0.01);
-    });
+    }, 20_000); // real kernel: explicit timeout (CI is slower than the desktop)
 
     it('recognises saved retired overrides and preserves a different user weighing', () => {
       const saved: ComponentNode = { type, id: 'saved', ...presetPatch(type, row), overrideMass: retired };
