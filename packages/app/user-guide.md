@@ -1117,6 +1117,8 @@ Finally, save your work, move it between tools, and use the app with no network.
 
 ## File formats
 
+**Newer OpenRocket files.** If an `.ork` uses a newer file format than the app understands, it still opens with a warning in the import notice. Some settings may be ignored or lost if you save it again. Keep the original file.
+
 **Older saved pod and strap-on positions.** An app version before v0.138 placed parts inside a pod or strap-on differently. An autosave, an app-written `.ork`, or a share link may retain those positions. When opening an app-written file or restoring an autosave of unknown origin, the app compares the old and current placement rules on the saved design. It names only parts placed by their position fields whose stations differ by more than 0.000000001 m. Parts stacked nose-to-tail inside the assembly are never candidates themselves; parts attached inside them can be. This is a possible-position note, not proof that a part moved: intentional positions and correct older saves can also give different stations under the two rules.
 
 Open each named part and compare **Position (in parent)** / **Relative to** / **Offset** with the design you intended, or reopen the file you started from, if you still have it. The check does not move parts. The note stays separate from save messages and follows the specific candidate parts: deleting them or making their stations agree clears it, and a replacement part does not inherit their check. Dismiss the note with its **×** after checking. Dismissal is kept in this design's browser autosave across reloads; reopening an exported legacy file or share link checks it afresh.

@@ -355,6 +355,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
 
   const ignored = new Set<string>();
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  // Format 1.10 is the newest the app understands (and the format we write).
+  if (fileVersion > 110) {
+    notes.push(`Warning: this file uses format ${versionMatch![0]} from a newer OpenRocket than the app understands. `
+      + 'Some settings may be ignored or lost if you save it again.');
+  }
   /**
    * Enum strings the kernel refuses, met OUTSIDE the tree — a configuration's
    * separation, a motor's ignition — where the sanitize pass at the end never
