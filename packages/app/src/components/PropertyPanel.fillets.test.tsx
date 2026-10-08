@@ -1,13 +1,25 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { engineTree, makeNode } from '../tree/treeModel.js';
 import { exportOrk, importOrk } from '../services/orkFile.js';
 import { BULK_MATERIALS } from '../data/materials.js';
+import type { CatalogueDifference } from '../services/presets.js';
+
+// Fin presets are not shipped today. Exercise commitSi's partner-patch contract
+// through the real marker UI using a synthetic catalogue boundary.
+const catalogue = vi.hoisted(() => ({ differences: [] as CatalogueDifference[] }));
+vi.mock('../services/presets.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/presets.js')>();
+  const row = { kind: 'FinSet', manufacturer: 'Test', partNo: 'F1', description: '' };
+  return { ...actual, KIND_FOR_TYPE: { ...actual.KIND_FOR_TYPE, freeformfinset: 'FinSet' },
+    loadPresets: async () => [row], linkedPreset: () => row,
+    catalogueDifferences: () => catalogue.differences };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -40,6 +52,7 @@ const reopenedFin = (node: ComponentNode) => importOrk(exportOrk({ name: 'Fillet
 
 beforeEach(() => {
   localStorage.clear();
+  catalogue.differences = [];
   patches = [];
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -100,6 +113,53 @@ describe('fin root fillet editing', () => {
     show({ ...makeNode('freeformfinset'), filletRadius: 0.002 });
     type(box('Fillet radius (mm)'), '3');
     expect(patches).toEqual([{ filletRadius: 0.003 }]);
+  });
+
+  it.each(['rounded', 'airfoil'] as const)(
+    're-enabling an implicit %s fillet preserves density, kernel mass and CG', async (crossSection) => {
+      const { OrkRocket } = await import('@online-openrocket/engine');
+      const original = { ...makeNode('freeformfinset'), crossSection, finCount: 3, filletRadius: 0.003 };
+      const xml = exportOrk({ name: 'Implicit fillet', tree: treeFor(original) })
+        .replace(/<filletmaterial\b[^>]*>[^<]*<\/filletmaterial>/g, '');
+      let node = importOrk(xml).tree.components[0]!.children![0]!.children![0]!;
+      expect(node['filletDensity']).toBeUndefined();
+      const info = (fin: ComponentNode) => OrkRocket.buildTree(engineTree(treeFor(fin))).staticInfo();
+      const before = info(node);
+      show(node);
+      type(box('Fillet radius (mm)'), '0');
+      node = { ...node, ...patches.at(-1) };
+      expect.soft(patches.at(-1)).toEqual({ filletRadius: 0,
+        filletDensity: 680, filletMaterialName: 'Cardboard' });
+      // JSON persistence while disabled must preserve the material without session IDs.
+      node = JSON.parse(JSON.stringify(node)) as ComponentNode;
+      show(node);
+      type(box('Fillet radius (mm)'), '3');
+      node = { ...node, ...patches.at(-1) };
+      const after = info(node);
+      expect.soft(node['filletDensity']).toBe(680);
+      expect.soft(node['filletMaterialName']).toBe('Cardboard');
+      // Compare the same shipped kernel before/after, allowing 1e-10 kg/m rounding.
+      expect.soft(after.mass).toBeCloseTo(before.mass, 10);
+      expect.soft(after.cg).toBeCloseTo(before.cg, 10);
+    }, 20_000);
+
+  it.each([
+    { filletDensity: 1330, filletMaterialName: 'Catalogue epoxy', filletMaterialGroup: 'Custom' },
+    { filletDensity: 1330 },
+    { filletMaterialName: 'Catalogue epoxy' },
+    { filletMaterialGroup: 'Custom' },
+    { filletDensity: undefined, filletMaterialName: undefined },
+  ])('keeps incoming partner material when enabling a fillet: %j', async (partner) => {
+    catalogue.differences = [{ key: 'filletRadius', words: 'fillet radius', have: 0, want: 0.003,
+      patch: { filletRadius: 0.003, ...partner } }];
+    await act(async () => {
+      show({ ...makeNode('freeformfinset'), filletRadius: 0,
+        presetManufacturer: 'Test', presetPartNo: 'F1' });
+    });
+    const use = host.querySelector<HTMLButtonElement>('[aria-label="Use catalogue value 3 mm for Fillet radius"]');
+    expect(use).not.toBeNull();
+    act(() => use!.click());
+    expect(patches).toEqual([{ filletRadius: 0.003, ...partner }]);
   });
 
   it.each([

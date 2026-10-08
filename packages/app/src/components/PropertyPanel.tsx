@@ -860,13 +860,21 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         patch['filletMaterialName'] = undefined;
         patch['filletMaterialGroup'] = undefined;
       }
-      // Set the new-fillet default only on the first zero-to-positive edit.
-      // Never migrate a loaded design or replace any stored material metadata.
-      if (f.key === 'filletRadius' && next > 0 && (numOpt(node, 'filletRadius') ?? 0) === 0
+      // Preserve both stored material and material supplied by this edit.
+      if (f.key === 'filletRadius'
+        && !('filletDensity' in patch) && !('filletMaterialName' in patch) && !('filletMaterialGroup' in patch)
         && node['filletDensity'] === undefined && node['filletMaterialName'] === undefined
         && node['filletMaterialGroup'] === undefined) {
-        patch['filletDensity'] = DEFAULT_FILLET_MATERIAL.density;
-        patch['filletMaterialName'] = DEFAULT_FILLET_MATERIAL.name;
+        const previous = numOpt(node, 'filletRadius') ?? 0;
+        if (next === 0 && previous > 0) {
+          // Retain the kernel's implicit Cardboard before disabling, so a later
+          // re-enable (including after reload) is not mistaken for first creation.
+          patch['filletDensity'] = blankValue(node.type, 'filletDensity');
+          patch['filletMaterialName'] = 'Cardboard';
+        } else if (next > 0 && previous === 0) {
+          patch['filletDensity'] = DEFAULT_FILLET_MATERIAL.density;
+          patch['filletMaterialName'] = DEFAULT_FILLET_MATERIAL.name;
+        }
       }
       onPatch(patch);
     };
