@@ -1,5 +1,5 @@
 {
-  "version": "0.167",
+  "version": "0.168",
   "released": "2026-10-09",
-  "note": "CP chart at an angle of attack; a SEMROC tail-cone mass; desktop extension names."
+  "note": "Airframe-step warnings in your length unit; .rkt saves keep a coupler's parts."
 }

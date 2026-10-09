@@ -32,6 +32,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.168",
+    "date": "2026-10-09",
+    "title": "Airframe-step warnings in your length unit; .rkt saves keep a coupler's parts",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed. What changed is which airframe warnings appear when you work in inches, metres or feet, what a .rkt save keeps, and two limits the guide now states.",
+      "AIRFRAME-STEP WARNINGS FOLLOW YOUR LENGTH UNIT. The simulator decides that an airframe's diameter steps, or that two airframe parts leave a gap or overlap, by comparing the two figures as text in a length unit, as desktop OR does in the unit you work in. The app always compared them in centimetres, so with Rocket dimensions set to inches a 4 in airframe was warned only at a diameter step of about 0.1 mm, against about 0.02 mm in desktop OR set to inches; on a 6 in airframe, about 1 mm. The check now uses your Rocket dimensions unit. Millimetres and centimetres round alike, so with either of them nothing changes. In inches the warning can now appear on a design that showed nothing before. In metres or feet it follows those units' coarser rounding, as desktop OR's does: in metres a 1 in airframe is warned at about a 1 mm step, where centimetres warned at about 0.05 mm. Reported upstream by @thzero (openrocket/openrocket#3285).",
+      "RKT SAVES KEEP A COUPLER'S PARTS. Parts inside a tube coupler, such as an e-bay's bulkheads, sled or altimeter, were left out of a .rkt save without a word. Desktop OR and this app do not read parts nested inside a coupler in a .rkt, so they are now written beside the coupler in the tube around it, each at the position it flies, as desktop OR does, including the parts of a coupler inside another coupler. The save note names the coupler. Re-opening the file shows them in the tube, not inside the coupler; save a .ork to keep the structure.",
+      "A .RKT WITH A LONG CHAIN OF SUB-ASSEMBLIES OPENS SAFELY. A chain of sub-assemblies nested inside one another is now capped at 64 levels like other nesting, with the same note, instead of being read to any depth.",
+      "THE GUIDE STATES TWO MORE LIMITS. Pitch and yaw damping: the simulator triples its pitch and yaw damping moments, an adjustment inherited from OpenRocket 24.12. Removing it on four designs, in winds up to 20 mph, moved apogee by at most 0.1 %, drift at apogee by at most 2 % and landing distance by at most 3 % (21 m). Previous flight: a run saved before v0.157 has one fingerprint for the whole motor set, so after any mount's motor or motor data changes it no longer supplies an Auto card's Previous flight line on any mount; Launch again.",
+      "A LIMIT FROM v0.138, STATED HERE FOR THE FIRST TIME. v0.138 stopped a first visit's untouched starter rocket from asking to be saved. A browser session started before v0.138 can still carry the old saved mark, and keeps asking to save that rocket until the next Save .ork, Open or New.",
+      "In the motor browser, the Custom (drilled) delay box no longer overflows its space."
+    ]
+  },
+  {
     "version": "0.167",
     "date": "2026-10-09",
     "title": "CP chart at an angle of attack; a SEMROC tail-cone mass; desktop extension names",
