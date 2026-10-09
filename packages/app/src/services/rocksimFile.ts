@@ -2454,6 +2454,13 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   for (const s of stagesIn) { foldChain(s.children); foldInPods(s.children); }
 
   /**
+   * Positions for a tube coupler's own parts, which go out BESIDE it in its
+   * parent (the Ring case): measured from that parent's front, or absolute
+   * where either part is placed absolutely.
+   */
+  const liftedXb = new Map<ComponentNode, { mode: number; xb: number }>();
+
+  /**
    * RockSim `<LocationMode>` + `<Xb>` for a node's FORE end (aft end in mode 2,
    * which measures forward from the parent's rear).
    *
@@ -2466,6 +2473,8 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
    * and became separate centreline tubes, with no note.
    */
   const rocksimXb = (node: ComponentNode, parent: ComponentNode | null): { mode: number; xb: number } => {
+    const lifted = liftedXb.get(node);
+    if (lifted) return lifted;
     // Where the part flies: one with no position is not at the front of its
     // parent (a coupler or ring flies flush with the rear) — `positionOf`.
     const pos = positionOf(node);
@@ -2925,6 +2934,28 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         emit(`<Len>${nnum(node, 'length', 0.002) * LEN}</Len>`);
         emit(`<UsageCode>${usage}</UsageCode>`);
         emit('</Ring>');
+        // A <Ring> has no <AttachedParts> any reader keeps (RockSim's schema
+        // allows them; desktop's RingHandler, and this reader, ignore them), so
+        // a coupler's own parts — an e-bay's bulkheads, sled, altimeter — were
+        // simply not written. Desktop's TubeCouplerDTO writes them BESIDE the
+        // coupler instead, each at an absolute station; these go out the same
+        // way, from the parent's front where both are placed relatively.
+        const kids = node.type === 'tubecoupler' ? node.children ?? [] : [];
+        if (kids.length) {
+          const cpPos = positionOf(node);
+          const cpLen = axialLength(node);
+          const cpFront = parent ? startFromPosition(cpPos, cpLen, axialLength(parent)) : cpPos.offset;
+          for (const kid of kids) {
+            const pos = positionOf(kid);
+            const inCp = startFromPosition(pos, axialLength(kid), cpLen);
+            liftedXb.set(kid, pos.method === 'absolute' ? { mode: 1, xb: pos.offset }
+              : cpPos.method === 'absolute' ? { mode: 1, xb: cpPos.offset + inCp }
+                : { mode: 0, xb: cpFront + inCp });
+            emitPart(kid, parent);
+          }
+          notes?.push(`“${node.name ?? 'Tube coupler'}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
+            + ' into the tube around it, each where it flies — RockSim keeps no parts inside a coupler.');
+        }
         break;
       }
       case 'trapezoidfinset': case 'ellipticalfinset': case 'freeformfinset': {

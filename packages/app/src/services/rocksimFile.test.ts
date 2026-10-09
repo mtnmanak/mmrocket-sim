@@ -13,6 +13,7 @@ import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { estimateMotorRoom } from '../tree/motorRoom.js';
+import { axialLength, startFromPosition } from '../tree/position.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -3935,5 +3936,51 @@ describe('B5b RockSim regressions', () => {
       if (field) expect(note).toContain('<OD> “(blank)”');
       else expect(note).toBeUndefined();
     }
+  });
+});
+
+/**
+ * A coupler's own parts reach the file (board Tier 2, `.rkt` export drops
+ * coupler children; format audit row 111). RockSim's reader, desktop's and
+ * this app's ignore parts nested in a <Ring>, so — as desktop's TubeCouplerDTO
+ * does — they go out beside the coupler in its parent, each where it flies.
+ */
+describe('RockSim export — parts inside a tube coupler', () => {
+  const tree = {
+    name: 'CP',
+    components: [{
+      type: 'stage', id: 's', name: 'Sustainer', children: [
+        { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.0125, thickness: 0.002, shape: 'ogive' },
+        { type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005, children: [
+          { type: 'tubecoupler', id: 'cp', name: 'E-bay', length: 0.1, thickness: 0.0005,
+            position: { method: 'bottom', offset: -0.1 }, children: [
+              { type: 'bulkhead', id: 'bh', name: 'Fore plate', length: 0.005, position: { method: 'top', offset: 0.01 } },
+              { type: 'centeringring', id: 'cr', name: 'Aft ring', length: 0.005 },
+              { type: 'masscomponent', id: 'm', name: 'Altimeter', length: 0.03, mass: 0.02, position: { method: 'middle', offset: 0 } },
+            ] },
+        ] },
+      ],
+    }],
+  } as unknown as Parameters<typeof exportRkt>[0]['tree'];
+
+  it('writes every child beside the coupler, at the station it flies', () => {
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'CP', tree, notes });
+    const tube = flatten(importRkt(xml).tree.components).find((c) => c.type === 'bodytube')!;
+    const kids = tube.children ?? [];
+    const front = (name: string) => {
+      const k = kids.find((c) => c.name === name)!;
+      expect(k, name).toBeDefined();
+      return startFromPosition(k.position!, axialLength(k), 0.4);
+    };
+    // The coupler's front is 0.4 - 0.1 - 0.1 = 0.2 m down the tube.
+    expect(front('E-bay')).toBeCloseTo(0.2, 9);
+    expect(front('Fore plate')).toBeCloseTo(0.21, 9);
+    // A ring with no position flies flush with the coupler's aft end.
+    expect(front('Aft ring')).toBeCloseTo(0.295, 9);
+    // A mass object goes out as RockSim's point mass, on its CG (0.235 + 0.03 / 2),
+    // and comes back pinned there, as one directly in a tube does.
+    expect(front('Altimeter')).toBeCloseTo(0.25, 9);
+    expect(notes.some((n) => n.includes('E-bay') && n.includes('3 parts'))).toBe(true);
   });
 });
