@@ -61,6 +61,10 @@
  *     those rest on are quoted in OPEN_METEO_TERMS below; if any stops
  *     appearing, the copy (WeatherDialog.tsx WEATHER_DIALOG_COPY.intro,
  *     user-guide.md) or the ruling needs a fresh look before the release.
+ * 6b. The SHAPE of Open-Meteo's forecast, archive, elevation and place-search
+ *     answers, in the units the weather parser asserts. The parser refuses a
+ *     changed shape and writes nothing, so it fails safe, but for every user
+ *     at once; this reports it first (a September risk-list leftover).
  *  7. Security advisories in the lockfile and deploy.yml's exact wrangler pin.
  *     REPORT ONLY: scope and fix route are printed, never applied or counted
  *     as MOVED. An unavailable audit or gh command is a warning, not a gate.
@@ -580,8 +584,79 @@ async function checkOpenMeteoTerms() {
   }
 }
 
+/**
+ * 6b. The SHAPE of Open-Meteo's answers. The parser (packages/app/src/services/
+ * openMeteo.ts) refuses a changed shape or unit and writes nothing, so a change
+ * fails safe — but then the weather button fails for every user at once, so this
+ * says so before one of them does. The variables and units are the parser's own
+ * HOURLY_VARS / HOURLY_UNITS, copied because this script cannot import the app's
+ * TypeScript; check-upstream.test.mjs pins the copy equal to them.
+ */
+export const OPEN_METEO_HOURLY_UNITS = {
+  time: 'unixtime',
+  temperature_2m: '°C',
+  surface_pressure: 'hPa',
+  wind_speed_10m: 'm/s',
+  wind_gusts_10m: 'm/s',
+  wind_direction_10m: '°',
+};
+const OPEN_METEO_POINT = { latitude: '40.879', longitude: '-119.061', elevation: 1190 }; // Black Rock, as the archive fixture
+
+/** What the parser would refuse in one forecast or archive answer; [] when it would read it. */
+export function openMeteoHourlyProblems(body, elevationM) {
+  const item = Array.isArray(body) ? body[0] : body;
+  if (!item || typeof item !== 'object' || !item.hourly_units || !item.hourly) return ['no hourly / hourly_units'];
+  const out = [];
+  for (const [k, want] of Object.entries(OPEN_METEO_HOURLY_UNITS)) {
+    if (item.hourly_units[k] !== want) out.push(`${k} in ${item.hourly_units[k] ?? 'no unit'}, not ${want}`);
+  }
+  if (!Number.isFinite(item.elevation) || Math.abs(item.elevation - elevationM) > 0.5) {
+    out.push(`elevation ${item.elevation} for ${elevationM} m asked`);
+  }
+  const time = item.hourly.time;
+  if (!Array.isArray(time) || time.length === 0 || time.some((t) => !Number.isFinite(t))) out.push('no usable hourly.time');
+  else {
+    for (const k of Object.keys(OPEN_METEO_HOURLY_UNITS)) {
+      if (k !== 'time' && (!Array.isArray(item.hourly[k]) || item.hourly[k].length !== time.length)) {
+        out.push(`hourly.${k} does not match hourly.time`);
+      }
+    }
+  }
+  return out;
+}
+
+export async function checkOpenMeteoShape(getJson = json, today = new Date()) {
+  say('');
+  say('6b. Open-Meteo’s answers, in the shape and units the weather parser reads');
+  const p = OPEN_METEO_POINT;
+  const vars = Object.keys(OPEN_METEO_HOURLY_UNITS).filter((k) => k !== 'time').join(',');
+  const day = today.toISOString().slice(0, 10);
+  const hourly = (base, date) => `${base}?latitude=${p.latitude}&longitude=${p.longitude}&elevation=${p.elevation}`
+    + `&hourly=${vars}&wind_speed_unit=ms&temperature_unit=celsius&timeformat=unixtime&timezone=auto`
+    + `&start_date=${date}&end_date=${date}`;
+  const answers = [
+    ['forecast', hourly('https://api.open-meteo.com/v1/forecast', day), (b) => openMeteoHourlyProblems(b, p.elevation)],
+    ['archive', hourly('https://archive-api.open-meteo.com/v1/archive', '2025-06-14'), (b) => openMeteoHourlyProblems(b, p.elevation)],
+    ['elevation', `https://api.open-meteo.com/v1/elevation?latitude=${p.latitude}&longitude=${p.longitude}`,
+      (b) => (Array.isArray(b?.elevation) && Number.isFinite(b.elevation[0]) ? [] : ['no elevation[0]'])],
+    ['place search', 'https://geocoding-api.open-meteo.com/v1/search?name=Gerlach&count=10&language=en&format=json',
+      (b) => (Array.isArray(b?.results) && b.results.some((r) => Number.isFinite(r?.latitude)
+        && Number.isFinite(r?.longitude) && typeof r?.name === 'string') ? [] : ['no result with latitude, longitude and name'])],
+  ];
+  for (const [what, url, problems] of answers) {
+    checked++;
+    const found = problems(await getJson(url));
+    if (found.length === 0) say(`  ok   ${what}: the parser would read it`);
+    else {
+      flag(`${what}: ${found.join('; ')} — the weather dialog would refuse this answer (${url})`);
+      notes.push(`Open-Meteo's ${what} answer changed shape: ${found.join('; ')}`);
+    }
+  }
+}
+
 export async function main(checks = [checkCorrections, checkWatch, checkHead, checkMaterials,
-  checkThrustCurve, checkMotorCorrections, checkNozzles, checkOpenMeteoTerms], advisories = checkAdvisories) {
+  checkThrustCurve, checkMotorCorrections, checkNozzles, checkOpenMeteoTerms, checkOpenMeteoShape],
+advisories = checkAdvisories) {
   let status;
   try {
     say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');

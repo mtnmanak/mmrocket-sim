@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkMotorCorrections, main, motorCorrectionVerdicts } from '../../../scripts/check-upstream.mjs';
+import {
+  checkMotorCorrections, checkOpenMeteoShape, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
+  openMeteoHourlyProblems,
+} from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
@@ -297,5 +300,45 @@ describe('thrustcurve.org rows this app corrects', () => {
       expect(printed).toContain(`ok   ${c.manufacturer} ${c.designation}`);
     }
     expect(printed).not.toContain('**');
+  });
+});
+
+describe('Open-Meteo answer shape (section 6b)', () => {
+  const fx = (name) => JSON.parse(readFileSync(new URL(`../src/services/__fixtures__/open-meteo/${name}.json`, import.meta.url), 'utf8'));
+
+  it('watches the units and variables the weather parser asserts, not a copy that drifted', async () => {
+    const { HOURLY_UNITS, HOURLY_VARS } = await import('../src/services/openMeteo.ts');
+    expect(OPEN_METEO_HOURLY_UNITS).toEqual(HOURLY_UNITS);
+    expect(Object.keys(OPEN_METEO_HOURLY_UNITS).filter((k) => k !== 'time')).toEqual([...HOURLY_VARS]);
+  });
+
+  it('reads a recorded answer, and names a changed unit, a ragged series and a missing block', () => {
+    const body = fx('archive-blackrock-2025-06-14');
+    expect(openMeteoHourlyProblems(body, 1190)).toEqual([]);
+    const kmh = structuredClone(body);
+    kmh.hourly_units.wind_speed_10m = 'km/h';
+    expect(openMeteoHourlyProblems(kmh, 1190)).toEqual(['wind_speed_10m in km/h, not m/s']);
+    const ragged = structuredClone(body);
+    ragged.hourly.wind_gusts_10m.pop();
+    expect(openMeteoHourlyProblems(ragged, 1190)).toEqual(['hourly.wind_gusts_10m does not match hourly.time']);
+    expect(openMeteoHourlyProblems({}, 1190)).toEqual(['no hourly / hourly_units']);
+    expect(openMeteoHourlyProblems(body, 1500)).toEqual(['elevation 1190 for 1500 m asked']);
+  });
+
+  it('asks each endpoint once and reports nothing moved for the recorded answers', async () => {
+    const urls = [];
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await checkOpenMeteoShape(async (url) => {
+      urls.push(url);
+      if (url.includes('/v1/elevation')) return fx('elevation-blackrock');
+      if (url.includes('/v1/search')) return fx('geocode-gerlach');
+      return fx(url.includes('archive-api') ? 'archive-blackrock-2025-06-14' : 'forecast-blackrock-1190m');
+    }, new Date('2026-10-09T12:00:00Z'));
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    log.mockRestore();
+    expect(urls).toHaveLength(4);
+    expect(urls[0]).toContain('start_date=2026-10-09');
+    expect(lines.filter((l) => l.startsWith('  ok')).length).toBe(4);
+    expect(lines.some((l) => l.startsWith('  **'))).toBe(false);
   });
 });
