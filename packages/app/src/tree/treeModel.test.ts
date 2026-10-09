@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, updateAllNodes } from './treeModel.js';
+import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, stagesWithRecoveryDevice, updateAllNodes } from './treeModel.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -2338,5 +2338,25 @@ describe('updateAllNodes — "Apply to all"', () => {
     const odd = { id: 'x', type: 'constructor' } as unknown as ComponentNode;
     expect(() => inheritDefaults(odd, null, src)).not.toThrow();
     expect(inheritDefaults(odd, null, src)).toEqual(odd);
+  });
+});
+
+describe('stagesWithRecoveryDevice (K3)', () => {
+  it('names each stage, serial or strap-on, that carries a parachute or streamer', () => {
+    const tree = {
+      name: 'R', components: [
+        { type: 'stage', id: 's1', name: 'Sustainer', children: [
+          { type: 'bodytube', id: 'b1', children: [{ type: 'parachute', id: 'p1', name: 'Main' }] },
+        ] },
+        { type: 'stage', id: 's2', name: 'Booster', children: [
+          { type: 'bodytube', id: 'b2', children: [
+            { type: 'parallelstage', id: 'ps', name: 'Strap-on', children: [
+              { type: 'bodytube', id: 'b3', children: [{ type: 'streamer', id: 'st', name: 'S' }] },
+            ] },
+          ] },
+        ] },
+      ],
+    } as unknown as RocketTree;
+    expect(stagesWithRecoveryDevice(tree)).toEqual(['Sustainer', 'Strap-on']);
   });
 });

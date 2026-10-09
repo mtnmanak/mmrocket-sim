@@ -409,6 +409,8 @@ export interface BranchReport {
   safeLandingRate: boolean | null;
   /** Own branch's settled recovery mass (kg); absent on older saved runs. */
   recoveryMass?: number | null;
+  /** The stage carries a parachute or streamer; absent when not known (older runs). */
+  recoveryFitted?: boolean;
 }
 
 export interface SimRun extends WindProfileConditions, AeroProvenance {
@@ -1843,6 +1845,12 @@ export function buildSimRun(input: {
   /** What the kernel was handed for each recovery device — see FlownRecoveryDevice. */
   flownRecovery?: Record<string, FlownRecoveryDevice>;
   /**
+   * Names of the stages that carry a parachute or streamer
+   * (`stagesWithRecoveryDevice`), so a separated stage whose device never
+   * opened is not reported as having none (K3). Absent: not known.
+   */
+  recoveryStages?: readonly string[];
+  /**
    * Names of the stages that flew BOTH a nozzle exit diameter above zero and a
    * motor that can burn (`motorisedStagesWithNozzle`). Present so the report
    * can say the flown thrust is not the catalogue curve, and stamped onto the
@@ -1852,7 +1860,7 @@ export function buildSimRun(input: {
    */
   nozzleStages?: string[];
 }): FreshSimRun {
-  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages } = input;
+  const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages, recoveryStages } = input;
   const da = densityAltitudeM(launch);
   const { summary, series } = result;
 
@@ -1990,6 +1998,7 @@ export function buildSimRun(input: {
       // judging its arrival on ground speed charged the wind against it too.
       landingRate: bLanding,
       safeLandingRate: bLanding === null ? null : bLanding <= SAFETY.maxLandingRate,
+      ...(recoveryStages ? { recoveryFitted: recoveryStages.includes(b.name) } : {}),
     });
   }
   const landingRaw = Number.isFinite(summary.groundHitVelocity)
@@ -2193,7 +2202,9 @@ export function buildSimRun(input: {
   for (const b of branches) {
     const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
     if (b.deployments.length === 0 && stageMotorInfo?.[b.name]?.highPower === true) {
-      say(`${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
+      say(b.recoveryFitted
+        ? `${b.name}'s recovery device never opened — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}. Check its deployment event.`
+        : `${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
     } else if (b.safeLandingRate === false) {
       say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
     }

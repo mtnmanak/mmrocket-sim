@@ -3,7 +3,7 @@ import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/de
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
-import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount } from '../tree/treeModel.js';
+import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stagesWithRecoveryDevice } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
 import {
@@ -186,6 +186,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // corrected. Names only: whether the term was LIVE is decided from
     // the two model stamps above, which is the rest of that gate.
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
+    recoveryStages: stagesWithRecoveryDevice(tree),
   });
   return { flight, run };
 }

@@ -2180,3 +2180,39 @@ describe('a recovery charge that fires after landing', () => {
     expect(run.landingRate).toBeCloseTo(5);
   });
 });
+
+/** K3 (board Tier 2): a fitted device that never opened is not "no recovery device". */
+describe('a booster whose recovery device never opened', () => {
+  const tumbling = () => {
+    const base = fakeResult();
+    const T_SEP = 2, T_GROUND = 9;
+    const t = [T_SEP, 3, T_GROUND];
+    return {
+      ...base,
+      branches: [
+        { name: 'Sustainer', events: base.events, series: base.series },
+        { name: 'Booster', events: [
+          { type: 'STAGE_SEPARATION', time: T_SEP, source: 'Booster' },
+          { type: 'TUMBLE', time: 3 }, { type: 'GROUND_HIT', time: T_GROUND },
+        ], series: { ...base.series, time: t, mass: t.map(() => 0.5), altitude: [180, 190, 0], velocity: [80, 20, 30] } },
+      ],
+    } as FlightResult;
+  };
+  const runWith = (recoveryStages?: string[]) => buildSimRun({
+    result: tumbling(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'TwoStage', execMs: 1,
+    stageMotorInfo: { Booster: { label: 'J420R-0', highPower: true } }, boosterMotors: ['J420R-0'],
+    ...(recoveryStages ? { recoveryStages } : {}),
+  });
+
+  it('says it never opened when the stage carries one', () => {
+    const run = runWith(['Booster']);
+    expect(run.branches![0]!.recoveryFitted).toBe(true);
+    expect(run.comments).toContain("Booster's recovery device never opened");
+    expect(run.comments).not.toContain('has NO recovery device');
+  });
+
+  it('still says it has none when the stage carries none, or when that is not known', () => {
+    expect(runWith([]).comments).toContain('Booster has NO recovery device');
+    expect(runWith().comments).toContain('Booster has NO recovery device');
+  });
+});

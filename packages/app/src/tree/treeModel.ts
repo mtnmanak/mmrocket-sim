@@ -684,6 +684,33 @@ export function motorisedStagesWithNozzle(
   return stagesWithNozzle(tree).filter((s) => live.has(s.id));
 }
 
+/**
+ * The names of the kernel stages — serial and parallel, as the flight's branches
+ * are named — that carry a parachute or streamer. The launch report tells a
+ * separated stage with a device that never opened from one with no device at
+ * all (K3, board Tier 2): both fly no deployment.
+ */
+export function stagesWithRecoveryDevice(tree: RocketTree): string[] {
+  const stageOf = kernelStageIdByNode(tree);
+  const owners = new Set<string>();
+  const names: string[] = [];
+  const walk = (ns: readonly ComponentNode[], collect: boolean): void => {
+    for (const n of ns) {
+      if (collect && (n.type === 'parachute' || n.type === 'streamer') && n.id) {
+        const s = stageOf.get(n.id);
+        if (s !== undefined) owners.add(s);
+      }
+      if (!collect && (n.type === 'stage' || n.type === 'parallelstage') && n.id && owners.has(n.id) && n.name) {
+        names.push(n.name);
+      }
+      walk(n.children ?? [], collect);
+    }
+  };
+  walk(tree.components, true);
+  walk(tree.components, false);
+  return names;
+}
+
 export function removeNode(tree: RocketTree, id: string): RocketTree {
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
     nodes

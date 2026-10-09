@@ -315,7 +315,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 <>{' '}· recovery weight {fmtSi('mass', mass, b.recoveryMass)} <UnitChip quantity="mass" /></>
               )}
               {b.deployments.length === 0 && (
-                <span className="simdet-comments"> · no recovery device{b.tumbles ? ' (tumbles)' : ''}</span>
+                <span className="simdet-comments"> · {b.recoveryFitted ? 'recovery device never opened' : 'no recovery device'}{b.tumbles ? ' (tumbles)' : ''}</span>
               )}
             </p>
             {b.deployments.length > 0 && (
