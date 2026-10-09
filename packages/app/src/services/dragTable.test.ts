@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DragSweep } from '@online-openrocket/engine';
 import { APP_VERSION } from '../version.js';
-import { dragTableCsv, sweepCp } from './dragTable.js';
+import { CP_AOA_DEGREES, dragTableCsv, sweepCp } from './dragTable.js';
 
 /**
  * The Drag table (.csv) text on its own. The panel's download of it — the
@@ -85,4 +85,24 @@ it('preserves null CP with positive CNa as a gap and an empty CSV cell', () => {
 it('treats a non-finite CP with positive CNa as missing', () => {
   const data = sweep({ cp: [0.25, Number.NaN, Number.POSITIVE_INFINITY], cna: [12, 12, 12] });
   expect(sweepCp(data)).toEqual([0.25, null, null]);
+});
+
+describe('dragTableCsv at an angle of attack', () => {
+  it('adds one cp column named for a non-zero angle, with its own gaps; at 0 it adds nothing', () => {
+    const atAngle = sweep({ cp: [0.3, null], cna: [14, 14] });
+    const lines = dragTableCsv(sweep(), { ...META, aoaCp: { aoaDeg: 10, sweep: atAngle } }).split('\n');
+    expect(lines[4]).toBe('# angle of attack: cp_mm_from_nose_aoa_10deg is the CP at 10 deg angle of attack'
+      + ' (same roll plane); every other column is at 0 deg');
+    expect(lines[5]).toBe('mach,cd_power_off,cd_power_on,cp_mm_from_nose,cp_mm_from_nose_aoa_10deg,cna_per_rad,'
+      + 'friction,pressure,base_power_off,base_power_on,cd_Nose_cone');
+    expect(lines[6]).toBe('0.5,0.4,0.35,250,300,12,0.2,0.1,0.1,0.05,0.1');
+    expect(lines[7]).toBe('1,0.6,0.55,,,0,0.2,0.3,0.1,0.05,0.2');
+    expect(dragTableCsv(sweep(), { ...META, aoaCp: { aoaDeg: 0, sweep: atAngle } }))
+      .toBe(dragTableCsv(sweep(), META));
+  });
+
+  it('offers no angle of attack above 20 degrees', () => {
+    expect([...CP_AOA_DEGREES]).toEqual([0, 2, 5, 10, 15, 20]);
+    expect(Math.max(...CP_AOA_DEGREES)).toBe(20);
+  });
 });
