@@ -1484,7 +1484,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // A simulation never run stores 0 and says nothing.
   const storedSim = chosenSimNr !== undefined ? sims[chosenSimNr - 1] : undefined;
   const storedApogeeFt = storedSim ? num(storedSim, 'MaxAltitude', 0) : 0;
-  if (storedSim && storedApogeeFt > 0) {
+  if (chosenSimNr !== undefined && storedSim && storedApogeeFt > 0) {
     const engine = (text(storedSim, ':scope > SustainerEngine') ?? '').replace(/\s+/g, ' ').trim();
     const ft = (v: number) => Math.round(v).toLocaleString('en-US');
     const vFps = num(storedSim, 'MaxVelocity', 0);

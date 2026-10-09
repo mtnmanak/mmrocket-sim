@@ -7,7 +7,7 @@ import type {
 } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import {
-  addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, motorMounts, mountMotorCount,
+  addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, stagesWithRecoveryDevice, motorMounts, mountMotorCount,
 } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES, type BuiltDesign } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
@@ -259,6 +259,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       motorDataKeys: input.provenance.motorDataKeys,
       flownRecovery: built.flownRecovery,
       nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
+      recoveryStages: stagesWithRecoveryDevice(tree),
     };
   };
 
@@ -357,6 +358,7 @@ async function referenceLaunch(x: {
     motorDataKeys: provenanceKey.motorDataKeys,
     flownRecovery: built.flownRecovery,
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
+    recoveryStages: stagesWithRecoveryDevice(tree),
   });
   return { res, run, usedSupersonic, flownDelay };
 }
