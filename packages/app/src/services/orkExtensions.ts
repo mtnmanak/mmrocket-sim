@@ -121,7 +121,8 @@ export function preserveSimulationExtensions(
       if (enabledEntry?.getAttribute('type') === 'boolean'
         && enabledEntry.textContent?.trim().toLowerCase() === 'true') enabled++;
     } else if (normalized === 'info.openrocket.core.simulation.extension.impl.JavaCode') kinds.add('Java code');
-    else if (EXAMPLE_NAMES[normalized]) kinds.add(EXAMPLE_NAMES[normalized]);
+    // Own keys only: a file-sourced id like "constructor" must not read Object.prototype.
+    else if (Object.hasOwn(EXAMPLE_NAMES, normalized)) kinds.add(EXAMPLE_NAMES[normalized]!);
     else kinds.add(id ? id.slice(0, 160) : 'unknown extension');
   }
   notes.push(`This file contains ${extensions.length} simulation extension${extensions.length === 1 ? '' : 's'} `
