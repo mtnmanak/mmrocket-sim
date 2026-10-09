@@ -693,22 +693,26 @@ export function motorisedStagesWithNozzle(
 export function stagesWithRecoveryDevice(tree: RocketTree): string[] {
   const stageOf = kernelStageIdByNode(tree);
   const owners = new Set<string>();
-  const names: string[] = [];
+  // Branches are matched by NAME, so a name is reported only when EVERY stage
+  // carrying it has a device: two strap-ons called "Booster", one with a chute,
+  // must not make the other "never opened". An unnamed stage flies under a
+  // name the kernel gives it and is left out, keeping the older wording.
+  const byName = new Map<string, boolean>();
   const walk = (ns: readonly ComponentNode[], collect: boolean): void => {
     for (const n of ns) {
       if (collect && (n.type === 'parachute' || n.type === 'streamer') && n.id) {
         const s = stageOf.get(n.id);
         if (s !== undefined) owners.add(s);
       }
-      if (!collect && (n.type === 'stage' || n.type === 'parallelstage') && n.id && owners.has(n.id) && n.name) {
-        names.push(n.name);
+      if (!collect && (n.type === 'stage' || n.type === 'parallelstage') && n.id && n.name) {
+        byName.set(n.name, (byName.get(n.name) ?? true) && owners.has(n.id));
       }
       walk(n.children ?? [], collect);
     }
   };
   walk(tree.components, true);
   walk(tree.components, false);
-  return names;
+  return [...byName].filter(([, all]) => all).map(([name]) => name);
 }
 
 export function removeNode(tree: RocketTree, id: string): RocketTree {

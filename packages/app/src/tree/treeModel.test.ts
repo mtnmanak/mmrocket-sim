@@ -2360,3 +2360,22 @@ describe('stagesWithRecoveryDevice (K3)', () => {
     expect(stagesWithRecoveryDevice(tree)).toEqual(['Sustainer', 'Strap-on']);
   });
 });
+
+describe('stagesWithRecoveryDevice — names shared or missing', () => {
+  it('reports a shared name only when every stage under it carries a device, and skips unnamed stages', () => {
+    const tree = {
+      name: 'R', components: [
+        { type: 'stage', id: 's1', name: 'Sustainer', children: [
+          { type: 'bodytube', id: 'b1', children: [
+            { type: 'parallelstage', id: 'pa', name: 'Booster', children: [
+              { type: 'bodytube', id: 'ba', children: [{ type: 'parachute', id: 'pc', name: 'C' }] }] },
+            { type: 'parallelstage', id: 'pb', name: 'Booster', children: [{ type: 'bodytube', id: 'bb' }] },
+          ] },
+        ] },
+        { type: 'stage', id: 's2', children: [
+          { type: 'bodytube', id: 'b2', children: [{ type: 'streamer', id: 'st', name: 'S' }] }] },
+      ],
+    } as unknown as RocketTree;
+    expect(stagesWithRecoveryDevice(tree)).toEqual([]);
+  });
+});
