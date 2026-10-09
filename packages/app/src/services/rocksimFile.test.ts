@@ -3983,4 +3983,33 @@ describe('RockSim export — parts inside a tube coupler', () => {
     expect(front('Altimeter')).toBeCloseTo(0.25, 9);
     expect(notes.some((n) => n.includes('E-bay') && n.includes('3 parts'))).toBe(true);
   });
+
+  it('places a coupler inside a coupler, and its parts, from the tube they land in', () => {
+    const nested = {
+      name: 'CC',
+      components: [{
+        type: 'stage', id: 's', name: 'Sustainer', children: [
+          { type: 'nosecone', id: 'n', length: 0.1, aftRadius: 0.0125, thickness: 0.002, shape: 'ogive' },
+          { type: 'bodytube', id: 'b', length: 0.4, outerRadius: 0.0125, thickness: 0.0005, children: [
+            { type: 'tubecoupler', id: 'o', name: 'Outer', length: 0.1, thickness: 0.0005,
+              position: { method: 'bottom', offset: -0.1 }, children: [
+                { type: 'tubecoupler', id: 'i', name: 'Inner', length: 0.05, thickness: 0.0005,
+                  position: { method: 'top', offset: 0.02 }, children: [
+                    { type: 'bulkhead', id: 'p', name: 'Plate', length: 0.005, position: { method: 'top', offset: 0.01 } },
+                  ] },
+              ] },
+          ] },
+        ],
+      }],
+    } as unknown as Parameters<typeof exportRkt>[0]['tree'];
+    const tube = flatten(importRkt(exportRkt({ name: 'CC', tree: nested })).tree.components).find((c) => c.type === 'bodytube')!;
+    const at = (name: string) => {
+      const k = (tube.children ?? []).find((c) => c.name === name)!;
+      expect(k, name).toBeDefined();
+      return startFromPosition(k.position!, axialLength(k), 0.4);
+    };
+    expect(at('Outer')).toBeCloseTo(0.2, 9);
+    expect(at('Inner')).toBeCloseTo(0.22, 9);
+    expect(at('Plate')).toBeCloseTo(0.23, 9);
+  });
 });

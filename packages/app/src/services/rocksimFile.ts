@@ -2953,16 +2953,22 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // way, from the parent's front where both are placed relatively.
         const kids = node.type === 'tubecoupler' ? node.children ?? [] : [];
         if (kids.length) {
+          // Where this coupler's front lands in the file — itself lifted out of an
+          // outer coupler, its own station is the one that coupler gave it.
           const cpPos = positionOf(node);
           const cpLen = axialLength(node);
-          const cpFront = parent ? startFromPosition(cpPos, cpLen, axialLength(parent)) : cpPos.offset;
+          const own = liftedXb.get(node);
+          const cpAbsolute = own ? own.mode === 1 : cpPos.method === 'absolute';
+          const cpFront = own ? own.xb
+            : parent && !cpAbsolute ? startFromPosition(cpPos, cpLen, axialLength(parent)) : cpPos.offset;
           for (const kid of kids) {
             const pos = positionOf(kid);
             const inCp = startFromPosition(pos, axialLength(kid), cpLen);
             liftedXb.set(kid, pos.method === 'absolute' ? { mode: 1, xb: pos.offset }
-              : cpPos.method === 'absolute' ? { mode: 1, xb: cpPos.offset + inCp }
-                : { mode: 0, xb: cpFront + inCp });
-            emitPart(kid, parent);
+              : { mode: cpAbsolute ? 1 : 0, xb: cpFront + inCp });
+            // The coupler stays its context (a ring's fallback bore is the
+            // coupler's); the station is the lifted one above.
+            emitPart(kid, node);
           }
           notes?.push(`“${node.name ?? 'Tube coupler'}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
             + ' into the tube around it, each where it flies — RockSim keeps no parts inside a coupler.');
