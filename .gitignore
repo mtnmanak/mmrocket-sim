@@ -67,3 +67,6 @@ docs/
 # file in the pipeline). Never committed.
 __pycache__/
 *.pyc
+
+# Local agent tool copies (Codex); never committed
+.agents/
