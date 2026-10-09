@@ -149,6 +149,15 @@ export const CORRECTIONS = [
     unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
   },
   {
+    key: 'Transition|semroc|btc20bbr',
+    why: 'upstream semroc.orc gives BTC-20BB [R] 0.21 oz, the figure of the BTC-18VY tail cone (its entry is a clone of that one). SEMROC\'s own Nose Cones table lists BTC-20BB, the ST-20 tail cone drilled for 29 mm, at a NetWeight of 0.82 oz (23.2 g) in the 2010, 2013, 2017 and 2019 archived copies, e.g. https://web.archive.org/web/20131208121434/http://www.semroc.com:80/Store/Products/NoseCones.asp. Replace with the maker mass; [R] is the same part reversed.',
+    fields: { mass: { bad: 0.00595339985625, good: 0.0232466089625 } },
+    upstream: {
+      file: 'semroc.orc', element: 'Transition', partNo: 'BTC-20BB [R]',
+      fields: { Mass: { bad: '0.21', good: '0.82' } },
+    },
+  },
+  {
     key: 'CenteringRing|balsamachining|cr5060w',
     why: 'upstream BMS.ORC ships OD 1.283 in on a T50-to-T60 ring; 1.593 in per bms-legacy.orc + CRDATA.CSV:147 + the CR5060-F sibling',
     fields: { outsideDiameter: { bad: 0.0325882, good: 0.0404622 } },

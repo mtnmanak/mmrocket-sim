@@ -22,11 +22,13 @@ const retiredMasses = {
   'NoseCone|rocketarium|bt80knosecone825long': [0.076],
   'NoseCone|rocketarium|bt70nosecone75long': [0.059],
   'NoseCone|aerotech|11261': [0.0680389],
+  'Transition|semroc|btc20bbr': [0.00595339985625],
 };
 const replacementMasses = {
   'NoseCone|rocketarium|bt80knosecone825long': 0.072,
   'NoseCone|rocketarium|bt70nosecone75long': 0.062,
   'NoseCone|aerotech|11261': 0.106,
+  'Transition|semroc|btc20bbr': 0.0232466089625,
 };
 const serialize = (db) => JSON.stringify(db, null, 1) + '\n';
 
