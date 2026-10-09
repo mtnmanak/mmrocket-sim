@@ -759,3 +759,25 @@ it.each([undefined, true, false])('round-trips launch-guide allowance %s in auto
   expect(launch.launchGuideAllowance).toBe(allowance);
   expect(kernelSimOptions(launch).guideAllowance !== false).toBe(allowance !== false);
 });
+
+/**
+ * K10–K11 (board Tier 2): an opened .CDX1's Mach-Alt table lived in React state
+ * only, so a reload lost the Drag analysis "File Mach-Alt table" option and
+ * Save .CDX1 wrote an empty <MachAlt>. It now rides in the session.
+ */
+describe('the file Mach-Alt table in the session', () => {
+  it('round-trips a well-formed table', () => {
+    const table: [number, number][] = [[0.3, 0], [1.2, 3048], [3, 15240]];
+    saveSessionDebounced({ ...state(), fileMachAlt: table });
+    vi.runAllTimers();
+    expect(loadSession()!.fileMachAlt).toEqual(table);
+  });
+
+  it('drops a malformed one, and nothing else', () => {
+    saveSessionDebounced({ ...state(), fileMachAlt: [[0.3, 0], [Number.NaN, 1]] as never });
+    vi.runAllTimers();
+    const s = loadSession()!;
+    expect(s).not.toHaveProperty('fileMachAlt');
+    expect(s.launch.windAverage).toBe(2);
+  });
+});

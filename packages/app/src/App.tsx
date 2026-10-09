@@ -492,7 +492,7 @@ export function App() {
   }, []);
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
-  const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>();
+  const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>(() => session?.fileMachAlt);
   const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
@@ -2095,6 +2095,9 @@ export function App() {
       // Written only while there is some, so an older session's payload is
       // unchanged until weather is applied.
       ...(weather ? { weather } : {}),
+      // Nor this: an opened .CDX1's Mach-Alt table, which Drag analysis offers
+      // and Save .CDX1 writes back (K10–K11); only while there is one.
+      ...(fileMachAlt ? { fileMachAlt } : {}),
       // Nor this: the delay each Auto mount flew, which the crash-recovery
       // .ork writes as a Save would (audit 2026-09-30, item 23). Written only
       // while there is one, so a design with no Auto flight stores what it
@@ -2112,7 +2115,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave]);
+  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2297,6 +2300,9 @@ export function App() {
         // motor names its own database lacks; flipping it back is one line
         // there.
         motors: exportMotorsMap(),
+        // The opened file's Mach-Alt table goes back out (K10; format audit
+        // row 45): the exporter wrote an empty <MachAlt> without it.
+        ...(fileMachAlt ? { machAlt: fileMachAlt } : {}),
         // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
         // saved line says so, as a loss, when the tilted rod was aimed off the wind.
       }), 'CDX1', '', [...filletNotes, ...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), cdx1RecoveryDelayNote(tree), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));

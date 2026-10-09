@@ -767,7 +767,8 @@ public final class OrkEngine {
         // Optional Reynolds matching: "machAlt": [[mach, altitude_m], ...] pins
         // the atmosphere (hence Re) per Mach point, linearly interpolated — the
         // validation harness uses it to match wind-tunnel Re/ft, the same
-        // mechanism as RASAero's Mach-Alt table. Absent ⇒ ISA sea level.
+        // mechanism as RASAero's Mach-Alt table. Absent ⇒ FlightConditions' default air, 293.15 K (20 °C) and
+        // 101,325 Pa, which is not ISA's 288.15 K (AtmosphericConditions; DragPanel says so).
         double[] maMach = null;
         double[] maAlt = null;
         Object maRaw = o.get("machAlt");

@@ -118,6 +118,14 @@ export interface SessionState {
    */
   weather?: WeatherSnapshot | null;
   /**
+   * An opened .CDX1's Mach-Alt conditions table ([Mach, altitude m] rows), the
+   * Drag analysis "File Mach-Alt table" option and what Save .CDX1 writes back
+   * (K10–K11, board Tier 2). It lived in React state only, so a reload lost it.
+   * Not design: outside the fingerprint, written only while there is one, and
+   * dropped on load when malformed (`validMachAltTable`).
+   */
+  fileMachAlt?: [number, number][];
+  /**
    * The design fingerprint as of the last save or import (v0.091+) — what is
    * on disk. Compared against the live design to decide whether opening
    * another file would discard work. See services/dirtyState.ts.
@@ -320,6 +328,19 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
+export function validMachAltTable(v: unknown): [number, number][] | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > 1000) return null;
+  const rows: [number, number][] = [];
+  for (const r of v) {
+    if (!Array.isArray(r) || r.length !== 2) return null;
+    const [m, a] = r as unknown[];
+    if (typeof m !== 'number' || typeof a !== 'number' || !Number.isFinite(m) || !Number.isFinite(a) || m < 0) return null;
+    rows.push([m, a]);
+  }
+  return rows;
+}
+
 export function loadSession(): SessionState | null {
   return readSession(true);
 }
@@ -413,6 +434,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
       const w = validWeatherSnapshot(s.weather);
       if (w) s.weather = w;
       else delete s.weather;
+    }
+    if (s.fileMachAlt !== undefined) {
+      const t = validMachAltTable(s.fileMachAlt);
+      if (t) s.fileMachAlt = t;
+      else delete s.fileMachAlt;
     }
     // The same for the delays a crash file writes an Auto mount at.
     if (s.flownAutoDelays !== undefined) {
