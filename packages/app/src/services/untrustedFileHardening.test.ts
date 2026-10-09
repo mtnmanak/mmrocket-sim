@@ -291,6 +291,20 @@ describe('.rkt component nesting is capped as .ork nesting is', () => {
     expect(depth(r.tree.components)).toBe(MAX_NESTING + 1);
     expect(r.notes).toContain(TOO_DEEP_NESTING);
   });
+
+  it('caps a chain of sub-assemblies, which flatten without going a level deeper', () => {
+    // Each <SubAssembly> flattens into its parent's level, so only a count of
+    // its own can stop a chain of them; uncapped, it recursed to the bottom.
+    // 500 deep, as above: happy-dom's own querySelector recurses past ~1,500.
+    let parts = '<BodyTube><Name>inner</Name><Len>10</Len><OD>20</OD><ID>19</ID></BodyTube>';
+    for (let i = 0; i < 500; i++) parts = `<SubAssembly><Name>s${i}</Name><AttachedParts>${parts}</AttachedParts></SubAssembly>`;
+    const r = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><Name>t</Name>
+      <Stage3Parts><BodyTube><Name>b</Name><Len>300</Len><OD>24</OD>
+        <AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts>
+      </RocketDesign></DesignInformation></RockSimDocument>`);
+    expect(r.notes).toContain(TOO_DEEP_NESTING);
+    expect(r.notes.filter((n) => n.startsWith('Sub-assembly')).length).toBeLessThanOrEqual(MAX_NESTING);
+  }, 30_000);
 });
 
 /** A string as single bytes — the file a windows-1252 or ISO-8859-1 writer saves. */

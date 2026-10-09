@@ -1782,8 +1782,8 @@ aerodynamic model.
 - **Residual found while doing this — FIXED the same day (kernel pass 2, audit 2026-09-22):**
   the drag half subtracted the nozzle area from EVERY base in the stage, pods included (a
   pod's `getStage()` is the enclosing stage), so a stage with more than one base per instance
-  recovered more than one area while this half charged exactly one — measured at M0.3 (29 mm
-  airframe in RADIUS, 20 mm exit, two 24 mm pods) as 0.046980 against one area's 0.015660,
+  recovered more than one area while this half charged exactly one — measured at M0.3 (a 58 mm
+  airframe, radius 29 mm, 20 mm exit, two 24 mm pods) as 0.046980 against one area's 0.015660,
   exactly three. The credit now lands on the stage's aft-most base only; entry, goldens and
   measurements under "Correctness fixes", *the power-on nozzle credit lands on the stage's
   aft-most base*, the next entry. (This bullet was the only record of the defect until then —

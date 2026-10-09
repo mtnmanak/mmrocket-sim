@@ -329,7 +329,7 @@ export function FinPointsEditor({ points, onChange }: {
       <h2>Fin planform</h2>
       <svg ref={svgRef} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           style={{ width: '100%', height: 'auto', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, touchAction: 'none', cursor: 'crosshair' }}
-          // role="group", not "img" — the fix TreeSchematic.tsx:1499 documents
+          // role="group", not "img" — the fix TreeSchematic's interactive <svg> `role` documents
           // and applies to its own interactive variant. role="img" makes the
           // WHOLE subtree presentational, so this label was promising a reader
           // an affordance ("click to add points, drag to move them") that

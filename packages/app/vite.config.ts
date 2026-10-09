@@ -76,7 +76,7 @@ export default defineConfig({
   plugins: [
     react(),
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
-    // ENTIRE build precaches — 24 files, about 6 MB (precacheCoversBuild, the
+    // ENTIRE build precaches — 27 files, about 7.6 MB at v0.168 (precacheCoversBuild, the
     // last plugin, fails the build if one is left out): the engine, the parts
     // catalogue, the nozzle database, three.js and the exporters, the fonts, and
     // the bundled thrust curves. Everything lazy-loaded is precached too, so a
@@ -120,7 +120,7 @@ export default defineConfig({
         globIgnores: ['releases/**'],
         // With or without the slash or a query (RELEASES_NAVIGATION says why).
         navigateFallbackDenylist: [RELEASES_NAVIGATION],
-        // The main chunk is 2.68 MB (measured 2026-09-15; it carries the TeaVM kernel
+        // The main chunk is 2.68 MB (measured 2026-10-09; it carries the TeaVM kernel
         // AND the React app, so it grows with both) — well over workbox's 2 MB default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },

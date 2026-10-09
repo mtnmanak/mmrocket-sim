@@ -885,7 +885,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 </select>
               </label>
               {delay === 'custom' && (
-                <span style={{ width: 70 }}>
+                <span className="inline-numfield" style={{ width: 70 }}>
                   <NumField value={customDelay} step={1} max={60} ariaLabel="Custom delay (s)"
                     onCommit={(v) => { if (v !== null) setCustomDelay(v); }} />
                 </span>

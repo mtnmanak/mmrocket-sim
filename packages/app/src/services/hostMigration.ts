@@ -1,9 +1,12 @@
 /**
  * v0.047 rename: the app moved from openrocket.mountainmanrockets.com to
- * mmrsim.mountainmanrockets.com. The old origin keeps serving for a grace
- * period (a 301 would strand installed PWAs mid-update: workbox precache
- * fetches fail on cross-origin redirects), but it must stop behaving like
- * a PWA and tell the user where the app lives now. localStorage is
+ * mmrsim.mountainmanrockets.com. The old origin served the app for a grace
+ * period (a 301 would have stranded installed PWAs mid-update: workbox
+ * precache fetches fail on cross-origin redirects), during which it had to
+ * stop behaving like a PWA and tell the user where the app lives now. That
+ * period ended on 2026-08-21, when the old origin began 301-redirecting here
+ * (a Cloudflare zone rule), so this layer no longer runs on it; whether to
+ * remove it is a separate decision. localStorage is
  * origin-scoped, so autosaved work does NOT follow the move — users export
  * .ork files and reopen them at the new address.
  */

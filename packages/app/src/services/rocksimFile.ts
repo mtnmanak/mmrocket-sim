@@ -503,13 +503,24 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * Flatten a <SubAssembly> (any depth): its attached parts join the chain
    * that `add` appends to. RockSim allows sub-assemblies both at stage level
    * and inside AttachedParts.
+   *
+   * A sub-assembly flattens into its parent's level, so the nesting cap below
+   * never sees a chain of them: `chain` counts them, and past MAX_NESTING the
+   * rest is left out with the same note. Uncapped, it recursed once per link,
+   * however long the chain.
    */
-  const flattenSubAssembly = (el: XmlElement, parent: ComponentNode | null, add: (n: ComponentNode) => void) => {
+  const flattenSubAssembly = (
+    el: XmlElement, parent: ComponentNode | null, add: (n: ComponentNode) => void, chain = 1,
+  ) => {
+    if (chain > MAX_NESTING) {
+      tooDeep = true;
+      return;
+    }
     notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
     const wrap = el.querySelector(':scope > AttachedParts');
     for (const sub of Array.from(wrap?.children ?? [])) {
       if (sub.tagName === 'SubAssembly') {
-        flattenSubAssembly(sub, parent, add);
+        flattenSubAssembly(sub, parent, add, chain + 1);
         continue;
       }
       const node = convertPart(sub, parent);
