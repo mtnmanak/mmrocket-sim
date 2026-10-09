@@ -234,8 +234,10 @@ export function fmtSig(v: number, sig: number, places = 0): string {
   const forSig = a > 0 ? sig - 1 - Math.floor(Math.log10(a)) : 0;
   const d = Math.min(20, Math.max(places, forSig));
   const s = v.toFixed(d);
-  // Only a string WITH a point has trailing zeros to lose ("100" must stay).
-  return d > 0 ? s.replace(/\.?0+$/, '') : s;
+  // Only a string WITH a point has trailing zeros to lose ("100" must stay),
+  // and toFixed answers in exponential form from 1e21, whose exponent's zeros
+  // are not trailing decimals ("1e+30" read "1e+3").
+  return d > 0 && !s.includes('e') ? s.replace(/\.?0+$/, '') : s;
 }
 
 /**

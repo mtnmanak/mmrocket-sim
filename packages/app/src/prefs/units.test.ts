@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPERIAL_UNITS, INITIAL_UNITS, METRIC_UNITS, UNITS,
-  fmtAltitude, fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
+  fmtAltitude, fmtFieldValue, fmtSi, fmtSig, niceStep, readDecimal, siToUi, uiToSi, type Quantity,
 } from './units.js';
 
 describe('unit conversions (factors from desktop UnitGroup 24.12)', () => {
@@ -144,6 +144,14 @@ describe('fmtAltitude — a readout that can sit on, or cross, zero', () => {
 });
 
 describe('fmtSig — a display-unit value that does not collapse in a big unit', () => {
+  it('keeps the zeros of an exponent: 1e30 is not "1e+3" (board Tier 2, L2)', () => {
+    // toFixed answers in exponential form from 1e21, and the trailing-zero strip
+    // ate the exponent's own zeros — in every box, through fmtFieldValue.
+    expect(fmtSig(1e30, 3, 3)).toBe('1e+30');
+    expect(fmtSig(-1e50, 3, 3)).toBe('-1e+50');
+    expect(fmtFieldValue(1e40)).toBe('1e+40');
+    expect(fmtSig(1.5e21, 3, 3)).toBe('1.5e+21');
+  });
   /**
    * Audit 2026-09-22: decimal counts chosen for millimetres were inherited by
    * metres and feet — a 98 mm airframe read "0.1 m", 215 catalogue tube sizes
