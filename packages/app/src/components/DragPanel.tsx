@@ -13,7 +13,7 @@ import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
 import { hasAerodynamicForce, shownCp } from '../services/simReport.js';
-import { dragTableCsv, sweepCp, type DragTableMeta } from '../services/dragTable.js';
+import { CP_AOA_DEGREES, dragTableCsv, sweepCp, type DragTableMeta } from '../services/dragTable.js';
 import { GestureHints } from './FlightCharts.js';
 
 /**
@@ -354,6 +354,14 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   // share an x window, unlike the flight group). Session-only, not persisted.
   const [bigCharts, setBigCharts] = useState<Set<DragChartId>>(new Set());
   const [zoomedCharts, setZoomedCharts] = useState<Set<DragChartId>>(new Set());
+  /**
+   * The CP chart's angle of attack, degrees (CP_AOA_DEGREES: 0-20 only).
+   * Session-only and NOT in prefs, so the panel always opens at 0 — exactly
+   * the chart it drew before the selector existed. It moves the CP chart and
+   * the CSV's extra cp column only: the drag charts stay at 0, and no flight
+   * reads it.
+   */
+  const [cpAoa, setCpAoa] = useState<number>(0);
   const cdPlot = useRef<uPlot | null>(null);
   const cpPlot = useRef<uPlot | null>(null);
   const bdPlot = useRef<uPlot | null>(null);
@@ -428,6 +436,33 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
     }
   }, [open, rocket, machTop, machAlt]);
 
+  /**
+   * The SAME sweep at the CP chart's angle of attack — run only for an angle
+   * above 0 (at 0 the main sweep IS the answer, so the kernel is called exactly
+   * as it was before the selector existed). Same Mach grid and conditions, so
+   * its points line up with the 0-degree curve index for index.
+   *
+   * CP POLICY, stated: this is the kernel's reported CP in the sweep's ONE roll
+   * plane (theta = 0, the fins as drawn) — the policy the existing CP-vs-Mach
+   * chart already uses — NOT the forward-most CP over all roll angles that the
+   * stat tiles and every margin use (simReport.shownCp). The engine has no
+   * swept-over-roll CP per Mach; the two are one number for three or more
+   * fins, and for a roll-dependent design the caption below (rollDependentCp)
+   * still quotes the forward CP the app flies on. Up to 20 degrees the reported
+   * CP equals the force-consistent Cm·d/CN (measured 2026-10-07).
+   */
+  const aoaSweep = useMemo<DragSweep | { error: string } | null>(() => {
+    if (!open || cpAoa <= 0) return null;
+    try {
+      return rocket.dragSweep(machAlt
+        ? { machMax: machTop, machAlt, aoaDeg: cpAoa }
+        : { machMax: machTop, aoaDeg: cpAoa });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [open, cpAoa, rocket, machTop, machAlt]);
+  const aoaCpSweep = aoaSweep && !('error' in aoaSweep) ? aoaSweep : null;
+
   const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
 
   // The design's static figures, read only while a sweep is showing: the CP
@@ -451,15 +486,20 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
     if (!sweep || 'error' in sweep || !info) return [];
     const length = info.length;
     if (length <= 0) return [];
-    const cp = sweepCp(sweep);
-    return [{
-      label: 'CP',
-      color: C[3]!,
-      values: cpView === 'pct'
-        ? cp.map((v) => (v == null ? null : (v / length) * 100))
-        : cp.map((v) => (v == null ? null : siToUi('length', lenUnit, v))),
-    }];
-  }, [sweep, info, C, cpView, lenUnit]);
+    const show = (cp: (number | null)[]) => (cpView === 'pct'
+      ? cp.map((v) => (v == null ? null : (v / length) * 100))
+      : cp.map((v) => (v == null ? null : siToUi('length', lenUnit, v))));
+    const zero = show(sweepCp(sweep));
+    // At 0 degrees: the one 'CP' line the chart has always drawn.
+    if (!aoaCpSweep) return [{ label: 'CP', color: C[3]!, values: zero }];
+    // At an angle: that angle's CP, with the 0-degree curve dashed beside it
+    // for comparison. The angle sweep runs on the same Mach grid.
+    const atAngle = show(sweepCp(aoaCpSweep));
+    return [
+      { label: `CP at ${cpAoa}°`, color: C[3]!, values: sweep.machs.map((_m, i) => atAngle[i] ?? null) },
+      { label: 'CP at 0°', color: C[1]!, values: zero, dash: true },
+    ];
+  }, [sweep, aoaCpSweep, cpAoa, info, C, cpView, lenUnit]);
   const cpHasLift = cpLines.length > 0 && cpLines[0]!.values.some((v) => v != null);
   // With no CP to chart, WHICH sentence replaces it is decided by the force
   // itself, the tiles' own test (hasAerodynamicForce): "No lift yet" only for
@@ -561,6 +601,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
               // and a screenshot of the chart can't claim different air.
               conditions: condText,
               rollCp: rollNote,
+              // The CP chart's angle, when above 0: one more cp column, named
+              // for the angle (services/dragTable.ts). At 0 the file is unchanged.
+              aoaCp: aoaCpSweep ? { aoaDeg: cpAoa, sweep: aoaCpSweep } : null,
             })}>⬇ Drag table (.csv)</button>
           </div>
 
@@ -602,7 +645,18 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
               <div className="chart-panel-head">
                 <h3>
                   Center of pressure vs Mach ({cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})
+                  {cpAoa > 0 && ` at ${cpAoa}° angle of attack`}
                 </h3>
+                {/* A <label> wrapping its <select>, so the control is named by
+                    its visible text. 0-20 degrees only (CP_AOA_DEGREES): above
+                    fin stall the CP is not validated. */}
+                <label className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}
+                  title="The angle of attack the CP curve is computed at. It stops at 20°: above the fins' stall angle the CP is not validated. The drag charts stay at 0°, and no flight changes.">
+                  Angle of attack
+                  <select value={cpAoa} onChange={(e) => setCpAoa(Number(e.target.value))} style={{ marginLeft: 4 }}>
+                    {CP_AOA_DEGREES.map((d) => <option key={d} value={d}>{d}°</option>)}
+                  </select>
+                </label>
                 {/* role="group" with aria-pressed, NOT tablist/tab
                     (2026-09-08 audit). These are toggle buttons: there is no
                     tabpanel, no aria-controls, no roving tabindex and no arrow
@@ -620,9 +674,12 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
               </div>
               {cpHasLift ? (
+                // One line at 0 degrees: a locked legend (its toggle would
+                // blank the only curve). Two at an angle: each can be hidden.
                 <LineChart x={sweep.machs} lines={cpLines} xLabel="Mach" height={160}
-                  title={`Center of pressure vs Mach (${cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})`}
-                  yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend
+                  title={`Center of pressure vs Mach (${cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})`
+                    + (cpAoa > 0 ? ` at ${cpAoa}° angle of attack` : '')}
+                  yLabel={cpView === 'pct' ? '% of length' : `${lenUnit} from nose`} lockLegend={cpLines.length === 1}
                   expanded={bigCharts.has('cp')} plotRef={cpPlot} onZoomChange={noteZoom('cp')} />
               ) : (
                 // Not a flat line at 0 %: that reads as a CP at the nose tip,
@@ -633,6 +690,18 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                       force, so there is no CP to plot.</>
                     : <><strong>No CP to plot in this roll plane</strong> — with the fins as
                       drawn, the design makes no normal force in it.</>}
+                </p>
+              )}
+              {aoaSweep && 'error' in aoaSweep && (
+                <p className="stability-bad" style={{ marginTop: 4 }}>
+                  CP at {cpAoa}° could not be computed: {aoaSweep.error}
+                </p>
+              )}
+              {aoaCpSweep && (
+                <p className="motor-db-meta" style={{ marginTop: 4 }}>
+                  <strong>CP at {cpAoa}° angle of attack</strong>, with the 0° curve dashed beside it.
+                  The drag charts stay at 0°, and this changes no flight. The choice stops at 20°:
+                  above the fins&apos; stall angle the CP is not validated.
                 </p>
               )}
               {rollNote != null && info && (

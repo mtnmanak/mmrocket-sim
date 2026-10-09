@@ -31,6 +31,23 @@ export function sweepCp(sweep: DragSweep): (number | null)[] {
     && v != null && Number.isFinite(v) ? v : null));
 }
 
+/**
+ * The angles of attack the Drag panel offers its CP-vs-Mach chart at, in
+ * degrees (Eric, 2026-10-08, board row 65: "Approve, 0–20° only").
+ *
+ * It STOPS AT 20 on purpose. Above the fins' 20-degree stall the CP is not
+ * validated (Eric's W10 ruling; measured 2026-10-07 in the register, "CP at
+ * angle of attack — rows 65 and 66": through 20 degrees the kernel's reported
+ * CP equals the force-consistent Cm·d/CN exactly, past it the two part). Do not
+ * add an angle above 20 here without a new ruling.
+ */
+export const CP_AOA_DEGREES = [0, 2, 5, 10, 15, 20] as const;
+
+/** The CSV column name for the CP at a non-zero angle of attack. */
+export function cpAoaColumn(lengthUnit: string, aoaDeg: number): string {
+  return `cp_${lengthUnit}_from_nose_aoa_${aoaDeg}deg`;
+}
+
 export interface DragTableMeta {
   design: string;
   aeroModel: string;
@@ -40,6 +57,14 @@ export interface DragTableMeta {
   conditions: string;
   /** DragPanel's rollDependentCp for the design, when its CP depends on roll angle (m). */
   rollCp?: number | null;
+  /**
+   * The CP-vs-Mach chart's angle of attack, when one above 0 is picked: its
+   * angle (degrees) and the sweep run at it (same Mach grid, same conditions).
+   * Adds ONE cp column named for the angle, beside the 0-degree one; every
+   * other column stays at 0 degrees. Absent or 0, the file is the file it
+   * always was, byte for byte.
+   */
+  aoaCp?: { aoaDeg: number; sweep: DragSweep } | null;
 }
 
 /**
@@ -50,6 +75,8 @@ export interface DragTableMeta {
  * the Supersonic model's curve when it was the classic model's).
  */
 export function dragTableCsv(sweep: DragSweep, meta: DragTableMeta): string {
+  const aoa = meta.aoaCp && meta.aoaCp.aoaDeg > 0 ? meta.aoaCp : null;
+  const aoaCpValues = aoa ? sweepCp(aoa.sweep) : null;
   const cols: [string, (number | null)[]][] = [
     ['mach', sweep.machs],
     ['cd_power_off', sweep.powerOff.total],
@@ -58,6 +85,16 @@ export function dragTableCsv(sweep: DragSweep, meta: DragTableMeta): string {
     // kernel's 0 — a trajectory code reads 0 as a CP at the nose tip.
     [`cp_${meta.lengthUnit}_from_nose`,
       sweepCp(sweep).map((v) => (v == null ? v : siToUi('length', meta.lengthUnit, v)))],
+    // The chart's angle, when it is not 0: the same gaps, the same unit, the
+    // angle in the column name. Index-aligned to `machs` because the panel
+    // runs it on the same grid; a row the angle sweep lacks is left empty.
+    ...(aoa && aoaCpValues
+      ? [[cpAoaColumn(meta.lengthUnit, aoa.aoaDeg),
+        sweep.machs.map((_m, i) => {
+          const v = aoaCpValues[i];
+          return v == null ? null : siToUi('length', meta.lengthUnit, v);
+        })] as [string, (number | null)[]]]
+      : []),
     ['cna_per_rad', sweep.cna],
     ['friction', sweep.powerOff.friction],
     ['pressure', sweep.powerOff.pressure],
@@ -90,6 +127,12 @@ export function dragTableCsv(sweep: DragSweep, meta: DragTableMeta): string {
       ? ['# cp: one roll plane (theta = 0 with the fins as drawn) - this design\'s CP depends on'
         + ' roll angle; the app\'s stability margin uses the forward-most CP over all roll angles: '
         + `${fmtSi('length', meta.lengthUnit, meta.rollCp, 3)} ${meta.lengthUnit} from nose`]
+      : []),
+    // One more line only when the CP chart is at an angle: which column that
+    // is, and that everything else in the file is still at 0 degrees.
+    ...(aoa
+      ? [`# angle of attack: ${cpAoaColumn(meta.lengthUnit, aoa.aoaDeg)} is the CP at ${aoa.aoaDeg} deg`
+        + ' angle of attack (same roll plane); every other column is at 0 deg']
       : []),
     cols.map(([h]) => h).join(','),
   ];

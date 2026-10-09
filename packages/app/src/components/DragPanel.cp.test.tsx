@@ -267,3 +267,127 @@ it('keeps a null high-AOA CP missing in the plotted series and downloaded CSV', 
   expect(cpColumn(csv)).toEqual(['600', '', '600', '600']);
   expect(csv).toContain('\n1,0.4,0.35,,12,');
 });
+
+/**
+ * CP AT ANGLE OF ATTACK (Eric, 2026-10-08, board row 65: "Approve, 0–20° only").
+ * The CP chart's selector offers 0, 2, 5, 10, 15 and 20 degrees and nothing
+ * above — past the fins' 20-degree stall the CP is not validated (W10). At 0 the
+ * panel is the panel it was: one sweep, no aoaDeg, one 'CP' line, the same file.
+ */
+describe('CP vs Mach at an angle of attack', () => {
+  /** A stub whose CP moves with the angle it is asked for, recording each call. */
+  const angled = (calls: { aoaDeg?: number }[]): OrkRocket => ({
+    dragSweep: (opts: { aoaDeg?: number }) => {
+      calls.push(opts);
+      const a = opts.aoaDeg ?? 0;
+      return sweepOf(flat(0.6 - a * 0.01), flat(12));
+    },
+    staticInfo: () => ({ length: 1.2, cp: 0.6, cpWorst: 0.6 }),
+  } as unknown as OrkRocket);
+  const aoaSelect = () => [...host.querySelectorAll('label')]
+    .find((l) => (l.textContent ?? '').startsWith('Angle of attack'))?.querySelector('select') ?? null;
+  const pick = (deg: number) => act(() => {
+    const el = aoaSelect()!;
+    el.value = String(deg);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const lastCpPlot = () => [...plots].reverse().find((x) => x.series.some((s) => (s.label ?? '').startsWith('CP')))!;
+
+  it('offers 0, 2, 5, 10, 15 and 20 degrees — nothing above 20 — and opens at 0', () => {
+    const calls: { aoaDeg?: number }[] = [];
+    open(angled(calls));
+    const sel = aoaSelect();
+    expect(sel).not.toBeNull();
+    // The control is named by the label that wraps it.
+    expect(sel!.closest('label')!.textContent).toContain('Angle of attack');
+    const values = [...sel!.options].map((o) => Number(o.value));
+    expect(values).toEqual([0, 2, 5, 10, 15, 20]);
+    expect(values.every((v) => v <= 20)).toBe(true);
+    expect([...sel!.options].map((o) => o.textContent)).toEqual(['0°', '2°', '5°', '10°', '15°', '20°']);
+    expect(sel!.value).toBe('0');
+    // At 0 the kernel is asked exactly what it always was: one sweep, no angle.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toHaveProperty('aoaDeg');
+    expect(cpSeries()).toEqual(flat(50));
+  });
+
+  it('at 10 degrees charts that angle beside the 0-degree curve, and leaves the drag charts alone', () => {
+    const calls: { aoaDeg?: number }[] = [];
+    open(angled(calls));
+    pick(10);
+    expect(calls.map((c) => c.aoaDeg ?? 0)).toEqual([0, 10]);
+    const p = lastCpPlot();
+    expect(p.series.map((s) => s.label).slice(1)).toEqual(['CP at 10°', 'CP at 0°']);
+    expect(p.data[1]![0]).toBeCloseTo((0.5 / 1.2) * 100, 9);
+    expect(p.data[2]![0]).toBeCloseTo(50, 9);
+    expect(host.textContent).toContain('Center of pressure vs Mach (% of length) at 10° angle of attack');
+    expect(texts().some((t) => t.includes('this changes no flight'))).toBe(true);
+    // Back to 0: the one line it always drew, and no further kernel call.
+    pick(0);
+    expect(cpSeries()).toEqual(flat(50));
+    expect(calls).toHaveLength(2);
+  });
+
+  it('names the angle in the CSV header, beside the unchanged 0-degree column', async () => {
+    open(angled([]));
+    pick(15);
+    const csv = await csvOf();
+    const lines = csv.split('\n');
+    const head = lines.find((l) => l.startsWith('mach,'))!.split(',');
+    expect(head.slice(3, 6)).toEqual(['cp_mm_from_nose', 'cp_mm_from_nose_aoa_15deg', 'cna_per_rad']);
+    const comments = lines.filter((l) => l.startsWith('#'));
+    expect(comments).toHaveLength(5);
+    expect(comments[4]).toBe('# angle of attack: cp_mm_from_nose_aoa_15deg is the CP at 15 deg angle of attack'
+      + ' (same roll plane); every other column is at 0 deg');
+    expect(comments[4]).not.toContain(',');
+    expect(cpColumn(csv)).toEqual(['600', '600', '600', '600']);
+    const col = head.indexOf('cp_mm_from_nose_aoa_15deg');
+    for (const row of lines.slice(lines.findIndex((l) => l.startsWith('mach,')) + 1)) {
+      expect(Number(row.split(',')[col])).toBeCloseTo(450, 9);
+    }
+  });
+
+  it('at 0 degrees writes the file it always wrote — no angle column, no extra line', async () => {
+    open(angled([]));
+    const csv = await csvOf();
+    expect(csv).not.toContain('aoa');
+    expect(csv.split('\n').filter((l) => l.startsWith('#'))).toHaveLength(4);
+  });
+
+  it('says so when the angle sweep fails, and keeps the 0-degree curve', () => {
+    const rocket = {
+      dragSweep: (opts: { aoaDeg?: number }) => {
+        if (opts.aoaDeg) throw new Error('kernel said no');
+        return sweepOf(flat(0.6), flat(12));
+      },
+      staticInfo: () => ({ length: 1.2, cp: 0.6, cpWorst: 0.6 }),
+    } as unknown as OrkRocket;
+    open(rocket);
+    pick(5);
+    expect(texts().some((t) => t === 'CP at 5° could not be computed: kernel said no')).toBe(true);
+    expect(cpSeries()).toEqual(flat(50));
+  });
+
+  it('on the real kernel, the 0-degree curve at Mach 0.3 is the static CP the app shows', async () => {
+    const { OrkRocket: Real } = await import('@online-openrocket/engine');
+    const { defaultTree, engineTree } = await import('../tree/treeModel.js');
+    const { shownCp } = await import('../services/simReport.js');
+    const rocket = Real.buildTree(engineTree(defaultTree()));
+    const info = rocket.staticInfo();
+    open(rocket);
+    const p = [...plots].reverse().find((x) => x.series.some((s) => s.label === 'CP'))!;
+    const machs = p.data[0]! as number[];
+    const i = machs.findIndex((m) => Math.abs(m - 0.3) < 1e-9);
+    expect(i).toBeGreaterThanOrEqual(0);
+    // The chart's % of length, against the stat tiles' CP (forward-most over
+    // roll — one number with the default rocket's fins) and the plane CP.
+    expect(p.data[1]![i]!).toBeCloseTo((shownCp(info) / info.length) * 100, 6);
+    expect(p.data[1]![i]!).toBeCloseTo((info.cp / info.length) * 100, 6);
+    // And an angle draws a real, finite curve of its own beside it.
+    pick(20);
+    const q = lastCpPlot();
+    expect(q.series.map((s) => s.label).slice(1)).toEqual(['CP at 20°', 'CP at 0°']);
+    expect(Number.isFinite(q.data[1]![i])).toBe(true);
+    expect(q.data[2]![i]!).toBeCloseTo(p.data[1]![i]!, 9);
+  }, 30_000);
+});
