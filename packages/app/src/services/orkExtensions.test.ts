@@ -87,6 +87,16 @@ describe('opaque desktop simulation extensions', () => {
     expect(preservedSimulationExtensions(restored.state.tree).map(g => g.configId)).toEqual(['B', 'A']);
   });
 
+  it("names desktop's example extensions as desktop does and keeps unknown ids verbatim", () => {
+    const ext = (id: string) => `<extension extensionid="${id}"></extension>`;
+    const note = importOrk(fixture(sim('A', ext('info.openrocket.core.simulation.extension.example.RollControl')
+      + ext('net.sf.openrocket.simulation.extension.example.DampingMoment')
+      + ext('info.openrocket.core.simulation.extension.example.CSVSave')
+      + ext('com.example.MyListener')))).notes.join('\n');
+    expect(note).toContain('(Roll Control, Damping Moment Coefficient (Cdm), CSVSave, com.example.MyListener)');
+    expect(note).not.toContain('example.RollControl');
+  });
+
   it('does not merge extensions from separate simulations sharing a configuration', () => {
     const output = save(importOrk(fixture(sim('A', script, 'Script run') + sim('A', air, 'Air run'))));
     const sims = simulations(output).filter(s => s.querySelector('conditions > configid')?.textContent === 'A');

@@ -121,7 +121,7 @@ export function preserveSimulationExtensions(
       if (enabledEntry?.getAttribute('type') === 'boolean'
         && enabledEntry.textContent?.trim().toLowerCase() === 'true') enabled++;
     } else if (normalized === 'info.openrocket.core.simulation.extension.impl.JavaCode') kinds.add('Java code');
-    else if (normalized === 'info.openrocket.core.simulation.extension.example.AirStart') kinds.add('Air-start');
+    else if (EXAMPLE_NAMES[normalized]) kinds.add(EXAMPLE_NAMES[normalized]);
     else kinds.add(id ? id.slice(0, 160) : 'unknown extension');
   }
   notes.push(`This file contains ${extensions.length} simulation extension${extensions.length === 1 ? '' : 's'} `
@@ -141,6 +141,17 @@ export function preserveSimulationExtensions(
   const owners = new Set(groups.filter(g => g.xml.length).map(g => g.configId));
   return { ...tree, orkSimulationExtensions: groups.filter(g => owners.has(g.configId)) } as ExtensionTree;
 }
+
+/** Desktop 24.12's display names for its bundled example extensions (each class's
+ * getName(); CSVSave has none, so desktop shows its class name). Unknown ids stay verbatim. */
+const EXAMPLE_NAMES: Readonly<Record<string, string>> = Object.fromEntries(Object.entries({
+  AirStart: 'Air-start',
+  RollControl: 'Roll Control',
+  StopSimulation: 'Stop Simulation',
+  PrintSimulation: 'Print Simulation Values',
+  DampingMoment: 'Damping Moment Coefficient (Cdm)',
+  CSVSave: 'CSVSave',
+}).map(([cls, name]) => [`info.openrocket.core.simulation.extension.example.${cls}`, name]));
 
 /** Revalidate raw XML from autosave before inserting it into an output file.
  * A corrupt session must never turn a stored string into arbitrary sibling XML. */
