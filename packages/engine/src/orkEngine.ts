@@ -1005,3 +1005,13 @@ export class OrkRocket {
 export function resetEngine(): void {
   ork.reset();
 }
+
+/**
+ * The length unit the user reads ("mm", "cm", "m", "in", "ft"). The kernel
+ * decides an airframe diameter step, gap or overlap by comparing the two values
+ * as display strings in this unit, as desktop does in its own; it starts in cm.
+ * Formatting only: no computed number depends on it. Unknown symbols are ignored.
+ */
+export function setEngineLengthUnit(symbol: string): void {
+  ork.setLengthUnit(symbol);
+}

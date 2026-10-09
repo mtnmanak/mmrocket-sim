@@ -1098,6 +1098,7 @@ export function App() {
     measuredDryMassKg: measured.massKg,
     primaryMountId,
     currentSetKey,
+    lengthUnit: prefs.units.length,
   }), {
     ...KERNEL_HANDLES,
     // Auto yields between probes. A render may build a newer design while the
@@ -1120,7 +1121,8 @@ export function App() {
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  [tree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey]);
+  [tree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
+    prefs.units.length]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   // A fresh array every render whenever the build failed, which invalidated the

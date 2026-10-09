@@ -24,6 +24,7 @@ export {
   DEFAULT_TIME_STEP_S,
   OrkRocket,
   resetEngine,
+  setEngineLengthUnit,
   type AeroForceSample,
   type AeroDiagnostics,
   type ComponentInfo,

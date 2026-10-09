@@ -1,5 +1,5 @@
 import {
-  OrkRocket, resetEngine, type ComponentNode, type RocketTree, type StaticInfo,
+  OrkRocket, resetEngine, setEngineLengthUnit, type ComponentNode, type RocketTree, type StaticInfo,
 } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from '../tree/mountAngle.js';
@@ -45,12 +45,15 @@ export interface HandleFactory<R extends BuildHandle> {
   reset(): void;
   /** Build a handle from an ENGINE tree (`treeModel.engineTree`'s output). */
   build(engine: RocketTree): R;
+  /** The user's length unit, which the kernel's airframe-step warnings round in (`setEngineLengthUnit`). */
+  setLengthUnit?(symbol: string): void;
 }
 
 /** The TeaVM kernel's own factory — what the design page builds with. */
 export const KERNEL_HANDLES: HandleFactory<OrkRocket> = {
   reset: resetEngine,
   build: (engine) => OrkRocket.buildTree(engine),
+  setLengthUnit: setEngineLengthUnit,
 };
 
 /** What the build reads: the design, the motors on it, the model flags, the weighing. */
@@ -70,6 +73,14 @@ export interface DesignBuildInput {
   primaryMountId: string | null;
   /** `configSync.padMassSetKey` of the motor set on the rocket now. */
   currentSetKey: string;
+  /**
+   * The length unit the user reads. The kernel decides an airframe diameter
+   * step, gap or overlap by comparing the two values as text in this unit, as
+   * desktop does in its own; left at its default, cm, an inch user on a 4 in
+   * airframe was warned only at a step several times larger than desktop in
+   * inches warns at (openrocket/openrocket#3285). mm, cm and m round alike.
+   */
+  lengthUnit?: string;
 }
 
 export interface BuiltDesign<R extends BuildHandle = OrkRocket> {
@@ -90,6 +101,7 @@ export function buildDesign<R extends BuildHandle>(
   const { tree, assigned, kbf, supersonic, measuredDryMassKg, primaryMountId, currentSetKey } = input;
   try {
     handles.reset();
+    if (input.lengthUnit) handles.setLengthUnit?.(input.lengthUnit);
     // Built once and kept: the launch report states the drag coefficient each
     // recovery device ACTUALLY flew, and the only honest source for that is
     // the tree the kernel was handed — not the design on screen.

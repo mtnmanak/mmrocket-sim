@@ -151,6 +151,7 @@ export function designBuildInputOf(a: {
   measuredDryMassKg: number | null;
   primaryMountId: string | null;
   currentSetKey: string;
+  lengthUnit?: string;
 }): DesignBuildInput {
   return {
     tree: a.tree,
@@ -161,6 +162,7 @@ export function designBuildInputOf(a: {
     measuredDryMassKg: a.measuredDryMassKg,
     primaryMountId: a.primaryMountId,
     currentSetKey: a.currentSetKey,
+    ...(a.lengthUnit ? { lengthUnit: a.lengthUnit } : {}),
   };
 }
 

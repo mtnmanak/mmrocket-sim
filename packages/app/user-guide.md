@@ -802,7 +802,7 @@ The recommendation is **max(0, round(optimum))**, never snapped to prescribed de
 
 Missing evidence, a repeating delay cycle or eight probes without agreement refuses the flight. The message names the mounts and asks you to choose fixed delays; no successful run is saved. A negative optimum uses 0 s with a caution that burnout comes after ballistic apogee. That is the earliest possible charge. Whole-second rounding, recovery timers and another motor's charge can move canopy opening away from the target.
 
-Each Auto card shows its flown delay, raw ballistic optimum and branch after a qualifying flight. Before one, it says **Auto delay not yet calculated.** Older evidence is marked **Previous flight** after edits. Launch does not replace the delay you entered in the design.
+Each Auto card shows its flown delay, raw ballistic optimum and branch after a qualifying flight. Before one, it says **Auto delay not yet calculated.** Older evidence is marked **Previous flight** after edits. A run saved before v0.157 recorded one fingerprint for the whole motor set, so changing any mount's motor or motor data stops that run supplying a **Previous flight** line on every mount; Launch again to record evidence for each mount. Launch does not replace the delay you entered in the design.
 
 ## Weighed pad mass — flying at the mass you put on the pad
 

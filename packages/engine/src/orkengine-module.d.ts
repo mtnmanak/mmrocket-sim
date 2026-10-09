@@ -1,6 +1,7 @@
 /** Ambient types for the vendored TeaVM engine artifact (see engine-java/). */
 declare module '*orkengine.mjs' {
   export function reset(): void;
+  export function setLengthUnit(symbol: string): void;
   export function newRocket(): number;
   export function buildRocket(treeJson: string): number;
   export function setMotorById(

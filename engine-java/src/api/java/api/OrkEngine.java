@@ -102,6 +102,26 @@ public final class OrkEngine {
         // nextHandle is deliberately NOT rewound (audit 2026-09-22) - see unknownOrStale().
     }
 
+    /**
+     * The length unit the user works in ("mm", "cm", "m", "in", "ft"). The kernel
+     * decides an airframe diameter step, and a gap or overlap between airframe
+     * parts, by comparing the two values as display strings in this unit
+     * (BarrowmanCalculator's DISCONTINUITY / GAP / OVERLAP checks), as desktop
+     * does in its own unit. Left at the kernel's startup default, cm, an inch user
+     * on a 4 in airframe was warned only at a 0.5 mm step where desktop in inches
+     * warns at 0.019 mm (openrocket/openrocket#3285). Only string formatting
+     * reads this; no number the kernel computes depends on it. An unknown symbol
+     * leaves the unit unchanged.
+     */
+    @JSExport
+    public static void setLengthUnit(String symbol) {
+        try {
+            info.openrocket.core.unit.UnitGroup.UNITS_LENGTH.setDefaultUnit(symbol);
+        } catch (IllegalArgumentException e) {
+            // keep the current unit
+        }
+    }
+
     // ---------- Rocket construction ----------
 
     /** Creates a rocket with one stage and a dedicated flight configuration. Returns rocket handle. */

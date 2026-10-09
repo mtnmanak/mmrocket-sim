@@ -30,7 +30,7 @@ type Call =
   | ['kbf', boolean] | ['supersonic', boolean]
   | ['motor', string, number] // mount, the spec's loaded mass (so the hardware write shows)
   | ['ignition', string, IgnitionEvent, number]
-  | ['staticInfo'];
+  | ['staticInfo'] | ['unit', string];
 
 function recordingFactory(opts: {
   warningTexts?: string[];
@@ -346,4 +346,12 @@ it('enables Hybrid and Kbf before static analysis on a fresh design handle', () 
   const result = buildDesign({ ...input, kbf: false, hybrid: true }, handles);
   expect(result).not.toHaveProperty('error');
   expect(calls).toContainEqual(['kbf', true]);
+});
+
+it('hands the user’s length unit to the kernel before it builds, for its airframe-step warnings', () => {
+  const { handles, calls } = recordingFactory();
+  const { input } = starter({ event: 'automatic', delay: 0 }, null);
+  buildDesign({ ...input, lengthUnit: 'in' }, { ...handles, setLengthUnit: (u) => { calls.push(['unit', u]); } });
+  expect(calls.slice(0, 3)).toEqual([['reset'], ['unit', 'in'], ['build']]);
+  expect(KERNEL_HANDLES.setLengthUnit).toBeTypeOf('function');
 });
