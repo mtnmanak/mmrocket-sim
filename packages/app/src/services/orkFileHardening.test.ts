@@ -428,7 +428,9 @@ describe('component nesting is capped at import', () => {
       + 'design nests that far, so the file is probably damaged or crafted.');
     const saved = exportOrk({ name: 'Deep', tree: r.tree });
     expect(saved.length).toBeLessThan(500_000); // 5.7 MB at the old code
-  });
+    // 1.2 s alone under the jsxml parser; it hit the 5 s default once under a
+    // loaded full run (2026-10-09), so it carries its own ceiling.
+  }, 30_000);
 });
 
 describe('flight-configuration ids survive the exporter as XML', () => {
