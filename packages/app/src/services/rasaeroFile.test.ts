@@ -2734,3 +2734,24 @@ describe('S1b-1 RASAero physical motor count', () => {
     }
   });
 });
+
+/**
+ * RASAero's stored prediction (board Tier 2, "38 RASAero files carry their
+ * author's stored predictions; we discard all"). A .CDX1 keeps the results of
+ * each simulation as RASAero last ran it; the note quotes the opened one's, so a
+ * reader can set the app's flight beside it. A prediction, not a measurement.
+ */
+describe('RASAero import — the stored prediction', () => {
+  it('quotes the opened simulation\u2019s stored apogee, velocity and motor', () => {
+    const r = importCdx1(fixture('LEM-M2B Scratch.CDX1'));
+    const line = r.notes.find((n) => n.startsWith('RASAero\u2019s stored prediction'));
+    expect(line).toBe('RASAero\u2019s stored prediction for simulation 1, as last run in RASAero with the J1026 (LR): '
+      + 'apogee 13,355 ft, maximum velocity 2,270 ft/s. It is RASAero\u2019s prediction, not a measurement; '
+      + 'the app flies the design with its own models.');
+  });
+
+  it('says nothing for a simulation never run (stored apogee 0)', () => {
+    const r = importCdx1(fixture('ARCAS-Long - 2.CDX1'));
+    expect(r.notes.some((n) => n.startsWith('RASAero\u2019s stored prediction'))).toBe(false);
+  });
+});

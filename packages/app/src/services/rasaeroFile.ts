@@ -1478,6 +1478,21 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     return [c.id, result] as const;
   }));
   const chosenSimNr = chosen ? simNumbers.get(chosen.id) : undefined;
+  // RASAero's own stored result for the simulation opened, as its author last ran
+  // it there: a free "RASAero said X" to set the app's flight beside (board Tier 2).
+  // A prediction, not a measurement, so it is quoted and never compared or scored.
+  // A simulation never run stores 0 and says nothing.
+  const storedSim = chosenSimNr !== undefined ? sims[chosenSimNr - 1] : undefined;
+  const storedApogeeFt = storedSim ? num(storedSim, 'MaxAltitude', 0) : 0;
+  if (storedSim && storedApogeeFt > 0) {
+    const engine = (text(storedSim, ':scope > SustainerEngine') ?? '').replace(/\s+/g, ' ').trim();
+    const ft = (v: number) => Math.round(v).toLocaleString('en-US');
+    const vFps = num(storedSim, 'MaxVelocity', 0);
+    notes.push(`RASAero’s stored prediction for simulation ${chosenSimNr}, as last run in RASAero`
+      + `${engine ? ` with the ${engine}` : ''}: apogee ${ft(storedApogeeFt)} ft`
+      + `${vFps > 0 ? `, maximum velocity ${ft(vFps)} ft/s` : ''}. It is RASAero’s prediction, not a `
+      + 'measurement; the app flies the design with its own models.');
+  }
   const selected = chosen ? derived.get(chosen.id)! : deriveOverrides(undefined, sims.find(carriesWeights));
   const { massDetail, cgDetail, skipped, motorless, overrideMassKg } = selected;
   for (const st of stages) Object.assign(st, selected.values[st.id!]);
