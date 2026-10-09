@@ -3402,8 +3402,9 @@ export function App() {
               ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
               : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
             Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
-            camera-shroud component? The native component models the shroud&apos;s real
-            frontal-area drag and mass instead of treating it as a lifting fin —
+            camera-shroud component? The native component adds the shroud&apos;s
+            frontal-area drag and its as-built mass, which a fin set leaves out; it
+            still flies as a slender one-panel strake, so its small lift stays —
             dimensions carry over, and you can fine-tune shape and as-built mass
             in its properties. (Ctrl+Z undoes the conversion.)
           </p>
