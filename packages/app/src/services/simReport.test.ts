@@ -2159,3 +2159,24 @@ it('ROUND3 compares persisted recovery events across fresh ids without hiding ev
   expect(idFree({ ...run, recoveryEvents: events('c1', 'c2').slice(0, 2) })).not.toStrictEqual(original);
   expect(idFree({ ...run, recoveryEvents: undefined })).not.toStrictEqual(original);
 });
+
+/**
+ * A charge that fires after landing (board Tier 2, EclipseB_38mmRedlineEllis.rkt:
+ * an H148R loaded at 30 s fired at 31.54 s, after the ground hit) added deployment
+ * rows reading 0 m/s, and as the LAST deployment it took the landing descent rate,
+ * which read 0.00. The EventAfterLanding warning says it; the table is the flight.
+ */
+describe('a recovery charge that fires after landing', () => {
+  it('adds no deployment row and leaves the landing device its own descent rate', () => {
+    const result = dualDeployResult(20, 5);
+    const ground = result.events.findIndex((e) => e.type === 'GROUND_HIT');
+    result.events.splice(ground + 1, 0,
+      { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 91.5, source: 'Late main' });
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'J350-auto', manufacturer: 'AT' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.deployments.map((d) => d.device)).toEqual(['Drogue', 'Main']);
+    expect(run.landingRate).toBeCloseTo(5);
+  });
+});

@@ -1528,7 +1528,11 @@ function extractDeployments(
   tGroundHit: number | null,
   flown?: Record<string, FlownRecoveryDevice>,
 ): DeploymentReport[] {
-  const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
+  // A charge that fires after the ground hit opened nothing in flight: it made
+  // a row reading 0 m/s and, as the LAST deployment, took the landing descent
+  // rate (EclipseB's 30 s H148R, 0.00). The EventAfterLanding warning says it.
+  const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT'
+    && (tGroundHit === null || e.time <= tGroundHit));
   return deployEvents.map((ev, i) => {
     const device = ev.source ?? `Recovery device ${i + 1}`;
     const isLanding = i === deployEvents.length - 1;
