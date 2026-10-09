@@ -4159,7 +4159,10 @@ export function App() {
                   {mm?.meta.autoDelay && <p className="field-hint">{autoDelayCardText(
                     delayRun?.delayResolution?.mounts.find((d) => d.mountId === m.id), delayCurrent,
                   )}</p>}
-                  {mm && isStaged && (
+                  {/* A single-stage motor not lit at launch (an imported RockSim
+                      IgnitionDelay, desktop's launch + delay) flies so, so its
+                      control shows until it is set back to Automatic, 0 s (K1). */}
+                  {mm && (isStaged || mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) && (
                     <div className="field" style={{ marginTop: 6 }}
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
                       {/* The words on screen name the select (audit

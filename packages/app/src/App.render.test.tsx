@@ -1152,3 +1152,32 @@ it('the Batch weighed-pad note receives the loaded designation without its delay
   expect(batchDialog!.retainedHardware?.mountId).toBe(mount);
   expect(batchDialog!.retainedHardware?.deltaKg).toBeCloseTo(0.005, 8);
 });
+
+/**
+ * K1 (board Tier 2): an air start on a SINGLE-stage rocket — a RockSim
+ * IgnitionDelay, or desktop's launch + delay — flies, but the Ignition control
+ * showed only on staged designs, so it could be neither seen nor cleared.
+ */
+describe('the Ignition control on a single-stage rocket', () => {
+  const ignitionBox = (host: HTMLElement) => [...host.querySelectorAll<HTMLInputElement>('.mount-card input[aria-label]')]
+    .some((i) => /^Ignition delay for /.test(i.getAttribute('aria-label')!));
+
+  it('shows when the motor is not lit at launch, so it can be cleared', async () => {
+    const { mount, c6 } = await seedStarterSession();
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY)!);
+    s.mountMotors[mount] = { ...c6, ignition: { event: 'launch', delay: 2 } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    expect(ignitionBox(host)).toBe(true);
+  }, 30000);
+
+  it('stays out of the way for an ordinary motor lit at launch', async () => {
+    await seedStarterSession();
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    expect(ignitionBox(host)).toBe(false);
+  }, 30000);
+});
