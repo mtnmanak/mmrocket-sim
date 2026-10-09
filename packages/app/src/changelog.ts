@@ -32,6 +32,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.169",
+    "date": "2026-10-09",
+    "title": "The launch report on late charges and unopened boosters; single-stage airstarts; RASAero's stored prediction",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed. The changes are to what the launch report says, what a motor card shows, what an import note and a save carry, and how very large numbers display.",
+      "THE LAUNCH REPORT IGNORES A CHARGE THAT FIRES ON THE GROUND. A recovery charge that fires at or after landing (EclipseB_38mmRedlineEllis.rkt's 30 s H148R, firing at 31.54 s) added deployment rows reading 0 m/s, and as the last deployment it took the landing descent rate, which then read 0.00. It now adds no row, and the landing rate is the descent under the device that brought the rocket down; the \"Flight event after landing\" warning still names it.",
+      "A BOOSTER WHOSE RECOVERY DEVICE NEVER OPENED SAYS SO. A separated booster that carries a parachute or streamer but flew no deployment was reported as having no recovery device. The report and its booster line now say the device never opened, and to check its deployment event. A booster with no device, an unnamed stage, or a run saved before this release reads as before.",
+      "A SINGLE-STAGE AIRSTART SHOWS ITS IGNITION CONTROL. A single-stage design opened from a desktop OR .ork or a RockSim .rkt that lights a motor after launch flew that way, but its motor card had no Ignition control, so the setting could be neither seen nor cleared. The control now shows on such a motor until you set it back to Automatic with no delay.",
+      "A .CDX1 IMPORT NOTE QUOTES RASAERO'S OWN PREDICTION. When the simulation opened was run in RASAero, one note line quotes the apogee and maximum velocity RASAero stored for it, with the motor it names, to set beside the app's flight. It is RASAero's prediction, not a measurement; the app neither scores nor adjusts anything by it.",
+      "A .CDX1'S MACH-ALT TABLE SURVIVES A RELOAD AND A SAVE. The table an opened .CDX1 carries, offered in Drag analysis as File Mach-Alt table, was lost on a reload, and Save .CDX1 wrote it back empty. It now stays with the design through a reload and is written back. A .ork save or a share link still does not carry it.",
+      "Very large numbers keep their exponent: a value of 1e30 typed into a box showed as \"1e+3\". The camera-shroud conversion dialog no longer says the native shroud stops acting as a lifting fin: it still flies as a slender strake and adds the frontal-area drag and as-built mass a fin set leaves out."
+    ]
+  },
+  {
     "version": "0.168",
     "date": "2026-10-09",
     "title": "Airframe-step warnings in your length unit; .rkt saves keep a coupler's parts",
