@@ -3408,9 +3408,10 @@ export function App() {
               ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
               : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
             Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
-            camera-shroud component? The native component adds the shroud&apos;s
-            frontal-area drag and its as-built mass, which a fin set leaves out; it
-            still flies as a slender one-panel strake, so its small lift stays —
+            camera-shroud component? The native component charges the shroud&apos;s
+            frontal-area drag and takes its as-built mass in place of the fin set&apos;s
+            computed one; it still flies as a slender one-panel strake, so its small
+            lift stays —
             dimensions carry over, and you can fine-tune shape and as-built mass
             in its properties. (Ctrl+Z undoes the conversion.)
           </p>
@@ -4187,9 +4188,13 @@ export function App() {
                           }))}
                         >
                           <option value="automatic">Automatic (launch / lower stage's ejection)</option>
-                          <option value="burnout">Lower stage burnout + delay (electronics)</option>
+                          {/* A single-stage design has no lower stage, so these two would never
+                              light it (review of v0.169); one already set stays visible to change. */}
+                          {(isStaged || mm.ignition.event === 'burnout') && (
+                            <option value="burnout">Lower stage burnout + delay (electronics)</option>)}
                           <option value="launch">Launch + delay (timer)</option>
-                          <option value="ejectioncharge">Lower stage ejection charge + delay</option>
+                          {(isStaged || mm.ignition.event === 'ejectioncharge') && (
+                            <option value="ejectioncharge">Lower stage ejection charge + delay</option>)}
                           <option value="never">Never</option>
                         </select>
                         <div style={{ width: 70 }}>

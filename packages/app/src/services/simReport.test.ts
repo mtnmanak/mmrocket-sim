@@ -2216,3 +2216,25 @@ describe('a booster whose recovery device never opened', () => {
     expect(runWith().comments).toContain('Booster has NO recovery device');
   });
 });
+
+/**
+ * Review of v0.169 (/code-review): a flight whose ONLY charge fires after landing
+ * kept its deployment time, altitude and speed from that late event, and the
+ * summary's deploymentVelocity (~0) graded it a SAFE deployment.
+ */
+describe('a flight whose only recovery charge fires after landing', () => {
+  it('has no deployment altitude or speed, and no deployment verdict', () => {
+    const result = dualDeployResult(20, 5);
+    result.events = result.events.filter((e) => e.type !== 'RECOVERY_DEVICE_DEPLOYMENT');
+    const ground = result.events.findIndex((e) => e.type === 'GROUND_HIT');
+    result.events.splice(ground + 1, 0, { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 91.5, source: 'Late main' });
+    const run = buildSimRun({
+      result, info, motor, meta: { label: 'J350-auto', manufacturer: 'AT' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.deployments).toEqual([]);
+    expect(run.velocityAtDeployment).toBeNull();
+    expect(run.altitudeAtDeployment ?? null).toBeNull();
+    expect(deploymentVerdict(run)).toBeNull();
+  });
+});

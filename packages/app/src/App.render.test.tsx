@@ -1181,3 +1181,17 @@ describe('the Ignition control on a single-stage rocket', () => {
     expect(ignitionBox(host)).toBe(false);
   }, 30000);
 });
+
+describe('the single-stage Ignition choices (review of v0.169)', () => {
+  it('offer no lower-stage trigger, which could never light a launch-stage motor', async () => {
+    const { mount, c6 } = await seedStarterSession();
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY)!);
+    s.mountMotors[mount] = { ...c6, ignition: { event: 'launch', delay: 2 } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    const values = [...host.querySelectorAll<HTMLOptionElement>('.mount-card select[id^="ignition-"] option')].map((o) => o.value);
+    expect(values).toEqual(['automatic', 'launch', 'never']);
+  }, 30000);
+});

@@ -1483,13 +1483,25 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // A prediction, not a measurement, so it is quoted and never compared or scored.
   // A simulation never run stores 0 and says nothing.
   const storedSim = chosenSimNr !== undefined ? sims[chosenSimNr - 1] : undefined;
-  const storedApogeeFt = storedSim ? num(storedSim, 'MaxAltitude', 0) : 0;
+  // xmlNum, not `num`: nothing flies these figures, so an unreadable one must not
+  // join the "check these dimensions" note — it just says nothing.
+  const storedApogeeFt = storedSim ? xmlNum(storedSim, 'MaxAltitude', 0) : 0;
   if (chosenSimNr !== undefined && storedSim && storedApogeeFt > 0) {
-    const engine = (text(storedSim, ':scope > SustainerEngine') ?? '').replace(/\s+/g, ' ').trim();
+    // Every motor that flew it — a stored apogee is the whole stack's, so naming
+    // only the sustainer told a reader one K627LR reached 100,727 ft.
+    const engineOf = (tag: string) => (text(storedSim, `:scope > ${tag}`) ?? '').replace(/\s+/g, ' ').trim();
+    const included = (n: number) => (text(storedSim, `:scope > IncludeBooster${n}`) ?? '').toLowerCase() === 'true';
+    const flown = [
+      ...[2, 1].filter(included).map((n) => [`Booster ${n}`, engineOf(`Booster${n}Engine`)] as const),
+      ['sustainer', engineOf('SustainerEngine')] as const,
+    ].filter(([, e]) => e !== '');
+    const withMotors = flown.length === 0 ? ''
+      : flown.length === 1 && flown[0]![0] === 'sustainer' ? ` with the ${flown[0]![1]}`
+        : ` with ${flown.map(([stage, e]) => `the ${e} on the ${stage}`).join(' and ')}`;
     const ft = (v: number) => Math.round(v).toLocaleString('en-US');
-    const vFps = num(storedSim, 'MaxVelocity', 0);
+    const vFps = xmlNum(storedSim, 'MaxVelocity', 0);
     notes.push(`RASAero’s stored prediction for simulation ${chosenSimNr}, as last run in RASAero`
-      + `${engine ? ` with the ${engine}` : ''}: apogee ${ft(storedApogeeFt)} ft`
+      + `${withMotors}: apogee ${ft(storedApogeeFt)} ft`
       + `${vFps > 0 ? `, maximum velocity ${ft(vFps)} ft/s` : ''}. It is RASAero’s prediction, not a `
       + 'measurement; the app flies the design with its own models.');
   }
@@ -1779,7 +1791,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   const stageIgnitionDelays = stageSlots.map((s) => s.ignitionDelay);
 
   const fmt = (v: number): string => {
-    const s = v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    // toFixed is exponential from 1e21, whose exponent's zeros are not decimals (1e+30 wrote "1e+3").
+    const t = v.toFixed(4);
+    const s = t.includes('e') ? t : t.replace(/0+$/, '').replace(/\.$/, '');
     return s === '-0' ? '0' : s;
   };
   const lines: string[] = [];

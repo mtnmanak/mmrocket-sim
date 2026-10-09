@@ -2755,3 +2755,21 @@ describe('RASAero import — the stored prediction', () => {
     expect(r.notes.some((n) => n.startsWith('RASAero\u2019s stored prediction'))).toBe(false);
   });
 });
+
+describe('RASAero import — the stored prediction of a staged simulation', () => {
+  it('names every motor that flew it, by RASAero stage', () => {
+    // 38-54 2-stage opens a simulation that flies a booster (the launch stage must be
+    // motorized); give every simulation a stored apogee so that one has a line.
+    const xml = fixture('38-54 2-stage.CDX1').replace(/<MaxAltitude>[^<]*<\/MaxAltitude>/g, '<MaxAltitude>12345</MaxAltitude>');
+    const line = importCdx1(xml).notes.find((n) => n.startsWith('RASAero\u2019s stored prediction'));
+    expect(line).toContain('on the Booster 1 and the K627LR (Loki) on the sustainer');
+    expect(line).toContain('apogee 12,345 ft');
+  });
+
+  it('says nothing, and adds no "check these dimensions" line, for an unreadable stored apogee', () => {
+    const xml = fixture('LEM-M2B Scratch.CDX1').replace(/<MaxAltitude>[^<]*<\/MaxAltitude>/, '<MaxAltitude>NaN</MaxAltitude>');
+    const r = importCdx1(xml);
+    expect(r.notes.some((n) => n.startsWith('RASAero\u2019s stored prediction'))).toBe(false);
+    expect(r.notes.some((n) => n.includes('MaxAltitude'))).toBe(false);
+  });
+});

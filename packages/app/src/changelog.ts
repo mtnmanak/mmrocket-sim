@@ -32,6 +32,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.170",
+    "date": "2026-10-09",
+    "title": "Corrections to v0.169: late charges, staged RASAero predictions, the shroud note",
+    "items": [
+      "CORRECTIONS TO v0.169'S NOTES AND CHANGES. A review of v0.169 found four things it got wrong, fixed here. (1) A flight whose only recovery charge fires after landing dropped the deployment row, but still read its deployment altitude and speed from that late event and could grade the deployment safe; it now has no deployment altitude, speed or verdict. (2) A booster whose only charge fired after landing showed a recovery weight beside \"never opened\"; it no longer does. (3) The .CDX1 note on RASAero's stored prediction named only the sustainer's motor, though the stored apogee is the whole stack's; it now names every motor that flew it, by RASAero stage. (4) v0.169's note and the camera-shroud dialog said the native shroud adds an as-built mass a fin set leaves out; the fin set has a computed mass of its own, and the shroud's as-built mass takes its place.",
+      "Batch simulate's runs now say a booster's recovery device never opened, as the design page's runs have since v0.169.",
+      "A single-stage design's Ignition choices no longer offer the two lower-stage triggers, which could never light a launch-stage motor. One already set from a file stays listed so it can be changed.",
+      "Save .CDX1 keeps a value of 1e21 or more whole, where it wrote 1e30 as \"1e+3\". An unreadable stored RASAero result no longer adds a \"check these dimensions\" line on import."
+    ]
+  },
+  {
     "version": "0.169",
     "date": "2026-10-09",
     "title": "The launch report on late charges and unopened boosters; single-stage airstarts; RASAero's stored prediction",

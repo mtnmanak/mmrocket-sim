@@ -1421,20 +1421,32 @@ function eventTime(result: FlightResult, type: string): number | null {
   return ev ? ev.time : null;
 }
 
+/**
+ * The first recovery deployment that opened IN FLIGHT: before the ground hit. A
+ * charge that fires at or after landing opened nothing (EclipseB's 30 s H148R) —
+ * the deployment rows drop it (extractDeployments), and so must every other
+ * reading of "the deployment": its time, altitude, speed and the recovery weight.
+ */
+function inFlightDeployTime(events: FlightEvent[]): number | null {
+  const ground = events.find((e) => e.type === 'GROUND_HIT')?.time;
+  return events.find((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT'
+    && (ground === undefined || e.time < ground))?.time ?? null;
+}
+
 /** Shared sampling instant for each branch (open-items: Booster recovery weight in the launch report). */
 function recoveryMassTime(events: FlightEvent[]): number | null {
   const lastOf = (type: string): number | null => {
     const hits = events.filter((e) => e.type === type);
     return hits.length > 0 ? hits[hits.length - 1]!.time : null;
   };
-  const firstDeploy = events.find((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')?.time ?? null;
+  const firstDeploy = inFlightDeployTime(events);
   const settled = [lastOf('BURNOUT'), lastOf('STAGE_SEPARATION'), firstDeploy]
     .filter((t): t is number => t !== null && Number.isFinite(t));
   return settled.length > 0 ? Math.max(...settled) : null;
 }
 
 function boosterRecoveryMass(events: FlightEvent[], series: FlightSeries): number | null {
-  if (!events.some((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')) return null;
+  if (inFlightDeployTime(events) === null) return null;
   const t = recoveryMassTime(events);
   // Do not extrapolate a truncated booster flight into a weight under canopy.
   if (t === null || !(t >= series.time[0]! && t <= series.time[series.time.length - 1]!)) return null;
@@ -1866,7 +1878,10 @@ export function buildSimRun(input: {
 
   const tRod = eventTime(result, 'LAUNCHROD');
   const tBurnout = eventTime(result, 'BURNOUT');
-  const tDeploy = eventTime(result, 'RECOVERY_DEVICE_DEPLOYMENT');
+  const tDeploy = inFlightDeployTime(result.events);
+  // Every deployment fired on the ground: there is no opening speed to grade,
+  // and the summary's deploymentVelocity came from that late event.
+  const onlyLateDeploys = tDeploy === null && result.events.some((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
   const tGround = eventTime(result, 'GROUND_HIT');
 
   // K9 (docs/open-items.md): the rocket leaves the guide at the kernel's guide-aware
@@ -1970,7 +1985,7 @@ export function buildSimRun(input: {
    * without a deployment event to hang it on.
    */
   const velocityAtDeployment = deployments[0]?.velocityAtDeployment
-    ?? summary.deploymentVelocity
+    ?? (onlyLateDeploys ? null : summary.deploymentVelocity)
     ?? (tDeploy !== null ? at(series.time, series.velocity, tDeploy) : null);
 
   // Booster branches (staged flights): each separated stage flies its OWN
