@@ -32,6 +32,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.167",
+    "date": "2026-10-09",
+    "title": "CP chart at an angle of attack; a SEMROC tail-cone mass; desktop extension names",
+    "items": [
+      "WHAT CAN CHANGE YOUR NUMBERS: one parts-library mass. SEMROC's BTC-20BB [R] tail cone now weighs the maker's 0.82 oz (23.25 g) instead of 0.21 oz (5.95 g). The parts library had copied the 0.21 oz from the BTC-18VY tail cone; SEMROC's own nose-cone table lists BTC-20BB at 0.82 oz in its archived copies from 2010 to 2019. A design that already uses this part keeps its saved mass; re-pick the part to take the new figure. No motor, aerodynamic or flight calculation changed.",
+      "THE CP CHART CAN BE DRAWN AT AN ANGLE OF ATTACK. In the Drag analysis panel, an Angle of attack selector beside the center-of-pressure chart's heading draws the CP curve at 0, 2, 5, 10, 15 or 20 degrees, with the 0-degree curve dashed beside it. It stops at 20 degrees: above the fins' stall angle the CP is not validated. The drag charts stay at 0 degrees, the panel opens at 0 each time, and no flight reads the setting. While an angle is picked, the Drag table CSV gains one more CP column named for it and a comment line saying every other column is still at 0 degrees.",
+      "THE .ORK IMPORT NOTE NAMES DESKTOP'S EXAMPLE EXTENSIONS AS DESKTOP DOES. A file carrying one of desktop OpenRocket 24.12's bundled example simulation extensions now names it the way desktop does (Roll Control, Stop Simulation, Print Simulation Values, Damping Moment Coefficient (Cdm), CSVSave, Air-start) instead of by its Java class id. Any other extension id is still quoted as the file writes it.",
+      "THE MOTOR CATALOGUE WAS REFRESHED FROM THRUSTCURVE.ORG ON 9 OCTOBER AND IS UNCHANGED: the same 1,156 motors, and the same thrust-curve files for the 1,076 that have one.",
+      "A build-tool dependency (source-map-js) was updated for a security advisory. It is used only when the app is built, not by the app in your browser."
+    ]
+  },
+  {
     "version": "0.166",
     "date": "2026-10-08",
     "title": "AeroTech status notes removed; the catalogue's thrustcurve.org availability stands on its own",

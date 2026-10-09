@@ -1,5 +1,5 @@
 {
-  "version": "0.166",
-  "released": "2026-10-08",
-  "note": "AeroTech status notes removed; the catalogue's thrustcurve.org availability stands on its own."
+  "version": "0.167",
+  "released": "2026-10-09",
+  "note": "CP chart at an angle of attack; a SEMROC tail-cone mass; desktop extension names."
 }
