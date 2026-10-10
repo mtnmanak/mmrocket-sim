@@ -32,6 +32,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.172",
+    "date": "2026-10-10",
+    "title": "A note when a file's flight configuration overrides a chute; Vertical velocity as its own plot",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed. One import note, one new plot, and a shorter paragraph in the user guide.",
+      "A NOTE WHEN A FLIGHT CONFIGURATION OVERRIDES A CHUTE. An OpenRocket file keeps two deployment settings for each parachute or streamer: the device's own setting, and an optional override for each flight configuration. Desktop OpenRocket's parachute and streamer windows show and change only the device's own setting, but its simulation flies the configuration's override when there is one. So a chute set to open at 300 ft in that window can still fly on the motor's ejection charge, in desktop OpenRocket and in this app alike. Thanks to @atestani for the file that showed it. The app already flew the override; now, when a file's configuration flies a different deployment from a device's own setting, opening it says which devices, what they fly, and what their own setting is. It also says where desktop OpenRocket keeps the override: the Motors & Configuration tab, under Recovery, where Reset deployment removes it. In this app, setting Deploy at on the device is enough. Files saved by this app never show the note, because the app saves the setting it flies in both places.",
+      "VERTICAL VELOCITY AS ITS OWN PLOT. The series buttons above the flight plots now include Vertical velocity, next to Velocity. Velocity is speed over the ground and never goes below zero; Vertical velocity is the up-and-down part alone, which goes through zero at apogee and is negative on the way down, as desktop OpenRocket plots it by default. It was only in the Altitude + vertical velocity comparison chart before. Thanks to @atestani for asking.",
+      "THE USER GUIDE'S NOZZLE SECTION ends with one general note in place of a list of which AeroTech and Loki motors have no exit diameter, and why. A motor with no exit on file gets no pressure thrust and no exhaust effect on base drag. On small hobby motors that makes little difference to a flight, and the effect grows with the size of the nozzle. If you know a motor's exit, type it in.",
+      "Removed: the notice and offline-copy cleanup for the app's old address. That address has redirected here since 21 August, so the code could no longer run. Nobody sees a change."
+    ]
+  },
+  {
     "version": "0.171",
     "date": "2026-10-09",
     "title": "Recovery devices that open together; measuring guides on the 2D view",

@@ -1,5 +1,5 @@
 {
-  "version": "0.171",
-  "released": "2026-10-09",
-  "note": "Recovery devices that open together are judged together; measuring guides on the 2D view."
+  "version": "0.172",
+  "released": "2026-10-10",
+  "note": "A note when a file's flight configuration overrides a chute's deployment; Vertical velocity as its own plot."
 }
