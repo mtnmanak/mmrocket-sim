@@ -32,6 +32,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.173",
+    "date": "2026-10-10",
+    "title": "The header shows the design's file name; Save offers it",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed. What changed is which name the header shows and which name Save offers.",
+      "THE HEADER SHOWS THE FILE NAME. A design file keeps two names: the file's own name, and the rocket name stored inside it. The app showed the rocket name four times on the Design tab (the header, the Rocket box, the Rocket name field and the top of the component tree) and the file name nowhere, so two files holding the same rocket looked the same once opened. The line under the app title, beside Unsaved changes, now shows the file you opened or last saved as .ork, or Not saved to a file for a new design, the starter rocket or a share link. The browser tab's title shows the rocket name with the file name in brackets, and a * while there are unsaved changes, as desktop OpenRocket's window title does. A reload keeps the file name. Thanks to @atestani for the question that showed it.",
+      "SAVE OFFERS THE FILE'S NAME, AS DESKTOP OPENROCKET DOES. Save .ork, .rkt and .CDX1 now offer the name of the file you opened or last saved as .ork, where they offered the rocket name: open LEM-1-2026_MMR.ork, whose rocket is named LEM-1-2026, and Save .ork offered LEM-1-2026.ork - the name of a different file. A design with no file still gets the rocket name. On Chrome and Edge, keeping the offered name in the same folder saves over that file after the Save As dialog asks you to confirm; on Firefox and Safari the browser keeps both files and numbers the new one. The component tables and 3D exports still take the rocket name. To keep the original on Chrome or Edge, change the name in the dialog."
+    ]
+  },
+  {
     "version": "0.172",
     "date": "2026-10-10",
     "title": "A note when a file's flight configuration overrides a chute; Vertical velocity as its own plot",

@@ -1,5 +1,5 @@
 {
-  "version": "0.172",
+  "version": "0.173",
   "released": "2026-10-10",
-  "note": "A note when a file's flight configuration overrides a chute's deployment; Vertical velocity as its own plot."
+  "note": "The header shows the design's file name, and Save offers it, as desktop OpenRocket does."
 }
