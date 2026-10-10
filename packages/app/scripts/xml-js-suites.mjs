@@ -38,6 +38,7 @@ export const XML_JS_SUITES = [
   'src/services/motorMatch.policy.test.ts',
   'src/services/nozzleStage.test.ts',
   'src/services/nozzleWiring.test.ts',
+  'src/services/deployOverrideNote.test.ts',
   'src/services/orkFile.test.ts',
   'src/services/orkExtensions.test.ts',
   'src/services/orkFile.version.test.ts',
