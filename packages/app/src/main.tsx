@@ -7,29 +7,24 @@ import { registerSW } from 'virtual:pwa-register';
 import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import { AppRoot } from './root.js';
-import { dismantlePwa, isRetiredHost } from './services/hostMigration.js';
 import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 import { offlineStatus } from './services/offlineStatus.js';
 
-// Offline-first on the canonical host. On the RETIRED pre-rename host the
-// PWA dismantles itself instead: no SW, caches dropped, banner in App.
-if (isRetiredHost(location.hostname)) {
-  void dismantlePwa();
-} else {
-  // autoUpdate: a new build takes over and reloads the page by itself. What it
-  // does NOT do is go looking — the browser checks for a new worker when this
-  // registration runs, i.e. on a page load. Publishing the registration lets
-  // the header's version check ask for that on demand, which is the whole of
-  // the "am I on the current version?" support conversation. Every
-  // registration also goes past the empty-precache safeguard
-  // (services/precacheGuard.ts), which does nothing unless the worker's
-  // offline copy is empty.
-  offlineStatus.start(registerSW, (_url, reg) => {
-    setSwRegistration(reg);
-    void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
-  });
-}
+// Offline-first. autoUpdate: a new build takes over and reloads the page by
+// itself. What it does NOT do is go looking — the browser checks for a new
+// worker when this registration runs, i.e. on a page load. Publishing the
+// registration lets the header's version check ask for that on demand, which
+// is the whole of the "am I on the current version?" support conversation.
+// Every registration also goes past the empty-precache safeguard
+// (services/precacheGuard.ts), which does nothing unless the worker's offline
+// copy is empty. (Until v0.172 a branch here dismantled the PWA on the
+// pre-rename openrocket.* host; that host has 301-redirected here since
+// 2026-08-21, so the branch could no longer run and was removed.)
+offlineStatus.start(registerSW, (_url, reg) => {
+  setSwRegistration(reg);
+  void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
+});
 
 // Never a silently-blank page: uncaught errors paint into the root. A throw
 // while RENDERING is caught by AppBoundary (root.tsx), which keeps the root

@@ -26,7 +26,6 @@ import { FlightCharts } from './components/FlightCharts.js';
 import { DragPanel } from './components/DragPanel.js';
 import { kernelSimOptions, hasLaunchGuides, LaunchPanel, PANEL_TIME_STEP_FLOOR_S, type LaunchConditions } from './components/LaunchPanel.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
-import { MovedNotice } from './components/MovedNotice.js';
 import { NoticeBar, type Notice, type NoticeSeverity } from './components/NoticeBar.js';
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
@@ -3125,7 +3124,6 @@ export function App() {
             source&nbsp;(GPL)
           </a>
         </p>
-        <MovedNotice hostname={window.location.hostname} />
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
