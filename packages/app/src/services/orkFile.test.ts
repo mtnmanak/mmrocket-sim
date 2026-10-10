@@ -1372,7 +1372,13 @@ describe('.ork multi-configuration import (Stage A)', () => {
     const booster = result.tree.components[1]!;
     expect(booster['separationEvent']).toBe('burnout');
     expect(booster['separationDelay']).toBeCloseTo(2, 12);
-    const notes = result.notes.filter((n) => n.includes('flight configuration'));
+    // cfg-b's chute flies a different deployment from its own setting — the
+    // recovery-override note (deployOverrideNote.ts) says so, separately.
+    expect(result.notes.filter((n) => n.startsWith('Recovery: '))).toEqual([
+      expect.stringContaining('Recovery: Flight configuration “Demo day D12” overrides the deployment setting — Chute opens at '
+        + 'Altitude (descending), 150.0 m (492 ft) + 1 s, not at its own setting (Motor ejection charge)'),
+    ]);
+    const notes = result.notes.filter((n) => n.includes('flight configuration') && !n.startsWith('Recovery: '));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain('Opened “Demo day D12”');
     // Picking a NON-default configuration must not claim it is the default.

@@ -197,7 +197,7 @@ const FINISHES: [string, string][] = [
 
 const FINISH: FieldDef = { key: 'finish', label: 'Surface finish', unit: 'none', options: FINISHES, dflt: 'normal' };
 
-const DEPLOY_EVENTS: [string, string][] = [
+export const DEPLOY_EVENTS: [string, string][] = [
   ['ejection', 'Motor ejection charge'],
   ['apogee', 'Apogee'],
   ['altitude', 'Altitude (descending)'],

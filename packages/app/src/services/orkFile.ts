@@ -36,6 +36,7 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
+import { deployOverrideNote, sameDeployment, type DeployOverride, type DeploySetting } from './deployOverrideNote.js';
 import { archiveExMotors, EX_MOTOR_ID_TAG, EX_MOTOR_NOTES_TAG, EX_MOTORS_TAG, readArchivedExMotors } from './exMotorArchive.js';
 import type { ExMotor } from './exMotors.js';
 import { checkLegacyPositions, currentPlacementStamp, legacyPositionCandidates, recordCurrentPlacement } from './legacyPositionCheck.js';
@@ -551,6 +552,35 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0, notes);
       }
       if (node.id) c.deployments[node.id] = o;
+    }
+  };
+
+  /**
+   * Devices whose chosen configuration flies a different deployment from the
+   * component's own setting — the one desktop OR's dialog shows. Collected
+   * here, said once after the walk (deployOverrideNote.ts has the why).
+   * Resolved like the import itself, into a scratch note list so a bad
+   * number is not reported twice.
+   */
+  const deployOverrides: DeployOverride[] = [];
+  const noteDeployOverride = (el: XmlElement, node: ComponentNode, kind: string): void => {
+    const block = chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration');
+    if (!block) return;
+    const scratch: string[] = [];
+    const resolve = (srcs: XmlElement[]): DeploySetting => {
+      const d: DeploySetting = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
+      for (const src of srcs) {
+        const event = text(src, ':scope > deployevent');
+        if (event) d.deployEvent = event;
+        if (text(src, ':scope > deployaltitude') !== null) d.deployAltitude = num(src, 'deployaltitude', 200, scratch);
+        if (text(src, ':scope > deploydelay') !== null) d.deployDelay = num(src, 'deploydelay', 0, scratch);
+      }
+      return d;
+    };
+    const own = resolve([el]);
+    const flown = resolve([el, block]);
+    if (!sameDeployment(own, flown)) {
+      deployOverrides.push({ name: String(node['name'] ?? kind), kind, own, flown });
     }
   };
 
@@ -1120,6 +1150,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // block in an undeclared file was never read, keep it that way).
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'), notes);
         captureDeployments(el, n);
+        noteDeployOverride(el, n, 'parachute');
         // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
         const spill = num(el, 'spillholediameter', 0, notes);
         if (spill > 0) n['spillHoleDiameter'] = spill;
@@ -1135,6 +1166,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'), notes);
         captureDeployments(el, n);
+        noteDeployOverride(el, n, 'streamer');
         return n;
       }
       case 'shockcord': {
@@ -1308,6 +1340,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
   if (tooDeep) notes.push(TOO_DEEP_NESTING);
+  const overrideNote = deployOverrideNote(deployOverrides, configs.find((cf) => cf.id === chosenConfigId)?.name ?? null);
+  if (overrideNote) notes.push(overrideNote);
 
   // Say when a dimension was INFERRED. The user opened an archived file and got
   // a number nobody typed; without this note the only clue that anything was
