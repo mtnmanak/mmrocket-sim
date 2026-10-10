@@ -369,27 +369,21 @@ function guideTokens(data, corrections) {
  *    else, so it is a token, summed per casing diameter from the file's own
  *    `coverage` block — `withExitDiameter`, never `withNozzleRow`: a row is not
  *    a number.
- *  - The counts the prose writes IN WORDS come with names and reasons no token
- *    can carry ("four Loki motors are short: ... N3800 and N5500 ... L2050,
- *    M1378"). Measure two of those tomorrow and a token would print "two" in
- *    front of four names. So those are CHECKED: wherever the guide states one,
- *    it must be the file's figure, or the build stops until the sentence is
- *    rewritten. user-guide-current.test.mjs holds the shipped guide to stating
- *    every one of them, so no check here can go quietly vacuous. That includes
- *    the motor the guide NAMES for a reason (the J615ST's aerospike) and the
- *    sentence listing every row with no number on purpose: a row with no exit
- *    for a reason it does not give stops the build too (2026-10-01 — resolving
- *    the K76WN-P's cut-down exit compiled byte for byte, with the guide still
- *    describing its nozzle). The I40N-P's machined nozzle was named the same
- *    way until part 01600's published exit gave it a figure (2026-10-01), so
- *    that reason is no longer one the guide gives, and a row with no exit for
- *    it stops the build like any other unexplained one. So is the sentence on
- *    what AeroTech have left uncovered, against the file's `missingByType` (the
- *    catalogue's own type): it called them all single-use motors with neither a
- *    reload kit nor a DMS sheet, and 12 of 40 were one or the other. And
- *    every AREA it states from two diameters is worked out from the file's
- *    diameters: the K1100T's two options, and Loki's 76 mm exit machined out
- *    against each standard exit for that casing.
+ *  - The counts the prose writes IN WORDS ("Nine AeroTech motors have two
+ *    published nozzles") are CHECKED: wherever the guide states one, it must be
+ *    the file's figure, or the build stops until the sentence is rewritten.
+ *    user-guide-current.test.mjs holds the shipped guide to stating every one of
+ *    them, so no check here can go quietly vacuous. So is every AREA the guide
+ *    states from two diameters, worked out from the file's diameters: the
+ *    K1100T's two options, and Loki's 76 mm exit machined out against each
+ *    standard exit for that casing.
+ *
+ * v0.172 (Eric, 2026-10-10) replaced the paragraph's last bullet — which Loki
+ * motors are short, which AeroTech motors are uncovered and of what type, and the
+ * rows with no number on purpose (the J615ST aerospike, the moulded 29 mm DMS
+ * cases, the K76WN-P cut short) — with one generic sentence: on small motors the
+ * exit barely moves a flight (+0.2 to +0.8 % apogee on a C6, measured), so the
+ * itemised list was not worth its upkeep. Their checks went with it.
  *
  * All of it reads nozzles.json alone, never motors.json: the weekly catalogue
  * refresh runs this script, and nozzles.json can only be rebuilt on the one
@@ -411,44 +405,13 @@ function nozzleFacts(data) {
   const total = (key) => loki.reduce((s, e) => s + e[key], 0);
   const lokiExit = total('withExitDiameter');
   const lokiInProduction = total('inProduction');
-  // The in-production Loki motors the app has no exit for: those with no row at
-  // all, which each casing names, and those whose row carries none.
-  const lokiShort = [
-    ...loki.flatMap((e) => e.missing ?? []),
-    ...rows.filter((m) => m.manufacturer === 'Loki' && m.motorId && m.exitDiameterM === undefined)
-      .map((m) => m.designation),
-  ].sort();
-  if (lokiShort.length !== lokiInProduction - lokiExit) {
-    fail(`nozzles.json counts ${lokiInProduction - lokiExit} in-production Loki motors with no exit, but names `
-      + `${lokiShort.length} (${lokiShort.join(', ')}) — is a row with no exit out of production? nozzleFacts() `
-      + 'has to say which motors are short before the guide can name them');
-  }
-  // Every other loadable row with no exit carries none ON PURPOSE, for the reason
-  // its sheet's line of material gives, and the guide's sentence on those rows
-  // names each reason: an aerospike, one cut shorter than its mould, and the
-  // moulded 29 mm cases.
-  const onPurpose = rows.filter((m) => m.manufacturer !== 'Loki' && m.motorId && m.exitDiameterM === undefined);
-  const sheet = (m) => m.provenance?.lomDescription ?? '';
-  // The in-production AeroTech motors with no row, by the catalogue's own type and
-  // casing, as build-nozzle-db.mjs counts them: null in a file built before it did.
-  const byType = db.coverage?.byManufacturer?.AeroTech?.missingByType;
-  const aerotechMissing = byType ? Object.entries(byType).flatMap(([type, byMm]) => Object.entries(byMm)
-    .flatMap(([mm, names]) => names.map((designation) => ({ type, mm: Number(mm), designation })))) : null;
   return {
     tokens: {
       NOZZLE_LOKI_WITH_EXIT: lokiExit.toLocaleString('en-US'),
       NOZZLE_LOKI_IN_PRODUCTION: lokiInProduction.toLocaleString('en-US'),
     },
     rows,
-    lokiShort,
     twoNozzles: rows.filter((m) => m.exitAmbiguous),
-    onPurpose,
-    // The loadable 29 mm DMS rows with no exit: the moulded case, part 01912.
-    moulded29: rows.filter((m) => m.motorId && m.exitDiameterM === undefined
-      && m.docFamily === 'dms' && m.casingDiameterMm === 29),
-    aerospike: onPurpose.filter((m) => /\bAEROSPIKE\b/i.test(sheet(m))),
-    cutShort: onPurpose.filter((m) => /\bCUT TO\b/i.test(sheet(m))),
-    aerotechMissing,
   };
 }
 
@@ -471,98 +434,6 @@ function checkNozzleClaims(raw, facts) {
     if (asCount(count) !== two.length || two.some((m) => m.manufacturer !== maker)) {
       fail(`user-guide.md says "${said}"; nozzles.json has ${inWords(two.length)} motors with two published `
         + `nozzles (${named(two)}) — rewrite the sentence`, at.ln);
-    }
-  }
-
-  at = find(new RegExp(String.raw`\b${SAID_COUNT} Loki motors are short\b`, 'i'));
-  if (at) {
-    const short = facts.lokiShort;
-    if (asCount(at.m[1]) !== short.length) {
-      fail(`user-guide.md says ${at.m[1]} Loki motors are short; nozzles.json has ${inWords(short.length)} in `
-        + `production with no exit (${short.join(', ')}) — rewrite that sentence and the motors it names`, at.ln);
-    }
-    for (const designation of short) {
-      const name = designation.match(/^[A-Z]\d+/)?.[0] ?? designation;
-      if (!at.line.includes(name)) {
-        fail(`user-guide.md's sentence on the Loki motors that are short does not name ${name} (${designation}), `
-          + 'which nozzles.json counts among them', at.ln);
-      }
-    }
-  }
-
-  at = find(new RegExp(String.raw`\b${SAID_COUNT} 29 mm DMS motors have the nozzle moulded into the case\b`, 'i'));
-  if (at && asCount(at.m[1]) !== facts.moulded29.length) {
-    fail(`user-guide.md says ${at.m[1]} 29 mm DMS motors have the nozzle moulded into the case; nozzles.json has `
-      + `${inWords(facts.moulded29.length)} loadable 29 mm DMS rows with no exit (${named(facts.moulded29)})`, at.ln);
-  }
-
-  // The rest of the rows with no number on purpose. The sentence names one motor
-  // for one of its reasons and counts the other two, and it reads as the whole
-  // list, so a row with no exit for a reason it does not give is a sentence to
-  // write, not a row to leave out.
-  const notTheFiles = (hit, what, rows) => fail(`user-guide.md says "${hit.m[0]}"; in nozzles.json the loadable `
-    + `rows with no exit ${what} are ${rows.length ? `${inWords(rows.length)}: ${named(rows)}` : 'none'}`, hit.ln);
-  const theOne = (re, what, rows) => {
-    const hit = find(re);
-    if (hit && !(rows.length === 1 && rows[0].designation.startsWith(hit.m[1]))) notTheFiles(hit, what, rows);
-  };
-  theOne(/\bthe ([A-Z]\d+[A-Z]*) is an aerospike\b/, 'and an aerospike on the sheet', facts.aerospike);
-  at = find(new RegExp(String.raw`\b${SAID_COUNT} has a nozzle the sheet says was cut shorter than the mould\b`, 'i'));
-  if (at && asCount(at.m[1]) !== facts.cutShort.length) {
-    notTheFiles(at, 'and a nozzle the sheet says was "CUT TO" a length', facts.cutShort);
-  }
-  at = find(/\bcarry a row with no number on purpose\b/);
-  if (at) {
-    const given = [facts.aerospike, facts.moulded29, facts.cutShort];
-    const unexplained = facts.onPurpose.filter((m) => !given.some((rows) => rows.includes(m)));
-    if (unexplained.length) {
-      fail(`nozzles.json has ${inWords(unexplained.length)} loadable row(s) with no exit that user-guide.md's sentence `
-        + 'on the rows with no number on purpose does not account for: '
-        + `${unexplained.map((m) => `${m.designation} ("${m.provenance?.lomDescription ?? 'no sheet line'}")`).join(', ')}`
-        + ' — say why in that sentence, and check it in checkNozzleClaims()', at.ln);
-    }
-  }
-
-  // What AeroTech have left uncovered (board Tier 1 row 13, 2026-10-01). The sentence
-  // said "the older single-use line — motors with neither a reload kit nor a DMS design
-  // sheet" by hand, and 12 of the 40 it described were reload kits or DMS motors. It now
-  // gives the catalogue's own split, and every part of it is the file's: "most" are
-  // single-use motors in the sizes it calls hobby motors, the reload kits and larger
-  // single-use motors are the rest, and no motor of another type is left out of it.
-  at = find(new RegExp(String.raw`\bMost are single-use hobby motors of (\d+) mm to (\d+) mm\b.*\bthe rest are `
-    + String.raw`${SAID_COUNT} reload kits and ${SAID_COUNT} larger single-use motors\b`, 'i'));
-  if (at) {
-    const [, lo, hi, reloadSaid, largerSaid] = at.m;
-    const all = facts.aerotechMissing;
-    if (!all) {
-      fail('nozzles.json has no coverage.byManufacturer.AeroTech.missingByType, and user-guide.md\'s sentence on what '
-        + 'AeroTech have left uncovered is checked against it — rebuild nozzles.json with build-nozzle-db.mjs', at.ln);
-    }
-    const listed = (xs) => xs.map((x) => x.designation).join(', ');
-    const other = all.filter((x) => x.type !== 'reload' && x.type !== 'SU');
-    if (other.length) {
-      fail(`user-guide.md's sentence on what AeroTech have left uncovered does not account for `
-        + `${other.map((x) => `${x.designation} (${x.type})`).join(', ')} — say what they are there, and check it here`, at.ln);
-    }
-    const reload = all.filter((x) => x.type === 'reload');
-    if (asCount(reloadSaid) !== reload.length) {
-      fail(`user-guide.md says ${reloadSaid} reload kits remain uncovered; nozzles.json has `
-        + `${inWords(reload.length)} (${listed(reload)})`, at.ln);
-    }
-    const hobby = all.filter((x) => x.type === 'SU' && x.mm <= Number(hi));
-    const larger = all.filter((x) => x.type === 'SU' && x.mm > Number(hi));
-    if (asCount(largerSaid) !== larger.length) {
-      fail(`user-guide.md says ${largerSaid} larger single-use motors remain uncovered; nozzles.json has `
-        + `${inWords(larger.length)} (${listed(larger)})`, at.ln);
-    }
-    const sizes = hobby.map((x) => x.mm);
-    if (!sizes.length || Math.min(...sizes) !== Number(lo) || Math.max(...sizes) !== Number(hi)) {
-      fail(`user-guide.md says the uncovered single-use hobby motors run ${lo} mm to ${hi} mm; in nozzles.json they run `
-        + (sizes.length ? `${Math.min(...sizes)} mm to ${Math.max(...sizes)} mm` : 'nowhere: there are none'), at.ln);
-    }
-    if (hobby.length * 2 <= all.length) {
-      fail('user-guide.md says most of what AeroTech have left uncovered are single-use hobby motors; nozzles.json has '
-        + `${inWords(hobby.length)} of ${all.length}`, at.ln);
     }
   }
 

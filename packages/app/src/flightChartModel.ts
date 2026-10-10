@@ -19,6 +19,12 @@ export function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
   return [
     { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
     { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
+    // Vertical velocity: the kernel's Vz, in every summary run. It goes through
+    // zero at apogee and turns negative on the way down — desktop OR's default
+    // plot — where Velocity (speed over the ground) never does. Its own chip
+    // since v0.172 (@atestani); before that only the comparison preset drew it.
+    // Velocity's colour, as the preset always drew it.
+    { key: 'Vz', title: 'Vertical velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
     { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, quantity: 'acceleration', color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
     { key: 'mass', title: 'Mass', unit: u.mass, quantity: 'mass', color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
     { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
@@ -50,10 +56,8 @@ export const PRESETS: ComparisonPreset[] = [
 ];
 
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
-  const velocity = catalog.find((d) => d.key === 'velocity')!;
-  const defs = [...catalog, { ...velocity, key: 'Vz', title: 'Vertical velocity' }];
   return (['left', 'right'] as const).flatMap((axis) => preset[axis].map((key, i) => ({
-    ...defs.find((d) => d.key === key)!, axis,
+    ...catalog.find((d) => d.key === key)!, axis,
     // Redundant encoding for CVD readers, without changing identity colours.
     dash: axis === 'right' ? (i === 0 ? [6, 4] : [2, 3]) : undefined,
   })));

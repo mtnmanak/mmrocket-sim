@@ -38,6 +38,15 @@ describe('comparison definitions and SI copies', () => {
     expect(input).toEqual(before);
     expect(comparisonMembers(PRESETS[1]!, c)[1]!.f!(-2)).toBeCloseTo(-2 / 0.3048, 10);
   });
+  it('offers Vertical velocity as its own chart, right after Velocity, in velocity units (v0.172, @atestani)', () => {
+    const c = catalog(true);
+    expect(c.slice(1, 3).map((d) => [d.key, d.title])).toEqual([['velocity', 'Velocity'], ['Vz', 'Vertical velocity']]);
+    const vz = c.find((d) => d.key === 'Vz')!;
+    expect(vz.unit).toBe(c.find((d) => d.key === 'velocity')!.unit);
+    expect(convertedValues(series([0, 1, 2]), vz)[0]).toBeCloseTo(-2 / 0.3048, 10);
+    // The comparison preset draws the same definition the chip does.
+    expect(comparisonMembers(PRESETS[1]!, c)[1]).toMatchObject({ key: 'Vz', title: 'Vertical velocity', color: vz.color });
+  });
   it('requires aligned finite samples, not just nonempty arrays', () => {
     const input = series([null, 1]);
     input.velocity = [2, NaN];
