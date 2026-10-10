@@ -66,6 +66,19 @@ afterEach(() => {
 });
 
 describe('storage hardening: session tree', () => {
+  it.each(['opened', 'saved', 'downloaded'] as const)('round-trips a design file name (%s)', via => {
+    const designFile = { name: 'Mon fusée.ork', via };
+    saveSessionDebounced({ ...state(), designFile });
+    flushSession();
+    expect(loadSession()?.designFile).toEqual(designFile);
+  });
+
+  it.each([null, {}, { name: '', via: 'opened' }, { name: 'file.ork', via: 'other' },
+    { name: 'x'.repeat(256), via: 'saved' }])('drops an invalid design file reference (%j)', designFile => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), designFile }));
+    expect(loadSession()).not.toHaveProperty('designFile');
+  });
+
   const stage = { type: 'stage', id: 'kept', name: 'Sustainer', children: [] };
   const restore = () => designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
 

@@ -99,7 +99,9 @@ function run(letters) {
   return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
 }
 
-describe.skipIf(!hasPyMuPDF)('extract-aerotech-certified.py reads a letter by position and unit', () => {
+// Each case spawns Python twice (build the PDFs, then extract); under a full-suite
+// load that has run past Vitest's 5 s default on the desktop (2026-10-10, twice).
+describe.skipIf(!hasPyMuPDF)('extract-aerotech-certified.py reads a letter by position and unit', { timeout: 30_000 }, () => {
   it('reads the SI figure from its own column when the imperial cell beside it is empty', () => {
     const { status, stderr, json } = run({ 'Test/X99T.pdf': letter() });
     expect(status, stderr).toBe(0);

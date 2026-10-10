@@ -97,6 +97,7 @@ import { exportRkt, rktComponentInfo } from './services/rocksimFile.js';
 import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
+import { designFileBase, designFileLabel, designFileTitle, documentTitle, type DesignFileRef } from './services/designFileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1 } from './services/rasaeroFile.js';
@@ -492,6 +493,7 @@ export function App() {
   // A RASAero import's Mach-Alt table, offered to the drag panel as a sweep
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>(() => session?.fileMachAlt);
+  const [designFile, setDesignFile] = useState<DesignFileRef | null>(() => session?.designFile ?? null);
   const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
@@ -844,6 +846,13 @@ export function App() {
     dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore);
 
+  // The rocket name lives INSIDE the file; the name on disk can be different.
+  // Desktop OpenRocket shows both in its window title, with the same unsaved
+  // marker. Keep the browser tab in step with edits, opens and Save As too.
+  useEffect(() => {
+    document.title = documentTitle(tree.name, designFile, dirty);
+  }, [tree.name, designFile, dirty]);
+
   const catalogue = useCatalogue();
   useEffect(() => subscribeCatalogue(() => {
     const currentCatalogue = getCatalogue();
@@ -907,6 +916,7 @@ export function App() {
     // standing, the drag panel went on offering the PREVIOUS rocket's flight
     // altitudes as a sweep condition for a design that never flew them.
     setFileMachAlt(undefined);
+    setDesignFile(null);
     setLongitudeReview(null);
     // A stale "Loaded <old rocket>…" banner over a fresh design
     // reads like the import happened again - clear both notes.
@@ -2097,6 +2107,9 @@ export function App() {
       // Nor this: an opened .CDX1's Mach-Alt table, which Drag analysis offers
       // and Save .CDX1 writes back (K10–K11); only while there is one.
       ...(fileMachAlt ? { fileMachAlt } : {}),
+      // The file name is provenance, not a design edit. Restore it beside the
+      // rocket name so a reload does not silently change Save As's suggestion.
+      ...(designFile ? { designFile } : {}),
       // Nor this: the delay each Auto mount flew, which the crash-recovery
       // .ork writes as a Save would (audit 2026-09-30, item 23). Written only
       // while there is one, so a design with no Auto flight stores what it
@@ -2114,7 +2127,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt]);
+  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2180,7 +2193,12 @@ export function App() {
     // Same convention as the flight-data and run-history CSVs (SimResults).
     const info = FORMAT_INFO[ext] ?? { mime: 'application/octet-stream', description: 'File' };
     const parts: BlobPart[] = ext === 'csv' ? [CSV_BOM, content as BlobPart] : [content as BlobPart];
-    const name = `${safeName(tree.name ?? 'rocket')}${suffix}.${ext}`;
+    // Design formats keep the file's own stem, including spaces and Unicode.
+    // Tables and geometry still name the rocket and the data they export;
+    // choosing Save .rkt or .CDX1 does not make that lossy export the design's file.
+    const base = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
+      ? designFileBase(designFile, tree.name) : safeName(tree.name ?? 'rocket');
+    const name = `${base}${suffix}.${ext}`;
     const out = await saveFile(new Blob(parts, { type: info.mime }), {
       suggestedName: name,
       mime: info.mime,
@@ -2241,8 +2259,11 @@ export function App() {
       }), 'ork', '', losses);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
-      // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
-      if (out.kind !== 'cancelled') markSaved(mark, flightsAtSnapshot);
+      if (out.kind === 'saved' || out.kind === 'downloaded') {
+        // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
+        markSaved(mark, flightsAtSnapshot);
+        setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded' });
+      }
       return out;
     } catch (e) {
       setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -2365,7 +2386,7 @@ export function App() {
    * The capability did NOT: ⏏ Unload in the vitals strip and the "None" row in
    * the Flight configurations panel both empty the working set in one click.
    */
-  const applyImported = async (imported: ImportedDesign, seq?: number) => {
+  const applyImported = async (imported: ImportedDesign, seq?: number, file: DesignFileRef | null = null) => {
     // Which open this is. Every motor in the file can cost a live
     // thrustcurve.org fetch with no timeout, so two opens a second apart
     // finish in whatever order the network decides: at a launch site the
@@ -2385,6 +2406,9 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
+    // The winning open owns the file name as well as the design. A share link
+    // has no file, so its omitted argument clears the previous file's name.
+    setDesignFile(file);
     // What goes on screen, decided in services/importApply.ts and written by
     // applyImportPlan, which marks from the SAME plan — so the two cannot be
     // assembled apart. The launch is merged ONCE, from the mirror, now that
@@ -2542,7 +2566,7 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Launch switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      await applyImported(imported, openId);
+      await applyImported(imported, openId, { name: file.name, via: 'opened' });
     } catch (e) {
       // A superseded open must not shout about a design nobody is waiting for.
       if (!openSeq.isCurrent(openId)) return;
@@ -3104,7 +3128,7 @@ export function App() {
           </button>
         </div>
         <div className="design-file">
-          <span className="design-file-name" title={tree.name || 'Rocket'}>{tree.name || 'Rocket'}</span>
+          <span className="design-file-name" title={designFileTitle(designFile)}>{designFileLabel(designFile)}</span>
           <span className="design-save-status" role="status" aria-label="Design save status" aria-live="polite">
             {dirty ? 'Unsaved changes' : 'No unsaved changes'}
           </span>

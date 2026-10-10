@@ -308,6 +308,7 @@ describe('flight configuration editing in App', () => {
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
         activeConfigId: 'reused-id', savedConfigs: configs,
+        designFile: { name: 'Previous.ork', via: 'opened' },
       }));
       const xml = exportOrk({ name: 'Replacement', tree: { ...tree, name: 'Replacement' },
         configs: configs.map(c => ({ ...c, motors: {} })) });
@@ -326,10 +327,13 @@ describe('flight configuration editing in App', () => {
         await pick(host, new File([xml], 'replacement.ork'));
         await waitFor(() => shownName(host) === 'Replacement', 'replacement file');
       } else if (replacement === 'share link') {
+        expect(host.querySelector('.design-file-name')?.textContent).toBe('Previous.ork');
         await act(async () => { release!(); });
         await waitFor(() => host.textContent?.includes('This link opens') === true, 'share offer');
         await act(async () => { button(document, 'Open “Replacement”').click(); });
         await waitFor(() => shownName(host) === 'Replacement', 'replacement link');
+        expect(host.querySelector('.design-file-name')?.textContent).toBe('Not saved to a file');
+        expect(document.title).toBe('Replacement — MMRocket Sim');
       } else {
         await openTab(host, 'Design');
         await act(async () => { button(host, '✕ New').click(); });
@@ -898,6 +902,9 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await act(async () => { dom.setWindowSize({ width }); });
     try {
       const host = await mountApp();
+      await waitFor(starterStored, 'the starter motor to be autosaved');
+      await pick(host, new File([fixture(RKT)], `${'LongFileName'.repeat(20)}.rkt`));
+      await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
       const name = host.querySelector<HTMLInputElement>('#rocket-name')!;
       await type(name, 'LongRocketName'.repeat(20));
       const row = host.querySelector<HTMLElement>('.design-file')!;
@@ -935,7 +942,8 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await type(name, 'A very long rocket name for the persistent header');
     expect(status()?.textContent).toBe('Unsaved changes');
     expect(host.querySelector('.app-header .design-file-name')?.textContent)
-      .toBe('A very long rocket name for the persistent header');
+      .toBe('Not saved to a file');
+    expect(document.title).toBe('*A very long rocket name for the persistent header — MMRocket Sim');
     await act(async () => { button(host, 'Undo').click(); });
     expect(name.value).toBe(originalName);
     expect(status()?.textContent).toBe('No unsaved changes');
@@ -1103,6 +1111,66 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
  * the plan merges.
  */
 describe('an open and ✕ New leave a design that reads saved', () => {
+  it('keeps the opened file name separate from the rocket name, and remembers a real Save As', async () => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    const fileName = 'Mon fusée (test).RKT';
+    await pick(host, new File([fixture(RKT)], fileName));
+    await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
+    const label = () => host.querySelector<HTMLElement>('.design-file-name')!;
+    expect(label().textContent).toBe(fileName);
+    expect(label().title).toBe(`Opened from ${fileName}. Save .ork offers this name.`);
+    expect(document.title).toBe(`FooBar Test (${fileName}) — MMRocket Sim`);
+    await unmountAll();
+    host = await mountApp();
+    expect(label().textContent).toBe(fileName);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Different rocket');
+    expect(document.title).toBe(`*Different rocket (${fileName}) — MMRocket Sim`);
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Chosen name.ork' });
+    await saveAs(host, 'Save .ork');
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('Mon fusée (test).ork');
+    expect(label().textContent).toBe('Chosen name.ork');
+    expect(label().title).toBe('Saved as Chosen name.ork. Save .ork offers this name.');
+    expect(document.title).toBe('Different rocket (Chosen name.ork) — MMRocket Sim');
+    await unmountAll();
+    host = await mountApp();
+    expect(label().textContent).toBe('Chosen name.ork');
+    expect(storedSession()?.designFile).toEqual({ name: 'Chosen name.ork', via: 'saved' });
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(label().textContent).toBe('Not saved to a file');
+    expect(document.title).toBe('New Rocket — MMRocket Sim');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()).not.toHaveProperty('designFile');
+  }, 30000);
+
+  it('only a successful .ork save changes the file name; other exports keep their naming rules', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await pick(host, new File([fixture(RKT)], 'Original file.rkt'));
+    await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
+    const label = () => host.querySelector<HTMLElement>('.design-file-name')!;
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
+    await saveAs(host, 'Save .ork');
+    expect(label().textContent).toBe('Original file.rkt');
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('disk unavailable'));
+    await saveAs(host, 'Save .ork');
+    expect(label().textContent).toBe('Original file.rkt');
+    for (const [entry, expected] of [
+      ['Save .rkt', 'Original file.rkt'], ['Save .CDX1', 'Original file.CDX1'],
+      ['Export .csv', 'FooBar_Test-components.csv'], ['Export .obj', 'FooBar_Test.obj'],
+    ]) {
+      const before = vi.mocked(saveFile).mock.calls.length;
+      await saveAs(host, entry!);
+      await waitFor(() => vi.mocked(saveFile).mock.calls.length > before, `${entry} to write`);
+      expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe(expected);
+      expect(label().textContent).toBe('Original file.rkt');
+    }
+    await saveAs(host, 'Save .ork');
+    expect(label().textContent).toBe('Original file.ork');
+    expect(label().title).toContain('Downloaded as Original file.ork.');
+    expect(label().title).toContain('browser may have saved it under another name');
+  }, 30000);
+
   it('an opened file reads saved, and so does the empty design ✕ New leaves', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
@@ -1484,6 +1552,8 @@ describe('an action taken while another is in flight owns the screen', () => {
     await settle(600);
     expect(shownName(host)).toBe('New Rocket');
     expect(host.textContent).not.toContain(RKT_NAME);
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Not saved to a file');
+    expect(document.title).toBe('New Rocket — MMRocket Sim');
   }, 30000);
 
   it('a file opened while a share link decodes: the link does not land over it', async () => {
@@ -1714,6 +1784,8 @@ it('a first-visit share link applies without an offer dialog', async () => {
     'the share link to decode');
   expect(host.textContent).not.toContain('This link opens');
   expect(shownName(host)).toBe('First linked design');
+  expect(host.querySelector('.design-file-name')?.textContent).toBe('Not saved to a file');
+  expect(document.title).toBe('First linked design — MMRocket Sim');
 }, 30000);
 
 it('a shared design asks before replacing non-tree work on the starter rocket', async () => {

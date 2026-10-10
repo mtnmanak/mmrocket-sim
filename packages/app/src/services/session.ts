@@ -9,6 +9,7 @@ import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js
 import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
 import { defaultTree } from '../tree/treeModel.js';
+import { validDesignFileRef, type DesignFileRef } from './designFileName.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -125,6 +126,8 @@ export interface SessionState {
    * dropped on load when malformed (`validMachAltTable`).
    */
   fileMachAlt?: [number, number][];
+  /** The opened or last .ork save's file name and provenance, separate from the rocket name. */
+  designFile?: DesignFileRef;
   /**
    * The design fingerprint as of the last save or import (v0.091+) — what is
    * on disk. Compared against the live design to decide whether opening
@@ -439,6 +442,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
       const t = validMachAltTable(s.fileMachAlt);
       if (t) s.fileMachAlt = t;
       else delete s.fileMachAlt;
+    }
+    if (s.designFile !== undefined) {
+      const file = validDesignFileRef(s.designFile);
+      if (file) s.designFile = file;
+      else delete s.designFile;
     }
     // The same for the delays a crash file writes an Auto mount at.
     if (s.flownAutoDelays !== undefined) {
