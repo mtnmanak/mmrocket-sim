@@ -832,6 +832,87 @@ describe('dual deployment attribution', () => {
     });
   });
 
+  describe('DEVICES THAT OPEN TOGETHER ARE ONE STAGE (@atestani, 2026-10-09, v0.171)', () => {
+    // His LEM-1 flew two identical chutes on one event, both at 10.457 s. Every
+    // deployment used to be its own step, so the first became a "drogue" whose
+    // descent was read at its own opening instant — the free-fall speed, 64 m/s
+    // (210 ft/s), flagged "drogue descent too fast" — and the report named one
+    // canopy as the landing device on a rocket that came down under both.
+    const T_MAIN = 30;
+    const withDevices = (drogueRate: number, landRate: number,
+      devices: { time: number; source: string }[]) => {
+      const result = dualDeployResult(drogueRate, landRate);
+      result.events = result.events.filter((e) => e.type !== 'RECOVERY_DEVICE_DEPLOYMENT');
+      const ground = result.events.findIndex((e) => e.type === 'GROUND_HIT');
+      result.events.splice(ground, 0,
+        ...devices.map((d) => ({ type: 'RECOVERY_DEVICE_DEPLOYMENT' as const, ...d })));
+      return buildSimRun({
+        result, info, motor, meta: { label: 'J350-auto', manufacturer: 'AT' },
+        launch: DEFAULT_CONDITIONS, rocketName: 'Cluster', execMs: 1,
+      });
+    };
+
+    it('two chutes on one event are BOTH landing devices, each with the landing descent', () => {
+      const run = withDevices(64, 7, [
+        { time: T_MAIN, source: 'Parachute' }, { time: T_MAIN, source: 'Parachute (copy)' }]);
+      expect(run.deployments.map((d) => d.isLanding)).toEqual([true, true]);
+      for (const d of run.deployments) {
+        expect(d.descentRate).toBeCloseTo(7, 2);
+        expect(d.descentOk).toBe(false); // 23 ft/s really is over the 20 ft/s target
+      }
+      expect(run.comments ?? '').not.toMatch(/drogue/i);
+      expect(run.landingRate).toBeCloseTo(7, 2);
+    });
+
+    it('says each sentence ONCE, naming both devices', () => {
+      const said = commentsOf(withDevices(64, 7, [
+        { time: T_MAIN, source: 'Parachute' }, { time: T_MAIN, source: 'Parachute (copy)' }]));
+      const landing = said.filter((c) => c.text.startsWith('Landing under'));
+      expect(landing).toHaveLength(1);
+      expect(landing[0]!.text.startsWith('Landing under Parachute and Parachute (copy) at 7.0 m/s')).toBe(true);
+      const opening = said.filter((c) => / opens? at /.test(c.text));
+      expect(opening).toHaveLength(1);
+      expect(opening[0]!.text.startsWith('Parachute and Parachute (copy) open at 64.0 m/s')).toBe(true);
+    });
+
+    it('two canopies with the same name are counted, not repeated', () => {
+      // His OR file: both chutes are desktop OR's default "Parachute".
+      const said = commentsOf(withDevices(64, 7, [
+        { time: T_MAIN, source: 'Parachute' }, { time: T_MAIN, source: 'Parachute' }]));
+      const landing = said.filter((c) => c.text.startsWith('Landing under'));
+      expect(landing).toHaveLength(1);
+      expect(landing[0]!.text.startsWith('Landing under Parachute (×2) at 7.0 m/s')).toBe(true);
+    });
+
+    it('a drogue then a cluster of mains: one drogue stage, two landing devices', () => {
+      const run = withDevices(19.5, 5, [
+        { time: 7, source: 'Drogue' },
+        { time: T_MAIN, source: 'Main A' }, { time: T_MAIN, source: 'Main B' }]);
+      const [drogue, a, b] = run.deployments;
+      expect(drogue!.isLanding).toBe(false);
+      // Read just before the CLUSTER opens, as a single main always was.
+      expect(drogue!.descentRate).toBeCloseTo(19.5, 1);
+      for (const m of [a!, b!]) {
+        expect(m.isLanding).toBe(true);
+        expect(m.descentRate).toBeCloseTo(5, 2);
+        // Opening on the drogue's descent, not its ground speed — for both.
+        expect(m.velocityAtDeployment).toBeCloseTo(19.5, 1);
+      }
+    });
+
+    it('devices a fraction of a second apart are still one stage', () => {
+      const run = withDevices(64, 7, [
+        { time: T_MAIN, source: 'A' }, { time: T_MAIN + 0.1, source: 'B' }]);
+      expect(run.deployments.map((d) => d.isLanding)).toEqual([true, true]);
+    });
+
+    it('a sequence of single devices is unchanged', () => {
+      const run = withDevices(19.5, 5, [{ time: 7, source: 'Drogue' }, { time: T_MAIN, source: 'Main' }]);
+      expect(run.deployments.map((d) => d.isLanding)).toEqual([false, true]);
+      expect(run.deployments[0]!.descentRate).toBeCloseTo(19.5, 1);
+    });
+  });
+
   describe('the Cd each device flew (2026-09-03b)', () => {
     // The descent verdict rests entirely on this number, and until v0.099 the
     // report named the device but never the figure — which cost two round trips

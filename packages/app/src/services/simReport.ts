@@ -1532,6 +1532,14 @@ const verticalRateAt = (
   return Number.isFinite(rate) ? Math.abs(rate) : null;
 };
 
+/**
+ * Deployments closer together than this are ONE STAGE of the recovery: the
+ * descent between them cannot be measured, because a device's settled rate is
+ * read this long before the next one opens (see tSettled below). Two chutes on
+ * one event, or a cluster of mains, deploy at the same instant.
+ */
+const SETTLE_MARGIN_S = 0.2;
+
 /** Per-device deployments for ONE flight branch (drogue/main ordering). */
 function extractDeployments(
   events: FlightEvent[],
@@ -1547,9 +1555,30 @@ function extractDeployments(
   // rate (EclipseB's 30 s H148R, 0.00). The EventAfterLanding warning says it.
   const deployEvents = events.filter((e) => e.type === 'RECOVERY_DEVICE_DEPLOYMENT'
     && (tGroundHit === null || e.time < tGroundHit));
+  /**
+   * SIMULTANEOUS DEVICES ARE ONE STAGE (@atestani, 2026-10-09). Until v0.171
+   * every deployment was a step of its own: only the LAST was the landing
+   * device and each earlier one a drogue, its descent read just before the
+   * next opened. Two chutes on one event (his LEM-1, both at 10.457 s) made
+   * the first a "drogue" whose descent was read at its own opening instant —
+   * 64 m/s (210 ft/s) in free fall, flagged "drogue descent too fast", on a
+   * rocket that came down under both canopies. So devices are grouped by
+   * time: every device in the last group is a landing device, each group's
+   * descent is read once, before the NEXT group opens, and only the first
+   * group's opening is judged on ground speed.
+   */
+  const groupOf: number[] = [];
+  const groupStart: number[] = [];
+  for (const ev of deployEvents) {
+    const g = groupStart.length - 1;
+    if (g >= 0 && ev.time - groupStart[g]! < SETTLE_MARGIN_S) groupOf.push(g);
+    else { groupStart.push(ev.time); groupOf.push(g + 1); }
+  }
+  const lastGroup = groupStart.length - 1;
   return deployEvents.map((ev, i) => {
     const device = ev.source ?? `Recovery device ${i + 1}`;
-    const isLanding = i === deployEvents.length - 1;
+    const group = groupOf[i]!;
+    const isLanding = group === lastGroup;
     const vGroundRaw = at(series.time, series.velocity, ev.time);
     const groundSpeedAtDeployment = vGroundRaw === null ? null : Math.abs(vGroundRaw);
     /**
@@ -1571,16 +1600,16 @@ function extractDeployments(
      * rate fell to √(21.34² − w²): 20.74 m/s at 5 m/s of wind, 18.9 at 10,
      * 15.2 — the very bottom of the sizing panel's drogue band — at 15.
      */
-    const vDeploy = i === 0
+    const vDeploy = group === 0
       ? vGroundRaw
       : (verticalRateAt(series, ev.time) ?? vGroundRaw);
     // The instant this device's descent is settled: at the ground hit, or just
-    // before the next device opens. GROUND_HIT rather than the last SAMPLE: with a
+    // before the next GROUP opens. GROUND_HIT rather than the last SAMPLE: with a
     // device still queued at impact the kernel stores one extra all-zero sample
     // (see verticalRateAt), and reading that one reports a 0 m/s landing.
     const tSettled = isLanding
       ? (tGroundHit ?? series.time[series.time.length - 1] ?? ev.time)
-      : Math.max(ev.time, deployEvents[i + 1]!.time - 0.2);
+      : Math.max(ev.time, groupStart[group + 1]! - SETTLE_MARGIN_S);
     // VERTICAL — the rate the safety limits are written about. See verticalRateAt.
     const descentRate = verticalRateAt(series, tSettled)
       // A branch too short to difference (an immediate ground hit) keeps the old
@@ -2127,12 +2156,39 @@ export function buildSimRun(input: {
   if (safeThrustToWeight === false) {
     say(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`, 'warning');
   }
+  /**
+   * DEVICES THAT OPEN TOGETHER SHARE ONE SENTENCE (v0.171). A cluster of mains,
+   * or two chutes on one event, carry the same opening speed and the same
+   * descent, so a sentence per device said the same thing twice — and "Landing
+   * under Parachute" read as if that canopy alone brought the rocket down.
+   * Each sentence is rendered with a placeholder subject; devices whose
+   * sentences are otherwise identical are named together in one.
+   */
+  type DeviceLine = { names: string[]; level: CommentLevel; render: (who: string, many: boolean) => string };
+  const deviceLines = new Map<string, DeviceLine>();
+  const sayDevice = (name: string, render: DeviceLine['render'], level: CommentLevel): void => {
+    const key = `${level}|${render('{device}', false)}`;
+    const hit = deviceLines.get(key);
+    if (hit) hit.names.push(name);
+    else deviceLines.set(key, { names: [name], level, render });
+  };
+  // Two canopies with ONE name (desktop OR's default "Parachute" on both) read
+  // "Parachute and Parachute"; they are counted instead.
+  const nameDevices = (names: readonly string[]): string => {
+    const counts = new Map<string, number>();
+    for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+    return listAnd([...counts].map(([n, c]) => (c > 1 ? `${n} (×${c})` : n)));
+  };
+  const flushDevices = (): void => {
+    for (const l of deviceLines.values()) say(l.render(nameDevices(l.names), l.names.length > 1), l.level);
+    deviceLines.clear();
+  };
   // Both the sustainer and separated stages use the same drogue limits and
   // wording, so a failed branch descent check always has an explanation.
   const sayDrogueDescent = (d: DeploymentReport, prefix = '') => {
     if (d.descentOk === false && !d.isLanding) {
       const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate;
-      say(`${prefix}Descent under ${d.device} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
+      sayDevice(d.device, (who) => `${prefix}Descent under ${who} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
         + (fast
           ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
           : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, in the caution band up to ${fps(SAFETY.warnDrogueDescentRate)}.`),
@@ -2153,7 +2209,7 @@ export function buildSimRun(input: {
       // warning above. The sentence says which it is rather than leaving the
       // reader to compare two numbers.
       const hard = d.openingOk === false;
-      say(`${d.device} opens at ${air.toFixed(1)} m/s (${fps(air)}) — `
+      sayDevice(d.device, (who, many) => `${who} ${many ? 'open' : 'opens'} at ${air.toFixed(1)} m/s (${fps(air)}) — `
         + (hard
           ? `hard opening, past the ${fps(SAFETY.warnDeploymentVelocity)} limit.`
           : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
@@ -2176,9 +2232,10 @@ export function buildSimRun(input: {
         && d.groundSpeed - d.descentRate > 0.1
         ? ` It touches down at ${d.groundSpeed.toFixed(1)} m/s (${fps(d.groundSpeed)}) over the ground, the rest of that being wind drift.`
         : '';
-      say(`Landing under ${d.device} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`, 'warning');
+      sayDevice(d.device, (who) => `Landing under ${who} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`, 'warning');
     }
   }
+  flushDevices();
   const fallbackOpening = openingVerdict(velocityAtDeployment);
   if (deployments.length === 0 && (fallbackOpening === false || fallbackOpening === 'caution')) {
     const hard = fallbackOpening === false;
@@ -2229,11 +2286,12 @@ export function buildSimRun(input: {
         // Same three tiers as the sustainer's own devices, above.
         const v = Math.abs(d.velocityAtDeployment!);
         const hard = d.openingOk === false;
-        say(`${b.name}: ${d.device} opens at ${v.toFixed(1)} m/s (${fps(v)}) — `
+        sayDevice(d.device, (who, many) => `${b.name}: ${who} ${many ? 'open' : 'opens'} at ${v.toFixed(1)} m/s (${fps(v)}) — `
           + (hard ? 'hard opening.' : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`),
         hard ? 'warning' : 'caution');
       }
     }
+    flushDevices();
   }
 
   return {

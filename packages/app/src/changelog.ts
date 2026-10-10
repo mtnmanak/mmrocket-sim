@@ -32,6 +32,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.171",
+    "date": "2026-10-09",
+    "title": "Recovery devices that open together; measuring guides on the 2D view",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed. What changed is how the launch report labels and judges recovery devices that open at the same moment, and a new measuring tool on the 2D side view.",
+      "RECOVERY DEVICES THAT OPEN TOGETHER ARE JUDGED TOGETHER. Two chutes on one deployment event, or a cluster of mains, open at the same moment, but the report treated every deployment as a step of its own: only the last device was the landing device, and the one before it was judged as a drogue, its descent read at the moment it opened. On a two-chute design (@atestani's LEM-1) the first chute was reported as a drogue descending at 210 ft/s, which was the free-fall speed it opened at, and flagged \"drogue descent too fast\". Devices that open within 0.2 s of each other now count as one step: all of the last step's devices are landing devices, each step's descent is read once, just before the next step opens, and the report says each warning once, naming every device in it. On a design whose devices open one after another, nothing changes. A run saved before this release keeps its old labels until you fly it again.",
+      "MEASURING GUIDES ON THE 2D VIEW. Press on the top ruler of the 2D side view and drag down for a line across the rocket that reads its station from the nose tip, or on the left ruler and drag right for a line along the rocket that reads its distance from the centreline. A plain click on a ruler drops a guide where you clicked. Two or more guides on one axis show the distance between each neighbouring pair. Drag a guide to move it, drag it back onto its ruler to remove it, or remove them all with ✕ Guides. Guides stay on their station as you zoom and pan, read in your Preferences length unit, and are left out of the ⬇ SVG and ⬇ Image exports. Requested by @atestani."
+    ]
+  },
+  {
     "version": "0.170",
     "date": "2026-10-09",
     "title": "Corrections to v0.169: late charges, staged RASAero predictions, the shroud note",

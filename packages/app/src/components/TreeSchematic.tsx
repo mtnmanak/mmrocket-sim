@@ -5,11 +5,13 @@ import {
   layoutSchematic, RULER_LEFT, RULER_TOP, schematicFrame, type SchematicShape, type ShapePart,
 } from '../tree/schematicLayout.js';
 import { PAN_SLOP, useAxialDrag } from '../hooks/useAxialDrag.js';
+import { useRulerGuides } from '../hooks/useRulerGuides.js';
 import {
   downloadImage, IMAGE_FORMAT_EXT, schematicSvg, svgToImage, type ExportData,
 } from '../services/schematicExport.js';
 import { safeName } from '../services/fileName.js';
 import { ImageExportMenu } from './ImageExportMenu.js';
+import { RulerGuides } from './RulerGuides.js';
 import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { uiToSi } from '../prefs/units.js';
@@ -254,6 +256,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const resetDragLatch = axial.resetLatch;
 
   /**
+   * Measuring guides dragged out of the rulers (@atestani, 2026-10-09 —
+   * services/rulerGuides.ts). They exist only while the rulers do, and the
+   * view they are drawn through is the rulers' own: the layout's nose tip and
+   * centreline, then the zoom and pan.
+   */
+  const guides = useRulerGuides({ svgRef, viewWidth: w, gutX, gutY });
+  const guideView = { k: zoom.k, x: zoom.x, y: zoom.y, x0: ctx.x0, cy: ctx.cy, scale };
+
+  /**
    * Arms a background pan — but does NOT start one, and deliberately does not
    * capture the pointer yet.
    *
@@ -286,6 +297,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     const dragged = axial.move(e);
     if (dragged === 'released') { endDrag(e); return; }
     if (dragged === 'busy') return;
+    if (guides.move(guideView, e)) return;
     const p = pan.current;
     if (p) {
       if (e.pointerId !== p.pointerId) return;
@@ -311,6 +323,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    *  leaving, or being cancelled) must not end the first finger's drag. */
   const endDrag = (e: React.PointerEvent) => {
     axial.end(e);
+    guides.end(e);
     if (pan.current?.pointerId === e.pointerId) pan.current = null;
   };
 
@@ -328,6 +341,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const onLostCapture = (e: React.PointerEvent) => {
     axial.lostCapture(e);
+    guides.lostCapture(e);
     const p = pan.current;
     if (p?.pointerId === e.pointerId && p.captured && e.target === p.captured) pan.current = null;
   };
@@ -722,6 +736,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             px, so a fit-view copy travels along hidden and is swapped in. */}
         {rulers && rulerGutters(zoom, false)}
         {rulers && !viewIsFit && rulerGutters({ k: 1, x: 0, y: 0 }, true)}
+        {rulers && (
+          <RulerGuides guides={guides.guides} view={guideView} w={w} h={h} gutX={gutX} gutY={gutY}
+            rollW={rollW} unit={lenUnit}
+            onCreate={(axis, e) => guides.create(axis, guideView, e)} onGrab={guides.grab} />
+        )}
       </svg>
       {/* ⟳90° keeps the roll control — laid out along the bottom, tracking
           the axis the rocket is not drawn along — but no other controls. */}
@@ -770,6 +789,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           title={rulers ? 'Hide the dimensional rulers' : 'Show dimensional rulers along the top and left'}
           aria-label={rulers ? 'Hide rulers' : 'Show rulers'} aria-pressed={rulers}
           onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>
+        {rulers && guides.guides.length > 0 && (
+          <button className="file-btn" title="Remove every measuring guide"
+            onClick={guides.clear}>✕ Guides</button>
+        )}
         {(zoom.k > 1 || zoom.x !== 0 || zoom.y !== 0) && (
           <button className="file-btn"
             title="Fit the whole rocket in view"

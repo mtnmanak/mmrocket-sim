@@ -110,6 +110,10 @@ export function schematicSvg(
     clone.querySelector('[data-ruler="view"]')?.remove();
     fitRuler.removeAttribute('display');
   }
+  // Measuring guides are a tool for reading the screen, not part of the
+  // drawing (components/RulerGuides.tsx) — and their positions, like the
+  // on-screen ruler's, are resolved for the zoomed view.
+  clone.querySelector('[data-guides]')?.remove();
 
   let inner = new XMLSerializer().serializeToString(clone);
   // The wrapper svg re-declares size/viewBox; keep only the content.

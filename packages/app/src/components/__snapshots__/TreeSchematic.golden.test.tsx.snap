@@ -41,7 +41,14 @@ exports[`real files > FinsOnTransitions.rkt, at rest 1`] = `
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="584" y="450">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 340 children, fnv1a 8ce25876"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 340 children, fnv1a 8ce25876
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="462" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > FinsOnTransitions.rkt, rolled 1`] = `
@@ -73,7 +80,14 @@ exports[`real files > FinsOnTransitions.rkt, rolled 1`] = `
     <polygon data-fin="wire" fill="none" points="338.25,331.82016681465586 423.6666666666667,447.768400355174 509.0833333333333,431.20436699224285 543.25,298.6921000887935" stroke-width="1.4" stroke="#7a786f">
     <polygon clip-path="url(#rg-outside-0)" data-fin-hit="" fill="transparent" points="338.25,331.82016681465586 423.6666666666667,447.768400355174 509.0833333333333,431.20436699224285 543.25,298.6921000887935" stroke="none">
     <rect fill="none" height="33.12806672586231" stroke-dasharray="3 2" stroke-width="1" stroke="#7a786f" style="pointer-events: none;" width="102.49999999999999" x="338.25" y="282.12806672586237">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 312 children, fnv1a d8e2afab"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 312 children, fnv1a d8e2afab
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="462" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > Three-stage rocket.CDX1, at rest 1`] = `
@@ -113,7 +127,14 @@ exports[`real files > Three-stage rocket.CDX1, at rest 1`] = `
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="449.48448838896957" y="173.875">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 168 children, fnv1a 79d48800"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 168 children, fnv1a 79d48800
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="186" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > Three-stage rocket.CDX1, rolled 1`] = `
@@ -153,7 +174,14 @@ exports[`real files > Three-stage rocket.CDX1, rolled 1`] = `
     <polygon clip-path="url(#rk-outside-0)" data-fin-hit="" fill="transparent" points="537.9931059506532,100.48386916471314 561.7362119013063,73.22186496638632 590.2327648766329,73.22186496638632 614.0000000000001,100.48386916471314" stroke="none">
     <polygon data-fin="wire" fill="none" points="537.9931059506532,117.51613083528686 561.7362119013063,144.7781350336137 590.2327648766329,144.7781350336137 614.0000000000001,117.51613083528686" stroke-width="1.4" stroke="#7a786f">
     <polygon clip-path="url(#rk-outside-0)" data-fin-hit="" fill="transparent" points="537.9931059506532,117.51613083528686 561.7362119013063,144.7781350336137 590.2327648766329,144.7781350336137 614.0000000000001,117.51613083528686" stroke="none">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 168 children, fnv1a b1b547eb"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 168 children, fnv1a b1b547eb
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > TubeFins2.rkt, at rest 1`] = `
@@ -222,7 +250,14 @@ exports[`real files > TubeFins2.rkt, at rest 1`] = `
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="543.7851426989937" y="158.86084800246857">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 187 children, fnv1a 75cf98cc"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 187 children, fnv1a 75cf98cc
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > TubeFins2.rkt, rolled 1`] = `
@@ -276,7 +311,14 @@ exports[`real files > TubeFins2.rkt, rolled 1`] = `
     <rect data-fin="wire" fill="none" height="24.179856561386092" rx="2" stroke-width="1.4" stroke="#7a786f" width="61.79296676798669" x="450.1143055283831" y="72.89106503721233">
     <rect clip-path="url(#ri-outside-0)" data-fin-hit="" fill="transparent" height="24.179856561386092" rx="2" stroke="none" width="61.79296676798669" x="450.1143055283831" y="72.89106503721233">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="450.1143055283831" x2="511.9072722963698" y1="84.98099331790537" y2="84.98099331790537">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 187 children, fnv1a 75cf98cc"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 187 children, fnv1a 75cf98cc
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > kitchensink.ork, at rest 1`] = `
@@ -355,7 +397,14 @@ exports[`real files > kitchensink.ork, at rest 1`] = `
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="503.1311324959736" y="450">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 199 children, fnv1a 2f374838"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 199 children, fnv1a 2f374838
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="462" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > kitchensink.ork, rolled 1`] = `
@@ -428,7 +477,14 @@ exports[`real files > kitchensink.ork, rolled 1`] = `
     <rect data-fin="wire" fill="none" height="175.4304105220712" rx="2" stroke-width="1.4" stroke="#7a786f" width="65.1340294940581" x="505.3711917113776" y="243.49072952221363">
     <rect clip-path="url(#rc-outside-0)" data-fin-hit="" fill="transparent" height="175.4304105220712" rx="2" stroke="none" width="65.1340294940581" x="505.3711917113776" y="243.49072952221363">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="505.3711917113776" x2="570.5052212054356" y1="331.20593478324923" y2="331.20593478324923">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 192 children, fnv1a 91e09ca4"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 192 children, fnv1a 91e09ca4
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="430" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > reference.ork, at rest 1`] = `
@@ -472,7 +528,14 @@ exports[`real files > reference.ork, at rest 1`] = `
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="584" y="194.88918918918918">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 116 children, fnv1a 715c3472"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 116 children, fnv1a 715c3472
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="207" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`real files > reference.ork, rolled 1`] = `
@@ -501,7 +564,14 @@ exports[`real files > reference.ork, rolled 1`] = `
     <polygon clip-path="url(#re-outside-0)" data-fin-hit="" fill="transparent" points="542.1081081081081,96.97898477710189 570.8648648648649,66.92644671985659 614,66.92644671985659 614,96.97898477710189" stroke="none">
     <polygon data-fin="wire" fill="none" points="542.1081081081081,125.72956450715137 570.8648648648649,167.55347577502977 614,167.55347577502977 614,125.72956450715137" stroke-width="1.4" stroke="#7a786f">
     <polygon clip-path="url(#re-outside-0)" data-fin-hit="" fill="transparent" points="542.1081081081081,125.72956450715137 570.8648648648649,167.55347577502977 614,167.55347577502977 614,125.72956450715137" stroke="none">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 112 children, fnv1a a2078738"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 112 children, fnv1a a2078738
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > an inner part selected and a rail button hovered, rolled 1`] = `
@@ -625,7 +695,14 @@ exports[`the side view draws what it drew before the layout extraction > an inne
         <rect fill="rgba(13,14,18,0.9)" height="18" rx="4" stroke-width="1" stroke="var(--border)" width="57.4" x="418.55373134328363" y="95.14401836041775">
         <text dominant-baseline="central" fill="#ffffff" font-size="11" text-anchor="middle" x="447.2537313432836" y="104.14401836041775">
           "Buttons"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > every part type, at rest 1`] = `
@@ -723,7 +800,14 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect fill="rgba(127,127,127,0.001)" height="22.27253731343284" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="39.70149253731344" x="423.43283582089555" y="97.86373134328358">
       <title>
         "Coupler"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > every part type, rolled (the wireframe path), with CG/CP callouts 1`] = `
@@ -859,7 +943,14 @@ exports[`the side view draws what it drew before the layout extraction > every p
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="190" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > every part type, rolled past the quarter turn 1`] = `
@@ -977,7 +1068,14 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect data-fin="wire" fill="none" height="26.202985074626863" rx="2" stroke-width="1.4" stroke="#7a786f" width="39.70149253731344" x="455.1940298507463" y="69.84149965802102">
     <rect clip-path="url(#r2-outside-1)" data-fin-hit="" fill="transparent" height="26.202985074626863" rx="2" stroke="none" width="39.70149253731344" x="455.1940298507463" y="69.84149965802102">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="455.1940298507463" x2="494.8955223880597" y1="82.94299219533445" y2="82.94299219533445">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 198 children, fnv1a 1dde4fd8
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="182" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > interactive: selection, grab cursors and tab stops 1`] = `
@@ -1093,7 +1191,14 @@ exports[`the side view draws what it drew before the layout extraction > interac
         "CP"
       <text dominant-baseline="central" fill="var(--status-serious)" font-size="13" font-weight="bold" text-anchor="middle" x="343.2519083969466" y="178">
         "⚠ 0.60 cal — under-stable"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="190" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > motors drawn to scale, in a cluster and in a minimum-diameter tube 1`] = `
@@ -1221,7 +1326,14 @@ exports[`the side view draws what it drew before the layout extraction > motors 
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="190" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > nose-up, selectable 1`] = `
@@ -1402,7 +1514,14 @@ exports[`the side view draws what it drew before the layout extraction > pods an
         <rect fill="rgba(13,14,18,0.9)" height="18" rx="4" stroke-width="1" stroke="var(--border)" width="63.6" x="368.5582089552239" y="34.98972772951698">
         <text dominant-baseline="central" fill="#ffffff" font-size="11" text-anchor="middle" x="400.3582089552239" y="43.98972772951698">
           "Pod tube"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 140 children, fnv1a 9e605f69"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 140 children, fnv1a 9e605f69
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="210" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > pods and a parallel stage, rolled 1`] = `
@@ -1470,7 +1589,14 @@ exports[`the side view draws what it drew before the layout extraction > pods an
     <polygon clip-path="url(#ra-outside-3)" data-fin-hit="" fill="transparent" points="423.9402985074628,85.82852191101976 435.7313432835822,78.4990909418582 447.5223880597016,78.4990909418582 447.5223880597016,85.82852191101976" stroke="none" style="cursor: pointer;">
     <polygon data-fin="wire" fill="none" points="423.9402985074628,97.22430225370307 435.7313432835822,108.88783852234704 447.5223880597016,108.88783852234704 447.5223880597016,97.22430225370307" stroke-width="2" stroke="var(--accent)" style="cursor: pointer;">
     <polygon clip-path="url(#ra-outside-3)" data-fin-hit="" fill="transparent" points="423.9402985074628,97.22430225370307 435.7313432835822,108.88783852234704 447.5223880597016,108.88783852234704 447.5223880597016,97.22430225370307" stroke="none" style="cursor: pointer;">
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 140 children, fnv1a 9e605f69"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 140 children, fnv1a 9e605f69
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="210" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > the hero canvas: fill height, top reserve 1`] = `
@@ -1586,7 +1712,14 @@ exports[`the side view draws what it drew before the layout extraction > the her
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.313432835821" y="314.0089552238806">
         "✓ 1.60 cal — ok"
-  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 270 children, fnv1a 72f42913"
+  <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 270 children, fnv1a 72f42913
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="462" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
 
 exports[`the side view draws what it drew before the layout extraction > zoomed in (the fit-view ruler copy rides along) 1`] = `
@@ -1703,5 +1836,12 @@ exports[`the side view draws what it drew before the layout extraction > zoomed 
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
   <g data-ruler="view" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 136 children, fnv1a 458291a9
-  <g data-ruler="fit" display="none" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3"
+  <g data-ruler="fit" display="none" fill="var(--text-secondary)" font-size="9" pointer-events="none"> 200 children, fnv1a 5d5a37b3
+  <g data-guides="" font-size="10">
+    <rect data-guide-ruler="x" fill="transparent" height="18" style="cursor: col-resize;" width="584" x="56" y="0">
+      <title>
+        "Drag down from the ruler for a measuring guide across the rocket"
+    <rect data-guide-ruler="y" fill="transparent" height="190" style="cursor: row-resize;" width="30" x="26" y="18">
+      <title>
+        "Drag right from the ruler for a measuring guide along the rocket""
 `;
