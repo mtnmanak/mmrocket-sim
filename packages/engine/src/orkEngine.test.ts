@@ -1783,3 +1783,61 @@ describe('stubby non-conical noses carry subsonic pressure drag (C7)', () => {
     expect(nosePressure('haack', 0.5, true, 0)).toBeCloseTo(0.12305, 4);
   });
 });
+
+/**
+ * The stubby-nose remainder (board row 89, 2026-10-11): a stubby TANGENT OGIVE gets
+ * the C7 floor too. Its curve is built from `sinphi`, the slope over the aft 1 %,
+ * which is ~0 for any tangent shape, so it read ~0.005 at L/D 0.5 - and a tangent
+ * ogive at L/D 0.5 IS a hemisphere, the shape TIR-100 and DeMar measure. For an ogive
+ * the floor holds at every Mach the curve tabulates. Since board row 87 a tangent
+ * ogive takes the Fleeman branch above M1 under Kbf as well as Supersonic, far above
+ * the floor, so what the floor changes under Kbf is the desktop curve Kbf keeps up to
+ * M0.8 and the M0.8-1.0 blend built on it. See SymmetricComponentCalc.applyStubbyNoseFloor.
+ */
+describe('stubby tangent ogives carry the stubby-nose floor', () => {
+  const r = 0.0285750;
+  const nosePressure = (fineness: number, mach: number, model: 'classic' | 'kbf' | 'supersonic',
+    param = 1) => {
+    const built = OrkRocket.buildTree({
+      name: 'ogive',
+      components: [{
+        type: 'stage', id: 's', children: [
+          { id: 'n', type: 'nosecone', shape: 'ogive', shapeParameter: param,
+            length: fineness * 2 * r, aftRadius: r, thickness: 0.002 },
+          { id: 'b', type: 'bodytube', length: 0.6, outerRadius: r, thickness: 0.001 },
+        ],
+      }],
+    } as unknown as RocketTree);
+    built.setRogersModifiedBarrowman(model !== 'classic');
+    built.setSupersonicAero(model === 'supersonic');
+    return built.dragSweep({ machMin: mach, machMax: mach, machStep: 1 }).powerOff.pressure[0]!;
+  };
+  /** The C7 floor, computed here from its published constants. */
+  const floor = (f: number) => (1 / 3) * 0.8 / (1 + 4 * f * f) * (1 - (f / 1.8) ** 2);
+
+  it('charges a stubby tangent ogive the floor subsonically, under Kbf and Supersonic', () => {
+    for (const f of [0.5, 1.0, 1.5]) {
+      for (const model of ['kbf', 'supersonic'] as const) {
+        expect(nosePressure(f, 0.3, model), `${model} L/D ${f}`).toBeCloseTo(floor(f), 6);
+      }
+    }
+  }, 30_000);
+
+  it('holds the floor through the M0.8-1.0 blend and above M1 under Kbf', () => {
+    // M0.8 and M0.85 are the guard: without the floor the blend starts from the
+    // desktop curve's 0.005 there (0.005 / about 0.05).
+    for (const mach of [0.8, 0.85, 0.9, 0.95, 1.0, 1.02, 1.1, 1.5, 2.5]) {
+      expect(nosePressure(0.5, mach, 'kbf'), `M${mach}`).toBeGreaterThanOrEqual(floor(0.5) - 1e-12);
+    }
+  }, 30_000);
+
+  it('is zero-effect above L/D 1.8 and in the classic model', () => {
+    expect(nosePressure(2.0, 0.3, 'kbf')).toBeLessThan(0.01);
+    expect(nosePressure(0.5, 0.3, 'classic')).toBeLessThan(0.01);
+  }, 30_000);
+
+  it('leaves a cone-like secant ogive on its own, larger, slope value', () => {
+    // param 0 is a cone: its own Newtonian value already exceeds the floor.
+    expect(nosePressure(0.5, 0.3, 'kbf', 0)).toBeGreaterThan(floor(0.5) + 0.05);
+  }, 30_000);
+});

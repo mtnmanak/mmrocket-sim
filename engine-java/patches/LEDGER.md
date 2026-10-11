@@ -3087,3 +3087,62 @@ aerodynamic model.
 - **Corpus apogees (116 flown; 3 aborted excluded; against the row-87 kernel):** Supersonic = Auto 74 move,
   -0.18 % (two stage L2, peak M3.2) to +0.10 % (50k), every other within 0.04 %; Hybrid 74 move, -0.15 % to
   +0.12 % (the two `38-54 2-stage` files). Classic and Kbf: no CP, CNa or CD change on any of the 138 designs.
+
+### aerodynamics/barrowman/SymmetricComponentCalc.java - the C7 stubby-nose floor reaches OGIVE noses, held at every tabulated Mach (board row 89, "the stubby-nose remainder"; gated `rogersKbf || supersonicAero`; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern; ported by hand onto v0.178 + board rows 87/88 from exp/b4-aero-wave
+  `e51c9aeb` ONLY - that commit sat on `b79e013e` (boat-tail TR R-100 eq. (1)), which does NOT ship, nor do
+  `c55f3b2d` (cube-law base), `0cb9fb33` (stubby cone, PARKED) or the cone/secant/Hybrid text of `0a450a97`).
+  Eric, 2026-10-11: *"i approve your recommendations for 82-89, build it"*; Fable 5.1: "approve as a stated scope
+  extension of C7" (`docs/research/batch4-wave3-2026-10-11/fable-aero-wave.md`).
+- **Defect:** the C7 floor (v0.103, Eric's ruling 2026-09-04: a third of the file's own conical value
+  0.8/(1+4f^2), tapering to zero by L/D 1.8) was scoped to the four stored-table shapes. A stubby TANGENT ogive
+  read 0.005 at L/D 0.5 under Kbf and Supersonic: its curve is built from `sinphi` over the aft 1 %, ~0 for any
+  tangent shape. A tangent ogive at L/D 0.5 is geometrically a hemisphere (ogive radius (R^2+L^2)/2R = R when
+  L = R), the shape TIR-100 measures at +0.10 / +0.02 and DeMar at +0.07 / +0.03 / 0.00 - the bracket the floor
+  was set into.
+- **Change:** `applyStubbyNoseFloor(..., ogiveShape)` - OGIVE noses take the same floor, same constants; a
+  secant ogive's steeper aft slope already charges more wherever it is cone-like, so max() leaves it alone. For an
+  ogive the floor is held at EVERY tabulated Mach of the curve it is applied to, not only below the first
+  tabulated point, so the classic branch's ~0 values cannot drop it near M1. Classic never reaches the floor
+  (gate `rogersKbf || supersonicAero`).
+- **How it combines with board row 87 (measured here, not on the exp branch):** since row 87 a tangent or
+  near-tangent ogive (shape parameter >= 0.35) takes the Fleeman branch above M1 under Kbf as well as Supersonic,
+  and that branch is far above the floor (L/D 0.5: 0.53 at M1, 1.60 at M1.5), so above M1 max() changes nothing
+  in any model. What the floor moves is: Kbf's kept desktop curve (`kbfSubsonicNose`) at and below M0.8 and the
+  M0.8-1.0 blend built on it; Supersonic's subsonic Fleeman fit where it sits under the floor; Hybrid through
+  both. The every-Mach hold therefore bites on no ogive in the shipped combination - the curves it holds above
+  M1 are either the unused part of `kbfSubsonicNose` or a secant ogive (< 0.35) already above the floor - and no
+  test can see it; it stays as built, harmless. Fable's caveat "under Kbf the hemisphere is 0.123 flat at M1.5
+  where Supersonic charges 1.60, ~10x low" was measured without row 87 and no longer holds: Kbf now charges the
+  same 1.60. That value is the Fleeman correlation outside its published range (l_N/d > ~0.87); a modified-
+  Newtonian hemisphere at M1.5 is about Cp_max/2 = 0.77, so it errs high (more drag, lower apogee).
+- **Measured, isolated nose pressure CD (nose + 0.6 m body, base-area referenced), tangent ogive, row 88 ->
+  this:** Kbf M0.3: L/D 0.5 0.0050 -> **0.1230**; 1.0 0.0040 -> 0.0369; 1.5 0.0030 -> 0.0081; 2.0 unchanged.
+  Kbf M0.8 the same; Kbf M0.9 (blend) L/D 0.5 0.1847 -> 0.2437, 1.0 0.0515 -> 0.0679, 1.5 0.0162 -> 0.0188.
+  Supersonic M0.3: 0.0069 / 0.0000 / 0.0000 -> 0.1230 / 0.0369 / 0.0081 (M0.8 and up unchanged except L/D 1.5
+  at M0.8, 0.0062 -> 0.0081). Hybrid follows Kbf below M0.8 and blends above. M1.0 and up: unchanged in every
+  model. Secant ogives with shape parameter 0, 0.2, 0.3 and 0.5 at L/D 0.5-2.0: unchanged in every model.
+  Classic: unchanged everywhere.
+- **Tests:** `packages/engine/src/orkEngine.test.ts`, *stubby tangent ogives carry the stubby-nose floor* (4):
+  the floor subsonically at L/D 0.5/1.0/1.5 under Kbf and Supersonic; at or above the floor through the M0.8-1.0
+  blend and above M1 under Kbf (M0.8/0.85 are the guard - re-pointed from the exp branch's M0.95-2.5, which row 87
+  now satisfies on its own); zero effect above L/D 1.8 and in Classic; a cone-like secant ogive keeps its own
+  larger value. **Mutation:** on the row-88 kernel (the floor absent) 2 of 4 fail (the first two); the last two
+  hold by design. Row 87's `kbfOgiveWaveDrag.test.ts` M0.8 test now expects the floor at L/D 1 (Kbf =
+  max(Classic, floor) there) and Classic bit for bit at L/D 2 and 4; it failed on this kernel until updated.
+- **Harness:** new GoldenMain sweep `stubby.ogive` (Kbf, L/D 0.5, M0.3/0.9/1.1/1.5): 0.1230 / 0.2437 / 0.9345 /
+  1.5978 pressure. Goldens 446 -> 450 lines, no existing line moves. difftest 450 lines (298 bit-identical, 152
+  within tolerance). JUnit 75/75.
+- **Artifact:** md5 `18fef99ebe90d0186249a8e8de7e85b4` (row 88) -> `85016ffe3016655be78fc32d0e0480b5`.
+- **Scorecards (191 gates):** all four models byte-identical (no harness nose is below L/D 1.8).
+- **Flights (frozen inputs):** only LEM-IV moves (pod-set noses at L/D 1.0): Kbf 11,934 -> 11,910 ft (+1.43 % ->
+  +1.23 % against the 4 Oct reference), Auto = Supersonic 11,938 -> 11,923 ft (+1.47 % -> +1.34 %), Hybrid
+  11,932 -> 11,909 ft (+1.42 % -> +1.22 %); research-input LEM-IV (measured 11,755 ft) Kbf +3.22 % -> +3.02 %,
+  Supersonic +3.13 % -> +2.99 %, Hybrid +3.21 % -> +3.01 %. Classic and every other flight bit-identical.
+- **Corpus (`docs/User files`, 116 flown with the bundled motors, app import path, default launch conditions;
+  against the row-88 kernel):** 6 files move in Kbf, Auto, Supersonic and Hybrid, all DOWN (more drag): `pringles
+  2 - baseconehack.ork` (tangent ogive L/D 1.33, peak M0.20) Kbf -1.29 %, Supersonic -1.66 %; `LEM-IV.ork` and its
+  two copies (pod-set ogives at L/D 1.0, peak M0.53 on its own motor) -0.26 % / -0.29 %; `ninja_4in_75mm-MMT.ork`
+  (L/D 0.5, peak M0.84) -0.15 % / -0.07 %; `ninja_4in_54mm-MMT.ork` (L/D 0.5, peak M1.26) -0.09 % / -0.06 %.
+  Classic: every flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model.

@@ -1780,6 +1780,19 @@ public final class GoldenMain {
                 "{\"machMin\":0.95,\"machMax\":2.0,\"machStep\":0.05}",
                 new int[] { 0, 2, 4, 11, 21 });
 
+        // Board row 89 (2026-10-11): a Kbf tangent ogive at L/D 0.5 takes the C7
+        // stubby-nose floor (applyStubbyNoseFloor, ogiveShape). Samples M0.3 (the
+        // floor), M0.9 (the row-87 blend toward the Fleeman tail) and M1.1/M1.5
+        // (the row-87 Fleeman branch, far above the floor).
+        int stubOgive = api.OrkEngine.buildRocket("{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
+                + "{\"type\":\"nosecone\",\"shape\":\"ogive\",\"shapeParameter\":1,\"length\":0.03,\"aftRadius\":0.03,\"thickness\":0.002},"
+                + "{\"type\":\"bodytube\",\"length\":0.40,\"outerRadius\":0.03,\"thickness\":0.001}"
+                + "]}]}");
+        api.OrkEngine.setRogersModifiedBarrowman(stubOgive, true);
+        emitSweep("stubby.ogive", stubOgive,
+                "{\"machMin\":0.3,\"machMax\":1.5,\"machStep\":0.1}",
+                new int[] { 0, 6, 8, 12 });
+
         String finTmpl = "{\"components\":[{\"type\":\"stage\",\"name\":\"S\",\"children\":["
                 + "{\"type\":\"nosecone\",\"shape\":\"conical\",\"length\":0.09,\"aftRadius\":0.015,\"thickness\":0.0015},"
                 + "{\"type\":\"bodytube\",\"length\":0.25,\"outerRadius\":0.015,\"thickness\":0.0015,\"children\":["

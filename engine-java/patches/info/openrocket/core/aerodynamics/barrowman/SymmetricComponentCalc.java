@@ -705,7 +705,10 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			}
 		}
 
-		applyStubbyNoseFloor(interpolator, min, tableShape);
+		// PATCH (board row 89, stubby ogive, 2026-10-11): OGIVE noses take the same
+		// floor; see applyStubbyNoseFloor for the evidence and why it spans every
+		// Mach for them.
+		applyStubbyNoseFloor(interpolator, min, tableShape, shape == Transition.Shape.OGIVE);
 	}
 
 	/**
@@ -767,15 +770,35 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	 * divergence Mach, drop to the tabulated 0 there, and jump to 0.271 one step
 	 * later.
 	 *
-	 * Scope is deliberately the FOUR STORED-TABLE shapes only (ELLIPSOID, POWER,
-	 * PARABOLIC, HAACK), which is what `tableShape` means. CONICAL and OGIVE build
-	 * their curve analytically: a cone's own cdMach0 is three times this floor so
-	 * max() would ignore it anyway, but a stubby tangent OGIVE reads 0.005 today and
-	 * WOULD be raised - and ogives are the commonest nose shape there is, so that
-	 * belongs in its own item with its own evidence.
+	 * Scope was the FOUR STORED-TABLE shapes (ELLIPSOID, POWER, PARABOLIC, HAACK),
+	 * which is what `tableShape` means; CONICAL builds its curve analytically and a
+	 * cone's own cdMach0 is three times this floor, so max() would ignore it anyway.
+	 * <p>
+	 * PATCH (board row 89, stubby ogive; approved by Eric 2026-10-11): OGIVE noses
+	 * now take the same floor (`ogiveShape`). A stubby TANGENT ogive read 0.005 at
+	 * L/D 0.5 - its curve is built from `sinphi`, the slope over the aft 1 %, which
+	 * is ~0 for any tangent shape. The evidence is the floor's own: a tangent ogive
+	 * at L/D 0.5 IS a hemisphere (ogive radius (R^2 + L^2)/2R = R when L = R), and
+	 * the hemisphere is the very shape TIR-100 measures at +0.10 / +0.02 and DeMar
+	 * at +0.07 / +0.03 / 0.00 - the bracket the 0.123 floor was set into. Between
+	 * L/D 0.5 and 1.8 it is the same interpolation the table shapes get. A secant
+	 * ogive's steeper aft slope already charges more than the floor wherever it is
+	 * cone-like, so max() leaves it alone.
+	 * <p>
+	 * For an ogive the floor spans EVERY tabulated Mach, not only the subsonic range:
+	 * the classic ogive branch's supersonic values are built from the same ~0 sinphi
+	 * (LEDGER Phase 5 measured 0.0006 at M1.3 on a tangent nose), so a subsonic-only
+	 * floor would drop 0.123 -> ~0.005 at M1. Holding it is still far below what a
+	 * blunt nose costs supersonically; it removes the cliff, it does not model that.
+	 * Where the hold bites: an ogive on the classic branch - a cone-like secant ogive
+	 * (shape parameter < 0.35) in Kbf and Supersonic, and the desktop curve Kbf keeps
+	 * below M1 (kbfSubsonicNose, board row 87). A tangent or near-tangent ogive (>= 0.35)
+	 * takes the Fleeman branch above M1 in Kbf (row 87) and Supersonic alike, whose
+	 * stubby-nose values are far above the floor, so max() is a no-op there.
 	 */
-	private void applyStubbyNoseFloor(LinearInterpolator interpolator, double min, boolean tableShape) {
-		if (!tableShape || !isNoseShape) {
+	private void applyStubbyNoseFloor(LinearInterpolator interpolator, double min, boolean tableShape,
+			boolean ogiveShape) {
+		if (!(tableShape || ogiveShape) || !isNoseShape) {
 			return;
 		}
 		if (!rogersKbf && !supersonicAero) {
@@ -800,6 +823,13 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		}
 		if (interpolator.getValue(min) < floor) {
 			interpolator.addPoint(min, floor);
+		}
+		if (ogiveShape) {
+			for (double m : interpolator.getXPoints()) {
+				if (interpolator.getValue(m) < floor) {
+					interpolator.addPoint(m, floor);
+				}
+			}
 		}
 	}
 
