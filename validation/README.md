@@ -19,6 +19,18 @@ node --test validation/score.test.mjs        # R-100 fixture and scoring regress
 
 ## Scoreboard
 
+**INFORMATIONAL ADDITION (2026-10-11, later; gates unchanged at 191): the subsonic CP
+anchor, board Tier 0 row 85.** `arcas-short` / `arcas-long` now carry the NASA TN D-4013
+fins-on x_cp at M0.60/0.80/0.90 (the Machs the report tested), one `gate: false` series per
+independent read of the report figure: Rogers' comparison deck, the project's 2026-08-03 read
+(Short only), and a pixel read of the NTRS scan (`digitize/read-d4013-xcp.py`). Tolerance
+±0.5 %L, carried from the report's stated C_N/C_m accuracy. The reads disagree by up to
+1.8 %L on the Short model, so none gates. They are the harness's only subsonic CP
+measurement, and at M0.60 **Rogers Kbf — the app default — sits 0.8–1.1 caliber aft of every
+read on both models** (more margin shown than measured); Classic is within 0.3 caliber,
+Supersonic 0.6–0.8. Every pre-existing scorecard line is byte-identical in all four models.
+Full tables, the tolerance derivation and the proof: `scorecard-subsonic-cp-2026-10-11.md`.
+
 **INFORMATIONAL ADDITION (2026-10-11, gates unchanged at 191): harness coverage —
 a small-model cell, plain-body and boat-tailed-body cells, Finner below M1.05.**
 Eighteen `gate: false` cells, 193 points, every pre-existing scorecard line
@@ -275,7 +287,13 @@ node validation/score.mjs > validation/scorecard.md
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades.
   `cdDelta` subtracts a `referenceFixture` swept under the same model
-- `scorecard-coverage-2026-10-11.md` — **the newest scorecard**: 18 informational
+- `scorecard-subsonic-cp-2026-10-11.md` — **the newest scorecard**: the TN D-4013
+  subsonic CP series (three reads Short, two Long, all informational), the ±0.5 %L
+  tolerance derived from the report's stated accuracy, every existing line
+  byte-identical, gate scores 13/191 · 22/191 · 83/191 · 79/191 on the v0.178 kernel.
+- `digitize/read-d4013-xcp.py` — the pixel reader behind the `cp-subsonic-tunnel-scanread`
+  series: give it the NTRS PDF of TN D-4013 (not committed) and it prints the reads.
+- `scorecard-coverage-2026-10-11.md` — 18 informational
   cells (small model, plain body, boattail increments, Finner tunnel series), every
   existing line byte-identical, gate scores 13/191 · 22/191 · 83/191 · 79/191
   (Classic · Kbf · Supersonic · Hybrid) on the v0.177 kernel.
