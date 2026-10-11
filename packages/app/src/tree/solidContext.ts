@@ -79,6 +79,33 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
 }
 
 /**
+ * The radius a parachute, streamer or shock cord sizes its packed bundle to
+ * when its radius is AUTOMATIC: `MassObject.getMaxParentRadius` over this
+ * tree, 0 where there is none (no parent, a solid tube) — and 0 is no answer,
+ * so the caller keeps the part's own radius, as `MassObject.getAutoRadius`
+ * does. A nose cone gives its base radius and a transition the larger of its
+ * ends (outer radii, as desktop takes them: no wall comes off); a tube or a
+ * coupler its inner radius, a coupler stating no radius taking the bore it
+ * sits in (boreAt). Transition ends a part omits are resolved from neighbours.
+ */
+export function massObjectParentRadius(tree: RocketTree, id: string): number {
+  const chain = ancestry(resolveTransitionRadii(tree), id);
+  const parent = chain?.[0];
+  if (!chain || !parent) return 0;
+  const inner = (outer: number | undefined): number =>
+    outer === undefined ? 0 : Math.max(outer - num(parent, 'thickness', kernelDefault(parent.type, 'thickness') ?? 0), 0);
+  switch (parent.type) {
+    case 'nosecone': return num(parent, 'aftRadius', kernelDefault('nosecone', 'aftRadius')!);
+    case 'transition': return Math.max(numOpt(parent, 'foreRadius') ?? 0, numOpt(parent, 'aftRadius') ?? 0);
+    case 'bodytube':
+      return parent['filled'] === true ? 0 : inner(num(parent, 'outerRadius', kernelDefault('bodytube', 'outerRadius')!));
+    case 'innertube': return inner(num(parent, 'outerRadius', kernelDefault('innertube', 'outerRadius')!));
+    case 'tubecoupler': return inner(numOpt(parent, 'outerRadius') ?? boreAt(chain, 1, parent));
+    default: return 0;
+  }
+}
+
+/**
  * The bore an AUTOMATIC centering ring takes, as `CenteringRing.getInnerRadius`
  * finds it: the largest outer radius among the inner tubes beside the part
  * that overlap it axially — touching at an end counts, since the kernel skips

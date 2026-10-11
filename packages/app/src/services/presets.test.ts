@@ -1413,3 +1413,40 @@ describe('tier (a): the import note reads the conflict marker’s table', () => 
     expect(notes[0]).not.toMatch(/disagrees/);
   });
 });
+
+/**
+ * A CANOPY'S PACKED SIZE ON A PICK (board Tier 2, v0.147), as desktop's
+ * Parachute.loadFromPreset: the row's packed length and radius, then an
+ * automatic radius — the parent's, the bundle's volume (r² × length) kept.
+ */
+describe('presetPatch — a picked canopy fills its packed size', () => {
+  const cl20 = db.find((x) => x.kind === 'Parachute' && x.manufacturer === 'b2 Rocketry Company' && x.partNo === 'CL-20')!;
+  const bare = db.find((x) => x.kind === 'Parachute' && x['packedLength'] === undefined)!;
+  const L = cl20['packedLength'] as number;
+  const r = (cl20['packedDiameter'] as number) / 2;
+
+  it('sizes the bundle to the parent, keeping its volume', () => {
+    expect(L).toBeGreaterThan(0);
+    const patch = presetPatch('parachute', cl20, undefined, { parentRadius: 0.049 });
+    expect(patch['packedRadius']).toBe(0.049);
+    expect(patch['packedLength']).toBeCloseTo((r * r * L) / 0.049 ** 2, 12);
+  });
+
+  it('keeps the row’s own size where the parent gives no radius', () => {
+    const patch = presetPatch('parachute', cl20, undefined, { parentRadius: 0 });
+    expect(patch['packedRadius']).toBeCloseTo(r, 12);
+    expect(patch['packedLength']).toBeCloseTo(L, 12);
+  });
+
+  it('a row with no packed size writes none, so the size already there stays', () => {
+    const patch = presetPatch('parachute', bare, undefined, { parentRadius: 0.049 });
+    expect(patch).not.toHaveProperty('packedRadius');
+    expect(patch).not.toHaveProperty('packedLength');
+  });
+
+  it('only on a pick: a file’s catalogue link and the conflict marker never see it', () => {
+    const patch = presetPatch('parachute', cl20);
+    expect(patch).not.toHaveProperty('packedRadius');
+    expect(patch).not.toHaveProperty('packedLength');
+  });
+});
