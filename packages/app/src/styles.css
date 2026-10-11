@@ -221,14 +221,17 @@ html {
   padding: 0 2px;
   margin: -1px 0;
   /* Wide enough for the longest option, MEASURED rather than guessed: the
-     names are drawn at bold 15px Rajdhani, where "Classic Extended Barrowman"
-     is 179.2px and every other option is under 69. 200 clears it with room
-     for the arrow. It was 148 while that option read "Classic EB"; when the
-     four names for the parity model became one (2026-09-21) the longest grew
-     and the cell clipped it to "Classic Extended Ba". The strip wraps
-     (flex-wrap above), so a wider cell costs a wrapped row on a narrow
-     window, never an overflow. */
-  max-width: 200px;
+     names are drawn at bold 15px Rajdhani, where "Rogers Modified Barrowman
+     (Kbf)" is 210.2px, "Classic Extended Barrowman" 179.2px and "Hybrid
+     (experimental)" 135.5px (advance widths summed from the shipped
+     latin-700 font file; the 179.2 matches the earlier measurement). 236
+     clears the longest with room for the arrow. It was 148 while the parity
+     model read "Classic EB" and 200 while the default read "Rogers Kbf"; each
+     time one name became the name every selector uses (2026-09-21, K2
+     2026-10-11) the longest grew, and at 200 the cell clipped it. The strip
+     wraps (flex-wrap above), so a wider cell costs a wrapped row on a narrow
+     window, never an overflow: a 360px phone leaves the cell about 294px. */
+  max-width: 236px;
   cursor: pointer;
 }
 

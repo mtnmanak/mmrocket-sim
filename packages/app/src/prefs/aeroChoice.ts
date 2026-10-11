@@ -19,7 +19,10 @@ import type { Preferences } from './preferences.js';
 export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic' | 'hybrid';
 
 /**
- * Labels for the vitals strip.
+ * THE NAME of each model — the one table every surface reads: the vitals
+ * strip, Preferences, Batch, the launch report's Aero model row, the stale-run
+ * notes and the import notes. A surface may add a description after " — "
+ * ("Auto — recommended"), but it leads with exactly this name.
  *
  * ONE NAME EVERYWHERE for the parity model (Eric, 2026-09-21). It used to
  * carry four — "OpenRocket — Extended Barrowman (exact desktop parity)" in
@@ -27,15 +30,23 @@ export type AeroChoice = 'eb' | 'kbf' | 'auto' | 'supersonic' | 'hybrid';
  * "Classic Extended Barrowman" in the guide — so a reader who met it in one
  * place could not tell it was the same setting in another. The parenthetical
  * that went with the longest of them is now hint text, because "exact desktop
- * parity" claimed more than can be shown.
+ * parity" claimed more than can be shown. The default model had the same
+ * problem until K2 (2026-10-11): "Rogers Kbf" on the strip, "Rogers Modified
+ * Barrowman" in Batch and "Rogers Modified Barrowman (Kbf)" in Preferences and
+ * the report.
  */
-export const AERO_SHORT: Record<AeroChoice, string> = {
-  kbf: 'Rogers Kbf',
+export const AERO_NAME: Record<AeroChoice, string> = {
   eb: 'Classic Extended Barrowman',
+  kbf: 'Rogers Modified Barrowman (Kbf)',
   auto: 'Auto',
   supersonic: 'Supersonic',
   hybrid: 'Hybrid (experimental)',
 };
+
+/** An option's text: the model's name, then its description after " — " when it has one. */
+export function aeroOptionLabel(choice: AeroChoice, description?: string): string {
+  return description ? `${AERO_NAME[choice]} — ${description}` : AERO_NAME[choice];
+}
 
 /** The stored preference as one choice. Folds in the pre-v0.026 boolean. */
 export function aeroChoiceOf(prefs: Preferences): AeroChoice {

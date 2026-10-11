@@ -12,7 +12,7 @@ import type { AeroChoice } from './aeroChoice.js';
 export type { Preferences } from './preferences.js';
 export { DEFAULT_PREFS } from './preferences.js';
 export type { AeroChoice } from './aeroChoice.js';
-export { AERO_SHORT, aeroChoiceOf, effectiveAero, prefsForAeroChoice } from './aeroChoice.js';
+export { AERO_NAME, aeroChoiceOf, aeroOptionLabel, effectiveAero, prefsForAeroChoice } from './aeroChoice.js';
 
 const STORAGE_KEY = 'online-openrocket.prefs.v1';
 

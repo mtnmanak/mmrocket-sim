@@ -1,7 +1,7 @@
 import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
-import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
+import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
@@ -312,7 +312,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (text(design, ':scope > ModifiedBarrowman')?.toLowerCase() === 'false'
       && opts?.aeroChoice !== undefined && opts.aeroChoice !== 'eb') {
     notes.push('The file’s author turned Modified Barrowman off. '
-      + `When this import began, the app’s aerodynamics model was ${AERO_SHORT[opts.aeroChoice]}. `
+      + `When this import began, the app’s aerodynamics model was ${AERO_NAME[opts.aeroChoice]}. `
       + 'Choose Classic Extended Barrowman to match the author’s setting; importing changes no aerodynamics setting.');
   }
   const ignored = new Set<string>();

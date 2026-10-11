@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { AERO_NAME, PrefsProvider, type AeroChoice } from '../prefs/PrefsContext.js';
 import { splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
@@ -196,6 +196,21 @@ describe('the batch dialog', () => {
       </PrefsProvider>,
     ));
   }
+
+  it('K2: the aero model options lead with each model’s one name, any description after " — "', () => {
+    mount();
+    const select = [...host.querySelectorAll('label')].find((el) => el.textContent?.startsWith('aero model'))
+      ?.querySelector('select');
+    expect(select).toBeTruthy();
+    const options = [...select!.options];
+    expect(options.map((o) => o.value).sort()).toEqual(Object.keys(AERO_NAME).sort());
+    for (const o of options) {
+      const name = AERO_NAME[o.value as AeroChoice];
+      expect(o.text === name || o.text.startsWith(`${name} — `), o.text).toBe(true);
+    }
+    expect(select!.value).toBe('auto');
+    expect(select!.selectedOptions[0]!.text).toBe('Auto — recommended');
+  });
 
   it('storage hardening: round-trips every valid stored criterion', () => {
     const key = 'online-openrocket.batch-criteria.v1';

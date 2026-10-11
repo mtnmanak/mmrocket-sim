@@ -68,7 +68,7 @@ const buffer = (name: string): ArrayBuffer => {
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
   it.each([
-    { aeroMode: 'classic', effectiveKbf: true, label: 'Rogers Kbf' },
+    { aeroMode: 'classic', effectiveKbf: true, label: 'Rogers Modified Barrowman (Kbf)' },
     { aeroMode: 'classic', effectiveKbf: false, label: null },
     { aeroMode: 'hybrid', effectiveKbf: true, label: 'Hybrid (experimental)' },
   ] as const)('carries the $aeroMode / Kbf $effectiveKbf choice into a RASAero import note', async ({ aeroMode, effectiveKbf, label }) => {

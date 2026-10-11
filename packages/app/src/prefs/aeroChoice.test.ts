@@ -167,8 +167,8 @@ describe('runMatchesModel — marking a flight that was flown on another model',
 
 describe('the model labels the report and the banner share', () => {
   it('spells each stored model the same way everywhere', () => {
-    expect(aeroModelLabel('supersonic')).toBe('Supersonic (our extended model)');
-    expect(aeroModelLabel('auto-supersonic')).toBe('Supersonic (auto — flight exceeded Mach 0.9)');
+    expect(aeroModelLabel('supersonic')).toBe("Supersonic — the app's extended model");
+    expect(aeroModelLabel('auto-supersonic')).toBe('Supersonic — chosen by Auto, as the flight exceeded Mach 0.9');
     // The default model by the name Preferences gives it, never the parity
     // model's name with a suffix (audit 2026-09-22).
     expect(aeroModelLabel('classic', true)).toBe('Rogers Modified Barrowman (Kbf)');
@@ -180,9 +180,9 @@ describe('the model labels the report and the banner share', () => {
     expect(currentModelLabel({ aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false }))
       .toBe('Rogers Modified Barrowman (Kbf)');
     expect(currentModelLabel({ aeroMode: 'auto', effectiveKbf: true, autoSupersonic: false }))
-      .toBe('Auto (Rogers Kbf until Mach 0.9)');
+      .toBe('Auto — Rogers Modified Barrowman (Kbf) until Mach 0.9');
     expect(currentModelLabel({ aeroMode: 'auto', effectiveKbf: true, autoSupersonic: true }))
-      .toBe('Supersonic (auto — flight exceeded Mach 0.9)');
+      .toBe('Supersonic — chosen by Auto, as the flight exceeded Mach 0.9');
   });
 });
 

@@ -3,7 +3,7 @@ import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
-import { AERO_SHORT, aeroChoiceOf, prefsForAeroChoice, usePrefs, type AeroChoice } from '../prefs/PrefsContext.js';
+import { AERO_NAME, aeroChoiceOf, aeroOptionLabel, prefsForAeroChoice, usePrefs, type AeroChoice } from '../prefs/PrefsContext.js';
 import {
   CUSTOM_PRESET, DEFAULT_PRINT_CLEARANCE, DEFAULT_PRINT_MARGIN, PRINTER_PRESETS,
   presetMatching, printerFromPreset, type PrinterPrefs,
@@ -235,11 +235,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
               setPrefs({ ...prefs, ...prefsForAeroChoice(e.target.value as AeroChoice) });
             }}
           >
-            <option value="eb">Classic Extended Barrowman</option>
-            <option value="kbf">Rogers Modified Barrowman (Kbf) — the default</option>
-            <option value="auto">Auto — Rogers Kbf, switching to our supersonic model past Mach 0.9</option>
-            <option value="supersonic">Supersonic — our extended model at all speeds (validated to Mach 4.6)</option>
-                <option value="hybrid">Hybrid (experimental)</option>
+            <option value="eb">{aeroOptionLabel('eb')}</option>
+            <option value="kbf">{aeroOptionLabel('kbf', 'the default')}</option>
+            <option value="auto">{aeroOptionLabel('auto', "Rogers Kbf, switching to the app's supersonic model past Mach 0.9")}</option>
+            <option value="supersonic">{aeroOptionLabel('supersonic', "the app's extended model at all speeds (validated to Mach 4.6)")}</option>
+            <option value="hybrid">{aeroOptionLabel('hybrid')}</option>
           </select>
         </div>
         {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
@@ -250,11 +250,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           // (Choosing anything above ALSO clears the override — the newer,
           // more deliberate act wins. See PrefsContext.setPrefs.)
           <p className="prefs-hint">
-            The vitals strip is flying <strong>{AERO_SHORT[aeroOverride]}</strong> for this
+            The vitals strip is flying <strong>{AERO_NAME[aeroOverride]}</strong> for this
             session only, so it is overriding the setting above. The setting above is the
             durable one and comes back on your next visit.{' '}
             <button className="file-btn" onClick={() => setAeroOverride(null)}>
-              Go back to {AERO_SHORT[aeroChoiceOf(prefs)]}
+              Go back to {AERO_NAME[aeroChoiceOf(prefs)]}
             </button>
           </p>
         )}
@@ -272,7 +272,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           wind turbulence from a fixed number, 42, so the same design always flies the
           same flight, while desktop OpenRocket draws a random seed for each simulation
           and does not save it, so the same design opened there again does not repeat
-          its gusts. <strong>Rogers Modified Barrowman</strong> adds the
+          its gusts. <strong>{AERO_NAME.kbf}</strong> adds the
           body-in-presence-of-fins lift carryover (NACA&nbsp;1307) that classic Barrowman
           drops — a slightly more aft CP that tracks real flight data
           better, so it's the default. An aft CP RAISES the stability margin shown,

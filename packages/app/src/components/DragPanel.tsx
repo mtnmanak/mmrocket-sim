@@ -12,7 +12,7 @@ import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPa
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { downloadBlob, stampedName } from '../services/fileName.js';
-import { hasAerodynamicForce, shownCp } from '../services/simReport.js';
+import { aeroModelLabel, hasAerodynamicForce, shownCp } from '../services/simReport.js';
 import { CP_AOA_DEGREES, dragTableCsv, sweepCp, type DragTableMeta } from '../services/dragTable.js';
 import { GestureHints } from './FlightCharts.js';
 
@@ -593,9 +593,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
               design: designName || 'Rocket',
               // Same wording as the launch report's "Aero model" row — the
               // model the sweep actually ran on, not a fixed string.
-              aeroModel: aeroLabel ?? (supersonicModel
-                ? 'Supersonic (our extended model)'
-                : (prefs.rogersKbf ?? true) ? 'Rogers Modified Barrowman (Kbf)' : 'Classic Extended Barrowman'),
+              aeroModel: aeroLabel ?? aeroModelLabel(supersonicModel ? 'supersonic' : 'classic', prefs.rogersKbf ?? true),
               lengthUnit: lenUnit,
               // The SAME string the chart caption prints, so an exported table
               // and a screenshot of the chart can't claim different air.

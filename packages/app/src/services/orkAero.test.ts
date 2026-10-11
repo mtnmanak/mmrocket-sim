@@ -285,8 +285,8 @@ describe('.ork aero provenance', () => {
   it.each([
     ['classic', false, 'Classic Extended Barrowman', false],
     ['classic', true, 'Rogers Modified Barrowman (Kbf)', true],
-    ['supersonic', false, 'Supersonic (our extended model)', true],
-    ['auto-supersonic', false, 'Supersonic (auto — flight exceeded Mach 0.9)', true],
+    ['supersonic', false, "Supersonic — the app's extended model", true],
+    ['auto-supersonic', false, 'Supersonic — chosen by Auto, as the flight exceeded Mach 0.9', true],
     ['hybrid', true, 'Hybrid (experimental)', true],
   ] as const)('restores %s Kbf=%s to the run, label and physics comparison', (aeroModel, rogersKbf, label, pressure) => {
     const data = { aeroModel, rogersKbf, ...(aeroModel === 'hybrid' ? { hybridBand: APP_HYBRID_BAND } : {}) };

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
-import { aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
+import { AERO_NAME, aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
 import { QUANTITY_LABEL, UNITS, type Quantity } from '../prefs/units.js';
 
 /**
@@ -335,6 +335,17 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
   }
   const strip = (): HTMLSelectElement => host.querySelector('select[aria-label="strip"]')!;
 
+  it('K2: every option leads with the model’s one name, any description after " — "', () => {
+    mount();
+    const options = [...aeroSelect().options];
+    expect(options.map((o) => o.value).sort()).toEqual(Object.keys(AERO_NAME).sort());
+    for (const o of options) {
+      const name = AERO_NAME[o.value as AeroChoice];
+      expect(o.text === name || o.text.startsWith(`${name} — `), o.text).toBe(true);
+      expect(o.text, 'the app, never "our"').not.toMatch(/\bour\b/i);
+    }
+  });
+
   it('the strip switch does NOT write the preference', () => {
     mountBoth();
     pick(strip(), 'supersonic');
@@ -357,7 +368,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     pick(strip(), 'supersonic');
     const revert = Array.from(host.querySelectorAll('button'))
       .find((b) => (b.textContent ?? '').startsWith('Go back to')) as HTMLButtonElement;
-    expect(revert.textContent).toBe('Go back to Rogers Kbf');
+    expect(revert.textContent).toBe('Go back to Rogers Modified Barrowman (Kbf)');
     act(() => { revert.click(); });
     expect(strip().value).toBe('kbf');
     expect(host.textContent).not.toContain('overriding the setting above');

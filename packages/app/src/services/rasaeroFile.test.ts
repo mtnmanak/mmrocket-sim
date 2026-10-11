@@ -11,7 +11,7 @@ import { CDX1_ENGINE_EXPORT, cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenP
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
-import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
+import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { checkFormatLoss } from './formatLoss.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,7 @@ describe('RASAero Modified Barrowman import note', () => {
   it.each(['kbf', 'auto', 'supersonic', 'hybrid'] as const)('False + %s gives exactly one historical note', (choice) => {
     expect(modelNotes('False', choice)).toEqual([
       'The file’s author turned Modified Barrowman off. '
-      + `When this import began, the app’s aerodynamics model was ${AERO_SHORT[choice]}. `
+      + `When this import began, the app’s aerodynamics model was ${AERO_NAME[choice]}. `
       + 'Choose Classic Extended Barrowman to match the author’s setting; importing changes no aerodynamics setting.',
     ]);
   });

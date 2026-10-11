@@ -76,7 +76,7 @@ import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
-import { AERO_SHORT, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
+import { AERO_NAME, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
@@ -3630,11 +3630,9 @@ export function App() {
                 value={aeroOverride ?? aeroChoiceOf(prefs)}
                 disabled={simulating}
                 onChange={(e) => setAeroOverride(e.target.value as AeroChoice)}>
-                <option value="kbf">Rogers Kbf</option>
-                <option value="eb">Classic Extended Barrowman</option>
-                <option value="auto">Auto</option>
-                <option value="supersonic">Supersonic</option>
-                <option value="hybrid">Hybrid (experimental)</option>
+                {(['kbf', 'eb', 'auto', 'supersonic', 'hybrid'] as const).map((c) => (
+                  <option key={c} value={c}>{AERO_NAME[c]}</option>
+                ))}
               </select>
               {effectiveSupersonic && aeroMode === 'auto' && (
                 // Auto has upgraded itself on this design — worth saying,
@@ -3644,8 +3642,8 @@ export function App() {
                 </span>
               )}
               {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
-                <button className="vitals-aero-revert" title={`Session override — Preferences is set to ${AERO_SHORT[aeroChoiceOf(prefs)]}. Click to go back to it.`}
-                  aria-label={`Clear the session aero override and use ${AERO_SHORT[aeroChoiceOf(prefs)]}`}
+                <button className="vitals-aero-revert" title={`Session override — Preferences is set to ${AERO_NAME[aeroChoiceOf(prefs)]}. Click to go back to it.`}
+                  aria-label={`Clear the session aero override and use ${AERO_NAME[aeroChoiceOf(prefs)]}`}
                   onClick={() => setAeroOverride(null)}>↺</button>
               )}
             </span>

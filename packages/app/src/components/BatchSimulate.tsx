@@ -23,7 +23,7 @@ import {
   type BatchModel, type BatchMountOption, type BatchRow, type BatchWeighed,
 } from '../services/batchSweep.js';
 import { useCatalogue } from './useCatalogue.js';
-import { usePrefs } from '../prefs/PrefsContext.js';
+import { aeroOptionLabel, usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
 import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
@@ -953,11 +953,11 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
               aero model
               <select value={batchModel} disabled={running}
                 onChange={(e) => setBatchModel(e.target.value as typeof batchModel)}>
-                <option value="auto">Auto (recommended)</option>
-                <option value="kbf">Rogers Modified Barrowman</option>
-                <option value="eb">Classic Extended Barrowman</option>
-                <option value="supersonic">Supersonic — all speeds</option>
-                <option value="hybrid">Hybrid (experimental)</option>
+                <option value="auto">{aeroOptionLabel('auto', 'recommended')}</option>
+                <option value="kbf">{aeroOptionLabel('kbf')}</option>
+                <option value="eb">{aeroOptionLabel('eb')}</option>
+                <option value="supersonic">{aeroOptionLabel('supersonic', 'all speeds')}</option>
+                <option value="hybrid">{aeroOptionLabel('hybrid')}</option>
               </select>
             </label>
             {mounts.length > 1 && (

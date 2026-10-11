@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
-import { PrefsProvider } from './prefs/PrefsContext.js';
+import { AERO_NAME, PrefsProvider } from './prefs/PrefsContext.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -447,6 +447,9 @@ describe('a SOLID motor mount on Motors & Launch', () => {
     await waitFor(starterStored, 'starter motor');
     const aero = host.querySelector<HTMLSelectElement>('select[aria-label="Aerodynamics model (this session)"]')!;
     expect(aero.value).toBe('eb');
+    // K2: the strip names each model exactly as every other selector leads with it.
+    expect([...aero.options].map((o) => [o.value, o.text]))
+      .toEqual((['kbf', 'eb', 'auto', 'supersonic', 'hybrid'] as const).map((c) => [c, AERO_NAME[c]]));
     await act(async () => {
       aero.value = 'supersonic';
       aero.dispatchEvent(new Event('change', { bubbles: true }));

@@ -11,6 +11,7 @@ import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
+import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
 import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { flightLoads, type FlightLoads } from './flightLoads.js';
@@ -1058,14 +1059,16 @@ export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
 /**
  * One spelling of "which aerodynamics model produced this", used by the launch
  * report's detail row and by the stale-run banner, so the two cannot drift.
+ * Each label leads with the model's name from AERO_NAME, the table every
+ * selector reads (K2), and adds any description after " — ".
  */
 export function aeroModelLabel(
   aeroModel: SimRun['aeroModel'], rogersKbf?: boolean,
 ): string {
   switch (aeroModel) {
-    case 'hybrid': return 'Hybrid (experimental)';
-    case 'supersonic': return 'Supersonic (our extended model)';
-    case 'auto-supersonic': return 'Supersonic (auto — flight exceeded Mach 0.9)';
+    case 'hybrid': return AERO_NAME.hybrid;
+    case 'supersonic': return aeroOptionLabel('supersonic', "the app's extended model");
+    case 'auto-supersonic': return aeroOptionLabel('supersonic', 'chosen by Auto, as the flight exceeded Mach 0.9');
     // ONE NAME for the parity model (Eric, 2026-09-21): the same
     // "Classic Extended Barrowman" the selector, the batch dropdown, the
     // vitals strip and the guide all use. The default model takes the name
@@ -1073,7 +1076,7 @@ export function aeroModelLabel(
     // Rogers Kbf" read as the parity model plus one term, so a reader put the
     // whole difference from desktop 24.12 down to Kbf.
     case 'classic': return typeof rogersKbf !== 'boolean' ? 'Classic (Kbf not recorded)'
-      : rogersKbf ? 'Rogers Modified Barrowman (Kbf)' : 'Classic Extended Barrowman';
+      : rogersKbf ? AERO_NAME.kbf : AERO_NAME.eb;
     default: return '—';
   }
 }
@@ -1089,7 +1092,7 @@ export function currentModelLabel(cur: {
   if (cur.aeroMode === 'auto') {
     return cur.autoSupersonic
       ? aeroModelLabel('auto-supersonic')
-      : `Auto (${cur.effectiveKbf ? 'Rogers Kbf' : 'Classic Extended Barrowman'} until Mach 0.9)`;
+      : aeroOptionLabel('auto', `${cur.effectiveKbf ? AERO_NAME.kbf : AERO_NAME.eb} until Mach 0.9`);
   }
   return aeroModelLabel('classic', cur.effectiveKbf);
 }
