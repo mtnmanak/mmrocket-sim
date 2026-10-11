@@ -488,22 +488,24 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
  * number, is named in `notes` and flies the model.
  */
 function rseSampleMassesKg(
-  el: XmlElement, name: string, masses: number[], initG: number, propG: number, n: number, notes?: string[],
+  el: XmlElement, name: string, masses: number[], initG: number, propG: number, notes?: string[],
 ): number[] | undefined {
   const autoCalc = !/^(0|false)$/i.test((el.getAttribute('auto-calc-mass') ?? '').trim());
   if (autoCalc) return undefined;
   // Said, not just dropped: a file that turns the model off but whose points
   // cannot fly fell back to the model with nothing to tell the user why.
+  // `masses` is read from the same <eng-data> list as the thrust points, and a
+  // point whose t or f cannot be read skips the whole motor, so the two
+  // series always line up and there is no count mismatch to report.
   const bad = masses.findIndex((m) => !(Number.isFinite(m) && m >= 0));
-  let unusable: string | null = null;
-  if (masses.length !== n) unusable = `it gives ${masses.length} per-point masses for ${n} thrust points`;
-  else if (bad >= 0) {
-    const raw = el.querySelectorAll('data > eng-data')[bad]?.getAttribute('m') ?? null;
-    const said = raw === null ? 'no m' : raw.trim() === '' ? 'a blank m' : `m="${raw.slice(0, 20)}"`;
-    unusable = `point ${bad + 1} of ${n} has ${said}`;
-  }
-  if (unusable !== null) {
-    notes?.push(`${name}: its per-point masses could not be used (${unusable}), so burn-off is spread in proportion `
+  if (bad >= 0) {
+    const points = el.querySelectorAll('data > eng-data');
+    const raws = masses.map((_, i) => points[i]?.getAttribute('m') ?? null);
+    const raw = raws[bad]!;
+    const said = raws.every((r) => r === null) ? 'no point has an m'
+      : `point ${bad + 1} of ${masses.length} has `
+        + (raw === null ? 'no m' : raw.trim() === '' ? 'a blank m' : `m="${raw.slice(0, 20)}"`);
+    notes?.push(`${name}: its per-point masses could not be used (${said}), so burn-off is spread in proportion `
       + 'to impulse instead.');
     return undefined;
   }
@@ -628,7 +630,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       delays: attr('delays').split(',').map((s) => s.trim()).filter(Boolean).join(','),
       samples,
       sampleMassesKg: rseSampleMassesKg(
-        el, name, masses, numAttr('initWt'), numAttr('propWt'), samples.length, notes),
+        el, name, masses, numAttr('initWt'), numAttr('propWt'), notes),
       ...(exit && 'exitDiameterM' in exit ? { exitDiameterM: exit.exitDiameterM } : {}),
       source: 'rse' as const,
       addedAt: Date.now(),

@@ -268,7 +268,7 @@ describe('.rse files with missing mass data', () => {
     });
     it('names a file whose points carry no m at all', () => {
       expect(fallsBack('<eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/>'))
-        .toContain('point 1 of 3 has no m');
+        .toContain('no point has an m');
     });
     it('names a blank m', () => {
       expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m=" "/><eng-data t="1" f="0" m="0"/>'))
