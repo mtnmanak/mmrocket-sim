@@ -600,6 +600,26 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       expect(h.selected).toEqual([{ label: 'C6-3', ejectionDelay: 3 }]);
     });
 
+    it('Plugged on a motor that lists no plugged delay, through a check and a discard', async () => {
+      // Plugged is offered on EVERY motor (the select adds it), so it is not in
+      // the row's own delay list: the re-resolve must still count it as offered,
+      // or a chosen Plugged snaps back to the longest delay and Load loads a
+      // charge the flyer removed.
+      await stubWithChanges();
+      h = openBrowser({ mountDiameterMm: 18 });
+      search(h, 'C6');
+      click(rowFor(h, 'Estes', 'C6')!);
+      expect(Array.from(delaySelect(h)!.options).map((o) => o.value)).toContain('Infinity');
+      chooseDelay(h, 'Infinity');
+      await check(h);
+      expect(delaySelect(h)!.value).toBe('Infinity');
+      discard(h);
+      expect(delaySelect(h)!.value).toBe('Infinity');
+      await loadAndWait(h);
+      expect(h.selected).toHaveLength(1);
+      expect(h.selected[0]!.ejectionDelay).toBe(Infinity);
+    });
+
     it('for a motor the check marks no longer listed, through a repeat check and "Check again anyway"', async () => {
       const B6_ID = '5f4294d20002310000000010';
       await stubWithChanges({ drop: B6_ID });

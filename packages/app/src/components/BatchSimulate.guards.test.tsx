@@ -422,6 +422,21 @@ describe('the batch dialog', () => {
     expect(primaryText()).toBe(`Simulate ${en(n)} motors · ${batchEstimate({ flights: n, solverFlights: n })}`);
   });
 
+  it('does not count the batch mount’s own motor on Auto as another mount’s: its candidates replace it', () => {
+    // The motor loaded in the mount the batch sweeps is swapped out for each
+    // candidate, so its Auto delay is never solved; only ANOTHER mount's is.
+    mount(CHUTE_TREE, CHUTE_MOUNTS, { assignedMotors: { mount: {} as MotorSpec }, assignedAutoDelays: { mount: true } });
+    act(() => { box('optimal delay per motor').click(); });
+    const candidates = at38();
+    const n = candidates.length;
+    const searching = batchSolverFlights({
+      candidates, groups: [], autoDelay: false, deploysOnCharge: true, othersAuto: false,
+    });
+    expect(batchEstimate({ flights: n, solverFlights: searching }), 'the two prices differ on this mount')
+      .not.toBe(batchEstimate({ flights: n, solverFlights: n }));
+    expect(primaryText()).toBe(`Simulate ${en(n)} motors · ${batchEstimate({ flights: n, solverFlights: searching })}`);
+  });
+
   it('asks a second time before a sweep past the second-ask threshold, and does not start on the first click', () => {
     mount();
     const n = candidateCount();
