@@ -142,10 +142,20 @@ async function openHistory(host: HTMLElement): Promise<HTMLElement> {
   return panel;
 }
 
-function input(host: HTMLElement, ariaLabelStart: string): HTMLInputElement {
-  const el = [...host.querySelectorAll('input')]
-    .find((i) => i.getAttribute('aria-label')?.startsWith(ariaLabelStart));
-  if (!el) throw new Error(`no input "${ariaLabelStart}"`);
+/**
+ * The input named `words…`: by its aria-label, or — a Launch conditions box,
+ * named by its visible label alone — through the label's real association
+ * (`label.control`), the label's own words read without the unit chip.
+ */
+function input(host: HTMLElement, words: string): HTMLInputElement {
+  const own = (l: HTMLLabelElement) => {
+    const c = l.cloneNode(true) as HTMLLabelElement;
+    c.querySelectorAll('select').forEach((x) => x.remove());
+    return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+  };
+  const el = [...host.querySelectorAll('input')].find((i) => i.getAttribute('aria-label')?.startsWith(words))
+    ?? [...host.querySelectorAll('label')].find((l) => own(l).startsWith(words))?.control;
+  if (!(el instanceof HTMLInputElement)) throw new Error(`no input "${words}"`);
   return el;
 }
 

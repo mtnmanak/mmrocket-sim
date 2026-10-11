@@ -15,6 +15,21 @@ import { APP_VERSION } from './version.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/**
+ * The input whose label's own words (the unit chip left out) start with
+ * `words`, through the label's real association (`label.control`): a Launch
+ * conditions box is named by its visible label alone.
+ */
+function labelledBox(root: ParentNode, words: string): HTMLInputElement | undefined {
+  const own = (l: HTMLLabelElement) => {
+    const c = l.cloneNode(true) as HTMLLabelElement;
+    c.querySelectorAll('select').forEach((x) => x.remove());
+    return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+  };
+  const label = [...root.querySelectorAll('label')].find((l) => own(l).startsWith(words));
+  return (label?.control as HTMLInputElement | null) ?? undefined;
+}
+
 // happy-dom has no canvas (the same stub App.session.test.tsx uses).
 const ctx2d = new Proxy({}, {
   get: (_t, prop) => (prop === 'measureText' ? () => ({ width: 0 }) : () => undefined),
@@ -104,8 +119,7 @@ describe('applied weather across a reload and an open', () => {
         appVersion: APP_VERSION, savedAt: Date.now(),
       }));
       const host = await mountApp();
-      const box = (label: string) => [...host.querySelectorAll('input')]
-        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!;
+      const box = (label: string) => labelledBox(host, label)!;
       const click = async (selector: string) => {
         await act(async () => { host.querySelector<HTMLButtonElement>(selector)!.click(); });
       };
@@ -214,8 +228,7 @@ describe('applied weather across a reload and an open', () => {
       ...SNAP, applied: { ...SNAP.applied, windAverage: 1.75, windLevels }, before: { ...SNAP.before, windAverage: 0, windLevels: [] },
     };
     const start = { ...APPLIED, windAverage: 1.75, windStdDev: 0.3, windLevels };
-    const sigmaBox = (host: HTMLElement) => [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Wind gusts σ'))!;
+    const sigmaBox = (host: HTMLElement) => labelledBox(host, 'Wind gusts σ')!;
     const button = (host: HTMLElement, text: string) => [...host.querySelectorAll('button')]
       .find((b) => b.textContent?.trim() === text)!;
     for (const [end, expected] of [['Undo', 0.3], ['Dismiss', 0.95]] as const) {
@@ -271,7 +284,7 @@ describe('applied weather across a reload and an open', () => {
     expect(host.querySelector('[data-provenance]')).toBeNull();
     // The link's Longitude was blank, and it opens blank — the greyed −80.6
     // it flies, not a typed one (review of 2026-09-23).
-    const lon = [...host.querySelectorAll('input')].find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'))!;
+    const lon = labelledBox(host, 'Longitude')!;
     expect(lon.value).toBe('');
     expect(lon.placeholder).toBe('-80.6');
     window.dispatchEvent(new Event('pagehide'));

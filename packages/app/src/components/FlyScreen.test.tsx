@@ -17,6 +17,21 @@ vi.mock('../tree/schematicLayout.js', async (importOriginal) => {
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/**
+ * The input whose label's own words (the unit chip left out) start with
+ * `words`, through the label's real association (`label.control`): a Launch
+ * conditions box is named by its visible label alone.
+ */
+function labelledBox(root: ParentNode, words: string): HTMLInputElement | undefined {
+  const own = (l: HTMLLabelElement) => {
+    const c = l.cloneNode(true) as HTMLLabelElement;
+    c.querySelectorAll('select').forEach((x) => x.remove());
+    return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+  };
+  const label = [...root.querySelectorAll('label')].find((l) => own(l).startsWith(words));
+  return (label?.control as HTMLInputElement | null) ?? undefined;
+}
+
 const TREE = { name: 'Field Bird', components: [] };
 
 const INFO = {
@@ -137,8 +152,10 @@ describe('FlyScreen', () => {
   it('offers the four pad-side launch conditions, Rod aim beside Rod angle', () => {
     mount();
     const inputs = Array.from(host.querySelectorAll<HTMLInputElement>('.fly-conditions input'));
-    expect(inputs.map((i) => (i.getAttribute('aria-label') ?? '').replace(/ \(.*\)$/, '')))
-      .toEqual(['Rod angle', 'Rod aim', 'Rod length', 'Wind avg']);
+    // Each named by its own visible label (label.control), no aria-label copy.
+    expect(['Rod angle', 'Rod aim', 'Rod length', 'Wind avg'].map((w) => labelledBox(host, w)))
+      .toEqual(inputs);
+    expect(inputs.every((i) => i.getAttribute('aria-label') === null)).toBe(true);
     // A design from before the field: the aim reads 0, not blank or NaN.
     expect(inputs[1]!.value).toBe('0');
     expect(inputs[1]!.getAttribute('aria-describedby')).toBeTruthy();
@@ -348,8 +365,7 @@ describe('FlyScreen', () => {
         'https://open-meteo.com/', 'https://creativecommons.org/licenses/by/4.0/', 'https://www.geonames.org/',
       ]);
       expect(host.querySelector('.gust-estimate')).toBeNull();
-      const labels = Array.from(host.querySelectorAll('input')).map((i) => i.getAttribute('aria-label') ?? '');
-      expect(labels.some((l) => l.startsWith('Wind gusts'))).toBe(false);
+      expect(labelledBox(host, 'Wind gusts')).toBeUndefined();
     });
   });
 });

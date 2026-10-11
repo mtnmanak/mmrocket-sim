@@ -9,6 +9,21 @@ import { APP_VERSION } from './version.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/**
+ * The input whose label's own words (the unit chip left out) start with
+ * `words`, through the label's real association (`label.control`): a Launch
+ * conditions box is named by its visible label alone.
+ */
+function labelledBox(root: ParentNode, words: string): HTMLInputElement | undefined {
+  const own = (l: HTMLLabelElement) => {
+    const c = l.cloneNode(true) as HTMLLabelElement;
+    c.querySelectorAll('select').forEach((x) => x.remove());
+    return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+  };
+  const label = [...root.querySelectorAll('label')].find((l) => own(l).startsWith(words));
+  return (label?.control as HTMLInputElement | null) ?? undefined;
+}
+
 // Same drawing stubs as App.save.test.tsx; the import and App state are real.
 const ctx2d = new Proxy({}, {
   get: (_t, prop) => (prop === 'measureText' ? () => ({ width: 0 }) : () => undefined),
@@ -88,7 +103,7 @@ it('shows the longitude row and import note on a LEM-IV-shaped open, then clears
   expect(row()?.textContent).toContain('Longitude 80.126879° E');
   expect(row()?.textContent).toContain('80.63° W');
   expect([...row()!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Use -80.126879', 'Keep east']);
-  const longitude = () => host.querySelector<HTMLInputElement>('input[aria-label^="Longitude"]')!.value;
+  const longitude = () => labelledBox(host, 'Longitude')!.value;
   expect(longitude()).toBe('80.127'); // The field rounds its display to three decimals.
 
   // Keep the longitude identical: stale evidence would still show a row.

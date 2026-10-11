@@ -118,7 +118,9 @@ export function LaunchField({
   const { prefs } = usePrefs();
   // Unique per instance: LaunchField renders in the Launch panel AND on the
   // phone Fly screen, and two elements sharing an id break the association.
-  const helpId = `${useId()}-help`;
+  const uid = useId();
+  const helpId = `${uid}-help`;
+  const inputId = `${uid}-input`;
   const spec = FIELD_SPEC[field];
   const symbol = spec ? prefs.units[spec.quantity] : null;
   /**
@@ -150,14 +152,18 @@ export function LaunchField({
   const uiMax = max === undefined ? undefined : toUi(max);
   return (
     <div className="field" title={help}>
-      <label>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
+      {/* The .field idiom puts the <label> beside the box, so it points at
+          the box (htmlFor), as the printer boxes' do (PreferencesDialog). A
+          label with no `for` names its first labelable descendant: on the
+          eight with a unit chip, clicking the word opened the unit list, and
+          Time step, Latitude and Longitude reached nothing. The visible words
+          are the box's one name — the aria-label copy that stood in for the
+          association is gone — so a screen reader hears the label, unit
+          included ("Rod length m"), on every call site, the Fly screen's too. */}
+      <label htmlFor={inputId}>{label}{spec ? <> <UnitChip quantity={spec.quantity} /></> : ''}</label>
       {help ? <span id={helpId} className="sr-only">{help}</span> : null}
-      {/* The .field idiom puts the <label> beside the control, not around it, so
-          nothing associates them — a screen reader read these eight launch
-          inputs as anonymous "edit" boxes. ariaLabel here names every
-          LaunchField call site at once, the Fly screen's included. */}
       <NumField
-        ariaLabel={symbol ? `${label} (${symbol})` : label}
+        id={inputId}
         describedBy={help ? helpId : undefined}
         // `== null`, not `=== null`: an OPTIONAL field is absent (undefined)
         // from every session saved before it existed, and absent reads as
