@@ -17,7 +17,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import { flightLoads, type FlightLoads } from './flightLoads.js';
 import { affectsRollInertia, hasRecoveryRadialOffset, hasRollForcing } from './revisionInertia.js';
 import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
-import { completedRecoveryEvents } from './recoveryMass.js';
+import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -488,7 +488,7 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
    */
   burnoutMassSettled?: boolean;
   /** Completed flight's separation/burnout evidence, retained after series are discarded. */
-  recoveryEvents?: FlightEvent[];
+  recoveryEvents?: RecoveryEvent[];
   /**
    * Angle of attack (RADIANS) at launch guide exit. The crosswind, not the
    * design, is what separates the CP below from the Design tab's: at zero wind

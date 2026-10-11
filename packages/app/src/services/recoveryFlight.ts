@@ -1,12 +1,12 @@
-import type { FlightEvent, FlightResult } from '@online-openrocket/engine';
-import { completedRecoveryEvents } from './recoveryMass.js';
+import type { FlightResult } from '@online-openrocket/engine';
+import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
 import { runMatchesDesign, type DesignMatchKey, type SimRun } from './simReport.js';
 
 /** Use the latest matching flight, never an older successful flight over a newer failed one. */
 export function matchingRecoveryEvents(
   runs: readonly SimRun[], key: DesignMatchKey,
   flightFor: (id: string) => FlightResult | undefined,
-): readonly FlightEvent[] | undefined {
+): readonly RecoveryEvent[] | undefined {
   const run = runs.filter((r) => !r.importedSummary && runMatchesDesign(r, key))
     .reduce<SimRun | undefined>((latest, r) => !latest || r.when > latest.when ? r : latest, undefined);
   if (!run) return undefined;

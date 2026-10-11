@@ -35,6 +35,8 @@ describe('K1 matching recovery evidence', () => {
     expect(matchingRecoveryEvents([run()], key, () => flight)).toBeUndefined();
     expect(completedRecoveryEvents({ events: [...events, { type: 'SIM_ABORT', time: 5 }] } as FlightResult)).toBeUndefined();
     expect(completedRecoveryEvents({ events: [{ type: 'BURNOUT', time: 2 }, events[1]!] } as FlightResult)).toBeUndefined();
+    // R2: still refused when the unidentified burnout came after the landing.
+    expect(completedRecoveryEvents({ events: [events[1]!, { type: 'BURNOUT', time: 20 }] } as FlightResult)).toBeUndefined();
     expect(matchingRecoveryEvents([run({ recoveryEvents: [null] as never })], key, () => undefined)).toBeUndefined();
   });
 });
