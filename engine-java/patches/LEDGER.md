@@ -2942,3 +2942,207 @@ aerodynamic model.
   over). Two-stage staging fixture's booster: TUMBLE 9.735 s (T3's interim comparator;
   T2: none, ground 23.285 s) -> 5.971 s, ground 22.418 -> 22.661 s. NOT corpus-measured
   in this stage.
+
+### aerodynamics/barrowman/SymmetricComponentCalc.java - Rogers Kbf takes the Fleeman tangent-ogive nose wave drag above M0.8 (board row 87, "M3+ deficit on the shipped default"; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern, ported onto v0.178 from exp/b4-aero-ss `4ffcf7e3` + the row-1 parts of
+  `b47baf1a`; the branch's research dumps under `validation/research-b4-aero-ss/` stay on the branch). Eric,
+  2026-10-11: *"i approve your recommendations for 82-89, build it"*; the recommendation was Fable 5.1's "ship
+  it as the default's nose drag, not behind a switch" (`docs/research/batch4-wave3-2026-10-11/fable-aero-ss.md`).
+- **Defect (default model):** the shipped default (Rogers Kbf; the app flies it at every Mach unless the user picks
+  Auto/Supersonic/Hybrid) runs the desktop OGIVE nose branch, whose supersonic wave drag is built from `sinphi`
+  (slope over the aft 1 % of the nose) and collapses for a TANGENT ogive: nose pressure CD 0.00022 at M3 on the
+  RM A53D02 nose against 0.053 on the Fleeman branch, which is the dominant term of the registered M3+ deficit
+  (`open-items.md` section 3 item 7: all 17 `rma53d02 cd0-freeflight` gates above M2.9 red, recorded there as
+  -23 % to -44 %; re-measured at v0.177 and again at v0.178, -16.9 % (M5.32) to -43.5 % (M7.19)).
+  Supersonic has carried the fix since Phase 5 (entry above). No published Rogers method exists to port: the
+  "version" Chuck Rogers published is RASAero II's own CD curve (`cd-rasaero-reference`, informational) and his
+  measured "31 % low at Mach 3" figures; RASAero's equations are not public (Rogers & Cooper 2011 is the 1.0.2.0
+  Users Manual and carries none).
+- **The correlation, as printed.** Fleeman prints `(CD0)Body,Wave = (1.59 + 1.83/M^2) {tan^-1[0.5/(lN/d)]}^1.69,
+  for M > 1. Based on Bonney reference, tan^-1 in rad` (E. L. Fleeman, *Maximizing Missile Flight Performance*,
+  Georgia Tech short course, 9/10/2009, slide 5 - his own summary of *Tactical Missile Design*; the book itself
+  was not opened in this sitting). The four-digit 1.586 / 1.834 that Fable recalled are the degree form
+  (0.083 + 0.096/M^2)(theta_c/10 deg)^1.69 converted to radians (`docs/research/rasaero-supersonic-spec-2026-08-03.md`
+  section 3b) and turn up in later papers that cite Fleeman; they differ from the printed pair by < 0.3 %. The
+  kernel keeps the printed 1.59 / 1.83, unchanged since Phase 5. The degree form's stated validity is M ~1.2-4
+  and theta_c < ~30 deg, i.e. l_N/d > ~0.87: a stubbier tangent ogive is outside it - under Supersonic since
+  Phase 5 and now under Kbf too, where it charges MORE drag than the desktop curve (see the stubby-ogive entry,
+  board row 89).
+- **Change:** the OGIVE case takes `calculateFleemanNoseInterpolator` under `supersonicAero || rogersKbf`
+  (nose, shape parameter >= 0.35, exactly Phase 5's scope); the above-table continuation runs under
+  `supersonicAero || fleemanNose`, so conical/table-shape decays stay Supersonic-only. For Kbf without
+  `supersonicAero` the desktop curve is also built (`kbfSubsonicNose`, via `forceClassicNose`) and Kbf charges
+  it bit for bit at and below `KBF_NOSE_ONSET_MACH` = 0.8; over M0.8-1.0 the Fleeman drag-divergence tail's
+  excess over it is smoothstepped in, whole at M1 where the curve meets the Fleeman bridge. Reason: subsonic body
+  drag is parked (Eric, 2026-09-04) and the stubby-ogive subsonic floor is its own board row (89). A first build
+  without that floor moved subsonic Kbf apogees by up to +0.4 % (removing the desktop flat clamp) and was
+  withdrawn. Classic is untouched; Supersonic is untouched (its curve was already this one).
+- **Tests:** `packages/engine/src/kbfOgiveWaveDrag.test.ts` (5): Kbf = Supersonic on tangent ogives L/D 3/4/6 at
+  M2/3/5 and within 5 % of the correlation; Classic stays collapsed (< 0.005) and Kbf >= 10x it; Mach decay to
+  the 1.59 asymptote; Kbf bit-identical to Classic at M0.1-0.8 for L/D 1/2/4 and equal to Supersonic at M1;
+  conical and param-0.2 secant ogive stay classic. **Mutation:** on the v0.178 kernel (the fix absent, md5
+  `2f71b37b`) 4 of 5 fail - the M0.8-floor test too, because base Kbf equals Classic at M0.95; only the scope
+  test passes, by design.
+- **Artifact:** md5 `2f71b37b38b20972dc4d31988e7f7ef5` (v0.178) -> `2356b2aa6d827b984ac579ca73d64d68`.
+  difftest: 446 lines (294 bit-identical, 152 within tolerance). JUnit (`gradlew test`, JAVA_HOME set): 75/75.
+- **Goldens (TeaVM GoldenMain before/after, 446 lines):** 7 move, all Kbf columns at M0.9/M1.5 or supersonic:
+  `parity.airfoilsection` (Kbf column 0.65322 -> 0.76028, the Supersonic value), `podnozzle.{bare,pods,step}.{1,2}`.
+  No Classic or Supersonic value and no flight line moves.
+- **Scorecard (`validation/score.mjs`, 191 gates, v0.178 -> this):** Kbf **22 -> 41** (+19, none lost); Classic 13
+  and Supersonic 83 byte-identical; Hybrid 79 -> 79 (16 gates closer, 9 away, no flip). Kbf gains: rma53d02
+  M1.32/1.44/1.46/1.53/1.57 and M4.04/4.56/4.57/4.64/4.73/5.49/7.17/10.0; ARCAS supersonic CD Short M3.95/4.65,
+  Short-nosection M2.95/3.95/4.65, Long M4.65. rma53d02 above M2.9: Kbf 0/17 -> 8/17 (Supersonic 7/17), error
+  -16.9..-43.5 % -> -14.5..+15.0 %: M5.32 and M5.45 now read HIGH (+15.0 %, +11.3 %; FAIL before and after;
+  RASAero II's own curve reads about +22 % on the M5.32 shot, and the cluster spreads 10 %), M10.01 +10.2 % (FAIL
+  before and after). **Still low:** M1.95-4.0 sits 8-18 % low in Kbf, Supersonic and Hybrid alike (Kbf -9.5 to
+  -18.1 %, Supersonic and Hybrid -8.2 to -18.1 %; Classic -31 to -38 %). Against Rogers' published curve
+  (`cd-rasaero-reference`, informational, M2-M10) Kbf is now within +-0.02 at 7 of 9 points (M3 -0.028, M4
+  -0.024); before, -0.036 to -0.081 at every point. Above M5 Kbf now reads ABOVE Supersonic (M10 0.110 vs 0.092)
+  because Kbf's fin pressure drag clamps flat past the table while Supersonic's decays - its better M7-10 score is
+  accidental, not validation. **Worse, measured:** Kbf transonic M1.05-1.15 on the three ARCAS cells moves
+  0.01-0.033 further low (M1.05 Short 0.408 -> 0.381 against 0.685; the desktop's spurious bump at M1.05-1.10 was
+  adding drag there; all already FAIL by 7-10 tolerances) - the one band where the default becomes LESS
+  conservative on apogee; M0.9 rows +0.0013-0.0029 higher.
+- **Flights (frozen 2026-10-04 inputs + real-inputs, v0.178 -> this):** Kbf LEM-IV 12,302 -> 11,934 ft (error
+  +4.56 % -> +1.43 %), Blue Iguana Muskegon 18,507 -> 17,716 ft (+17.18 % -> +12.17 %), Blue Iguana URRG
+  20,390 -> 19,475 ft (-4.49 %; no measured apogee in the set); Half Fast -0.04 % (-18.11 % -> -18.14 %, worse);
+  Hybrid LEM-IV -0.23 % (better), Blue Iguana Muskegon +0.03 % (11.93 % -> 11.96 %, worse), Half Fast -0.04 %;
+  WM Mach 2 and MESOS (Von Karman noses), Mamba and WM4 (subsonic) unchanged. Classic, Supersonic and Auto: every
+  flight bit-identical.
+- **Corpus (`docs/User files`, 138 files, 116 fly with the bundled motors; app import path, default launch
+  conditions; Classic, Kbf, Auto, Supersonic and Hybrid):** Kbf - 43 of 110 completed flights move (6 aborted
+  excluded), every one with peak Mach >= 0.844, none below. Peak M0.84-1.0: -0.003 % to -0.35 % (5 files).
+  Peak M1.0-1.25: -1.25 % to +0.70 % (14; LOC2P1-1 +0.70 %, test01 +0.49 %, WM_4_Extreme.CDX1 +0.23 %,
+  sssinglestageE063024 -1.25 %) - the desktop's spurious M1.05-1.10 nose bump is gone, so a flight peaking there
+  can gain. Peak M1.25-3.3: -0.85 % to -8.31 % (24; OR vs RAS Test 1 -8.31 %, two stage L2 -8.25 %, Project Y
+  -6.47 %, 50k -4.79 %, 4in WM Extreme.rkt -4.62 %). Two RASAero name-test files that tumble and abort (14/15
+  CTI) read +8.17 %; their "apogee" is the abort altitude. Hybrid: 45 move, -0.53 % to +0.13 %. Auto: one file
+  that stays below M0.9 and so flies Kbf (ninja_4in_75mm-MMT.ork, peak M0.84) -0.003 %. Classic and Supersonic:
+  every corpus flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model (drag only).
+
+### aerodynamics/barrowman/FinSetCalc.java - Supersonic transonic fin-CNa bridge ends at the fin's own linear-theory Mach, with the exact join slope (board row 88, "Supersonic transonic bridge under-predicts fin CNa, M1.05-1.38"; folds in the held superD fix; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern, ported onto v0.178 from exp/b4-aero-ss `b028c4ae` + the row-2 parts of
+  `b47baf1a`; the research dumps stay on the branch). Eric, 2026-10-11: *"i approve your recommendations for
+  82-89, build it"*; Fable 5.1: "approve Row 2 as a correction, not a safety regression"
+  (`docs/research/batch4-wave3-2026-10-11/fable-aero-ss.md`). superD on its own stays HELD (Eric, 2026-10-09);
+  this is the bridge rebuild that ruling asked for. Moves Supersonic/Hybrid (and Auto's supersonic re-fly) CNa and
+  CP over M0.9-1.5; Classic and Kbf are bit-identical.
+- **Defect:** with `supersonicAero` the quartic bridge from M0.9 always ran to M1.5, so every fin whose
+  tip-corrected linear result is already valid lower down rode the bridge through the band where linear theory
+  peaks. Army-Navy Basic Finner (A = 2): free-flight CNa 1.3-3.9 /rad (8-21 %) low over M1.056-1.377, 4 of 6 gates
+  FAIL; CP up to 2.7 %L forward. And the bridge's top slope omitted the scale's own slope (superD, wt/superd) and
+  the alpha terms' slopes while its top VALUE carried them.
+- **Change (Supersonic only):** the analytic branch `ssaeroScale(M) * (K1 + K2 a + K3 a^2)` now starts at
+  `ssBridgeTopMach() = clamp(sqrt(1 + 1/A^2), 1.2, 1.5)` (A = 2 span^2 / area): sqrt(1 + 1/A^2) is where
+  A*beta = 1, from which 4/beta*(1 - 1/(2 A beta)) is exact for a rectangular wing (Jones and Cohen); the M1.2
+  floor is the Mach this kernel already trusts linearised supersonic theory from, below which K2/K3 grow as
+  beta^-4/beta^-7; the M1.5 cap keeps A <= 0.894 fins on the old top. The bridge is the same quartic
+  (`PolyInterpolator`, cached per calc object) on [0.9, top] with the branch's value and its ANALYTIC Mach slope
+  (`ssSupersonicCNaSlope`: product rule over the scale, `2M/(A beta^4)`-type term from superD, plus dK1, dK2, dK3).
+  Above the top the branch expression is written exactly as Phase 1 wrote it, so M >= 1.5 is bit-identical.
+  The classic/Kbf bridge is untouched (the dead `sscale` factor removed; the multiply by 1.0 was exact).
+- **Limit (Fable, recorded with the ship decision):** the sqrt(1 + 1/A^2) validity Mach never decides for the
+  validated fin - A = 2 gives 1.118, floored to 1.2 - so the anchors confirm "top 1.2 beats top 1.5 at A = 2" and
+  the formula branch (A < 1.51) rests on the construction argument only. The Jones and Cohen criterion is a
+  rectangular, supersonic-leading-edge result: a 45-degree-swept fin has a subsonic leading edge up to M1.41, where
+  4/beta theory does not apply at all. That is a pre-existing limitation of the analytic branch, now reached at
+  M1.2 instead of M1.5.
+- **Not moved with the top, in any model:** CP-along-MAC (`calculateCPPos`) keeps the desktop/PR #3262
+  interpolation over M0.5-2 (its band was never tied to the CNa bridge; it decides where on the MAC the fin's
+  force acts, not how big it is), and roll damping (`calculateDampingMoment`) keeps its linear M0.9-1.5
+  interpolation (roll only, no CP or CNa effect, no anchor to check it against). Both bands are FIXED - neither
+  follows the per-fin top. (The batch-5 brief called both "the fixed M0.9-1.5 band"; the code has M0.5-2 for
+  CP-along-MAC, as `b47baf1a` corrected.) Fable: after the change the band's only CP data sits 0.17 %L aft of the
+  model's mean, so no CP-along-MAC change is indicated.
+- **Tests:** `packages/engine/src/transonicFinCNa.test.ts` generalised to the per-fin top (12 tests): interior
+  points on the quartic the endpoint data define, with the Supersonic top slope derived independently in the test;
+  above the top CNa*beta/scale constant (A 0.4/0.8/1.0/1.6/3.2); value and slope continuous at the join at AoA 0
+  and 2 deg; Classic/Kbf still end at M1.5. **Mutations** (rebuild each, on v0.178): the fix absent (the board
+  row 87 kernel) -> 7 fail; drop the scale slope (superD defect) -> 6 fail; fixed M1.5 top -> 5 fail. (exp branch,
+  not re-run here: drop the alpha-term slopes -> 1 fails, the AoA 2 join.)
+- **Artifact:** md5 `2356b2aa6d827b984ac579ca73d64d68` (row 87) -> `18fef99ebe90d0186249a8e8de7e85b4`. difftest
+  446 lines (294 bit-identical, 152 within tolerance). JUnit 75/75.
+- **Goldens (TeaVM GoldenMain before/after):** 2 of 446 move: `ssaero.1.2` Supersonic CNa 17.5871 -> 21.5577
+  (+22.6 %), CP 0.303170 -> 0.310916 m; `aero.forcecp.hybrid` 0.226941 -> 0.244285 m.
+- **Scorecard:** Supersonic **83 -> 86**, Hybrid **79 -> 82**, Classic 13 and Kbf 41 byte-identical. Only
+  basic-finner rows move (12 per model: 10 closer, 2 away). CNa M1.058/1.116/1.254 FAIL -> PASS (M1.056 still
+  FAIL, -3.92 -> -2.17 against +-1.87); CP M1.116 FAIL -> PASS; **CP M1.056 PASS -> FAIL** (+0.54 -> +1.72 %L
+  against +-1.5), CP M1.254 PASS stays PASS (-0.03 -> +1.23 %L). The one lost gate is data scatter, not a
+  regression: the shots at M1.056 and M1.058 read 82.0 and 83.6 %L - 1.6 %L apart, more than the +-1.5 tolerance
+  - and the model reads 83.72 / 83.76 %L for both. Over the six M1.05-1.38 CP points the Supersonic mean error goes
+  from **-0.89 %L (forward of the data) to +0.17 %L (aft)**, RMS 1.41 -> 1.26 %L: a residual non-conservative bias
+  of 0.017 cal on that L = 10 cal body.
+- **Static CP, corpus (`docs/User files`, 138 designs, Supersonic and Hybrid, M0.95-1.5; Classic and Kbf CP and
+  CNa unchanged on all 138):** 135 of 138 designs move in each model. Largest shift per design (Supersonic): aft
+  > 0.25 cal on 16, aft 0.05-0.25 cal on 80, within 0.05 on 11, forward > 0.05 cal on 28 (low-AR fins whose top
+  stays M1.5, where the superD slope lowers the bridge). **Median +0.13 cal aft** (AFT = the app shows MORE
+  margin), range -0.30 to **+0.95 cal** (`TRF RASAero Files/38mm_thought experiment.CDX1` at M1.15, CNa +13.9 %);
+  next `38-54 2-stage.ork` +0.66, the two `StratoSpear_3Dprint 2-stage` CDX1s +0.55, `SS Wild Bash` +0.53 (three
+  files). A design with about 1 cal of margin at M1.15 can now show about 2. Hybrid: the same counts, maximum
+  +0.91 cal on the same file.
+- **Flights (frozen inputs):** apogee within 0.006 % on every tester flight (LEM-IV, Blue Iguana x2, WM Mach 2,
+  Half Fast, MESOS; Auto, Supersonic and Hybrid); Classic and Kbf bit-identical.
+- **Corpus apogees (116 flown; 3 aborted excluded; against the row-87 kernel):** Supersonic = Auto 74 move,
+  -0.18 % (two stage L2, peak M3.2) to +0.10 % (50k), every other within 0.04 %; Hybrid 74 move, -0.15 % to
+  +0.12 % (the two `38-54 2-stage` files). Classic and Kbf: no CP, CNa or CD change on any of the 138 designs.
+
+### aerodynamics/barrowman/SymmetricComponentCalc.java - the C7 stubby-nose floor reaches OGIVE noses, held at every tabulated Mach (board row 89, "the stubby-nose remainder"; gated `rogersKbf || supersonicAero`; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern; ported by hand onto v0.178 + board rows 87/88 from exp/b4-aero-wave
+  `e51c9aeb` ONLY - that commit sat on `b79e013e` (boat-tail TR R-100 eq. (1)), which does NOT ship, nor do
+  `c55f3b2d` (cube-law base), `0cb9fb33` (stubby cone, PARKED) or the cone/secant/Hybrid text of `0a450a97`).
+  Eric, 2026-10-11: *"i approve your recommendations for 82-89, build it"*; Fable 5.1: "approve as a stated scope
+  extension of C7" (`docs/research/batch4-wave3-2026-10-11/fable-aero-wave.md`).
+- **Defect:** the C7 floor (v0.103, Eric's ruling 2026-09-04: a third of the file's own conical value
+  0.8/(1+4f^2), tapering to zero by L/D 1.8) was scoped to the four stored-table shapes. A stubby TANGENT ogive
+  read 0.005 at L/D 0.5 under Kbf and Supersonic: its curve is built from `sinphi` over the aft 1 %, ~0 for any
+  tangent shape. A tangent ogive at L/D 0.5 is geometrically a hemisphere (ogive radius (R^2+L^2)/2R = R when
+  L = R), the shape TIR-100 measures at +0.10 / +0.02 and DeMar at +0.07 / +0.03 / 0.00 - the bracket the floor
+  was set into.
+- **Change:** `applyStubbyNoseFloor(..., ogiveShape)` - OGIVE noses take the same floor, same constants; a
+  secant ogive's steeper aft slope already charges more wherever it is cone-like, so max() leaves it alone. For an
+  ogive the floor is held at EVERY tabulated Mach of the curve it is applied to, not only below the first
+  tabulated point, so the classic branch's ~0 values cannot drop it near M1. Classic never reaches the floor
+  (gate `rogersKbf || supersonicAero`).
+- **How it combines with board row 87 (measured here, not on the exp branch):** since row 87 a tangent or
+  near-tangent ogive (shape parameter >= 0.35) takes the Fleeman branch above M1 under Kbf as well as Supersonic,
+  and that branch is far above the floor (L/D 0.5: 0.53 at M1, 1.60 at M1.5), so above M1 max() changes nothing
+  in any model. What the floor moves is: Kbf's kept desktop curve (`kbfSubsonicNose`) at and below M0.8 and the
+  M0.8-1.0 blend built on it; Supersonic's subsonic Fleeman fit where it sits under the floor; Hybrid through
+  both. The every-Mach hold therefore bites on no ogive in the shipped combination - the curves it holds above
+  M1 are either the unused part of `kbfSubsonicNose` or a secant ogive (< 0.35) already above the floor - and no
+  test can see it; it stays as built, harmless. Fable's caveat "under Kbf the hemisphere is 0.123 flat at M1.5
+  where Supersonic charges 1.60, ~10x low" was measured without row 87 and no longer holds: Kbf now charges the
+  same 1.60. That value is the Fleeman correlation outside its published range (l_N/d > ~0.87); a modified-
+  Newtonian hemisphere at M1.5 is about Cp_max/2 = 0.77, so it errs high (more drag, lower apogee).
+- **Measured, isolated nose pressure CD (nose + 0.6 m body, base-area referenced), tangent ogive, row 88 ->
+  this:** Kbf M0.3: L/D 0.5 0.0050 -> **0.1230**; 1.0 0.0040 -> 0.0369; 1.5 0.0030 -> 0.0081; 2.0 unchanged.
+  Kbf M0.8 the same; Kbf M0.9 (blend) L/D 0.5 0.1847 -> 0.2437, 1.0 0.0515 -> 0.0679, 1.5 0.0162 -> 0.0188.
+  Supersonic M0.3: 0.0069 / 0.0000 / 0.0000 -> 0.1230 / 0.0369 / 0.0081 (M0.8 and up unchanged except L/D 1.5
+  at M0.8, 0.0062 -> 0.0081). Hybrid follows Kbf below M0.8 and blends above. M1.0 and up: unchanged in every
+  model. Secant ogives with shape parameter 0, 0.2, 0.3 and 0.5 at L/D 0.5-2.0: unchanged in every model.
+  Classic: unchanged everywhere.
+- **Tests:** `packages/engine/src/orkEngine.test.ts`, *stubby tangent ogives carry the stubby-nose floor* (4):
+  the floor subsonically at L/D 0.5/1.0/1.5 under Kbf and Supersonic; at or above the floor through the M0.8-1.0
+  blend and above M1 under Kbf (M0.8/0.85 are the guard - re-pointed from the exp branch's M0.95-2.5, which row 87
+  now satisfies on its own); zero effect above L/D 1.8 and in Classic; a cone-like secant ogive keeps its own
+  larger value. **Mutation:** on the row-88 kernel (the floor absent) 2 of 4 fail (the first two); the last two
+  hold by design. Row 87's `kbfOgiveWaveDrag.test.ts` M0.8 test now expects the floor at L/D 1 (Kbf =
+  max(Classic, floor) there) and Classic bit for bit at L/D 2 and 4; it failed on this kernel until updated.
+- **Harness:** new GoldenMain sweep `stubby.ogive` (Kbf, L/D 0.5, M0.3/0.9/1.1/1.5): 0.1230 / 0.2437 / 0.9345 /
+  1.5978 pressure. Goldens 446 -> 450 lines, no existing line moves. difftest 450 lines (298 bit-identical, 152
+  within tolerance). JUnit 75/75.
+- **Artifact:** md5 `18fef99ebe90d0186249a8e8de7e85b4` (row 88) -> `85016ffe3016655be78fc32d0e0480b5`.
+- **Scorecards (191 gates):** all four models byte-identical (no harness nose is below L/D 1.8).
+- **Flights (frozen inputs):** only LEM-IV moves (pod-set noses at L/D 1.0): Kbf 11,934 -> 11,910 ft (+1.43 % ->
+  +1.23 % against the 4 Oct reference), Auto = Supersonic 11,938 -> 11,923 ft (+1.47 % -> +1.34 %), Hybrid
+  11,932 -> 11,909 ft (+1.42 % -> +1.22 %); research-input LEM-IV (measured 11,755 ft) Kbf +3.22 % -> +3.02 %,
+  Supersonic +3.13 % -> +2.99 %, Hybrid +3.21 % -> +3.01 %. Classic and every other flight bit-identical.
+- **Corpus (`docs/User files`, 116 flown with the bundled motors, app import path, default launch conditions;
+  against the row-88 kernel):** 6 files move in Kbf, Auto, Supersonic and Hybrid, all DOWN (more drag): `pringles
+  2 - baseconehack.ork` (tangent ogive L/D 1.33, peak M0.20) Kbf -1.29 %, Supersonic -1.66 %; `LEM-IV.ork` and its
+  two copies (pod-set ogives at L/D 1.0, peak M0.53 on its own motor) -0.26 % / -0.29 %; `ninja_4in_75mm-MMT.ork`
+  (L/D 0.5, peak M0.84) -0.15 % / -0.07 %; `ninja_4in_54mm-MMT.ork` (L/D 0.5, peak M1.26) -0.09 % / -0.06 %.
+  Classic: every flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model.

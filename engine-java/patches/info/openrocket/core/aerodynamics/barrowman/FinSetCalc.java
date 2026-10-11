@@ -623,16 +623,37 @@ public class FinSetCalc extends RocketComponentCalc {
 			return 2 * Math.PI * pow2(span) / (1 + MathUtil.safeSqrt(1 + (1 - pow2(mach)) *
 					pow2(pow2(span) / (finArea * cosGamma)))) / ref;
 		}
-		
-		// Supersonic case
-		if (mach >= CNA_SUPERSONIC) {
-			if (supersonicAero) {
-				// PATCH (feature #1 Phase 1): analytic Busemann terms (no grid,
-				// no M4.9 clamp) scaled to the 2D 4/beta level with the standard
-				// finite-span tip correction.
+
+		// PATCH (board row 88, "Supersonic transonic bridge under-predicts fin
+		// CNa, M1.05-1.38"; approved by Eric 2026-10-11; folds in the held
+		// superD fix of wt/superd). Supersonic model only: the
+		// analytic supersonic branch starts at ssBridgeTopMach() instead of a
+		// fixed M1.5, and the quartic bridge from M0.9 ends there with the
+		// branch's own value and its exact Mach slope. See LEDGER.md.
+		if (supersonicAero) {
+			double mTop = ssBridgeTopMach();
+			if (mach >= mTop) {
+				// Written exactly as Phase 1 wrote it, so every Mach the old
+				// branch covered (M >= 1.5) stays bit-identical.
 				return finArea * ssaeroScale(mach) * (k1Analytic(mach) + k2Analytic(mach) * alpha +
 						k3Analytic(mach) * pow2(alpha)) / ref;
 			}
+			double sqS = MathUtil.safeSqrt(1 + (1 - pow2(CNA_SUBSONIC)) * pow2(span * span / (finArea * cosGamma)));
+			double subVS = 2 * Math.PI * pow2(span) / ref / (1 + sqS);
+			double subDS = 2 * CNA_SUBSONIC * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
+					sqS * pow2(1 + sqS));
+			double superVS = finArea * ssaeroScale(mTop) * (k1Analytic(mTop) + k2Analytic(mTop) * alpha +
+					k3Analytic(mTop) * pow2(alpha)) / ref;
+			double superDS = finArea * ssSupersonicCNaSlope(mTop, alpha) / ref;
+			return ssBridge(mTop).interpolate(mach, subVS, superVS, subDS, superDS, 0);
+		}
+
+		// Supersonic case
+		// (feature #1 Phase 1's analytic Busemann branch for supersonicAero - no
+		// grid, no M4.9 clamp, scaled to the 2D 4/beta level with the standard
+		// finite-span tip correction - now returns from the supersonicAero block
+		// above.)
+		if (mach >= CNA_SUPERSONIC) {
 			return finArea * (K1.getValue(mach) + K2.getValue(mach) * alpha +
 					K3.getValue(mach) * pow2(alpha)) / ref;
 		}
@@ -647,12 +668,9 @@ public class FinSetCalc extends RocketComponentCalc {
 		subD = 2 * CNA_SUBSONIC * Math.PI * pow(span, 6) / (pow2(finArea * cosGamma) * ref *
 				sq * pow2(1 + sq));
 
-		// (feature #1 Phase 1: the supersonic endpoint of the bridge scales with
-		// the corrected level so the transonic interpolation stays continuous.)
-		double sscale = supersonicAero ? ssaeroScale(CNA_SUPERSONIC) : 1.0;
-		superV = sscale * finArea * (K1.getValue(CNA_SUPERSONIC) + K2.getValue(CNA_SUPERSONIC) * alpha +
+		superV = finArea * (K1.getValue(CNA_SUPERSONIC) + K2.getValue(CNA_SUPERSONIC) * alpha +
 				K3.getValue(CNA_SUPERSONIC) * pow2(alpha)) / ref;
-		superD = sscale * (-finArea / ref * 2 * CNA_SUPERSONIC / CNA_SUPERSONIC_B);
+		superD = -finArea / ref * 2 * CNA_SUPERSONIC / CNA_SUPERSONIC_B;
 
 		return cnaInterpolator.interpolate(mach, subV, superV, subD, superD, 0);
 	}
@@ -667,6 +685,79 @@ public class FinSetCalc extends RocketComponentCalc {
 		double beta = MathUtil.safeSqrt(mach * mach - 1);
 		double corr = Math.max(1 - 1 / (2 * ar * beta), 0.25);
 		return 2 * corr;
+	}
+
+	/**
+	 * PATCH (transonic bridge rebuild, board row 88, 2026-10-11): lowest Mach at
+	 * which the analytic supersonic fin branch is trusted, so the top of the
+	 * M0.9 quartic bridge.
+	 * <p>
+	 * The tip-corrected linear result 4/beta*(1 - 1/(2*A*beta)) is exact for a
+	 * rectangular wing once A*beta &gt;= 1 (Jones and Cohen, High Speed Wing
+	 * Theory), i.e. from M = sqrt(1 + 1/A^2). A fixed M1.5 top made every fin
+	 * whose own validity Mach sits lower ride the bridge through the band where
+	 * linear theory peaks (2A per unit area at A*beta = 1); on the Army-Navy
+	 * Basic Finner (A = 2) that left free-flight CNa 8-21 % low over
+	 * M1.05-1.38. Floored at M1.2, the Mach this kernel already trusts
+	 * linearised supersonic theory from (boattail Prandtl-Meyer, Fleeman nose,
+	 * thickness wave), because the Busemann alpha terms K2, K3 grow as
+	 * beta^-4 and beta^-7 below it; capped at the old M1.5 so low-AR fins
+	 * (A &lt;= 0.894) keep the old top.
+	 * <p>
+	 * Limit, not new but now reached lower: the Jones and Cohen criterion is a
+	 * rectangular, supersonic-leading-edge result. A swept fin's leading edge
+	 * stays subsonic until M = 1/cos(sweep) (M1.41 at 45 deg), where 4/beta
+	 * theory does not apply at all; such a fin now meets the analytic branch at
+	 * M1.2 instead of M1.5. For the validated A = 2 fin sqrt(1 + 1/A^2) = 1.118,
+	 * so the M1.2 floor decides there.
+	 */
+	private double ssBridgeTopMach() {
+		if (!(ar > 0)) {
+			return CNA_SUPERSONIC;
+		}
+		return MathUtil.clamp(Math.sqrt(1 + 1 / pow2(ar)), SS_BRIDGE_MIN_MACH, CNA_SUPERSONIC);
+	}
+
+	private static final double SS_BRIDGE_MIN_MACH = 1.2;
+	private PolyInterpolator ssBridgeInterp = null;
+	private double ssBridgeInterpTop = Double.NaN;
+
+	/** The quartic on [0.9, mTop]: value and slope at both ends, zero curvature at 0.9. */
+	private PolyInterpolator ssBridge(double mTop) {
+		if (ssBridgeInterp == null || ssBridgeInterpTop != mTop) {
+			ssBridgeInterp = new PolyInterpolator(
+					new double[] { CNA_SUBSONIC, mTop },
+					new double[] { CNA_SUBSONIC, mTop },
+					new double[] { CNA_SUBSONIC });
+			ssBridgeInterpTop = mTop;
+		}
+		return ssBridgeInterp;
+	}
+
+	/**
+	 * d/dM of the Supersonic-model fin CNa per unit fin area,
+	 * ssaeroScale * (K1 + K2 a + K3 a^2), analytic (no finite difference, so the JVM and
+	 * TeaVM run the same operations). Product rule over the scale and all three
+	 * Busemann terms: the held superD fix (wt/superd, 2026-10-09) added the
+	 * scale's own slope 2M/(A beta^4) to the K1 term; the K2/K3 slopes are added
+	 * here because the endpoint VALUE carries them.
+	 */
+	private double ssSupersonicCNaSlope(double mach, double alpha) {
+		double b2 = mach * mach - 1;
+		double beta = MathUtil.safeSqrt(b2);
+		double corr = 1 - 1 / (2 * ar * beta);
+		double scale = 2 * Math.max(corr, 0.25);
+		double dScale = corr > 0.25 ? mach / (ar * beta * b2) : 0;
+		double k = k1Analytic(mach) + k2Analytic(mach) * alpha + k3Analytic(mach) * pow2(alpha);
+		double dk1 = -2 * mach / (beta * b2);
+		double dk2 = -(GAMMA + 1) * pow(mach, 3) / (b2 * b2 * b2) + 2 * mach / (b2 * b2);
+		double p = (GAMMA + 1) * pow(mach, 8) + (2 * pow2(GAMMA) - 7 * GAMMA - 5) * pow(mach, 6) +
+				10 * (GAMMA + 1) * pow(mach, 4) + 8;
+		double dp = 8 * (GAMMA + 1) * pow(mach, 7) + 6 * (2 * pow2(GAMMA) - 7 * GAMMA - 5) * pow(mach, 5) +
+				40 * (GAMMA + 1) * pow(mach, 3);
+		double beta7 = pow(beta, 7);
+		double dk3 = dp / (6 * beta7) - 7 * mach * p / (6 * beta7 * b2);
+		return dScale * k + scale * (dk1 + dk2 * alpha + dk3 * pow2(alpha));
 	}
 
 	/**
