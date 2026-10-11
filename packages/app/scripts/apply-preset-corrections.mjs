@@ -149,15 +149,6 @@ export const CORRECTIONS = [
     unwatched: 'value comes from a desktop 24.12 internal .orc, a released artifact that will not change',
   },
   {
-    key: 'Transition|semroc|btc20bbr',
-    why: 'upstream semroc.orc gives BTC-20BB [R] 0.21 oz, the figure of the BTC-18VY tail cone (its entry is a clone of that one). SEMROC\'s own Nose Cones table lists BTC-20BB, the ST-20 tail cone drilled for 29 mm, at a NetWeight of 0.82 oz (23.2 g) in the 2010, 2013, 2017 and 2019 archived copies, e.g. https://web.archive.org/web/20131208121434/http://www.semroc.com:80/Store/Products/NoseCones.asp. Replace with the maker mass; [R] is the same part reversed.',
-    fields: { mass: { bad: 0.00595339985625, good: 0.0232466089625 } },
-    upstream: {
-      file: 'semroc.orc', element: 'Transition', partNo: 'BTC-20BB [R]',
-      fields: { Mass: { bad: '0.21', good: '0.82' } },
-    },
-  },
-  {
     key: 'CenteringRing|balsamachining|cr5060w',
     why: 'upstream BMS.ORC ships OD 1.283 in on a T50-to-T60 ring; 1.593 in per bms-legacy.orc + CRDATA.CSV:147 + the CR5060-F sibling',
     fields: { outsideDiameter: { bad: 0.0325882, good: 0.0404622 } },
@@ -219,6 +210,25 @@ export const CORRECTIONS = [
       file: 'semroc.orc', element: 'TubeCoupler', partNo: 'HTC-11',
       fields: { InsideDiameter: { bad: '1.968', good: '1.088' } },
     },
+  },
+];
+
+/**
+ * MASS CORRECTIONS RETIRED because upstream now ships the corrected figure, so
+ * the correction had become a no-op (check-upstream.mjs flags exactly that and
+ * asks for the entry to be retired). The entry leaves CORRECTIONS, and with it
+ * the upstream watch; its known-bad mass does NOT leave
+ * retiredPresetMasses.json, because a design saved while the catalogue carried
+ * that mass still holds it as a catalogue mass, and holdsCatalogueMass
+ * (presets.ts) has to go on reading it as one, so a re-pick clears it rather
+ * than keeping it as a weighing. Loud on surprise, as the table above is: a
+ * regeneration that brings the known-bad mass back stops here.
+ */
+export const RETIRED_MASS_CORRECTIONS = [
+  {
+    key: 'Transition|semroc|btc20bbr',
+    bad: 0.00595339985625,
+    why: 'upstream semroc.orc gave BTC-20BB [R] 0.21 oz, the figure of the BTC-18VY tail cone (its entry was a clone of that one); corrected in v0.167 to SEMROC\'s own NetWeight of 0.82 oz (23.2 g), e.g. https://web.archive.org/web/20131208121434/http://www.semroc.com:80/Store/Products/NoseCones.asp. Retired 2026-10-11: openrocket-database master\'s semroc.orc carries <Mass Unit="oz">0.82</Mass> for it (check-upstream, 2026-10-10; read again 2026-10-11).',
   },
 ];
 
@@ -417,12 +427,22 @@ function main() {
     }
   }
 
+  for (const r of RETIRED_MASS_CORRECTIONS) {
+    const row = byKey.get(r.key);
+    if (row && row !== 'DUPLICATE' && row.mass === r.bad) {
+      console.error(`RETIRED CORRECTION NEEDED AGAIN: ${r.key} holds the known-bad mass ${r.bad}; upstream has gone back to it. Move the entry back into CORRECTIONS.`);
+      console.error(`Context: ${r.why}`);
+      process.exit(1);
+    }
+  }
+
   if (applied > 0) {
     writeFileSync(DB_PATH, JSON.stringify(db, null, 1) + '\n');
   }
   // Saved designs can still carry these overrides after the catalogue changes.
   // Generate browser-safe history from the SAME correction table, including
-  // replacements as well as removals. Keep past mass corrections in the table.
+  // replacements as well as removals. Keep past mass corrections in the table,
+  // or in RETIRED_MASS_CORRECTIONS once upstream has fixed them.
   // Do this even on an already-corrected DB, but only after every guard passed.
   const retiredMasses = Object.create(null);
   for (const { key, fields } of CORRECTIONS) {
@@ -431,6 +451,7 @@ function main() {
       (retiredMasses[key] ??= []).push(mass.bad);
     }
   }
+  for (const { key, bad } of RETIRED_MASS_CORRECTIONS) (retiredMasses[key] ??= []).push(bad);
   writeFileSync(RETIRED_MASSES_PATH, JSON.stringify(retiredMasses, null, 1) + '\n');
   console.log(`corrections: ${applied} field(s) applied, ${already} already in place — database ${applied > 0 ? 'updated' : 'unchanged'}.`);
 }
