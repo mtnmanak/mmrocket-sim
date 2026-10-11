@@ -2,7 +2,8 @@
   "_readme": [
     "cdAfterbody = fixture pressure CD - nose-only pressure CD + fixture base CD; cylindrical afterbodies contribute base CD only. Coefficients use kernel max-diameter area, then refAreaScale. R-100 Figure 13(a), added 2026-10-07: six informational points, no gate changes; friction excluded, ISA sea level acceptable. Equation (1) is not used.",
     "Machine-readable validation anchors. Provenance, tolerances and caveats for each dataset are recorded in the project's research notes; every anchor cites its source report below.",
-    "Scored by validation/score.mjs. Each series: quantity is one of cd | cdAfterbody | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
+    "Scored by validation/score.mjs. Each series: quantity is one of cd | cdAfterbody | cdDelta | cpPctL | cpOverL | cnaPerRad | cnaPerDeg.",
+    "cdDelta = this cell's fixture total CD minus the series' referenceFixture total CD at the same Mach, both swept with the same flags and conditions; it scores a measured configuration-minus-configuration increment. A point may carry its own tolerance as a third element [mach, value, tol], which then overrides the series tol/relTol.",
     "cd series carry base: 'included' (compare kernel total CD) or 'excluded' (compare kernel total minus base CD) to match each dataset's accounting.",
     "tol is absolute in the anchor's unit; relTol is relative (fraction of the anchor value); gate=false series are informational (reported, never counted).",
     "gateMinMach/gateMaxMach restrict which points count toward the gate; outside points report as info.",
@@ -360,6 +361,1294 @@
           [
             1.2,
             0.19
+          ]
+        ]
+      }
+    ]
+  },
+  "basic-finner-fig23": {
+    "fixture": "basic-finner.json",
+    "refAreaScale": 1,
+    "maxMach": 5,
+    "aoaDeg": 0,
+    "_provenance": "Karbon, 'Assessing the Accuracy of Aerodynamics Simulation Through CFD and Flight Testing' (NAR Research and Development report, vNARCON, 21 February 2026; local copy docs/User files/Buckeye Files/Accessing_the_Accuracy_of_Aerodynamic_Simulation_KKarbon.pdf), appendix Figure 23, PDF p38: Army-Navy Basic Finner Cx0 against Mach, series 'DRDC WT' (grey circles). Karbon cites Bhagwandin & Sahu, ARL 2013 (DTIC ADA592550) for the figure; the DRDC wind-tunnel source report behind the legend is NOT yet chased (open-items section 3, Harness coverage), so this is a reproduction of a reproduction and stays INFORMATIONAL. It is the only Finner drag data in the harness below M1.05 (the gated DREV-TM-9703 Table VIII free-flight series starts at M1.056; the subsonic ANF set was never retrieved). Read 2026-10-11 off the figure's embedded 1259x747 raster: axes calibrated from the gridlines (M 0.50 at x=127.5 px, 245 px per Mach; Cx0 0.20 at y=660.5 px, 37.94 px per 0.05), unoccluded markers located by template match and connected-component centroid (the two agree within 0.003 in Cx0 and 0.01 in Mach), occluded markers (M0.93, M1.05, M1.35) placed by eye on a 4x ruled enlargement. Calibration check: the same procedure on the figure's 'DRDC FF MF' series gives (1.052, 0.867), (2.371, 0.482), (3.731, 0.305) against Table VIII's tabulated (1.056, 0.868), (2.364, 0.478), (3.745, 0.309) - within 0.005, and within about 0.01 elsewhere where the figure appears to plot a fitted mean of several shots. Tolerance: +/-0.010 (that calibration agreement; the source states no accuracy), +/-0.015 on the three occluded markers (third element). Scored at alpha 0 (Cx0 is the zero-yaw axial coefficient; the gated free-flight cell scores at 2 deg to match its yaw fits) and at ISA sea level: the tunnel Reynolds number is not given, so a friction bias of unknown sign remains, worst subsonic.",
+    "series": [
+      {
+        "id": "cx0-drdc-wt-karbon-fig23",
+        "quantity": "cd",
+        "base": "included",
+        "gate": false,
+        "tol": 0.01,
+        "source": "Karbon NAR R&D report (vNARCON 2026) Fig 23 (PDF p38), 'DRDC WT' series, reproduced from Bhagwandin & Sahu ARL 2013; figure read +/-0.010 (+/-0.015 occluded); DRDC source not yet chased; informational, never counted.",
+        "points": [
+          [
+            0.6,
+            0.461
+          ],
+          [
+            0.69,
+            0.478
+          ],
+          [
+            0.8,
+            0.5
+          ],
+          [
+            0.93,
+            0.675,
+            0.015
+          ],
+          [
+            0.94,
+            0.696
+          ],
+          [
+            1.05,
+            0.996,
+            0.015
+          ],
+          [
+            1.076,
+            1.013
+          ],
+          [
+            1.24,
+            0.845
+          ],
+          [
+            1.27,
+            0.829
+          ],
+          [
+            1.3,
+            0.811
+          ],
+          [
+            1.35,
+            0.75,
+            0.015
+          ],
+          [
+            1.378,
+            0.733
+          ],
+          [
+            1.75,
+            0.562
+          ],
+          [
+            2,
+            0.482
+          ],
+          [
+            2.49,
+            0.384
+          ],
+          [
+            3.07,
+            0.354
+          ],
+          [
+            3.6,
+            0.332
+          ],
+          [
+            4.11,
+            0.317
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-78-finned": {
+    "fixture": "r100-78-finned.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , config 78 data sheet PDF p95 (Figure 10 systematic series): C_D,T against Mach, helium-gun free flight, no sting. A PLAIN-BODY (no boat-tail) cell: parabolic nose straight into a cylinder, with the report's three thin type-A fins on. Values: docs/research/Boat-tails/fig10-digitised/manual-read1.json (Claude, 2026-10-08: one careful manual read of the deskewed, gridline-calibrated sheet, +/-0.003, +/-0.01 on the steep M0.975-1.00 points; an automatic tracer agreed within 0.008 wherever it followed the right line). Per-point tolerance (third element) = quadrature sum of the report's own stated accuracy (p6: Delta C_D = +/-0.01 and Delta M = +/-0.01, from repeat flights of identical models), the reading resolution, and the stated Mach error times the read curve's local slope. INFORMATIONAL (gate false): a single reader, not two independent reads, and the fins' drag is inside the measured total - promote only after a second independent read.",
+    "series": [
+      {
+        "id": "cd-total-fig10",
+        "quantity": "cd",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 config 78 sheet (PDF p95): measured total C_D,T, three type-A fins on; single manual read; per-point tol = hypot(0.01 stated, reading, 0.01 x slope); informational, never counted.",
+        "points": [
+          [
+            0.8,
+            0.246,
+            0.01
+          ],
+          [
+            0.85,
+            0.247,
+            0.01
+          ],
+          [
+            0.9,
+            0.249,
+            0.011
+          ],
+          [
+            0.95,
+            0.265,
+            0.012
+          ],
+          [
+            0.975,
+            0.29,
+            0.02
+          ],
+          [
+            1,
+            0.339,
+            0.017
+          ],
+          [
+            1.05,
+            0.36,
+            0.011
+          ],
+          [
+            1.1,
+            0.353,
+            0.011
+          ],
+          [
+            1.15,
+            0.348,
+            0.011
+          ],
+          [
+            1.2,
+            0.339,
+            0.011
+          ],
+          [
+            1.25,
+            0.333,
+            0.011
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-92-finned": {
+    "fixture": "r100-92-finned.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , config 92 data sheet PDF p109 (Figure 10 systematic series): C_D,T against Mach, helium-gun free flight, no sting. A PLAIN-BODY (no boat-tail) cell: parabolic nose straight into a cylinder, with the report's three thin type-A fins on. Values: docs/research/Boat-tails/fig10-digitised/manual-read1.json (Claude, 2026-10-08: one careful manual read of the deskewed, gridline-calibrated sheet, +/-0.003, +/-0.01 on the steep M0.975-1.00 points; an automatic tracer agreed within 0.008 wherever it followed the right line). Per-point tolerance (third element) = quadrature sum of the report's own stated accuracy (p6: Delta C_D = +/-0.01 and Delta M = +/-0.01, from repeat flights of identical models), the reading resolution, and the stated Mach error times the read curve's local slope. INFORMATIONAL (gate false): a single reader, not two independent reads, and the fins' drag is inside the measured total - promote only after a second independent read.",
+    "series": [
+      {
+        "id": "cd-total-fig10",
+        "quantity": "cd",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 config 92 sheet (PDF p109): measured total C_D,T, three type-A fins on; single manual read; per-point tol = hypot(0.01 stated, reading, 0.01 x slope); informational, never counted.",
+        "points": [
+          [
+            0.8,
+            0.278,
+            0.01
+          ],
+          [
+            0.85,
+            0.274,
+            0.01
+          ],
+          [
+            0.9,
+            0.27,
+            0.011
+          ],
+          [
+            0.95,
+            0.287,
+            0.011
+          ],
+          [
+            0.975,
+            0.302,
+            0.017
+          ],
+          [
+            1,
+            0.336,
+            0.017
+          ],
+          [
+            1.05,
+            0.366,
+            0.011
+          ],
+          [
+            1.1,
+            0.366,
+            0.01
+          ],
+          [
+            1.15,
+            0.361,
+            0.011
+          ],
+          [
+            1.2,
+            0.352,
+            0.011
+          ],
+          [
+            1.25,
+            0.348,
+            0.01
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-98-finned": {
+    "fixture": "r100-98-finned.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , config 98 data sheet PDF p115 (Figure 10 systematic series): C_D,T against Mach, helium-gun free flight, no sting. A PLAIN-BODY (no boat-tail) cell: parabolic nose straight into a cylinder, with the report's three thin type-A fins on. Values: docs/research/Boat-tails/fig10-digitised/manual-read1.json (Claude, 2026-10-08: one careful manual read of the deskewed, gridline-calibrated sheet, +/-0.003, +/-0.01 on the steep M0.975-1.00 points; an automatic tracer agreed within 0.008 wherever it followed the right line). Per-point tolerance (third element) = quadrature sum of the report's own stated accuracy (p6: Delta C_D = +/-0.01 and Delta M = +/-0.01, from repeat flights of identical models), the reading resolution, and the stated Mach error times the read curve's local slope. INFORMATIONAL (gate false): a single reader, not two independent reads, and the fins' drag is inside the measured total - promote only after a second independent read.",
+    "series": [
+      {
+        "id": "cd-total-fig10",
+        "quantity": "cd",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 config 98 sheet (PDF p115): measured total C_D,T, three type-A fins on; single manual read; per-point tol = hypot(0.01 stated, reading, 0.01 x slope); informational, never counted.",
+        "points": [
+          [
+            0.8,
+            0.28,
+            0.01
+          ],
+          [
+            0.85,
+            0.278,
+            0.01
+          ],
+          [
+            0.9,
+            0.278,
+            0.01
+          ],
+          [
+            0.95,
+            0.28,
+            0.011
+          ],
+          [
+            0.975,
+            0.305,
+            0.02
+          ],
+          [
+            1,
+            0.354,
+            0.018
+          ],
+          [
+            1.05,
+            0.383,
+            0.011
+          ],
+          [
+            1.1,
+            0.374,
+            0.011
+          ],
+          [
+            1.15,
+            0.37,
+            0.01
+          ],
+          [
+            1.2,
+            0.365,
+            0.01
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-79-increment": {
+    "fixture": "r100-79.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 79 (parabolic afterbody, l_A/d 1.78, r_b/R 0; sheet PDF p96) MINUS config 78 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-78.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-78.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 79 minus config 78 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.121,
+            0.015
+          ],
+          [
+            0.85,
+            -0.118,
+            0.015
+          ],
+          [
+            0.9,
+            -0.082,
+            0.022
+          ],
+          [
+            0.95,
+            0.02,
+            0.026
+          ],
+          [
+            0.975,
+            0.034,
+            0.027
+          ],
+          [
+            1,
+            -0.003,
+            0.022
+          ],
+          [
+            1.05,
+            -0.022,
+            0.015
+          ],
+          [
+            1.1,
+            -0.015,
+            0.015
+          ],
+          [
+            1.15,
+            -0.014,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-80-increment": {
+    "fixture": "r100-80.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 80 (parabolic afterbody, l_A/d 1.78, r_b/R 0.438; sheet PDF p97) MINUS config 78 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-78.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-78.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 80 minus config 78 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.85,
+            -0.116,
+            0.015
+          ],
+          [
+            0.9,
+            -0.117,
+            0.015
+          ],
+          [
+            0.95,
+            -0.109,
+            0.02
+          ],
+          [
+            0.975,
+            -0.064,
+            0.035
+          ],
+          [
+            1,
+            -0.058,
+            0.025
+          ],
+          [
+            1.05,
+            -0.046,
+            0.015
+          ],
+          [
+            1.1,
+            -0.043,
+            0.015
+          ],
+          [
+            1.15,
+            -0.044,
+            0.015
+          ],
+          [
+            1.2,
+            -0.038,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-81-increment": {
+    "fixture": "r100-81.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 81 (parabolic afterbody, l_A/d 1.78, r_b/R 0.7; sheet PDF p98) MINUS config 78 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-78.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-78.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 81 minus config 78 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.095,
+            0.015
+          ],
+          [
+            0.85,
+            -0.096,
+            0.015
+          ],
+          [
+            0.9,
+            -0.099,
+            0.015
+          ],
+          [
+            0.95,
+            -0.094,
+            0.018
+          ],
+          [
+            0.975,
+            -0.074,
+            0.031
+          ],
+          [
+            1,
+            -0.074,
+            0.024
+          ],
+          [
+            1.05,
+            -0.079,
+            0.015
+          ],
+          [
+            1.1,
+            -0.075,
+            0.015
+          ],
+          [
+            1.15,
+            -0.073,
+            0.015
+          ],
+          [
+            1.2,
+            -0.066,
+            0.015
+          ],
+          [
+            1.25,
+            -0.062,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-82-increment": {
+    "fixture": "r100-82.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 82 (conical afterbody, l_A/d 1.78, r_b/R 0.438; sheet PDF p99) MINUS config 78 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-78.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-78.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 82 minus config 78 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.85,
+            -0.109,
+            0.015
+          ],
+          [
+            0.9,
+            -0.112,
+            0.015
+          ],
+          [
+            0.95,
+            -0.108,
+            0.018
+          ],
+          [
+            0.975,
+            -0.091,
+            0.03
+          ],
+          [
+            1,
+            -0.094,
+            0.024
+          ],
+          [
+            1.05,
+            -0.083,
+            0.015
+          ],
+          [
+            1.1,
+            -0.074,
+            0.015
+          ],
+          [
+            1.15,
+            -0.07,
+            0.015
+          ],
+          [
+            1.2,
+            -0.064,
+            0.015
+          ],
+          [
+            1.25,
+            -0.062,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-83-increment": {
+    "fixture": "r100-83.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 83 (conical afterbody, l_A/d 1.78, r_b/R 0.7; sheet PDF p100) MINUS config 78 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-78.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-78.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 83 minus config 78 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.075,
+            0.015
+          ],
+          [
+            0.85,
+            -0.079,
+            0.015
+          ],
+          [
+            0.9,
+            -0.083,
+            0.015
+          ],
+          [
+            0.95,
+            -0.097,
+            0.016
+          ],
+          [
+            0.975,
+            -0.09,
+            0.029
+          ],
+          [
+            1,
+            -0.094,
+            0.023
+          ],
+          [
+            1.05,
+            -0.102,
+            0.015
+          ],
+          [
+            1.1,
+            -0.098,
+            0.015
+          ],
+          [
+            1.15,
+            -0.095,
+            0.015
+          ],
+          [
+            1.2,
+            -0.089,
+            0.015
+          ],
+          [
+            1.25,
+            -0.084,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-93-increment": {
+    "fixture": "r100-93.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 93 (parabolic afterbody, l_A/d 3.5, r_b/R 0.7; sheet PDF p110) MINUS config 92 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-92.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-92.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 93 minus config 92 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.091,
+            0.015
+          ],
+          [
+            0.85,
+            -0.09,
+            0.015
+          ],
+          [
+            0.9,
+            -0.09,
+            0.015
+          ],
+          [
+            0.95,
+            -0.106,
+            0.016
+          ],
+          [
+            0.975,
+            -0.095,
+            0.026
+          ],
+          [
+            1,
+            -0.088,
+            0.023
+          ],
+          [
+            1.05,
+            -0.101,
+            0.015
+          ],
+          [
+            1.1,
+            -0.102,
+            0.015
+          ],
+          [
+            1.15,
+            -0.099,
+            0.015
+          ],
+          [
+            1.2,
+            -0.092,
+            0.015
+          ],
+          [
+            1.25,
+            -0.089,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-94-increment": {
+    "fixture": "r100-94.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 94 (parabolic afterbody, l_A/d 3.5, r_b/R 0.438; sheet PDF p111) MINUS config 92 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-92.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-92.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 94 minus config 92 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.125,
+            0.015
+          ],
+          [
+            0.85,
+            -0.123,
+            0.015
+          ],
+          [
+            0.9,
+            -0.12,
+            0.015
+          ],
+          [
+            0.95,
+            -0.136,
+            0.016
+          ],
+          [
+            0.975,
+            -0.121,
+            0.025
+          ],
+          [
+            1,
+            -0.125,
+            0.023
+          ],
+          [
+            1.05,
+            -0.123,
+            0.015
+          ],
+          [
+            1.1,
+            -0.125,
+            0.015
+          ],
+          [
+            1.15,
+            -0.122,
+            0.015
+          ],
+          [
+            1.2,
+            -0.114,
+            0.015
+          ],
+          [
+            1.25,
+            -0.11,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-95-increment": {
+    "fixture": "r100-95.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 95 (parabolic afterbody, l_A/d 3.5, r_b/R 0; sheet PDF p112) MINUS config 92 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-92.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-92.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 95 minus config 92 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.137,
+            0.015
+          ],
+          [
+            0.85,
+            -0.134,
+            0.015
+          ],
+          [
+            0.9,
+            -0.122,
+            0.016
+          ],
+          [
+            0.95,
+            -0.084,
+            0.02
+          ],
+          [
+            0.975,
+            -0.063,
+            0.024
+          ],
+          [
+            1,
+            -0.091,
+            0.022
+          ],
+          [
+            1.05,
+            -0.12,
+            0.015
+          ],
+          [
+            1.1,
+            -0.12,
+            0.015
+          ],
+          [
+            1.15,
+            -0.115,
+            0.015
+          ],
+          [
+            1.2,
+            -0.107,
+            0.015
+          ],
+          [
+            1.25,
+            -0.101,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-99-increment": {
+    "fixture": "r100-99.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 99 (parabolic afterbody, l_A/d 5, r_b/R 0.7; sheet PDF p116) MINUS config 98 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-98.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-98.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 99 minus config 98 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.079,
+            0.015
+          ],
+          [
+            0.85,
+            -0.078,
+            0.015
+          ],
+          [
+            0.9,
+            -0.079,
+            0.015
+          ],
+          [
+            0.95,
+            -0.083,
+            0.015
+          ],
+          [
+            0.975,
+            -0.095,
+            0.027
+          ],
+          [
+            1,
+            -0.111,
+            0.024
+          ],
+          [
+            1.05,
+            -0.122,
+            0.015
+          ],
+          [
+            1.1,
+            -0.113,
+            0.015
+          ],
+          [
+            1.15,
+            -0.111,
+            0.015
+          ],
+          [
+            1.2,
+            -0.108,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-100-increment": {
+    "fixture": "r100-100.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 100 (conical afterbody, l_A/d 5, r_b/R 0.7; sheet PDF p117) MINUS config 98 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-98.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-98.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 100 minus config 98 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.069,
+            0.015
+          ],
+          [
+            0.85,
+            -0.069,
+            0.015
+          ],
+          [
+            0.9,
+            -0.07,
+            0.015
+          ],
+          [
+            0.95,
+            -0.075,
+            0.015
+          ],
+          [
+            0.975,
+            -0.093,
+            0.026
+          ],
+          [
+            1,
+            -0.11,
+            0.024
+          ],
+          [
+            1.05,
+            -0.113,
+            0.015
+          ],
+          [
+            1.1,
+            -0.106,
+            0.015
+          ],
+          [
+            1.15,
+            -0.103,
+            0.015
+          ],
+          [
+            1.2,
+            -0.101,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-101-increment": {
+    "fixture": "r100-101.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 101 (conical afterbody, l_A/d 5, r_b/R 0.438; sheet PDF p118) MINUS config 98 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-98.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-98.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 101 minus config 98 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.85,
+            -0.13,
+            0.015
+          ],
+          [
+            0.9,
+            -0.129,
+            0.015
+          ],
+          [
+            0.95,
+            -0.13,
+            0.015
+          ],
+          [
+            0.975,
+            -0.14,
+            0.027
+          ],
+          [
+            1,
+            -0.155,
+            0.024
+          ],
+          [
+            1.05,
+            -0.165,
+            0.015
+          ],
+          [
+            1.1,
+            -0.156,
+            0.015
+          ],
+          [
+            1.15,
+            -0.151,
+            0.015
+          ],
+          [
+            1.2,
+            -0.145,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-102-increment": {
+    "fixture": "r100-102.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 102 (parabolic afterbody, l_A/d 5, r_b/R 0.438; sheet PDF p119) MINUS config 98 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-98.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-98.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 102 minus config 98 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.8,
+            -0.116,
+            0.015
+          ],
+          [
+            0.85,
+            -0.117,
+            0.015
+          ],
+          [
+            0.9,
+            -0.117,
+            0.015
+          ],
+          [
+            0.95,
+            -0.12,
+            0.015
+          ],
+          [
+            0.975,
+            -0.136,
+            0.026
+          ],
+          [
+            1,
+            -0.153,
+            0.024
+          ],
+          [
+            1.05,
+            -0.162,
+            0.015
+          ],
+          [
+            1.1,
+            -0.154,
+            0.015
+          ],
+          [
+            1.15,
+            -0.15,
+            0.015
+          ],
+          [
+            1.2,
+            -0.146,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-103-increment": {
+    "fixture": "r100-103.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , Figure 10 systematic series: config 103 (parabolic afterbody, l_A/d 5, r_b/R 0; sheet PDF p120) MINUS config 98 (same nose, same-length cylinder). A BOAT-TAILED-BODY cell: the identical nose and three fins cancel in the measured difference (the report found fin interference small on these thin fins), so the increment is what the boattail itself does to total drag. Values: manual-read1.json (single manual read; see the r100-*-finned cells). Per-point tolerance (third element) = quadrature of the stated +/-0.01 for each of the two configurations, both reading resolutions, and both configurations' stated Mach error (+/-0.01) times the local slope of each read curve. INFORMATIONAL (gate false): single reader, and fin-afterbody interference is assumed to cancel. Kernel side: cdDelta = total CD of this finless fixture minus total CD of r100-98.json, same flags and conditions (sea-level ISA reproduces the sheets' Re).",
+    "series": [
+      {
+        "id": "cd-increment-fig10",
+        "quantity": "cdDelta",
+        "referenceFixture": "r100-98.json",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 Figure 10 series, config 103 minus config 98 (C_D,T, both measured); single manual read; per-point tol from the report's stated accuracy; informational, never counted.",
+        "points": [
+          [
+            0.85,
+            -0.141,
+            0.015
+          ],
+          [
+            0.9,
+            -0.143,
+            0.015
+          ],
+          [
+            0.95,
+            -0.146,
+            0.015
+          ],
+          [
+            0.975,
+            -0.162,
+            0.026
+          ],
+          [
+            1,
+            -0.181,
+            0.024
+          ],
+          [
+            1.05,
+            -0.174,
+            0.015
+          ],
+          [
+            1.1,
+            -0.165,
+            0.015
+          ],
+          [
+            1.15,
+            -0.161,
+            0.015
+          ],
+          [
+            1.2,
+            -0.157,
+            0.015
+          ]
+        ]
+      }
+    ]
+  },
+  "r100-23": {
+    "fixture": "r100-23.json",
+    "refAreaScale": 1,
+    "maxMach": 1.35,
+    "aoaDeg": 0,
+    "_provenance": "NASA TR R-100 (Stoney 1961), https://ntrs.nasa.gov/citations/19630004995 , config 23 data sheet PDF p40: C_D,T against Mach, helium-gun free flight, no sting. THE SMALL-MODEL CELL: a 1.00 in body with three fins of 12.4 x its cross-section in exposed planform - the oversized-fin regime goblin-29.CDX1 raised (open-items section 3, Harness coverage) - measured over M0.85-1.25 (the sheet has no data below M0.85, so the subsonic M0.3 end of that question stays unanchored). Values: one read (Claude, 2026-10-11) of the 300-dpi page render, per-column trace calibrated from the gridlines with a local correction for the 0.26 deg scan skew, checked by eye; reading resolution +/-0.003 (from M1.18 the curve lies on the 0.50 gridline). Per-point tolerance (third element) = quadrature of the report's stated accuracy (p6: Delta C_D +/-0.01, Delta M +/-0.01), the reading resolution, and the stated Mach error times the read curve's local slope. INFORMATIONAL (gate false): a single reader, and two geometry approximations (the curved nose section as a power-0.5 transition; fins on the cylinder overhanging the boattail) - see the fixture _notes.",
+    "series": [
+      {
+        "id": "cd-total-r100",
+        "quantity": "cd",
+        "base": "included",
+        "gate": false,
+        "source": "NASA TR R-100 config 23 sheet (PDF p40): measured total C_D,T, fins on; single read; per-point tol = hypot(0.01 stated, 0.003 reading, 0.01 x slope); informational, never counted.",
+        "points": [
+          [
+            0.85,
+            0.303,
+            0.01
+          ],
+          [
+            0.9,
+            0.309,
+            0.011
+          ],
+          [
+            0.95,
+            0.316,
+            0.011
+          ],
+          [
+            0.97,
+            0.334,
+            0.024
+          ],
+          [
+            0.98,
+            0.364,
+            0.032
+          ],
+          [
+            0.99,
+            0.395,
+            0.027
+          ],
+          [
+            1,
+            0.413,
+            0.016
+          ],
+          [
+            1.05,
+            0.454,
+            0.012
+          ],
+          [
+            1.1,
+            0.474,
+            0.011
+          ],
+          [
+            1.15,
+            0.491,
+            0.011
+          ],
+          [
+            1.2,
+            0.499,
+            0.01
+          ],
+          [
+            1.25,
+            0.5,
+            0.01
           ]
         ]
       }

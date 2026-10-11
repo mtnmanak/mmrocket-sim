@@ -59,6 +59,20 @@ const modelName = hybrid ? 'HYBRID experimental (Kbf/Supersonic, Mach 0.8-1.2)' 
   : kbf ? 'Rogers Kbf model (flag on) — the app default'
   : 'classic Extended Barrowman (flags off)';
 
+/**
+ * Build a fixture under the selected model. Every rocket the scorer sweeps -
+ * the cell's own, the cdAfterbody nose-only body, a cdDelta reference body -
+ * goes through here, so a reference can never be scored under a different
+ * model from the body it is subtracted from.
+ */
+function buildModel(tree) {
+  const rocket = OrkRocket.buildTree(tree);
+  if (supersonic) rocket.setSupersonicAero(true);
+  if (hybrid) rocket.setHybridAero(true);
+  if (kbf) rocket.setRogersModifiedBarrowman(true);
+  return rocket;
+}
+
 /** Linear interpolation of series y over grid xs at x (clamped to range). */
 function interp(xs, ys, x) {
   if (x <= xs[0]) return ys[0];
@@ -105,15 +119,13 @@ for (const [name, spec] of Object.entries(anchors)) {
   if (name.startsWith('_')) continue;
   resetEngine();
   const tree = JSON.parse(readFileSync(join(here, 'fixtures', spec.fixture), 'utf8'));
-  const rocket = OrkRocket.buildTree(tree);
-  if (supersonic) rocket.setSupersonicAero(true);
-  if (hybrid) rocket.setHybridAero(true);
-  if (kbf) rocket.setRogersModifiedBarrowman(true);
+  const rocket = buildModel(tree);
   const info = rocket.staticInfo();
-  const sweep = rocket.dragSweep({
+  const sweepConditions = {
     machMin: 0.05, machMax: spec.maxMach ?? 10, machStep: 0.025,
     aoaDeg: spec.aoaDeg ?? 0, machAlt: spec.machAlt,
-  });
+  };
+  const sweep = rocket.dragSweep(sweepConditions);
   const scale = spec.refAreaScale ?? 1;
 
   // R-100 C_D,A excludes nose pressure and all skin friction. The supported
@@ -130,15 +142,22 @@ for (const [name, spec] of Object.entries(anchors)) {
     }
     cylindricalAfterbody = afterbody.type === 'bodytube';
     if (!cylindricalAfterbody) {
-      const noseRocket = OrkRocket.buildTree({ ...tree, components: [nose] });
-      if (supersonic) noseRocket.setSupersonicAero(true);
-      if (hybrid) noseRocket.setHybridAero(true);
-      if (kbf) noseRocket.setRogersModifiedBarrowman(true);
-      noseSweep = noseRocket.dragSweep({
-        machMin: 0.05, machMax: spec.maxMach ?? 10, machStep: 0.025,
-        aoaDeg: spec.aoaDeg ?? 0, machAlt: spec.machAlt,
-      });
+      noseSweep = buildModel({ ...tree, components: [nose] }).dragSweep(sweepConditions);
     }
+  }
+
+  // cdDelta: this fixture's total CD minus a REFERENCE fixture's total CD at
+  // the same Mach, both swept with identical flags and conditions. It scores a
+  // measured configuration-minus-configuration increment (R-100 Figure 10: a
+  // boattailed body minus the same-length cylinder, whose identical nose and
+  // fins cancel in the measurement) without asking the kernel to model parts
+  // that cancel. Swept once per reference fixture per cell.
+  const referenceSweeps = new Map();
+  for (const series of spec.series) {
+    if (series.quantity !== 'cdDelta' || referenceSweeps.has(series.referenceFixture)) continue;
+    if (!series.referenceFixture) throw new Error(`${name}/${series.id}: cdDelta needs referenceFixture`);
+    const refTree = JSON.parse(readFileSync(join(here, 'fixtures', series.referenceFixture), 'utf8'));
+    referenceSweeps.set(series.referenceFixture, buildModel(refTree).dragSweep(sweepConditions));
   }
 
   out.push(`## ${name} — ${tree.name}`);
@@ -154,6 +173,11 @@ for (const [name, spec] of Object.entries(anchors)) {
         const pressure = interp(sweep.machs, sweep.powerOff.pressure, mach);
         const nosePressure = interp(noseSweep.machs, noseSweep.powerOff.pressure, mach);
         return (pressure - nosePressure + base) * scale;
+      }
+      case 'cdDelta': {
+        const ref = referenceSweeps.get(series.referenceFixture);
+        return (interp(sweep.machs, sweep.powerOff.total, mach)
+          - interp(ref.machs, ref.powerOff.total, mach)) * scale;
       }
       case 'cd': {
         let cd = interp(sweep.machs, sweep.powerOff.total, mach);
@@ -180,9 +204,13 @@ for (const [name, spec] of Object.entries(anchors)) {
     out.push('');
     out.push('| Mach | anchor | model | delta | tol | result |');
     out.push('|---|---|---|---|---|---|');
-    for (const [mach, anchor] of series.points) {
+    // A point may carry its own tolerance as a third element, for datasets
+    // whose stated accuracy varies point to point (R-100: a Mach error that
+    // matters only where the measured curve is steep).
+    for (const [mach, anchor, pointTol] of series.points) {
       const m = model(series, mach);
-      const tol = series.relTol != null ? Math.abs(anchor) * series.relTol : series.tol;
+      const tol = pointTol != null ? pointTol
+        : series.relTol != null ? Math.abs(anchor) * series.relTol : series.tol;
       const delta = m - anchor;
       const inTol = Math.abs(delta) <= tol;
       const gated = series.gate

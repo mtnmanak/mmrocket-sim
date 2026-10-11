@@ -1,0 +1,49 @@
+{
+  "name": "NASA TR R-100 config 78 (parabolic nose, cylindrical afterbody, three type-A fins)",
+  "_notes": [
+    "Stoney (1961), NASA TR R-100, config 78 data sheet, PDF page 95 (helium-gun free flight, no sting). d = 1.50 in = 0.0381 m; l_N/d = 7.13 full parabola (shape='parabolic', shapeParameter=1, as in the r100-* Figure 13(a) fixtures); cylindrical afterbody l_A/d = 1.78; no midbody. Total length 13.365 in against the sheet's drawn 13.36 in.",
+    "Fins as drawn on the sheet (the report's fin type A, used on most helium-gun models): three fins at 120 deg; root and tip chord 1.8 in; 45 deg leading-edge sweep; tip 2.5 in from the body AXIS (the dimension's lower extension line is the centreline), so exposed span 2.5 - 0.75 = 1.75 in and sweep length 1.75 in; symmetric hexagonal section 0.05 in thick with 0.6 in leading and trailing chamfers and a 0.6 in flat (airfoilSection 'hexagonal', chamfers given explicitly). Root leading edge 10.4 in from the nose tip.",
+    "Cross-check: the tabulated S_F/A_max = 11.0 is the fins' WETTED area (both faces; the report's Figure 5 text says the exposed planform is half of S_F/A_max). Three fins x 1.8 x 1.75 in x 2 faces / 1.767 in^2 = 10.7, against 11.0 - consistent within the sheet's rounding (a 1.80 in span would give 11.0).",
+    "The drawn root leading edge (10.4 in) lies 0.295 in AHEAD of the nose/afterbody joint (10.695 in), where the parabolic nose radius is already 0.9992 R. A trapezoidal fin set cannot mount on a nose cone in the kernel, so it is mounted on the cylinder with a negative top offset (-0.295 in); the body radius under that 0.295 in is within 0.1 % of R.",
+    "Free flight: the sheet plots N_Re about 7-12 x 10^6 on length over M0.75-1.25; sea-level ISA at d = 1.5 in reproduces that range (about 7.5 x 10^6 at M0.8 on config 92), so no machAlt table. Models fired at 20 deg and never above 2,000 ft. Polished finish and 1 mm wall are fixture assumptions.",
+    "Anchor C_D,T is total drag (friction, pressure, base and fins), maximum body cross-section reference."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "polished",
+      "shape": "parabolic",
+      "shapeParameter": 1,
+      "length": 0.271653,
+      "aftRadius": 0.01905,
+      "thickness": 0.001
+    },
+    {
+      "type": "bodytube",
+      "finish": "polished",
+      "length": 0.067818,
+      "outerRadius": 0.01905,
+      "thickness": 0.001,
+      "children": [
+        {
+          "type": "trapezoidfinset",
+          "finish": "polished",
+          "finCount": 3,
+          "rootChord": 0.04572,
+          "tipChord": 0.04572,
+          "sweep": 0.04445,
+          "height": 0.04445,
+          "thickness": 0.00127,
+          "crossSection": "airfoil",
+          "airfoilSection": "hexagonal",
+          "airfoilLeDiamond": 0.01524,
+          "airfoilTeDiamond": 0.01524,
+          "position": {
+            "method": "top",
+            "offset": -0.007493
+          }
+        }
+      ]
+    }
+  ]
+}
