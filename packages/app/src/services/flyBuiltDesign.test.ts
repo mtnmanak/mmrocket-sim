@@ -12,7 +12,7 @@ import {
 import { buildDesign, KERNEL_HANDLES, type BuiltDesign } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
 import {
-  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, provenanceKeyOf, type AeroState, type DesignState,
+  deriveLaunchInputs, designBuildInputOf, hardwareDeltaKgOf, provenanceKeyOf, refusedMountIdsOf, type AeroState, type DesignState,
 } from './designDerivation.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
 import { flyLaunch, type FlightHandle } from './flightRunner.js';
@@ -241,6 +241,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
     return {
       result: flight.result,
       delayResolution: flight.delayResolution, primaryMountId,
+      refusedMountIds: refusedMountIdsOf(built.motorFailures),
       info: built.info,
       motor: { ...primary.spec, ejectionDelay: flight.flownDelayS },
       meta: { ...primary.meta, motorCount: mountMotorCount(tree, primaryMountId) },
@@ -359,6 +360,8 @@ async function referenceLaunch(x: {
     flownRecovery: built.flownRecovery,
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
     recoveryStages: stagesWithRecoveryDevice(tree),
+    // Since v0.176 Launch records the mounts the build refused (AUTO-DELAY).
+    refusedMountIds: refusedMountIdsOf(built.motorFailures),
   });
   return { res, run, usedSupersonic, flownDelay };
 }
