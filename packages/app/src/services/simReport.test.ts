@@ -9,7 +9,7 @@ import {
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, runStoppedEarly, SAFETY, stabilityPercent, storedSimCost,
-  type DesignMatchKey, type SimRun,
+  kernelGravity, type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
@@ -303,7 +303,8 @@ describe('buildSimRun', () => {
     expect(run.launchStaticMarginCal).toBeCloseTo(1.3);
     expect(run.optimumDelayS).toBeCloseTo(4.9);
     expect(run.recommendedDelayS).toBe(5);
-    expect(run.thrustToWeightAtRod).toBeCloseTo(11 / (0.050 * 9.80665), 2);
+    // The kernel's gravity at the default pad (28.61° N, sea level), not 9.80665 (K17).
+    expect(run.thrustToWeightAtRod).toBeCloseTo(11 / (0.050 * kernelGravity(DEFAULT_CONDITIONS.latitudeDeg, 0)), 2);
   });
 
   it('grades safety', () => {
@@ -2189,7 +2190,8 @@ describe('Amendment 1 departure state', () => {
     expect(run.timeToRodDeparture).toBe(0.15);
     expect(run.rodExitVelocity).toBe(result.series.velocity[1]);
     expect(run.rodExitAoa).toBe(result.series.aoa[1]);
-    expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]! * 9.80665), 10);
+    expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]!
+      * kernelGravity(DEFAULT_CONDITIONS.latitudeDeg, result.series.altitude[1]!)), 10);
     expect([run.timeToRodDeparture, run.rodExitVelocity, run.rodExitAoa, run.thrustToWeightAtRod].every(Number.isFinite)).toBe(true);
     expect(launchGuideExplanation('single-button')).toContain('side by side at one position');
     expect(launchGuideExplanation('single-button')).toContain('Model a rail guide or slide as a launch lug');
@@ -2317,5 +2319,17 @@ describe('a flight whose only recovery charge fires after landing', () => {
     expect(run.velocityAtDeployment).toBeNull();
     expect(run.altitudeAtDeployment ?? null).toBeNull();
     expect(deploymentVerdict(run)).toBeNull();
+  });
+});
+
+describe('kernelGravity (K17)', () => {
+  it('is the kernel’s WGS84 model: 9.780 m/s² at the equator, 9.832 at a pole, falling with height', () => {
+    expect(kernelGravity(0, 0)).toBeCloseTo(9.7803267714, 9);
+    expect(kernelGravity(90, 0)).toBeCloseTo(9.83218, 4);
+    expect(kernelGravity(-90, 0)).toBeCloseTo(kernelGravity(90, 0), 12);
+    // WorldCoordinate clamps the latitude to ±90°.
+    expect(kernelGravity(120, 0)).toBe(kernelGravity(90, 0));
+    // (R / (R + h))² on the kernel's 6,371 km sphere.
+    expect(kernelGravity(45, 2000) / kernelGravity(45, 0)).toBeCloseTo((6371000 / 6373000) ** 2, 12);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { railNeeded, railNeededLine } from './railNeeded.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { FlightSeries } from '@online-openrocket/engine';
-import { buildSimRun, extractLandingDrift, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
+import { buildSimRun, extractLandingDrift, kernelGravity, rodExitFromSeries, WIND_BLOWS_TOWARD_DEG } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { formatWarning } from './simWarnings.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
@@ -575,7 +575,50 @@ it('Amendment 1: a single-button report reads the liftoff LAUNCHROD state withou
   expect(run.timeToRodDeparture).toBe(t);
   expect(run.rodExitVelocity).toBe(result.series.velocity[i]);
   expect(run.rodExitAoa).toBe(result.series.aoa[i] ?? null);
-  expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[i]! / (result.series.mass[i]! * 9.80665), 10);
+  expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[i]! / (result.series.mass[i]!
+    * kernelGravity(launch.latitudeDeg, result.series.altitude[i]!)), 10);
   expect([run.timeToRodDeparture, run.rodExitVelocity, run.rodExitAoa, run.thrustToWeightAtRod]
     .every(v => v === null || Number.isFinite(v))).toBe(true);
 }, 60_000);
+
+/**
+ * K17 — ONE THRUST : WEIGHT. The report's "Thrust : weight at departure" and the
+ * flight data's Twr column are the same quantity, so they must agree. The
+ * kernel divides by its own WGS84 gravity at the rocket's latitude and height
+ * (AbstractSimulationStepper.storeData: thrust / (mass x gravity)); the report
+ * used to divide by standard gravity, 0.3 % high on an equatorial pad at 2 km.
+ * The report reads the default 'summary' series, which carries no g, so this
+ * flies both payloads and holds the summary run's figure to the full run's Twr.
+ */
+describe('thrust : weight at departure agrees with the flight data’s Twr column', () => {
+  it.each([
+    ['an equatorial pad at 2,000 m', 0, 2000],
+    ['a pad at 60° N, sea level', 60, 0],
+  ])('%s', async (_label, latitudeDeg, launchAltitudeM) => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    resetEngine();
+    const launch = { ...DEFAULT_CONDITIONS, latitudeDeg, launchAltitudeM, launchRodLengthM: 1 };
+    const fly = (series: 'summary' | 'full') => {
+      const rocket = OrkRocket.buildTree(tree(true));
+      rocket.setMotorById('mount', C6);
+      return { rocket, result: rocket.simulate({ ...kernelSimOptions(launch), randomSeed: 42, series }) };
+    };
+    const { rocket, result } = fly('summary');
+    const run = buildSimRun({ result, info: rocket.staticInfo(), motor: C6, launch, rocketName: 'K17', execMs: 0 });
+    const full = fly('full').result;
+    const twr = (full.series as unknown as Record<string, (number | null)[] | undefined>)['Twr'];
+    expect(twr, 'the full series carries Twr').toBeDefined();
+    const t = run.timeToRodDeparture!;
+    const i = full.series.time.findIndex((x) => x >= t);
+    expect(i).toBeGreaterThan(0);
+    const t0 = full.series.time[i - 1]!, t1 = full.series.time[i]!;
+    const kernelTwr = twr![i - 1]! + (t - t0) / (t1 - t0) * (twr![i]! - twr![i - 1]!);
+    expect(run.thrustToWeightAtRod).not.toBeNull();
+    // 0.02 %: well inside the 0.3 % standard gravity was off by, and wide of
+    // the interpolation difference between a ratio and its parts.
+    expect(Math.abs(run.thrustToWeightAtRod! / kernelTwr - 1)).toBeLessThan(2e-4);
+    // The full payload carries g, and the report reads it there: same figure.
+    const runFull = buildSimRun({ result: full, info: rocket.staticInfo(), motor: C6, launch, rocketName: 'K17', execMs: 0 });
+    expect(Math.abs(runFull.thrustToWeightAtRod! / run.thrustToWeightAtRod! - 1)).toBeLessThan(1e-6);
+  }, 30000);
+});

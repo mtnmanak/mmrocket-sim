@@ -5,7 +5,7 @@ import { installedMounts } from './flightRunner.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
 import type { WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { boosterBranches, DEFAULT_TIME_STEP_S, G0 } from '@online-openrocket/engine';
+import { boosterBranches, DEFAULT_TIME_STEP_S } from '@online-openrocket/engine';
 import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
@@ -1416,6 +1416,22 @@ function at(times: number[], values: readonly (number | null)[], t: number): num
   return values[values.length - 1] ?? null;
 }
 
+/**
+ * The kernel's gravity (m/s²) at a latitude (degrees) and a height above sea
+ * level (m): `WGSGravityModel.calcGravity` — the WGS84 normal gravity
+ * (Somigliana) at the latitude, scaled by (R / (R + h))² on a sphere of
+ * `WorldCoordinate.REARTH`. The latitude is clamped to ±90° as WorldCoordinate
+ * clamps it. This is the g in the flight data's Twr and g columns; 9.780 m/s²
+ * at the equator, 9.832 m/s² at a pole, against standard gravity's 9.80665.
+ */
+export function kernelGravity(latitudeDeg: number, altitudeM: number): number {
+  const lat = Math.min(Math.max(latitudeDeg * Math.PI / 180, -Math.PI / 2), Math.PI / 2);
+  const sin2lat = Math.sin(lat) ** 2;
+  const g0 = 9.7803267714 * ((1 + 0.00193185138639 * sin2lat) / Math.sqrt(1 - 0.00669437999013 * sin2lat));
+  const REARTH = 6371000;
+  return g0 * (REARTH / (REARTH + altitudeM)) ** 2;
+}
+
 function eventTime(result: FlightResult, type: string): number | null {
   const ev = result.events.find((e) => e.type === type);
   return ev ? ev.time : null;
@@ -1933,8 +1949,19 @@ export function buildSimRun(input: {
       ?? (tRod !== null ? at(series.time, series.velocity, tRod) : null);
   const thrustAtRod = tRodExit !== null ? at(series.time, series.thrust, tRodExit) : null;
   const massAtRod = tRodExit !== null ? at(series.time, series.mass, tRodExit) : null;
-  const thrustToWeightAtRod = thrustAtRod !== null && massAtRod !== null && massAtRod > 0
-    ? thrustAtRod / (massAtRod * G0)
+  // K17: the weight is mass x the KERNEL's gravity at that instant, as the flight
+  // data's Twr column has it — not standard gravity, which put this figure a few
+  // tenths of a percent off that column, either way with latitude (0.33 % on an
+  // equatorial pad at 2 km). The 'full' payload carries the kernel's own g; the
+  // default one does not, so the same WGS84 model is evaluated at the pad's
+  // latitude and the height flown there. A latitude the kernel was not handed
+  // (absent, or not a number, which JSON drops) flies the kernel's 28.61.
+  const gAtRod = tRodExit === null ? null
+    : (series['g'] ? at(series.time, series['g'], tRodExit) : null)
+      ?? kernelGravity(Number.isFinite(launch.latitudeDeg) ? launch.latitudeDeg : 28.61,
+        padFieldsAsFlown(launch).launchAltitudeM + (at(series.time, series.altitude, tRodExit) ?? 0));
+  const thrustToWeightAtRod = thrustAtRod !== null && massAtRod !== null && massAtRod > 0 && gAtRod !== null && gAtRod > 0
+    ? thrustAtRod / (massAtRod * gAtRod)
     : null;
 
   // CP and stability do not exist until the rod is cleared: the kernel records
