@@ -56,7 +56,7 @@ async function freshModule(): Promise<typeof import('./thrustcurve.js')> {
   vi.resetModules();
   const tc = await import('./thrustcurve.js');
   // fetchMotorSpec consults the shipped curve bundle before the network, and
-  // the bundle is a dynamic import of an 870 KB JSON — real I/O that fake
+  // the bundle is a dynamic import of a 980 KB JSON — real I/O that fake
   // timers cannot advance. Load it once here, on real time, so the tests below
   // measure the download path and not the time the bundle took to arrive.
   await tc.bundledSimFiles('warm-the-bundle');
@@ -660,5 +660,44 @@ describe('fetchMotorSpec, bundle only', () => {
     const err = await tc.fetchMotorSpec(ex, 5, undefined, { bundleOnly: true }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(tc.OfflineCurveError);
     expect((err as Error).message).toContain('EX');
+  });
+});
+
+describe('a desktop design\'s <digest> picks among a downloaded motor\'s files', () => {
+  // Two files of one motor, as download.json returns them with data "both":
+  // the cert file the app picks, and another whose digest a desktop .ork
+  // names. The digest is computed from each file's raw text.
+  const rasp = (peak: number) => [
+    '; synthetic', 'C6 18 70 0-3-5 0.012 0.021 Quest',
+    '0.1 6.5', `0.15 ${peak}`, '1.0 3.2', '2.5 0', '',
+  ].join('\n');
+  const samples = (peak: number): TcSample[] => [
+    { time: 0.1, thrust: 6.5 }, { time: 0.15, thrust: peak }, { time: 1.0, thrust: 3.2 }, { time: 2.5, thrust: 0 },
+  ];
+  const usual: TcSimFile = { simfileId: 'f-cert', source: 'cert', format: 'RASP', samples: samples(11.75), data: btoa(rasp(11.75)) };
+  const other: TcSimFile = { simfileId: 'f-user', source: 'user', format: 'RASP', samples: samples(14), data: btoa(rasp(14)) };
+
+  it('flies the file the digest names, and leaves the cache to the usual pick', async () => {
+    const tc = await freshModule();
+    const digest = tc.fileDigests(other)[0]!;
+    expect(digest).toMatch(/^[0-9a-f]{32}$/);
+    expect(tc.fileDigests(usual)[0]).not.toBe(digest);
+    expect(tc.pickSampleFile([usual, other], QUEST_C6)).toBe(usual);
+
+    stubDownload([usual, other]);
+    const named = await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest });
+    expect(Math.max(...named.thrusts)).toBe(14);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+
+    const plain = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(Math.max(...plain.thrusts)).toBe(11.75);
+    expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
+  });
+
+  it('a digest that names none of the files changes nothing', async () => {
+    const tc = await freshModule();
+    stubDownload([usual, other]);
+    const spec = await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: '0'.repeat(32) });
+    expect(Math.max(...spec.thrusts)).toBe(11.75);
   });
 });

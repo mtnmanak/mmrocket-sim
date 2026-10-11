@@ -96,6 +96,7 @@ export const XML_JS_SUITES = [
   // The headless door (step 1, 2026-10-01): simulateFile opens bytes through
   // the importers, which is exactly the path a server takes under this parser.
   'src/services/simulateFile.test.ts',
+  'src/services/digestPick.test.ts',
   'src/services/flyBuiltDesign.test.ts',
   // Fin root fillets (C-B14): .ork reopen and the .rkt/.CDX1 loss notes.
   'src/components/PropertyPanel.fillets.test.tsx',
@@ -118,6 +119,8 @@ export const XML_JS_EXCLUDED = {
     + 'reading itself is orkLongitude.test.ts (above), which runs under both parsers',
   'src/services/lemivSweep.test.ts': 'a measurement driver that prints a sweep of simulated flights; it opens '
     + 'one fixture, which the golden test already holds to Chrome',
+  'src/services/motorDigest.census.test.ts': 'a measurement driver (scripts/digest-census.mjs) that skips unless '
+    + 'its manifest is named; it opens local-only designs, never run in npm test',
 };
 
 /** The setup file that installs the JS parser for that project. */

@@ -3,9 +3,9 @@ import { savedConfigLabel } from '../model/design.js';
 import type { ImportedDesign, ResolvedImportMotors } from './importApply.js';
 import type { MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
-import { fileMotorIdentity, mountMotorFromDb, namesOtherMaker } from './motorMatch.js';
+import { fetchSpecByDigest, fileMotorIdentity, mountMotorFromDb, namesOtherMaker, type MotorMatchDeps } from './motorMatch.js';
 import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
-import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
+import { defaultDelay, delayOptions } from './thrustcurve.js';
 import { findNode, kernelStageIdByNode, motorMounts } from '../tree/treeModel.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DesignSnapshot } from './dirtyState.js';
@@ -86,7 +86,7 @@ export function collectOpenMotorIdentities(
 
 export async function applyOpenMotorChoices(
   state: OpenMotorState & Pick<DesignSnapshot, 'tree'>, activeConfigId: string | null, groups: OpenMotorIdentity[],
-  choices: Record<string, OpenMotorChoice>, fetchSpec = fetchMotorSpec,
+  choices: Record<string, OpenMotorChoice>, fetchSpec: NonNullable<MotorMatchDeps['fetchSpec']> = fetchSpecByDigest,
 ): Promise<OpenMotorState> {
   const mountMotors = { ...state.mountMotors };
   const unmatchedRefs = { ...state.unmatchedRefs };
@@ -107,7 +107,10 @@ export async function applyOpenMotorChoices(
     const previousDelay = old?.spec.ejectionDelay ?? ref.delay;
     const delay = choice.kind === 'ex' || delayOptions(db).includes(previousDelay)
       ? previousDelay : defaultDelay(db) ?? 0;
-    const spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await fetchSpec(db, delay);
+    // The file's <digest> goes along: on the motor the file named, it is the
+    // curve desktop flew (thrustcurve.ts pickDigestFile); on another, it names
+    // none of its files and changes nothing.
+    const spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await fetchSpec(db, delay, ref.digest);
     const identity = fileMotorIdentity(ref);
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;
     const motor = mountMotorFromDb(db, spec, delay,

@@ -8,3 +8,7 @@ engine-java/patches/** -text
 # parity tests (packages/app/src/services/xmlParse.golden.test.ts) read it to
 # prove both parsers normalise CR/CRLF the same way. No EOL conversion.
 packages/app/src/services/__fixtures__/synthetic-ex-labs.rse -text
+
+# Simulator data files exactly as thrustcurve.org serves them (motor-digest.test.mjs
+# pins desktop OpenRocket's digests of them). Kept byte for byte; no EOL conversion.
+packages/app/scripts/fixtures/motor-digest/** -text

@@ -639,6 +639,25 @@ export default tseslint.config(
   },
 
   {
+    // packages/app/scripts/motor-digest.mjs is the third (board Tier 3, the thrust-curve
+    // picker): fetch-motor-curves.mjs stores each bundled file's desktop digest with it, and
+    // the browser computes one for a curve downloaded live (src/services/motorDigest.ts).
+    // motor-digest.test.mjs scans for what this rule cannot see.
+    files: ['packages/app/scripts/motor-digest.mjs'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['node:*', 'fs', 'path', 'url', 'os', 'crypto', 'child_process'],
+          message:
+            'motor-digest.mjs is bundled into the browser app (imported by src/services/motorDigest.ts). '
+            + 'A node: import here deploys a module that throws when a design opens. Put pipeline-only '
+            + 'code in fetch-motor-curves.mjs instead.',
+        }],
+      }],
+    },
+  },
+
+  {
     // The pure-JS XML parser is for Node and Workers only (headless step 2,
     // 2026-10-01). The browser keeps its native DOMParser behind the seam in
     // services/xmlParse.ts, and nothing the app ships may pull in the JS parser,
