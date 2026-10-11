@@ -7,16 +7,18 @@ export type FinTemplateFormat = 'svg-white' | 'svg-transparent' | 'png' | 'jpeg'
 
 /**
  * The choices, in the order offered. The white SVG leads — it is the default
- * Eric ruled (2026-10-11): it prints, views and converts with a white page,
+ * Eric ruled (2026-10-11): a browser shows and prints it on a white page,
  * where the transparent one shows grey in a viewer and turns black as a JPEG
- * (@atestani, TRF). The transparent SVG stays for anyone whose laser or CAD
- * workflow wants the file exactly as it was.
+ * (@atestani, TRF). The white is a CSS background that converters outside a
+ * browser have not been tested on, so the copy sends image users to the
+ * PNG/JPG, which are filled white on a canvas. The transparent SVG stays for
+ * anyone whose laser or CAD workflow wants the file exactly as it was.
  */
 export const FIN_TEMPLATE_FORMATS: Array<{ format: FinTemplateFormat; label: string; title: string }> = [
   {
     format: 'svg-white',
     label: 'SVG, white background (recommended)',
-    title: 'True-scale vector file with a white page — prints at 100 %, opens in a browser or CAD program, and converts to an image without a black background',
+    title: 'True-scale vector file with a white page — shows white in a browser and prints at 100 % on white. A program that ignores the page colour may still show it grey or convert it black; for an image, take the PNG or JPG',
   },
   {
     format: 'svg-transparent',
