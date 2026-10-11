@@ -28,6 +28,8 @@ export interface FormatLossInput {
   measured: MeasuredFigures;
   /** Only summaries eligible for the .ork, not the whole Saved runs library. */
   flightData: Record<string, OrkExportFlightData>;
+  /** The user's distance unit, for the writer's refusals (RktExportInput.distanceUnit); metres when absent. */
+  distanceUnit?: string;
 }
 export const formatExtension = (format: LossyFormat): '.rkt' | '.CDX1' => format === 'rkt' ? '.rkt' : '.CDX1';
 
@@ -111,7 +113,8 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     // Geometry/motor refusals and the writer's existing notes stay owned by the
     // writer, which runs dry: every refusal and note, no XML.
     if (format === 'rkt') exportRkt({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, measured: input.measured, compInfo: {}, notes: losses, dryRun: true });
+      motors: input.motors, measured: input.measured, compInfo: {}, notes: losses, dryRun: true,
+      ...(input.distanceUnit !== undefined ? { distanceUnit: input.distanceUnit } : {}) });
     else exportCdx1({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
       motors: input.motors, launch: input.launch, notes: losses, dryRun: true });
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }

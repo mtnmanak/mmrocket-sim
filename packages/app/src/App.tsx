@@ -2313,6 +2313,7 @@ export function App() {
   const lossInput = (format: LossyFormat): FormatLossInput => ({
     tree, launch, measured, configs: savedConfigs, activeConfigId,
     motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
+    distanceUnit: prefs.units.distance,
   });
   const lossyExportFailed = (format: LossyFormat, e: unknown) =>
     setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -2332,7 +2333,8 @@ export function App() {
       setLiveLoss({ file, report: checkFormatLossOf(format, () => lossInputRef.current(format)) });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput]);
+  }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput,
+    prefs.units.distance]);
   // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
   // not keep. Computed now, from the design on screen, while one is open: the
   // header's debounced preview may not have run yet (just after an Open or an
@@ -2346,7 +2348,7 @@ export function App() {
   // Keyed on what lossInput reads (through designSnapshot and the two memoized
   // export values), not on lossInput itself, which is rebuilt every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on lossInput's inputs, not its per-render identity
-  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow]);
+  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.distance]);
   const replaceLoss = replacementLossNote(designFile, replaceReport);
 
   const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
@@ -2370,7 +2372,8 @@ export function App() {
       try {
         const xml = format === 'rkt'
           ? exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, measured,
-            compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {} })
+            compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
+            ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });

@@ -247,6 +247,59 @@ describe('.rse files with missing mass data', () => {
     expect(notes[0]).toMatch(/EX-ODD: .*neither its loaded mass/);
   });
 
+  /**
+   * K18: with the model off, points whose masses cannot fly used to fall back
+   * to the impulse-proportional model with nothing said. The fallback stays;
+   * the import note now names the motor and the point.
+   */
+  describe('says so when auto-calc-mass="0" points carry masses it cannot fly (K18)', () => {
+    const attrs = 'code="EX-BADM" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5" auto-calc-mass="0"';
+    const fallsBack = (pts: string) => {
+      const notes: string[] = [];
+      const [m] = parseRse(rse(attrs, pts), notes);
+      expect(m!.sampleMassesKg).toBeUndefined();
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toMatch(/^EX-BADM: its per-point masses could not be used .*burn-off is spread in proportion to impulse instead\.$/);
+      return notes[0]!;
+    };
+    it('names a point with no m', () => {
+      expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0" m="0"/>'))
+        .toContain('point 2 of 3 has no m');
+    });
+    it('names a file whose points carry no m at all', () => {
+      expect(fallsBack('<eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/>'))
+        .toContain('no point has an m');
+    });
+    it('names a blank m', () => {
+      expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m=" "/><eng-data t="1" f="0" m="0"/>'))
+        .toContain('point 2 of 3 has a blank m');
+    });
+    it('names a negative m', () => {
+      expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="25"/><eng-data t="1" f="0" m="-2"/>'))
+        .toContain('point 3 of 3 has m="-2"');
+    });
+    it('names an m that is not a number', () => {
+      expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="abc"/><eng-data t="1" f="0" m="0"/>'))
+        .toContain('point 2 of 3 has m="abc"');
+    });
+    it('says nothing when the model is on, whatever the points carry', () => {
+      const notes: string[] = [];
+      parseRse(rse(attrs.replace('auto-calc-mass="0"', ''),
+        '<eng-data t="0" f="0"/><eng-data t="0.5" f="60" m="-1"/><eng-data t="1" f="0"/>'), notes);
+      expect(notes).toEqual([]);
+    });
+    it('never misaligns the masses: a thrust point it cannot read skips the motor, named', () => {
+      const notes: string[] = [];
+      const good = '<engine code="OK" mfg="Home" dia="29" len="120" initWt="100" propWt="50" delays="5">'
+        + '<data><eng-data t="0" f="0"/><eng-data t="0.5" f="60"/><eng-data t="1" f="0"/></data></engine>';
+      const bad = `<engine ${attrs}><data><eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="NaN" m="25"/>`
+        + '<eng-data t="1" f="0" m="0"/></data></engine>';
+      const motors = parseRse(`<engine-database><engine-list>${good}${bad}</engine-list></engine-database>`, notes);
+      expect(motors.map((m) => m.designation)).toEqual(['OK']);
+      expect(notes.join(' ')).toMatch(/EX-BADM: data point 2 of 3 cannot be read/);
+    });
+  });
+
   it('refuses a file with no initial mass instead of importing a 0 g motor', () => {
     const xml = rse(
       'code="EX-NOINIT" mfg="Home" dia="29" len="120" propWt="50" delays="5"',

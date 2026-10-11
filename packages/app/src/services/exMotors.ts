@@ -483,15 +483,32 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
  *
  * With it off, the points fly: as propellant aboard plus the case (initWt −
  * propWt) when they start at propWt, as total mass when they start at initWt,
- * and not at all when they start at neither — a file that contradicts itself
- * is named in `notes` and flies the model.
+ * and not at all when they start at neither — a file that contradicts itself,
+ * or whose points carry a mass that is missing, blank, negative or not a
+ * number, is named in `notes` and flies the model.
  */
 function rseSampleMassesKg(
-  el: XmlElement, name: string, masses: number[], initG: number, propG: number, n: number, notes?: string[],
+  el: XmlElement, name: string, masses: number[], initG: number, propG: number, notes?: string[],
 ): number[] | undefined {
   const autoCalc = !/^(0|false)$/i.test((el.getAttribute('auto-calc-mass') ?? '').trim());
   if (autoCalc) return undefined;
-  if (masses.length !== n || !masses.every((m) => Number.isFinite(m) && m >= 0)) return undefined;
+  // Said, not just dropped: a file that turns the model off but whose points
+  // cannot fly fell back to the model with nothing to tell the user why.
+  // `masses` is read from the same <eng-data> list as the thrust points, and a
+  // point whose t or f cannot be read skips the whole motor, so the two
+  // series always line up and there is no count mismatch to report.
+  const bad = masses.findIndex((m) => !(Number.isFinite(m) && m >= 0));
+  if (bad >= 0) {
+    const points = el.querySelectorAll('data > eng-data');
+    const raws = masses.map((_, i) => points[i]?.getAttribute('m') ?? null);
+    const raw = raws[bad]!;
+    const said = raws.every((r) => r === null) ? 'no point has an m'
+      : `point ${bad + 1} of ${masses.length} has `
+        + (raw === null ? 'no m' : raw.trim() === '' ? 'a blank m' : `m="${raw.slice(0, 20)}"`);
+    notes?.push(`${name}: its per-point masses could not be used (${said}), so burn-off is spread in proportion `
+      + 'to impulse instead.');
+    return undefined;
+  }
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.01 * b;
   const propellant = near(masses[0]!, propG);
   if (propellant || near(masses[0]!, initG)) {
@@ -613,7 +630,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       delays: attr('delays').split(',').map((s) => s.trim()).filter(Boolean).join(','),
       samples,
       sampleMassesKg: rseSampleMassesKg(
-        el, name, masses, numAttr('initWt'), numAttr('propWt'), samples.length, notes),
+        el, name, masses, numAttr('initWt'), numAttr('propWt'), notes),
       ...(exit && 'exitDiameterM' in exit ? { exitDiameterM: exit.exitDiameterM } : {}),
       source: 'rse' as const,
       addedAt: Date.now(),

@@ -7,6 +7,7 @@ import {
   MAX_DESIGN_FILE_BYTES, openDesignFile, parseDesignFile,
 } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
+import { gzipSync } from 'fflate';
 
 /**
  * THE FILE DOOR (2026-10-01): the size refusal, the format dispatch, the name
@@ -117,5 +118,51 @@ describe('parseDesignFile and openDesignFile', () => {
       .toBe('FooBar Test');
     // The wrong reader for the bytes refuses them: the dispatch is by name.
     expect(() => parseDesignFile(fixture('reference.ork'), 'reference.rkt', { presets: [] })).toThrow();
+  });
+});
+
+/**
+ * GZIP (board, 2026-10-11). Desktop's GeneralRocketLoader sniffs the gzip
+ * magic (1f 8b) before it looks at the format, so it opens a gzip-compressed
+ * .rkt or .CDX1 as it opens a gzip .ork. The app inflated only a .ork, and
+ * handed the other two compressed bytes to the XML parser: "XML parse error".
+ */
+describe('a gzip-compressed .rkt or .CDX1 opens as desktop opens it', () => {
+  const gz = (b: ArrayBuffer): ArrayBuffer => {
+    const out = gzipSync(new Uint8Array(b));
+    return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+  };
+  /** An import with every minted id blanked, so two reads of one design compare equal. */
+  const withoutIds = (r: ImportedDesign): unknown => JSON.parse(JSON.stringify(
+    { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes },
+    (k, v: unknown) => (k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
+
+  it.each([
+    ['rocksimTestRocket1.rkt', 'rkt'], ['FinsOnTransitions.rkt', 'rkt'],
+    ['Complex.Two-Stage.CDX1', 'cdx1'], ['Three-stage rocket.CDX1', 'cdx1'],
+  ] as const)('%s reads the same compressed as plain', (name, format) => {
+    const plain = parseDesignFile(fixture(name), name, { presets: [] });
+    const compressed = parseDesignFile(gz(fixture(name)), name, { presets: [] });
+    expect(compressed.sourceFormat).toBe(format);
+    expect(compressed.tree.components.length).toBeGreaterThan(0);
+    expect(withoutIds(compressed)).toEqual(withoutIds(plain));
+  });
+
+  it.each(['rocksimTestRocket1.rkt', 'Complex.Two-Stage.CDX1'])(
+    'a damaged %s is refused as damaged, not as XML, and says so through the open failure', (name) => {
+      const bytes = new Uint8Array(gz(fixture(name)));
+      const cut = bytes.slice(0, bytes.length - 20).buffer;
+      const kind = name.endsWith('.rkt') ? '.rkt' : '.CDX1';
+      let err: unknown;
+      try { parseDesignFile(cut, name, { presets: [] }); } catch (e) { err = e; }
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message.startsWith(`Not a readable compressed ${kind} file — it is damaged`)).toBe(true);
+      expect(designFileOpenFailure(name, err).startsWith(`Could not open that ${kind} file: Not a readable compressed`)).toBe(true);
+    });
+
+  it('a file that is only the two magic bytes is refused as damaged, not a crash', () => {
+    const magic = new Uint8Array([0x1f, 0x8b]).buffer;
+    expect(() => parseDesignFile(magic, 'x.rkt', { presets: [] })).toThrow(/compressed \.rkt file — it is damaged/);
+    expect(() => parseDesignFile(magic, 'x.CDX1', { presets: [] })).toThrow(/compressed \.CDX1 file — it is damaged/);
   });
 });

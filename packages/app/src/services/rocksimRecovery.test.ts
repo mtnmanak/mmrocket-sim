@@ -177,6 +177,20 @@ describe('RockSim recovery and cluster export', () => {
     expect(() => exportRkt({ name: 'T', tree })).toThrow(/Main.*cannot faithfully save.*Save as \.ork/);
   });
 
+  /**
+   * RKT-ALT-UNIT (board, 2026-10-11): the refusal quoted the stored altitude
+   * in raw metres with a hard-coded "m", so a 500 ft main read "152.4 m" to a
+   * user working in feet. It takes the user's distance unit now, as the
+   * import's recovery line does (recoveryContext.deployAltitudeText).
+   */
+  it('quotes a refused altitude deployment in the user’s distance unit', () => {
+    const tree = clusterTree(); Object.assign(chute(tree), { deployEvent: 'altitude', deployDelay: 1, deployAltitude: 152.4 });
+    expect(() => exportRkt({ name: 'T', tree, distanceUnit: 'ft' }))
+      .toThrow('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft with 1 s delay.');
+    // Without one, metres, the unit the design stores.
+    expect(() => exportRkt({ name: 'T', tree })).toThrow('altitude deployment at 152.4 m with 1 s delay');
+  });
+
   it.each(['missing child', 'mass', 'position', 'recovery', 'overhang', 'preset'])('preserves separate tubes with differing %s', (difference) => {
     const doc = docOf(exportRkt({ name: 'T', tree: clusterTree(), motors: { mount: motor } }));
     const t = tubes(doc)[1]!;

@@ -22,6 +22,7 @@ import {
 } from './atmosphere.js';
 import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
+import { gunzipCapped } from './zipMember.js';
 import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef, type OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
@@ -298,9 +299,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   /** Choice when the import began, including a session override. Omit when unknown. */
   aeroChoice?: AeroChoice;
 }): Cdx1ImportResult {
-  // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22).
+  // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22). A
+  // GZIP-compressed file (magic 1f 8b) is inflated first, under the .ork's
+  // cap: desktop's GeneralRocketLoader sniffs gzip before the format, so it
+  // opens one, and its bytes reached the XML parser here as "XML parse error".
+  // A damaged one is refused as damaged (zipMember.ts gunzipCapped).
+  const inflated = (bytes: Uint8Array) => (bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1') : bytes);
   const decoded: { xml: string; note?: string } =
-    typeof data === 'string' ? { xml: data } : decodeXml(new Uint8Array(data));
+    typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
   const xml = decoded.xml.replace(/^﻿?/, '');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RASAero file (XML parse error)');

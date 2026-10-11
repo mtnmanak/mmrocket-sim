@@ -372,6 +372,60 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
       revoked.mockRestore();
     }
   }, 30000);
+
+  /**
+   * AUTO-DELAY (board, 2026-10-11): the same flight, read once its
+   * configuration is no longer the active one. App builds only the active
+   * configuration, so another one's build refusals were unknown and its
+   * stored run went unread: switch to a second configuration and Save .ork
+   * wrote the first one's Auto mount at its provisional 5 s under "Launch,
+   * then save", which no Launch of the second configuration could answer.
+   * The run now records the mounts its build refused.
+   */
+  it('Save .ork keeps that delay after switching to another configuration', async () => {
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    try {
+      const tree = podTree(defaultTree());
+      const core = motorMounts(tree).find((m) => m.id !== 'pod-mmt')!.id!;
+      const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+      const refused = {
+        ...c6, spec: { ...c6.spec, masses: c6.spec.masses.map((m, i, all) => (i === all.length - 1 ? -0.001 : m)) },
+      };
+      const motorsA = { [core]: { ...c6, meta: { ...c6.meta, autoDelay: true } }, 'pod-mmt': refused };
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        tree, mountMotors: motorsA, launch: DEFAULT_CONDITIONS,
+        savedConfigs: [
+          { id: 'A', name: 'Auto', isDefault: true, motors: motorsA },
+          { id: 'B', name: 'Fixed', isDefault: false, motors: { [core]: c6 } },
+        ], activeConfigId: 'A', appVersion: APP_VERSION, savedAt: Date.now(),
+      }));
+      const host = await mountApp();
+      await settle(50);
+      await launch(host);
+      await waitFor(() => runs() === 1, 'the flight to be saved');
+      await settle(50);
+      const [run] = JSON.parse(localStorage.getItem(RUNS_KEY)!) as SimRun[];
+      expect(run!.delayResolution!.mounts.map((m) => [m.mountId, m.mode])).toEqual([[core, 'auto']]);
+      expect(run!.refusedMountIds).toEqual(['pod-mmt']);
+      const flownS = run!.delayResolution!.mounts[0]!.flownDelay as number;
+      expect(flownS).not.toBe(5);
+      await openTab(host, 'Motors & Launch');
+      await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Apply Fixed"]')!.click(); });
+      await settle(50);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(storedSession()?.activeConfigId ?? null).toBe('B');
+      await act(async () => { button(host, 'Save As / Export').click(); });
+      await act(async () => { button(host.querySelector('.file-menu')!, 'Save .ork').click(); });
+      await waitFor(() => (document.body.textContent ?? '').includes('is on Auto (optimal) delay'), 'the save line');
+      const said = document.body.textContent ?? '';
+      expect(said).toContain(`it is saved at ${flownS} s, the rounded optimum it flies on Auto`);
+      expect(said).not.toContain('Launch, then save');
+    } finally {
+      created.mockRestore();
+      revoked.mockRestore();
+    }
+  }, 30000);
 });
 
 /**

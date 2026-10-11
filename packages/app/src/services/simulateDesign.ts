@@ -101,6 +101,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   if (refusal) throw new Error(refusal);
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
+  const refusedMountIds = refusedMountIdsOf(built.motorFailures);
   // The keys and their order are onLaunch's at 78d3015; `signal` and `now` are
   // spread only when given, so the object App hands the runner is unchanged.
   const flight = await flyLaunch(built.rocket, {
@@ -108,7 +109,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // What the report's delay table and the Auto-delay refusal call each
     // mount: the card heading's own fallback, never the internal id.
     mountNames: mountNamesOf(mounts),
-    refusedMountIds: refusedMountIdsOf(built.motorFailures),
+    refusedMountIds,
     hardware: built.hardware,
     primaryMountId,
     simOptions: kernelSimOptions(launch),
@@ -141,6 +142,9 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const run = buildSimRun({
     result: res,
     delayResolution, primaryMountId,
+    // Which of the configuration's motors did not fly: once another
+    // configuration is active, nothing else can say (orkFlightData).
+    refusedMountIds,
     info: built.info,
     motor: { ...primary.spec, ejectionDelay: flownDelay },
     meta: {

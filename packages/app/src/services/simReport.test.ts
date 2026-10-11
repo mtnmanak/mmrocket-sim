@@ -88,6 +88,14 @@ it.each(['176H123-12A', '232H123-14A'])('preserves raw flown motor designation %
   expect(run.delayS).toBe(9);
 });
 
+it('records the mounts the build refused, and adds nothing to a run with none', () => {
+  const make = (refusedMountIds?: string[]) => buildSimRun({ result: fakeResult(), info, motor, meta: { label: 'C6' },
+    launch: DEFAULT_CONDITIONS, rocketName: 'test', execMs: 1, ...(refusedMountIds ? { refusedMountIds } : {}) });
+  expect(make(['pod']).refusedMountIds).toEqual(['pod']);
+  expect(make([])).not.toHaveProperty('refusedMountIds');
+  expect(make()).not.toHaveProperty('refusedMountIds');
+});
+
 it('stores ascent load peaks with the flight report', () => {
   const result = fakeResult();
   result.series['ρ'] = result.series.time.map(() => 1.2);

@@ -18,7 +18,7 @@ import { finCountOf } from '../tree/counts.js';
 import { spansOverlap } from '../tree/finAlign.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
-import { unzipMember } from './zipMember.js';
+import { gunzipCapped, unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { isTailCone, tailConeAsTransition } from '../tree/tailCone.js';
@@ -190,9 +190,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // good file was a parse error; and an archive with NO entries made that
     // non-null assertion hand `undefined` to strFromU8, surfacing as "Cannot
     // read properties of undefined". See zipMember.ts for the size cap.
+    // A GZIP-compressed one too (magic 1f 8b), under the same cap: desktop's
+    // GeneralRocketLoader sniffs gzip before the format, so it opens one, and
+    // its bytes reached the XML parser here as "XML parse error". A damaged
+    // one is refused as damaged (zipMember.ts gunzipCapped).
     ({ xml, note: encodingNote } = decodeXml(bytes[0] === 0x50 && bytes[1] === 0x4b
       ? unzipMember(bytes, '.rkt', '.rkt')
-      : bytes));
+      : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.rkt') : bytes));
   }
   // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
   // in the first bytes. Neither we nor desktop OpenRocket can read it, but it IS
@@ -2299,6 +2303,12 @@ export interface RktExportInput {
    * output back, so the notes and the refusal cannot tell the difference.
    */
   dryRun?: boolean;
+  /**
+   * The user's distance unit (`prefs.units.distance`), for a refused altitude
+   * deployment's altitude. This module holds no unit preference, so App hands
+   * it over, as it does to importRkt; without it the refusal writes metres.
+   */
+  distanceUnit?: string;
 }
 
 /**
@@ -2390,7 +2400,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun, distanceUnit = 'm' }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
   notes?.push(...simulationExtensionLossNotes(tree, '.rkt'));
@@ -2418,7 +2428,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
       if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
         || (event === 'altitude' && altitude <= 0)) {
         throw new Error(`Recovery device “${node.name ?? node.type}”: .rkt cannot faithfully save `
-          + `${event} deployment${event === 'altitude' ? ` at ${altitude} m` : ''} with ${delay} s delay. Save as .ork to keep these settings.`);
+          // In the user's unit, as the import's recovery line quotes it: this
+          // printed the stored metres with a hard-coded "m".
+          + `${event} deployment${event === 'altitude' ? ` at ${deployAltitudeText(altitude, distanceUnit)}` : ''}`
+          + ` with ${delay} s delay. Save as .ork to keep these settings.`);
       }
       emit(`<SimulationEvent><PartSerialNo>${serial}</PartSerialNo><Type>${type}</Type>`
         + `<DeployAltitude>${event === 'altitude' ? altitude : 0}</DeployAltitude>`

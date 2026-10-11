@@ -327,6 +327,20 @@ describe('stored motor fingerprints and recovery evidence', () => {
     expect(loadRuns()[0]!.motorDataKeys).toEqual(motorDataKeys);
   });
 
+  // A string would pass `includes` by substring: 'pod' in 'pod-mmt'.
+  it.each([null, 'pod-mmt', 5, { a: 'pod' }, ['pod', 3]].map((refusedMountIds) => ({ refusedMountIds })))(
+    'drops a malformed refusedMountIds ($refusedMountIds) without losing the run', ({ refusedMountIds }) => {
+      localStorage.setItem(KEY, JSON.stringify([{ ...mkRun('kept'), refusedMountIds }, mkRun('other')]));
+      const loaded = loadRuns();
+      expect(loaded.map((r) => r.id)).toEqual(['kept', 'other']);
+      expect(loaded[0]).not.toHaveProperty('refusedMountIds');
+    });
+
+  it('keeps a valid refusedMountIds list', () => {
+    localStorage.setItem(KEY, JSON.stringify([{ ...mkRun('kept'), refusedMountIds: ['pod-mmt'] }]));
+    expect(loadRuns()[0]!.refusedMountIds).toEqual(['pod-mmt']);
+  });
+
   const separation = { type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' };
   it.each([null, {}, 5, [null], [[]], [{ a: 1 }],
     [{ ...separation, time: '3' }], [{ ...separation, sourceId: 1 }],

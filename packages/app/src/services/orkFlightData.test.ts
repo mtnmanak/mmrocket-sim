@@ -724,9 +724,37 @@ describe('flownAutoDelays - complete settled vectors', () => {
     });
     it('knows the refusals of the ACTIVE configuration only, the one App built', () => {
       // Another configuration's motors were never built here, so a kernel
-      // refusal among them is not known: its run stays unread, the safe direction.
+      // refusal among them is known only from its run's record. A run stored
+      // before that record has none: it stays unread, the safe direction.
       const saved = { ...CONFIG, motors: Object.fromEntries(withPod) };
       expect(flownAutoDelays(refused({ assigned: [], activeConfigId: 'other', savedConfigs: [saved] }))).toEqual({});
+    });
+    /**
+     * AUTO-DELAY (board, 2026-10-11): so once another configuration was
+     * active, Save .ork, a .rkt and a share link wrote this one's Auto mount
+     * at its provisional delay. Launch now records the refusals on the run.
+     */
+    it('reads another configuration’s run from the refusals its Launch recorded', () => {
+      const saved = { ...CONFIG, motors: Object.fromEntries(withPod) };
+      const inactive = (runOver: Partial<SimRun>, over: Partial<FlightDataForExportInput> = {}) => refused({
+        assigned: [], activeConfigId: 'other', savedConfigs: [saved], refusedMountIds: [],
+        runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod), ...runOver }], ...over,
+      });
+      expect(flownAutoDelays(inactive({ refusedMountIds: ['pod'] }))).toEqual({ c1: { m1: 7, side: 4 } });
+      // Still no flight data: the file names the pod's motor, and it did not fly.
+      expect(flightDataForExport(inactive({ refusedMountIds: ['pod'] }))).toEqual({});
+      // A record that does not name the mount missing from the vector leaves it unmatched.
+      expect(flownAutoDelays(inactive({ refusedMountIds: ['gone'] }))).toEqual({});
+      expect(flownAutoDelays(inactive({ refusedMountIds: [] }))).toEqual({});
+      // The active configuration goes by the build App has, not the run's record.
+      expect(flownAutoDelays(refused({ refusedMountIds: [], runs: [{ ...run(), motorDataKey: motorDataKeyOf(withPod),
+        refusedMountIds: ['pod'] }] }))).toEqual({});
+    });
+    it('keeps a refused Auto mount expected, whatever the run recorded', () => {
+      const autoPod: [string, MountMotor][] = [...assigned, ['pod', { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } }]];
+      const saved = { ...CONFIG, motors: Object.fromEntries(autoPod) };
+      expect(flownAutoDelays(refused({ assigned: [], activeConfigId: 'other', savedConfigs: [saved], refusedMountIds: [],
+        runs: [{ ...run(), motorDataKey: motorDataKeyOf(autoPod), refusedMountIds: ['pod'] }] }))).toEqual({});
     });
     it('and leaves out an ignition event the kernel does not know in any configuration: the motor set names it', () => {
       const unknown = { ...MOTOR, ignition: { event: 'sideways', delay: 0 } } as unknown as MountMotor;
