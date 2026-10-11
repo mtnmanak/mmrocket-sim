@@ -380,10 +380,10 @@ export function FinPointsEditor({ points, onChange }: {
       <table className="fin-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>x <UnitChip quantity="length" /></th>
-            <th>y <UnitChip quantity="length" /></th>
-            <th></th>
+            <th scope="col">#</th>
+            <th scope="col">x <UnitChip quantity="length" /></th>
+            <th scope="col">y <UnitChip quantity="length" /></th>
+            <th scope="col"></th>
           </tr>
         </thead>
         <tbody>

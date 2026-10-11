@@ -81,6 +81,13 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(alertText()).toBe('');
   });
 
+  it('marks every column header as one (scope="col"), so a reader names each cell’s column', () => {
+    render(GOOD);
+    const headers = [...host.querySelectorAll('table th')];
+    expect(headers.length).toBe(4);
+    for (const th of headers) expect(th.getAttribute('scope'), th.textContent ?? '').toBe('col');
+  });
+
   it('refuses a coordinate that makes the outline cross itself', () => {
     render(GOOD);
     // Point 3 back to x = 5 mm: edge P3->P4 then cuts across edge P1->P2.

@@ -1180,15 +1180,15 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
             <table className="motor-table">
               <thead>
                 <tr>
-                  <th>Motor</th>
-                  <th>Delay</th>
-                  <th>Apogee (<UnitChip quantity="distance" />)</th>
-                  <th>Rod exit (<UnitChip quantity="velocity" />)</th>
-                  <th>{railNeededHeader(railThreshold, vel, len, 'travel')}</th>
-                  <th>{railNeededHeader(railThreshold, vel, len)}</th>
-                  <th>T:W</th>
-                  <th>Opt. delay</th>
-                  <th>Verdict</th>
+                  <th scope="col">Motor</th>
+                  <th scope="col">Delay</th>
+                  <th scope="col">Apogee (<UnitChip quantity="distance" />)</th>
+                  <th scope="col">Rod exit (<UnitChip quantity="velocity" />)</th>
+                  <th scope="col">{railNeededHeader(railThreshold, vel, len, 'travel')}</th>
+                  <th scope="col">{railNeededHeader(railThreshold, vel, len)}</th>
+                  <th scope="col">T:W</th>
+                  <th scope="col">Opt. delay</th>
+                  <th scope="col">Verdict</th>
                 </tr>
               </thead>
               <tbody>

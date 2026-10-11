@@ -244,11 +244,11 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
                 throughout — this was drift between two pickers, not a decision. */}
             <thead>
               <tr>
-                <th>Manufacturer</th>
-                <th>Part number</th>
-                <th>Description</th>
-                <th>Dimensions</th>
-                <th>Material</th>
+                <th scope="col">Manufacturer</th>
+                <th scope="col">Part number</th>
+                <th scope="col">Description</th>
+                <th scope="col">Dimensions</th>
+                <th scope="col">Material</th>
               </tr>
             </thead>
             <tbody ref={bodyRef}>

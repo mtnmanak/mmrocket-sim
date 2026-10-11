@@ -137,21 +137,21 @@ function DeploymentTable({ deployments, dist, vel }: {
     <table className="motor-table">
       <thead>
         <tr>
-          <th>Recovery device</th>
-          <th>Deploys at</th>
-          <th>Altitude (<UnitChip quantity="distance" />)</th>
-          <th>Opens at (<UnitChip quantity="velocity" />)</th>
+          <th scope="col">Recovery device</th>
+          <th scope="col">Deploys at</th>
+          <th scope="col">Altitude (<UnitChip quantity="distance" />)</th>
+          <th scope="col">Opens at (<UnitChip quantity="velocity" />)</th>
           {/* The coefficient the descent verdict rests on. Naming the device
               without it made two landing-rate reports (2026-09-03) take a round
               trip each to answer "which Cd did that run use?" — a question the
               page should answer itself. */}
-          <th>Flown at Cd</th>
+          <th scope="col">Flown at Cd</th>
           {/* VERTICAL from v0.100. It used to be the speed over the ground,
               which carries the wind drift — so a windy day made every correctly
               sized main read as landing too fast. */}
-          <th>Descent after (<UnitChip quantity="velocity" />)</th>
-          <th>Over ground (<UnitChip quantity="velocity" />)</th>
-          <th>Verdict</th>
+          <th scope="col">Descent after (<UnitChip quantity="velocity" />)</th>
+          <th scope="col">Over ground (<UnitChip quantity="velocity" />)</th>
+          <th scope="col">Verdict</th>
         </tr>
       </thead>
       <tbody>
@@ -623,17 +623,17 @@ export function SimHistory({
           <table className="motor-table">
             <thead>
               <tr>
-                <th>Rocket</th>
-                <th>Motor</th>
-                <th>Delay</th>
-                <th>Apogee (<UnitChip quantity="distance" />)</th>
-                <th>Max V (<UnitChip quantity="velocity" />)</th>
-                <th>Opt. delay</th>
-                <th>Rod exit (<UnitChip quantity="velocity" />)</th>
-                <th>Safe</th>
-                <th>Winds aloft</th>
-                <th>When</th>
-                <th></th>
+                <th scope="col">Rocket</th>
+                <th scope="col">Motor</th>
+                <th scope="col">Delay</th>
+                <th scope="col">Apogee (<UnitChip quantity="distance" />)</th>
+                <th scope="col">Max V (<UnitChip quantity="velocity" />)</th>
+                <th scope="col">Opt. delay</th>
+                <th scope="col">Rod exit (<UnitChip quantity="velocity" />)</th>
+                <th scope="col">Safe</th>
+                <th scope="col">Winds aloft</th>
+                <th scope="col">When</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>

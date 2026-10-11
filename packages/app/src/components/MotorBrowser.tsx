@@ -784,7 +784,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   // plus onKeyDown give the tab stop and Enter/Space activation
                   // WITHOUT touching the role, which is the same rule
                   // clickable() follows for this file's data rows.
-                  <th key={key} onClick={() => onHeader(key)} tabIndex={0}
+                  <th key={key} scope="col" onClick={() => onHeader(key)} tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeader(key); }
                     }}
