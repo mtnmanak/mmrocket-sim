@@ -12,7 +12,7 @@ import { importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { catalogueMotorMass } from './hardwareMass.js';
 import {
-  motorBurnoutMass, motorLoadedMass, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
+  motorBurnoutMass, motorLoadedMass, motorMassAt, motorPropellantMass, recoveryGroups, recoveryMass, recoveryMassByStage,
   recoveryMassTitle, sustainerScope,
 } from './recoveryMass.js';
 import type { RecoveryMass, RecoveryMassInput } from './recoveryMass.js';
@@ -869,7 +869,7 @@ describe('R2 missing-burnout disclosure', () => {
   const disclosed = (r: RecoveryMass) => {
     expect(r).toMatchObject({ state: 'ok', loadedWithoutBurnout: true });
     if (r.state !== 'ok') return;
-    expect(r.note).toContain('The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.');
+    expect(r.note).toContain('The app counts each retained motor that did not light before landing at its full loaded mass.');
     expect(r).not.toHaveProperty('estimate');
     expect(recoveryMassTitle(r)).toContain(r.note);
     expect(recoveryMassTitle(r)).not.toMatch(/spent|gone by apogee|casing at burnout|partly|partially|unburned/);
@@ -1024,4 +1024,153 @@ describe('K1 matching flight recovery', () => {
     expect(r.state).toBe('ok');
     if (r.state === 'ok') expect(r.mass).toBeCloseTo(result.series.mass.at(-1)!, 8);
   }, 60000);
+});
+
+/**
+ * R2 — A MOTOR WITH NO BURNOUT BEFORE LANDING, measured against the kernel's
+ * own mass series rather than synthetic events. The kernel queues a lit
+ * motor's BURNOUT at ignition and keeps running after the ground hit until it
+ * fires, so in a completed flight a motor with no BURNOUT at all never lit and
+ * flies loaded throughout. A motor that lights late — under the canopy or on
+ * the ground — has its BURNOUT recorded only AFTER the landing, and used to be
+ * counted burned: lighter than anything that came down.
+ */
+describe('R2 a motor that does not burn out before landing, against the kernel', () => {
+  const NOTE = 'The app counts each retained motor that did not light before landing at its full loaded mass.';
+  const fly = async (tree: RocketTree, ignition: Record<string, readonly [IgnitionEvent, number]>) => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { DEFAULT_CONDITIONS, kernelSimOptions } = await import('../components/LaunchPanel.js');
+    const { completedRecoveryEvents } = await import('./recoveryMass.js');
+    const { buildSimRun } = await import('./simReport.js');
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(tree));
+    const mountIds = motorMounts(tree).map((m) => m.id!);
+    for (const id of mountIds) rocket.setMotorById(id, C6());
+    for (const [id, [event, delay]] of Object.entries(ignition)) rocket.setMotorIgnitionById(id, event, delay);
+    const info = rocket.staticInfo();
+    const result = rocket.simulate(kernelSimOptions(DEFAULT_CONDITIONS));
+    const run = buildSimRun({ result, info, motor: C6(), launch: DEFAULT_CONDITIONS, rocketName: 'r2', execMs: 0 });
+    const flightEvents = completedRecoveryEvents(result);
+    const sectionMass = (id: string): number | null => {
+      try { return rocket.componentInfo(id).sectionMass; } catch { return null; }
+    };
+    const r = recoveryMass({ tree, info, sectionMass, flightEvents,
+      motors: mountIds.map((id) => [id, { spec: C6(), ...(ignition[id] ? { ignition: { event: ignition[id][0] } } : {}) }] as const) });
+    /** The kernel's own mass in the sustainer branch at an event's time. */
+    const massAt = (type: string): number => {
+      const t = result.events.find((e) => e.type === type)!.time;
+      const i = result.series.time.findIndex((x) => x >= t - 1e-9);
+      return result.series.mass[i]!;
+    };
+    const at = (type: string, mount?: string) =>
+      result.events.find((e) => e.type === type && (!mount || e.motorMountId === mount))?.time;
+    return { result, run, flightEvents, r, massAt, at };
+  };
+  /** One stage, two C6 mounts, so one motor can light while the other flies the rocket. */
+  const twoMounts = (): RocketTree => {
+    const t = singleStage();
+    t.components[0]!.children![1]!.children!.push({ type: 'innertube', id: 'm2', length: 0.08, outerRadius: 0.0095,
+      thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0.01 } } as ComponentNode);
+    return t;
+  };
+  const okMass = (r: RecoveryMass): number => {
+    expect(r.state).toBe('ok');
+    return r.state === 'ok' ? r.mass : NaN;
+  };
+
+  it('a motor whose trigger never fires has no burnout and lands loaded, as shown', async () => {
+    // Upper-stage ignition on a single stage: there is no stage below to burn out.
+    const { flightEvents, r, massAt, at } = await fly(twoMounts(), { m2: ['burnout', 0] });
+    expect(flightEvents).toBeDefined();
+    expect(at('IGNITION', 'm2')).toBeUndefined();
+    expect(at('BURNOUT', 'm2')).toBeUndefined();
+    expect(okMass(r)).toBeCloseTo(massAt('GROUND_HIT'), 9);
+    expect(r).toMatchObject({ loadedWithoutBurnout: true, note: NOTE });
+  }, 30000);
+
+  it('a motor that lights after landing comes down loaded, in Design and in Results', async () => {
+    const { result, run, flightEvents, r, massAt, at } = await fly(twoMounts(), { m2: ['launch', 1000] });
+    // The kernel still records its burnout — after the ground hit.
+    expect(at('BURNOUT', 'm2')).toBeGreaterThan(at('GROUND_HIT')!);
+    expect(flightEvents).toBeDefined();
+    expect(flightEvents!.some((e) => e.type === 'BURNOUT' && e.motorMountId === 'm2')).toBe(false);
+    expect(okMass(r)).toBeCloseTo(massAt('GROUND_HIT'), 9);
+    expect(okMass(r)).toBeGreaterThan(result.series.mass.at(-1)! + 0.01); // Not the casing it burned to later.
+    expect(r).toMatchObject({ loadedWithoutBurnout: true, note: NOTE });
+    expect(run.burnoutMass).toBeCloseTo(massAt('GROUND_HIT'), 9);
+  }, 30000);
+
+  it('a motor still burning at touchdown weighs its curve mass at touchdown, as the kernel lands it', async () => {
+    const { run, flightEvents, r, massAt, at } = await fly(twoMounts(), { m2: ['launch', 41.5] });
+    // The premise, from the kernel: it lit under the canopy and was mid-burn when it landed.
+    expect(at('IGNITION', 'm2')).toBeGreaterThan(at('RECOVERY_DEVICE_DEPLOYMENT')!);
+    expect(at('IGNITION', 'm2')).toBeLessThan(at('GROUND_HIT')!);
+    expect(at('BURNOUT', 'm2')).toBeGreaterThan(at('GROUND_HIT')!);
+    const deployed = massAt('RECOVERY_DEVICE_DEPLOYMENT');
+    const touchdown = massAt('GROUND_HIT');
+    expect(touchdown).toBeLessThan(deployed - 1e-3); // Partly burned on the kernel's own curve.
+    expect(touchdown).toBeGreaterThan(deployed - PROPELLANT + 1e-3);
+    expect(flightEvents!.find((e) => e.type === 'BURNOUT' && e.motorMountId === 'm2')?.burningAtLandingS)
+      .toBeCloseTo(at('GROUND_HIT')! - at('IGNITION', 'm2')!, 9);
+    // The curve read and the kernel's own interpolation agree to well under a milligram.
+    expect(Math.abs(okMass(r) - touchdown)).toBeLessThan(1e-6);
+    expect(run.burnoutMass).toBeCloseTo(touchdown, 9);
+    expect(r).toMatchObject({ burningAtLanding: true });
+    expect(r).not.toHaveProperty('loadedWithoutBurnout');
+    expect(r.state === 'ok' && r.note).toBe('A retained motor still burning at landing is counted at its mass on landing, read from its curve.');
+    expect(recoveryMassTitle(r)).not.toContain('gone by apogee');
+  }, 30000);
+
+  it('a sustainer that lights after it lands counts loaded in its own group', async () => {
+    const t = twoStage();
+    t.components[1]!.children![0]!.children!.unshift({
+      type: 'trapezoidfinset', id: 'f2', finCount: 3, rootChord: 0.07, tipChord: 0.04,
+      sweep: 0.03, height: 0.04, thickness: 0.003, position: { method: 'bottom', offset: 0 },
+    } as ComponentNode);
+    const { flightEvents, r, massAt, at } = await fly(t, { m1: ['burnout', 300] });
+    expect(at('STAGE_SEPARATION')).toBeDefined();
+    expect(at('BURNOUT', 'm1')).toBeGreaterThan(at('GROUND_HIT')!);
+    expect(flightEvents).toBeDefined();
+    expect(okMass(r)).toBeCloseTo(massAt('GROUND_HIT'), 9);
+    expect(r).toMatchObject({ multiStage: true, loadedWithoutBurnout: true });
+  }, 30000);
+});
+
+describe('R2 motor mass at landing from its curve', () => {
+  it('reads the C6 curve linearly, loaded before ignition and casing after burnout', () => {
+    expect(motorMassAt(C6(), -1)).toBe(0.021);
+    expect(motorMassAt(C6(), 0)).toBe(0.021);
+    expect(motorMassAt(C6(), 1.5)).toBeCloseTo(0.011, 12);
+    expect(motorMassAt(C6(), 2.5)).toBeCloseTo(0.009, 12);
+    expect(motorMassAt(C6(), 99)).toBe(0.009);
+    expect(motorMassAt({ times: [0, 1], masses: [] }, 0.5)).toBeNull();
+  });
+
+  it('subtracts only what had burned by landing on a single object', () => {
+    const tree = singleStage;
+    const expected = 0.2 + 0.011;
+    const flightEvents = [{ type: 'BURNOUT', time: 50, motorMountId: 'm1', burningAtLandingS: 1.5 }];
+    const r = recoveryMass({ tree: tree(), info: { mass: 0.221, massEmpty: 0.2 }, sectionMass: () => 0.2,
+      motors: [['m1', { spec: C6() }]], flightEvents });
+    expect(r).toMatchObject({ state: 'ok', mass: expect.closeTo(expected, 12), burningAtLanding: true });
+    // Saved JSON that is not a number reads as burned out, as before the field existed.
+    const bad = recoveryMass({ tree: tree(), info: { mass: 0.221, massEmpty: 0.2 }, sectionMass: () => 0.2,
+      motors: [['m1', { spec: C6() }]], flightEvents: [{ ...flightEvents[0]!, burningAtLandingS: 'x' as never }] });
+    expect(bad).toMatchObject({ state: 'ok', mass: expect.closeTo(0.209, 12) });
+    expect(bad).not.toHaveProperty('burningAtLanding');
+  });
+
+  it('weighs a separated group motor at its landing mass, and only that group says so', () => {
+    const r = recoveryMassByStage({ tree: twoStage(), info: { mass: 0.342, massEmpty: 0.3 },
+      motors: [['m1', { spec: C6() }], ['m2', { spec: C6() }]],
+      sectionMass: (id) => id === 's1' ? 0.2 : 0.1,
+      flightEvents: [{ type: 'BURNOUT', time: 2, motorMountId: 'm2' },
+        { type: 'STAGE_SEPARATION', time: 3, sourceId: 's2' },
+        { type: 'BURNOUT', time: 60, motorMountId: 'm1', burningAtLandingS: 1.5 }] });
+    expect(r.state).toBe('ok');
+    if (r.state !== 'ok') return;
+    expect(r.groups[0]!.mass).toMatchObject({ mass: expect.closeTo(0.2 + 0.011, 12), burningAtLanding: true });
+    expect(r.groups[1]!.mass).toMatchObject({ mass: expect.closeTo(0.1 + BURNOUT, 12) });
+    expect(r.groups[1]!.mass).not.toHaveProperty('burningAtLanding');
+  });
 });

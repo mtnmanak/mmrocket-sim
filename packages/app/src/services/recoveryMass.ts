@@ -54,7 +54,13 @@ import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } fro
 /** What to put on screen. Never a bare number: the absent cases have reasons. */
 export type RecoveryMass =
   /** A motor is loaded and the number is trustworthy. `mass` is kg. */
-  | { state: 'ok'; mass: number; multiStage: boolean; note?: string; estimate?: true; loadedWithoutBurnout?: true }
+  | {
+    state: 'ok'; mass: number; multiStage: boolean; note?: string; estimate?: true;
+    /** A retained motor never lit before landing (flight evidence only): counted loaded. */
+    loadedWithoutBurnout?: true;
+    /** A retained motor was still burning at landing: counted at its curve's mass then. */
+    burningAtLanding?: true;
+  }
   /** No motor anywhere — the owner's explicit rule: show no figure at all. */
   | { state: 'no-motor' }
   /** We know the number would be the mass of no real object. `reason` is UI copy. */
@@ -111,6 +117,31 @@ export function motorLoadedMass(spec: Pick<MotorSpec, 'masses'>): number | null 
 }
 
 /**
+ * Motor mass `motorTime` seconds after ignition (kg), read off the curve the
+ * kernel flies: linear between samples, as ThrustCurveMotor.getTotalMass
+ * interpolates, loaded before the first and the burnout mass after the last.
+ * Null under the same rule as `motorBurnoutMass`. Used for a motor that was
+ * still burning when its object landed (`RecoveryEvent.burningAtLandingS`).
+ */
+export function motorMassAt(spec: Pick<MotorSpec, 'times' | 'masses'>, motorTime: number): number | null {
+  const loaded = motorLoadedMass(spec);
+  const burnout = motorBurnoutMass(spec);
+  if (loaded === null || burnout === null) return null;
+  const { times, masses } = spec;
+  if (!Array.isArray(times) || times.length !== masses.length || !(motorTime > (times[0] ?? 0))) return loaded;
+  for (let i = 1; i < times.length; i++) {
+    if (!(times[i]! >= motorTime)) continue;
+    const t0 = times[i - 1]!;
+    const t1 = times[i]!;
+    const f = t1 > t0 ? (motorTime - t0) / (t1 - t0) : 1;
+    const m = masses[i - 1]! + f * (masses[i]! - masses[i - 1]!);
+    // Never outside the loaded-to-burnout range, whatever the curve holds.
+    return Number.isFinite(m) ? Math.min(loaded, Math.max(burnout, m)) : loaded;
+  }
+  return burnout;
+}
+
+/**
  * A motor set to ignite NEVER burns nothing: it comes down loaded. That is
  * the "what if the sustainer fails to light" check, exactly the flight where
  * the canopy carries the most, and this file used to subtract its propellant
@@ -140,7 +171,7 @@ export interface RecoveryMassInput {
   /** Display unit for separation-altitude assumptions. */
   distanceUnit?: string;
   /** Events from a completed flight matching the current design and conditions. */
-  flightEvents?: readonly FlightEvent[];
+  flightEvents?: readonly RecoveryEvent[];
   tree: RocketTree;
   /** Whole-rocket static analysis for the CURRENT motor set. */
   info: Pick<StaticInfo, 'mass' | 'massEmpty'>;
@@ -158,13 +189,44 @@ export interface RecoveryMassInput {
   sectionMass: (componentId: string) => number | null;
 }
 
-/** An unfinished branch cannot prove that a scheduled separation never happened. */
-export function completedRecoveryEvents(result: FlightResult): FlightEvent[] | undefined {
+/**
+ * Recovery evidence: a flight's STAGE_SEPARATION and BURNOUT events. A BURNOUT
+ * that came after its object landed carries `burningAtLandingS`, the seconds
+ * that motor had burned when it touched down. Saved runs from earlier versions
+ * lack it and read as they always did.
+ */
+export type RecoveryEvent = FlightEvent & { burningAtLandingS?: number };
+
+/**
+ * An unfinished branch cannot prove that a scheduled separation never happened.
+ *
+ * A BURNOUT after its own branch's ground hit is not one the recovery device
+ * carried (R2, 2026-10-11). The kernel queues a motor's burnout when it lights
+ * and runs on after landing until it fires, so a motor that lit under the
+ * canopy or on the ground still records one — and was counted burned, lighter
+ * than anything that came down: measured, a C6 lighting after landing read
+ * 12 g light. Lit before the landing, it now carries how long it had burned,
+ * and weighs what the curve says at that moment, as the kernel lands it; lit
+ * after, it is left out and counts loaded. So in this evidence a motor with no
+ * burnout never lit: the kernel records one for every motor that lights in a
+ * completed flight.
+ */
+export function completedRecoveryEvents(result: FlightResult): RecoveryEvent[] | undefined {
   const branches = [result, ...(result.branches ?? [])];
   if (branches.some((b) => !b.events.some((e) => e.type === 'GROUND_HIT')
     || b.events.some((e) => e.type === 'SIM_ABORT'))) return undefined;
-  const events = branches.flatMap((b) => b.events).filter((e) =>
-    e.type === 'STAGE_SEPARATION' || e.type === 'BURNOUT');
+  const ignitions = branches.flatMap((b) => b.events).filter((e) => e.type === 'IGNITION');
+  const events = branches.flatMap((b) => {
+    const ground = b.events.find((e) => e.type === 'GROUND_HIT')!.time;
+    return b.events.flatMap((e): RecoveryEvent[] => {
+      if (e.type === 'STAGE_SEPARATION' || (e.type === 'BURNOUT' && e.time <= ground)) return [e];
+      if (e.type !== 'BURNOUT') return [];
+      const id = e.motorMountId ?? e.sourceId;
+      if (!id) return [e]; // Refused below, as an unidentified burnout always was.
+      const lit = Math.min(...ignitions.filter((i) => (i.motorMountId ?? i.sourceId) === id).map((i) => i.time));
+      return lit < ground ? [{ ...e, burningAtLandingS: ground - lit }] : [];
+    });
+  });
   if (events.some((e) => e.type === 'STAGE_SEPARATION' ? !e.sourceId : !(e.motorMountId ?? e.sourceId))) {
     return undefined;
   }
@@ -298,6 +360,17 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const unburned = (id: string, mm: RecoveryMassInput['motors'][number][1]): boolean => flightEvents
     ? !flightEvents.some((e) => e.type === 'BURNOUT' && (e.motorMountId ?? e.sourceId) === id)
     : neverLights(mm);
+  /**
+   * Seconds a motor had burned when its object landed, if it was still burning
+   * then (`completedRecoveryEvents`). Saved runs are untrusted JSON: anything
+   * but a number reads as burned out, as it did before the field existed, and
+   * `motorMassAt` keeps any number between loaded and burnout mass.
+   */
+  const burningAtLanding = (id: string): number | undefined => {
+    const s = flightEvents?.find((e) => e.type === 'BURNOUT' && (e.motorMountId ?? e.sourceId) === id)
+      ?.burningAtLandingS;
+    return typeof s === 'number' && !Number.isNaN(s) ? s : undefined;
+  };
   const separating = stages(tree).slice(1).filter(separatesFromStackAbove);
   const assumptions = separating.map((s) => {
     const trigger = s['separationEvent'];
@@ -311,17 +384,22 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     : assumptions.length > 0
       ? `Estimate assuming ${assumptions.join('; ')} and ignition as configured. If stages stay attached, the canopy must carry the larger stack. Launch to confirm.`
       : undefined;
-  // Disclose only motors retained by this group. Missing burnout evidence
-  // does not establish whether a motor ignited or consumed any propellant.
+  // Disclose only motors retained by this group. With flight evidence, a motor
+  // with no burnout never lit before landing (completedRecoveryEvents), so it
+  // came down loaded; one still burning at landing weighs its curve's mass then.
   const finishGroup = (mass: number, multiStage: boolean, stageIdx?: ReadonlySet<number>): RecoveryMass => {
-    const loadedWithoutBurnout = !!flightEvents && motors.some(([id, mm]) =>
-      (!stageIdx || stageIdx.has(stageIndexOf(tree, id))) && unburned(id, mm));
-    const groupNote = loadedWithoutBurnout
-      ? [note, 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.']
-        .filter(Boolean).join(' ')
-      : note;
+    const retained = (id: string) => !stageIdx || stageIdx.has(stageIndexOf(tree, id));
+    const loadedWithoutBurnout = !!flightEvents && motors.some(([id, mm]) => retained(id) && unburned(id, mm));
+    const burning = motors.some(([id]) => retained(id) && burningAtLanding(id) !== undefined);
+    const groupNote = [note,
+      loadedWithoutBurnout && 'The app counts each retained motor that did not light before landing at its full loaded mass.',
+      burning && 'A retained motor still burning at landing is counted at its mass on landing, read from its curve.',
+    ].filter(Boolean).join(' ') || undefined;
     const result = finish(mass, info, multiStage, groupNote, estimate);
-    return result.state === 'ok' && loadedWithoutBurnout ? { ...result, loadedWithoutBurnout: true } : result;
+    return result.state === 'ok' && (loadedWithoutBurnout || burning)
+      ? { ...result, ...(loadedWithoutBurnout ? { loadedWithoutBurnout: true } : {}),
+        ...(burning ? { burningAtLanding: true } : {}) }
+      : result;
   };
   if (motors.length === 0) return { state: 'no-motor' };
   if (!Number.isFinite(info.mass) || !Number.isFinite(info.massEmpty)) {
@@ -375,7 +453,10 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     let mass = info.mass;
     for (const [mountId, mm] of motors) {
       if (unburned(mountId, mm)) continue;
-      mass -= motorPropellantMass(mm.spec) * countAt(mountId);
+      const burning = burningAtLanding(mountId);
+      const left = burning === undefined ? null : motorMassAt(mm.spec, burning);
+      const loaded = motorLoadedMass(mm.spec);
+      mass -= (left !== null && loaded !== null ? loaded - left : motorPropellantMass(mm.spec)) * countAt(mountId);
     }
     // Cannot come down lighter than the bare structure. This is the guard for
     // a motor the kernel REFUSED (see App's motorFailures): the mass we are
@@ -403,7 +484,9 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
     let sum = 0;
     for (const [mountId, mm] of motors) {
       if (!stageIdx.has(stageIndexOf(tree, mountId))) continue;
-      const burnout = unburned(mountId, mm) ? motorLoadedMass(mm.spec) : motorBurnoutMass(mm.spec);
+      const burning = burningAtLanding(mountId);
+      const burnout = unburned(mountId, mm) ? motorLoadedMass(mm.spec)
+        : burning !== undefined ? motorMassAt(mm.spec, burning) : motorBurnoutMass(mm.spec);
       if (burnout === null) return null;
       sum += burnout * countAt(mountId);
     }
@@ -543,12 +626,12 @@ export function recoveryMassTitle(r: RecoveryMass): string {
       // single-object wording is the true one for it.
       const guidance = r.multiStage
         ? 'What comes down under the SUSTAINER’s recovery device: its dry mass plus its own '
-          + (r.loadedWithoutBurnout ? 'retained motors. ' : 'motor casing at burnout. ')
+          + (r.loadedWithoutBurnout || r.burningAtLanding ? 'retained motors. ' : 'motor casing at burnout. ')
           + 'Every stage that separates comes down under its own chute '
           + 'and has its own weight — size those separately. Size this chute on this figure, '
           + 'not on pad weight.'
         : 'What comes down under the recovery device: the dry rocket plus '
-          + (r.loadedWithoutBurnout ? 'its retained motors. '
+          + (r.loadedWithoutBurnout || r.burningAtLanding ? 'its retained motors. '
             : 'the spent motor casing (the propellant is gone by apogee). ')
           + 'Size the chute on this, not on pad weight.';
       return r.note ? `${guidance} ${r.note}` : guidance;

@@ -118,7 +118,7 @@ describe('RecoverySizingPanel', () => {
   });
 
   it.each([false, true])('R2 shows a single object note once with byStage=%s', async (grouped) => {
-    const note = 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.';
+    const note = 'The app counts each retained motor that did not light before landing at its full loaded mass.';
     const recovery: RecoveryMass = { ...WILDMAN, note };
     await mount({ recovery, byStage: grouped ? { state: 'ok', groups: [
       { stageIds: ['s0'], stageNames: ['Sustainer'], isSustainer: true, mass: recovery },
@@ -286,7 +286,7 @@ describe('RecoverySizingPanel', () => {
       expect(byStage.groups.map((g) => g.stageIds)).toEqual([['s0'], ['s1']]);
       await mount({ tree: t, recovery: byStage.groups[0]!.mass, byStage });
 
-      const disclosure = 'The app counts each retained motor without a recorded burnout in the flight at its full loaded mass.';
+      const disclosure = 'The app counts each retained motor that did not light before landing at its full loaded mass.';
       expect(text().split(disclosure)).toHaveLength(2); // Once, including when only the booster needs it.
       const headings = [...host.querySelectorAll('.recovery-object')];
       expect(headings.map((h) => h.textContent)).toEqual(['Sustainer', 'Booster']);
