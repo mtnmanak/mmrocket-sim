@@ -168,3 +168,59 @@ for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
     }
   });
 }
+
+// TN D-4013 subsonic CP (2026-10-11, board row 85): informational, one series per
+// independent read of the report figure, at the Machs the report tested.
+const subsonicCp = {
+  'arcas-short': ['cp-subsonic-tunnel-deckread', 'cp-subsonic-tunnel-agentread', 'cp-subsonic-tunnel-scanread'],
+  'arcas-long': ['cp-subsonic-tunnel-deckread', 'cp-subsonic-tunnel-scanread'],
+};
+
+test('the TN D-4013 subsonic CP reads are informational, at tested Machs, every read kept', () => {
+  for (const [cell, ids] of Object.entries(subsonicCp)) {
+    const series = anchors[cell].series.filter(s => s.id.startsWith('cp-subsonic-tunnel-'));
+    assert.deepEqual(series.map(s => s.id), ids);
+    for (const s of series) {
+      assert.equal(s.quantity, 'cpPctL');
+      assert.equal(s.gate, false, `${cell}/${s.id} must not gate`);
+      // The report's stated CN/Cm accuracy carried through x_cp, never a read band.
+      assert.equal(s.tol, 0.5);
+      // TN D-4013 p.4: both models ran M0.60, 0.80, 0.90 (Short also 0.95); no 0.70/0.85.
+      assert.deepEqual(s.points.map(([m]) => m), [0.6, 0.8, 0.9]);
+    }
+    // The reads disagree; none may be silently replaced by another.
+    const atM06 = series.map(s => s.points[0][1]);
+    assert.equal(new Set(atM06).size, atM06.length, `${cell}: duplicate read`);
+  }
+});
+
+for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
+  test(`subsonic CP rows score the kernel's own CP at tunnel Re: ${flag || 'Classic'}`, { timeout: 30_000 }, () => {
+    const args = ['validation/score.mjs', ...(flag ? [flag] : [])];
+    const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /Gate points: \d+\/191 within tolerance/);
+    for (const [cell, ids] of Object.entries(subsonicCp)) {
+      for (const mach of [0.6, 0.8, 0.9]) {
+        resetEngine();
+        const rocket = OrkRocket.buildTree(fixture(anchors[cell].fixture));
+        if (flag === '--kbf') rocket.setRogersModifiedBarrowman(true);
+        if (flag === '--supersonic') rocket.setSupersonicAero(true);
+        if (flag === '--hybrid') rocket.setHybridAero(true);
+        const { length } = rocket.staticInfo();
+        const sweep = rocket.dragSweep({ machMin: mach, machMax: mach, machStep: 0.025, aoaDeg: 0,
+          machAlt: anchors[cell].machAlt });
+        const expected = (sweep.cp[0] / length) * 100;
+        for (const id of ids) {
+          const [, anchor, model, , tol, verdict] = scoredRow(result.stdout, cell, id, mach);
+          const point = anchors[cell].series.find(s => s.id === id).points.find(([m]) => m === mach);
+          assert.equal(Number(anchor), point[1]);
+          assert.ok(Math.abs(Number(model) - expected) <= 0.000050001,
+            `${cell}/${id} M${mach}: scored ${model}, direct kernel ${expected}`);
+          assert.equal(tol, '±0.5000');
+          assert.equal(verdict, Math.abs(Number(model) - point[1]) <= 0.5 ? 'ok (info)' : 'off (info)');
+        }
+      }
+    }
+  });
+}

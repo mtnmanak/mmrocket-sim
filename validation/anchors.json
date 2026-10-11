@@ -12,7 +12,8 @@
     "ANCHOR REVISION 2026-08-25: the two ARCAS fixtures were re-derived from Chuck Rogers' own ARCAS-Long CDX1 reconciled against the TN D-4013/D-4014 drawings (boattail rear dia 1.470 -> 1.308 in (D-4014 Detail A's dimensioned cone-base radius 0.654; the 0.053-in reflexed lip flaring to 1.470 D is excluded per RASAero - see arcas-short.json _notes conflict 1; this string said 1.28, an intermediate value no fixture ever used, until 2026-09-21), fin thickness 0.150 -> 0.123 in, tip chord 2.09 -> 2.165 in, true double-wedge section replacing the 'airfoil' placeholder, fins at their true station instead of flush) - see the fixture _notes for the per-conflict rulings. Anchor VALUES are unchanged; the fixture geometry now matches what the app's importCdx1 produces on his file. The rma53d02 cell was added the same day: its cd0-freeflight series is MEASURED free-flight data (gated); its cd-rasaero-reference series is ANOTHER CODE'S PREDICTION and must never gate.",
     "FINS-OFF CELLS ADDED 2026-08-25 (164 -> 166 gates): arcas-short-finsoff / arcas-long-finsoff gate the TN D-4013 FINS-OFF (body only) tunnel CD at M0.60, one point each. They exist because until now only the fins-on TOTAL was gated, so a body error and a fin error of opposite sign could cancel inside a passing row - and on this cell they were doing exactly that. The pair is a measurement of OUR BODY DRAG ALONE, and (by difference against the fins-on cell) of our FIN DRAG ALONE. Scorecard: scorecard-finsoff-2026-08-25.md.",
     "FINS-OFF CELLS EXPANDED THE SAME DAY (166 -> 175 gates): NASA TN D-4013 itself was retrieved from NTRS and its Figures 11 and 12 digitized off the report's own page scans, replacing the two quoted single-point figure reads with the whole measured curve at every Mach the report actually tested - 6 gated points on the short model, 5 on the long, at a tolerance (+/-0.008) now derived from the report's OWN stated accuracies instead of a curve-read band, plus gate:false fairing and prior-reader series. The old M0.60 gates are superseded, not kept: same Mach, better-sourced value, tighter tolerance, and in both cells the new value is the less flattering one. The base-drag panel (C_A,b) was digitized too, its sign convention established from the report and demonstrated against the report's own C_p,b figures, and then deliberately NOT gated because the measured base is sting-dominated (it reads as base THRUST subsonically). Full accounting: scorecard-finsoff-figs-2026-08-25.md.",
-    "ANCHOR REVISION 2026-08-29 (175 -> 191 gates): arcas-short-nosection added - the sharp-airfoil leading-edge cell the 2026-08-27 scorecard recorded as owed. Identical geometry to arcas-short with the three airfoil-section extension tags deleted, i.e. the desktop-import path, which takes the v0.075 sharp-airfoil branch every other finned fixture short-circuits past (classic never reaches it, so classic rows duplicate the parent bit-for-bit). Anchor values and tolerances copied VERBATIM from arcas-short - same measurement, same stated accuracy, so the never-widen rule is satisfied by construction. Only the two CD series ride along: the section fields feed pressure CD only, so the CP series would gate identical numbers twice, and cd-rasaero-parity is omitted because RASAero predicted the true-section article. Scorecard: scorecard-nosection-2026-08-29.md."
+    "ANCHOR REVISION 2026-08-29 (175 -> 191 gates): arcas-short-nosection added - the sharp-airfoil leading-edge cell the 2026-08-27 scorecard recorded as owed. Identical geometry to arcas-short with the three airfoil-section extension tags deleted, i.e. the desktop-import path, which takes the v0.075 sharp-airfoil branch every other finned fixture short-circuits past (classic never reaches it, so classic rows duplicate the parent bit-for-bit). Anchor values and tolerances copied VERBATIM from arcas-short - same measurement, same stated accuracy, so the never-widen rule is satisfied by construction. Only the two CD series ride along: the section fields feed pressure CD only, so the CP series would gate identical numbers twice, and cd-rasaero-parity is omitted because RASAero predicted the true-section article. Scorecard: scorecard-nosection-2026-08-29.md.",
+    "SUBSONIC CP ADDED 2026-10-11 (gates unchanged at 191; board row 85): arcas-short / arcas-long carry the TN D-4013 fins-on x_cp at M0.60/0.80/0.90 as gate:false cp-subsonic-tunnel-* series, one per independent read of the report figure (Rogers' deck, the project's 2026-08-03 eyeball read - Short only - and a 2026-10-11 pixel read of the NTRS scan). The reads differ by up to 1.8 %L on the Short model and 0.3 %L on the Long, so each is reported, none gated. They are the only subsonic CP measurement in the harness and they bear on the default model: at M0.60 Rogers Kbf sits 4.4-5.8 %L (0.8-1.1 caliber) aft of every read, Classic 0.0-1.6 %L. Scorecard: scorecard-subsonic-cp-2026-10-11.md."
   ],
   "arcas-short": {
     "fixture": "arcas-short.json",
@@ -40,6 +41,21 @@
         "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
         "source": "RASAero II curve reads p17 (+/-0.01, Re-matched via Mach-Alt) - parity tracking only",
         "points": [[0.3, 0.280], [0.5, 0.291], [0.8, 0.304], [0.9, 0.319], [1.05, 0.552], [1.15, 0.575], [1.5, 0.465], [2.0, 0.385], [2.5, 0.330], [3.0, 0.295], [3.5, 0.263], [4.0, 0.240], [4.63, 0.214], [5.0, 0.207]]
+      },
+      {
+        "id": "cp-subsonic-tunnel-deckread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
+        "source": "TN D-4013 Fig 11 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 11 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/18.2) Cm/CN as slopes across its -2..+2 deg window at the measured CNa 0.23/deg (Fig 7(b), M0.60): 0.47 %L. The three reads of this figure differ by up to 1.8 %L, more than that accuracy - read the three series together.",
+        "points": [[0.6, 75.7], [0.8, 72.6], [0.9, 70.4]]
+      },
+      {
+        "id": "cp-subsonic-tunnel-agentread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
+        "source": "TN D-4013 Fig 11 x_cp, fins on dF=0, the project's own eyeball digitization of the report figure (validation-anchors-2026-08-03.md 1.4; the 2026-08-25 pixel pipeline matched it to ~1 %L, scorecard-finsoff-figs-2026-08-25.md 2.3(b)). INFORMATIONAL (2026-10-11, row 85). Machs and tol as cp-subsonic-tunnel-deckread.",
+        "points": [[0.6, 74.5], [0.8, 71.5], [0.9, 71.0]]
+      },
+      {
+        "id": "cp-subsonic-tunnel-scanread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
+        "source": "TN D-4013 Fig 11 x_cp, fins on dF=0, pixel read of the NTRS page scan against the panel's own printed gridlines (validation/digitize/read-d4013-xcp.py; gridline fit rms 0.23 px = 0.02 %L, column spread <=0.5 %L). INFORMATIONAL (2026-10-11, row 85). Machs and tol as cp-subsonic-tunnel-deckread.",
+        "points": [[0.6, 74.6], [0.8, 70.82], [0.9, 71.52]]
       }
     ]
   },
@@ -125,6 +141,16 @@
         "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
         "source": "RASAero II curve reads p19 - parity tracking only",
         "points": [[0.3, 0.342], [0.5, 0.349], [0.8, 0.363], [0.9, 0.380], [1.15, 0.628], [1.5, 0.514], [2.0, 0.41], [2.5, 0.365], [3.0, 0.325], [3.5, 0.291], [4.0, 0.263], [4.63, 0.229], [5.0, 0.22]]
+      },
+      {
+        "id": "cp-subsonic-tunnel-deckread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
+        "source": "TN D-4013 Fig 12 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 12 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/23.8) Cm/CN as slopes across its -2..+2 deg window at the measured CNa 0.215/deg (Fig 9(b), M0.60): 0.47 %L. No earlier project read of Fig 12's x_cp panel exists; the scan read is the second read.",
+        "points": [[0.6, 76.6], [0.8, 75.8], [0.9, 76.2]]
+      },
+      {
+        "id": "cp-subsonic-tunnel-scanread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
+        "source": "TN D-4013 Fig 12 x_cp, fins on dF=0, pixel read of the NTRS page scan against the panel's own printed gridlines (validation/digitize/read-d4013-xcp.py; gridline fit rms 0.16 px = 0.01 %L, column spread <=0.15 %L). INFORMATIONAL (2026-10-11, row 85). Machs and tol as cp-subsonic-tunnel-deckread.",
+        "points": [[0.6, 76.65], [0.8, 75.52], [0.9, 76.12]]
       }
     ]
   },
