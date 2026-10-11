@@ -295,6 +295,12 @@ neutralizing base drag) is deferred to feature #1. Four files:
 - **Guard:** default 0 keeps all goldens bit-identical; the `nozzle.basecd.*` golden
   scenario exercises the power-on path (power-off must equal the no-nozzle base CD, power-on
   must be strictly lower). Run difftest AND engine vitest after rebuild.
+- **Engine vitest guard, flight half (2026-10-11):** `packages/engine/src/powerOnBaseDragFlight.test.ts` -
+  every recorded powered-ascent row's `Cdb` equals the subsonic base law at that row's own Mach times
+  the nozzle annulus while the motor burns, and the full base when it does not (Kbf, and the supersonic
+  flag alone); Classic and a nozzle-less stage keep the full base. Every older guard reads
+  `getDragSweep`, which marks every stage thrusting itself, so none of them could see
+  `applyThrustState`. Mutation (artifact edited, `setThrustingStages` handed an empty set): fails.
 
 ### RASAero feature #3 — opt-in Rogers Modified Barrowman body-fin interference (Kbf)
 
@@ -328,6 +334,11 @@ Two files + bridge:
   foundation): the low-α nose→body carryover (unpublished Rogers formula) and upgrading the
   existing Galejs body-lift term to full Jorgensen η·Cd_c (proprietary DATCOM Cd_c). See the
   session's #3 research (wcs25co8u) — OpenRocket's Galejs term is ALREADY a ∝sin²α crossflow.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/kbfCarryover.test.ts` - fin CNa Kbf/Classic
+  = 1 + tau and the added load at the root quarter chord (1e-9 m), three geometries, M0.3/0.6, Kbf and
+  Hybrid; under Supersonic the fin CNa is exactly the NACA 1307 split with no Kbf term on top, at the
+  classic fin CP. Mutations (artifact edited: term removed, placed at half chord, leaking into
+  Supersonic): each fails.
 
 ### RASAero feature #1 Phase 1 — opt-in supersonic aerodynamics (CP/CNα vs Mach)
 
@@ -365,6 +376,11 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
 - **Guard:** default off keeps all goldens bit-identical; the `ssaero.*` golden
   scenarios lock CP/CNα at M1.2/2/4/8 for both flag states JVM↔JS. Scored result:
   validation harness gate points 8/137 (classic) → see the Phase-1 scorecard.
+- **Engine vitest guards (2026-10-11):** `packages/engine/src/supersonicNose.test.ts` (nose CNa
+  x (1 + g (min(M,5) - 1)), g 0.10 cone / 0.07 other shapes; a transition stays slender) and
+  `supersonicFinSlope.test.ts` (Supersonic/Classic fin CNa = 2 max(1 - 1/(2 AR beta), 0.25) x the 1307
+  split / (1 + tau), on the K1 table's own Mach steps, AR 2 / 1.04 / 0.24). Mutations (g, the M5 cap,
+  the growth, the 2D factor, the floor, the tip correction, the 1307 split): each fails.
 
 **Phase 2 additions (drag fidelity, same `supersonicAero` flag, same files):**
 
@@ -392,6 +408,11 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
   it (same mechanism as RASAero's Mach-Alt input). Not a physics change.
 - **Goldens:** `ssaerocd.*` lines lock the flag-on CD decomposition at M1.2/2/4/8
   (differential 252 → 256 lines).
+- **Engine vitest guards (2026-10-11):** past a nose table's last Mach, `supersonicNose.test.ts` asserts
+  the cone's analytic branch and the stored-table decay `(1.59 + 1.83/M^2)` against Classic's flat
+  clamp; `supersonicBaseFriction.test.ts` the 1.2/M^2 base cap (Classic 0.25/M);
+  `finInterferenceFriction.test.ts` the x1.8 (its own entry below). The Phase-2 boat-tail blend was
+  replaced in Phase 5 and is guarded there. Mutations (decay to a flat clamp, cap removed): each fails.
 - **Scored result:** 52/137 → **68/137**; ARCAS-Short supersonic CD 7/7, Long 5/6,
   subsonic green with polished fixtures + Re-matching. Documented limitations: the
   transonic peak band M0.95–1.2 underpredicts against the tunnel by up to ~0.2–0.3
@@ -452,6 +473,11 @@ feature #2 (no flag): absent inputs ⇒ bit-identical classic behavior. Files:
   (HB-2 CNα measured 4.6→3.1 /rad over M2→10 while slender flare theory is
   Mach-flat — flare-specific physics with no hobby-rocket relevance and only one
   dataset to calibrate on). Both parked as the "blunt/flare body" refinement item.
+- **Engine vitest guards (2026-10-11):** `supersonicBaseFriction.test.ts` - on a mirror finish (turbulent
+  Cf above the roughness limit at every Mach) the Supersonic/Classic friction ratio is the blend of the
+  two compressibility factors over M3.5-4.5 and exactly 1 through M3.5; `supersonicNose.test.ts` - the
+  cone's coefficient fades 2.1 -> Cp_max(M) over M4-8. On the default paint finish the roughness limit
+  binds over about M4-6.5 and hides the friction fade there. Mutations (either fade off): each fails.
 
 ### RASAero feature #1 Phase 5 — boat-tail transonic shape + ogive nose wave drag + LE-sonic fin sweep (same `supersonicAero` flag)
 
@@ -519,6 +545,12 @@ revision made harness-visible. Full before/after accounting:
   `ssphase5.finstraight.*` (a 60°-swept and an unswept hexagonal-blunt-base fin
   either side of the LE-sonic band). Differential 271 → **286 lines**, all 15 new
   lines bit-identical JVM↔TeaVM.
+- **Engine vitest guards (2026-10-11):** `packages/engine/src/boattailWaveDrag.test.ts` (Classic to
+  M0.90, the smoothstep, the M1.05-1.20 plateau, exact Prandtl-Meyer above it against an independent
+  Newton inverse, the 0.349 rad clamp; one maximum, on the plateau), `supersonicNose.test.ts` (Fleeman
+  above M1.3; a cone-like secant ogive keeps the classic curve) and `finThicknessWave.test.ts`
+  (sweepWaveFactor on a tan Gamma = 3 fin). Mutations (plateau dropped, linear blend, clamp lifted,
+  Fleeman frozen at M1.3, cos^2 at every Mach): each fails.
 - **Scored:** supersonic **52/164 → 69/164**; classic **10/164, every one of the
   164 rows byte-identical** (flag-off untouched, as required). Movement is confined
   to the two cells that carry the defects: rma53d02 `cd0-freeflight` **1/29 → 12/29**
@@ -602,6 +634,10 @@ accounting, the printed curves, and the two measured-and-rejected variants:
   floor introduces the kernel's only cube root and nothing else exercises it —
   every Phase-5 fin golden samples M ≥ 1.5, where the floor never binds.
   Differential 286 → **296 lines, all 10 new lines bit-identical JVM ↔ TeaVM**.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/finThicknessWave.test.ts` - fin pressure CD
+  = (16/3) tc^2 / beta_eff x sweepWaveFactor x N S / A_ref at every 0.05 Mach from 0.5 to 5 (1e-9
+  rel), its maximum at M1.05, in Kbf, the supersonic flag alone and Supersonic; a named biconvex
+  section under Supersonic equals it. Mutations (no similarity floor; peak back at M1.2): each fails.
 - **Scored:** supersonic **66/164 → 70/164** (the 66 baseline is against the
   ARCAS fixtures as revised at 11:15 on 2026-08-25, after the Phase-5 scorecard
   was written against the earlier boat-tail rear diameter); classic **10/164,
@@ -681,6 +717,10 @@ pass before it (all 328 rows across the two models). Full accounting:
   lines bit-identical JVM ↔ TeaVM**. They also print the user-visible size of the term:
   at M0.30 the reference rocket's CD goes 0.998023 → 1.077198 (**+7.9 %**) on the flag
   alone, friction 0.426869 → 0.507707 (+18.9 %).
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/finInterferenceFriction.test.ts` - the fin
+  set's friction (finned minus bare) is exactly 1.8x Classic's in Kbf, Supersonic, the supersonic flag
+  alone and Hybrid; square, rounded and airfoil; M0.3-2.5; body friction model-independent. Mutations
+  (factor 1.0; Kbf-only gate; ungated into Classic): each fails.
 
 #### Follow-on the same day: Mach-dependence tested and REFUTED; still ×1.8, still flat
 
@@ -1312,6 +1352,12 @@ this repo added above; not an upstream behavior change.
 - **Note:** no reachable behavior changes — every current caller operates on a
   memo-empty config, where the clear writes INVALID over INVALID and null over
   null. All 309 golden lines must stay bit-identical.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/stagedStructureMass.test.ts` - after
+  separation every recorded sustainer mass equals the sustainer stage built alone, and every booster
+  mass its dry mass plus the spent motor (1e-12). Mutation: a memo held on the Rocket (shared by every
+  configuration) fails it. Dropping the modID keys or never invalidating does NOT - every configuration
+  that reaches the stepper is fresh, as the note above says - so those keys have no bridge-observable
+  guard.
 
 ### aerodynamics/BarrowmanCalculator.java — skip checkGeometry when its output is discarded
 
@@ -2347,6 +2393,11 @@ aerodynamic model.
   the BugException). Mutations: unconditional division -> those 3 fail; `dV < EPSILON`
   branch -> the thin-shell true-centroid test fails. GoldenMain `mass.zeroslice.*` and
   `flight.zeroslice.summary` rows carry it through the JVM/TeaVM differential.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/zeroSliceCentroid.test.ts` - the same Banshee
+  tail through the shipped bridge (volume, a CG inside the tail within the cone's quarter slice of the
+  true first moment, finite assembled CG and inertia, a flight to apogee). The JUnit file above runs
+  under neither `npm test` nor the deploy gate. Fails on T1's parent artifact (`ce747683`) and with the
+  division restored in the artifact.
 
 ### rocketcomponent/RocketComponent.java + MotorMount.java + DeploymentConfiguration.java + simulation/BasicEventSimulationEngine.java - ejection charges deploy only their own assembly's devices, and a device deploys once (OR #2092 / PR #3204, tumble release T1, 2026-10-08)
 
@@ -2380,6 +2431,11 @@ aerodynamic model.
   listener count; no execution guard -> the simultaneous-charge test fails. GoldenMain
   `flight.assembly.*` rows: PodChute 2.501 s then CoreChute 5.001 s; simultaneous charges
   record 1 deployment.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/ejectionOwnership.test.ts` - pod/core and
+  nested-pod ownership, and one deployment for two charges (simultaneous and 2 s apart), through the
+  bridge. All 3 fail on `ce747683`; removing the ownership test or the EXECUTION guard in the artifact
+  fails it. The SCHEDULING guard alone is not bridge-observable (the execution guard still drops the
+  duplicate; only listener counts see it), so it stays JUnit-only.
 - **Before/after `goldenJvm` (Rule 1):** with both fixes the first 421 golden lines are
   byte-identical to the pre-change kernel; only the 6 appended rows are new. No existing
   golden scenario had an empty slice, a motorised pod or two charges per device.
@@ -2420,6 +2476,10 @@ aerodynamic model.
   -> 5 fail (all staleness tests incl. CHAD); no atmosphere in the event store -> the
   arithmetic test fails; no per-instance multiplication -> the arithmetic test fails.
   GoldenMain `flight.eventthrust.stalehigh|stalelow` rows.
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/tumbleEventThrust.test.ts` - the CHAD fixture
+  through the bridge: one booster TUMBLE at separation and no abort, the copied parent rows powered (the
+  precondition), the sustainer lit at separation. Fails on T2's parent artifact (`08fe72bc`: the
+  booster aborts).
 - **Integration 2026-10-08 (v0.165 merge with aerofix): golden SCENARIO re-drawn; no kernel, tolerance or
   difftest.mjs change.** On the merged kernel `flight.eventthrust.stalehigh` failed difftest (ground hit JVM
   31.75875431920723 vs TeaVM 31.758721583985132 s, 1.0e-6 rel). Row dump: rows 0-223 bit-identical; at row 224
@@ -2667,6 +2727,11 @@ aerodynamic model.
   `tumbleReleaseScenarios` (7 rows, appended last; the forced sustained-coast row carries
   discrete outcomes, not event times, because JVM/TeaVM step-size drift in that violent
   flight measured 1.2e-9 / 2.4e-9 relative, over the unchanged 1e-9 budget).
+- **Engine vitest guard (2026-10-11):** `packages/engine/src/tumbleDetector.test.ts` - the ballasted rocket
+  off a 0.5 m rail in a steady 8 m/s: no abort, with the old comparator's trigger (AOA > stall, CG > CP)
+  on the recorded ascent; calm with no recovery: TUMBLE after apogee with no old-comparator row before
+  it. Both fail on T4's parent artifact (`8abf73e0`: TUMBLE_UNDER_THRUST at 0.119 s; the calm tumble
+  taken at the first comparator row, 9.40 s).
 - **Measured number changes (old = T3 artifact):** no existing golden row moved (439/439
   byte-identical). Ballasted stable rocket in a steady 8 m/s crosswind off a 0.5 m rod:
   previously aborted TUMBLE_UNDER_THRUST at rail exit; now completes to 414.3 m. Same
