@@ -3020,3 +3020,70 @@ aerodynamic model.
   CTI) read +8.17 %; their "apogee" is the abort altitude. Hybrid: 45 move, -0.53 % to +0.13 %. Auto: one file
   that stays below M0.9 and so flies Kbf (ninja_4in_75mm-MMT.ork, peak M0.84) -0.003 %. Classic and Supersonic:
   every corpus flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model (drag only).
+
+### aerodynamics/barrowman/FinSetCalc.java - Supersonic transonic fin-CNa bridge ends at the fin's own linear-theory Mach, with the exact join slope (board row 88, "Supersonic transonic bridge under-predicts fin CNa, M1.05-1.38"; folds in the held superD fix; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern, ported onto v0.178 from exp/b4-aero-ss `b028c4ae` + the row-2 parts of
+  `b47baf1a`; the research dumps stay on the branch). Eric, 2026-10-11: *"i approve your recommendations for
+  82-89, build it"*; Fable 5.1: "approve Row 2 as a correction, not a safety regression"
+  (`docs/research/batch4-wave3-2026-10-11/fable-aero-ss.md`). superD on its own stays HELD (Eric, 2026-10-09);
+  this is the bridge rebuild that ruling asked for. Moves Supersonic/Hybrid (and Auto's supersonic re-fly) CNa and
+  CP over M0.9-1.5; Classic and Kbf are bit-identical.
+- **Defect:** with `supersonicAero` the quartic bridge from M0.9 always ran to M1.5, so every fin whose
+  tip-corrected linear result is already valid lower down rode the bridge through the band where linear theory
+  peaks. Army-Navy Basic Finner (A = 2): free-flight CNa 1.3-3.9 /rad (8-21 %) low over M1.056-1.377, 4 of 6 gates
+  FAIL; CP up to 2.7 %L forward. And the bridge's top slope omitted the scale's own slope (superD, wt/superd) and
+  the alpha terms' slopes while its top VALUE carried them.
+- **Change (Supersonic only):** the analytic branch `ssaeroScale(M) * (K1 + K2 a + K3 a^2)` now starts at
+  `ssBridgeTopMach() = clamp(sqrt(1 + 1/A^2), 1.2, 1.5)` (A = 2 span^2 / area): sqrt(1 + 1/A^2) is where
+  A*beta = 1, from which 4/beta*(1 - 1/(2 A beta)) is exact for a rectangular wing (Jones and Cohen); the M1.2
+  floor is the Mach this kernel already trusts linearised supersonic theory from, below which K2/K3 grow as
+  beta^-4/beta^-7; the M1.5 cap keeps A <= 0.894 fins on the old top. The bridge is the same quartic
+  (`PolyInterpolator`, cached per calc object) on [0.9, top] with the branch's value and its ANALYTIC Mach slope
+  (`ssSupersonicCNaSlope`: product rule over the scale, `2M/(A beta^4)`-type term from superD, plus dK1, dK2, dK3).
+  Above the top the branch expression is written exactly as Phase 1 wrote it, so M >= 1.5 is bit-identical.
+  The classic/Kbf bridge is untouched (the dead `sscale` factor removed; the multiply by 1.0 was exact).
+- **Limit (Fable, recorded with the ship decision):** the sqrt(1 + 1/A^2) validity Mach never decides for the
+  validated fin - A = 2 gives 1.118, floored to 1.2 - so the anchors confirm "top 1.2 beats top 1.5 at A = 2" and
+  the formula branch (A < 1.51) rests on the construction argument only. The Jones and Cohen criterion is a
+  rectangular, supersonic-leading-edge result: a 45-degree-swept fin has a subsonic leading edge up to M1.41, where
+  4/beta theory does not apply at all. That is a pre-existing limitation of the analytic branch, now reached at
+  M1.2 instead of M1.5.
+- **Not moved with the top, in any model:** CP-along-MAC (`calculateCPPos`) keeps the desktop/PR #3262
+  interpolation over M0.5-2 (its band was never tied to the CNa bridge; it decides where on the MAC the fin's
+  force acts, not how big it is), and roll damping (`calculateDampingMoment`) keeps its linear M0.9-1.5
+  interpolation (roll only, no CP or CNa effect, no anchor to check it against). Both bands are FIXED - neither
+  follows the per-fin top. (The batch-5 brief called both "the fixed M0.9-1.5 band"; the code has M0.5-2 for
+  CP-along-MAC, as `b47baf1a` corrected.) Fable: after the change the band's only CP data sits 0.17 %L aft of the
+  model's mean, so no CP-along-MAC change is indicated.
+- **Tests:** `packages/engine/src/transonicFinCNa.test.ts` generalised to the per-fin top (12 tests): interior
+  points on the quartic the endpoint data define, with the Supersonic top slope derived independently in the test;
+  above the top CNa*beta/scale constant (A 0.4/0.8/1.0/1.6/3.2); value and slope continuous at the join at AoA 0
+  and 2 deg; Classic/Kbf still end at M1.5. **Mutations** (rebuild each, on v0.178): the fix absent (the board
+  row 87 kernel) -> 7 fail; drop the scale slope (superD defect) -> 6 fail; fixed M1.5 top -> 5 fail. (exp branch,
+  not re-run here: drop the alpha-term slopes -> 1 fails, the AoA 2 join.)
+- **Artifact:** md5 `2356b2aa6d827b984ac579ca73d64d68` (row 87) -> `18fef99ebe90d0186249a8e8de7e85b4`. difftest
+  446 lines (294 bit-identical, 152 within tolerance). JUnit 75/75.
+- **Goldens (TeaVM GoldenMain before/after):** 2 of 446 move: `ssaero.1.2` Supersonic CNa 17.5871 -> 21.5577
+  (+22.6 %), CP 0.303170 -> 0.310916 m; `aero.forcecp.hybrid` 0.226941 -> 0.244285 m.
+- **Scorecard:** Supersonic **83 -> 86**, Hybrid **79 -> 82**, Classic 13 and Kbf 41 byte-identical. Only
+  basic-finner rows move (12 per model: 10 closer, 2 away). CNa M1.058/1.116/1.254 FAIL -> PASS (M1.056 still
+  FAIL, -3.92 -> -2.17 against +-1.87); CP M1.116 FAIL -> PASS; **CP M1.056 PASS -> FAIL** (+0.54 -> +1.72 %L
+  against +-1.5), CP M1.254 PASS stays PASS (-0.03 -> +1.23 %L). The one lost gate is data scatter, not a
+  regression: the shots at M1.056 and M1.058 read 82.0 and 83.6 %L - 1.6 %L apart, more than the +-1.5 tolerance
+  - and the model reads 83.72 / 83.76 %L for both. Over the six M1.05-1.38 CP points the Supersonic mean error goes
+  from **-0.89 %L (forward of the data) to +0.17 %L (aft)**, RMS 1.41 -> 1.26 %L: a residual non-conservative bias
+  of 0.017 cal on that L = 10 cal body.
+- **Static CP, corpus (`docs/User files`, 138 designs, Supersonic and Hybrid, M0.95-1.5; Classic and Kbf CP and
+  CNa unchanged on all 138):** 135 of 138 designs move in each model. Largest shift per design (Supersonic): aft
+  > 0.25 cal on 16, aft 0.05-0.25 cal on 80, within 0.05 on 11, forward > 0.05 cal on 28 (low-AR fins whose top
+  stays M1.5, where the superD slope lowers the bridge). **Median +0.13 cal aft** (AFT = the app shows MORE
+  margin), range -0.30 to **+0.95 cal** (`TRF RASAero Files/38mm_thought experiment.CDX1` at M1.15, CNa +13.9 %);
+  next `38-54 2-stage.ork` +0.66, the two `StratoSpear_3Dprint 2-stage` CDX1s +0.55, `SS Wild Bash` +0.53 (three
+  files). A design with about 1 cal of margin at M1.15 can now show about 2. Hybrid: the same counts, maximum
+  +0.91 cal on the same file.
+- **Flights (frozen inputs):** apogee within 0.006 % on every tester flight (LEM-IV, Blue Iguana x2, WM Mach 2,
+  Half Fast, MESOS; Auto, Supersonic and Hybrid); Classic and Kbf bit-identical.
+- **Corpus apogees (116 flown; 3 aborted excluded; against the row-87 kernel):** Supersonic = Auto 74 move,
+  -0.18 % (two stage L2, peak M3.2) to +0.10 % (50k), every other within 0.04 %; Hybrid 74 move, -0.15 % to
+  +0.12 % (the two `38-54 2-stage` files). Classic and Kbf: no CP, CNa or CD change on any of the 138 designs.
