@@ -188,6 +188,53 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
 }
 
 /**
+ * THE PART LIMIT (board Tier 0 row 84, ruled by Eric 2026-10-11, option c):
+ * a design read from outside the app — a .ork, .rkt or .CDX1 through Open…, a
+ * share link, the crash-recovery file reopened, a headless `simulateFile` —
+ * is refused above this many parts, before any motor is matched or anything
+ * reaches the kernel. Building a design costs time that grows with its parts:
+ * after v0.178's build fixes a 2,000-part file still takes about 3–4 s to
+ * open in the worst shape measured (tube fin sets), and a 64 MB file can hold
+ * 60,000–100,000 parts, minutes of frozen tab
+ * (research/batch4-wave1-2026-10-11/perf-final.md, Item 2). The largest real
+ * design on hand has 98 (Altaira_N-1.rkt). Every node counts — stages, boosters and pods, and
+ * every part nested at any depth — as the design tree shows them. Editing is
+ * not capped, and nor is the autosave a reload restores.
+ */
+export const MAX_DESIGN_PARTS = 2000;
+
+/** The refusal's Error name, so a share link's failure is not called a damaged link. */
+export const TOO_MANY_PARTS_ERROR_NAME = 'TooManyPartsError';
+
+/** Every node in the tree: stages, boosters, pods and every part at any depth. */
+export function countParts(nodes: readonly ComponentNode[]): number {
+  let n = 0;
+  const stack: (readonly ComponentNode[])[] = [nodes];
+  while (stack.length) {
+    for (const node of stack.pop()!) {
+      n++;
+      if (Array.isArray(node.children) && node.children.length) stack.push(node.children);
+    }
+  }
+  return n;
+}
+
+/**
+ * Throws the part-limit refusal for a design over MAX_DESIGN_PARTS; the three
+ * importers call it on what they read, just before `sanitizeTree`. The
+ * sentence is the reason a caller's own "Could not open that … file:" wraps.
+ */
+export function refuseTooManyParts(nodes: readonly ComponentNode[]): void {
+  const parts = countParts(nodes);
+  if (parts <= MAX_DESIGN_PARTS) return;
+  // Worded as the importers' flight-configuration limit is: the count, the limit, then what to do.
+  const err = new Error(`This design has ${parts.toLocaleString('en-US')} parts, past the `
+    + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
+  err.name = TOO_MANY_PARTS_ERROR_NAME;
+  throw err;
+}
+
+/**
  * The tree with every value brought inside its hard limit and every unknown
  * enum string dropped to its default — the SAME tree object when nothing
  * needed it, including when reached through normalizeTree.

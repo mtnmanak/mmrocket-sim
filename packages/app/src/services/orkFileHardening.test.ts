@@ -341,7 +341,8 @@ describe('a long chain of automatic radii resolves in linear time', () => {
     // time, and one stalled run read 13.4x once (verification of v0.139).
     const time = (n: number) => Math.min(once(n), once(n), once(n));
     once(250); // warm the parser and the JIT so the small run is not charged for it
-    return time(2000) / Math.max(time(500), 0.5);
+    // 1,990 and its quarter: the longest chain under the 2,000-part limit at open (board row 84).
+    return time(1990) / Math.max(time(497), 0.5);
   };
 
   // Up to 2.3 s on the deploy runner (v0.138-v0.140), and both are
@@ -349,21 +350,23 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   // later fail one past 5 s (AUDIT row 528). So each states its budget like the
   // 8,000-tube test below — the ratio is the check, not the stopwatch.
   it('chains every tube to a stated radius AHEAD of it, in linear time', () => {
-    expect([...radii(orkXml(ahead(2000)))]).toEqual([0.03]);
+    expect([...radii(orkXml(ahead(1990)))]).toEqual([0.03]);
     const ratio = timeRatio(ahead);
     expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
   }, 60_000);
 
   it('chains every tube to a stated radius BEHIND it, in linear time', () => {
-    expect([...radii(orkXml(behind(2000)))]).toEqual([0.03]);
+    expect([...radii(orkXml(behind(1990)))]).toEqual([0.03]);
     const ratio = timeRatio(behind);
     expect(ratio, `4x the chain took ${ratio.toFixed(1)}x the time`).toBeLessThan(10);
   }, 60_000);
 
   it('resolves 8,000 tubes behind without recursing the length of the chain', () => {
     // The old resolver recursed once per tube and overflowed the stack here
-    // ("Maximum call stack size exceeded"); the answer itself is the guard.
-    expect([...radii(orkXml(behind(8000)))]).toEqual([0.03]);
+    // ("Maximum call stack size exceeded"). The file is over the 2,000-part
+    // limit at open (board row 84), which is checked after the resolver has
+    // run over every tube: the limit's refusal, not a RangeError, is the guard.
+    expect(() => importOrk(orkXml(behind(8000)))).toThrow(/^This design has 8,0\d\d parts, past the 2,000 the app will open\./);
   }, 60_000);
 });
 

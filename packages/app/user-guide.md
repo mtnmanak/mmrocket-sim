@@ -1142,6 +1142,8 @@ Designs newly created in the app and current imports from desktop OR keep their 
 
 The app opens, saves and shares `.ork` designs with up to **256 flight configurations**. Saving or sharing refuses a design that would exceed that limit, including the unnamed configuration a save adds for loaded motors when none of the stored configurations is active. At the limit, **+ New configuration from loaded motors** is unavailable; apply an existing configuration or Apply None before saving. RockSim and RASAero files are also refused if they would open as more than 256 configurations; reduce their simulations in the source application first.
 
+A design with more than **2,000 parts** is refused when you open it — a `.ork`, `.rkt` or `.CDX1` file, a share link, or the crash-recovery file — with one sentence giving its count; nothing is built and the design on screen stays. Every part in the design tree counts, stages and pods included. Opening takes longer the more parts a design has, about 3–4 s at 2,000 in the slowest kind measured, and the largest real design the app has been tried on has 98. Desktop OR has no such limit. Adding parts in the app is not limited, and the autosave restores such a design on a reload, but saved as a file it will not reopen here; it opens in desktop OR.
+
 The app reads and writes several formats. What survives a round-trip depends on how much each format can represent:
 
 | Format | Import | Export | Notes |

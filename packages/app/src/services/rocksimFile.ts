@@ -10,7 +10,7 @@ import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/tre
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
-import { sanitizeTree } from '../tree/sanitize.js';
+import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
@@ -2095,6 +2095,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
   }
 
+  // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
+  refuseTooManyParts(components);
   const tree = sanitizeTree({ name, components }, notes);
   return {
     sourceFormat: 'rkt',

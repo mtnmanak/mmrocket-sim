@@ -17,7 +17,7 @@ import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import {
-  configSeparationNote, sanitizeTree, separationEventOf,
+  configSeparationNote, refuseTooManyParts, sanitizeTree, separationEventOf,
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
@@ -1560,6 +1560,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // the OpenRocket format, not the app version. Share links carry this XML too.
   const appFile = root?.getAttribute('creator') === ORK_CREATOR
     || root?.getAttribute('creator') === 'Online OpenRocket';
+  // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
+  refuseTooManyParts(components);
   const importedTree = sanitizeTree({ name, components }, notes);
   // Desktop/current imports retain their placement origin through autosave.
   // A clean unknown file needs no XML stamp, but its checked state must follow
