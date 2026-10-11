@@ -1,16 +1,13 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { resolveTransitionRadii } from '../tree/transitionRadii.js';
-import { tubeFinRadius } from '../tree/tubefins.js';
-import { kernelNum } from '../tree/kernelDefaults.js';
-import { getCatalogue, matchDbMotor, manufacturerMatches } from './motorDb.js';
-import { asStageNodes } from '../tree/treeModel.js';
+import { getCatalogue, matchDbMotor, manufacturerMatches, type MotorDbEntry } from './motorDb.js';
+import { asStageNodes, stageDefaultName } from '../tree/treeModel.js';
 import { num, numOpt } from '../tree/nodeNum.js';
 import { motorLengthLossNotes } from '../tree/motorLength.js';
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
-import { cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
 
@@ -69,6 +66,35 @@ function losesTrailingEdge(n: ComponentNode): boolean {
   // inches are the writer's precision; this tolerance only removes arithmetic noise.
   return Math.abs(te - ((root + tip) / 2 - num(n, 'airfoilLeDiamond', 0))) > 1e-9;
 }
+/**
+ * WHETHER A READER MATCHING ONLY THE MOTOR'S NAME CAN LAND ON ANOTHER MOTOR —
+ * the "Motor identity" line. Two matchDbMotor runs, one over a copy of the
+ * whole catalogue, for every motor on every Save preview, which runs 500 ms
+ * after each edit: measured at about 2 ms a motor (review of v0.174,
+ * 2026-10-10). The verdict depends on the designation, the maker and the
+ * catalogue rows alone, so it is kept per catalogue: getCatalogue() hands back
+ * a new array whenever the catalogue overlay changes (motorDb
+ * setCatalogueOverlay), and a WeakMap on that array drops the old verdicts
+ * with it.
+ */
+const identityVerdicts = new WeakMap<readonly MotorDbEntry[], Map<string, boolean>>();
+function motorIdentityLost(m: OrkExportMotor): boolean {
+  if (m.exMotorId || m.exMotorSpec || m.exDefinition) return false;
+  const catalogue = getCatalogue();
+  let verdicts = identityVerdicts.get(catalogue);
+  if (!verdicts) { verdicts = new Map(); identityVerdicts.set(catalogue, verdicts); }
+  const key = JSON.stringify([m.designation, m.manufacturer ?? null]);
+  const known = verdicts.get(key);
+  if (known !== undefined) return known;
+  const match = matchDbMotor(m.designation, undefined, catalogue, m.manufacturer);
+  const other = match && matchDbMotor(m.designation, undefined, catalogue.filter(row => row !== match.motor), m.manufacturer);
+  const lost = !match || match.rivals.length > 0 || (Boolean(m.manufacturer)
+    && !manufacturerMatches(m.manufacturer!, match.motor.manufacturerAbbrev))
+    || Boolean(other && other.tier === match.tier && manufacturerMatches(other.motor.manufacturerAbbrev, match.motor.manufacturerAbbrev));
+  verdicts.set(key, lost);
+  return lost;
+}
+
 function nodesOf(tree: RocketTree): ComponentNode[] {
   const out: ComponentNode[] = [];
   const walk = (nodes: ComponentNode[]) => { for (const n of nodes) { out.push(n); walk(n.children ?? []); } };
@@ -81,11 +107,12 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   const losses: string[] = [];
   let refused: string | null = null;
   try {
-    // Geometry/motor refusals and the writer's existing notes stay owned by the writer.
+    // Geometry/motor refusals and the writer's existing notes stay owned by the
+    // writer, which runs dry: every refusal and note, no XML.
     if (format === 'rkt') exportRkt({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, measured: input.measured, compInfo: {}, notes: losses });
+      motors: input.motors, measured: input.measured, compInfo: {}, notes: losses, dryRun: true });
     else exportCdx1({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, launch: input.launch, notes: losses });
+      motors: input.motors, launch: input.launch, notes: losses, dryRun: true });
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const ext = formatExtension(format);
   losses.push(...windProfileSaveNotes(input.launch, ext), ...motorLengthLossNotes(input.tree, ext));
@@ -113,14 +140,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     add(Boolean(m.exMotorId || m.exMotorSpec || m.exDefinition), `EX motor “${m.designation}”: its curve, definition and available delays are not embedded; only a motor reference can travel.`);
   }
   add(motors.some(m => m.padMassKg != null), 'Weighed pad mass is not kept as an editable measurement tied to its motor loadout.');
-  add(motors.some(m => {
-    if (m.exMotorId || m.exMotorSpec || m.exDefinition) return false;
-    const match = matchDbMotor(m.designation, undefined, undefined, m.manufacturer);
-    const other = match && matchDbMotor(m.designation, undefined, getCatalogue().filter(row => row !== match.motor), m.manufacturer);
-    return !match || match.rivals.length > 0 || (Boolean(m.manufacturer)
-      && !manufacturerMatches(m.manufacturer!, match.motor.manufacturerAbbrev))
-      || Boolean(other && other.tier === match.tier && manufacturerMatches(other.motor.manufacturerAbbrev, match.motor.manufacturerAbbrev));
-  }),
+  add(motors.some(motorIdentityLost),
     'Motor identity: exact motor dimensions, type and digest are not kept; the reader must match the motor name in its own database.');
   parts(n => numOpt(n, 'overrideCD') !== undefined || n['overrideSubcomponentsCD'] === true || n['mmrBaseDragDeclaration'] === true,
     'Drag overrides and base-drag declarations are not kept');
@@ -130,36 +150,11 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   'Dormant maximum motor length settings are not kept');
 
   if (format === 'rkt') {
-    parts(n => n.type === 'stage' && Boolean(n.name) && n.name !== (stages.indexOf(n) === 0 ? 'Sustainer'
-      : stages.indexOf(n) === 1 ? 'Booster' : `Booster ${stages.indexOf(n)}`), 'Axial stage names are not kept');
-    const resolved = nodesOf(resolveTransitionRadii(input.tree));
-    const bulk = new Set(['nosecone', 'bodytube', 'transition', 'innertube', 'tubecoupler', 'centeringring',
-      'bulkhead', 'engineblock', 'trapezoidfinset', 'freeformfinset', 'ellipticalfinset', 'tubefinset', 'launchlug']);
-    for (const [i, n] of nodes.entries()) {
-      if (['tubecoupler', 'engineblock'].includes(n.type) && numOpt(n, 'length') === undefined)
-        losses.push(`${named(n)}: length is written as 2 mm instead of ${kernelNum(n, 'length') * 1000} mm.`);
-      if (n.type === 'trapezoidfinset' && numOpt(n, 'sweep') === undefined)
-        losses.push(`${named(n)}: sweep is written as 0 mm instead of 20 mm.`);
-      // The kernel builds an unset body-tube wall at 0.3 mm (ComponentFactory
-      // "bodytube"); the writer's own fallback is 0.5 mm.
-      if (n.type === 'bodytube' && n['filled'] !== true && numOpt(n, 'thickness') === undefined)
-        losses.push(`${named(n)}: wall is written as 0.5 mm instead of 0.3 mm.`);
-      if (['podset', 'parallelstage'].includes(n.type) && numOpt(n, 'instanceCount') === undefined)
-        losses.push(`${named(n)}: one instance is written instead of two.`);
-      if (bulk.has(n.type) && numOpt(n, 'density') === undefined)
-        losses.push(`${named(n)}: bulk density is written as 0 kg/m³ instead of 680 kg/m³.`);
-      if (n.type === 'transition') for (const [side, fallback] of [['fore', 0.012], ['aft', 0.009]] as const) {
-        const actual = numOpt(resolved[i]!, `${side}Radius`);
-        if (numOpt(n, `${side}Radius`) === undefined && actual !== undefined && Math.abs(actual - fallback) > 1e-9)
-          losses.push(`${named(n)}: automatic ${side} radius is written as ${fallback * 1000} mm instead of the resolved ${(actual * 1000).toFixed(3)} mm.`);
-      }
-      if (n.type === 'tubefinset' && numOpt(n, 'outerRadius') === undefined) {
-        const parent = nodes.find(p => p.children?.includes(n));
-        const actual = tubeFinRadius(n, parent?.type === 'bodytube' ? kernelNum(parent, 'outerRadius') : 0);
-        if (Math.abs(actual - 0.012) > 1e-9)
-          losses.push(`${named(n)}: automatic radius is written as 12 mm instead of the resolved ${(actual * 1000).toFixed(3)} mm.`);
-      }
-    }
+    parts(n => n.type === 'stage' && Boolean(n.name) && n.name !== stageDefaultName(stages.indexOf(n)),
+      'Axial stage names are not kept');
+    // A blank dimension, density, instance count or automatic radius goes out
+    // as the value the kernel flies (exportRkt; review of v0.174), so there is
+    // no line for one here.
     parts(n => n.type === 'railbutton', 'Rail buttons, including their mass and drag, are omitted');
     parts(n => (n.type as string) === 'protuberance', 'Protuberances, including their mass and drag, are omitted');
     parts(n => n.type === 'fairing', 'Camera shrouds become mass objects; shape, aerodynamics and any separate mass override are not kept');
@@ -186,6 +181,12 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       'Zero-density parachute lines and their material are not kept; the reader supplies its own defaults');
     parts(n => ['parachute', 'streamer'].includes(n.type) && numOpt(n, 'cd') === 0.75,
       'Fixed recovery Cd of 0.75 reopens on Auto');
+    // exportRkt writes a blank Cd as the one the kernel flies (kernelRecoveryCd),
+    // and importRkt keeps any Cd but 0.75 as a typed one, so an Auto Cd reopens
+    // fixed. A parachute flies the same number either way; a streamer's
+    // automatic Cd follows its strip, and stops following it.
+    parts(n => (n.type === 'parachute' || n.type === 'streamer') && numOpt(n, 'cd') === undefined,
+      'Automatic recovery Cd is saved as the number it flies now and reopens as a fixed Cd; a streamer’s no longer follows the strip’s size or material');
     parts(n => n.type === 'shockcord' && numOpt(n, 'overrideCGX') !== undefined, 'Shock-cord CG overrides are discarded when reopened here');
     parts(n => ['rough', 'finishpolished', 'roughunfinished', 'optimum', 'mirror'].includes(String(n['finish'])),
       'Surface finish is reduced to RockSim’s nearest finish choice');
@@ -201,28 +202,18 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     'Measured mass & CG have no separate fields in .rkt: only a positive one-stage known mass and positive CG can reopen, and a stage override takes that slot when it supplies a known mass.');
   } else {
     add(Boolean(input.tree.name?.includes('\n')), 'Rocket name text after the first line is not restored when this file is reopened.');
-    // The writer is external-only. A successful dry run does not mean it
-    // visited geometry hidden below an internal part or a nose cone.
-    const external = new Set(stages.flatMap(s => (s.children ?? []).filter(n => ['nosecone', 'bodytube', 'transition'].includes(n.type))));
-    const canShoulders = new Set<ComponentNode>();
-    for (const tube of stages[0]?.children ?? []) {
-      if (tube.type !== 'bodytube') continue;
-      for (const pod of tube.children ?? []) if (pod.type === 'podset') {
-        for (const child of pod.children ?? []) if (['bodytube', 'transition'].includes(child.type)) external.add(child);
-        const kids = pod.children ?? [];
-        if (kids[0]?.type === 'transition' && kids.some(n => n.type === 'bodytube')) {
-          const shoulder = kids[0]; canShoulders.add(shoulder);
-          add((shoulder.children ?? []).some(n => n.type.endsWith('finset')), `fins on ${named(shoulder)}: not in the file.`);
-          add(String(shoulder['shape'] ?? 'conical') !== 'conical', `${named(shoulder)}'s ${String(shoulder['shape'])} shape is written as conical.`);
-        }
-      }
+    // What the writer writes is the writer's own selection (cdx1WrittenParts),
+    // never a copy of it here: the external chain, pod fin cans and boat
+    // tails, fin-can shoulders, fin sets, launch lugs and recovery slots.
+    const written = cdx1WrittenParts(input.tree);
+    for (const shoulder of written.canShoulders) {
+      add((shoulder.children ?? []).some(n => n.type.endsWith('finset')), `fins on ${named(shoulder)}: not in the file.`);
+      add(String(shoulder['shape'] ?? 'conical') !== 'conical', `${named(shoulder)}'s ${String(shoulder['shape'])} shape is written as conical.`);
     }
-    const writtenFins = new Set([...external].filter(n => n.type !== 'nosecone' && !canShoulders.has(n)).flatMap(n => n.children ?? []));
-    // finPlanform writes an unset sweep as 0; the kernel flies 20 mm.
-    for (const n of writtenFins) if (n.type === 'trapezoidfinset' && numOpt(n, 'sweep') === undefined)
-      losses.push(`${named(n)}: sweep is written as 0 mm instead of 20 mm.`);
-    parts(n => (['nosecone', 'bodytube', 'transition'].includes(n.type) && !external.has(n))
-      || (n.type.endsWith('finset') && !writtenFins.has(n)),
+    // A booster's nose cone is named by the booster geometry line below.
+    const boosterNose = (n: ComponentNode) => n.type === 'nosecone' && stages.slice(1).some(s => s.children?.includes(n));
+    parts(n => (['nosecone', 'bodytube', 'transition'].includes(n.type) && !written.exterior.has(n) && !boosterNose(n))
+      || (n.type.endsWith('finset') && !written.fins.has(n)),
     'Exterior parts outside the written body/fin-can chain lose their geometry and drag; their mass is kept only in the total');
     const innerKinds: Record<string, string> = { innertube: 'inner tubes', tubecoupler: 'couplers', centeringring: 'centering rings',
       bulkhead: 'bulkheads', engineblock: 'engine blocks', shockcord: 'shock cords', masscomponent: 'mass objects', fairing: 'camera shrouds' };
@@ -230,36 +221,33 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     add(kinds.length > 0, `Inner parts (${kinds.join(', ')}) are kept only in the total mass and CG; their geometry, placement and individual settings are not kept.`);
     add(input.measured.massKg != null || input.measured.cgM != null, 'Measured mass & CG entries are not kept as editable measurements.');
     parts(n => has(n, 'overrideMass', 'overrideCGX'), 'Individual mass and CG overrides, including stage distribution and included-motor settings, are kept only as part of the rocket’s total mass and CG');
+    // The names importCdx1 gives the parts it rebuilds (formatLoss.test.ts
+    // reads them back through it), keyed by the part each one is written from.
     const recreatedNames = new Map<ComponentNode, string>();
-    for (const [i, stage] of stages.entries()) {
-      const stageName = i === 0 ? 'Sustainer' : i === 1 ? 'Booster' : `Booster ${i}`;
+    for (const [i, stage] of written.stages.entries()) {
+      const stageName = stageDefaultName(i);
       recreatedNames.set(stage, stageName);
       for (const n of stage.children ?? []) {
         if (n.type === 'bodytube') recreatedNames.set(n, i === 0 ? 'Body tube' : `${stageName} body tube`);
         if (n.type === 'nosecone' && i === 0) recreatedNames.set(n, 'Nose cone');
-        if (n.type === 'transition') recreatedNames.set(n, i === 0 ? 'Transition'
-          : `${stageName} ${num(n, 'foreRadius', 0) > num(n, 'aftRadius', 0) ? 'boat tail' : 'shoulder'}`);
+        if (n.type === 'transition' && i === 0) recreatedNames.set(n, 'Transition');
       }
+      const shoulder = written.boosterShoulders.get(stage);
+      if (shoulder) recreatedNames.set(shoulder, `${stageName} shoulder`);
+      const boatTail = written.boosterBoatTails.get(stage);
+      if (boatTail) recreatedNames.set(boatTail, `${stageName} boat tail`);
     }
-    for (const n of nodes) {
-      if (writtenFins.has(n) && planar(n)) recreatedNames.set(n, 'Fins');
-      if (external.has(n) && n.type === 'bodytube' && !stages.slice(1).some(s => s.children?.includes(n))) {
-        const lug = n.children?.find(c => c.type === 'launchlug');
-        if (lug) recreatedNames.set(lug, 'Launch lug');
-      }
-      if (canShoulders.has(n)) recreatedNames.set(n, 'Fin can shoulder');
-      if (n.type === 'podset') {
-        const can = n.children?.find(c => c.type === 'bodytube');
-        recreatedNames.set(n, can ? 'Fin can' : 'Boat tail pod');
-        if (can) recreatedNames.set(can, 'Fin can tube');
-        else if (n.children?.[0]) recreatedNames.set(n.children[0], 'Boat tail');
-      }
+    for (const n of written.fins) if (planar(n)) recreatedNames.set(n, 'Fins');
+    for (const lug of written.lugs) recreatedNames.set(lug, 'Launch lug');
+    for (const n of written.canShoulders) recreatedNames.set(n, 'Fin can shoulder');
+    for (const [pod, part] of written.pods) {
+      recreatedNames.set(pod, part.kind === 'finCan' ? 'Fin can' : 'Boat tail pod');
+      if (part.kind === 'finCan') recreatedNames.set(part.can, 'Fin can tube');
+      else recreatedNames.set(part.boatTail, 'Boat tail');
     }
-    const writtenChutes = nodes.filter(n => n.type === 'parachute').slice(0, 2);
-    const chuteRank = (n: ComponentNode) => n['deployEvent'] == null || n['deployEvent'] === 'apogee' ? 0 : n['deployEvent'] === 'altitude' ? 1 : 2;
-    writtenChutes.sort((a, b) => chuteRank(a) - chuteRank(b)
-      || (chuteRank(a) === 1 ? num(b, 'deployAltitude', 200) - num(a, 'deployAltitude', 200) : 0));
-    writtenChutes.forEach((c, i) => { if (chuteRank(c) < 2) recreatedNames.set(c, i === 0 ? 'Drogue' : 'Main'); });
+    written.recovery.forEach((slot, i) => {
+      if (slot.eventType !== 'None') recreatedNames.set(slot.chute, i === 0 ? 'Drogue' : 'Main');
+    });
     parts(n => Boolean(n.name) && n.name !== recreatedNames.get(n), 'Component and stage names are replaced with the reader’s names');
     parts(n => has(n, 'materialName', 'density', 'surfaceMaterialName', 'surfaceDensity', 'lineMaterialName', 'lineDensity', 'filled')
       || (!planar(n) && has(n, 'thickness')),
@@ -323,9 +311,11 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     parts(n => (n.type as string) === 'protuberance', 'Protuberances lose individual dimensions, placement, mass and Cd settings; only grouped frontal areas on sustainer body tubes and two plate angles are kept');
     parts(n => n.type === 'streamer', 'Streamers and their deployment settings are omitted');
     const chutes = nodes.filter(n => n.type === 'parachute');
-    for (const c of chutes.slice(0, 2)) add(c['deployEvent'] == null,
+    const slotted = new Set(written.recovery.map(slot => slot.chute));
+    for (const c of chutes) if (slotted.has(c)) add(c['deployEvent'] == null,
       `${named(c)}: ejection deployment becomes apogee with no delay in the .CDX1.`);
-    add(chutes.length > 2, `Additional parachutes are omitted, including their delays: ${chutes.slice(2).map(named).join(', ')}. Only the first two in the component tree are written.`);
+    const omitted = chutes.filter(c => !slotted.has(c));
+    add(omitted.length > 0, `Additional parachutes are omitted, including their delays: ${omitted.map(named).join(', ')}. Only the first two in the component tree are written.`);
     parts(n => n.type === 'parachute' && has(n, 'deployEvent') && !['apogee', 'altitude'].includes(String(n['deployEvent'])),
       'Unsupported parachute events and their delays become disabled; these parachutes do not reopen');
     add(chutes.length > 0, 'Parachute construction, names, attachment, packing, lines and materials are not kept. Spill holes are folded into Cd, Auto Cd becomes a number, and the reader recreates recovery on the sustainer.');

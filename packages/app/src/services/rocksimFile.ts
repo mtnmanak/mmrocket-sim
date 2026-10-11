@@ -1,10 +1,12 @@
-import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
+import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { flownTransitionEnds } from '../tree/transitionRadii.js';
+import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
-import { asStageNodes, freshId, mountsIn } from '../tree/treeModel.js';
+import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
@@ -2289,6 +2291,13 @@ export interface RktExportInput {
    * opened again is said out loud rather than left to be found at the field.
    */
   notes?: string[];
+  /**
+   * Raise every refusal and push every note exactly as a real save does, but
+   * build no XML (the result is ''). For checkFormatLoss, which runs after
+   * every edit and wants only those two; nothing in the writer reads its own
+   * output back, so the notes and the refusal cannot tell the difference.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -2344,6 +2353,22 @@ export function rktComponentInfo(
  * STAGE's own override has one — RockSim's design-level known mass, which
  * stands in for the whole stage — and goes out there (exportRkt, `stageKnown`).
  */
+/** The parts the kernel gives a BULK material (ExternalComponent and StructuralComponent). */
+const BULK_MATERIAL_TYPES = new Set(['nosecone', 'transition', 'bodytube', 'innertube', 'tubecoupler', 'centeringring',
+  'bulkhead', 'engineblock', 'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug']);
+
+/**
+ * The material `node` flies for one density key (ComponentFactory): the
+ * engine's default material when it states none — or, for a bulk density,
+ * none above 0 — else its own density under its own name, or "custom".
+ */
+function flownMaterial(node: ComponentNode, densityKey: string, nameKey: string,
+  fallback: { readonly name: string; readonly density: number }): { name: string; density: number } {
+  const density = numOpt(node, densityKey);
+  if (density === undefined || (densityKey === 'density' && !(density > 0))) return { ...fallback };
+  return { name: typeof node[nameKey] === 'string' ? (node[nameKey] as string) : 'custom', density };
+}
+
 function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   const out: string[] = [];
   const walk = (nodes: readonly ComponentNode[] | undefined) => {
@@ -2364,12 +2389,14 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, compInfo, measured, notes }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
   notes?.push(...simulationExtensionLossNotes(tree, '.rkt'));
   const lines: string[] = [];
-  const emit = (s: string) => lines.push(s);
+  const emit = dryRun ? (): void => undefined : (s: string): void => { lines.push(s); };
+  /** A transition's ends as the kernel flies them, automatic ones resolved. */
+  const transitionEnds = flownTransitionEnds(tree);
   let serial = 0;
   /** node id → RockSim SerialNo (links motors back to mounts). */
   const nodeSerial = new Map<string, number>();
@@ -2524,7 +2551,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
       mx += s.mx;
     }
     const per = node.type === 'podset' || node.type === 'parallelstage'
-      ? Math.max(1, Math.round(nnum(node, 'instanceCount', 1)))
+      ? flownInstanceCount(node)
       : node.type === 'innertube' ? clusterCount(typeof node['cluster'] === 'string' ? (node['cluster'] as string) : undefined)
         : 1;
     m *= per;
@@ -2703,15 +2730,31 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
     // x0.1 here and /0.1 on import; LINE IS x1 BOTH WAYS
     // (ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1). Until v0.097 it took the surface
     // factor too, so a shock cord left here 10x lighter than the design.
+    //
+    // Each is the material the part FLIES (flownMaterial): a part stating no
+    // density flies the engine's default material under that material's name,
+    // and a bulk density of 0 or less is no density to the bridge. This wrote
+    // a blank bulk density as 0 — a part RockSim weighs at nothing where the
+    // app flies 680 kg/m³ Cardboard — and a blank shock cord as "Elastic cord".
     if (node.type === 'parachute' || node.type === 'streamer') {
-      emit(`<Density>${nnum(node, 'surfaceDensity', 0.067) * 0.1}</Density>`);
+      const m = flownMaterial(node, 'surfaceDensity', 'surfaceMaterialName', KERNEL_DEFAULT_MATERIALS.surface);
+      emit(`<Density>${m.density * 0.1}</Density>`);
       emit('<DensityType>1</DensityType>');
-      emit(`<Material>${esc(typeof node['surfaceMaterialName'] === 'string' ? (node['surfaceMaterialName'] as string) : 'Ripstop nylon')}</Material>`);
+      emit(`<Material>${esc(m.name)}</Material>`);
     } else if (node.type === 'shockcord') {
-      emit(`<Density>${nnum(node, 'lineDensity', 0.0018)}</Density>`);
+      const m = flownMaterial(node, 'lineDensity', 'lineMaterialName', KERNEL_DEFAULT_MATERIALS.line);
+      emit(`<Density>${m.density}</Density>`);
       emit('<DensityType>2</DensityType>');
-      emit(`<Material>${esc(typeof node['lineMaterialName'] === 'string' ? (node['lineMaterialName'] as string) : 'Elastic cord')}</Material>`);
+      emit(`<Material>${esc(m.name)}</Material>`);
+    } else if (BULK_MATERIAL_TYPES.has(node.type)) {
+      const m = flownMaterial(node, 'density', 'materialName', KERNEL_DEFAULT_MATERIALS.bulk);
+      emit(`<Density>${m.density}</Density>`);
+      emit('<DensityType>0</DensityType>');
+      emit(`<Material>${esc(m.name)}</Material>`);
     } else {
+      // A pod set, strap-on, mass object or shroud carries no material in the
+      // kernel (a mass object and a shroud fly their mass), so there is no
+      // flown density to write: the format's own 0.
       emit(`<Density>${nnum(node, 'density', 0)}</Density>`);
       emit('<DensityType>0</DensityType>');
       emit(`<Material>${esc(typeof node['materialName'] === 'string' ? (node['materialName'] as string) : 'custom')}</Material>`);
@@ -2842,8 +2885,13 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         }
         common(node, parent, 'Transition');
         emit(`<Len>${axialLength(node) * LEN}</Len>`);
-        emit(`<FrontDia>${nnum(node, 'foreRadius', 0.012) * RAD}</FrontDia>`);
-        emit(`<RearDia>${nnum(node, 'aftRadius', 0.009) * RAD}</RearDia>`);
+        // An automatic end goes out at the radius the kernel takes from the
+        // neighbour (resolveTransitionRadii); it was written as 12 / 9 mm
+        // whatever the neighbours were. The placeholders stay only for two
+        // automatic ends facing each other, which the kernel cannot resolve.
+        const ends = transitionEnds(node);
+        emit(`<FrontDia>${(ends.fore ?? 0.012) * RAD}</FrontDia>`);
+        emit(`<RearDia>${(ends.aft ?? 0.009) * RAD}</RearDia>`);
         emit(`<WallThickness>${nnum(node, 'thickness', 0.002) * LEN}</WallThickness>`);
         emit(`<ShapeCode>${NOSE_SHAPE_TO_CODE[String(node['shape'] ?? 'conical')] ?? 0}</ShapeCode>`);
         // MUST follow <ShapeCode>: desktop's reader is SAX and its ShapeParameter
@@ -2868,7 +2916,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // A SOLID tube is RockSim's <ID>0</ID> (the importer reads it back as a
         // wall as thick as the radius, which is the same solid rod).
         emit(`<ID>${node['filled'] === true ? 0
-          : (nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
+          : (nnum(node, 'outerRadius', 0.012) - kernelNum(node, 'thickness')) * RAD}</ID>`);
         emit(`<Len>${axialLength(node) * LEN}</Len>`);
         // Min-diameter: RockSim's BodyTube carries the same mount flag.
         emit(`<IsMotorMount>${node['motorMount'] === true ? 1 : 0}</IsMotorMount>`);
@@ -2934,16 +2982,21 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // instead.
         const ctx = solidContextFor(tree, node);
         const solidHost = parent?.type === 'bodytube' && parent['filled'] === true;
+        // A tube that states no radius or wall flies the kernel's (a body
+        // tube's 12 mm with its 0.3 mm wall), which the context leaves
+        // unresolved; any other host it cannot resolve keeps the placeholder.
+        const kernelHost = parent?.type === 'bodytube' || parent?.type === 'innertube';
         const parentInner = ctx.parentInnerRadius ?? (solidHost ? 0 : parent
-          ? nnum(parent, 'outerRadius', 0.012) - nnum(parent, 'thickness', 0.0005)
+          ? kernelHost ? kernelNum(parent, 'outerRadius') - kernelNum(parent, 'thickness')
+            : nnum(parent, 'outerRadius', 0.012) - nnum(parent, 'thickness', 0.0005)
           : 0.012);
         const od = nnum(node, 'outerRadius', parentInner);
         emit(`<OD>${od * RAD}</OD>`);
         const id = node.type === 'bulkhead' ? 0
           : node.type === 'centeringring' ? nnum(node, 'innerRadius', Math.min(ctx.mountOuterRadius ?? 0, od))
-          : nnum(node, 'innerRadius', Math.max(0, od - nnum(node, 'thickness', 0.002)));
+          : nnum(node, 'innerRadius', Math.max(0, od - kernelNum(node, 'thickness')));
         emit(`<ID>${id * RAD}</ID>`);
-        emit(`<Len>${nnum(node, 'length', 0.002) * LEN}</Len>`);
+        emit(`<Len>${kernelNum(node, 'length') * LEN}</Len>`);
         emit(`<UsageCode>${usage}</UsageCode>`);
         emit('</Ring>');
         // A <Ring> has no <AttachedParts> any reader keeps (RockSim's schema
@@ -2987,13 +3040,15 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         if (node.type === 'trapezoidfinset') {
           emit(`<RootChord>${nnum(node, 'rootChord', 0.05) * LEN}</RootChord>`);
           emit(`<TipChord>${nnum(node, 'tipChord', 0.03) * LEN}</TipChord>`);
-          emit(`<SweepDistance>${nnum(node, 'sweep', 0) * LEN}</SweepDistance>`);
+          emit(`<SweepDistance>${kernelNum(node, 'sweep') * LEN}</SweepDistance>`);
           emit(`<SemiSpan>${nnum(node, 'height', 0.03) * LEN}</SemiSpan>`);
         } else if (node.type === 'ellipticalfinset') {
           emit(`<RootChord>${nnum(node, 'rootChord', 0.05) * LEN}</RootChord>`);
           emit(`<SemiSpan>${nnum(node, 'height', 0.03) * LEN}</SemiSpan>`);
         } else {
-          const pts = (node['points'] as [number, number][] | undefined) ?? [];
+          // No outline flies FreeformFinSet's own (KERNEL_DEFAULT_FIN_POINTS);
+          // this wrote an empty <PointList>.
+          const pts = Array.isArray(node['points']) ? node['points'] as [number, number][] : KERNEL_DEFAULT_FIN_POINTS;
           // RockSim point order is the REVERSE of ours.
           const s = [...pts].reverse().map(([x, y]) => `${x * LEN},${y * LEN}`).join('|');
           emit(`<PointList>${s}${s ? '|' : ''}</PointList>`);
@@ -3001,7 +3056,9 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         if (nnum(node, 'tabHeight', 0) > 0 && nnum(node, 'tabLength', 0) > 0) {
           emit(`<TabLength>${nnum(node, 'tabLength', 0) * LEN}</TabLength>`);
           emit(`<TabDepth>${nnum(node, 'tabHeight', 0) * LEN}</TabDepth>`);
-          emit(`<TabOffset>${finTabFront(node, finRootChord(node)) * LEN}</TabOffset>`);
+          const outlined = isCustom && !Array.isArray(node['points'])
+            ? { ...node, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) } : node;
+          emit(`<TabOffset>${finTabFront(outlined, finRootChord(outlined)) * LEN}</TabOffset>`);
         }
         // Radians — matching the desktop's RockSim exporter (FinSetDTO).
         if (nnum(node, 'cant', 0) !== 0) {
@@ -3017,9 +3074,16 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // RockSim pods are single-instance — split N instances into N
         // <ExternalPod>s around the ring (the desktop does the same);
         // parallel stages export as Detachable pods.
-        const count = Math.max(1, Math.round(nnum(node, 'instanceCount', 1)));
+        // The count the kernel flies: two when none is stated (flownInstanceCount).
+        const count = flownInstanceCount(node);
         const parentR = parent?.type === 'bodytube' ? nnum(parent, 'outerRadius', 0.012) : 0;
-        const centerR = resolveAssemblyRadius(node, parentR);
+        // Its transitions' automatic ends as flown, for the bounding radius.
+        const centerR = resolveAssemblyRadius({ ...node, children: (node.children ?? []).map((c) => {
+          if (c.type !== 'transition') return c;
+          const ends = transitionEnds(c);
+          return { ...c, ...(ends.fore !== undefined ? { foreRadius: ends.fore } : {}),
+            ...(ends.aft !== undefined ? { aftRadius: ends.aft } : {}) };
+        }) }, parentR);
         const angle0 = nnum(node, 'angleOffset', 0);
         const at = massAt(node);
         for (let i = 0; i < count; i++) {
@@ -3068,8 +3132,19 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         common(node, parent, 'Tube fins');
         emit(`<TubeCount>${Math.round(nnum(node, 'finCount', 6))}</TubeCount>`);
         emit(`<MaxTubesAllowed>${Math.round(nnum(node, 'finCount', 6))}</MaxTubesAllowed>`);
-        emit(`<OD>${nnum(node, 'outerRadius', 0.012) * RAD}</OD>`);
-        emit(`<ID>${Math.max(0, nnum(node, 'outerRadius', 0.012) - nnum(node, 'thickness', 0.0005)) * RAD}</ID>`);
+        // On a body tube an automatic radius is the touching one around it
+        // (tubeFinRadius) and an absent wall the tube's own (tubeFinWall;
+        // BodyTube.addChild), as the kernel flies them; they were written as
+        // 12 mm and 0.5 mm. On another parent the kernel's body radius is a
+        // profile this does not resolve, and the placeholders stay.
+        const host = parent?.type === 'bodytube' ? parent : undefined;
+        const tubeR = host && numOpt(node, 'outerRadius') === undefined
+          ? tubeFinRadius(node, kernelNum(host, 'outerRadius')) : nnum(node, 'outerRadius', 0.012);
+        const tubeIR = host
+          ? tubeR - tubeFinWall(node, tubeR, host['filled'] === true ? kernelNum(host, 'outerRadius') : kernelNum(host, 'thickness'))
+          : Math.max(0, tubeR - nnum(node, 'thickness', 0.0005));
+        emit(`<OD>${tubeR * RAD}</OD>`);
+        emit(`<ID>${tubeIR * RAD}</ID>`);
         emit(`<Len>${nnum(node, 'length', 0.1) * LEN}</Len>`);
         if (nnum(node, 'rotation', 0) !== 0) {
           emit(`<RadialAngle>${nnum(node, 'rotation', 0)}</RadialAngle>`);
@@ -3081,19 +3156,29 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         emit('<Parachute>');
         common(node, parent, 'Parachute');
         emit(`<Dia>${nnum(node, 'diameter', 0.3) * LEN}</Dia>`);
-        emit(`<DragCoefficient>${nnum(node, 'cd', 0.75)}</DragCoefficient>`);
+        // The Cd it flies, as desktop's ParachuteDTO writes getCD(): a blank
+        // one is the kernel's automatic 0.8 (kernelRecoveryCd). This wrote
+        // RockSim's 0.75, which RockSim flies and this app's reader turns back
+        // into Auto.
+        emit(`<DragCoefficient>${kernelRecoveryCd(node)}</DragCoefficient>`);
         emit(`<ShroudLineCount>${Math.round(nnum(node, 'lineCount', 6))}</ShroudLineCount>`);
         emit(`<ShroudLineLen>${nnum(node, 'lineLength', 0.3) * LEN}</ShroudLineLen>`);
         // The other half of the same defect: desktop writes both
         // (ParachuteDTO.java:56-63, density × 1) and we wrote neither, so a
         // chute exported from here reached RockSim with weightless lines.
-        // Emitted only when the design states a line density — inventing one
-        // would hand RockSim a number no part of this design ever carried.
-        if (typeof node['lineDensity'] === 'number' && (node['lineDensity'] as number) > 0) {
-          emit(`<ShroudLineMassPerMM>${node['lineDensity'] as number}</ShroudLineMassPerMM>`);
-          const lineMat = typeof node['lineMaterialName'] === 'string'
-            ? (node['lineMaterialName'] as string) : '';
-          if (lineMat) emit(`<ShroudLineMaterial>${esc(lineMat)}</ShroudLineMaterial>`);
+        // A chute that states no line density flies the engine's default line
+        // material (Parachute's constructor; KERNEL_DEFAULT_MATERIALS.line), so
+        // that goes out, named, as desktop writes every chute's. A stated 0
+        // flies weightless lines and has no RockSim form (0 is RockSim's own
+        // "none"): it stays out, and the Save says so.
+        const shroud = flownMaterial(node, 'lineDensity', 'lineMaterialName', KERNEL_DEFAULT_MATERIALS.line);
+        if (shroud.density > 0) {
+          emit(`<ShroudLineMassPerMM>${shroud.density}</ShroudLineMassPerMM>`);
+          // A stated density without a stated name keeps writing no name.
+          if (typeof node['lineMaterialName'] === 'string' ? node['lineMaterialName'] !== ''
+            : numOpt(node, 'lineDensity') === undefined) {
+            emit(`<ShroudLineMaterial>${esc(shroud.name)}</ShroudLineMaterial>`);
+          }
         }
         emit('<ChuteCount>1</ChuteCount>');
         emit(`<SpillHoleDia>${nnum(node, 'spillHoleDiameter', 0) * LEN}</SpillHoleDia>`);
@@ -3105,7 +3190,9 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         common(node, parent, 'Streamer');
         emit(`<Len>${nnum(node, 'stripLength', 0.5) * LEN}</Len>`);
         emit(`<Width>${nnum(node, 'stripWidth', 0.05) * LEN}</Width>`);
-        emit(`<DragCoefficient>${nnum(node, 'cd', 0.75)}</DragCoefficient>`);
+        // A blank Cd goes out as the automatic one the kernel computes for this
+        // strip (kernelRecoveryCd), not RockSim's 0.75.
+        emit(`<DragCoefficient>${kernelRecoveryCd(node)}</DragCoefficient>`);
         emit('</Streamer>');
         break;
       }
@@ -3142,7 +3229,8 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
         // An override, when set, IS the component's real mass — passing the
         // `mass` param unconditionally shipped the 10 g default for every
         // override-edited mass component (big CG error in RockSim).
-        const massKg = numOpt(node, 'overrideMass') ?? nnum(node, 'mass', 0);
+        // A blank mass flies MassComponent's 10 g (kernelNum); this wrote 0.
+        const massKg = numOpt(node, 'overrideMass') ?? kernelNum(node, 'mass');
         // A point at the component's CG, measured from its own front: the
         // stated override (a RockSim import pins one on the file's point),
         // else the kernel's, else the body's middle — where the kernel puts a
@@ -3421,5 +3509,5 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
     emit('</SimulationResultsList>');
   }
   emit('</RockSimDocument>');
-  return lines.join('\n');
+  return dryRun ? '' : lines.join('\n');
 }

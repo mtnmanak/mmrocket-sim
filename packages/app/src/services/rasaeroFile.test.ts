@@ -4,8 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { applyStageNozzles } from '../tree/treeModel.js';
-import { CDX1_ENGINE_EXPORT, cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
+import { applyStageNozzles, protuberanceFrontalArea } from '../tree/treeModel.js';
+import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { flownTransitionEnds } from '../tree/transitionRadii.js';
+import { CDX1_ENGINE_EXPORT, cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, importCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.js';
 import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
@@ -2773,5 +2775,194 @@ describe('RASAero import — the stored prediction of a staged simulation', () =
     const r = importCdx1(xml);
     expect(r.notes.some((n) => n.startsWith('RASAero\u2019s stored prediction'))).toBe(false);
     expect(r.notes.some((n) => n.includes('MaxAltitude'))).toBe(false);
+  });
+});
+
+/**
+ * A BLANK PART GOES OUT AS THE PART THE KERNEL FLIES (review of v0.174, B1).
+ * The .CDX1 writer wrote a blank trapezoid sweep as 0 where 20 mm flies, every
+ * automatic transition end as 12 / 9 mm whatever its neighbours were, a blank
+ * protuberance as no area, and refused a freeform fin set with no outline,
+ * which flies FreeformFinSet's own trapezoid. Every part the writer writes,
+ * with no dimension keys, comes back through importCdx1 at the value the
+ * original flies, within the format's four decimal inches.
+ */
+describe('a blank part goes out as the part the kernel flies (B1)', () => {
+  const part = (type: string, id: string, extra: Record<string, unknown> = {}) =>
+    ({ type, id, ...extra }) as unknown as ComponentNode;
+  const blank = (): RocketTree => ({ name: 'Blank', components: [
+    { type: 'stage', id: 's0', children: [
+      part('nosecone', 'nose'),
+      part('bodytube', 'tube', { children: [
+        part('trapezoidfinset', 'fins'), part('launchlug', 'lug'), part('protuberance', 'bump'),
+        part('parachute', 'chuteA'), part('parachute', 'chuteB', { deployEvent: 'altitude' }),
+        part('podset', 'can', { instanceCount: 1, radiusMethod: 'free', radiusOffset: 0, children: [
+          part('transition', 'canShoulder'), part('bodytube', 'canTube', { children: [part('trapezoidfinset', 'canFins')] })] }),
+      ] }),
+      part('transition', 'neck', { aftRadius: 0.01 }),
+      part('bodytube', 'aftTube', { outerRadius: 0.01, children: [part('freeformfinset', 'freeFins')] }),
+    ] },
+    { type: 'stage', id: 's1', children: [
+      part('transition', 'bShoulder'), part('bodytube', 'bTube', { children: [part('trapezoidfinset', 'bFins')] }),
+      part('transition', 'bTail', { aftRadius: 0.009 }),
+    ] },
+  ] });
+  // Each written part and the name importCdx1 rebuilds it under.
+  const READER_NAMES: [string, string][] = [
+    ['s0', 'Sustainer'], ['nose', 'Nose cone'], ['tube', 'Body tube'], ['fins', 'Fins'], ['lug', 'Launch lug'],
+    ['can', 'Fin can'], ['canShoulder', 'Fin can shoulder'], ['canTube', 'Fin can tube'], ['canFins', 'Fins'],
+    ['chuteA', 'Drogue'], ['chuteB', 'Main'], ['neck', 'Transition'], ['aftTube', 'Body tube'], ['freeFins', 'Fins'],
+    ['s1', 'Booster'], ['bShoulder', 'Booster shoulder'], ['bTube', 'Booster body tube'], ['bFins', 'Fins'],
+    ['bTail', 'Booster boat tail'],
+  ];
+  const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => [n, ...flat(n.children ?? [])]);
+  const roundTrip = () => {
+    const tree = blank();
+    const xml = exportCdx1({ name: 'Blank', tree, launch: DEFAULT_CONDITIONS });
+    const back = flat(importCdx1(xml).tree.components);
+    const original = flat(tree.components);
+    const byId = (id: string) => original.find((n) => n.id === id)!;
+    // The reader rebuilds the parts in the order they are written; pair each
+    // with the next unused part of its name.
+    const used = new Set<ComponentNode>();
+    const twin = (id: string) => {
+      const name = READER_NAMES.find(([i]) => i === id)![1];
+      const b = back.find((n) => n.name === name && !used.has(n))!;
+      used.add(b);
+      return b;
+    };
+    return { tree, xml, back, byId, twin };
+  };
+  const close = (actual: unknown, expected: number, what: string) =>
+    expect(Math.abs((actual as number) - expected), what).toBeLessThan(3e-6); // 1e-4 in, the format's precision
+
+  it('every written dimension re-opens at the flown value', () => {
+    const { tree, byId, twin } = roundTrip();
+    const ends = flownTransitionEnds(tree);
+    const pairs = READER_NAMES.map(([id]) => [byId(id), twin(id)] as const);
+    let checked = 0;
+    for (const [n, b] of pairs) {
+      expect(b, `${n.id} re-opened`).toBeDefined();
+      const keys = ({
+        nosecone: ['length', 'aftRadius'], bodytube: ['length', 'outerRadius'], launchlug: ['length', 'outerRadius'],
+        trapezoidfinset: ['rootChord', 'tipChord', 'sweep', 'height', 'thickness'], freeformfinset: ['thickness'],
+        transition: ['length'], parachute: ['diameter'],
+      } as Record<string, string[]>)[n.type] ?? [];
+      for (const key of keys) { close(b[key], kernelNum(n, key), `${n.id}.${key}`); checked++; }
+      if (n.type === 'transition') {
+        // A fin-can shoulder is rebuilt from the can and the tube it covers.
+        if (n.id !== 'canShoulder') close(b['foreRadius'], ends(n).fore!, `${n.id}.foreRadius`);
+        close(b['aftRadius'], ends(n).aft!, `${n.id}.aftRadius`);
+        checked += 2;
+      }
+      if (n.type === 'freeformfinset') {
+        // FreeformFinSet's own outline is a trapezoid, and goes out as one.
+        const [p0, p1, p2, p3] = KERNEL_DEFAULT_FIN_POINTS;
+        close(b['rootChord'], p3![0] - p0![0], 'free root');
+        close(b['tipChord'], p2![0] - p1![0], 'free tip');
+        close(b['sweep'], p1![0] - p0![0], 'free sweep');
+        close(b['height'], p1![1], 'free height');
+        checked += 4;
+      }
+      if (n.type === 'parachute') {
+        close(b['cd'], kernelRecoveryCd(n), `${n.id}.cd`);
+        if (n['deployEvent'] === 'altitude') close(b['deployAltitude'], 200, 'deploy altitude');
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(35);
+  });
+
+  it('carries a blank protuberance\'s frontal area', () => {
+    const { tree, back } = roundTrip();
+    const bump = flat(tree.components).find((n) => (n.type as string) === 'protuberance')!;
+    const reopened = back.find((n) => (n.type as string) === 'protuberance')!;
+    expect(Math.abs(protuberanceFrontalArea(reopened) - protuberanceFrontalArea(bump))).toBeLessThan(1e-9);
+  });
+
+  it('checkFormatLoss names none of the reader\'s rebuilt names, read back through the reader', () => {
+    const { tree, byId } = roundTrip();
+    for (const [id, name] of READER_NAMES) byId(id).name = name;
+    const input = { tree, motors: {}, launch: DEFAULT_CONDITIONS, configs: [], activeConfigId: null,
+      measured: { massKg: null, cgM: null }, flightData: {} };
+    const report = checkFormatLoss('cdx1', input);
+    expect(report.refused).toBeNull();
+    expect(report.losses.filter((l) => l.includes('Component and stage names'))).toEqual([]);
+    byId('bTail').name = 'Booster shoulder';
+    expect(checkFormatLoss('cdx1', input).losses.join('\n')).toContain('Component and stage names');
+  });
+});
+
+/**
+ * ONE SELECTION FOR THE WRITER AND THE SAVE'S LOSS LIST (review of v0.174, B3).
+ * checkFormatLoss's .CDX1 branch kept its own copy of which parts exportCdx1
+ * writes; both now read cdx1WrittenParts. These hold the helper to the XML the
+ * writer produces from it.
+ */
+describe('cdx1WrittenParts agrees with the written file (B3)', () => {
+  const stage = (children: ComponentNode[], id = 's0'): ComponentNode => ({ type: 'stage', id, children });
+  const count = (xml: string, tag: string) => xml.split(`<${tag}>`).length - 1;
+  const designs: Record<string, RocketTree> = {
+    'dual deploy laid out main first': { name: 'DD', components: [stage([
+      { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.02 },
+      { type: 'bodytube', id: 'payload', length: 0.4, outerRadius: 0.02, children: [
+        { type: 'parachute', id: 'main', deployEvent: 'altitude', deployAltitude: 150 }] },
+      { type: 'bodytube', id: 'booster', length: 0.5, outerRadius: 0.02, children: [
+        { type: 'trapezoidfinset', id: 'f', rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.06 },
+        { type: 'parachute', id: 'drogue', deployEvent: 'apogee' },
+        { type: 'parachute', id: 'spare', name: 'Spare', deployEvent: 'altitude', deployAltitude: 300 }] },
+    ])] },
+    'fin can and boat-tail pod': { name: 'Pods', components: [stage([
+      { type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.02 },
+      { type: 'bodytube', id: 'host', length: 0.4, outerRadius: 0.02, children: [
+        { type: 'podset', id: 'can', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0, children: [
+          { type: 'transition', id: 'sh', length: 0.02, foreRadius: 0.02, aftRadius: 0.022 },
+          { type: 'bodytube', id: 'ct', length: 0.15, outerRadius: 0.022, children: [
+            { type: 'trapezoidfinset', id: 'cf', rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.06 }] }] }] },
+      { type: 'bodytube', id: 'tail', length: 0.3, outerRadius: 0.02, children: [
+        { type: 'podset', id: 'bt', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0, children: [
+          { type: 'transition', id: 'btt', length: 0.05, foreRadius: 0.02, aftRadius: 0.015 }] }] },
+    ])] },
+    'two stages': { name: 'Two', components: [
+      stage([{ type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.02 },
+        { type: 'bodytube', id: 't', length: 0.4, outerRadius: 0.02, children: [
+          { type: 'freeformfinset', id: 'ff', points: [[0, 0], [0.02, 0.05], [0.06, 0.05], [0.08, 0]] }] }]),
+      stage([{ type: 'transition', id: 'bs', length: 0.02, foreRadius: 0.02, aftRadius: 0.025 },
+        { type: 'bodytube', id: 'bt', length: 0.4, outerRadius: 0.025, children: [
+          { type: 'trapezoidfinset', id: 'bf', rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.06 }] },
+        { type: 'transition', id: 'tail', length: 0.04, foreRadius: 0.025, aftRadius: 0.02 }], 's1'),
+    ] },
+  };
+  it.each(Object.entries(designs))('%s', (_, tree) => {
+    const written = cdx1WrittenParts(tree);
+    const xml = exportCdx1({ name: tree.name ?? 'R', tree, launch: DEFAULT_CONDITIONS });
+    // Fin sets: one <Fin> per written set.
+    expect(count(xml, 'Fin')).toBe(written.fins.size);
+    // Pods: one <FinCan> or <BoatTail> each, of the kind the helper says.
+    const kinds = [...written.pods.values()].map((p) => p.kind);
+    expect(count(xml, 'FinCan')).toBe(kinds.filter((k) => k === 'finCan').length);
+    expect(count(xml, 'BoatTail')).toBe(kinds.filter((k) => k === 'boatTail').length);
+    // Recovery: the slots in the helper's order, as the reader rebuilds them.
+    const chutes = importCdx1(xml).tree.components.flatMap(function all(n: ComponentNode): ComponentNode[] {
+      return [n, ...(n.children ?? []).flatMap(all)];
+    }).filter((n) => n.type === 'parachute');
+    expect(chutes.map((c) => c['deployEvent'])).toEqual(written.recovery.map((slot) => String(slot.chute['deployEvent'] ?? 'apogee')));
+    chutes.forEach((c, i) => {
+      if (c['deployEvent'] === 'altitude') expect(c['deployAltitude'] as number).toBeCloseTo(written.recovery[i]!.chute['deployAltitude'] as number, 3);
+    });
+    // Exterior: the sustainer chain's parts tag for tag, and a <Booster> per lower stage.
+    const chain = written.stages[0]!.children!.filter((n) => written.exterior.has(n));
+    for (const [type, tag] of [['nosecone', 'NoseCone'], ['bodytube', 'BodyTube'], ['transition', 'Transition']] as const) {
+      expect(count(xml, tag), tag).toBe(chain.filter((n) => n.type === type).length);
+    }
+    expect(count(xml, 'Booster')).toBe(written.stages.length - 1);
+  });
+  it('puts the apogee drogue in slot 1 ahead of a main laid out before it, and omits a third chute', () => {
+    const written = cdx1WrittenParts(designs['dual deploy laid out main first']!);
+    expect(written.recovery.map((s) => s.chute.id)).toEqual(['drogue', 'main']);
+    expect(written.recovery.map((s) => s.eventType)).toEqual(['Apogee', 'Altitude']);
+    const input = { tree: designs['dual deploy laid out main first']!, motors: {}, launch: DEFAULT_CONDITIONS, configs: [],
+      activeConfigId: null, measured: { massKg: null, cgM: null }, flightData: {} };
+    expect(checkFormatLoss('cdx1', input).losses.join(' ')).toContain('Additional parachutes are omitted, including their delays: “Spare”.');
   });
 });

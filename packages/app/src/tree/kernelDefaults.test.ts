@@ -8,7 +8,7 @@ import { buildPieces } from './pieces.js';
 import { layoutSchematic, schematicFrame } from './schematicLayout.js';
 import { finOutline } from '../services/finTemplate.js';
 import { componentDxf } from '../services/dxfExport.js';
-import { kernelDefault } from './kernelDefaults.js';
+import { KERNEL_DEFAULT_MATERIALS, KERNEL_DEFAULT_CD, kernelDefault, kernelRecoveryCd } from './kernelDefaults.js';
 import { engineTree, protuberanceFrontalArea } from './treeModel.js';
 
 /**
@@ -236,4 +236,43 @@ it('B6 an omitted transition shape prints a conical profile', () => {
     const outer = Math.max(...part.loop.filter(([px]) => Math.abs(px - x) < 1e-10).map(([, r]) => r));
     expect(outer).toBeCloseTo(0.02 - x * 0.1, 10);
   }
+});
+
+describe('the default materials are the engine shims\' own (KERNEL_DEFAULT_MATERIALS)', () => {
+  it('reads ApplicationPreferences.getDefaultComponentMaterial and the Databases densities', () => {
+    const shims = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'engine-java', 'src', 'shims',
+      'java', 'info', 'openrocket', 'core');
+    const prefs = readFileSync(join(shims, 'preferences', 'ApplicationPreferences.java'), 'utf8').replace(/\r\n/g, '\n');
+    const db = readFileSync(join(shims, 'database', 'Databases.java'), 'utf8');
+    for (const [type, m] of [['LINE', KERNEL_DEFAULT_MATERIALS.line], ['SURFACE', KERNEL_DEFAULT_MATERIALS.surface],
+      ['BULK', KERNEL_DEFAULT_MATERIALS.bulk]] as const) {
+      expect(prefs, type).toContain(`case ${type}:\n                return Databases.findMaterial(Material.Type.${type}, "${m.name}");`);
+      const row = db.split('\n').find((l) => l.includes(`case "${m.name}": return `));
+      expect(Number(/return ([\d.]+);/.exec(row ?? '')?.[1]), m.name).toBe(m.density);
+    }
+    // A bulk density replaces the default material only when it is above 0.
+    expect(java).toContain('if (!Double.isNaN(density) && density > 0) {');
+  });
+});
+
+describe('kernelRecoveryCd is the kernel\'s automatic recovery Cd', () => {
+  const carved = (file: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..',
+    'engine-java', 'src', 'carved', 'java', 'info', 'openrocket', 'core', 'rocketcomponent', file), 'utf8');
+  it('reads Parachute.DEFAULT_CD, RecoveryDevice\'s automatic start and Streamer.getComponentCD', () => {
+    expect(carved('RecoveryDevice.java')).toContain('protected boolean cdAutomatic = true;');
+    expect(carved('Parachute.java')).toContain(`public static double DEFAULT_CD = ${KERNEL_DEFAULT_CD};`);
+    const streamer = carved('Streamer.java');
+    expect(streamer).toContain('public static final double MAX_COMPUTED_CD = 0.4;');
+    expect(streamer).toContain('cd = 0.034 * ((density + 0.025) / 0.105) * (stripLength + 1) / stripLength;');
+  });
+  it('flies a stated Cd, else the automatic one', () => {
+    expect(kernelRecoveryCd({ type: 'parachute' } as ComponentNode)).toBe(KERNEL_DEFAULT_CD);
+    expect(kernelRecoveryCd({ type: 'parachute', cd: 1.2 } as ComponentNode)).toBe(1.2);
+    expect(kernelRecoveryCd({ type: 'streamer', cd: 0 } as ComponentNode)).toBe(0);
+    // A streamer's automatic Cd follows its strip length and surface density, capped.
+    const l = k('streamer', 'stripLength');
+    const rho = KERNEL_DEFAULT_MATERIALS.surface.density;
+    expect(kernelRecoveryCd({ type: 'streamer' } as ComponentNode)).toBeCloseTo(0.034 * ((rho + 0.025) / 0.105) * (l + 1) / l, 12);
+    expect(kernelRecoveryCd({ type: 'streamer', stripLength: 0.01, surfaceDensity: 1 } as ComponentNode)).toBe(0.4);
+  });
 });

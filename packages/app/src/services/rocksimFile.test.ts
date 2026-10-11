@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
-import { importCdx1 } from './rasaeroFile.js';
+import { exportCdx1, importCdx1 } from './rasaeroFile.js';
 import { matchImportedMotor, refToExportMotor } from './motorMatch.js';
 import { loadPresets } from './presets.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
@@ -14,6 +14,10 @@ import { bundledSimFiles, defaultDelay, delayOptions } from './thrustcurve.js';
 import { clusterOffsets } from '../tree/cluster.js';
 import { estimateMotorRoom } from '../tree/motorRoom.js';
 import { axialLength, startFromPosition } from '../tree/position.js';
+import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelDefault, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { flownTransitionEnds } from '../tree/transitionRadii.js';
+import { tubeFinRadius } from '../tree/tubefins.js';
+import { engineTree, flownInstanceCount } from '../tree/treeModel.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -2350,8 +2354,10 @@ describe('RockSim shroud-line density (audit row 16)', () => {
     expect(back['lineMaterialName']).toBe('Carpet String (Apogee 29500)');
   });
 
-  it('writes nothing when the design states no line density', () => {
-    // Inventing one would hand RockSim a number no part of the design carries.
+  it('writes the default line material the chute flies when it states none', () => {
+    // Not an invented number: a chute with no line density flies the engine's
+    // default line material (the test above measures it), so that is what
+    // goes out, named, and what re-opens (review of v0.174, B1).
     const xml = exportRkt({
       name: 'Bare',
       tree: {
@@ -2365,6 +2371,18 @@ describe('RockSim shroud-line density (audit row 16)', () => {
         }],
       },
     });
+    const chute = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
+    expect(Number(/<ShroudLineMassPerMM>([^<]*)</.exec(chute)![1])).toBe(KERNEL_DEFAULT_MATERIALS.line.density);
+    expect(chute).toContain(`<ShroudLineMaterial>${KERNEL_DEFAULT_MATERIALS.line.name}</ShroudLineMaterial>`);
+    const back = flatten(importRkt(xml).tree.components).find((c) => c.type === 'parachute')!;
+    expect(back['lineDensity']).toBe(KERNEL_DEFAULT_MATERIALS.line.density);
+    expect(back['lineMaterialName']).toBe(KERNEL_DEFAULT_MATERIALS.line.name);
+  });
+
+  it('writes no line density for a chute whose lines are stated weightless', () => {
+    // 0 is RockSim's own "none"; checkFormatLoss names this one.
+    const xml = exportRkt({ name: 'Bare', tree: { name: 'Bare', components: [{ type: 'stage', id: 's0', children: [
+      { type: 'bodytube', id: 'b', children: [{ type: 'parachute', id: 'p', lineDensity: 0 }] }] }] } });
     const chute = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
     expect(chute).not.toContain('<ShroudLineMassPerMM>');
     expect(chute).not.toContain('<ShroudLineMaterial>');
@@ -4011,5 +4029,180 @@ describe('RockSim export — parts inside a tube coupler', () => {
     expect(at('Outer')).toBeCloseTo(0.2, 9);
     expect(at('Inner')).toBeCloseTo(0.22, 9);
     expect(at('Plate')).toBeCloseTo(0.23, 9);
+  });
+});
+
+/**
+ * A BLANK PART GOES OUT AS THE PART THE KERNEL FLIES (review of v0.174, B1).
+ * v0.174's Save warned that the writer put its own fallback in the file where
+ * a part states no dimension — a 2 mm coupler where 50 mm flies, a 0 mm sweep
+ * where 20 mm does, one pod where two do, bulk density 0 where Cardboard's 680
+ * kg/m³ does, a 12 mm automatic radius wherever it sat — instead of writing
+ * what flies. Every part type the writer handles, with NO dimension keys,
+ * goes out and comes back through this app's own reader at the value the
+ * original flies (tree/kernelDefaults.ts, the resolved automatic radii).
+ */
+describe('a blank part goes out as the part the kernel flies (B1)', () => {
+  const part = (type: string, extra: Record<string, unknown> = {}) =>
+    ({ type, id: `id-${type}-${String(extra['name'] ?? '')}`, name: `Blank ${type}`, ...extra }) as unknown as ComponentNode;
+  const blank = () => {
+    const tube = part('bodytube', { children: [
+      part('innertube', { motorMount: true }), part('tubecoupler'), part('centeringring'), part('bulkhead'),
+      part('engineblock'), part('trapezoidfinset'), part('launchlug'), part('parachute'), part('streamer'),
+      part('shockcord'), part('masscomponent'), part('fairing'),
+    ] });
+    const aft = part('bodytube', { name: 'Blank aft tube', children: [
+      part('freeformfinset'), part('tubefinset'),
+      part('podset', { children: [part('bodytube', { name: 'Blank pod tube' })] }),
+    ] });
+    return {
+      name: 'Blank',
+      components: [{ type: 'stage' as const, id: 's0', name: 'Sustainer', children: [
+        part('nosecone'), tube, part('transition'), aft,
+        part('bodytube', { name: 'Blank tail tube', children: [
+          part('ellipticalfinset'),
+          part('parallelstage', { children: [part('bodytube', { name: 'Blank strap-on tube' })] }),
+        ] }),
+        // A flipped nose cone goes out as the transition it is (tailConeAsTransition).
+        part('nosecone', { name: 'Blank tail cone', flipped: true }),
+      ] }],
+    };
+  };
+  const roundTrip = () => {
+    const tree = blank();
+    const back = flatten(importRkt(exportRkt({ name: 'Blank', tree })).tree.components);
+    const original = flatten(tree.components);
+    const twin = (n: ComponentNode) => back.find((b) => b.name === n.name && b.type === n.type);
+    return { tree, original, back, twin };
+  };
+  const close = (actual: unknown, expected: number, what: string) =>
+    expect(actual as number, what).toBeCloseTo(expected, 9);
+
+  it('every written dimension re-opens at the flown value', () => {
+    const { tree, original, twin, back } = roundTrip();
+    const ends = flownTransitionEnds(tree);
+    const host = original.find((n) => n.name === 'Blank bodytube')!;
+    const bore = kernelNum(host, 'outerRadius') - kernelNum(host, 'thickness');
+    const KEYS: Record<string, string[]> = {
+      nosecone: ['length', 'aftRadius', 'thickness'], bodytube: ['length', 'outerRadius', 'thickness'],
+      innertube: ['length', 'outerRadius', 'thickness'], tubecoupler: ['length', 'thickness'],
+      centeringring: ['length'], bulkhead: ['length'], engineblock: ['length', 'thickness'],
+      trapezoidfinset: ['rootChord', 'tipChord', 'sweep', 'height', 'thickness'],
+      ellipticalfinset: ['rootChord', 'height', 'thickness'], freeformfinset: ['thickness'],
+      tubefinset: ['length'], launchlug: ['length', 'outerRadius', 'thickness'],
+      parachute: ['diameter', 'lineLength'], streamer: ['stripLength', 'stripWidth'], shockcord: ['cordLength'],
+      masscomponent: ['mass', 'length'], transition: ['length', 'thickness'],
+    };
+    const BULK = ['nosecone', 'bodytube', 'transition', 'innertube', 'tubecoupler', 'centeringring', 'bulkhead',
+      'engineblock', 'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug'];
+    let checked = 0;
+    for (const n of original) {
+      if (['stage', 'podset', 'parallelstage', 'fairing'].includes(n.type) || n['flipped'] === true) continue;
+      const b = twin(n);
+      expect(b, `${n.name} re-opened`).toBeDefined();
+      for (const key of KEYS[n.type] ?? []) { close(b![key], kernelNum(n, key), `${n.name}.${key}`); checked++; }
+      if (BULK.includes(n.type)) {
+        expect(b!['density'], `${n.name}.density`).toBe(KERNEL_DEFAULT_MATERIALS.bulk.density);
+        expect(b!['materialName'], `${n.name}.materialName`).toBe(KERNEL_DEFAULT_MATERIALS.bulk.name);
+      }
+      if (['tubecoupler', 'centeringring', 'bulkhead', 'engineblock'].includes(n.type)) close(b!['outerRadius'], bore, `${n.name} bore`);
+      if (n.type === 'transition') {
+        close(b!['foreRadius'], ends(n).fore!, 'transition fore');
+        close(b!['aftRadius'], ends(n).aft!, 'transition aft');
+      }
+      if (n.type === 'tubefinset') {
+        const parent = original.find((p) => p.children?.includes(n))!;
+        close(b!['outerRadius'], tubeFinRadius(n, kernelNum(parent, 'outerRadius')), 'tube fin radius');
+        close(b!['thickness'], kernelNum(parent, 'thickness'), 'tube fin wall');
+      }
+      if (n.type === 'freeformfinset') expect(b!['points']).toEqual(KERNEL_DEFAULT_FIN_POINTS);
+      if (n.type === 'parachute' || n.type === 'streamer') {
+        close(b!['cd'], kernelRecoveryCd(n), `${n.name}.cd`);
+        close(b!['surfaceDensity'], KERNEL_DEFAULT_MATERIALS.surface.density, `${n.name}.surfaceDensity`);
+      }
+      if (n.type === 'parachute' || n.type === 'shockcord') {
+        close(b!['lineDensity'], KERNEL_DEFAULT_MATERIALS.line.density, `${n.name}.lineDensity`);
+      }
+    }
+    expect(checked).toBeGreaterThan(40);
+    // A pod set with no count flies two: two pods go out, each one instance.
+    const pod = original.find((n) => n.type === 'podset')!;
+    const pods = back.filter((b) => b.type === 'podset');
+    expect(pods.length * (pods[0] ? flownInstanceCount(pods[0]) : 0)).toBe(flownInstanceCount(pod));
+    // So does a parallel stage: Detachable pods, as many as it flies.
+    const strap = original.find((n) => n.type === 'parallelstage')!;
+    const straps = back.filter((b) => b.type === 'parallelstage');
+    expect(straps.length).toBeGreaterThan(0);
+    expect(straps.reduce((sum, b) => sum + flownInstanceCount(b), 0)).toBe(flownInstanceCount(strap));
+    // A tail cone re-opens as a transition at the nose cone's flown length,
+    // base forward (its flown base radius) and point aft.
+    const tail = original.find((n) => n['flipped'] === true)!;
+    const tailBack = back.find((b) => b.type === 'transition' && b.name === tail.name);
+    expect(tailBack, 'tail cone re-opened').toBeDefined();
+    close(tailBack!['length'], kernelDefault('nosecone', 'length')!, 'tail cone length');
+    close(tailBack!['foreRadius'], kernelNum(tail, 'aftRadius'), 'tail cone base');
+    close(tailBack!['aftRadius'], 0, 'tail cone point');
+    // A camera shroud goes out as a mass object at the mass engineTree flies it with.
+    const shroud = original.find((n) => n.type === 'fairing')!;
+    const lowered = flatten(engineTree(tree).components).find((n) => n.id === shroud.id)!;
+    const shroudBack = back.find((b) => b.type === 'masscomponent' && String(b.name).startsWith(String(shroud.name)));
+    expect(shroudBack, 'shroud re-opened').toBeDefined();
+    close(shroudBack!['mass'], lowered['overrideMass'] as number, 'shroud mass');
+  });
+
+  it('flies the same dry mass and CG once re-opened', { timeout: 30_000 }, async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const { engineTree } = await import('../tree/treeModel.js');
+    const { tree } = roundTrip();
+    const back = importRkt(exportRkt({ name: 'Blank', tree })).tree;
+    const info = (t: typeof tree | typeof back) => {
+      resetEngine();
+      return OrkRocket.buildTree(engineTree(t as never)).staticInfo();
+    };
+    const a = info(tree);
+    const b = info(back);
+    expect(b.massEmpty).toBeCloseTo(a.massEmpty, 9);
+    expect(b.cgEmpty).toBeCloseTo(a.cgEmpty, 6);
+  });
+});
+
+/**
+ * THE DRY RUN SAYS WHAT THE SAVE SAYS (review of v0.174, B4). checkFormatLoss
+ * runs both writers after every edit for their notes and refusal only, so they
+ * build no XML when asked not to. Nothing in either writer reads its own output
+ * back; this holds them to that on every committed design fixture.
+ */
+describe('a dry-run export raises and notes exactly what a real one does (B4)', () => {
+  const run = (write: (notes: string[]) => string) => {
+    const notes: string[] = [];
+    try { write(notes); return { notes, refused: null as string | null }; } catch (e) {
+      return { notes, refused: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const dir = join(here, '__fixtures__');
+  const designs = readdirSync(dir).filter((f) => /\.(ork|rkt|cdx1)$/i.test(f));
+  it('holds for every fixture design, in both writers', () => {
+    expect(designs.length).toBeGreaterThan(20);
+    let refusals = 0;
+    for (const file of designs) {
+      const text = readFileSync(join(dir, file), file.endsWith('.ork') ? undefined : 'utf8');
+      const data = typeof text === 'string' ? text
+        : text.buffer.slice(text.byteOffset, text.byteOffset + text.byteLength) as ArrayBuffer;
+      const r = /\.ork$/i.test(file) ? importOrk(data) : /\.rkt$/i.test(file) ? importRkt(data) : importCdx1(data);
+      const motors = Object.fromEntries(Object.entries(r.motors).map(([k, ref]) => [k, refToExportMotor(ref)]));
+      const rkt = (dryRun: boolean) => run((notes) => exportRkt({ name: r.name, tree: r.tree, motors, notes, dryRun }));
+      const cdx1 = (dryRun: boolean) => run((notes) => exportCdx1({ name: r.name, tree: r.tree, motors, notes, dryRun }));
+      expect(rkt(true), `${file} .rkt`).toEqual(rkt(false));
+      expect(cdx1(true), `${file} .CDX1`).toEqual(cdx1(false));
+      if (rkt(false).refused || cdx1(false).refused) refusals++;
+    }
+    // Some fixture is refused by a writer, so the refusal half is exercised.
+    expect(refusals).toBeGreaterThan(0);
+  });
+  it('builds no XML', () => {
+    const tree = { name: 'R', components: [{ type: 'stage' as const, id: 's', children: [{ type: 'bodytube' as const, id: 'b' }] }] };
+    expect(exportRkt({ name: 'R', tree, dryRun: true })).toBe('');
+    expect(exportCdx1({ name: 'R', tree, dryRun: true })).toBe('');
+    expect(exportRkt({ name: 'R', tree })).toContain('<RockSimDocument>');
   });
 });
