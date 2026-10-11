@@ -95,12 +95,12 @@ export function parseDesignFile(
 ): ImportedDesign {
   switch (designFormatOf(fileName)) {
     case 'rkt':
-      return importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
-        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) });
+      return { ...importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
+        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
-      return importCdx1(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice });
+      return { ...importCdx1(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice }), sourceFormat: 'cdx1' };
     case 'ork':
-      return importOrk(data, { presets: opts.presets });
+      return { ...importOrk(data, { presets: opts.presets }), sourceFormat: 'ork' };
   }
 }
 

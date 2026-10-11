@@ -10,6 +10,7 @@ import { DEFAULT_CONDITIONS, kernelSimOptions } from '../components/LaunchPanel.
 import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
 import { AERO_SHORT, type AeroChoice } from '../prefs/aeroChoice.js';
+import { checkFormatLoss } from './formatLoss.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -2560,10 +2561,11 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
     tube.children[1]!['deployDelay'] = 0;
     tube.children[2]!['deployEvent'] = 'none';
     expect(cdx1RecoveryDelayNote(d.tree)).toBeNull();
-    // Guard the save-path wiring as well as the helper's text.
-    const app = readFileSync(join(here, '../App.tsx'), 'utf8');
-    expect(app.slice(app.indexOf('const onSaveCdx1 ='), app.indexOf('const onSaveCdx1 =') + 6500))
-      .toContain('cdx1RecoveryDelayNote(tree)');
+    // The shared checker supplies both the pre-save dialog and the saved notice.
+    tube.children[1]!['deployDelay'] = 3;
+    const report = checkFormatLoss('cdx1', { tree: d.tree, motors: {}, launch: DEFAULT_CONDITIONS,
+      configs: [], activeConfigId: null, measured: { massKg: null, cgM: null }, flightData: {} });
+    expect(report.losses).toContain(cdx1RecoveryDelayNote(d.tree));
   });
 
   it('re-opens at the altitude, size and Cd it flew', () => {

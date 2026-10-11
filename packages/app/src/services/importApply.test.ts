@@ -11,7 +11,7 @@ import { parseEng } from './exMotors.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
 import {
-  importedLaunch, importMark, openShareLink, planConfigSwitch, planImport, planNewDesign, planOrkSave,
+  importedLaunch, retainedLaunchNote, importMark, openShareLink, planConfigSwitch, planImport, planNewDesign, planOrkSave,
   resolveImportMotors, starterMotorMayLand, type ImportedDesign, type ResolvedImportMotors,
 } from './importApply.js';
 import { createSequencer } from './latestWins.js';
@@ -30,6 +30,16 @@ const TEXT = {
   mass: (kg: number) => `${(kg * 1000).toFixed(0)} g`,
   length: (m: number) => `${(m * 1000).toFixed(1)} mm`,
 };
+
+it('explains exactly the launch fields an open retained, excluding resets', () => {
+  expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined)).toBe('A .rkt carries no launch conditions — the Launch panel keeps the settings you had.');
+  const note = retainedLaunchNote('cdx1', { ...DEFAULT_CONDITIONS, longitudeDeg: 30 },
+    { launchRodLengthM: 3, launchRodAngleDeg: 0, launchRodAimDeg: 0, launchAltitudeM: 0, temperatureC: 20, pressureHPa: null, windAverage: 0 });
+  expect(note).toContain('Latitude'); expect(note).toContain('Longitude'); expect(note).toContain('Wind gusts σ');
+  expect(note).not.toContain('Time step'); expect(note).not.toContain('Rod length');
+  expect(retainedLaunchNote('cdx1', DEFAULT_CONDITIONS, DEFAULT_CONDITIONS)).toBeNull();
+  expect(retainedLaunchNote('ork', DEFAULT_CONDITIONS, undefined)).toBeNull();
+});
 
 const motor = (designation: string, motorId = `db-${designation}`): MountMotor => ({
   label: `${designation}-10`,

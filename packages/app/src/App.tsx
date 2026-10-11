@@ -1,7 +1,7 @@
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
-import { editProfileSurface, windProfileSaveNotes } from './services/windProfile.js';
+import { editProfileSurface } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -100,7 +100,10 @@ import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { designFileBase, designFileLabel, designFileTitle, documentTitle, type DesignFileRef } from './services/designFileName.js';
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
-import { cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1 } from './services/rasaeroFile.js';
+import { exportCdx1 } from './services/rasaeroFile.js';
+import { checkFormatLoss, formatExtension, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
+import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
+import { FormatLossDialog } from './components/FormatLossDialog.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -131,7 +134,7 @@ import {
 } from './services/orkFlightData.js';
 import { sameStoredFlight } from './services/storedRunIdentity.js';
 import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
-import { motorLengthLimit, motorLengthLossNotes } from './tree/motorLength.js';
+import { motorLengthLimit } from './tree/motorLength.js';
 import { MotorLengthField } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -148,9 +151,8 @@ import {
   assignedMotorsOf, currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, filePrimaryOf, hardwareDeltaKgOf,
   launchPrimaryOf, legacyPadMassStepOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
 } from './services/designDerivation.js';
-import { nozzleExportNotes } from './services/nozzleExport.js';
 import { stageMotors } from './services/nozzleFollow.js';
-import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
+import { designFingerprint, stableJson, type DesignSnapshot } from './services/dirtyState.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
@@ -494,6 +496,9 @@ export function App() {
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>(() => session?.fileMachAlt);
   const [designFile, setDesignFile] = useState<DesignFileRef | null>(() => session?.designFile ?? null);
+  const [lossySaved, setLossySaved] = useState<LossySaveMark | null>(session?.lossySaved ?? null);
+  const [lossDialog, setLossDialog] = useState<{ report: FormatLossReport; confirm: boolean } | null>(null);
+  const [liveLoss, setLiveLoss] = useState<{ file: DesignFileRef; report: FormatLossReport } | null>(null);
   const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
@@ -845,6 +850,14 @@ export function App() {
   const {
     dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore);
+  const currentMark = useMemo(() => designFingerprint(designSnapshot), [designSnapshot]);
+  // The hook's counter is session-local; saved provenance carries its prior count.
+  const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
+  const lossyStatus = designFile && (designFile.format === 'rkt' || designFile.format === 'cdx1')
+    ? lossySaveStatus(lossySaved, currentMark, lossyFlights)
+      ?? (designFile.via !== 'opened' || dirty ? 'Unsaved changes' : null) : null;
+  const liveLossReport = liveLoss?.file === designFile ? liveLoss.report : null;
+  const replaceLoss = replacementLossNote(designFile, liveLossReport);
 
   // The rocket name lives INSIDE the file; the name on disk can be different.
   // Desktop OpenRocket shows both in its window title, with the same unsaved
@@ -917,6 +930,7 @@ export function App() {
     // altitudes as a sweep condition for a design that never flew them.
     setFileMachAlt(undefined);
     setDesignFile(null);
+    setLossySaved(null);
     setLongitudeReview(null);
     // A stale "Loaded <old rocket>…" banner over a fresh design
     // reads like the import happened again - clear both notes.
@@ -2110,6 +2124,7 @@ export function App() {
       // The file name is provenance, not a design edit. Restore it beside the
       // rocket name so a reload does not silently change Save As's suggestion.
       ...(designFile ? { designFile } : {}),
+      ...(lossySaved?.mark === currentMark && lossySaved.flights === lossyFlights ? { lossySaved } : {}),
       // Nor this: the delay each Auto mount flew, which the crash-recovery
       // .ork writes as a Save would (audit 2026-09-30, item 23). Written only
       // while there is one, so a design with no Auto flight stores what it
@@ -2127,7 +2142,7 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile]);
+  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2195,7 +2210,7 @@ export function App() {
     const parts: BlobPart[] = ext === 'csv' ? [CSV_BOM, content as BlobPart] : [content as BlobPart];
     // Design formats keep the file's own stem, including spaces and Unicode.
     // Tables and geometry still name the rocket and the data they export;
-    // choosing Save .rkt or .CDX1 does not make that lossy export the design's file.
+    // all three design formats become the header's file after a successful write.
     const base = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
       ? designFileBase(designFile, tree.name) : safeName(tree.name ?? 'rocket');
     const name = `${base}${suffix}.${ext}`;
@@ -2262,7 +2277,8 @@ export function App() {
       if (out.kind === 'saved' || out.kind === 'downloaded') {
         // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
         markSaved(mark, flightsAtSnapshot);
-        setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded' });
+        setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded', format: 'ork' });
+        setLossySaved(null);
       }
       return out;
     } catch (e) {
@@ -2280,56 +2296,57 @@ export function App() {
   // "saved" would let the next Open discard the parts the file does not hold -
   // which is the defect this guard exists for. Only the .ork round-trips
   // everything, so only .ork marks.
-  const onSaveRkt = async () => {
-    try {
-      // Computed mass, CG and position for EVERY part — rktComponentInfo says
-      // which readers need them and why.
-      const compInfo = built ? rktComponentInfo(tree, (id) => built.rocket.componentInfo(id)) : {};
-      const losses: string[] = [];
-      const xml = exportRkt({
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flownAutoDelaysNow()), compInfo, measured, notes: losses,
-      });
-      losses.push(...windProfileSaveNotes(launch, '.rkt'), ...motorLengthLossNotes(tree, '.rkt'));
-      await download(xml, 'rkt', '', losses);
-    } catch (e) {
-      setFileNote(`RockSim export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
-    }
-  };
+  const lossInput = (format: LossyFormat): FormatLossInput => ({
+    tree, launch, measured, configs: savedConfigs, activeConfigId,
+    motors: exportMotorsMap(format === 'rkt' ? flownAutoDelaysNow() : {}), flightData: flightDataForExport(),
+  });
+  // Use the latest render at the idle edge, without restarting the timer for
+  // unrelated UI renders. No kernel calls are made by this preview.
+  const lossInputRef = useRef(lossInput);
+  lossInputRef.current = lossInput;
+  useEffect(() => {
+    if (!designFile || designFile.format === 'ork' || simulating || reflying !== null) return;
+    const file = designFile;
+    const format = designFile.format;
+    const timer = window.setTimeout(() => {
+      if (flightHoldsHandle.current) return;
+      setLiveLoss({ file, report: checkFormatLoss(format, lossInputRef.current(format)) });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput]);
 
-  const onSaveCdx1 = async () => {
-    try {
-      const filletNotes: string[] = [];
-      // The RASAero writer THROWS on ordinary designs it cannot represent
-      // (>3 stages, two fin sets on a tube, freeform/elliptical fins,
-      // non-conical transitions, unsupported nose shapes). The catch below is
-      // the only thing between that and a silent no-file — which is a second,
-      // entirely separate explanation for "I don't know where it went".
-      await download(exportCdx1({
-        notes: filletNotes,
-        name: tree.name ?? 'My Rocket',
-        tree,
-        // Loaded mass WITH the weighed hardware when a pad mass is set — the
-        // pad weight the user measured, which is what RASAero's launch weight
-        // means (services/hardwareMass.ts).
-        launchMassKg: built?.info.mass,
-        launchCgM: built?.info.cg,
-        launch,
-        // Engine strings ride when rasaeroFile's CDX1_ENGINE_EXPORT gate is on
-        // — it has been since 2026-08-25, proven against real RASAero II with a
-        // single-stage file. The gate stays because RASAero throws an NRE on
-        // motor names its own database lacks; flipping it back is one line
-        // there.
-        motors: exportMotorsMap(),
-        // The opened file's Mach-Alt table goes back out (K10; format audit
-        // row 45): the exporter wrote an empty <MachAlt> without it.
-        ...(fileMachAlt ? { machAlt: fileMachAlt } : {}),
-        // A Rod aim cannot travel — <LaunchSite> has no rod direction — so the
-        // saved line says so, as a loss, when the tilted rod was aimed off the wind.
-      }), 'CDX1', '', [...filletNotes, ...nozzleExportNotes(tree, '.CDX1'), cdx1RodAimNote(launch), cdx1RecoveryDelayNote(tree), ...windProfileSaveNotes(launch, '.CDX1'), ...motorLengthLossNotes(tree, '.CDX1')].filter((n): n is string => n !== null));
-    } catch (e) {
-      setFileNote(`RASAero export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
-    }
+  const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
+    const data = lossInput(format);
+    const report = checkFormatLoss(format, data);
+    // If the design changed behind a dialog, show the new losses before
+    // writing. There is no await before download reaches the file picker.
+    const write = async () => {
+      const mark = designFingerprint(snapshotNow());
+      const flights = lossyFlights;
+      setLossDialog(null);
+      try {
+        const xml = format === 'rkt'
+          ? exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, measured,
+            compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {} })
+          : exportCdx1({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, launch,
+            launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
+            ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
+        const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses);
+        if (out.kind === 'saved' || out.kind === 'downloaded') {
+          const file: DesignFileRef = { name: out.name, via: out.kind, format };
+          setDesignFile(file);
+          setLossySaved({ mark, flights, format, lossCount: report.losses.length });
+          setLiveLoss({ file, report });
+        }
+      } catch (e) {
+        setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      }
+    };
+    if (accepted && !report.refused && stableJson(report) === stableJson(accepted)) void write();
+    else gateLossySave(report, () => { void write(); }, next => setLossDialog({ report: next, confirm: true }));
   };
+  const onSaveRkt = () => saveLossy('rkt');
+  const onSaveCdx1 = () => saveLossy('cdx1');
 
   // NOTE for the three handlers below: they `await import(...)` before saving,
   // which spends the click's transient user activation — so on Chrome the
@@ -2409,6 +2426,7 @@ export function App() {
     // The winning open owns the file name as well as the design. A share link
     // has no file, so its omitted argument clears the previous file's name.
     setDesignFile(file);
+    setLossySaved(null);
     // What goes on screen, decided in services/importApply.ts and written by
     // applyImportPlan, which marks from the SAME plan — so the two cannot be
     // assembled apart. The launch is merged ONCE, from the mirror, now that
@@ -2566,7 +2584,7 @@ export function App() {
       // does, and say which one in the import note; the Flight configurations
       // panel on Motors & Launch switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
-      await applyImported(imported, openId, { name: file.name, via: 'opened' });
+      await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
     } catch (e) {
       // A superseded open must not shout about a design nobody is waiting for.
       if (!openSeq.isCurrent(openId)) return;
@@ -3006,11 +3024,11 @@ export function App() {
                     title="The whole design — components, motors, launch conditions — packed into a link you can paste in chat or email. It opens right in the browser; the design travels in the link itself and never touches a server.">
                     🔗 Copy share link
                   </button>
-                  <button onClick={() => { void onSaveRkt(); }}
+                  <button onClick={onSaveRkt}
                     title="RockSim design (max 3 stages; clusters split into individual tubes)">
                     Save .rkt — RockSim
                   </button>
-                  <button onClick={() => { void onSaveCdx1(); }}
+                  <button onClick={onSaveCdx1}
                     title="RASAero II design (aero geometry + recovery + launch weight; RASAero needs conical transitions and 3–8 trapezoid fins)">
                     Save .CDX1 — RASAero II
                   </button>
@@ -3129,9 +3147,15 @@ export function App() {
         </div>
         <div className="design-file">
           <span className="design-file-name" title={designFileTitle(designFile)}>{designFileLabel(designFile)}</span>
-          <span className="design-save-status" role="status" aria-label="Design save status" aria-live="polite">
-            {dirty ? 'Unsaved changes' : 'No unsaved changes'}
+          <span className={`design-save-status${lossyStatus?.startsWith('Saved as') ? ' design-save-status-lossy' : ''}`} role="status" aria-label="Design save status" aria-live="polite">
+            {lossyStatus ?? (dirty ? 'Unsaved changes' : 'No unsaved changes')}
           </span>
+          {liveLossReport && (liveLossReport.refused || liveLossReport.losses.length > 0) && (
+            <button className="design-loss-warning" onClick={() => setLossDialog({ report: liveLossReport, confirm: false })}>
+              {liveLossReport.refused ? `\u26a0 Can't be saved as ${formatExtension(liveLossReport.format)}`
+                : `\u26a0 ${liveLossReport.losses.length} this ${formatExtension(liveLossReport.format)} can't hold`}
+            </button>
+          )}
         </div>
         {/* the owner's chosen identity line (2026-08-05b #9) — the per-model detail
             lives in Preferences and the launch report's "Aero model" row. */}
@@ -3305,6 +3329,10 @@ export function App() {
           onClose={() => setShowBatch(false)}
         />
       )}
+      {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
+        onClose={() => setLossDialog(null)}
+        onSave={() => saveLossy(lossDialog.report.format, lossDialog.report)}
+        onSaveOrk={() => { setLossDialog(null); void onSaveOrk(); }} />}
       {confirmNew && (
         <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
           <h2>Start a new design?</h2>
@@ -3315,6 +3343,7 @@ export function App() {
             motors, the flight configurations, the Measured mass &amp; CG, the
             Geodetic calculations choice or the flight.
           </p>
+          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save .ork first
@@ -3361,6 +3390,7 @@ export function App() {
             takes it, so those changes would be gone — Ctrl+Z does not reach
             across a file open.
           </p>
+          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button
               className="file-btn"
@@ -3404,6 +3434,7 @@ export function App() {
             link. Ctrl+Z will not put it back: the undo history starts over
             from the linked design.
           </p>
+          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save mine first

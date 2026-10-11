@@ -178,7 +178,7 @@ async function guarded(host: HTMLElement): Promise<boolean> {
     expect(status!.textContent).toBe('No unsaved changes');
     return false;
   }
-  expect(indicatedDirty).toBe(true);
+  expect(indicatedDirty || status!.textContent?.startsWith('Saved as .')).toBe(true);
   const modal = [...document.querySelectorAll('.modal-actions')]
     .find((m) => m.textContent?.includes('Discard & start new'))!;
   await act(async () => { button(modal, 'Cancel').click(); });
@@ -186,9 +186,11 @@ async function guarded(host: HTMLElement): Promise<boolean> {
 }
 
 /** An entry of the header's Save As / Export menu, pressed. */
-async function saveAs(host: HTMLElement, entry: string): Promise<void> {
+async function saveAs(host: HTMLElement, entry: string, confirmLoss = true): Promise<void> {
   await act(async () => { button(host, 'Save As / Export').click(); });
   await act(async () => { button(host.querySelector('.file-menu')!, entry).click(); });
+  const anyway = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(b => b.textContent?.includes(' anyway'));
+  if (confirmLoss && anyway) await act(async () => { anyway.click(); });
 }
 
 /** `file` chosen in the header's Open… picker, as a user choosing it does. */
@@ -893,6 +895,112 @@ describe('lane C2 save and share fidelity', () => {
  * one on Launch did before the flight case below (AUDIT row 477, review).
  */
 describe('only a full-fidelity save clears the unsaved-work guard', () => {
+  it.each(['.rkt', '.CDX1'])('V7/V8 keeps the %s snapshot status through undo, redo and reload', async ext => {
+    let host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Lossy snapshot');
+    await saveAs(host, `Save ${ext}`);
+    const status = () => host.querySelector('.design-save-status')?.textContent;
+    const saved = status();
+    expect(saved?.startsWith(`Saved as ${ext}`)).toBe(true);
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(status()).toBe('Unsaved changes');
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(status()).toBe(saved);
+    await unmountAll(); host = await mountApp();
+    expect(status()).toBe(saved);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Changed after reload');
+    await unmountAll(); host = await mountApp();
+    expect(status()).toBe('Unsaved changes');
+  }, 30000);
+  it.each(['.rkt', '.CDX1'])('can cancel %s, cancel its picker, and choose .ork instead', async ext => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Cancel test');
+    await saveAs(host, `Save ${ext}`, false);
+    expect(saveFile).not.toHaveBeenCalled();
+    let dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute('aria-label')).toBe(`Save as ${ext}?`);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.textContent).toBe('Save .ork instead');
+    await act(async () => { button(dialog, 'Cancel').click(); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await saveAs(host, `Save ${ext}`, false);
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
+    dialog = host.querySelector('[role="dialog"]')!;
+    await act(async () => { button(dialog, `Save ${ext} anyway`).click(); });
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Not saved to a file');
+    expect(host.querySelector('.design-save-status')?.textContent).toBe('Unsaved changes');
+    await saveAs(host, `Save ${ext}`, false);
+    dialog = host.querySelector('[role="dialog"]')!;
+    await act(async () => { button(dialog, 'Save .ork instead').click(); });
+    expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe('Cancel_test.ork');
+    expect(host.querySelector('.design-save-status')?.textContent).toBe('No unsaved changes');
+  }, 30000);
+
+  it.each(['.rkt', '.CDX1'])('shows the real %s refusal before any write', async ext => {
+    await mountApp(); await waitFor(starterStored, 'starter motor'); await unmountAll();
+    const tree: RocketTree = { name: 'Four stages', components: Array.from({ length: 4 }, (_, i) =>
+      ({ type: 'stage', id: `s${i}`, children: [{ type: 'bodytube', id: `b${i}`, length: 0.2, outerRadius: 0.02 }] })) };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...storedSession(), tree, mountMotors: {}, savedConfigs: [] }));
+    const host = await mountApp();
+    await saveAs(host, `Save ${ext}`, false);
+    expect(saveFile).not.toHaveBeenCalled();
+    const dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute('aria-label')).toBe(`Can't save as ${ext}`);
+    expect(dialog.textContent).toContain('at most 3 stages');
+    expect(dialog.textContent).not.toContain('anyway');
+    await act(async () => { button(dialog, 'Close').click(); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  }, 30000);
+
+  it('keeps the snapshot taken before the lossy picker, and adds the loss reminder to New and Open', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Before picker');
+    let release!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    await saveAs(host, 'Save .rkt');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'During picker');
+    await act(async () => { release({ kind: 'saved', name: 'Before.rkt' }); });
+    expect(host.querySelector('.design-save-status')?.textContent).toBe('Unsaved changes');
+    await settle(650);
+    await act(async () => { button(host, '✕ New').click(); });
+    expect(host.querySelector('.replacement-loss')?.textContent).toContain('You saved “Before.rkt”, but it does not keep:');
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
+    await pick(host, new File([fixture(RKT)], 'next.rkt'));
+    expect(host.querySelector('.replacement-loss')?.textContent).toContain('You saved “Before.rkt”');
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
+  }, 30000);
+
+  it('gates a lossy save, keeps the .ork guard, and reports the saved format until an edit', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Lossy test');
+    await saveAs(host, 'Save .rkt', false);
+    expect(saveFile).not.toHaveBeenCalled();
+    const dialog = host.querySelector('[role="dialog"][aria-label="Save as .rkt?"]')!;
+    expect(dialog).not.toBeNull();
+    const listed = [...dialog.querySelectorAll('li')].map(li => li.textContent!);
+    expect(listed.length).toBeGreaterThan(0);
+    await act(async () => {
+      button(dialog, 'Save .rkt anyway').click();
+      // The picker must start in the click itself, before even a microtask.
+      expect(saveFile).toHaveBeenCalledOnce();
+    });
+    expect(saveFile).toHaveBeenCalledOnce();
+    expect(host.querySelector('.design-file-name')?.textContent).toBe('Lossy_test.rkt — RockSim file');
+    expect(host.querySelector('.design-save-status')?.textContent).toBe(`Saved as .rkt — ${listed.length} not kept`);
+    expect(document.title).toMatch(/^\*/);
+    for (const loss of listed) expect(host.textContent).toContain(loss);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited');
+    expect(host.querySelector('.design-save-status')?.textContent).toBe('Unsaved changes');
+    await settle(650);
+    await act(async () => { button(host, "this .rkt can't hold").click(); });
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Save .ork');
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Close').click(); });
+    await saveAs(host, 'Save .ork');
+    expect(host.querySelector('.design-save-status')?.textContent).toBe('No unsaved changes');
+  }, 30000);
   it.each([1020, 390])('keeps the design save status readable by CSS at %i px, including Fly', async width => {
     const dom = (window as unknown as HappyWindow).happyDOM;
     const originalWidth = window.innerWidth;
@@ -1118,12 +1226,12 @@ describe('an open and ✕ New leave a design that reads saved', () => {
     await pick(host, new File([fixture(RKT)], fileName));
     await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
     const label = () => host.querySelector<HTMLElement>('.design-file-name')!;
-    expect(label().textContent).toBe(fileName);
-    expect(label().title).toBe(`Opened from ${fileName}. Save .ork offers this name.`);
+    expect(label().textContent).toBe(`${fileName} \u2014 RockSim file`);
+    expect(label().title).toContain(`Opened from ${fileName}. Save .ork offers this name.`);
     expect(document.title).toBe(`FooBar Test (${fileName}) — MMRocket Sim`);
     await unmountAll();
     host = await mountApp();
-    expect(label().textContent).toBe(fileName);
+    expect(label().textContent).toBe(`${fileName} \u2014 RockSim file`);
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Different rocket');
     expect(document.title).toBe(`*Different rocket (${fileName}) — MMRocket Sim`);
     vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Chosen name.ork' });
@@ -1135,7 +1243,7 @@ describe('an open and ✕ New leave a design that reads saved', () => {
     await unmountAll();
     host = await mountApp();
     expect(label().textContent).toBe('Chosen name.ork');
-    expect(storedSession()?.designFile).toEqual({ name: 'Chosen name.ork', via: 'saved' });
+    expect(storedSession()?.designFile).toEqual({ name: 'Chosen name.ork', via: 'saved', format: 'ork' });
     await act(async () => { button(host, '✕ New').click(); });
     expect(label().textContent).toBe('Not saved to a file');
     expect(document.title).toBe('New Rocket — MMRocket Sim');
@@ -1143,7 +1251,7 @@ describe('an open and ✕ New leave a design that reads saved', () => {
     expect(storedSession()).not.toHaveProperty('designFile');
   }, 30000);
 
-  it('only a successful .ork save changes the file name; other exports keep their naming rules', async () => {
+  it('successful design saves change the file name; cancelled saves and other exports keep it', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     await pick(host, new File([fixture(RKT)], 'Original file.rkt'));
@@ -1151,10 +1259,10 @@ describe('an open and ✕ New leave a design that reads saved', () => {
     const label = () => host.querySelector<HTMLElement>('.design-file-name')!;
     vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
     await saveAs(host, 'Save .ork');
-    expect(label().textContent).toBe('Original file.rkt');
+    expect(label().textContent).toBe('Original file.rkt \u2014 RockSim file');
     vi.mocked(saveFile).mockRejectedValueOnce(new Error('disk unavailable'));
     await saveAs(host, 'Save .ork');
-    expect(label().textContent).toBe('Original file.rkt');
+    expect(label().textContent).toBe('Original file.rkt \u2014 RockSim file');
     for (const [entry, expected] of [
       ['Save .rkt', 'Original file.rkt'], ['Save .CDX1', 'Original file.CDX1'],
       ['Export .csv', 'FooBar_Test-components.csv'], ['Export .obj', 'FooBar_Test.obj'],
@@ -1163,7 +1271,7 @@ describe('an open and ✕ New leave a design that reads saved', () => {
       await saveAs(host, entry!);
       await waitFor(() => vi.mocked(saveFile).mock.calls.length > before, `${entry} to write`);
       expect(vi.mocked(saveFile).mock.lastCall?.[1].suggestedName).toBe(expected);
-      expect(label().textContent).toBe('Original file.rkt');
+      expect(label().textContent).toBe(entry === 'Save .rkt' ? 'Original file.rkt \u2014 RockSim file' : 'Original file.CDX1 \u2014 RASAero II file');
     }
     await saveAs(host, 'Save .ork');
     expect(label().textContent).toBe('Original file.ork');

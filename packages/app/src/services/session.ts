@@ -10,6 +10,8 @@ import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
 import { defaultTree } from '../tree/treeModel.js';
 import { validDesignFileRef, type DesignFileRef } from './designFileName.js';
+import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
+import { designFingerprint } from './dirtyState.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -126,8 +128,9 @@ export interface SessionState {
    * dropped on load when malformed (`validMachAltTable`).
    */
   fileMachAlt?: [number, number][];
-  /** The opened or last .ork save's file name and provenance, separate from the rocket name. */
+  /** The opened or last saved design file's name, format and provenance. */
   designFile?: DesignFileRef;
+  lossySaved?: LossySaveMark;
   /**
    * The design fingerprint as of the last save or import (v0.091+) — what is
    * on disk. Compared against the live design to decide whether opening
@@ -447,6 +450,14 @@ function readSession(restoreRoot: boolean): SessionState | null {
       const file = validDesignFileRef(s.designFile);
       if (file) s.designFile = file;
       else delete s.designFile;
+    }
+    if (s.lossySaved !== undefined) {
+      const mark = designFingerprint({ tree: s.tree, launch: s.launch, mountMotors: s.mountMotors ?? {},
+        savedConfigs: s.savedConfigs ?? [], activeConfigId: s.activeConfigId ?? null,
+        measured: s.measured ?? { massKg: null, cgM: null } });
+      const saved = validLossySaveMark(s.lossySaved, s.designFile, mark);
+      if (saved) s.lossySaved = saved;
+      else delete s.lossySaved;
     }
     // The same for the delays a crash file writes an Auto mount at.
     if (s.flownAutoDelays !== undefined) {

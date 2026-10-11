@@ -36,6 +36,20 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+it('V8 round-trips the lossy mark beside its file and drops stale or invalid marks', () => {
+  const snapshot = { ...state(), mountMotors: {}, savedConfigs: [], activeConfigId: null, measured: { massKg: null, cgM: null } };
+  const lossySaved = { mark: designFingerprint(snapshot), flights: 3, format: 'rkt' as const, lossCount: 4 };
+  const designFile = { name: 'test.rkt', via: 'saved' as const, format: 'rkt' as const };
+  saveSessionDebounced({ ...snapshot, lossySaved, designFile }); vi.runAllTimers();
+  expect(loadSession()!.lossySaved).toEqual(lossySaved);
+  for (const mark of [{ ...lossySaved, mark: 'stale' }, { ...lossySaved, flights: -1 }, { ...lossySaved, lossCount: NaN }]) {
+    saveSessionDebounced({ ...snapshot, lossySaved: mark, designFile }); vi.runAllTimers();
+    const restored = loadSession()!;
+    expect(restored.lossySaved).toBeUndefined();
+    expect(restored.designFile).toEqual(designFile);
+  }
+});
+
 /** Refuse writes the way a full origin does; reads stay real. */
 function jamWrites(): void {
   const real = localStorage;
@@ -67,7 +81,7 @@ afterEach(() => {
 
 describe('storage hardening: session tree', () => {
   it.each(['opened', 'saved', 'downloaded'] as const)('round-trips a design file name (%s)', via => {
-    const designFile = { name: 'Mon fusée.ork', via };
+    const designFile = { name: 'Mon fusée.ork', via, format: 'ork' as const };
     saveSessionDebounced({ ...state(), designFile });
     flushSession();
     expect(loadSession()?.designFile).toEqual(designFile);

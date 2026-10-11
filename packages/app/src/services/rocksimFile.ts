@@ -1985,6 +1985,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
 
   const tree = sanitizeTree({ name, components }, notes);
   return {
+    sourceFormat: 'rkt',
     name,
     // The limits table (audit 2026-09-22), applied where its notes still reach
     // the import banner: a <FinCount> of 70000 made the side view throw and took
@@ -3200,10 +3201,20 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes }: Rkt
   // What a stage override becomes on the way back in here: importRkt reads
   // a known mass into Measured mass & CG, or for more stages than one into
   // a note, and never pins the stage (ruling 2026-08-23), so the design it
-  // re-opens flies the parts. Only where the override itself took the slot:
-  // one that moves nothing writes nothing, and the box may hold it instead.
+  // re-opens flies the parts. An override that moves nothing can also be
+  // lost, even when the measured box holds the slot instead; say that too.
   stagesIn.forEach((s, i) => {
-    if (!fromStage[i]) return;
+    // Loss notes must also work in the engine-free Save preview. A CG-only
+    // or zero-mass override may acquire a known mass from compInfo, but that
+    // cannot preserve the editable override either way. Only this wording
+    // changes: stageKnown above still owns exactly what goes into the XML.
+    if (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined) return;
+    if (!(nnum(s, 'overrideMass', 0) > 0)) {
+      notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: Stage mass/CG overrides are not preserved as editable stage settings.`
+        + ' Any computed stage weight reopens here as Measured mass & CG (multi-stage weights as a note only),'
+        + ' so the reopened design flies its parts until you apply it. Save a .ork file to keep the overrides.');
+      return;
+    }
     const mass = numOpt(s, 'overrideMass') !== undefined;
     const both = mass && numOpt(s, 'overrideCGX') !== undefined;
     notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`

@@ -255,6 +255,8 @@ export interface OrkDeployOverride {
  * offer a picker and re-import with `{ configId }`.
  */
 export interface OrkImportResult extends OrkTreeImportResult {
+  /** Set by lossy readers too, so pre-parsed/headless imports use the same notices. */
+  sourceFormat?: 'ork' | 'rkt' | 'cdx1';
   /** Transient import warning: the file format is newer than the app understands. */
   newerFormat?: boolean;
   /** Only simulations carrying a recognised app provenance tag and summary. */

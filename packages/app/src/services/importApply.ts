@@ -3,6 +3,7 @@ import { hasSimulationExtensions } from './orkExtensions.js';
 import { restoreConfigLabels } from './motorLabels.js';
 import { restoreExMotors, type ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
+import { launchFieldLabels } from './formatLoss.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
@@ -64,7 +65,7 @@ export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
-  & { machAlt?: [number, number][] };
+  & { machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
 
 /** One mount's motor in the shape the stated-launch-weight reconcile takes. */
 export function attachedOf(spec: MountMotor['spec']): AttachedMotor {
@@ -118,6 +119,20 @@ export function importedLaunch(
     delete next.windProfileSource;
   }
   return next;
+}
+
+/** Describe only fields the merge really keeps, not the fidelity/profile resets. */
+export function retainedLaunchNote(
+  format: ImportedDesign['sourceFormat'], prev: LaunchConditions, fromFile: Partial<LaunchConditions> | undefined,
+): string | null {
+  if (format !== 'rkt' && format !== 'cdx1') return null;
+  const reset = new Set(['timeStepS', 'geodeticMethod', 'launchGuideAllowance']);
+  const kept = (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[])
+    .filter(k => !reset.has(k) && k in prev && !(fromFile && k in fromFile));
+  if (!kept.length) return null;
+  return format === 'rkt'
+    ? 'A .rkt carries no launch conditions — the Launch panel keeps the settings you had.'
+    : `This .CDX1 carries no ${kept.map(k => launchFieldLabels[k]).join(', ')} — the Launch panel keeps the settings you had for those fields.`;
 }
 
 /** Every motor an opened design names, resolved. */
@@ -381,6 +396,8 @@ export function planImport(
     ? swapConfigNotes(imported.notes, imported.configNotes, imported.chosenConfigId!, pick.cfg.id, pick.skipNote)
     : imported.notes;
   const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
+  const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch);
+  if (keptLaunch) notes.push(keptLaunch);
   // Load EVERY mount's motor (staged/multi-mount files included).
   //
   // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched

@@ -102,12 +102,15 @@ describe('parseDesignFile and openDesignFile', () => {
     // A RASAero file with no <Comments> has no name of its own.
     const parsed = parseDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
     expect(parsed.tree.name).toBe('Imported RASAero rocket');
+    expect(parsed.sourceFormat).toBe('cdx1');
     const opened = openDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
     expect(opened.tree.name).toBe('My Test Rocket');
     expect(opened.name).toBe('My Test Rocket');
   });
 
   it('a .ork through the .ork reader, a .rkt through the RockSim reader', () => {
+    expect(parseDesignFile(fixture('reference.ork'), 'unusual.backup', { presets: [] }).sourceFormat).toBe('ork');
+    expect(parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'test.RKT', { presets: [] }).sourceFormat).toBe('rkt');
     expect(parseDesignFile(fixture('reference.ork'), 'reference.ork', { presets: [] }).tree.components.length)
       .toBeGreaterThan(0);
     expect(parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'rocksimTestRocket1.rkt', { presets: [] }).tree.name)

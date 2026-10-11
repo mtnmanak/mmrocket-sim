@@ -72,6 +72,12 @@ async function saveCdx1With(launch: LaunchConditions): Promise<HTMLElement> {
   await waitFor(() => button('Save As / Export') !== undefined, 'the Save As menu');
   await act(async () => { button('Save As / Export')!.click(); });
   await act(async () => { button('Save .CDX1')!.click(); });
+  const dialog = host.querySelector('[role="dialog"]');
+  if (dialog) {
+    expect(saveFile).not.toHaveBeenCalled();
+    expect(dialog.getAttribute('aria-label')).toBe('Save as .CDX1?');
+    await act(async () => { button('Save .CDX1 anyway')!.click(); });
+  }
   await waitFor(() => vi.mocked(saveFile).mock.calls.length > 0, 'the .CDX1 save');
   await waitFor(() => (host.textContent ?? '').includes('Saved “Aimed.CDX1”'), 'the saved line');
   return host;

@@ -517,6 +517,21 @@ html {
   white-space: nowrap;
 }
 
+.design-save-status.design-save-status-lossy, .design-loss-warning, .replacement-loss {
+  color: var(--status-warn);
+}
+.design-loss-warning {
+  font: inherit;
+  font-size: 0.8rem;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  white-space: normal;
+}
+.format-loss-list { max-height: 45vh; overflow-y: auto; padding-left: 1.5em; }
+.format-loss-list li + li { margin-top: 0.5em; }
 .design-save-status {
   flex-shrink: 0;
   color: var(--text-muted);

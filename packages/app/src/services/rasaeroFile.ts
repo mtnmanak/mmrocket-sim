@@ -1641,6 +1641,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   const tree = sanitizeTree({ name, components: stages }, notes);
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {
+    sourceFormat: 'cdx1',
     // The limits table (audit 2026-09-22), applied where its notes still reach
     // the import banner — a fin <Count> had a floor of 1 and no ceiling, and a
     // negative <Span> failed the whole build. Each repair is named in one note.

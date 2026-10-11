@@ -1,13 +1,12 @@
 // @vitest-environment happy-dom
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { makeNode } from '../tree/treeModel.js';
 import { exportRkt, importRkt } from './rocksimFile.js';
 import { exportCdx1, importCdx1 } from './rasaeroFile.js';
 import { exportOrk, importOrk } from './orkFile.js';
+import { checkFormatLoss } from './formatLoss.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const treeFor = (patch: Partial<ComponentNode> = {}): RocketTree => ({ name: 'Fillets', components: [
   { id: 'session-stage', type: 'stage', children: [
@@ -41,10 +40,9 @@ describe('fillet export loss', () => {
     expect(fin(importCdx1(xml).tree)['filletRadius']).toBeUndefined();
     expect(xml).toBe(exportCdx1({ name: 'Fillets', tree: treeFor({ filletRadius: 0 }), launchMassKg: 0.75, launchCgM: 0.2 }));
     expect(xml).not.toContain('session-fins');
-    const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
-    const save = app.slice(app.indexOf('const onSaveCdx1 ='), app.indexOf('const onSaveCdx1 =') + 2400);
-    expect(save).toContain('notes: filletNotes');
-    expect(save).toContain('...filletNotes');
+    const report = checkFormatLoss('cdx1', { tree: treeFor(), motors: {}, launch: DEFAULT_CONDITIONS,
+      configs: [], activeConfigId: null, measured: { massKg: null, cgM: null }, flightData: {} });
+    expect(report.losses).toEqual(expect.arrayContaining(notes));
   });
 
   it('warns for a retained material at zero radius, but not a default unfilleted design', () => {
