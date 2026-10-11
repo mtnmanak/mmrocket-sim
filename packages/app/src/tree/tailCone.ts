@@ -36,6 +36,8 @@ export function tailConeAsTransition(n: ComponentNode): ComponentNode {
     ...n,
     type: 'transition',
     shape: typeof n['shape'] === 'string' ? n['shape'] : 'ogive',
+    // A nose cone's absent length flies 70 mm, a transition's 50 mm: carried.
+    length: kernelNum(n, 'length'),
     foreRadius: kernelNum(n, 'aftRadius'),
     aftRadius: 0,
   };

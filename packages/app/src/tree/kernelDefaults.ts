@@ -1,11 +1,27 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 
 /** FreeformFinSet's constructor outline, metres (FreeformFinSet.java:30-34). */
 export const KERNEL_DEFAULT_FIN_POINTS: readonly (readonly [number, number])[] = [
   [0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0],
 ];
+
+/**
+ * The material a part flies when its node states no density (SI: kg/m³ bulk,
+ * kg/m² surface, kg/m line): the web engine's ApplicationPreferences shim
+ * (`getDefaultComponentMaterial`), at the densities its Databases shim copies
+ * from upstream. ComponentFactory sets a BULK material only for a density
+ * above 0, so an absent or zero one flies Cardboard; a surface or line density
+ * is set whenever it is stated, 0 included. A stated density with no material
+ * name flies under the name "custom" (ComponentFactory `str(node,
+ * "…MaterialName", "custom")`). `kernelDefaults.test.ts` reads both shims.
+ */
+export const KERNEL_DEFAULT_MATERIALS = {
+  bulk: { name: 'Cardboard', density: 680 },
+  surface: { name: 'Ripstop nylon', density: 0.067 },
+  line: { name: 'Elastic cord (round 2 mm, 1/16 in)', density: 0.0018 },
+} as const;
 
 /**
  * WHAT AN ABSENT DIMENSION FLIES — the kernel bridge's own default for a node
@@ -90,4 +106,40 @@ export function kernelDefault(type: string, key: string): number | undefined {
  */
 export function kernelNum(n: ComponentNode, key: string): number {
   return num(n, key, kernelDefault(n.type as string, key) ?? Number.NaN);
+}
+
+/**
+ * The coefficient a parachute flies when no Cd is typed — the ONE copy, which
+ * engineTree (tree/treeModel.ts, re-exported there), recoverySizing and the
+ * file writers (kernelRecoveryCd) all read.
+ *
+ * `RecoveryDevice.cd` is initialised to `Parachute.DEFAULT_CD` (Parachute.java:17)
+ * with `cdAutomatic = true`, and `Parachute.getComponentCD` returns that field
+ * unchanged, so an untyped canopy flies exactly 0.80 at every Mach.
+ * `ComponentFactory` calls `setCD` only for a finite `cd`, so leaving the key
+ * OFF is the automatic path — never write this value into the engine tree.
+ * A STREAMER has no constant: `Streamer.getComponentCD` computes one from
+ * strip length and material density (kernelRecoveryCd below).
+ */
+export const KERNEL_DEFAULT_CD = 0.8;
+/** Streamer.MAX_COMPUTED_CD (Streamer.java:13). */
+const STREAMER_MAX_COMPUTED_CD = 0.4;
+
+/**
+ * The drag coefficient a parachute or streamer flies: its stated `cd`, which
+ * the bridge pins (RecoveryDevice.setCD turns cdAutomatic off), else the
+ * kernel's AUTOMATIC one — a recovery device starts cdAutomatic
+ * (RecoveryDevice.java:26-27), and getCD returns getComponentCD: for a
+ * parachute its DEFAULT_CD, for a streamer
+ * 0.034·((ρ + 0.025)/0.105)·(L + 1)/L, at most 0.4 (Streamer.java:139-145),
+ * ρ its surface density (Ripstop nylon when none is stated) and L its strip
+ * length.
+ */
+export function kernelRecoveryCd(n: ComponentNode): number {
+  const cd = numOpt(n, 'cd');
+  if (cd !== undefined) return cd;
+  if (n.type !== 'streamer') return KERNEL_DEFAULT_CD;
+  const length = kernelNum(n, 'stripLength');
+  const density = numOpt(n, 'surfaceDensity') ?? KERNEL_DEFAULT_MATERIALS.surface.density;
+  return Math.min(0.034 * ((density + 0.025) / 0.105) * (length + 1) / length, STREAMER_MAX_COMPUTED_CD);
 }

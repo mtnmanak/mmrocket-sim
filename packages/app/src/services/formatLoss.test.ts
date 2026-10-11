@@ -63,40 +63,19 @@ describe('lossy fix regressions', () => {
     d.tree.components[0]!.children![0]!.finish = 'normal';
     expect(line('cdx1', d, 'Surface finish')).toBe(false);
   });
-  it.each([
-    ['tubecoupler', 'length', 0.05, 'length is written as 2 mm instead of 50 mm'],
-    ['engineblock', 'length', 0.005, 'length is written as 2 mm instead of 5 mm'],
-    ['trapezoidfinset', 'sweep', 0.02, 'sweep is written as 0 mm instead of 20 mm'],
-    ['podset', 'instanceCount', 2, 'one instance is written instead of two'],
-    ['parallelstage', 'instanceCount', 2, 'one instance is written instead of two'],
-    ['bodytube', 'density', 680, 'bulk density is written as 0 kg/m³ instead of 680 kg/m³'],
-    ['bodytube', 'thickness', 0.0003, 'wall is written as 0.5 mm instead of 0.3 mm'],
-  ] as const)('V5 names the flown default difference for %s', (type, key, value, message) => {
-    const n: ComponentNode = { type, name: 'Blank part' };
-    const d = input(n);
-    expect(line('rkt', d, `“Blank part”: ${message}`)).toBe(true);
-    n[key] = value;
-    expect(line('rkt', d, `“Blank part”: ${message}`)).toBe(false);
-  });
-  it('cdx1 names an unset trapezoid sweep written as 0 mm', () => {
-    const n: ComponentNode = { type: 'trapezoidfinset', name: 'Blank fins' };
-    const d = input(n);
-    expect(line('cdx1', d, '“Blank fins”: sweep is written as 0 mm instead of 20 mm')).toBe(true);
-    n.sweep = 0.02;
-    expect(line('cdx1', d, '“Blank fins”: sweep')).toBe(false);
-  });
-  it('rkt says nothing of the wall of a solid body tube', () => {
-    const d = input({ type: 'bodytube', name: 'Rod', filled: true });
-    expect(line('rkt', d, '“Rod”: wall is written')).toBe(false);
-  });
-  it('V5 compares automatic radii to the resolved flown radius', () => {
-    const d = input({ type: 'tubefinset', name: 'Tube fins' });
-    expect(line('rkt', d, '“Tube fins”: automatic radius is written as 12 mm')).toBe(true);
-    d.tree.components[0]!.children![0]!.outerRadius = 0.012;
-    expect(line('rkt', d, '“Tube fins”: automatic radius')).toBe(false);
-    d.tree.components[0]!.children!.push({ type: 'transition', name: 'Auto tail' });
-    expect(line('rkt', d, '“Auto tail”: automatic aft radius is written as 9 mm')).toBe(true);
-    expect(line('rkt', d, '“Auto tail”: automatic fore radius')).toBe(false);
+  // The writers now write what a blank part flies (review of v0.174, B1;
+  // rocksimFile.test.ts and rasaeroFile.test.ts round-trip every part type),
+  // so the Save names no writer fallback for one any more.
+  it.each(['tubecoupler', 'engineblock', 'trapezoidfinset', 'podset', 'parallelstage', 'bodytube', 'tubefinset',
+    'transition', 'freeformfinset', 'masscomponent', 'parachute', 'streamer', 'shockcord', 'centeringring'] as const)(
+    'V5 has no writer-fallback line for a blank %s', (type) => {
+      const d = input({ type, name: 'Blank part' });
+      if (type === 'transition') d.tree.components[0]!.children!.push({ type: 'transition', name: 'Blank part' });
+      expect(checkFormatLoss('rkt', d).losses.filter(l => / is written as |one instance is written/.test(l))).toEqual([]);
+    });
+  it('cdx1 has no line for a blank trapezoid sweep', () => {
+    const d = input({ type: 'trapezoidfinset', name: 'Blank fins' });
+    expect(line('cdx1', d, 'sweep')).toBe(false);
   });
   it('V6 only calls a doublewedge trailing edge derived', () => {
     const n: ComponentNode = { type: 'trapezoidfinset', airfoilSection: 'biconvex', airfoilTeDiamond: 0.01 };
@@ -161,6 +140,8 @@ const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['rkt', 'Mass-object size', { type: 'masscomponent', radius: 0.01 }, { type: 'masscomponent' }],
   ['rkt', 'Zero-density parachute', { type: 'parachute', lineDensity: 0 }, { type: 'parachute', lineDensity: 0.002 }],
   ['rkt', 'reopens on Auto', { type: 'streamer', cd: 0.75 }, { type: 'streamer', cd: 0.8 }],
+  ['rkt', 'Automatic recovery Cd', { type: 'streamer' }, { type: 'streamer', cd: 0.3 }],
+  ['rkt', 'Automatic recovery Cd', { type: 'parachute' }, { type: 'parachute', cd: 1.2 }],
   ['rkt', 'Shock-cord CG', { type: 'shockcord', overrideCGX: 0.1 }, { type: 'shockcord' }],
   ['rkt', 'Surface finish', { type: 'bodytube', finish: 'mirror' }, { type: 'bodytube', finish: 'normal' }],
   ['rkt', 'Dormant maximum', { type: 'innertube', maxMotorLength: 0 }, { type: 'innertube' }],

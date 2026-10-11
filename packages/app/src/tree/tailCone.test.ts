@@ -8,6 +8,7 @@ import { solidContextFor } from './solidContext.js';
 import { shoulderFit } from './fitHelpers.js';
 import { estimateMotorRoom } from './motorRoom.js';
 import { FIELDS } from './schema.js';
+import { kernelDefault } from './kernelDefaults.js';
 
 /**
  * EVERY READER OF A NOSE CONE'S PROFILE HONOURS THE FLIP (KB2; format audit
@@ -55,6 +56,13 @@ describe('the flip, as one question', () => {
     expect(t['foreShoulderLength']).toBe(0.03);
     expect(t['shoulderLength']).toBeUndefined();
     expect(t['flipped']).toBeUndefined();
+  });
+
+  it('keeps the length a blank tail cone flies: a nose cone’s, not a transition’s', () => {
+    // A nose cone with no length flies 70 mm, a transition 50 mm (review of v0.174, B1).
+    const t = tailConeAsTransition({ type: 'nosecone', flipped: true } as ComponentNode);
+    expect(t['length']).toBe(kernelDefault('nosecone', 'length'));
+    expect(t['length']).not.toBe(kernelDefault('transition', 'length'));
   });
 });
 

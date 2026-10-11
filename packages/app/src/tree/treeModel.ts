@@ -31,6 +31,7 @@ import { clusterCount } from './cluster.js';
 import { num, numOpt, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 import { ventLimit } from './canopyVent.js';
+import { KERNEL_DEFAULT_CD } from './kernelDefaults.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -1471,17 +1472,11 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
  *    guide search skips it without changing its drag, mass or geometry.
  */
 /**
- * The coefficient a parachute flies when no Cd is typed.
- *
- * `RecoveryDevice.cd` is initialised to `Parachute.DEFAULT_CD` with
- * `cdAutomatic = true`, and `Parachute.getComponentCD` returns that field
- * unchanged, so an untyped canopy flies exactly 0.80 at every Mach.
- * `ComponentFactory` calls `setCD` only for a finite `cd`, so leaving the key
- * OFF is the automatic path — never write this value into the engine tree.
- * A STREAMER has no constant: `Streamer.getComponentCD` computes one from
- * strip length and material density.
+ * The coefficient a parachute flies when no Cd is typed: kernelDefaults.ts
+ * holds the one copy (Parachute.DEFAULT_CD), re-exported here for the callers
+ * that import it from this module.
  */
-export const KERNEL_DEFAULT_CD = 0.8;
+export { KERNEL_DEFAULT_CD };
 
 export function engineTree(tree: RocketTree): RocketTree {
   // Rocket reference diameter = the airframe's max diameter (kernel rule).

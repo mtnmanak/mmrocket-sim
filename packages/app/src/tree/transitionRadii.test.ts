@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket, resetEngine } from '@online-openrocket/engine';
-import { resolveTransitionRadii } from './transitionRadii.js';
+import { flownTransitionEnds, resolveTransitionRadii } from './transitionRadii.js';
 import { solidContextFor } from './solidContext.js';
 import { componentLoop, componentSolid } from './solidMesh.js';
 import { printOffer } from '../services/printPack.js';
@@ -234,5 +234,31 @@ describe('K3 kernel inline neighbour search', () => {
     ] });
     await matchesExplicit(t, 'fore', 0.04);
     await matchesExplicit(t, 'aft', 0.06);
+  });
+});
+
+describe('flownTransitionEnds (the writers\' reader of a transition\'s flown ends)', () => {
+  it('reads a stated end, resolves an automatic one, and leaves the source tree alone', () => {
+    const t1: ComponentNode = { type: 'transition', id: 't1', length: 0.05 };
+    const t2: ComponentNode = { type: 'transition', id: 't2', length: 0.05, foreRadius: 0.02 };
+    const tree: RocketTree = { name: 'R', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'a', length: 0.2, outerRadius: 0.03 }, t1,
+      { type: 'bodytube', id: 'b', length: 0.2, outerRadius: 0.015 }, t2,
+    ] }] };
+    const before = structuredClone(tree);
+    const ends = flownTransitionEnds(tree);
+    expect(ends(t1)).toEqual({ fore: 0.03, aft: 0.015 });
+    // No neighbour aft: SymmetricComponent.DEFAULT_RADIUS.
+    expect(ends(t2)).toEqual({ fore: 0.02, aft: 0.025 });
+    expect(tree).toEqual(before);
+    // A node outside the tree reads as it states.
+    expect(ends({ type: 'transition', foreRadius: 0.01 })).toEqual({ fore: 0.01 });
+  });
+  it('has no answer for two automatic ends facing each other', () => {
+    const a: ComponentNode = { type: 'transition', id: 'a' };
+    const b: ComponentNode = { type: 'transition', id: 'b' };
+    const ends = flownTransitionEnds({ name: 'R', components: [{ type: 'stage', id: 's', children: [a, b] }] });
+    expect(ends(a).aft).toBeUndefined();
+    expect(ends(b).fore).toBeUndefined();
   });
 });

@@ -149,3 +149,28 @@ export function resolveTransitionRadii(tree: RocketTree): RocketTree {
   }));
   return { ...tree, components: copy(tree.components) };
 }
+
+/**
+ * A transition's two end radii AS THE KERNEL FLIES THEM, for a writer that
+ * walks the source tree: its own stated radius, else the automatic one
+ * resolveTransitionRadii resolves from its neighbours, else undefined where
+ * the kernel itself has no answer (two automatic ends facing each other —
+ * Transition.getFront/RearAutoRadius returns −1 there). The source tree is
+ * not touched; nodes are matched to their resolved twin by position.
+ */
+export function flownTransitionEnds(tree: RocketTree): (n: ComponentNode) => { fore?: number; aft?: number } {
+  const resolved = resolveTransitionRadii(tree);
+  const twin = new Map<ComponentNode, ComponentNode>();
+  if (resolved !== tree) {
+    const pair = (a: readonly ComponentNode[], b: readonly ComponentNode[]) => {
+      a.forEach((n, i) => { twin.set(n, b[i]!); pair(n.children ?? [], b[i]!.children ?? []); });
+    };
+    pair(tree.components, resolved.components);
+  }
+  return (n) => {
+    const r = twin.get(n) ?? n;
+    const fore = numOpt(r, 'foreRadius');
+    const aft = numOpt(r, 'aftRadius');
+    return { ...(fore !== undefined ? { fore } : {}), ...(aft !== undefined ? { aft } : {}) };
+  };
+}

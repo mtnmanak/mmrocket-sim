@@ -7,7 +7,9 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
-import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn } from '../tree/treeModel.js';
+import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn, protuberanceFrontalArea } from '../tree/treeModel.js';
+import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf } from '../tree/position.js';
@@ -1692,6 +1694,12 @@ export interface Cdx1ExportInput {
   /** Engine-string override for tests and file generation; defaults to the
       CDX1_ENGINE_EXPORT gate. */
   engineExport?: boolean;
+  /**
+   * Raise every refusal and push every note exactly as a real save does, but
+   * build no XML (the result is ''). For checkFormatLoss; nothing in the
+   * writer reads its own output back.
+   */
+  dryRun?: boolean;
 }
 
 const FIN_MIN = 3;
@@ -1724,6 +1732,204 @@ function cdx1Chutes(tree: RocketTree): ComponentNode[] {
   return chutes;
 }
 
+/** One of RASAero's two recovery slots as exportCdx1 fills it. */
+export interface Cdx1RecoverySlot {
+  chute: ComponentNode;
+  /** What the slot's <EventType> says; 'None' writes <Event>False</Event>. */
+  eventType: 'Apogee' | 'Altitude' | 'None';
+}
+
+/*
+ * RASAero's two recovery slots are ORDERED BY WHEN THEY FIRE, not
+ * interchangeable: slot 1 is the first event of the descent and slot 2 the
+ * second, which is why importCdx1 reads slot 1 back as 'Drogue' and slot 2
+ * as 'Main' (the Recovery block above). Tree order is the wrong key. A
+ * conventional dual-deploy is laid out nose-to-tail — payload-bay MAIN
+ * (altitude, e.g. 700 ft) ahead of booster-tube DROGUE (apogee) — so
+ * findChutes hands the MAIN to slot 1 and the export carries
+ * <EventType1>Altitude</EventType1> with <EventType2>Apogee</EventType2>.
+ * RASAero's own editor cannot author that file, and reading it back: the
+ * drogue never deploys, the descent is ballistic to 700 ft and the main
+ * opens at terminal velocity. A round trip through our own importer also
+ * swaps the two names. Sort by deploy semantics instead — apogee, then
+ * altitude (higher altitude first, since it opens first), then anything that
+ * exports as no event at all so a real event never loses slot 1. The sort is
+ * stable, so two chutes on the same event keep tree order.
+ */
+const eventRank = (c: ComponentNode): number => {
+  const ev = String(c['deployEvent'] ?? 'apogee');
+  return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
+};
+/*
+ * A field the chute leaves blank is written as what the kernel FLIES for it
+ * (audit 2026-09-22): ComponentFactory's 0.3 m diameter, Parachute.DEFAULT_CD
+ * 0.8 (kernelRecoveryCd), and DeploymentConfiguration's 200 m deploy altitude.
+ * This writer had its own 0.9 m, Cd 0.75 and 150 m, so a blank-altitude main
+ * re-opened 50 m lower on a canopy three times the size — and the sort below
+ * ranked a blank altitude as 0 m while it flies at 200. The sort now reads the
+ * altitude of an ALTITUDE chute only: another chute's stored altitude is not
+ * what it deploys on, and must not reorder two chutes on the same event.
+ */
+const KERNEL_CHUTE_DIAMETER_M = 0.3;
+const KERNEL_DEPLOY_ALTITUDE_M = 200;
+const deployAltOf = (c: ComponentNode): number =>
+  eventRank(c) === 1 ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) : 0;
+
+/**
+ * The parachutes exportCdx1 writes, slot 1 first: the first two anywhere in
+ * the design, then ordered by deploy event — tree position decides WHICH two,
+ * never which slot. checkFormatLoss reads the same list.
+ */
+export function cdx1RecoverySlots(tree: RocketTree): Cdx1RecoverySlot[] {
+  const chutes = cdx1Chutes(tree);
+  chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
+  return chutes.map((chute): Cdx1RecoverySlot => {
+    const ev = String(chute['deployEvent'] ?? 'apogee');
+    return { chute, eventType: ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None' };
+  });
+}
+
+type TransitionEnds = ReturnType<typeof flownTransitionEnds>;
+
+/**
+ * What a pod set on a sustainer body tube goes out as — RASAero's fin can or
+ * recessed boat tail — or why exportCdx1 refuses it. The writer acts on this
+ * and checkFormatLoss reads it, so the two cannot disagree on which pods and
+ * which of their parts the file carries. A transition's AUTOMATIC end is the
+ * radius the kernel flies (flownTransitionEnds), 0 where it has none.
+ */
+export type Cdx1PodPart =
+  | { kind: 'finCan'; can: ComponentNode; shoulder?: ComponentNode }
+  | { kind: 'boatTail'; boatTail: ComponentNode }
+  | { kind: 'refused'; error: string };
+
+function cdx1PodPart(host: ComponentNode, pod: ComponentNode, ends: TransitionEnds): Cdx1PodPart {
+  if (flownInstanceCount(pod) !== 1 || pod['radiusMethod'] !== 'free' || nnum(pod, 'radiusOffset', 0) !== 0) {
+    return { kind: 'refused', error: 'RASAero has no off-axis or repeated pods — export as .ork or .rkt to keep their geometry.' };
+  }
+  const kids = pod.children ?? [];
+  const canTube = kids.find((c) => c.type === 'bodytube');
+  const shoulder = kids[0] !== canTube && kids[0]?.type === 'transition' ? kids[0] : undefined;
+  if (canTube && nnum(canTube, 'outerRadius', 0.012) >= nnum(host, 'outerRadius', 0.012)
+    && (kids.length === 1 || (kids.length === 2 && shoulder
+    && (ends(shoulder).fore ?? 0) <= (ends(shoulder).aft ?? 0)))) {
+    return { kind: 'finCan', can: canTube, ...(shoulder ? { shoulder } : {}) };
+  }
+  const bt = kids.length === 1 && kids[0]!.type === 'transition' ? kids[0]! : undefined;
+  if (bt && (ends(bt).fore ?? 0) > (ends(bt).aft ?? 0)) {
+    if (String(bt['shape'] ?? 'conical') !== 'conical') {
+      return { kind: 'refused', error: 'RASAero boat tails must be conical — change the shape or export as .ork/.rkt.' };
+    }
+    return { kind: 'boatTail', boatTail: bt };
+  }
+  return { kind: 'refused', error: `RASAero cannot represent pod set “${pod.name ?? 'Pod set'}” as a fin can or boat tail. `
+    + 'Export as .ork or .rkt to keep its geometry.' };
+}
+
+/**
+ * A booster stage's exterior as exportCdx1 reads it: its body tubes, a
+ * leading widening transition (the shoulder into the stage above), a trailing
+ * narrowing one (the boat tail), any other transition (refused) and the parts
+ * carrying fins (more than one, or one that is not a tube, is refused).
+ */
+function cdx1BoosterParts(stage: ComponentNode, ends: TransitionEnds) {
+  const kids = stage.children ?? [];
+  const tubes = kids.filter((c) => c.type === 'bodytube');
+  const externals = kids.filter((c) => c.type === 'bodytube' || c.type === 'transition');
+  const first = externals[0];
+  const shoulder = first && first.type === 'transition'
+    && (ends(first).fore ?? 0) <= (ends(first).aft ?? 0) ? first : null;
+  const last = externals[externals.length - 1];
+  const boattail = last && last !== shoulder && last.type === 'transition'
+    && (ends(last).fore ?? 0) > (ends(last).aft ?? 0) ? last : null;
+  const extraTrans = kids.filter((c) => c.type === 'transition' && c !== shoulder && c !== boattail);
+  const finParents = kids.filter((c) => (c.children ?? []).some((k) => k.type.endsWith('finset')));
+  return { kids, tubes, shoulder, boattail, extraTrans, finParents };
+}
+
+/** The one fin set a part carries into the file, or undefined (several is refused). */
+const cdx1FinSetOf = (parent: ComponentNode): ComponentNode | undefined => {
+  const finSets = (parent.children ?? []).filter((c) => c.type.endsWith('finset'));
+  return finSets.length === 1 ? finSets[0] : undefined;
+};
+
+/**
+ * The sustainer's external chain, in order: the noses, body tubes and
+ * transitions exportCdx1 writes as its flat part list. Internals and other
+ * parts have no RASAero representation.
+ */
+const cdx1ExternalChain = (stage: ComponentNode | undefined): ComponentNode[] =>
+  (stage?.children ?? []).filter((c) => c.type === 'nosecone' || c.type === 'bodytube' || c.type === 'transition');
+
+/** The launch lug whose size a written tube or fin can carries: its first. */
+const cdx1LugOf = (tube: ComponentNode): ComponentNode | undefined =>
+  (tube.children ?? []).find((c) => c.type === 'launchlug');
+
+/** What a .CDX1 save carries of a design's parts — see cdx1WrittenParts. */
+export interface Cdx1WrittenParts {
+  /** asStageNodes(tree), once, so the sets below and the caller share its stage objects. */
+  stages: ComponentNode[];
+  /** Noses, body tubes and transitions whose geometry the file carries, pod parts included. */
+  exterior: Set<ComponentNode>;
+  /** A fin can's leading transition: only its length is written, as conical, without fins. */
+  canShoulders: Set<ComponentNode>;
+  /** The fin sets the file carries. */
+  fins: Set<ComponentNode>;
+  /** The launch lug whose size each written tube carries (its first). */
+  lugs: Set<ComponentNode>;
+  /** Pod sets written, as what. */
+  pods: Map<ComponentNode, Exclude<Cdx1PodPart, { kind: 'refused' }>>;
+  /** Each booster stage's shoulder and boat tail, as the reader rebuilds and names them. */
+  boosterShoulders: Map<ComponentNode, ComponentNode>;
+  boosterBoatTails: Map<ComponentNode, ComponentNode>;
+  /** The recovery slots, slot 1 first. */
+  recovery: Cdx1RecoverySlot[];
+}
+
+/**
+ * THE PARTS A .CDX1 SAVE WRITES, from the writer's own selection (review of
+ * v0.174, 2026-10-10). checkFormatLoss names what a save loses; its .CDX1
+ * branch kept its own copy of which parts this writer writes — the external
+ * chain, pod fin cans and boat tails, the fin-can shoulders, the fin sets, the
+ * two parachute slots and their order — and nothing tied the two together.
+ * exportCdx1 decides with the same classifiers (cdx1ExternalChain, cdx1LugOf,
+ * cdx1PodPart, cdx1BoosterParts, cdx1FinSetOf, cdx1RecoverySlots). Never throws: a part the writer would
+ * refuse is simply not listed, and the refusal is the writer's to raise.
+ */
+export function cdx1WrittenParts(tree: RocketTree): Cdx1WrittenParts {
+  const ends = flownTransitionEnds(tree);
+  const stages = asStageNodes(tree);
+  const out: Cdx1WrittenParts = {
+    stages, exterior: new Set(), canShoulders: new Set(), fins: new Set(), lugs: new Set(), pods: new Map(),
+    boosterShoulders: new Map(), boosterBoatTails: new Map(), recovery: cdx1RecoverySlots(tree),
+  };
+  const finsOn = (p: ComponentNode) => { const f = cdx1FinSetOf(p); if (f) out.fins.add(f); };
+  const lugOn = (t: ComponentNode) => { const l = cdx1LugOf(t); if (l) out.lugs.add(l); };
+  for (const n of cdx1ExternalChain(stages[0])) {
+    out.exterior.add(n);
+    if (n.type === 'nosecone') continue;
+    finsOn(n);
+    if (n.type !== 'bodytube') continue;
+    lugOn(n);
+    for (const pod of (n.children ?? []).filter((c) => (c.type as string) === 'podset')) {
+      const part = cdx1PodPart(n, pod, ends);
+      if (part.kind === 'refused') continue;
+      out.pods.set(pod, part);
+      if (part.kind === 'boatTail') { out.exterior.add(part.boatTail); finsOn(part.boatTail); continue; }
+      out.exterior.add(part.can); finsOn(part.can); lugOn(part.can);
+      if (part.shoulder) { out.exterior.add(part.shoulder); out.canShoulders.add(part.shoulder); }
+    }
+  }
+  for (const stage of stages.slice(1)) {
+    const b = cdx1BoosterParts(stage, ends);
+    for (const t of b.tubes) out.exterior.add(t);
+    if (b.shoulder) { out.exterior.add(b.shoulder); out.boosterShoulders.set(stage, b.shoulder); }
+    if (b.boattail) { out.exterior.add(b.boattail); out.boosterBoatTails.set(stage, b.boattail); }
+    if (b.finParents.length === 1 && b.finParents[0]!.type === 'bodytube') finsOn(b.finParents[0]!);
+  }
+  return out;
+}
+
 export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
   const delayed = cdx1Chutes(tree).filter((c) =>
     ['apogee', 'altitude'].includes(String(c['deployEvent'] ?? 'apogee')) && nnum(c, 'deployDelay', 0) !== 0);
@@ -1733,7 +1939,7 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
-export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
   notes?.push(...filletExportNotes(tree, '.CDX1'));
   notes?.push(...simulationExtensionLossNotes(tree, '.CDX1'));
   const stagesIn = asStageNodes(tree);
@@ -1798,7 +2004,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     return s === '-0' ? '0' : s;
   };
   const lines: string[] = [];
-  const emit = (s: string) => lines.push(s);
+  const emit = dryRun ? (): void => undefined : (s: string): void => { lines.push(s); };
+  /**
+   * A transition's ends as the kernel flies them (flownTransitionEnds). An
+   * automatic end was written as 12 / 9 mm whatever its neighbours were; the
+   * placeholders stay only for two automatic ends facing each other.
+   */
+  const transitionEnds = flownTransitionEnds(tree);
+  const foreR = (n: ComponentNode, placeholder: number) => transitionEnds(n).fore ?? placeholder;
+  const aftR = (n: ComponentNode, placeholder: number) => transitionEnds(n).aft ?? placeholder;
 
   let locM = 0; // running absolute location (nose tip origin)
 
@@ -1808,14 +2022,17 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       return {
         root: nnum(fin, 'rootChord', 0.05),
         tip: nnum(fin, 'tipChord', 0.03),
-        sweep: nnum(fin, 'sweep', 0),
+        // A blank sweep flies the kernel's 20 mm (kernelNum); this wrote 0.
+        sweep: kernelNum(fin, 'sweep'),
         height: nnum(fin, 'height', 0.03),
       };
     }
     if (fin.type === 'freeformfinset') {
       // Exact conversion for trapezoid-shaped outlines — including the ones
       // our own importer synthesizes for fins on transitions/boat tails.
-      const pts = (fin['points'] as [number, number][] | undefined) ?? [];
+      // No outline flies FreeformFinSet's own (KERNEL_DEFAULT_FIN_POINTS), a
+      // trapezoid; this read none, and refused the fin set.
+      const pts = Array.isArray(fin['points']) ? fin['points'] as [number, number][] : KERNEL_DEFAULT_FIN_POINTS;
       const eps = 1e-9;
       const flat = (v: number) => Math.abs(v) < eps;
       if (pts.length === 4 && flat(pts[0]![1]) && flat(pts[3]![1])
@@ -1847,11 +2064,11 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
    */
   const finXml = (parent: ComponentNode, aftOfParentM = 0): void => {
     const finSets = (parent.children ?? []).filter((c) => c.type.endsWith('finset'));
-    if (finSets.length === 0) return;
     if (finSets.length > 1) {
       throw new Error('RASAero allows ONE fin set per tube — remove extras or export as .ork/.rkt.');
     }
-    const fin = finSets[0]!;
+    const fin = cdx1FinSetOf(parent);
+    if (!fin) return;
     const plan = finPlanform(fin);
     if (!plan) {
       // Never drop fins silently — an aero program with no fins is a
@@ -1914,9 +2131,9 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     const IN2 = IN * IN; // in² per m²
     const prots = (node.children ?? []).filter((c) => (c.type as string) === 'protuberance');
     if (prots.length === 0) return;
-    const areaOf = (p: ComponentNode) =>
-      nnum(p, 'width', 0) * nnum(p, 'height', 0)
-      * Math.max(1, Math.round(nnum(p, 'count', 1))) * IN2;
+    // The frontal area the kernel charges (protuberanceFrontalArea): a blank
+    // width or height is the app's 20 x 10 mm, which this read as 0 and dropped.
+    const areaOf = (p: ComponentNode) => protuberanceFrontalArea(p) * IN2;
     let noBase = 0;
     let withBase = 0;
     const plates = new Map<number, number>(); // plate angle (deg, rounded) -> in²
@@ -2050,17 +2267,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
    */
   const podXml = (host: ComponentNode, hostLen: number) => {
     for (const pod of (host.children ?? []).filter((c) => (c.type as string) === 'podset')) {
-      if (flownInstanceCount(pod) !== 1 || pod['radiusMethod'] !== 'free'
-        || nnum(pod, 'radiusOffset', 0) !== 0) {
-        throw new Error('RASAero has no off-axis or repeated pods — export as .ork or .rkt to keep their geometry.');
-      }
-      const kids = pod.children ?? [];
+      // Which RASAero part, if any, is cdx1PodPart's call — shared with checkFormatLoss.
+      const part = cdx1PodPart(host, pod, transitionEnds);
+      if (part.kind === 'refused') throw new Error(part.error);
       const pos = positionOf(pod);
-      const canTube = kids.find((c) => c.type === 'bodytube');
-      const shoulder = kids[0] !== canTube && kids[0]?.type === 'transition' ? kids[0] : undefined;
-      if (canTube && nnum(canTube, 'outerRadius', 0.012) >= nnum(host, 'outerRadius', 0.012)
-        && (kids.length === 1 || (kids.length === 2 && shoulder
-        && nnum(shoulder, 'foreRadius', 0) <= nnum(shoulder, 'aftRadius', 0)))) {
+      if (part.kind === 'finCan') {
+        const { can: canTube, shoulder } = part;
         // FIN CAN. <Location> is the HOST tube's aft station and <Offset> is the
         // can's front measured from it — negative, and exactly −<Length> when
         // the can is flush, which is what the three corpus fin cans all carry
@@ -2072,12 +2284,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
           : pos.method === 'top' ? pos.offset + chainLen - hostLen
             : pos.method === 'middle' ? pos.offset + (chainLen - hostLen) / 2
               : 0; // 'absolute' has no host-relative meaning here
-        const lug = (canTube.children ?? []).find((c) => c.type === 'launchlug');
+        const lug = cdx1LugOf(canTube);
         emit('<FinCan>');
         emit('<PartType>FinCan</PartType>');
         emit(`<Length>${fmt(canLen * IN)}</Length>`);
         emit(`<Diameter>${fmt(nnum(canTube, 'outerRadius', 0.012) * 2 * IN)}</Diameter>`);
-        emit(`<InsideDiameter>${fmt((shoulder ? nnum(shoulder, 'foreRadius', 0.012)
+        emit(`<InsideDiameter>${fmt((shoulder ? foreR(shoulder, 0.012)
           : nnum(host, 'outerRadius', 0.012)) * 2 * IN)}</InsideDiameter>`);
         emit(`<LaunchLugDiameter>${fmt(lug ? nnum(lug, 'outerRadius', 0.0022) * 2 * IN : 0)}</LaunchLugDiameter>`);
         emit(`<LaunchLugLength>${fmt(lug ? nnum(lug, 'length', 0.05) * IN : 0)}</LaunchLugLength>`);
@@ -2095,31 +2307,23 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
         emit('</FinCan>');
         continue;
       }
-      const bt = kids.length === 1 && kids[0]!.type === 'transition' ? kids[0]! : undefined;
-      if (bt && nnum(bt, 'foreRadius', 0) > nnum(bt, 'aftRadius', 0)) {
-        // RECESSED BOAT TAIL. The importer builds it TOP / hostLen, so its
-        // <Location> is the host tube's aft station — the same station the
-        // <Booster> below it claims, which is exactly the overlap.
-        const topOff = pos.method === 'top' ? pos.offset
-          : pos.method === 'bottom' ? pos.offset + hostLen - axialLength(bt)
-            : pos.method === 'middle' ? pos.offset + (hostLen - axialLength(bt)) / 2
-              : 0;
-        if (String(bt['shape'] ?? 'conical') !== 'conical') {
-          throw new Error('RASAero boat tails must be conical — change the shape or export as .ork/.rkt.');
-        }
-        emit('<BoatTail>');
-        emit('<PartType>BoatTail</PartType>');
-        emit(`<Length>${fmt(axialLength(bt) * IN)}</Length>`);
-        emit(`<Diameter>${fmt(nnum(bt, 'foreRadius', 0.012) * 2 * IN)}</Diameter>`);
-        emit(`<RearDiameter>${fmt(nnum(bt, 'aftRadius', 0.009) * 2 * IN)}</RearDiameter>`);
-        emit(`<Location>${fmt((locM + topOff) * IN)}</Location>`);
-        emit('<Color>Black</Color>');
-        finXml(bt); // RASAero boat tails carry fins too
-        emit('</BoatTail>');
-        continue;
-      }
-      throw new Error(`RASAero cannot represent pod set “${pod.name ?? 'Pod set'}” as a fin can or boat tail. `
-        + 'Export as .ork or .rkt to keep its geometry.');
+      // RECESSED BOAT TAIL. The importer builds it TOP / hostLen, so its
+      // <Location> is the host tube's aft station — the same station the
+      // <Booster> below it claims, which is exactly the overlap.
+      const bt = part.boatTail;
+      const topOff = pos.method === 'top' ? pos.offset
+        : pos.method === 'bottom' ? pos.offset + hostLen - axialLength(bt)
+          : pos.method === 'middle' ? pos.offset + (hostLen - axialLength(bt)) / 2
+            : 0;
+      emit('<BoatTail>');
+      emit('<PartType>BoatTail</PartType>');
+      emit(`<Length>${fmt(axialLength(bt) * IN)}</Length>`);
+      emit(`<Diameter>${fmt(foreR(bt, 0.012) * 2 * IN)}</Diameter>`);
+      emit(`<RearDiameter>${fmt(aftR(bt, 0.009) * 2 * IN)}</RearDiameter>`);
+      emit(`<Location>${fmt((locM + topOff) * IN)}</Location>`);
+      emit('<Color>Black</Color>');
+      finXml(bt); // RASAero boat tails carry fins too
+      emit('</BoatTail>');
     }
   };
 
@@ -2129,7 +2333,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<PartType>BodyTube</PartType>');
     emit(`<Length>${fmt(len * IN)}</Length>`);
     emit(`<Diameter>${fmt(nnum(node, 'outerRadius', 0.012) * 2 * IN)}</Diameter>`);
-    const lug = (node.children ?? []).find((c) => c.type === 'launchlug');
+    const lug = cdx1LugOf(node);
     emit(`<LaunchLugDiameter>${fmt(lug ? nnum(lug, 'outerRadius', 0.0022) * 2 * IN : 0)}</LaunchLugDiameter>`);
     emit(`<LaunchLugLength>${fmt(lug ? nnum(lug, 'length', 0.05) * IN : 0)}</LaunchLugLength>`);
     emit('<RailGuideDiameter>0</RailGuideDiameter>');
@@ -2156,8 +2360,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<Transition>');
     emit('<PartType>Transition</PartType>');
     emit(`<Length>${fmt(len * IN)}</Length>`);
-    emit(`<Diameter>${fmt(nnum(node, 'foreRadius', 0.012) * 2 * IN)}</Diameter>`);
-    emit(`<RearDiameter>${fmt(nnum(node, 'aftRadius', 0.009) * 2 * IN)}</RearDiameter>`);
+    emit(`<Diameter>${fmt(foreR(node, 0.012) * 2 * IN)}</Diameter>`);
+    emit(`<RearDiameter>${fmt(aftR(node, 0.009) * 2 * IN)}</RearDiameter>`);
     emit(`<Location>${fmt(locM * IN)}</Location>`);
     emit('<Color>Black</Color>');
     finXml(node); // RASAero transitions/boat tails carry fins too
@@ -2169,12 +2373,12 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('<FileVersion>2</FileVersion>');
   emit('<RocketDesign>');
 
-  // Sustainer chain (flat).
-  for (const node of stagesIn[0]!.children ?? []) {
+  // Sustainer chain (flat): cdx1ExternalChain's call — shared with
+  // checkFormatLoss through cdx1WrittenParts.
+  for (const node of cdx1ExternalChain(stagesIn[0])) {
     if (node.type === 'nosecone') noseXml(node);
     else if (node.type === 'bodytube') tubeXml(node);
-    else if (node.type === 'transition') transitionXml(node);
-    // internals/others have no RASAero representation — silently external-only
+    else transitionXml(node);
   }
 
   // Boosters (each lower stage). A leading widening transition is the
@@ -2186,27 +2390,19 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     // stage saved without one — its number, as this file's notes do. Quoting
     // `st.name` refused such a stage as stage "undefined" (audit 2026-09-30).
     const stageSaid = st.name ? `"${st.name}"` : `${i}`;
-    const kids = st.children ?? [];
+    // Which parts are the shoulder, boat tail and fin carrier is
+    // cdx1BoosterParts' call — shared with checkFormatLoss.
+    const { kids, tubes, shoulder, boattail, extraTrans, finParents } = cdx1BoosterParts(st, transitionEnds);
     kids.forEach(refuseTailCone);
-    const tubes = kids.filter((c) => c.type === 'bodytube');
     if (tubes.length === 0) {
       throw new Error(`Stage ${stageSaid} has no body tube — RASAero boosters need one.`);
     }
     const bodyLen = tubes.reduce((s, t) => s + axialLength(t), 0);
-    const externals = kids.filter((c) => c.type === 'bodytube' || c.type === 'transition');
-    const first = externals[0];
-    const shoulder = first && first.type === 'transition'
-      && nnum(first, 'foreRadius', 0) <= nnum(first, 'aftRadius', 0) ? first : null;
-    const last = externals[externals.length - 1];
-    const boattail = last && last !== shoulder && last.type === 'transition'
-      && nnum(last, 'foreRadius', 0) > nnum(last, 'aftRadius', 0) ? last : null;
-    const extraTrans = kids.filter((c) => c.type === 'transition' && c !== shoulder && c !== boattail);
     if (extraTrans.length > 0) {
       throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage ${stageSaid} has other transitions; export as .ork/.rkt.`);
     }
     const shoulderLen = shoulder ? axialLength(shoulder) : 0;
     const btLen = boattail ? axialLength(boattail) : 0;
-    const finParents = kids.filter((c) => (c.children ?? []).some((k) => k.type.endsWith('finset')));
     if (finParents.length > 1) {
       throw new Error(`RASAero allows ONE fin set per booster — stage ${stageSaid} has several; export as .ork/.rkt.`);
     }
@@ -2240,7 +2436,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     emit('<PartType>Booster</PartType>');
     emit(`<Length>${fmt(bodyLen * IN)}</Length>`);
     emit(`<Diameter>${fmt(nnum(tubes[0]!, 'outerRadius', 0.012) * 2 * IN)}</Diameter>`);
-    emit(`<InsideDiameter>${fmt((shoulder ? nnum(shoulder, 'foreRadius', 0.012) : nnum(tubes[0]!, 'outerRadius', 0.012)) * 2 * IN)}</InsideDiameter>`);
+    emit(`<InsideDiameter>${fmt((shoulder ? foreR(shoulder, 0.012) : nnum(tubes[0]!, 'outerRadius', 0.012)) * 2 * IN)}</InsideDiameter>`);
     emit('<LaunchLugDiameter>0</LaunchLugDiameter>');
     emit('<LaunchLugLength>0</LaunchLugLength>');
     emit('<RailGuideDiameter>0</RailGuideDiameter>');
@@ -2265,7 +2461,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     // a guess about its meaning.
     emit('<NozzleExitDiameter>0</NozzleExitDiameter>');
     emit(`<BoattailLength>${fmt(btLen * IN)}</BoattailLength>`);
-    emit(`<BoattailRearDiameter>${fmt(boattail ? nnum(boattail, 'aftRadius', 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
+    emit(`<BoattailRearDiameter>${fmt(boattail ? aftR(boattail, 0) * 2 * IN : 0)}</BoattailRearDiameter>`);
     finXml(finParent ?? tubes[0]!, aftOfFins);
     emit('</Booster>');
     locM += shoulderLen + bodyLen + btLen;
@@ -2319,53 +2515,15 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit(`<WindSpeed>${fmt((launch?.windAverage ?? 0) * MPH)}</WindSpeed>`);
   emit('</LaunchSite>');
 
-  // Recovery: the first two parachutes anywhere in the design, then ordered by
-  // deploy event (see below) — tree position decides WHICH two, never which slot.
-  const chutes = cdx1Chutes(tree);
-  /*
-   * RASAero's two recovery slots are ORDERED BY WHEN THEY FIRE, not
-   * interchangeable: slot 1 is the first event of the descent and slot 2 the
-   * second, which is why importCdx1 reads slot 1 back as 'Drogue' and slot 2
-   * as 'Main' (the Recovery block above). Tree order is the wrong key. A
-   * conventional dual-deploy is laid out nose-to-tail — payload-bay MAIN
-   * (altitude, e.g. 700 ft) ahead of booster-tube DROGUE (apogee) — so
-   * findChutes hands the MAIN to slot 1 and the export carries
-   * <EventType1>Altitude</EventType1> with <EventType2>Apogee</EventType2>.
-   * RASAero's own editor cannot author that file, and reading it back: the
-   * drogue never deploys, the descent is ballistic to 700 ft and the main
-   * opens at terminal velocity. A round trip through our own importer also
-   * swaps the two names. Sort by deploy semantics instead — apogee, then
-   * altitude (higher altitude first, since it opens first), then anything that
-   * exports as no event at all so a real event never loses slot 1. The sort is
-   * stable, so two chutes on the same event keep tree order.
-   */
-  const eventRank = (c: ComponentNode): number => {
-    const ev = String(c['deployEvent'] ?? 'apogee');
-    return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
-  };
-  /*
-   * A field the chute leaves blank is written as what the kernel FLIES for it
-   * (audit 2026-09-22): ComponentFactory's 0.3 m diameter, Parachute.DEFAULT_CD
-   * 0.8, and DeploymentConfiguration's 200 m deploy altitude. This writer had
-   * its own 0.9 m, Cd 0.75 and 150 m, so a blank-altitude main re-opened 50 m
-   * lower on a canopy three times the size — and the sort below ranked a
-   * blank altitude as 0 m while it flies at 200. The sort now reads the
-   * altitude of an ALTITUDE chute only: another chute's stored altitude is not
-   * what it deploys on, and must not reorder two chutes on the same event.
-   */
-  const KERNEL_CHUTE_DIAMETER_M = 0.3;
-  const KERNEL_CHUTE_CD = 0.8;
-  const KERNEL_DEPLOY_ALTITUDE_M = 200;
-  const deployAltOf = (c: ComponentNode): number =>
-    eventRank(c) === 1 ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) : 0;
-  chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
+  // Recovery: cdx1RecoverySlots, shared with checkFormatLoss — the first two
+  // parachutes anywhere in the design, in deploy order.
+  const recovery = cdx1RecoverySlots(tree);
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.
   const slotVals = ([1, 2] as const).map((slot) => {
-    const c = chutes[slot - 1];
-    const ev = c ? String(c['deployEvent'] ?? 'apogee') : 'none';
-    const evType = ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None';
+    const c = recovery[slot - 1]?.chute;
+    const evType = recovery[slot - 1]?.eventType ?? 'None';
     const vent = c ? ventLimit(c) : null;
     const hole = c ? nnum(c, 'spillHoleDiameter', 0) : 0;
     const ventFactor = vent && hole > 0 ? 1 - (Math.min(hole, vent.maxHole) / vent.diameter) ** 2 : 1;
@@ -2375,7 +2533,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
       event: c && evType !== 'None' ? 'True' : 'False',
       size: fmt(c ? nnum(c, 'diameter', KERNEL_CHUTE_DIAMETER_M) * IN : 0),
       eventType: c ? evType : 'None',
-      cd: fmt(c ? nnum(c, 'cd', KERNEL_CHUTE_CD) * ventFactor : 0),
+      cd: fmt(c ? kernelRecoveryCd(c) * ventFactor : 0),
     };
   });
   emit('<Recovery>');
@@ -2487,5 +2645,5 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   emit('</Simulation>');
   emit('</SimulationList>');
   emit('</RASAeroDocument>');
-  return lines.join('\n');
+  return dryRun ? '' : lines.join('\n');
 }
