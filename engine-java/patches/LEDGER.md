@@ -3147,9 +3147,9 @@ aerodynamic model.
   (L/D 0.5, peak M0.84) -0.15 % / -0.07 %; `ninja_4in_54mm-MMT.ork` (L/D 0.5, peak M1.26) -0.09 % / -0.06 %.
   Classic: every flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model.
 
-### aerodynamics/barrowman/SymmetricComponentCalc.java - Kbf's M0.8-1.0 ogive-nose blend is the SIGNED one, so a secant ogive no longer steps down at M1 (exp/b6-aero item 1, board Tier 2 "Supersonic tangent-ogive nose pressure drag below M1"; EXP, not shipped - needs Eric's yes)
+### aerodynamics/barrowman/SymmetricComponentCalc.java - Kbf's M0.8-1.0 ogive-nose blend is the SIGNED one, so a secant ogive no longer steps down at M1 (exp/b6-aero item 1, board Tier 2 "Supersonic tangent-ogive nose pressure drag below M1"; EXP, not shipped - SHIPPED v0.180 - Eric, 2026-10-11: "Ship it")
 
-- **Status: EXP** (`exp/b6-aero`, from v0.179 `39581274`). Nothing here ships without Eric's yes (aerodynamics rule).
+- **Status: SHIPPED v0.180** (built on `exp/b6-aero` `98f796d0` from v0.179 `39581274`; Fable-verified; Eric's yes 2026-10-11). Repairs a step row 87 (v0.179) introduced.
 - **What the board row described, re-measured on v0.179** (isolated nose + 0.6 m tube, base-area referenced,
   `noseprobe2.mjs`): a TANGENT ogive (shape parameter 1) under Supersonic reads ~0 below M0.7 (L/D 3: 0.00000 at
   M0.5, 0.00017 at M0.7) where Classic and Kbf keep the desktop flat clamp (0.00162), and 0.0176 at M0.95 where
@@ -3180,7 +3180,7 @@ aerodynamic model.
   Supersonic: untouched. Kbf at and below M0.8: bit for bit as before.
 - **Residual, measured (`dipprobe.mjs`, M0.8-1.1, 0.005 steps):** largest single-step fall 0.106 -> 0.0017. Where the
   desktop curve rises steeply and the tail sits well under it (parameter 0.35-0.5, L/D 1-2), the blend has a shallow
-  dip before M1: at most 0.019 below its running peak (parameter 0.35, L/D 1.5); none at parameter >= 0.6 below
+  dip before M1: at most 0.019 below its running peak in Kbf (parameter 0.35, L/D 1.5) and 0.022 in Hybrid (parameter 0.35, L/D 1); none at parameter >= 0.6 below
   L/D 6. Kbf on such a nose now charges LESS transonic drag over M0.85-1.0 than v0.179 (parameter 0.5, L/D 3, M0.95:
   0.0491 -> 0.0218) - drag v0.179 then dropped at M1 anyway.
 - **Tests:** `packages/engine/src/kbfOgiveWaveDrag.test.ts`, *Kbf and Hybrid nose drag is continuous at M1 on secant
@@ -3193,12 +3193,12 @@ aerodynamic model.
   carries a secant ogive in Kbf).
 - **Scorecards (191 gates):** Classic 13, Kbf 41, Supersonic 86, Hybrid 82 - all four byte-identical (no harness nose
   is a secant ogive).
-- **Flights (frozen inputs):** every scored flight within 0.001 % in every model (the tangent-ogive sliver at
+- **Flights (frozen inputs):** every scored flight within 0.002 % in every model (largest: Half Fast Hybrid -0.00107 %; tangent ogives do move, by integration-level amounts, from the sliver at
   M0.80-0.82 where the tail sits a hair under the clamp); Classic, Supersonic and Auto bit-identical.
 - **Corpus (`docs/User files`, 138 designs, 116 flown with the bundled motors):** no corpus nose is a secant ogive
   in the affected range (71 files carry tangent ogives, 5 the default parameter; none 0.35-0.99). Static CD, CP and
   CNa at M0.3-2.0 (0.05 grid): unchanged on all 138 in every model. Flights: Classic, Supersonic and Auto 0 move;
-  Kbf 40 of 110 move, -0.014 % to +0.005 %; Hybrid 42 move, -0.003 % to +0.117 %. The largest, `50k.CDX1` (Hybrid
+  Kbf 42 of 113 move (116 flown; three abort at 0 ft), -0.014 % to +0.005 %; Hybrid 42 move, -0.003 % to +0.117 %. The largest, `50k.CDX1` (Hybrid
   +0.117 %, Kbf -0.014 %), comes from a nose-CD change of 2.6e-6 at M0.82 and nothing else: its peak Mach moves
   2.7896 -> 2.7921, i.e. the adaptive step sequence of that two-stage flight changed, which is integration noise of
   that size, not physics.
