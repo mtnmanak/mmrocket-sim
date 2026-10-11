@@ -39,8 +39,8 @@
  * published data or a certification record, quoted with its URL. thrustcurve.org
  * is where the error is, so it is never a source for its own correction. A field
  * nobody authoritative publishes stays as it is: no "obvious typo" is fixed on a
- * guess, however obvious. And never on one document: a second document has to
- * STATE the same figure, because a certification letter can be the one that is
+ * guess, however obvious. And never on one document: a second document (not a
+ * second link to the same one) has to STATE the same figure, because a certification letter can be the one that is
  * wrong (the F52C's and H13ST's are undated drafts that AeroTech's own pages and
  * the NAR's list contradict on total impulse: aerotech-certified.test.mjs,
  * KNOWN). A source that states a corrected figure gives it in `states`, as it

@@ -11,8 +11,9 @@
  *     surface the app sees, so the two must declare the same exports.
  *  2. EVERY FIGURE IS SOURCED from the manufacturer or a certifying body, quoted,
  *     with its URL — never from thrustcurve.org, where the error is — and STATED
- *     by two documents: a letter can be the one that is wrong, and a document
- *     that only bounds the figure is not a second statement of it. Eric's
+ *     by two documents: a letter can be the one that is wrong, a document
+ *     that only bounds the figure is not a second statement of it, and two
+ *     links to one document are one document (documentOf). Eric's
  *     explicit N2700W-PS ruling is the one narrowly pinned exception below.
  *  3. THE SHIPPED FILE AGREES WITH THE TABLE: motors.json holds every corrected
  *     figure, so the table can never describe a correction nobody applied.
@@ -68,7 +69,7 @@ function unseconded(c) {
       if (problem) problems.push(problem);
       else seconding.push(s);
     }
-    if (new Set(seconding.map((s) => s.url)).size < 2) {
+    if (new Set(seconding.map((s) => documentOf(s.url))).size < 2) {
       problems.push(`${field}: one document is not enough to correct a row: a second has to state ${figures.good} too`);
     }
     if (!seconding.some((s) => Number(s.states[field]) === figures.good)) {
@@ -76,6 +77,27 @@ function unseconded(c) {
     }
   }
   return problems;
+}
+
+/**
+ * Which DOCUMENT a URL names, so that two links to one document are not counted
+ * as two documents. A link differs from another to the same page by its
+ * scheme, a `www.`, the host's case, a trailing slash, a fragment or its
+ * percent-encoding, and none of those makes a second document. A PDF is known
+ * by its file name wherever it is served: AeroTech's certification letters sit
+ * under one name on a CloudFront host and on an S3 host (the F52C's and the
+ * N2700W-PS's in the table use one each), and the same letter on both is one
+ * document. Two unrelated PDFs that share a name read as one, which is the
+ * safe way to be wrong: the entry fails here and someone looks. What this
+ * cannot see is one document re-uploaded under another name; the rule's words
+ * in motor-corrections.mjs still govern that.
+ */
+function documentOf(url) {
+  const u = new URL(url);
+  const path = decodeURIComponent(u.pathname).replace(/\/+$/, '');
+  const file = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+  if (file.endsWith('.pdf')) return `pdf:${file}`;
+  return `${u.hostname.toLowerCase().replace(/^www\./, '')}${path}${u.search}`;
 }
 
 /** Why the figure a source states cannot second a correction, or null when it can. */
@@ -178,6 +200,76 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
       'AeroTech, product page Q6123 prints 19, which does not rule out the known-bad 19.3',
       'totalWeightG: one document is not enough to correct a row: a second has to state 18.29 too',
     ]);
+  });
+
+  /**
+   * The rule's other clauses, one test each: until v0.178 deleting any of them
+   * left the suite green, because every real entry passes them all.
+   */
+  describe('each clause of the two-document rule, pinned', () => {
+    const K62N = MOTOR_CORRECTIONS.find((c) => c.designation === 'K62N');
+    const [LETTER, NAR] = K62N.sources;
+    const withSources = (...sources) => ({ ...K62N, sources });
+
+    it('the real K62N entry passes, so each case below fails on its own clause', () => {
+      expect(unseconded(K62N)).toEqual([]);
+    });
+
+    it('a source may state only a field the entry corrects', () => {
+      const stray = { ...NAR, states: { ...NAR.states, propWeightG: '831' } };
+      expect(unseconded(withSources(LETTER, stray))).toEqual([`${NAR.by} states propWeightG, which this entry does not correct`]);
+    });
+
+    it('one source has to print the corrected figure exactly, not only round to it', () => {
+      // Both still second it to their own last digit; neither prints 374.25.
+      const rounded = { ...LETTER, says: LETTER.says.replace('374.25 mm', '374.3 mm'), states: { length: '374.3' } };
+      expect(unseconded(withSources(rounded, NAR))).toEqual(['length: no source prints 374.25 itself']);
+    });
+
+    it('a stated figure is the string the source prints, a plain number', () => {
+      for (const printed of [375, '54 x 375', '375 mm', '']) {
+        const odd = { ...NAR, states: { length: printed } };
+        expect(unseconded(withSources(LETTER, odd))).toEqual([
+          `${NAR.by}: length ${JSON.stringify(printed)} is not a figure as printed, a string`,
+          'length: one document is not enough to correct a row: a second has to state 374.25 too',
+        ]);
+      }
+    });
+
+    it("a stated figure has to be printed in the source's own quote", () => {
+      const unquoted = { ...NAR, says: NAR.says.replace('54 x 375', '54 x 376') };
+      expect(unseconded(withSources(LETTER, unquoted))).toEqual([
+        `${NAR.by} states length 375, which its quote does not print`,
+        'length: one document is not enough to correct a row: a second has to state 374.25 too',
+      ]);
+    });
+
+    it('two sources at one URL are one document', () => {
+      const again = { ...LETTER, by: 'The same letter, quoted twice' };
+      expect(unseconded(withSources(LETTER, again)))
+        .toEqual(['length: one document is not enough to correct a row: a second has to state 374.25 too']);
+    });
+
+    it('and so are two links to one document: scheme, host case, www, trailing slash, fragment, mirror host', () => {
+      const letterAt = (url) => ({ ...LETTER, by: `The letter at ${url}`, url });
+      for (const url of [
+        LETTER.url.replace('https://', 'http://'),
+        LETTER.url.replace('d3l66gvjdr7rqw.cloudfront.net', 'D3L66GVJDR7RQW.cloudfront.net'),
+        `${LETTER.url}#page=1`,
+        LETTER.url.replace('%20', ' '),
+        // AeroTech serves its letters from this S3 host as well, under the same name.
+        LETTER.url.replace('https://d3l66gvjdr7rqw.cloudfront.net/', 'https://s3.eu-west-1.amazonaws.com/static.fw1.biz/'),
+      ]) {
+        expect(unseconded(withSources(LETTER, letterAt(url))), url)
+          .toEqual(['length: one document is not enough to correct a row: a second has to state 374.25 too']);
+      }
+      for (const [a, b] of [
+        ['https://www.nar.org/page/', 'http://nar.org/page'],
+        ['https://cesaroni.net/products/p24-1g/25e75-17a/', 'https://Cesaroni.net/products/p24-1g/25e75-17a#data'],
+      ]) expect(documentOf(a)).toBe(documentOf(b));
+      // A query can name a different document (the NAR's docs.ashx?id=), so it is kept.
+      expect(documentOf('https://www.nar.org/docs.ashx?id=1468138')).not.toBe(documentOf('https://www.nar.org/docs.ashx?id=1468139'));
+    });
   });
 
   it('reads a printed figure to its own last digit, either way, and never a whole unit off', () => {
