@@ -1435,6 +1435,10 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         // stage, so there is no motor mass to subtract and the stated figures
         // describe the airframe as it will fly here.
         const m = slot === 'absent' ? null : slot;
+        // The mount the motor is backed out of, kept with the stated figures so
+        // only a motor loaded there restates them (StatedStageFigures.mountId).
+        const mountId = aftTube(st)?.id;
+        const recordedMount = mountId ? { mountId } : {};
         /**
          * The designation whose weight the stated figures still carry, or null.
          *
@@ -1475,7 +1479,11 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
               // The file's figure behind it, so loading this motor later with
               // other figures backs it out again (statedLaunchWeight.ts
               // STATED_STAGE_FIGURES). Only for a motor actually backed out.
-              if (m) st[STATED_STAGE_FIGURES] = { motor: m.row, launchKg, massKg: dry } satisfies StatedStageFigures;
+              if (m) {
+                st[STATED_STAGE_FIGURES] = {
+                  motor: m.row, ...recordedMount, launchKg, massKg: dry,
+                } satisfies StatedStageFigures;
+              }
               // The one case where the override that just landed is NOT a dry
               // airframe mass: no motor could be backed out of it, so it still
               // holds that motor's weight. Marked on the stage so that loading
@@ -1532,7 +1540,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         // (stageCgWithoutMotor refuses otherwise), so the record exists.
         if (m) {
           st[STATED_STAGE_FIGURES] = {
-            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row }),
+            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row, ...recordedMount }),
             launchCgM: launchCg, cgM: stageCg,
           } satisfies StatedStageFigures;
         }

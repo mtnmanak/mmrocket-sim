@@ -24,6 +24,7 @@ import { comparable, idFree } from './services/simulate.testSupport.js';
 import type { FreshSimRun } from './services/simReport.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
+import { fetchMotorSpec } from './services/thrustcurve.js';
 import { unzipMember } from './services/zipMember.js';
 import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
@@ -89,6 +90,8 @@ vi.mock('./services/simulateDesign.js', async (importOriginal) => {
 // Each importer's OWN output, cloned before App touches it (the name fallback
 // mutates it). Three literal calls: vitest hoists only top-level vi.mock.
 let parsed: ImportedDesign | null = null;
+// The options App's Open handed the .CDX1 import (its `flownSpec` above all).
+let cdx1Opts: Parameters<typeof import('./services/rasaeroFile.js').importCdx1Flown>[1] | undefined;
 vi.mock('./services/orkFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/orkFile.js')>();
   return {
@@ -118,6 +121,7 @@ vi.mock('./services/rasaeroFile.js', async (importOriginal) => {
     // The file door's .CDX1 entry (designFile.ts): the import with each stated
     // weight backed out by the curve the flight loads.
     importCdx1Flown: async (...a: Parameters<typeof real.importCdx1Flown>) => {
+      cdx1Opts = a[1];
       const r = await real.importCdx1Flown(...a);
       parsed = structuredClone(r);
       return r;
@@ -226,6 +230,7 @@ const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSuper
 
 beforeEach(() => {
   parsed = null;
+  cdx1Opts = undefined;
   notes = { fileNote: null, padMassNote: null };
   vi.mocked(flyBuiltDesign).mockClear();
   localStorage.clear();
@@ -281,6 +286,18 @@ describe('RASAero import note uses the effective choice', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(notes.fileNote?.text).toBe(note);
+  }, 30000);
+
+  it('Open backs a stated launch weight out with the curve the flight loads (flownSpec: fetchMotorSpec)', async () => {
+    // Dropped, the open would still land on exact figures (the restate runs on
+    // mounting), but with an extra "backed out again" note: pinned here.
+    prefs(CLASSIC);
+    const host = await mountApp();
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '</RocketDesign></RASAeroDocument>';
+    await pick(host, new File([xml], 'Flown spec.CDX1'));
+    await waitFor(() => shownName(host) === 'Flown spec', 'RASAero open');
+    expect(cdx1Opts?.flownSpec).toBe(fetchMotorSpec);
   }, 30000);
 });
 

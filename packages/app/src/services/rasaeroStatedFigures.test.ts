@@ -194,6 +194,41 @@ describe('re-picking the motor backs it out again, as re-opening the file does (
     expect(reconcileIncludedMotor(stale.tree, mountId, other, TEXT)).toBeNull();
   }, 30_000);
 
+  it('two mounts in the stage: only the mount the figures were worked out for restates them', async () => {
+    const xml = k62nFile();
+    const spec = await bundledOnlyFetchSpec(current(), 0);
+    const stale = importCdx1(xml, { catalogue: before148() });
+    const mountId = mountIdOf(stale);
+    expect(statedFiguresOf(stage0(stale.tree))!.mountId).toBe(mountId);
+    // A second body tube the user added to the stage, loaded with the same motor.
+    const kids = stage0(stale.tree).children!;
+    const aft = kids.findIndex((c) => c.id === mountId);
+    const second: ComponentNode = { ...kids[aft]!, id: 'second-mount', children: [] };
+    const withSecond = (at: number): RocketTree => ({
+      ...stale.tree,
+      components: [{ ...stage0(stale.tree), children: [...kids.slice(0, at), second, ...kids.slice(at)] }],
+    });
+    // Ahead of the import's mount, and aft of it (where it is the stage's aft-most tube).
+    for (const tree of [withSecond(aft), withSecond(aft + 1)]) {
+      expect(reconcileIncludedMotor(tree, 'second-mount', attached(spec), TEXT)).toBeNull();
+      const all = reconcileAllIncludedMotors(tree, { 'second-mount': attached(spec) }, TEXT);
+      expect(all.tree).toBe(tree);
+      expect(all.notes).toEqual([]);
+      // The import's own mount still restates them, once.
+      const both = reconcileAllIncludedMotors(tree, { 'second-mount': attached(spec), [mountId]: attached(spec) }, TEXT);
+      expect(both.notes).toHaveLength(1);
+      expect(statedFiguresOf(stage0(both.tree))!.mountId).toBe(mountId);
+    }
+    // A record kept without its mount restates only for the stage's aft-most body tube.
+    const { mountId: _m, ...unmounted } = statedFiguresOf(stage0(stale.tree))!;
+    const legacy = (tree: RocketTree): RocketTree => ({
+      ...tree, components: [{ ...stage0(tree), [STATED_STAGE_FIGURES]: unmounted }],
+    });
+    expect(reconcileIncludedMotor(legacy(withSecond(aft)), 'second-mount', attached(spec), TEXT)).toBeNull();
+    expect(reconcileIncludedMotor(legacy(withSecond(aft)), mountId, attached(spec), TEXT)).not.toBeNull();
+    expect(reconcileIncludedMotor(legacy(withSecond(aft + 1)), mountId, attached(spec), TEXT)).toBeNull();
+  }, 30_000);
+
   it('overrides typed since are the user’s: the record goes, quietly, and nothing else moves', async () => {
     const xml = k62nFile();
     const spec = await bundledOnlyFetchSpec(current(), 0);

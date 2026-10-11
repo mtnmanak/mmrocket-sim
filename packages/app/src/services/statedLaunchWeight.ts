@@ -335,6 +335,16 @@ export const STATED_STAGE_FIGURES = 'statedStageFigures';
 export interface StatedStageFigures {
   /** The motor backed out, as the motor database names it. */
   motor: string;
+  /**
+   * The mount it was backed out of: the stage's aft-most body tube when the
+   * file was opened (the importer's `aftTube`, desktop getMotorMountForStage).
+   * Only a motor loaded in THAT mount restates the figures; the same motor in
+   * a second mount the user added to the stage sits elsewhere, and backing it
+   * out there would move the stage CG to a place the file never stated. A
+   * record without one (written before it was kept) restates only for the
+   * stage's aft-most body tube, the mount the importer would have used.
+   */
+  mountId?: string;
   /** The stage plus that motor, the stack above already off (kg). */
   launchKg?: number;
   /** The `overrideMass` the import wrote from it. */
@@ -353,6 +363,7 @@ export function statedFiguresOf(stage: ComponentNode): StatedStageFigures | null
   if (typeof r['motor'] !== 'string' || r['motor'] === '') return null;
   const fin = (k: string) => (typeof r[k] === 'number' && Number.isFinite(r[k]) ? (r[k] as number) : undefined);
   const out: StatedStageFigures = { motor: r['motor'] };
+  if (typeof r['mountId'] === 'string' && r['mountId'] !== '') out.mountId = r['mountId'];
   for (const k of ['launchKg', 'massKg', 'launchCgM', 'cgM'] as const) {
     const v = fin(k);
     if (v !== undefined) out[k] = v;
@@ -411,8 +422,13 @@ export function restateBackedOutMotor(
   if (!statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'))) {
     return { tree: replaceStage(tree, index, unrecorded), note: null, severity: 'info' };
   }
-  const mount = (stage.children ?? []).find((c) => c.id === mountId);
+  const kids = stage.children ?? [];
+  const mount = kids.find((c) => c.id === mountId);
   if (!mount) return null; // not a direct child: nothing the import placed
+  // Only the mount the figures were worked out for (StatedStageFigures.mountId).
+  const tubes = kids.filter((c) => c.type === 'bodytube');
+  const recordedFor = rec.mountId ?? tubes[tubes.length - 1]?.id;
+  if (mount.id !== recordedFor) return null;
 
   const flown: BackedOutMotor = {
     massKg: motor.launchMassKg, lengthM: motor.lengthM, cgXFromFrontM: motor.cgXFromFrontM,
@@ -430,7 +446,7 @@ export function restateBackedOutMotor(
   const name = stage.name ?? 'Stage';
   const who = `“${rec.motor}”`;
   const next: ComponentNode = { ...unrecorded };
-  const after: StatedStageFigures = { motor: rec.motor };
+  const after: StatedStageFigures = { motor: rec.motor, ...(rec.mountId ? { mountId: rec.mountId } : {}) };
   const parts: string[] = [];
   let severity: ReconciledStatedWeight['severity'] = 'info';
   const cleared: string[] = [];
