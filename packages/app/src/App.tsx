@@ -3,7 +3,7 @@ import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentit
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComponentNode,
   ComponentType,
@@ -101,7 +101,7 @@ import { designFileBase, designFileLabel, designFileTitle, documentTitle, type D
 import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
-import { checkFormatLoss, formatExtension, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
+import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import { FormatLossDialog } from './components/FormatLossDialog.js';
 import {
@@ -498,7 +498,10 @@ export function App() {
   const [designFile, setDesignFile] = useState<DesignFileRef | null>(() => session?.designFile ?? null);
   const [lossySaved, setLossySaved] = useState<LossySaveMark | null>(session?.lossySaved ?? null);
   const [lossDialog, setLossDialog] = useState<{ report: FormatLossReport; confirm: boolean } | null>(null);
-  const [liveLoss, setLiveLoss] = useState<{ file: DesignFileRef; report: FormatLossReport } | null>(null);
+  const [liveLoss, setLiveLoss] = useState<{ file: DesignFileRef; report: CheckedFormatLossReport } | null>(null);
+  const moveLossyMark = useCallback((before: string, after: string) => {
+    setLossySaved(l => l && l.mark === before ? { ...l, mark: after } : l);
+  }, []);
   const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
   /**
    * The launch conditions as last rendered, for an open to merge the file's
@@ -849,7 +852,11 @@ export function App() {
    */
   const {
     dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
-  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore);
+  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
+    // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
+    // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
+    // moves it too, or a design identical to the saved file reads as unsaved.
+    { onMarkMigrated: moveLossyMark });
   const currentMark = useMemo(() => designFingerprint(designSnapshot), [designSnapshot]);
   // The hook's counter is session-local; saved provenance carries its prior count.
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
@@ -857,7 +864,6 @@ export function App() {
     ? lossySaveStatus(lossySaved, currentMark, lossyFlights)
       ?? (designFile.via !== 'opened' || dirty ? 'Unsaved changes' : null) : null;
   const liveLossReport = liveLoss?.file === designFile ? liveLoss.report : null;
-  const replaceLoss = replacementLossNote(designFile, liveLossReport);
 
   // The rocket name lives INSIDE the file; the name on disk can be different.
   // Desktop OpenRocket shows both in its window title, with the same unsaved
@@ -2088,6 +2094,12 @@ export function App() {
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
+   * The same results as of this render, for the .rkt/.CDX1 loss check, which
+   * only asks whether there are any: memoized on the export input, so the
+   * preview does not re-scan the run history 500 ms after every edit.
+   */
+  const flightDataNow = useMemo(() => flightDataForExportPure(flightExportInput()), [flightExportInput]);
+  /**
    * Each Auto mount's rounded optimum from one complete flight of the
    * design, by configuration id ('' for none) and mount id — what a .ork, a
    * .rkt and a share link write for it (orkFlightData.flownAutoDelays), from
@@ -2296,32 +2308,63 @@ export function App() {
   // "saved" would let the next Open discard the parts the file does not hold -
   // which is the defect this guard exists for. Only the .ork round-trips
   // everything, so only .ork marks.
+  // flownForAutosave and flightDataNow are this render's flownAutoDelaysNow()
+  // and flightDataForExport(), memoized: the check runs after every edit.
   const lossInput = (format: LossyFormat): FormatLossInput => ({
     tree, launch, measured, configs: savedConfigs, activeConfigId,
-    motors: exportMotorsMap(format === 'rkt' ? flownAutoDelaysNow() : {}), flightData: flightDataForExport(),
+    motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
   });
+  const lossyExportFailed = (format: LossyFormat, e: unknown) =>
+    setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
   // Use the latest render at the idle edge, without restarting the timer for
-  // unrelated UI renders. No kernel calls are made by this preview.
+  // unrelated UI renders. No kernel calls are made by this preview. The ref is
+  // written after render, in a layout effect, so before the timer's effect.
   const lossInputRef = useRef(lossInput);
-  lossInputRef.current = lossInput;
+  useLayoutEffect(() => { lossInputRef.current = lossInput; });
   useEffect(() => {
     if (!designFile || designFile.format === 'ork' || simulating || reflying !== null) return;
     const file = designFile;
     const format = designFile.format;
     const timer = window.setTimeout(() => {
       if (flightHoldsHandle.current) return;
-      setLiveLoss({ file, report: checkFormatLoss(format, lossInputRef.current(format)) });
+      // A throw building the input still replaces the last report: the header
+      // says the check did not finish, never a stale list or nothing at all.
+      setLiveLoss({ file, report: checkFormatLossOf(format, () => lossInputRef.current(format)) });
     }, 500);
     return () => window.clearTimeout(timer);
   }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput]);
+  // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
+  // not keep. Computed now, from the design on screen, while one is open: the
+  // header's debounced preview may not have run yet (just after an Open or an
+  // edit, or while a flight holds it), and a stale or missing list is wrong.
+  const replacing = confirmNew || pendingOpen !== null || shareOffer !== null;
+  const replaceReport = useMemo(() => {
+    if (!replacing || !designFile || designFile.format === 'ork') return null;
+    // A check that cannot run still says so: the confirm never drops the paragraph silently.
+    const format = designFile.format;
+    return checkFormatLossOf(format, () => lossInput(format));
+  // Keyed on what lossInput reads (through designSnapshot and the two memoized
+  // export values), not on lossInput itself, which is rebuilt every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on lossInput's inputs, not its per-render identity
+  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow]);
+  const replaceLoss = replacementLossNote(designFile, replaceReport);
 
   const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
-    const data = lossInput(format);
-    const report = checkFormatLoss(format, data);
+    let data: FormatLossInput;
+    let report: CheckedFormatLossReport;
+    try {
+      data = lossInput(format);
+      report = checkFormatLossSafely(format, data);
+    } catch (e) {
+      // The input is the writer's own (the motor set): what cannot be
+      // assembled cannot be written, so report it as a failed write would.
+      lossyExportFailed(format, e);
+      return;
+    }
     // If the design changed behind a dialog, show the new losses before
     // writing. There is no await before download reaches the file picker.
     const write = async () => {
-      const mark = designFingerprint(snapshotNow());
+      const mark = currentMark;
       const flights = lossyFlights;
       setLossDialog(null);
       try {
@@ -2335,11 +2378,11 @@ export function App() {
         if (out.kind === 'saved' || out.kind === 'downloaded') {
           const file: DesignFileRef = { name: out.name, via: out.kind, format };
           setDesignFile(file);
-          setLossySaved({ mark, flights, format, lossCount: report.losses.length });
+          setLossySaved({ mark, flights, format, lossCount: report.losses.length, ...(report.incomplete ? { incomplete: true } : {}) });
           setLiveLoss({ file, report });
         }
       } catch (e) {
-        setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        lossyExportFailed(format, e);
       }
     };
     if (accepted && !report.refused && stableJson(report) === stableJson(accepted)) void write();
@@ -3153,6 +3196,7 @@ export function App() {
           {liveLossReport && (liveLossReport.refused || liveLossReport.losses.length > 0) && (
             <button className="design-loss-warning" onClick={() => setLossDialog({ report: liveLossReport, confirm: false })}>
               {liveLossReport.refused ? `\u26a0 Can't be saved as ${formatExtension(liveLossReport.format)}`
+                : liveLossReport.incomplete ? `\u26a0 Couldn't fully check this ${formatExtension(liveLossReport.format)}`
                 : `\u26a0 ${liveLossReport.losses.length} this ${formatExtension(liveLossReport.format)} can't hold`}
             </button>
           )}

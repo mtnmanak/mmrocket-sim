@@ -21,6 +21,10 @@ import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { designFingerprint } from './services/dirtyState.js';
+import * as orkExportMotors from './services/orkExportMotors.js';
+import * as orkFlightData from './services/orkFlightData.js';
+import * as windProfile from './services/windProfile.js';
+import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
@@ -168,7 +172,7 @@ async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | '
  * for the next step; with nothing to lose ✕ New goes straight through, and the
  * design on screen is replaced by an empty one.
  */
-async function guarded(host: HTMLElement): Promise<boolean> {
+async function guarded(host: HTMLElement, { allowLossySaved = false } = {}): Promise<boolean> {
   const status = host.querySelector('.app-header [role="status"][aria-label="Design save status"]');
   expect(status).not.toBeNull();
   const indicatedDirty = status!.textContent === 'Unsaved changes';
@@ -178,7 +182,7 @@ async function guarded(host: HTMLElement): Promise<boolean> {
     expect(status!.textContent).toBe('No unsaved changes');
     return false;
   }
-  expect(indicatedDirty || status!.textContent?.startsWith('Saved as .')).toBe(true);
+  expect(indicatedDirty || (allowLossySaved && status!.textContent?.startsWith('Saved as .'))).toBe(true);
   const modal = [...document.querySelectorAll('.modal-actions')]
     .find((m) => m.textContent?.includes('Discard & start new'))!;
   await act(async () => { button(modal, 'Cancel').click(); });
@@ -528,6 +532,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   await unmountAll();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  setCatalogueOverlay(null);
   vi.unstubAllGlobals();
   window.history.replaceState(null, '', window.location.pathname);
 });
@@ -895,6 +902,139 @@ describe('lane C2 save and share fidelity', () => {
  * one on Launch did before the flight case below (AUDIT row 477, review).
  */
 describe('only a full-fidelity save clears the unsaved-work guard', () => {
+  it.each(['.rkt', '.CDX1'])('reports %s input analysis errors without opening the picker', async ext => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    vi.spyOn(orkExportMotors, 'orkMotorSet').mockImplementationOnce(() => { throw new Error('loss input failed'); });
+    await saveAs(host, `Save ${ext}`, false);
+    expect(saveFile).not.toHaveBeenCalled();
+    expect(host.textContent).toContain(`${ext === '.rkt' ? 'RockSim' : 'RASAero'} export failed: loss input failed`);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  }, 30_000);
+
+  it('says a failed preview did not finish, without an uncaught timer error', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .rkt');
+    expect(host.textContent).toContain("this .rkt can't hold");
+    vi.useFakeTimers();
+    const motorSet = vi.spyOn(orkExportMotors, 'orkMotorSet').mockImplementation(() => { throw new Error('preview input failed'); });
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Preview changed');
+    await act(async () => { await vi.advanceTimersByTimeAsync(501); });
+    // Neither the stale count nor silence: the header says the check stopped.
+    expect(host.textContent).not.toContain("this .rkt can't hold");
+    expect(host.querySelector('.design-loss-warning')?.textContent).toBe("⚠ Couldn't fully check this .rkt");
+    motorSet.mockRestore();
+    vi.useRealTimers();
+  }, 30_000);
+
+  it('a save after an unfinished check reads “not fully checked”, not a count', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    // A detector inside the check, after the writer's dry run; the writer itself does not use it.
+    vi.spyOn(windProfile, 'windProfileSaveNotes').mockImplementation(() => { throw new Error('detector failed'); });
+    await saveAs(host, 'Save .rkt', false);
+    const dialog = host.ownerDocument.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('could not finish checking what this .rkt file does not keep (detector failed)');
+    const anyway = [...dialog!.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes(' anyway'))!;
+    await act(async () => { anyway.click(); });
+    await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'the .rkt to be written');
+    await waitFor(() => host.querySelector('.design-save-status')?.textContent === 'Saved as .rkt — not fully checked', 'the save status');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.lossySaved).toMatchObject({ format: 'rkt', incomplete: true });
+  }, 30_000);
+
+  it('the ✕ New confirm says the check did not finish rather than dropping the paragraph', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await pick(host, new File([fixture(RKT)], 'opened.rkt'));
+    await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
+    // An edit, so ✕ New asks before discarding.
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited after open');
+    vi.spyOn(orkExportMotors, 'orkMotorSet').mockImplementation(() => { throw new Error('confirm input failed'); });
+    await openTab(host, 'Design');
+    await act(async () => { button(host, '✕ New').click(); });
+    const note = host.querySelector('.replacement-loss')?.textContent;
+    expect(note).toContain('You opened “opened.rkt”. The app could not finish checking what this .rkt file does not keep (confirm input failed)');
+  }, 30_000);
+
+  it('keeps the lossy mark and autosave through a catalogue relabel after an .ork edit', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Edited past ork');
+    await saveAs(host, 'Save .rkt');
+    const status = host.querySelector('.design-save-status')!.textContent;
+    expect(status).toMatch(/^Saved as \.rkt — \d+ not kept$/);
+    window.dispatchEvent(new Event('pagehide'));
+    const previous = storedSession()!.lossySaved!;
+    const before = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+    await act(async () => { setCatalogueOverlay({ baseGenerated: '', fetchedAt: '', liveCount: 1, added: [],
+      changed: [{ motorId: before.motorId, before, after: { ...before, designation: 'C6-UPDATED' }, fields: ['designation'] }],
+      removed: [], rejected: [] }); });
+    expect(host.querySelector('.design-save-status')!.textContent).toBe(status);
+    window.dispatchEvent(new Event('pagehide'));
+    const stored = storedSession()!;
+    expect(Object.values(stored.mountMotors!).some(m => m.label.includes('C6-UPDATED'))).toBe(true);
+    expect(stored.lossySaved).toEqual({ ...previous, mark: designFingerprint({ tree: stored.tree, launch: stored.launch,
+      mountMotors: stored.mountMotors ?? {}, savedConfigs: stored.savedConfigs ?? [], activeConfigId: stored.activeConfigId ?? null,
+      measured: stored.measured ?? { massKg: null, cgM: null } }) });
+    expect(stored.lossySaved!.mark).not.toBe(previous.mark);
+    expect(stored.savedMark).not.toBe(stored.lossySaved!.mark);
+  }, 30_000);
+
+  // The header's preview is debounced 500 ms; the Open / ✕ New / share confirm
+  // must not wait for it. Fake timers hold that preview: with `preview` it has
+  // run once, over the design as opened (no Rod angle loss), so a confirm
+  // reading it would be stale; without, it has never run for this file.
+  it.each([
+    ['✕ New', false], ['✕ New', true], ['Open', false], ['Open', true],
+  ] as const)('%s names what the opened .rkt does not keep at once (preview ran first: %s)', async (action, preview) => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    vi.useFakeTimers();
+    await pick(host, new File([fixture(RKT)], 'opened.rkt'));
+    expect(shownName(host)).toBe(RKT_NAME);
+    if (preview) await act(async () => { await vi.advanceTimersByTimeAsync(501); });
+    await openTab(host, 'Motors & Launch');
+    await type(input(host, 'Rod angle'), '10');
+    if (action === '✕ New') {
+      await openTab(host, 'Design');
+      await act(async () => { button(host, '✕ New').click(); });
+    } else await pick(host, new File([fixture(RKT)], 'next.rkt'));
+    const note = host.querySelector('.replacement-loss')?.textContent;
+    expect(note).toContain('You opened “opened.rkt”, but it does not keep:');
+    expect(note).toContain('Rod angle');
+  }, 30_000);
+
+  it('a share link offered on load names what the opened .rkt does not keep, before any preview', async () => {
+    let host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await pick(host, new File([fixture(RKT)], 'opened.rkt'));
+    await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
+    await openTab(host, 'Motors & Launch');
+    await type(input(host, 'Rod angle'), '10');
+    await unmountAll();
+    window.location.hash = (await encodeShareFragment(exportOrk({ name: 'Linked', tree: defaultTree() }))).replace(/^#/, '');
+    // setTimeout only: the link's decode must still finish, the preview must not run.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    host = await mountApp();
+    for (let i = 0; i < 100 && !document.querySelector('[role="dialog"][aria-label="Open design from link"]'); i++) {
+      await act(async () => { await new Promise(r => setImmediate(r)); });
+    }
+    expect(document.querySelector('[role="dialog"][aria-label="Open design from link"]')).not.toBeNull();
+    const note = host.querySelector('.replacement-loss')?.textContent;
+    expect(note).toContain('You opened “opened.rkt”, but it does not keep:');
+    expect(note).toContain('Rod angle');
+  }, 30_000);
+
+  it('reuses flight export scans for the preview and lossy save', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .rkt');
+    vi.useFakeTimers();
+    const flightData = vi.spyOn(orkFlightData, 'flightDataForExport');
+    const delays = vi.spyOn(orkFlightData, 'flownAutoDelays');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Memoized scans');
+    flightData.mockClear(); delays.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(501); });
+    await saveAs(host, 'Save .rkt');
+    expect(flightData).not.toHaveBeenCalled();
+    expect(delays).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  }, 30_000);
   it.each(['.rkt', '.CDX1'])('V7/V8 keeps the %s snapshot status through undo, redo and reload', async ext => {
     let host = await mountApp(); await waitFor(starterStored, 'starter motor');
     await saveAs(host, 'Save .ork');
@@ -963,7 +1103,6 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'During picker');
     await act(async () => { release({ kind: 'saved', name: 'Before.rkt' }); });
     expect(host.querySelector('.design-save-status')?.textContent).toBe('Unsaved changes');
-    await settle(650);
     await act(async () => { button(host, '✕ New').click(); });
     expect(host.querySelector('.replacement-loss')?.textContent).toContain('You saved “Before.rkt”, but it does not keep:');
     await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
@@ -1104,6 +1243,7 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
         'Export .glb — 3D model with colors', 'Export .stl — 3D shell (reference)', 'Export .csv — component data',
         'Export .xlsx — component data',
       ]));
+      let didLossySave = false;
       for (const entry of others) {
         const wrote = () => vi.mocked(saveFile).mock.calls.length + writeText.mock.calls.length;
         const before = wrote();
@@ -1111,7 +1251,8 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
         // Each one really wrote (or copied) — a throw would pass vacuously.
         await waitFor(() => wrote() > before, `“${entry}” to write`);
         await settle(0);
-        expect(await guarded(host), `“${entry}” must not clear the unsaved-work guard`).toBe(true);
+        didLossySave ||= entry.startsWith('Save .rkt') || entry.startsWith('Save .CDX1');
+        expect(await guarded(host, { allowLossySaved: didLossySave }), `“${entry}” must not clear the unsaved-work guard`).toBe(true);
       }
       // The control: the one full-fidelity save does clear it.
       await saveAs(host, 'Save .ork');

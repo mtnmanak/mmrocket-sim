@@ -210,7 +210,8 @@ describe('design-specific format losses', () => {
   });
   it.each([
     ['launchRodLengthM', 2, 'Rod length', false], ['launchRodAngleDeg', 5, 'Rod angle', false],
-    ['launchRodAimDeg', 30, 'Rod aim', true], ['launchGuideAllowance', false, 'Allow for lug', true],
+    // Rod aim acts only on a tilted rod: formatLoss.safety.test.ts.
+    ['launchGuideAllowance', false, 'Allow for lug', true],
     ['windAverage', 5, 'Wind avg', false], ['windStdDev', 1, 'Wind gusts', true],
     ['launchAltitudeM', 100, 'Site altitude', false], ['temperatureC', 25, 'Temperature', false],
     ['pressureHPa', 900, 'Station pressure', false], ['latitudeDeg', 45, 'Latitude', true],

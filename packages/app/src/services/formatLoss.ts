@@ -7,7 +7,7 @@ import { asStageNodes } from '../tree/treeModel.js';
 import { num, numOpt } from '../tree/nodeNum.js';
 import { motorLengthLossNotes } from '../tree/motorLength.js';
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
-import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
@@ -47,8 +47,9 @@ function lostLaunchFields(format: LossyFormat, launch: LaunchConditions): string
     launchGuideAllowance: true, longitudeDeg: null, geodeticMethod: 'spherical', timeStepS: DEFAULT_TIME_STEP_S };
   return (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[]).filter(key => {
     if (carried.has(key)) return false;
-    // The existing rod-aim note already names an effective tilted aim.
-    if (format === 'cdx1' && key === 'launchRodAimDeg' && cdx1RodAimNote(launch)) return false;
+    // Rod aim flies nothing on a vertical rod (flownRodAimDeg), so only an
+    // effective aim is a loss. A .CDX1 names that one in cdx1RodAimNote, never here.
+    if (key === 'launchRodAimDeg') return format === 'rkt' && flownRodAimDeg(launch) !== null;
     return (launch[key] ?? defaults[key]) !== defaults[key];
   }).map(key => launchFieldLabels[key]!);
 }
@@ -347,4 +348,46 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   // of XML-field warnings. Show it only alongside a substantive loss.
   if (losses.length) losses.push('Some editing settings (how positions and automatic sizes were set, grouping and preset provenance) are saved as plain numbers or are not kept.');
   return { format, refused, losses: [...new Set(losses)] };
+}
+
+/** A checkFormatLossSafely report. `incomplete` marks the one-line report of a check that did not finish: its list is not a count. */
+export interface CheckedFormatLossReport extends FormatLossReport { incomplete?: true }
+
+function unfinishedCheck(format: LossyFormat, e: unknown): CheckedFormatLossReport {
+  const reason = e instanceof Error ? e.message : String(e);
+  return { format, refused: null, incomplete: true, losses: [`The app could not finish checking what this ${formatExtension(format)} file `
+    + `does not keep (${reason}), so it may lose parts of the design this check could not list. Save .ork keeps everything.`] };
+}
+
+/**
+ * checkFormatLoss for the app’s callers (the Save .rkt / Save .CDX1 gate, the
+ * header preview and the Open/New/share reminder). The writer’s own dry run is
+ * already caught there and becomes `refused`; a detector that throws after it
+ * (a malformed freeform fin, a motor the matcher cannot read) would otherwise
+ * make the click do nothing at all. The user still gets the dialog, told the
+ * check did not finish, and still chooses.
+ */
+export function checkFormatLossSafely(format: LossyFormat, input: FormatLossInput): CheckedFormatLossReport {
+  try {
+    return checkFormatLoss(format, input);
+  } catch (e) {
+    return unfinishedCheck(format, e);
+  }
+}
+
+/**
+ * checkFormatLossSafely with the input built inside the guard as well, for the
+ * header preview and the Open/New/share reminder: a throw while assembling the
+ * input (the motor set, the flight data) still says the check did not finish,
+ * rather than dropping the warning. Save builds its input itself, because what
+ * cannot be assembled cannot be written.
+ */
+export function checkFormatLossOf(format: LossyFormat, build: () => FormatLossInput): CheckedFormatLossReport {
+  let input: FormatLossInput;
+  try {
+    input = build();
+  } catch (e) {
+    return unfinishedCheck(format, e);
+  }
+  return checkFormatLossSafely(format, input);
 }

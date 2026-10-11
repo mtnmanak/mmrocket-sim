@@ -59,7 +59,8 @@ async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Pro
   }
 }
 
-async function saveCdx1With(launch: LaunchConditions): Promise<HTMLElement> {
+/** Always through the loss dialog: TREE loses construction detail in any .CDX1. */
+async function saveCdx1With(launch: LaunchConditions, { aimListed }: { aimListed: boolean }): Promise<HTMLElement> {
   localStorage.setItem(SESSION_KEY, JSON.stringify({
     tree: TREE, launch, appVersion: APP_VERSION, savedAt: Date.now(),
   }));
@@ -73,11 +74,13 @@ async function saveCdx1With(launch: LaunchConditions): Promise<HTMLElement> {
   await act(async () => { button('Save As / Export')!.click(); });
   await act(async () => { button('Save .CDX1')!.click(); });
   const dialog = host.querySelector('[role="dialog"]');
-  if (dialog) {
-    expect(saveFile).not.toHaveBeenCalled();
-    expect(dialog.getAttribute('aria-label')).toBe('Save as .CDX1?');
-    await act(async () => { button('Save .CDX1 anyway')!.click(); });
-  }
+  expect(dialog).not.toBeNull();
+  expect(saveFile).not.toHaveBeenCalled();
+  expect(dialog!.getAttribute('aria-label')).toBe('Save as .CDX1?');
+  expect(dialog!.textContent?.includes('RASAero has no rod direction')).toBe(aimListed);
+  // Never also in the launch-settings line: the note above is the one place.
+  expect(dialog!.textContent).not.toMatch(/Launch settings \([^)]*Rod aim/);
+  await act(async () => { button('Save .CDX1 anyway')!.click(); });
   await waitFor(() => vi.mocked(saveFile).mock.calls.length > 0, 'the .CDX1 save');
   await waitFor(() => (host.textContent ?? '').includes('Saved “Aimed.CDX1”'), 'the saved line');
   return host;
@@ -103,7 +106,7 @@ afterEach(async () => {
 
 describe('a .CDX1 save and the Rod aim', () => {
   it('says the aim was not saved when the tilted rod leans off the wind', async () => {
-    const host = await saveCdx1With({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90 });
+    const host = await saveCdx1With({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 90 }, { aimListed: true });
     // The collapsed message strip shortens a long line; open it to read it all.
     const open = [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === '⌃');
     if (open) await act(async () => { open.click(); });
@@ -112,7 +115,7 @@ describe('a .CDX1 save and the Rod aim', () => {
   }, 30000);
 
   it('says nothing more when nothing is lost', async () => {
-    const host = await saveCdx1With({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 0 });
+    const host = await saveCdx1With({ ...DEFAULT_CONDITIONS, launchRodAngleDeg: 5, launchRodAimDeg: 0 }, { aimListed: false });
     expect(host.textContent).not.toContain('RASAero has no rod direction');
   }, 30000);
 });

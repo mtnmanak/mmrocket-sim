@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../model/design.js';
@@ -67,13 +67,13 @@ interface Harness {
  * App's shape, and nothing else: a snapshot in state, the hook over it.
  * `preRank` is what App's restore records when it moved a pad mass.
  */
-function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>, preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null): Harness {
+function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRankRestore | null = null, preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>, preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null, onMarkMigrated?: (before: string, after: string) => void): Harness {
   const h = {} as Harness;
   function Probe() {
     const [s, setS] = useState(initial);
     const landing = useRef<MountMotor | null>(null);
     const pre = useRef<PreRankRestore | null>(preRank);
-    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength, preConfig);
+    h.current = useDesignDirty(s, seed, { landing, mountId: 'mmt' }, pre, preLength, preConfig, { onMarkMigrated });
     h.set = setS;
     h.landing = landing;
     return null;
@@ -88,6 +88,17 @@ function mount(initial: DesignSnapshot, seed: DirtySeed | null, preRank: PreRank
 }
 
 describe('useDesignDirty — live label migration', () => {
+  it.each(['matching', 'older', 'missing'] as const)('notifies independent marks with a %s .ork mark', state => {
+    const before = snap(tree('Saved'), { mmt: C6 });
+    const after = { ...before, mountMotors: { mmt: { ...C6, label: 'Updated' } } };
+    const onMarkMigrated = vi.fn();
+    const h = mount(before, { savedMark: state === 'matching' ? designFingerprint(before) : state === 'older' ? 'older' : undefined },
+      null, undefined, undefined, onMarkMigrated);
+    onMarkMigrated.mockClear();
+    act(() => { h.current.migrateSavedMark(before, after); h.set(after); });
+    expect(onMarkMigrated).toHaveBeenCalledExactlyOnceWith(designFingerprint(before), designFingerprint(after));
+    expect(h.current.savedMark.current).toBe(state === 'matching' ? designFingerprint(after) : state === 'older' ? 'older' : null);
+  });
   it.each(['clean', 'edited', 'flown', 'unknown'] as const)('preserves the %s state across relabeling', state => {
     const before = snap(tree('Saved'), { mmt: C6 });
     const seed = state === 'unknown' ? {} : { savedMark: designFingerprint(before) };
@@ -142,6 +153,17 @@ describe('useDesignDirty — the seeding rule', () => {
 });
 
 describe('useDesignDirty — the starter motor lands a render after the seed', () => {
+  it.each(['matching', 'older', 'missing'] as const)('notifies independent marks on starter landing with a %s .ork mark', state => {
+    const before = snap(tree('Starter'));
+    const after = snap(tree('Starter'), { mmt: C6 });
+    const onMarkMigrated = vi.fn();
+    const h = mount(before, { savedMark: state === 'matching' ? designFingerprint(before) : state === 'older' ? 'older' : undefined },
+      null, undefined, undefined, onMarkMigrated);
+    onMarkMigrated.mockClear();
+    act(() => { h.landing.current = C6; h.set(after); });
+    expect(onMarkMigrated).toHaveBeenCalledExactlyOnceWith(designFingerprint(before), designFingerprint(after));
+    expect(h.current.savedMark.current).toBe(state === 'matching' ? designFingerprint(after) : state === 'older' ? 'older' : null);
+  });
   it('re-takes the mark over the rocket WITH the motor, so the untouched starter stays clean', () => {
     const bare = snap(tree('Starter'));
     const h = mount(bare, null);
@@ -268,9 +290,11 @@ describe('motor-length migration saved mark', () => {
       after.tree.components[0]!.children![0]!.maxMotorLength = 0.4;
       const seed = { savedMark: status === 'missing' ? undefined
         : status === 'edited' ? 'older-unsaved-mark' : designFingerprint(before), flownSinceSave: status === 'flown' };
+      const onMarkMigrated = vi.fn();
       const h = mount(after, seed, { motors: before.mountMotors, configs: before.savedConfigs },
         { tree: before.tree, maxMotorLengthByStage: before.maxMotorLengthByStage },
-        { savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId });
+        { savedConfigs: before.savedConfigs, activeConfigId: before.activeConfigId }, onMarkMigrated);
+      expect(onMarkMigrated).toHaveBeenCalledExactlyOnceWith(designFingerprint(before), designFingerprint(after));
       expect(h.current.dirty).toBe(status !== 'clean');
       expect(h.current.savedMark.current).toBe(status === 'clean' || status === 'flown'
         ? designFingerprint(after) : seed.savedMark ?? null);

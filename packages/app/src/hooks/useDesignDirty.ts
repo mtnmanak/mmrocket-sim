@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type MutableRefObject } from 'react';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from '../services/dirtyState.js';
 
@@ -76,6 +76,11 @@ export interface DesignDirty {
  *   once, on mount.
  * @param preLength the tree and stage limits before the one-time mount migration.
  * @param preConfig the configurations before removing a dry-save placeholder.
+ * @param options.onMarkMigrated told the fingerprints before and after EVERY
+ *   non-edit rewrite of the design (a catalogue relabel, a restore migration,
+ *   the starter motor landing), whether or not the .ork mark matched: another
+ *   mark taken over the before-design — App's lossy .rkt/.CDX1 mark — still
+ *   describes the design and must move with it. Not called when nothing moved.
  */
 export function useDesignDirty(
   snapshot: DesignSnapshot,
@@ -84,6 +89,7 @@ export function useDesignDirty(
   preRank?: MutableRefObject<PreRankRestore | null>,
   preLength?: Pick<DesignSnapshot, 'tree' | 'maxMotorLengthByStage'>,
   preConfig?: Pick<DesignSnapshot, 'savedConfigs' | 'activeConfigId'> | null,
+  options: { onMarkMigrated?: (before: string, after: string) => void } = {},
 ): DesignDirty {
   /**
    * The design fingerprint as of the last save or import — what is on disk.
@@ -98,6 +104,10 @@ export function useDesignDirty(
   const flownSinceSave = useRef<boolean>(seed?.flownSinceSave ?? false);
   const flightCount = useRef(0);
   const [dirtyTick, bumpDirty] = useReducer((x: number) => x + 1, 0);
+  // The latest callback, for the mount-time effects and the stable migrateSavedMark.
+  const onMarkMigrated = useRef(options.onMarkMigrated);
+  useLayoutEffect(() => { onMarkMigrated.current = options.onMarkMigrated; });
+  const migrated = (before: string, after: string) => { if (before !== after) onMarkMigrated.current?.(before, after); };
 
   // A first visit starts on the starter rocket, which is not work anybody
   // would mind losing — seed the mark so a share link or an Open does not ask
@@ -125,10 +135,12 @@ export function useDesignDirty(
   useEffect(() => {
     const pre = preRank?.current ?? null;
     if (preRank) preRank.current = null;
-    if (savedMark.current === null) return;
-    const before = { ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}), ...preConfig };
-    if (designFingerprint(before) !== savedMark.current) return;
-    savedMark.current = designFingerprint(snapshot);
+    const before = designFingerprint({ ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}), ...preConfig });
+    const after = designFingerprint(snapshot);
+    // Before the .ork mark's own test: a lossy mark can be valid without one.
+    migrated(before, after);
+    if (savedMark.current === null || before !== savedMark.current) return;
+    savedMark.current = after;
     bumpDirty();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, over the design as restored
   }, []);
@@ -147,9 +159,11 @@ export function useDesignDirty(
       return;
     }
     starter.landing.current = null;
-    if (savedMark.current !== null
-      && designFingerprint({ ...snapshot, mountMotors: {} }) === savedMark.current) {
-      savedMark.current = designFingerprint(snapshot);
+    const before = designFingerprint({ ...snapshot, mountMotors: {} });
+    const after = designFingerprint(snapshot);
+    migrated(before, after);
+    if (savedMark.current !== null && before === savedMark.current) {
+      savedMark.current = after;
       bumpDirty();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the starter's mount is fixed at mount
@@ -172,8 +186,11 @@ export function useDesignDirty(
     bumpDirty();
   }, []);
   const migrateSavedMark = useCallback((before: DesignSnapshot, after: DesignSnapshot) => {
-    if (savedMark.current !== designFingerprint(before)) return;
-    savedMark.current = designFingerprint(after);
+    const from = designFingerprint(before);
+    const to = designFingerprint(after);
+    if (from !== to) onMarkMigrated.current?.(from, to);
+    if (savedMark.current !== from) return;
+    savedMark.current = to;
     bumpDirty();
   }, []);
   const markFlown = useCallback(() => {
