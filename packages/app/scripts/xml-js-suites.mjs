@@ -58,6 +58,7 @@ export const XML_JS_SUITES = [
   'src/services/orkPackedSize.test.ts',
   'src/services/orkRadial.test.ts',
   'src/services/rasaeroFile.test.ts',
+  'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',
   'src/services/rocksimFile.test.ts',
   'src/services/rocksimAmbiguousLoadout.test.ts',

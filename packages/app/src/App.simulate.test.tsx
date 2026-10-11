@@ -115,8 +115,10 @@ vi.mock('./services/rasaeroFile.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/rasaeroFile.js')>();
   return {
     ...real,
-    importCdx1: (...a: Parameters<typeof real.importCdx1>) => {
-      const r = real.importCdx1(...a);
+    // The file door's .CDX1 entry (designFile.ts): the import with each stated
+    // weight backed out by the curve the flight loads.
+    importCdx1Flown: async (...a: Parameters<typeof real.importCdx1Flown>) => {
+      const r = await real.importCdx1Flown(...a);
       parsed = structuredClone(r);
       return r;
     },

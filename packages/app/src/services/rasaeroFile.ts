@@ -3,7 +3,7 @@ import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
   flownRodAimDeg, importLaunchValue, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
@@ -25,7 +25,8 @@ import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef, type OrkSeparationOverride } from './orkFile.js';
 import {
-  cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
+  type BackedOutMotor, cgFromCombined, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES, stageCgWithoutMotor, stageLength,
+  stageMassWithoutMotor, type StatedStageFigures,
 } from './statedLaunchWeight.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 
@@ -293,11 +294,58 @@ export interface Cdx1ImportResult extends OrkImportResult {
 
 // ============================ IMPORT ============================
 
+/**
+ * `importCdx1` with each stated launch weight backed out by the mass the
+ * flight will really load (board Tier 0 row 81, ruled exact 2026-10-11): the
+ * header mass of the curve file the flight picks, through `flownSpec` — which
+ * the caller sets to the SAME curve load its motor match uses (App:
+ * `fetchMotorSpec`; the headless open: its own `fetchSpec`), so there is never
+ * a second picking rule. The G12ST is where the two differ: 150.3 g in the
+ * catalogue against 150.0 g in both its curve files, so a stated weight with
+ * the catalogue's taken off flew 0.3 g light.
+ *
+ * Two passes over the file: the first names every catalogue row a stage would
+ * back out (with the catalogue's mass, as `importCdx1` alone does), the second
+ * backs out each row's flown figures. A .CDX1 is a few kilobytes, so reading
+ * it twice is cheaper than splitting the importer around an await. A curve that
+ * will not load (offline, none published) is not an error: that row falls back
+ * to the catalogue's mass, and the import note names it. Without `flownSpec`
+ * this IS `importCdx1`.
+ */
+export async function importCdx1Flown(data: ArrayBuffer | string, opts: Omit<NonNullable<Parameters<typeof importCdx1>[1]>, 'flownMotor'> & {
+  flownSpec?: (row: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
+} = {}): Promise<Cdx1ImportResult> {
+  const { flownSpec, ...rest } = opts;
+  const rows = new Map<string, MotorDbEntry>();
+  const first = importCdx1(data, { ...rest, flownMotor: (row) => { rows.set(row.motorId, row); return undefined; } });
+  if (!flownSpec || rows.size === 0) return first;
+  const figures = new Map(await Promise.all([...rows.values()].map(async (row) => {
+    try {
+      // The delay picks nothing about the curve or its masses (pickSampleFile).
+      const spec = await flownSpec(row, 0);
+      const massKg = spec.masses[0];
+      return [row.motorId, massKg !== undefined && massKg > 0 && spec.length > 0 && Number.isFinite(spec.cgX)
+        ? { massKg, lengthM: spec.length, cgXFromFrontM: spec.cgX } : null] as const;
+    } catch {
+      return [row.motorId, null] as const;
+    }
+  })));
+  return importCdx1(data, { ...rest, flownMotor: (row) => figures.get(row.motorId) ?? null });
+}
+
 export function importCdx1(data: ArrayBuffer | string, opts?: {
   /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
   catalogue?: MotorDbEntry[];
   /** Choice when the import began, including a session override. Omit when unknown. */
   aeroChoice?: AeroChoice;
+  /**
+   * The figures the flight will load for a catalogue row — its curve file's
+   * header mass, not the catalogue's (board Tier 0 row 81). `undefined`: not
+   * asked, so the catalogue's stand in and nothing is said; `null`: the curve
+   * could not be loaded, so the catalogue's stand in and the note says so.
+   * Filled by {@link importCdx1Flown}, which is what the app's open calls.
+   */
+  flownMotor?: (row: MotorDbEntry) => BackedOutMotor | null | undefined;
 }): Cdx1ImportResult {
   // decodeXml, not a blind UTF-8 read: see its note (audit 2026-09-22). A
   // GZIP-compressed file (magic 1f 8b) is inflated first, under the .ork's
@@ -1220,14 +1268,22 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
    * subtracting nothing would leave an unknown motor's mass inside the stage
    * override.
    *
-   * The mass is the bundled catalog's `totalWeightG`, which is exactly what
-   * the loaded motor will weigh in flight (`thrustcurve.ts` builds
-   * `masses[0]` from it), so the override and the motor can never disagree.
-   * 145 of the 1,156 catalog entries publish no loaded weight (bundled snapshot
-   * of 2026-09-30) — `hasMassData` is the same guard the motor picker uses to
-   * disable those rows.
+   * The mass is the one the loaded motor will weigh in flight: its curve
+   * file's own header mass, which `thrustcurve.ts` flies in preference to the
+   * catalogue's (`samplesToMotorSpec`, `file?.totalWeightG ?? motor.totalWeightG`),
+   * looked up by `opts.flownMotor` through the flight's own curve load. The two
+   * DO differ — the G12ST's catalogue row says 150.3 g and both its curve files
+   * 150.0 g — which is why this said "can never disagree" wrongly until board
+   * Tier 0 row 81 (2026-10-11). When the curve cannot be had, the catalogue's
+   * `totalWeightG` stands in and the import note says so; 145 of the 1,156
+   * catalog entries publish no loaded weight (bundled snapshot of 2026-09-30),
+   * and `hasMassData` is the same guard the motor picker uses to disable those
+   * rows.
    */
-  type StageMotor = { massKg: number; lengthM: number; label: string };
+  /** `label` as the file names the motor; `row` as the motor database does, which is what loads. */
+  type StageMotor = BackedOutMotor & { label: string; row: string };
+  /** Motors whose curve could not be loaded at import, so the catalogue's mass was backed out. */
+  const catalogueStandIns = new Map<string, number>();
   const stageMotorOf = (stageIdx: number, chosen: OrkFlightConfig | undefined): StageMotor | null | 'absent' | 'unknown' => {
     const mount = aftTube(stages[stageIdx]);
     const ref = mount?.id ? chosen?.motors[mount.id] : undefined;
@@ -1254,49 +1310,38 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // catalogue's “J-326-LR”; K1127LB, its “K1127-LB”). Four still do (M787,
     // O4374, ARA1200by9, ARA1100by8).
     if (!db) return 'absent';
+    // What the flight will load, from the curve file the flight itself picks.
+    // Asked before the catalogue's guard below: a row publishing no loaded
+    // weight still flies its curve file's header mass, so with that mass in
+    // hand it can be backed out like any other.
+    const flown = opts?.flownMotor?.(db);
+    if (flown) return { ...flown, label: ref.designation, row: db.designation };
     // An entry that exists but publishes no loaded weight (145 of 1,156 at the
-    // 2026-09-30 snapshot) is the
+    // 2026-09-30 snapshot), with no curve to read one from, is the
     // dangerous one and still skips: thrustcurve.ts takes `masses[0]` from the
     // DOWNLOADED file's header when it carries one, so this motor may well be
     // mounted WITH a real mass — and folding that unknown mass into the
     // airframe would be an authoritative-looking wrong number.
     if (!hasMassData(db) || !(db.length > 0)) return 'unknown';
-    return { massKg: db.totalWeightG / 1000, lengthM: db.length / 1000, label: ref.designation };
+    if (flown === null) catalogueStandIns.set(db.designation, db.totalWeightG / 1000);
+    return {
+      massKg: db.totalWeightG / 1000, lengthM: db.length / 1000, cgXFromFrontM: db.length / 2000,
+      label: ref.designation, row: db.designation,
+    };
   };
 
-  /**
-   * Desktop `getStageCGWithoutMotorCG` (:504-524). `combinedCg` is the CG of a
-   * stage AND its motor measured from the nose tip; back the motor out to
-   * leave the stage's own. Returns NaN when it cannot be done, never a guess.
-   *
-   * The motor's front sits at `mount front + mount length − motor length`
-   * (BodyTube.getMotorPosition = `length − motorLength + overhang`, and this
-   * importer sets no overhang), and its CG is half its length back — which is
-   * literally the `cgX` our engine will use, `motor.length / 2000` in
-   * thrustcurve.ts, i.e. desktop's `CGPoints[0].x`. Desktop's other branch
-   * (`CGPoints` null or a single point) returns `combinedCg` unchanged and is
-   * unreachable for a real thrust curve — every MotorSpec we build carries one
-   * CG point per thrust sample — so only the branch below is mirrored.
-   *
-   * `stageMassKg` must be the OVERRIDDEN stage mass — desktop's comment at
-   * :510 says the same thing about `stage.getMass()` — which is why each
-   * stage's mass override is applied before its CG override below.
+  /*
+   * Backing the motor out (desktop `getStageCGWithoutMotorCG`, :504-524, and
+   * the mass subtraction beside it) is statedLaunchWeight.ts's
+   * `stageMassWithoutMotor` / `stageCgWithoutMotor`, in the STAGE's own frame:
+   * the same arithmetic a later re-pick of this motor runs again
+   * (`restateBackedOutMotor`), so the two land on one number. The motor's CG is
+   * the flown spec's `cgX` — `length / 2` on every path `thrustcurve.ts` builds
+   * today, desktop's `CGPoints[0].x`. Desktop's other branch (`CGPoints` null
+   * or a single point) returns the combined CG unchanged and is unreachable for
+   * a real thrust curve, so only the back-out is mirrored. A curve that will
+   * not load leaves the catalogue's figures, with the CG at the midpoint.
    */
-  const cgWithoutMotor = (
-    stageIdx: number, stageMassKg: number, motor: StageMotor | null, combinedCg: number,
-  ): number => {
-    if (!motor) return combinedCg;
-    if (!(stageMassKg > 0)) return NaN; // no overridden mass to divide by
-    const mount = aftTube(stages[stageIdx]);
-    if (!mount) return combinedCg;
-    let mountFrontX = stageFrontX[stageIdx] ?? 0;
-    for (const c of stages[stageIdx]?.children ?? []) {
-      if (c === mount) break;
-      mountFrontX += nodeLength(c);
-    }
-    const motorFrontX = mountFrontX + nodeLength(mount) - motor.lengthM;
-    return cgFromCombined(motor.massKg, stageMassKg, motorFrontX + motor.lengthM / 2, combinedCg);
-  };
 
   const lbTxt = (kg: number): string => `${(kg * LB).toFixed(3)} lb`;
   const inTxt = (m: number): string => `${(m * IN).toFixed(2)} in`;
@@ -1421,11 +1466,16 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
             skipped.push(`${stageName(i)}: its ${lbTxt(wt[i])} is LESS than the ${lbTxt(above)} stated for `
               + 'the stack above it, which cannot be — the file’s weights disagree with themselves.');
           } else {
-            const dry = wt[i] - (m?.massKg ?? 0) - above;
+            const launchKg = wt[i] - above;
+            const dry = stageMassWithoutMotor(launchKg, m);
             if (dry > 0) {
               st['overrideMass'] = dry;
               st['overrideSubcomponentsMass'] = true;
               overrideMassKg[i] = dry;
+              // The file's figure behind it, so loading this motor later with
+              // other figures backs it out again (statedLaunchWeight.ts
+              // STATED_STAGE_FIGURES). Only for a motor actually backed out.
+              if (m) st[STATED_STAGE_FIGURES] = { motor: m.row, launchKg, massKg: dry } satisfies StatedStageFigures;
               // The one case where the override that just landed is NOT a dry
               // airframe mass: no motor could be backed out of it, so it still
               // holds that motor's weight. Marked on the stage so that loading
@@ -1454,10 +1504,11 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           if (!(ownStackMass > 0)) continue; // guarded: desktop divides by this
           combined = cgFromCombined(above, ownStackMass, cgAbove, cg[i]);
         }
-        const noseCg = cgWithoutMotor(i, overrideMassKg[i] ?? 0, m, combined);
         // Desktop references a booster's override to the front of the BOOSTER,
-        // not to the nose (:427) — an override CG is always component-relative.
-        const stageCg = noseCg - (stageFrontX[i] ?? 0);
+        // not to the nose (:427) — an override CG is always component-relative —
+        // so the combined CG moves into that frame before the motor comes out.
+        const launchCg = combined - (stageFrontX[i] ?? 0);
+        const stageCg = stageCgWithoutMotor(stages[i]!, aftTube(stages[i]), m, overrideMassKg[i] ?? 0, launchCg);
         const len = stageLength(st);
         if (!(stageCg >= 0) || stageCg > len) {
           // Outside the stage's own extent is not a CG the file can mean — a
@@ -1477,6 +1528,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         }
         st['overrideCGX'] = stageCg;
         st['overrideSubcomponentsCG'] = true;
+        // A motor backed out of the CG has been backed out of the mass first
+        // (stageCgWithoutMotor refuses otherwise), so the record exists.
+        if (m) {
+          st[STATED_STAGE_FIGURES] = {
+            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row }),
+            launchCgM: launchCg, cgM: stageCg,
+          } satisfies StatedStageFigures;
+        }
         // Same mark, same reason as the mass above: with no motor to back out,
         // this CG override is a LAUNCH CG and still holds that motor's moment.
         // Idempotent — the mass branch usually set it already.
@@ -1599,6 +1658,16 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     notes.push(`Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
       + `does the same): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
       + 'stage — clear it under Overrides to go back to the 2 mm-wall geometry.');
+  }
+  if (catalogueStandIns.size > 0) {
+    // Board Tier 0 row 81: the stated weight is backed out with the curve file's
+    // own header mass, which is what flies. Without the curve that number is
+    // not to be had, and the catalogue's is the nearest the app has.
+    const list = [...catalogueStandIns].map(([d, kg]) => `${d} (${lbTxt(kg)})`).join(', ');
+    notes.push(`The thrust curve for ${list} could not be loaded during the import, so the motor `
+      + 'database’s loaded weight was backed out of the stated launch weight instead of the curve file’s '
+      + 'own, which is what the flight carries; the two can differ by tens of grams on some motors. When '
+      + 'that motor loads, the app backs it out again with its curve’s own weight.');
   }
   if (skipped.length > 0) {
     notes.push('NOT applied from the RASAero simulation, because the numbers don’t support an override '

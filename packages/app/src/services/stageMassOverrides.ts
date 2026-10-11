@@ -1,5 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
+import { STATED_STAGE_FIGURES, statedFiguresHold, statedFiguresOf, type StatedStageFigures } from './statedLaunchWeight.js';
 
 /** A complete snapshot: absent fields clear the previous configuration's values. */
 export interface StageMassOverride {
@@ -8,10 +9,12 @@ export interface StageMassOverride {
   overrideSubcomponentsMass?: boolean;
   overrideSubcomponentsCG?: boolean;
   overrideIncludesMotor?: string;
+  /** The RASAero file's figures a catalogued motor was backed out of (statedLaunchWeight.ts). */
+  statedStageFigures?: StatedStageFigures;
 }
 
 const KEYS = ['overrideMass', 'overrideCGX', 'overrideSubcomponentsMass',
-  'overrideSubcomponentsCG', 'overrideIncludesMotor'] as const;
+  'overrideSubcomponentsCG', 'overrideIncludesMotor', STATED_STAGE_FIGURES] as const;
 
 /** Only mass/CG and their unresolved-motor mark belong to this snapshot, never Cd. */
 export function captureStageMass(node: Record<string, unknown>): StageMassOverride {
@@ -27,6 +30,10 @@ export function captureStageMass(node: Record<string, unknown>): StageMassOverri
       && typeof node['overrideIncludesMotor'] === 'string' && node['overrideIncludesMotor'] !== '') {
     out.overrideIncludesMotor = node['overrideIncludesMotor'];
   }
+  // Only while the overrides still hold what those figures produced: a typed,
+  // cleared or scaled override is the user's, and the record goes with it.
+  const stated = statedFiguresOf(node as ComponentNode);
+  if (stated && statedFiguresHold(stated, out.overrideMass, out.overrideCGX)) out.statedStageFigures = stated;
   return out;
 }
 

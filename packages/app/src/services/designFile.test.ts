@@ -89,35 +89,35 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
-  it('passes the selected aero model to the RASAero import note', () => {
+  it('passes the selected aero model to the RASAero import note', async () => {
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';
     const data = new TextEncoder().encode(xml).buffer;
-    const imported = openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'hybrid' });
+    const imported = await openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'hybrid' });
     expect(imported.notes.filter((n) => n.includes('Modified Barrowman'))).toHaveLength(1);
     expect(imported.notes.join(' ')).toContain('model was Hybrid (experimental)');
-    expect(openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'eb' }).notes.join(' '))
+    expect((await openDesignFile(data, 'test.CDX1', { presets: [], aeroChoice: 'eb' })).notes.join(' '))
       .not.toContain('Modified Barrowman');
   });
-  it('dispatch by format: a RASAero file through the .CDX1 reader, named only by openDesignFile', () => {
+  it('dispatch by format: a RASAero file through the .CDX1 reader, named only by openDesignFile', async () => {
     // A RASAero file with no <Comments> has no name of its own.
-    const parsed = parseDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
+    const parsed = await parseDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
     expect(parsed.tree.name).toBe('Imported RASAero rocket');
     expect(parsed.sourceFormat).toBe('cdx1');
-    const opened = openDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
+    const opened = await openDesignFile(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', { presets: [] });
     expect(opened.tree.name).toBe('My Test Rocket');
     expect(opened.name).toBe('My Test Rocket');
   });
 
-  it('a .ork through the .ork reader, a .rkt through the RockSim reader', () => {
-    expect(parseDesignFile(fixture('reference.ork'), 'unusual.backup', { presets: [] }).sourceFormat).toBe('ork');
-    expect(parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'test.RKT', { presets: [] }).sourceFormat).toBe('rkt');
-    expect(parseDesignFile(fixture('reference.ork'), 'reference.ork', { presets: [] }).tree.components.length)
+  it('a .ork through the .ork reader, a .rkt through the RockSim reader', async () => {
+    expect((await parseDesignFile(fixture('reference.ork'), 'unusual.backup', { presets: [] })).sourceFormat).toBe('ork');
+    expect((await parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'test.RKT', { presets: [] })).sourceFormat).toBe('rkt');
+    expect((await parseDesignFile(fixture('reference.ork'), 'reference.ork', { presets: [] })).tree.components.length)
       .toBeGreaterThan(0);
-    expect(parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'rocksimTestRocket1.rkt', { presets: [] }).tree.name)
+    expect((await parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'rocksimTestRocket1.rkt', { presets: [] })).tree.name)
       .toBe('FooBar Test');
     // The wrong reader for the bytes refuses them: the dispatch is by name.
-    expect(() => parseDesignFile(fixture('reference.ork'), 'reference.rkt', { presets: [] })).toThrow();
+    await expect(parseDesignFile(fixture('reference.ork'), 'reference.rkt', { presets: [] })).rejects.toThrow();
   });
 });
 
@@ -140,30 +140,30 @@ describe('a gzip-compressed .rkt or .CDX1 opens as desktop opens it', () => {
   it.each([
     ['rocksimTestRocket1.rkt', 'rkt'], ['FinsOnTransitions.rkt', 'rkt'],
     ['Complex.Two-Stage.CDX1', 'cdx1'], ['Three-stage rocket.CDX1', 'cdx1'],
-  ] as const)('%s reads the same compressed as plain', (name, format) => {
-    const plain = parseDesignFile(fixture(name), name, { presets: [] });
-    const compressed = parseDesignFile(gz(fixture(name)), name, { presets: [] });
+  ] as const)('%s reads the same compressed as plain', async (name, format) => {
+    const plain = await parseDesignFile(fixture(name), name, { presets: [] });
+    const compressed = await parseDesignFile(gz(fixture(name)), name, { presets: [] });
     expect(compressed.sourceFormat).toBe(format);
     expect(compressed.tree.components.length).toBeGreaterThan(0);
     expect(withoutIds(compressed)).toEqual(withoutIds(plain));
   });
 
   it.each(['rocksimTestRocket1.rkt', 'Complex.Two-Stage.CDX1'])(
-    'a damaged %s is refused as damaged, not as XML, and says so through the open failure', (name) => {
+    'a damaged %s is refused as damaged, not as XML, and says so through the open failure', async (name) => {
       const bytes = new Uint8Array(gz(fixture(name)));
       const cut = bytes.slice(0, bytes.length - 20).buffer;
       const kind = name.endsWith('.rkt') ? '.rkt' : '.CDX1';
       let err: unknown;
-      try { parseDesignFile(cut, name, { presets: [] }); } catch (e) { err = e; }
+      try { await parseDesignFile(cut, name, { presets: [] }); } catch (e) { err = e; }
       expect(err).toBeInstanceOf(Error);
       expect((err as Error).message.startsWith(`Not a readable compressed ${kind} file — it is damaged`)).toBe(true);
       expect(designFileOpenFailure(name, err).startsWith(`Could not open that ${kind} file: Not a readable compressed`)).toBe(true);
     });
 
-  it('a file that is only the two magic bytes is refused as damaged, not a crash', () => {
+  it('a file that is only the two magic bytes is refused as damaged, not a crash', async () => {
     const magic = new Uint8Array([0x1f, 0x8b]).buffer;
-    expect(() => parseDesignFile(magic, 'x.rkt', { presets: [] })).toThrow(/compressed \.rkt file — it is damaged/);
-    expect(() => parseDesignFile(magic, 'x.CDX1', { presets: [] })).toThrow(/compressed \.CDX1 file — it is damaged/);
+    await expect(parseDesignFile(magic, 'x.rkt', { presets: [] })).rejects.toThrow(/compressed \.rkt file — it is damaged/);
+    await expect(parseDesignFile(magic, 'x.CDX1', { presets: [] })).rejects.toThrow(/compressed \.CDX1 file — it is damaged/);
   });
 });
 
@@ -183,26 +183,26 @@ describe('a zipped .CDX1 opens as desktop opens it', () => {
     { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes },
     (k, v: unknown) => (k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
 
-  it.each(['Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1'])('%s reads the same zipped as plain', (name) => {
-    const plain = parseDesignFile(fixture(name), name, { presets: [] });
-    const fromZip = parseDesignFile(zipped({ [name]: new Uint8Array(fixture(name)) }), name, { presets: [] });
+  it.each(['Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1'])('%s reads the same zipped as plain', async (name) => {
+    const plain = await parseDesignFile(fixture(name), name, { presets: [] });
+    const fromZip = await parseDesignFile(zipped({ [name]: new Uint8Array(fixture(name)) }), name, { presets: [] });
     expect(fromZip.sourceFormat).toBe('cdx1');
     expect(fromZip.tree.components.length).toBeGreaterThan(0);
     expect(withoutIds(fromZip)).toEqual(withoutIds(plain));
   });
 
-  it('takes the .CDX1 member, not a macOS sidecar that sorts ahead of it', () => {
+  it('takes the .CDX1 member, not a macOS sidecar that sorts ahead of it', async () => {
     const name = 'Complex.Two-Stage.CDX1';
     const data = zipped({
       [`__MACOSX/._${name}`]: new Uint8Array([0, 5, 22, 7, 0, 2, 0, 0]),
       'readme.txt': new TextEncoder().encode('not a design'),
       [`designs/${name.toLowerCase()}`]: new Uint8Array(fixture(name)),
     });
-    expect(withoutIds(parseDesignFile(data, name, { presets: [] })))
-      .toEqual(withoutIds(parseDesignFile(fixture(name), name, { presets: [] })));
+    expect(withoutIds(await parseDesignFile(data, name, { presets: [] })))
+      .toEqual(withoutIds(await parseDesignFile(fixture(name), name, { presets: [] })));
   });
 
-  it('an empty archive is refused by name, not as XML', () => {
-    expect(() => parseDesignFile(zipped({}), 'x.CDX1', { presets: [] })).toThrow(/Empty \.CDX1 archive/);
+  it('an empty archive is refused by name, not as XML', async () => {
+    await expect(parseDesignFile(zipped({}), 'x.CDX1', { presets: [] })).rejects.toThrow(/Empty \.CDX1 archive/);
   });
 });

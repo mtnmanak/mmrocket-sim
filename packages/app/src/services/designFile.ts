@@ -1,9 +1,10 @@
+import type { MotorSpec } from '@online-openrocket/engine';
 import type { ImportedDesign } from './importApply.js';
 import type { AeroChoice } from '../prefs/aeroChoice.js';
 import type { MotorDbEntry } from './motorDb.js';
 import { importOrk } from './orkFile.js';
 import type { Preset } from './presets.js';
-import { importCdx1 } from './rasaeroFile.js';
+import { importCdx1Flown } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
 
 /**
@@ -72,6 +73,16 @@ export function applyDesignNameFallback(imported: ImportedDesign, fileName: stri
 
 export type DesignFormat = 'ork' | 'rkt' | 'cdx1';
 
+/** What the file door reads a design with; see {@link parseDesignFile}. */
+export interface DesignFileOptions {
+  presets: readonly Preset[];
+  distanceUnit?: string;
+  catalogue?: MotorDbEntry[];
+  aeroChoice?: AeroChoice;
+  /** The curve load the flight's motor match uses, for a .CDX1's stated weight. */
+  flownSpec?: (row: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
+}
+
 /** Which importer a file goes to: by its extension; anything that is not .rkt or .CDX1 is read as a .ork. */
 export function designFormatOf(fileName: string): DesignFormat {
   if (/\.rkt$/i.test(fileName)) return 'rkt';
@@ -89,26 +100,33 @@ export function designFormatOf(fileName: string): DesignFormat {
  * preference, and its note quotes each configuration's deployment altitude.
  * Motor rows travel with it too (2026-10-01): headless imports must settle
  * delays and motor moments on the shipped rows, while App keeps live defaults.
+ *
+ * ASYNC since 2026-10-11 (board Tier 0 row 81): a .CDX1's stated launch weight
+ * is backed out with the mass of the curve file the flight will load, and that
+ * curve loads asynchronously. `flownSpec` is the caller's own curve load — the
+ * same function its motor match flies with — so the import and the flight read
+ * one curve. Absent, the catalogue's masses stand in, as before.
  */
-export function parseDesignFile(
-  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string; catalogue?: MotorDbEntry[]; aeroChoice?: AeroChoice },
-): ImportedDesign {
+export async function parseDesignFile(
+  data: ArrayBuffer, fileName: string, opts: DesignFileOptions,
+): Promise<ImportedDesign> {
   switch (designFormatOf(fileName)) {
     case 'rkt':
       return { ...importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
-      return { ...importCdx1(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice }), sourceFormat: 'cdx1' };
+      return { ...await importCdx1Flown(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
+        ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
       return { ...importOrk(data, { presets: opts.presets }), sourceFormat: 'ork' };
   }
 }
 
 /** A design file as App's Open… applies it: parsed, then named after its file when it names itself generically. */
-export function openDesignFile(
-  data: ArrayBuffer, fileName: string, opts: { presets: readonly Preset[]; distanceUnit?: string; catalogue?: MotorDbEntry[]; aeroChoice?: AeroChoice },
-): ImportedDesign {
-  const imported = parseDesignFile(data, fileName, opts);
+export async function openDesignFile(
+  data: ArrayBuffer, fileName: string, opts: DesignFileOptions,
+): Promise<ImportedDesign> {
+  const imported = await parseDesignFile(data, fileName, opts);
   applyDesignNameFallback(imported, fileName);
   return imported;
 }
