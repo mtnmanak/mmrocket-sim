@@ -1358,6 +1358,81 @@ The designs that gain most are the ones with the most automatic-radius ring
 components (centering rings, bulkheads, tube couplers) — which is exactly the
 "some files were fine and some were super slow" pattern from the report.
 
+### rocketcomponent/RocketComponent.java + api/OrkEngine.java (+ a counter in aerodynamics/BarrowmanCalculator.java) — the design build is linear in the parts under one parent (2026-10-11)
+
+- **Why:** the board's Tier 2 row "the design build after every open grows roughly
+  with the square of the parts under one parent (about 3 s at 8,000 parts)"
+  (register, 1 October, v0.147). Profiled on the TeaVM artifact, three causes:
+  1. `checkComponentStructure()` (upstream's own "TODO: Remove this after the
+     inconsistent internal state bug has been corrected") runs on EVERY child
+     accessor (`getChild`, `getChildCount`, `getChildren`, `getChildPosition`, ...)
+     and scans the parent's whole child list (`containsExact`) plus this
+     component's whole child list. One walk over N children under one parent is
+     N²/2 steps, and a build walks the tree dozens of times (FlightConfiguration
+     update, active instances, mass, aero).
+  2. `getChildPosition()` is `children.indexOf(child)`, and every AFTER-placed
+     child (`setAfter`, through `ComponentAssembly.update` and `setAxialOffset`)
+     asks for its own index on every update: N body tubes in one stage, O(N²)
+     per update.
+  3. The bridge's static analysis handed `getWorstCP` a throwaway
+     `new WarningSet()`, so `BarrowmanCalculator.checkGeometry` ran on all 360
+     roll planes — formatting two lengths as display text per pair of airframe
+     parts — for warnings nobody read (with cause 1's `getChildPosition` per
+     flush pair inside it, O(N²) per plane).
+- **Change (RocketComponent):** per component, an index hint (where it was last
+  found in its parent's list, checked by IDENTITY before any scan, and one place
+  either side), a "children verified" flag, and a record of the children's ids.
+  `containsExact` tries the hint, then scans from the end (a build appends);
+  the child loop is skipped once verified; `getChildPosition` answers from the
+  hint while no two children share an id, else falls back to `indexOf`.
+- **Why it is exact, not "almost":** `containsExact` returns the same boolean
+  whatever order it looks in. The child loop can only change its answer if the
+  child list or a child's `parent` field changes, and ONLY RocketComponent writes
+  either (grep of every carved and api file, 2026-10-11): an append (addChild,
+  whose component must have no parent) gives the new child this parent and
+  leaves every other child alone, so it keeps the flag; removeChild, moveChild
+  (both match by id through `ArrayList.remove`) and copyFrom clear it, on the old
+  parent too; clone() clears it because `super.clone()` copies fields
+  wholesale. `indexOf` returns the FIRST child EQUAL to the argument, equality
+  being class plus id (`RocketComponent.equals`); while the ids are distinct the
+  child found by identity is that one. The id record is extended by an append
+  and dropped by every other list change, by `newID`, by `setID` and in
+  clone(). Nothing changes what the structure check THROWS on a broken tree,
+  only when it re-scans a tree it has already verified unchanged.
+- **Change (OrkEngine.getStaticInfo):** `getWorstCP(config, worstCond, null)`.
+  Null is the calculator's own discard (`calculateNonAxialForces` substitutes
+  `ignoreWarningSet`, and the checkGeometry patch above skips `checkGeometry` for it);
+  no force or CP reads a WarningSet. The design's geometry warnings still come
+  from the theta = 0 `getCP` with the real set.
+- **Counters:** `RocketComponent.structureScanSteps` (child-list entries scanned)
+  and `BarrowmanCalculator.geometryCheckCalls`, `int` (TeaVM emulates long),
+  read and zeroed by the bridge's `takeWorkCounters()` (engine:
+  `takeKernelWorkCounters()`). Nothing in the kernel reads them.
+  `packages/app/src/services/buildDesignScale.test.ts` holds a build of 2,000
+  parts in one body tube and 2,000 body tubes in one stage to fewer than 25
+  scanned entries a part (both measure 1.0) and the static analysis to ONE
+  geometry check. Mutation-checked one cause at a time: no verified flag
+  1,048 and 45,085 a part; no hint 24,025 and 25,061; no `getChildPosition`
+  fast path 3,005 (tubes only); the throwaway set again 361 checks.
+- **Oracle:** `goldenJvm` before/after zero-line diff (446 lines); difftest 446
+  lines (294 bit-identical, 152 within tolerance); all 155 corpus designs
+  (`docs/User files` and desktop's examples) build to byte-identical static info
+  and warning text, and 18 of them fly to identical summaries, events and series
+  over three runs each (one, "Pods--powered with recovery deployment", varies in
+  the last digit between runs before and after alike).
+- **Measured** (this machine, Node, kernel `buildTree` + `staticInfo`, cold
+  process each):
+
+  | design | before | after |
+  |---|---|---|
+  | 1,000 / 2,000 / 4,000 / 8,000 mass components in one tube | 0.24 / 0.39 / 0.85 / 2.34 s | 0.15 / 0.23 / 0.37 / 0.69 s |
+  | 1,000 / 2,000 / 4,000 body tubes in one stage | 16.6 / 40.5 / 148 s | 0.50 / 0.95 / 2.1 s |
+  | 8,000 body tubes in one stage | not run | 5.6 s |
+
+  What is left on the tube rows is linear: the forward-CP search evaluates every
+  airframe part on 361 planes (about 0.4-0.7 ms a part per analysis).
+- **Divergence from upstream:** none in behaviour; upstreamable.
+
 ## Correctness fixes (documented physics change — a kernel defect, fixed deliberately)
 
 This section exists because Rule 1 below did not have a home for it. A performance

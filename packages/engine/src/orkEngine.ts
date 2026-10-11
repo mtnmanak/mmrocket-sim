@@ -1015,3 +1015,22 @@ export function resetEngine(): void {
 export function setEngineLengthUnit(symbol: string): void {
   ork.setLengthUnit(symbol);
 }
+
+/** Kernel work since the last {@link takeKernelWorkCounters} call (see that function). */
+export interface KernelWorkCounters {
+  /** Child-list entries the kernel's tree-structure check and child-index lookup scanned. */
+  structureScanSteps: number;
+  /** Times the airframe geometry check (diameter steps, gaps, overlaps) ran. */
+  geometryChecks: number;
+}
+
+/**
+ * Counts of kernel work since the last call, which this call zeroes. Counts,
+ * not timings: the app's tests hold a design build to work linear in the parts
+ * under one parent, and to one geometry check per static analysis, on any
+ * machine (2026-10-11; engine-java/patches/LEDGER.md). Nothing reads them in a
+ * build or a flight.
+ */
+export function takeKernelWorkCounters(): KernelWorkCounters {
+  return JSON.parse(ork.takeWorkCounters()) as KernelWorkCounters;
+}

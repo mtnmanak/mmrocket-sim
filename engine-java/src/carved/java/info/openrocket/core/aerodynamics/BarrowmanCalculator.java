@@ -736,8 +736,17 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		return assemblyForces;
 	}
 
+	/**
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): calls to checkGeometry, read and
+	 * zeroed by the bridge's takeWorkCounters(). The app's tests hold a static
+	 * analysis to one geometry check, not one per roll angle of the worst-CP
+	 * sweep. Counting only; nothing reads it inside the kernel.
+	 */
+	public static int geometryCheckCalls = 0;
+
 	@Override
 	public void checkGeometry(FlightConfiguration configuration, final RocketComponent treeRoot, WarningSet warnings) {
+		geometryCheckCalls++;
 		Queue<RocketComponent> queue = new LinkedList<>();
 
 		// Add the (active) child stages

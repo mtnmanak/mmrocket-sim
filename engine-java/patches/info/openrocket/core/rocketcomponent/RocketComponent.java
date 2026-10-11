@@ -120,6 +120,49 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	private Rocket locationsCacheRoot = null;
 	private ModID locationsCacheModID = ModID.INVALID;
 
+	/**
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): what
+	 * {@link #checkComponentStructure()} has already verified. Upstream's check
+	 * scans the parent's whole child list and this component's whole child list
+	 * on EVERY child accessor, so one walk over a parent with N children cost
+	 * O(N^2) and a build ran dozens of walks.
+	 * <p>
+	 * {@code structureIndexHint}: where this component was last found in its
+	 * parent's child list. It is checked by identity before any scan, so a stale
+	 * hint costs one compare and can never change the answer.
+	 * <p>
+	 * {@code childrenStructureVerified}: every child's {@code parent} was found
+	 * to be this component, and nothing that could undo that has happened
+	 * since. Only this class writes {@code parent} or {@code children}; an
+	 * append (addChild) gives the new child this parent and leaves every other
+	 * child alone, so it keeps the flag, and every other write clears it on
+	 * each component whose child list or children it touches. clone() clears
+	 * it, because super.clone() copies fields wholesale.
+	 */
+	private int structureIndexHint = -1;
+	private boolean childrenStructureVerified = false;
+
+	/**
+	 * PERF PATCH (2026-10-11): the ids of this component's children, kept so
+	 * {@link #getChildPosition} can answer from {@code structureIndexHint}.
+	 * Upstream's answer is {@code children.indexOf(child)}, the FIRST child
+	 * EQUAL to it, and equality is by class and id; while no two children
+	 * share an id, the child found by identity is that first equal one. Null
+	 * means not yet built. An append adds to it; every other change to the
+	 * child list or to a child's id drops it, and clone() drops it.
+	 */
+	private java.util.HashSet<UUID> childIdSet = null;
+	private boolean childIdsRepeat = false;
+
+	/**
+	 * PERF PATCH (2026-10-11): how many child-list entries the structure check
+	 * and getChildPosition have scanned. Read and zeroed by the bridge's
+	 * takeWorkCounters(), which the app's tests use to hold a build to work
+	 * linear in the parts under one parent. An int, not a long: TeaVM emulates
+	 * long arithmetic, and this sits on a hot path.
+	 */
+	public static int structureScanSteps = 0;
+
 	// ORColor of the component, null means to use the default color
 	private ORColor color = null;
 	private LineStyle lineStyle = null;
@@ -524,6 +567,10 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		clone.locationsCache = null;
 		clone.locationsCacheRoot = null;
 		clone.locationsCacheModID = ModID.INVALID;
+		// PERF PATCH (2026-10-11): the clone's child list is not yet its own.
+		clone.childrenStructureVerified = false;
+		clone.structureIndexHint = -1;
+		clone.forgetChildIds();
 		// Make sure the InsideColorComponentHandler is cloned
 		if (clone instanceof InsideColorComponent && this instanceof InsideColorComponent) {
 			InsideColorComponentHandler icch = new InsideColorComponentHandler(clone);
@@ -1426,6 +1473,10 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	private final void newID() {
 		mutex.verify();
 		this.id = UUID.randomUUID();
+		// PERF PATCH (2026-10-11): the parent's record of child ids is stale.
+		if (this.parent != null) {
+			this.parent.forgetChildIds();
+		}
 	}
 
 	/**
@@ -1436,6 +1487,10 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	public void setID(UUID newID) {
 		mutex.verify();
 		this.id = newID;
+		// PERF PATCH (2026-10-11): the parent's record of child ids is stale.
+		if (this.parent != null) {
+			this.parent.forgetChildIds();
+		}
 	}
 	
 	public void setID(String newID) {
@@ -2103,6 +2158,10 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 
 		children.add(index, component);
 		component.parent = this;
+		// PERF PATCH (2026-10-11): keep the record of child ids current.
+		if (this.childIdSet != null && !this.childIdSet.add(component.id)) {
+			this.childIdsRepeat = true;
+		}
 		if (this.massOverridden && this.overrideSubcomponentsMass) {
 			component.massOverriddenBy = this;
 		} else {
@@ -2201,6 +2260,13 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		
 
 		if (children.remove(component)) {
+			// PERF PATCH (2026-10-11): remove() matches by id, so it may have taken
+			// an id-equal sibling; re-verify both child lists the next time.
+			this.childrenStructureVerified = false;
+			this.forgetChildIds();
+			if (component.parent != null) {
+				component.parent.childrenStructureVerified = false;
+			}
 			component.parent = null;
 			for (RocketComponent c : component) {
 				// You only want to set the override components to null if the child's override component is either
@@ -2265,6 +2331,9 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		checkState();
 		if (children.remove(component)) {
 			children.add(index, component);
+			// PERF PATCH (2026-10-11): as removeChild - remove() matches by id.
+			this.childrenStructureVerified = false;
+			this.forgetChildIds();
 			
 			this.checkComponentStructure();
 			component.checkComponentStructure();
@@ -2353,7 +2422,64 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	public final int getChildPosition(RocketComponent child) {
 		checkState();
 		this.checkComponentStructure();
-		return children.indexOf(child);
+		// PERF PATCH (2026-10-11, patches/LEDGER.md): upstream's indexOf is a
+		// linear scan, and every AFTER-positioned child asks for its own index on
+		// every update, so N such children under one parent cost O(N^2) per
+		// update. While the children's ids are distinct, the child found by
+		// identity is the first one EQUAL to it, which is what indexOf returns.
+		if (child != null && child.parent == this && childIdsDistinct()) {
+			int found = findByHint(this.children, child);
+			if (found >= 0) {
+				return found;
+			}
+		}
+		int index = children.indexOf(child);
+		structureScanSteps += index >= 0 ? index + 1 : children.size();
+		if (child != null && index >= 0 && children.get(index) == child) {
+			child.structureIndexHint = index;
+		}
+		return index;
+	}
+
+	/**
+	 * PERF PATCH (2026-10-11): where {@code needle} sits in {@code list} by
+	 * identity, looked for only at its hint and one place either side (one
+	 * insertion or removal ahead of it); -1 when it is not there.
+	 */
+	private static int findByHint(List<RocketComponent> list, RocketComponent needle) {
+		int hint = needle.structureIndexHint;
+		if (isAt(list, hint, needle)) {
+			return hint;
+		}
+		int at = isAt(list, hint + 1, needle) ? hint + 1 : (isAt(list, hint - 1, needle) ? hint - 1 : -1);
+		if (at >= 0) {
+			needle.structureIndexHint = at;
+		}
+		return at;
+	}
+
+	private static boolean isAt(List<RocketComponent> list, int index, RocketComponent needle) {
+		return index >= 0 && index < list.size() && list.get(index) == needle;
+	}
+
+	/** PERF PATCH (2026-10-11): true when no two children share an id; see childIdSet. */
+	private boolean childIdsDistinct() {
+		if (this.childIdSet == null) {
+			this.childIdSet = new java.util.HashSet<>();
+			this.childIdsRepeat = false;
+			for (RocketComponent c : this.children) {
+				if (!this.childIdSet.add(c.id)) {
+					this.childIdsRepeat = true;
+				}
+			}
+		}
+		return !this.childIdsRepeat;
+	}
+
+	/** PERF PATCH (2026-10-11): drop the record of child ids; rebuilt on the next need. */
+	private void forgetChildIds() {
+		this.childIdSet = null;
+		this.childIdsRepeat = false;
 	}
 	
 	/**
@@ -2937,6 +3063,11 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 						"component as a child, parent=" + parent.toDebugString() + " this=" + this.toDebugString());
 			}
 		}
+		// PERF PATCH (2026-10-11): skipped once verified; see childrenStructureVerified.
+		if (this.childrenStructureVerified) {
+			return;
+		}
+		structureScanSteps += this.children.size();
 		for (RocketComponent child : this.children) {
 			if (child.parent != this) {
 				throw new BugException("Inconsistent component structure detected, child does not have this component " +
@@ -2944,12 +3075,22 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 						" child.parent=" + (child.parent == null ? "null" : child.parent.toDebugString()));
 			}
 		}
+		this.childrenStructureVerified = true;
 	}
 	
 	// Check whether the list contains exactly the searched-for component (with == operator)
 	private boolean containsExact(List<RocketComponent> haystack, RocketComponent needle) {
-		for (RocketComponent c : haystack) {
-			if (needle == c) {
+		// PERF PATCH (2026-10-11): try where the needle was last found (and one
+		// place either side), then scan
+		// from the END (a build appends, so a new child is found at once). The
+		// answer is the same boolean in any order; only the cost changes.
+		if (findByHint(haystack, needle) >= 0) {
+			return true;
+		}
+		for (int i = haystack.size() - 1; i >= 0; i--) {
+			structureScanSteps++;
+			if (haystack.get(i) == needle) {
+				needle.structureIndexHint = i;
 				return true;
 			}
 		}
@@ -3137,9 +3278,15 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		
 		// Remove previous components
 		for (RocketComponent child : this.children) {
+			// PERF PATCH (2026-10-11): the parent whose child this was re-verifies.
+			if (child.parent != null) {
+				child.parent.childrenStructureVerified = false;
+			}
 			child.parent = null;
 		}
 		this.children.clear();
+		this.childrenStructureVerified = false;
+		this.forgetChildIds();
 		
 		// Copy new children to this component
 		for (RocketComponent c : src.children) {
