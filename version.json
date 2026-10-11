@@ -1,5 +1,5 @@
 {
-  "version": "0.174",
-  "released": "2026-10-10",
-  "note": "A warning before a .rkt or .CDX1 save loses data; the header shows those files too."
+  "version": "0.175",
+  "released": "2026-10-11",
+  "note": "A .rkt carries what the app flies where a part left a value blank; fixes to v0.174's save warnings."
 }

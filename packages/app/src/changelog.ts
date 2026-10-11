@@ -32,6 +32,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.175",
+    "date": "2026-10-11",
+    "title": "A .rkt carries what the app flies where a part left a value blank; fixes to v0.174's save warnings",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES, AND .ORK FILES ARE WRITTEN EXACTLY AS IN v0.174. No mass, aerodynamic, motor or flight calculation changed. What changed is what a .rkt file carries where a part left a value blank (and, for a few such values, a .CDX1 file), and four faults in the save warnings v0.174 added.",
+      "A .RKT NOW CARRIES THE VALUES THE APP FLIES. Where a part left a value blank, the app flies a default, but the .rkt writer filled in placeholders of its own. The largest: a part with no material stated was written with a density of 0, so a program that weighs parts by their density gave it no mass. It is now written as Cardboard, 680 kg/m³, which is what the app flies. The others: a body-tube wall of 0.3 mm (was 0.5 mm); a coupler 50 mm and an engine block 5 mm long (both were 2 mm); a trapezoid fin set's 20 mm sweep (was 0); a pod set's two pods (was one); automatic transition ends, tube-fin radii and ring bores as the app resolves them (were fixed sizes); a freeform fin set's default outline (was empty); a mass object's 10 g (was 0); and a parachute's default shroud lines (were left out). Checked against 171 test and sample designs: 134 of their .rkt files change, and every change is one of these.",
+      "AN AUTOMATIC CHUTE CD NOW SAVES AS THE NUMBER THE APP FLIES. A parachute or streamer on Auto Cd was written to a .rkt as 0.75. RockSim flies that 0.75, while the app flies 0.8 for a parachute and a size-based value for a streamer. The file now carries the app's value, as desktop OR's RockSim export does. The catch: reopened in the app, the Cd is a fixed number rather than Auto, and the save's warning list says so. Save a .ork to keep Auto.",
+      "A .CDX1 GETS THE SAME FIX for a trapezoid fin set's sweep, automatic transition ends, a protuberance with blank sizes, and a freeform fin set with no outline (which the app refused to write before). None of the 171 designs' .CDX1 files changed.",
+      "THE SAVE WARNING NO LONGER LISTS WHAT IS NOW KEPT. v0.174 warned about each of those placeholders, for example \"bulk density is written as 0 kg/m³ instead of 680 kg/m³\". The file now carries the flown value, so those lines are gone.",
+      "FOUR FIXES TO v0.174'S SAVE WARNINGS. If the app cannot work out what a .rkt or .CDX1 save would lose, it now says so and still lets you choose; before, Save .rkt or Save .CDX1 did nothing at all, with no message. The header then reads Saved as .rkt - not fully checked, rather than a count. A design just saved as .rkt or .CDX1 read Unsaved changes after a motor-catalogue update relabelled one of its motors, and lost its saved status on the next reload; it now keeps it. The New, Open and share-link prompts could leave out what the .rkt or .CDX1 does not keep, or show a list up to half a second out of date, just after a file open or an edit or while a flight ran; they now check the design on screen when they open. And Rod aim is no longer listed as lost when the rod is vertical, where it changes nothing.",
+      "THE CHECK AFTER EACH EDIT IS FASTER. The warning button beside a .rkt or .CDX1 file name re-checks the design after each edit; on the largest sample design that now takes under 1 ms, down from about 6.5 ms."
+    ]
+  },
+  {
     "version": "0.174",
     "date": "2026-10-10",
     "title": "A warning before a .rkt or .CDX1 save loses data; the header shows those files too",
