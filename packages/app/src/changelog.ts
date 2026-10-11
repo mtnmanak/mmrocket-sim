@@ -32,6 +32,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.176",
+    "date": "2026-10-11",
+    "title": "Thrust to weight at departure uses the simulation's gravity; one name per aerodynamics model; compressed .rkt and .CDX1 files open",
+    "items": [
+      "NO FLIGHT CALCULATION CHANGED. One report figure, thrust to weight at departure, moves by a few tenths of a percent at most; the rest are fixes to labels, notes, file opening and saving.",
+      "THRUST TO WEIGHT AT DEPARTURE NOW MATCHES THE FLIGHT DATA. The launch report divided by standard gravity, 9.80665 m/s², while the Twr column of the flight-data download uses the gravity the simulation flies, which depends on the pad's latitude and height. The two could differ by a few tenths of a percent: the report was 0.33 % low on an equatorial pad at 2,000 m and 0.13 % high at 60° N. The report now uses the simulation's gravity, and so does everything that reads it: the tile, the run tables, Batch's T:W column and its minimum thrust-to-weight check, and the 5:1 check. Runs saved before this keep their old figure.",
+      "ONE NAME FOR EACH AERODYNAMICS MODEL. Preferences, the Aero selector in the vitals strip and Batch simulate called the default model three different things (Rogers Modified Barrowman (Kbf), Rogers Kbf and Rogers Modified Barrowman), and described the Supersonic model differently in each. Every selector now leads with the same five names - Classic Extended Barrowman, Rogers Modified Barrowman (Kbf), Auto, Supersonic, Hybrid (experimental) - with any description after a dash. The Aero selector is a little wider to fit the longer name.",
+      "AUTO DELAYS KEPT ACROSS FLIGHT CONFIGURATIONS. If a configuration had a motor on Auto delay next to a motor the simulation could not fly (a pod motor it refused, for example), the delay that configuration's Launch worked out was lost as soon as another configuration was selected: Save .ork, Save .rkt, share links and the crash file said the motor was saved at its provisional delay and asked for a Launch. Launch now records which motors did not fly, so the worked-out delay is kept. Runs saved before this behave as before.",
+      "A COMPRESSED .RKT OR .CDX1 NOW OPENS. Desktop OR opens a gzip-compressed RockSim or RASAero file; the app reported an XML error. It now opens it like the plain file, and a damaged one is refused as damaged.",
+      "DEPLOY EVENTS ARE READ THE WAY THE SIMULATION READS THEM. The simulation ignores capital letters in a recovery device's deploy event, so a hand-edited file saying \"Altitude\" flies at altitude, but several parts of the app compared the text exactly. For such a file, recovery sizing now treats that chute as the main, the Deploy at menu shows Altitude rather than Motor ejection charge, Save .CDX1 writes it into the right slot instead of listing it as lost, and Save .rkt writes it instead of refusing. Save .ork now writes the event in lower case: desktop OR matches it exactly and flew \"Altitude\" at the ejection charge, so once the app has saved such a file, desktop OR flies it at altitude too.",
+      "RECOVERY SIZING'S ‡ MARK NOW MATCHES ITS FOOTNOTE. A canopy row carries ‡ only when the app could not check that the canopy fits, and the footnote appears only when a row carries one. A canopy whose maker publishes only one packed dimension now shows it, for example packs 1.77 × ? in, where it said packed size unpublished.",
+      "A .RSE MOTOR WHOSE PER-POINT MASSES CANNOT BE USED NOW SAYS SO. A .rse file that turns off automatic mass and gives a point a missing, blank, negative or non-numeric mass still burns off in proportion to impulse, as before, but the import note now names the motor and the point.",
+      "SAVE .RKT'S REFUSAL FOR AN ALTITUDE DEPLOYMENT USES YOUR UNITS. It quoted the altitude in metres whatever unit was chosen, for example 152.4 m; it now reads 500 ft for someone working in feet.",
+      "UNDER THE HOOD. A chute that states no diameter now reports the 0.3 m the simulation flies in the run's deployment record (nothing on screen showed the blank), and two guards that were right but untested now have tests."
+    ]
+  },
+  {
     "version": "0.175",
     "date": "2026-10-11",
     "title": "A .rkt carries what the app flies where a part left a value blank; fixes to v0.174's save warnings",

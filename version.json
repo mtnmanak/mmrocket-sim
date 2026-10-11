@@ -1,5 +1,5 @@
 {
-  "version": "0.175",
+  "version": "0.176",
   "released": "2026-10-11",
-  "note": "A .rkt carries what the app flies where a part left a value blank; fixes to v0.174's save warnings."
+  "note": "Thrust to weight at departure uses the simulation's gravity; one name per aerodynamics model; compressed .rkt and .CDX1 files open; Auto delays kept across configurations."
 }
