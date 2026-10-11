@@ -40,15 +40,16 @@
  * is where the error is, so it is never a source for its own correction. A field
  * nobody authoritative publishes stays as it is: no "obvious typo" is fixed on a
  * guess, however obvious. And never on one document: a second document (not a
- * second link to the same one) has to STATE the same figure, because a certification letter can be the one that is
- * wrong (the F52C's and H13ST's are undated drafts that AeroTech's own pages and
- * the NAR's list contradict on total impulse: aerotech-certified.test.mjs,
- * KNOWN). A source that states a corrected figure gives it in `states`, as it
- * prints it, and must agree with the correction and rule out the known-bad
- * figure, each to its own last printed digit (the NAR's list keeps whole
- * millimetres, so the K62N's 374.25 mm is its 375). A source that only bounds
- * the figure or explains it is quoted without `states`, and is not the second:
- * the K62N's drawing gives its case alone, a floor under its length.
+ * second link to the same one) has to STATE the same figure, because a
+ * certification letter can be the one that is wrong (the F52C's and H13ST's are
+ * undated drafts that AeroTech's own pages and the NAR's list contradict on
+ * total impulse: aerotech-certified.test.mjs, KNOWN). A source that states a
+ * corrected figure gives it in `states`, as it prints it, and must agree with
+ * the correction and rule out the known-bad figure, each to its own last printed
+ * digit (the NAR's list keeps whole millimetres, so the K62N's 374.25 mm is its
+ * 375). A source that only bounds the figure or explains it is quoted without
+ * `states`, and is not the second: the K62N's drawing gives its case alone, a
+ * floor under its length.
  * Where the sources disagree, nothing is corrected unless Eric explicitly rules
  * for a source. Tier 0 row 57 (2026-10-04) rules for the F52C/H13ST product-page
  * peaks (the letters agree when rounded to the pages' tenths), and for the

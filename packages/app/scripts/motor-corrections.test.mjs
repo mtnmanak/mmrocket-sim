@@ -250,13 +250,15 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
         .toEqual(['length: one document is not enough to correct a row: a second has to state 374.25 too']);
     });
 
-    it('and so are two links to one document: scheme, host case, www, trailing slash, fragment, mirror host', () => {
+    it('and so are two links to one document: scheme, host case, www, trailing slash, fragment, percent-encoding, mirror host', () => {
       const letterAt = (url) => ({ ...LETTER, by: `The letter at ${url}`, url });
       for (const url of [
         LETTER.url.replace('https://', 'http://'),
         LETTER.url.replace('d3l66gvjdr7rqw.cloudfront.net', 'D3L66GVJDR7RQW.cloudfront.net'),
         `${LETTER.url}#page=1`,
-        LETTER.url.replace('%20', ' '),
+        // An encoded unreserved character: the URL parser keeps %63 as it is,
+        // so only documentOf's own decoding reads it as the 'c' it names.
+        LETTER.url.replace('cert%20letter', '%63ert%20letter'),
         // AeroTech serves its letters from this S3 host as well, under the same name.
         LETTER.url.replace('https://d3l66gvjdr7rqw.cloudfront.net/', 'https://s3.eu-west-1.amazonaws.com/static.fw1.biz/'),
       ]) {
@@ -266,6 +268,7 @@ describe('every correction is sourced, and none from thrustcurve.org', () => {
       for (const [a, b] of [
         ['https://www.nar.org/page/', 'http://nar.org/page'],
         ['https://cesaroni.net/products/p24-1g/25e75-17a/', 'https://Cesaroni.net/products/p24-1g/25e75-17a#data'],
+        ['https://cesaroni.net/products/p24-1g/25e75-17a/', 'https://cesaroni.net/products/p24%2D1g/25e75-17a/'],
       ]) expect(documentOf(a)).toBe(documentOf(b));
       // A query can name a different document (the NAR's docs.ashx?id=), so it is kept.
       expect(documentOf('https://www.nar.org/docs.ashx?id=1468138')).not.toBe(documentOf('https://www.nar.org/docs.ashx?id=1468139'));

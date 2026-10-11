@@ -16,9 +16,11 @@
  * WHAT IT WATCHES, and why each one can hurt us
  *
  *  1. openrocket-database `orc/*.ORC` — the component-preset source. We ship
- *     four hand-keyed corrections to it (packages/app/scripts/apply-preset-
- *     corrections.mjs). If upstream FIXES a row, our correction becomes a
- *     no-op that should be retired; if upstream MOVES a row to a third value,
+ *     hand-keyed corrections to it, row by row and field by field, in the
+ *     CORRECTIONS table of packages/app/scripts/apply-preset-corrections.mjs
+ *     (count it there; a count stated here went stale at "four"). If upstream
+ *     FIXES a row, our correction becomes a no-op that should be retired; if
+ *     upstream MOVES a row to a third value,
  *     the correction's known-bad guard will abort the next regeneration, and
  *     it is much better to learn that here than mid-pipeline.
  *     The correction table is IMPORTED, not restated — one list, not two.
