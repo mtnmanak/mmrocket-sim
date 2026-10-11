@@ -1647,6 +1647,52 @@ describe('a pad mass on one of two mounts in the same stage', () => {
 });
 
 /**
+ * THE FILE'S PAD MASS ON THE FIRST OF TWO TIED MOUNTS, WHOSE MOTOR CANNOT LOAD
+ * (board Tier 2, v0.147). importApply attaches a file's weighed pad mass to the
+ * first of the configuration's mounts in the file, here the one naming a motor
+ * no catalogue has, and says it "is kept so the file saves unchanged". The
+ * working set puts the loaded motor beside it first, and the primary gate used
+ * to drop the value from Save .ork, the share link and the crash file alike.
+ */
+describe('a file’s pad mass on a tied mount whose motor cannot load', () => {
+  it('survives Save .ork, the share link and the crash file', async () => {
+    const base = defaultTree();
+    const body = base.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    const tree = addChild(base, body.id!, {
+      type: 'innertube', id: 'mmt-b', name: 'Second MMT', motorMount: true,
+      length: 0.07, outerRadius: 0.0095, thickness: 0.0003,
+    } as ComponentNode);
+    const starter = motorMounts(tree).find((m) => m.id !== 'mmt-b')!.id!;
+    const zq = { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 };
+    const c6 = { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 };
+    const xml = exportOrk({
+      name: 'Tied pad mass', tree, launch: DEFAULT_CONDITIONS,
+      configs: [{ id: 'W', name: null, isDefault: true, motors: { [starter]: { ...zq, padMassKg: 0.5 }, 'mmt-b': c6 } }],
+    });
+    expect(importOrk(xml).configs.map((c) => c.padMassKg)).toEqual([0.5]);
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await pick(host, new File([xml], 'tied.ork'));
+    await waitFor(() => shownName(host) === 'Tied pad mass', 'the tied file');
+    expect(host.textContent).toContain('It is kept so the file saves unchanged');
+
+    const padMasses = (doc: string) => importOrk(doc).configs.map((c) => c.padMassKg);
+    await saveAs(host, 'Save .ork');
+    await settle(0);
+    expect(padMasses(vi.mocked(exportOrk).mock.results.at(-1)!.value as string)).toEqual([0.5]);
+    const writeText = vi.fn(async (_url: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      await saveAs(host, 'Copy share link');
+      await waitFor(() => writeText.mock.calls.length === 1, 'share link');
+      expect(padMasses(await decodeShareFragment(new URL(writeText.mock.calls[0]![0]).hash))).toEqual([0.5]);
+    } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
+    window.dispatchEvent(new Event('pagehide'));
+    expect(padMasses(autosavedDesignFile()!.data)).toEqual([0.5]);
+  }, 30000);
+});
+
+/**
  * AN AUTO MOUNT FLOWN IN THE ACTIVE FLIGHT CONFIGURATION, SAVED (verifier's
  * review of audit 2026-09-30, item 23). A flight is filed under the
  * configuration it flew (SimRun.flightConfigId), and the working set — which

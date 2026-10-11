@@ -257,6 +257,42 @@ describe('orkMotorSet — a tie for the pad mass', () => {
     expect(out['mmt-b']!.padMassKg).toBe(0.42);
     expect(out[starter]).not.toHaveProperty('padMassKg');
   });
+
+  // The file's pad mass on the reference it named first, the loaded motor
+  // beside it carrying none: what importApply leaves when the file's first
+  // mount could not be loaded. The import note promises it saves unchanged.
+  for (const first of ['records', 'refs'] as const) {
+    it(`a tied mount's pad mass is kept when the primary carries none (${first} first)`, () => {
+      const { tree, starter } = tieTree();
+      const out = orkMotorSet({
+        records: { 'mmt-b': motor() }, refs: { [starter]: ref({ padMassKg: 0.5 }) },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(out[starter]!.padMassKg).toBe(0.5);
+      expect(out['mmt-b']).not.toHaveProperty('padMassKg');
+      // The same with the file's motor loaded later, which adopts the value
+      // on its own record, behind the other mount's.
+      const loaded = orkMotorSet({
+        records: { 'mmt-b': motor(), [starter]: motor({ padMassKg: 0.5 }) },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(loaded[starter]!.padMassKg).toBe(0.5);
+      expect(loaded['mmt-b']).not.toHaveProperty('padMassKg');
+    });
+  }
+
+  it('never takes a pad mass from a mount ranked below the primary', () => {
+    // A pod set's mount under a core mount carrying none: not a tie.
+    const { tree, core } = podTree();
+    for (const first of ['records', 'refs'] as const) {
+      const out = orkMotorSet({
+        records: { [core]: motor() }, refs: { 'pod-mmt': ref({ padMassKg: 0.3 }) },
+        tree, configKey: '', exLibrary: noLibrary, first,
+      });
+      expect(out[core]).not.toHaveProperty('padMassKg');
+      expect(out['pod-mmt']).not.toHaveProperty('padMassKg');
+    }
+  });
 });
 
 it('motor label migration preserves .ork, .rkt and .CDX1 export bytes', () => {

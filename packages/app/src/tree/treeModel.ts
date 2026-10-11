@@ -268,12 +268,25 @@ export function stageIndexOf(tree: RocketTree, id: string): number {
  */
 export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): string | null {
   const inTree = mountIds.filter((id) => stageIndexOf(tree, id) !== -1);
-  const rank = (id: string): number => {
-    const up = ancestorsOf(tree, id);
-    return up.some((a) => a.type === 'parallelstage') ? 2 : up.some((a) => a.type === 'podset') ? 1 : 0;
-  };
   // Array.prototype.sort is stable, so equal keys keep the given order.
-  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b) || rank(a) - rank(b))[0] ?? null;
+  return inTree.sort((a, b) => stageIndexOf(tree, a) - stageIndexOf(tree, b) || mountRank(tree, a) - mountRank(tree, b))[0]
+    ?? null;
+}
+
+/** primaryMountOf's rank within a stage: the core 0, a pod set's mount 1, a strap-on's 2. */
+function mountRank(tree: RocketTree, id: string): number {
+  const up = ancestorsOf(tree, id);
+  return up.some((a) => a.type === 'parallelstage') ? 2 : up.some((a) => a.type === 'podset') ? 1 : 0;
+}
+
+/**
+ * True when primaryMountOf cannot tell `a` and `b` apart — both in the tree, in
+ * the same stage and the same rank — so only the order it is handed them
+ * decides which is primary.
+ */
+export function mountsTie(tree: RocketTree, a: string, b: string): boolean {
+  const stage = stageIndexOf(tree, a);
+  return stage !== -1 && stage === stageIndexOf(tree, b) && mountRank(tree, a) === mountRank(tree, b);
 }
 
 /**
