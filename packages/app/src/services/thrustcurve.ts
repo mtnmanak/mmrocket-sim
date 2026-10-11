@@ -1,5 +1,6 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import { deadline } from './net.js';
+import { digestMotorFile } from './motorDigest.js';
 
 /**
  * thrustcurve.org API v1 client (CORS-enabled; verified reflective
@@ -58,6 +59,12 @@ export interface TcSimFile {
    * rather than the raw text they were read from. headerMasses() honours it.
    */
   bundledMasses?: TcHeaderMasses;
+  /**
+   * Desktop OpenRocket's digest(s) of this file (motorDigest.ts) — what a
+   * desktop .ork's <digest> names it by. Set on a bundled file, which stores
+   * them; a downloaded one's are computed from `data` (fileDigests).
+   */
+  digests?: string[];
 }
 
 /** Loaded and propellant mass as a motor's own data file states them. */
@@ -592,6 +599,55 @@ function contentHash(file: TcSimFile): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+// ------------------------------------------------------------ desktop's digest
+
+/** A file's desktop digests: stored on a bundled file, computed from a download's raw text. */
+export function fileDigests(file: TcSimFile): string[] {
+  if (file.digests) return file.digests;
+  if (!file.data) return [];
+  try {
+    // atob's binary string is ISO-8859-1 — desktop's charset for both formats.
+    return digestMotorFile(atob(file.data), file.format);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The file a desktop .ork's motor `<digest>` names, among `files` — null when
+ * none of them is it. Desktop writes the digest of the data file it LOADED, so
+ * this is the curve the design flew there; pickSampleFile is the app's own
+ * choice for a motor picked here, and the two differ for a motor with more
+ * than one file (board Tier 3, the thrust-curve picker; measured 2026-10-11:
+ * 49 of the 254 digest-carrying motors in the tester uploads and the owner's
+ * designs, in 26 of 49 designs, named another file than the app's pick, 18 of
+ * them a curve or masses that fly differently — the AeroTech M1780NT's
+ * manufacturer file, 5,341 N·s, against the cert file's 5,623). Two files
+ * with one digest are one curve to desktop; pickSampleFile decides between
+ * them, so the answer never depends on list order.
+ */
+export function pickDigestFile(files: readonly TcSimFile[], digest: string, motor?: TcMotor): TcSimFile | null {
+  if (!digest) return null;
+  const named = files.filter((f) => fileDigests(f).includes(digest));
+  return named.length ? pickSampleFile(named, motor) : null;
+}
+
+/**
+ * Do two files fly the same here? The flight reads only the curve as flown and
+ * the two header masses (the catalogue's when a file has none), so two files
+ * desktop tells apart can be one flight — an .rse and the RASP file it was made
+ * from. Masses to a part in 10^9, as pickSampleFile compares them.
+ */
+export function fliesTheSame(a: TcSimFile, b: TcSimFile): boolean {
+  if (!a.samples || !b.samples) return false;
+  const ca = flownCurve(a.samples).samples, cb = flownCurve(b.samples).samples;
+  if (ca.length !== cb.length || ca.some((p, i) => p.time !== cb[i]!.time || p.thrust !== cb[i]!.thrust)) return false;
+  const ma = headerMasses(a), mb = headerMasses(b);
+  if (!ma || !mb) return ma === mb;
+  const near = (x: number, y: number) => Math.abs(x - y) <= 1e-9 * Math.max(Math.abs(x), Math.abs(y));
+  return near(ma.totalWeightG, mb.totalWeightG) && near(ma.propWeightG, mb.propWeightG);
+}
+
 // ------------------------------------------------------------ bundled curves
 
 /**
@@ -607,6 +663,7 @@ interface BundledSimFile {
   format?: string;
   samples: [number, number][];
   masses?: TcHeaderMasses;
+  digests?: string[];
 }
 
 let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
@@ -614,7 +671,8 @@ let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
 /**
  * Every thrust curve thrustcurve.org publishes for every catalogued motor,
  * shipped with the app so any motor in Browse motor database flies with no
- * network at all. ~870 KB, loaded lazily on the first motor that needs it.
+ * network at all. ~980 KB (each file's desktop digest added 90 KB, 2026-10-11),
+ * loaded lazily on the first motor that needs it.
  * See scripts/fetch-motor-curves.mjs for what is in it and why all of it.
  *
  * Provenance note, because this file replaced something: until 2026-09-05 the
@@ -685,6 +743,8 @@ async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
     // Carried as parsed masses rather than as the raw .eng text, and surfaced
     // through the same field a download's header would populate.
     ...(f.masses ? { bundledMasses: f.masses } : {}),
+    // Desktop's digest of the raw file, which the bundle does not keep.
+    ...(f.digests ? { digests: f.digests } : {}),
   }));
 }
 
@@ -1047,9 +1107,20 @@ export async function fetchMotorSpec(
    * which browser, with which history, ran it. Absent: the app's path, as it
    * always was.
    */
-  opts: { bundleOnly?: boolean } = {},
+  opts: {
+    bundleOnly?: boolean;
+    /**
+     * A desktop .ork's motor `<digest>` (motorMatch passes the file's own).
+     * The file it names is flown instead of pickSampleFile's choice, when the
+     * bundle or the download has it (pickDigestFile has why); otherwise the
+     * usual pick, so a digest can only ever choose among the motor's own
+     * published files.
+     */
+    digest?: string;
+  } = {},
 ): Promise<RepairedMotorSpec> {
   const bundleOnly = opts.bundleOnly === true;
+  const digest = opts.digest;
   if (bundleOnly && motor.motorId.startsWith('ex:')) {
     throw new OfflineCurveError(`${motor.designation} is an imported EX-library motor, stored in one browser;`
       + ' this run reads only the curves bundled with the app.');
@@ -1065,8 +1136,19 @@ export async function fetchMotorSpec(
   let samples: TcSample[] | null = null;
   let fromFile: TcHeaderMasses | null = null;
 
+  // The file a desktop design names comes first — before this browser's
+  // cache, which holds the usual pick of a motor downloaded earlier. A bundle
+  // that will not load is said further down, where its absence matters.
+  if (digest) {
+    const named = pickDigestFile(await bundledFiles(motor.motorId).catch(() => []), digest, motor);
+    if (named?.samples) {
+      samples = named.samples;
+      fromFile = headerMasses(named);
+    }
+  }
+
   // A bundle-only read never touches this browser's cache (see `opts`).
-  if (!bundleOnly) {
+  if (!bundleOnly && !samples) {
     try {
       sweepDeadGenerations();
       const cached = localStorage.getItem(cacheKey);
@@ -1176,7 +1258,8 @@ export async function fetchMotorSpec(
     const results = Array.isArray(listed)
       ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
       : [];
-    const file = pickSampleFile(results, motor);
+    const usual = pickSampleFile(results, motor);
+    const file = (digest ? pickDigestFile(results, digest, motor) : null) ?? usual;
     if (!file?.samples) {
       // pickSampleFile rejects a file whose samples are not finite time/thrust
       // pairs, so "files came back, none of them usable" is its own case and
@@ -1195,19 +1278,23 @@ export async function fetchMotorSpec(
     }
     samples = file.samples;
     fromFile = headerMasses(file);
-    const entry = JSON.stringify({ samples, masses: fromFile, t: Date.now() });
-    try {
-      if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
-      localStorage.setItem(cacheKey, entry);
-    } catch {
-      // Quota, or no storage at all. setItem writes NOTHING on quota, so retry
-      // once after a hard prune: swallowing this is how a pure-convenience
-      // cache came to fill the pool the session autosave shares.
+    // The cache holds the motor's USUAL curve, which every pick of it reads;
+    // a file only one design names is flown, not cached.
+    const entry = file === usual ? JSON.stringify({ samples, masses: fromFile, t: Date.now() }) : null;
+    if (entry) {
       try {
-        evictOldest(Math.floor(EVICT_TO / 2));
+        if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
         localStorage.setItem(cacheKey, entry);
       } catch {
-        // Still no room, or storage is unavailable — fly the motor uncached.
+        // Quota, or no storage at all. setItem writes NOTHING on quota, so retry
+        // once after a hard prune: swallowing this is how a pure-convenience
+        // cache came to fill the pool the session autosave shares.
+        try {
+          evictOldest(Math.floor(EVICT_TO / 2));
+          localStorage.setItem(cacheKey, entry);
+        } catch {
+          // Still no room, or storage is unavailable — fly the motor uncached.
+        }
       }
     }
   }
@@ -1229,6 +1316,6 @@ export async function fetchMotorSpec(
  * `fetchMotorSpec` reading the shipped bundle only — motorMatch's `fetchSpec`
  * injection point takes it as it stands (simulateFile's `network: 'forbid'`).
  */
-export function bundledOnlyFetchSpec(motor: TcMotor, ejectionDelay: number): Promise<RepairedMotorSpec> {
-  return fetchMotorSpec(motor, ejectionDelay, undefined, { bundleOnly: true });
+export function bundledOnlyFetchSpec(motor: TcMotor, ejectionDelay: number, digest?: string): Promise<RepairedMotorSpec> {
+  return fetchMotorSpec(motor, ejectionDelay, undefined, { bundleOnly: true, ...(digest ? { digest } : {}) });
 }

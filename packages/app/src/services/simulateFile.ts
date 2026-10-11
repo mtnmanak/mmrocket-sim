@@ -102,7 +102,9 @@ export async function simulateImported(
   // 'allow' is the app's own curve path with the caller's signal on the
   // download (fetchMotorSpec's third argument); nothing else about it changes.
   const match = opts.match ?? (opts.network === 'allow'
-    ? (ref: OrkMotorRef) => matchImportedMotor(ref, { fetchSpec: (m, d) => fetchMotorSpec(m, d, signal) })
+    ? (ref: OrkMotorRef) => matchImportedMotor(ref, {
+      fetchSpec: (m, d, digest) => fetchMotorSpec(m, d, signal, digest ? { digest } : {}),
+    })
     : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec }));
   // The awaits of an open: every motor the file names, resolved — none after a
   // cancel. A download the cancel cut short is reported by the matcher as an

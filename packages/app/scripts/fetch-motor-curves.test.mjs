@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { headerMasses as appHeaderMasses } from '../src/services/thrustcurve.ts';
-import { BATCH, compactFile, curvesDocument, headerMasses, main } from './fetch-motor-curves.mjs';
+import { BATCH, addDigests, compactFile, curvesDocument, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
 
 /**
  * fetch-motor-curves.mjs against a stand-in for thrustcurve.org — never the
@@ -56,6 +57,37 @@ describe('compactFile', () => {
   it('drops a file with fewer than two samples or a non-finite one', () => {
     expect(compactFile({ samples: [{ time: 0, thrust: 1 }] })).toBeNull();
     expect(compactFile({ samples: [{ time: 0, thrust: 1 }, { time: NaN, thrust: 2 }] })).toBeNull();
+  });
+});
+
+describe("desktop OpenRocket's digest, stored per file", () => {
+  // thrustcurve.org's Estes C11 RASP file, and the digest desktop wrote for it
+  // into a real design (motor-digest.test.mjs pins it).
+  const C11 = readFileSync(fileURLToPath(new URL('./fixtures/motor-digest/5f4294d20002e900000004e8.eng', import.meta.url)));
+  const raw = { simfileId: 'c11', source: 'user', format: 'RASP', data: C11.toString('base64'),
+    samples: [{ time: 0.1, thrust: 5 }, { time: 0.8, thrust: 0 }] };
+
+  it('compactFile stores it, read from the raw text', () => {
+    expect(rawDigests(raw)).toEqual(['4f0059c416964ba2528c83551e6a6839']);
+    expect(compactFile(raw).digests).toEqual(['4f0059c416964ba2528c83551e6a6839']);
+    expect(compactFile({ ...raw, data: undefined }).digests).toBeUndefined();
+  });
+
+  it('addDigests adds it only where the file downloaded now is the file the bundle holds', () => {
+    const { digests: _d, ...held } = compactFile(raw);
+    const bundle = { curves: {
+      a: [{ ...held }],
+      b: [{ ...held, simfileId: 'revised' }],
+      c: [{ ...held, simfileId: 'gone', digests: ['stale'] }],
+    } };
+    const revised = { ...raw, simfileId: 'revised', samples: [{ time: 0.1, thrust: 6 }, { time: 0.8, thrust: 0 }] };
+    expect(addDigests(bundle, [raw, revised])).toEqual({ added: 1, changed: 1, missing: 1 });
+    expect(bundle.curves.a[0].digests).toEqual(['4f0059c416964ba2528c83551e6a6839']);
+    expect(bundle.curves.b[0].digests).toBeUndefined();
+    expect(bundle.curves.c[0].digests).toBeUndefined();
+    // Nothing else about a file moves.
+    const { digests: _a, ...after } = bundle.curves.a[0];
+    expect(after).toEqual(held);
   });
 });
 

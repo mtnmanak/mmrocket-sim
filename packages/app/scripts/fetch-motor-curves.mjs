@@ -4,6 +4,7 @@
  * catalogued motor with no network at all.
  *
  * Usage: node packages/app/scripts/fetch-motor-curves.mjs [--allow-partial]
+ *        node packages/app/scripts/fetch-motor-curves.mjs --add-digests
  *        (run AFTER fetch-motor-db.mjs — this file is keyed by that one's ids)
  *
  * WHY THIS EXISTS (2026-09-05). From the repo's first day the app shipped three
@@ -36,7 +37,13 @@
  * The raw .eng/.rse text is NOT stored — only the two header masses the
  * runtime reads out of it (thrustcurve.ts headerMasses), because those masses
  * win over the catalogue's when present and the runtime must behave the same
- * from the bundle as from the wire.
+ * from the bundle as from the wire — and the file's desktop OpenRocket digest
+ * (`digests`, motor-digest.mjs), which names the file a desktop .ork was
+ * flown with: thrustcurve.ts flies that file when a design's <digest> names
+ * it (2026-10-11). The digest reads mN and an .rse's own masses, so it cannot
+ * be computed from the rounded samples afterwards; it is computed here, from
+ * the raw text, or not at all. `--add-digests` adds it to the bundle on disk
+ * without refreshing anything else (see addDigests).
  *
  * A FAILED BATCH WRITES NOTHING (audit 2026-09-22). A batch that failed to
  * download used to be reported AFTER motorCurves.json had been overwritten
@@ -51,6 +58,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { digestMotorFile } from './motor-digest.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +118,48 @@ export function compactFile(f) {
   };
   const masses = headerMasses(f);
   if (masses) compact.masses = masses;
+  const digests = rawDigests(f);
+  if (digests.length) compact.digests = digests;
   return compact;
+}
+
+/**
+ * Desktop OpenRocket's digest(s) of a downloaded file's raw text — what a
+ * desktop .ork names the file by — or [] when the file carries no text or
+ * desktop's loader would refuse it. Read as ISO-8859-1, desktop's charset
+ * for both formats.
+ */
+export function rawDigests(file) {
+  if (!file.data) return [];
+  let text;
+  try { text = Buffer.from(file.data, 'base64').toString('latin1'); } catch { return []; }
+  return digestMotorFile(text, file.format);
+}
+
+/**
+ * Adds each file's `digests` to a bundle built before the field existed,
+ * changing nothing else: a file gets them only when the file downloaded now,
+ * compacted, is exactly the one the bundle holds — a file revised upstream
+ * since the bundle was built would otherwise name a curve it does not hold.
+ * `results` is download.json's answer (data "both") for the bundle's motors.
+ * Returns the counts; the bundle is changed in place.
+ */
+export function addDigests(bundle, results) {
+  const fresh = new Map();
+  for (const f of results) if (f?.simfileId) fresh.set(f.simfileId, f);
+  let added = 0, changed = 0, missing = 0;
+  for (const files of Object.values(bundle.curves)) {
+    for (const file of files) {
+      const { digests: _old, ...held } = file;
+      const now = fresh.get(file.simfileId);
+      const compact = now ? compactFile(now) : null;
+      if (!compact) { missing++; delete file.digests; continue; }
+      const { digests, ...rest } = compact;
+      if (JSON.stringify(rest) !== JSON.stringify(held)) { changed++; delete file.digests; continue; }
+      if (digests) { file.digests = digests; added++; } else delete file.digests;
+    }
+  }
+  return { added, changed, missing };
 }
 
 /**
@@ -214,6 +263,37 @@ export async function main({
   return 0;
 }
 
+/**
+ * `--add-digests`: download every bundled motor's files again and run
+ * addDigests over the bundle on disk. Exit 1, writing nothing, if a batch
+ * fails (the same rule as a refresh).
+ */
+export async function addDigestsMain({ outPath = OUT, fetchImpl = fetch, sleep, log } = {}) {
+  const bundle = JSON.parse(readFileSync(outPath, 'utf8'));
+  const motors = Object.keys(bundle.curves).map((motorId) => ({ motorId, manufacturerAbbrev: '', designation: motorId }));
+  const results = [];
+  const record = (f) => results.push(f);
+  const got = await fetchCurves(motors, {
+    fetchImpl: async (url, opts) => {
+      const res = await fetchImpl(url, opts);
+      if (!res.ok) return res;
+      const body = await res.json();
+      for (const f of body.results ?? []) record(f);
+      return { ok: true, status: res.status, json: async () => body };
+    },
+    sleep, log,
+  });
+  if (got.failed.length) {
+    console.error(`${got.failed.length} motors failed to download; nothing was written.`);
+    return 1;
+  }
+  const counts = addDigests(bundle, results);
+  writeFileSync(outPath, JSON.stringify(bundle));
+  console.log(`Wrote ${outPath}: digests on ${counts.added} files; ${counts.changed} revised upstream since the `
+    + `bundle was built and ${counts.missing} no longer downloadable, left without one.`);
+  return 0;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await main();
+  process.exitCode = process.argv.includes('--add-digests') ? await addDigestsMain() : await main();
 }

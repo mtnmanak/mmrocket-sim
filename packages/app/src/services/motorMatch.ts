@@ -9,6 +9,7 @@ import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { bundleHasCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
 import { rocksimCurveNote } from './rocksimCurveNote.js';
+import { digestCurveNote } from './digestCurveNote.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
 import { exToDbEntry, exToMotorSpec, loadExMotors, type ExMotor } from './exMotors.js';
 
@@ -162,8 +163,17 @@ export interface MotorMatchDeps {
   /** Keep match tiers, rivals and curve-equivalence policy on the chosen rows (2026-10-01). */
   catalogue?: MotorDbEntry[];
   exMotors?: ExMotor[];
-  fetchSpec?: (motor: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
+  /**
+   * `digest` is the file's own motor `<digest>`, when it has one: the curve
+   * file desktop flew, which fetchMotorSpec flies instead of its usual pick
+   * when the motor has it (thrustcurve.ts pickDigestFile).
+   */
+  fetchSpec?: (motor: MotorDbEntry, ejectionDelay: number, digest?: string) => Promise<MotorSpec>;
 }
+
+/** fetchMotorSpec in MotorMatchDeps.fetchSpec's shape. */
+export const fetchSpecByDigest = (motor: MotorDbEntry, ejectionDelay: number, digest?: string): Promise<MotorSpec> =>
+  fetchMotorSpec(motor, ejectionDelay, undefined, digest ? { digest } : {});
 
 /**
  * A catalogue motor with its curve loaded, shaped the way App keeps a mounted
@@ -239,7 +249,7 @@ export async function matchImportedMotor(
   ref: OrkMotorRef,
   deps: MotorMatchDeps = {},
 ): Promise<MotorMatchResult> {
-  const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
+  const fetchSpec = deps.fetchSpec ?? fetchSpecByDigest;
 
   // Never cast: an event none of the five reached the build verbatim, which put
   // the motor on the handle and then refused it (audit 2026-09-22). The .ork
@@ -306,10 +316,10 @@ export async function matchImportedMotor(
         matchedDelay = ref.rktEveryDelay ? defaultDelay(target) ?? 0 : ref.delay;
         // The exception is activated by an actually usable curve, not a count
         // in metadata. Failure leaves the original missing-curve report intact.
-        spec = await fetchSpec(target, matchedDelay);
+        spec = await fetchSpec(target, matchedDelay, ref.digest);
         dbMatch = target;
         how = { motor: target, tier: how.tier, rivals: [], reason: G80_EQUIVALENT };
-      } else spec = await fetchSpec(dbMatch, matchedDelay);
+      } else spec = await fetchSpec(dbMatch, matchedDelay, ref.digest);
       // The file's maker is written back beside the row's designation only when
       // it IS the row's maker (review of audit 2026-09-23): "Cesaroni Technology
       // Inc." beside AMW's "2245K1075-P" names no motor, and desktop OpenRocket
@@ -324,7 +334,8 @@ export async function matchImportedMotor(
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
       const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
-      const openNote = [(unconfirmedMatchNote(ref, dbMatch, how) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec)]
+      const openNote = [(unconfirmedMatchNote(ref, dbMatch, how) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec),
+        await digestCurveNote(ref, dbMatch)]
         .filter(Boolean).join('\n') || undefined;
       return {
         motor: openNote ? { ...motor, openNote } : motor,

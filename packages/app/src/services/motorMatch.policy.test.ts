@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findDbMotor, matchDbMotor, MOTOR_DB } from './motorDb.js';
-import { matchImportedMotor } from './motorMatch.js';
+import { fetchSpecByDigest, matchImportedMotor } from './motorMatch.js';
 import { MOTOR_MATCH_POLICY as P, type MotorMatchContext } from './motorMatchPolicy.js';
 import { importRkt, rktEveryDelay } from './rocksimFile.js';
 import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { importCdx1 } from './rasaeroFile.js';
-import { defaultDelay, fetchMotorSpec } from './thrustcurve.js';
+import { defaultDelay } from './thrustcurve.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { readFileSync } from 'node:fs';
 import { resolveImportMotors, planImport, planConfigSwitch } from './importApply.js';
@@ -96,7 +96,7 @@ describe('reviewed historical motor policies', () => {
   it('explicit plugged tokens rank at the delay position; an Infinity setting does not', async () => {
     for (const name of ['I170-P', 'I170-p', 'I170_P', 'I170 P']) expect(lookup(name, 'Kosdon')?.motor.designation).toBe('I170S');
     for (const name of ['I170', 'I170-11', 'I170DH-P']) expect(lookup(name, 'Kosdon')?.motor.designation).toBe('I170DH');
-    const result = await matchImportedMotor(ref('I170', 'Kosdon'), { fetchSpec: vi.fn(fetchMotorSpec) });
+    const result = await matchImportedMotor(ref('I170', 'Kosdon'), { fetchSpec: vi.fn(fetchSpecByDigest) });
     expect(result.missing).toBe('curve');
     expect(lookup('I170', 'Kosdon', { source: 'rasaero', explicitDelay: 'plugged' })?.motor.designation).toBe('I170S');
   });
