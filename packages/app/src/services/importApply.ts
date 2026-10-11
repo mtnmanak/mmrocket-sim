@@ -58,10 +58,11 @@ import {
 /**
  * What the design importers hand the shared apply path (file open AND share
  * link). Structural subset of OrkTreeImportResult so importRkt/importCdx1
- * results — same shape minus `launch` — fit too; only .ork parses carry the
- * flight-configuration fields.
+ * results fit too — a .rkt's `launch` holds its launch site at most, and a
+ * .CDX1's only what RASAero states; the flight-configuration fields are
+ * optional.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
@@ -99,9 +100,9 @@ export function attachedSet(motors: Record<string, MountMotor>): Record<string, 
  * The geodetic model is the same kind of setting — desktop keeps it beside the
  * time step in its simulation options — and follows the same rule: a file that
  * names no model opens on the default Spherical Earth rather than inheriting
- * the previous design's. That is a .rkt or a .ork with no simulation, which
- * carry no launch conditions at all, and a .CDX1, whose launch site has no such
- * setting. A .ork that HAS conditions always names one, because its reader
+ * the previous design's. That is a .ork with no simulation, which carries no
+ * launch conditions at all, a .rkt, which carries its launch site at most
+ * (board row 80), and a .CDX1, whose launch site has no such setting. A .ork that HAS conditions always names one, because its reader
  * writes desktop's own rule for a missing `<geodeticmethod>` (flat).
  */
 export function importedLaunch(
@@ -124,6 +125,8 @@ export function importedLaunch(
 /** Describe only fields the merge really keeps, not the fidelity/profile resets. */
 export function retainedLaunchNote(
   format: ImportedDesign['sourceFormat'], prev: LaunchConditions, fromFile: Partial<LaunchConditions> | undefined,
+  /** The importer has already said which site the file stated and why it was not taken (ImportedDesign.launchSiteRefused). */
+  siteRefusedNoted = false,
 ): string | null {
   if (format !== 'rkt' && format !== 'cdx1') return null;
   const reset = new Set(['timeStepS', 'geodeticMethod', 'launchGuideAllowance']);
@@ -134,6 +137,7 @@ export function retainedLaunchNote(
   // the importer takes it, or names in its own note the site it would not take.
   if (format === 'rkt') {
     if (!fromFile || !('latitudeDeg' in fromFile)) {
+      if (siteRefusedNoted) return null;
       return 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.';
     }
     const took = 'launchAltitudeM' in fromFile ? 'latitude, longitude and site altitude' : 'latitude and longitude';
@@ -403,7 +407,7 @@ export function planImport(
     ? swapConfigNotes(imported.notes, imported.configNotes, imported.chosenConfigId!, pick.cfg.id, pick.skipNote)
     : imported.notes;
   const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
-  const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch);
+  const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch, imported.launchSiteRefused === true);
   if (keptLaunch) notes.push(keptLaunch);
   // Load EVERY mount's motor (staged/multi-mount files included).
   //

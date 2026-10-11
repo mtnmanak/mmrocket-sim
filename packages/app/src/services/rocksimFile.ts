@@ -2037,6 +2037,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const openedSim = (chosen ? cfgSim.get(chosen)?.number : null) ?? null;
   const siteSim = openedSim !== null ? simEls[openedSim - 1] : simEls[0];
   let launch: OrkImportResult['launch'];
+  let launchSiteRefused = false;
   let longitudeCheck: OrkImportResult['longitudeCheck'];
   if (siteSim) {
     const siteOf = (sim: XmlElement) => ({
@@ -2063,10 +2064,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // unreadable one quoted, a missing one named.
         const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
           : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${raw.trim().slice(0, 40)}”`;
+        // One sentence for the whole of it: the open adds no "none was taken"
+        // line of its own after this one (retainedLaunchNote).
         notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
           + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; the app takes a site only when its `
-          + 'latitude and longitude are both non-zero and in range, so the Launch panel keeps the site you had.');
+          + 'latitude and longitude are both non-zero and in range, and reads no other launch condition from a '
+          + '.rkt, so the Launch panel keeps the settings you had.');
+        launchSiteRefused = true;
       }
     }
   }
@@ -2096,6 +2101,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     notes,
     ...(measured ? { measured } : {}),
     ...(launch ? { launch } : {}),
+    ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
     configs,
     chosenConfigId,

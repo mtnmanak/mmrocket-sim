@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { importRkt } from './rocksimFile.js';
-import { importedLaunch, retainedLaunchNote } from './importApply.js';
+import { importedLaunch, planImport, retainedLaunchNote } from './importApply.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +31,7 @@ const rkt = (sims: { lat?: string; lon?: string; alt?: string; motor?: string }[
       <MountSerialNo>1</MountSerialNo><EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines>
   </SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`;
 
-const siteNote = (notes: string[]) => notes.find((n) => /launch site/.test(n) && /keeps the site you had/.test(n));
+const siteNote = (notes: string[]) => notes.find((n) => /launch site/.test(n) && /keeps the settings you had/.test(n));
 
 describe('.rkt launch site (board row 80)', () => {
   it('imports a real site — latitude, longitude and the site altitude', () => {
@@ -62,6 +62,23 @@ describe('.rkt launch site (board row 80)', () => {
     expect(note).toContain('longitude 0°');
     expect(note).toContain('213.36 m');
     expect(note).toContain('Simulation 1');
+    expect(r.launchSiteRefused).toBe(true);
+  });
+
+  it('the open says it once: the importer’s sentence, and no second "none was taken" line', () => {
+    const TEXT = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
+    const opened = (xml: string) => {
+      const r = importRkt(xml);
+      return planImport(r, { working: {}, configs: {} }, { launch: DEFAULT_CONDITIONS, text: TEXT })
+        .note.text.split('\n').filter((l) => /launch site/.test(l));
+    };
+    const refused = opened(rkt([{ lat: '37.', lon: '0.', alt: '213.36' }]));
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.36 m; .* reads no other launch condition from a \.rkt, so the Launch panel keeps the settings you had\.$/);
+    // A file that states no site at all still hears the open's own line.
+    expect(opened(rkt([{}]))).toEqual([
+      'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.',
+    ]);
   });
 
   it('keeps the site for a 0/0 file', () => {
@@ -96,6 +113,7 @@ describe('.rkt launch site (board row 80)', () => {
   it('says nothing about a site the file does not state', () => {
     const r = importRkt(rkt([{}]));
     expect(r.launch).toBeUndefined();
+    expect(r.launchSiteRefused).toBeUndefined();
     expect(r.notes.some((n) => /launch site/.test(n))).toBe(false);
   });
 
@@ -120,6 +138,7 @@ describe('.rkt launch site (board row 80)', () => {
       .toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.');
     expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, { latitudeDeg: 40.8, longitudeDeg: -119.1, launchAltitudeM: 1190 }))
       .toBe('From a .rkt the app reads only the launch site (latitude, longitude and site altitude) — the Launch panel keeps the settings you had for the rest.');
+    expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined, true)).toBeNull();
   });
 
   // Tester files are gitignored; this runs locally and skips on CI.
