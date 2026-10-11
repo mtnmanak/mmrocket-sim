@@ -25,10 +25,19 @@ import { axialLength } from '../tree/position.js';
  *   POLYLINE/VERTEX/SEQEND trio and a round hole is a true CIRCLE (exact,
  *   and CAM can read its centre and diameter for a drill/bore op instead of
  *   chasing a faceted polygon).
- * - **Millimetres.** Everything upstream is pure SI (meters); as in
- *   stlExport.ts the x1000 lives in the writer alone — see mm(). $INSUNITS=4
- *   declares it: a strict R12 reader ignores the variable, a modern one uses
- *   it to place the drawing without asking the operator to guess.
+ * - **Millimetres or inches, from the Length unit preference** (@atestani,
+ *   TRF 2026-10-11: the file came out metric on an imperial setup). A Length
+ *   unit of in or ft draws in INCHES ($INSUNITS=1); mm, cm or m draw in
+ *   MILLIMETRES ($INSUNITS=4). Feet are never the drawing unit: a fin is a
+ *   few inches, and cutter software takes in or mm. Everything upstream is
+ *   pure SI (meters) and the conversion lives in the writer alone — see
+ *   DrawingUnits — along with the lengths that are fixed drawing figures
+ *   (the DASHED pattern, the text style's height), so an inch drawing looks
+ *   the same as a millimetre one. The millimetre file is byte-for-byte the
+ *   one this module wrote before inches existed (dxfExport.units.test.ts).
+ *   STL stays millimetres (stlExport.ts): every slicer assumes mm. $INSUNITS
+ *   declares the unit: a strict R12 reader ignores the variable, a modern one
+ *   uses it to place the drawing without asking the operator to guess.
  * - **A real HEADER and TABLES section.** The minimum viable DXF skips both,
  *   and the result is entities sitting on layers the reader has never heard
  *   of — which some CAM packages silently drop rather than auto-create.
@@ -64,7 +73,6 @@ export const DXF_CUTTABLE = new Set([
   'centeringring', 'bulkhead', 'tubecoupler', 'engineblock',
 ]);
 
-const M_TO_MM = 1000;
 const EPS = 1e-9;
 /** Label text height (m) = 3.2 mm — the SVG template's label size. */
 const TEXT_H = 0.0032;
@@ -109,12 +117,53 @@ interface Part {
   ents: Ent[];
 }
 
-/** The one and only meters -> millimetres conversion in this module. */
-const toMm = (meters: number): number => meters * M_TO_MM;
-/** Geometry group value: 0.1 µm resolution, far below any cutter's kerf. */
-const mm = (meters: number): string => toMm(meters).toFixed(4);
+/** The two units a drawing from this module can be written in. */
+export type DxfUnit = 'mm' | 'in';
+
+/**
+ * The drawing unit for a Length unit preference (prefs/units.ts symbols): in
+ * and ft draw in inches, every metric length unit in millimetres.
+ */
+export const dxfUnitFor = (lengthSymbol: string): DxfUnit =>
+  lengthSymbol === 'in' || lengthSymbol === 'ft' ? 'in' : 'mm';
+
+/**
+ * What the writer and the label block need to know about the drawing unit.
+ * The meters -> drawing-unit conversion lives here and nowhere else.
+ */
+interface DrawingUnits {
+  /** Meters -> drawing units. */
+  fromM: (meters: number) => number;
+  /** $INSUNITS: 4 = millimeters, 1 = inches. */
+  insunits: number;
+  /** Geometry decimals: 0.1 µm in mm, 0.0254 µm in inches — far below any kerf. */
+  geomDp: number;
+  /** Label-block decimals: 0.1 mm, 0.001 in. */
+  dimDp: number;
+  /** Decimals for the fixed TABLES figures (dash pattern, style height). */
+  tableDp: number;
+  sym: string;
+  word: string;
+}
+
+const DRAWING_UNITS: Record<DxfUnit, DrawingUnits> = {
+  mm: { fromM: (m) => m * 1000, insunits: 4, geomDp: 4, dimDp: 1, tableDp: 1, sym: 'mm', word: 'millimetres' },
+  in: { fromM: (m) => m / 0.0254, insunits: 1, geomDp: 6, dimDp: 3, tableDp: 4, sym: 'in', word: 'inches' },
+};
+
+/** Geometry group value. */
+const geomVal = (u: DrawingUnits, meters: number): string => u.fromM(meters).toFixed(u.geomDp);
 /** The same number for human eyes in the label block. */
-const dim = (meters: number): string => toMm(meters).toFixed(1);
+const dimVal = (u: DrawingUnits, meters: number): string => u.fromM(meters).toFixed(u.dimDp);
+
+/**
+ * The fixed lengths in the TABLES section, in meters so they scale with the
+ * unit: the SVG template's 2 mm dash / 1.5 mm gap (3.5 mm period), and the
+ * STANDARD style's last-used height of 2.5 mm.
+ */
+const DASH = 0.002;
+const GAP = 0.0015;
+const STYLE_LAST_H = 0.0025;
 
 /**
  * R12 carries text in the reader's ANSI code page, and every group value is
@@ -212,14 +261,16 @@ function labelEnts(geom: Ent[], lines: string[]): Ent[] {
 
 /**
  * The flat cut profile for one component, or null when the type has no
- * sensible plate representation. Everything is in METERS — the writer alone
- * knows about millimetres.
+ * sensible plate representation. Geometry is in METERS — the writer alone
+ * converts it; `u` only words the label block.
  */
-function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string): Part | null {
+function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string, u: DrawingUnits): Part | null {
   const name = node.name ?? '';
+  const dim = (meters: number): string => dimVal(u, meters);
+  const U = u.sym;
   const head = (label: string, count?: number): string =>
     `${rocketName} - ${name || label}${count ? ` (cut ${count})` : ''}`;
-  const foot = '1:1 in millimetres - cut the CUT layer only (REFERENCE/TEXT are marks, not cuts)';
+  const foot = `1:1 in ${u.word} - cut the CUT layer only (REFERENCE/TEXT are marks, not cuts)`;
 
   switch (node.type) {
     case 'trapezoidfinset':
@@ -275,11 +326,11 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
         : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
       const count = Math.round(num(node, 'finCount', 3));
-      const dims = `root ${dim(rootX1 - rootX0)} mm | span ${dim(span)} mm`
-        + ` | stock thickness ${dim(thickness)} mm | ${cross} cross-section`
+      const dims = `root ${dim(rootX1 - rootX0)} ${U} | span ${dim(span)} ${U}`
+        + ` | stock thickness ${dim(thickness)} ${U} | ${cross} cross-section`
         + (tabDepth > EPS
-          ? ` | TTW tab ${dim(tabDepth)} mm deep x ${dim(tabX1 - tabX0)} mm long`
-            + ` at x ${dim(tabX0)}-${dim(tabX1)} mm`
+          ? ` | TTW tab ${dim(tabDepth)} ${U} deep x ${dim(tabX1 - tabX0)} ${U} long`
+            + ` at x ${dim(tabX0)}-${dim(tabX1)} ${U}`
           : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label, count), dims, foot])] };
     }
@@ -307,11 +358,11 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       // OVERLAPS this ring (solidContextFor), so a ring forward of a mount
       // that is there has none, and the builder must not go looking for one.
       const why = found
-        ? `motor mount ⌀ ${dim(raw * 2)} mm does not fit this ring's ${dim(R * 2)} mm OD`
+        ? `motor mount ⌀ ${dim(raw * 2)} ${U} does not fit this ring's ${dim(R * 2)} ${U} OD`
         : 'no motor mount passes through this ring';
       // The ring's length is its stock: componentLoop's, the kernel's when absent.
-      const dims = `OD ${dim(R * 2)} mm | bore ${dim(bore * 2)} mm`
-        + ` | stock thickness ${dim(axialLength(node))} mm`
+      const dims = `OD ${dim(R * 2)} ${U} | bore ${dim(bore * 2)} ${U}`
+        + ` | stock thickness ${dim(axialLength(node))} ${U}`
         + (assumed ? OD_ASSUMED : '')
         + (known ? '' : ` | BORE ASSUMED: ${why} — set to half the OD`);
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
@@ -321,7 +372,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const { r: R, assumed } = ringOuterRadius(node, ctx);
       const label = assumed ? 'Bulkhead (assumed size)' : 'Bulkhead';
       const geom = discEnts(R, null);
-      const dims = `OD ${dim(R * 2)} mm | stock thickness ${dim(axialLength(node))} mm`
+      const dims = `OD ${dim(R * 2)} ${U} | stock thickness ${dim(axialLength(node))} ${U}`
         + ' | centre marked on REFERENCE for the eyebolt'
         + (assumed ? OD_ASSUMED : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
@@ -344,8 +395,8 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string)
       const geom = discEnts(R, bore > 0 ? bore : null);
       const label = (node.type === 'tubecoupler' ? 'Tube coupler' : 'Engine block')
         + (assumed ? ' (assumed size)' : '');
-      const dims = `OD ${dim(R * 2)} mm | ID ${dim(bore * 2)} mm`
-        + ` | wall ${dim(R - bore)} mm | ${dim(axialLength(node))} mm long`
+      const dims = `OD ${dim(R * 2)} ${U} | ID ${dim(bore * 2)} ${U}`
+        + ` | wall ${dim(R - bore)} ${U} | ${dim(axialLength(node))} ${U} long`
         + ' (this is the ring SECTION, not a developed tube)'
         + (assumed ? OD_ASSUMED : '');
       return { label, ents: [...geom, ...labelEnts(geom, [head(label), dims, foot])] };
@@ -364,16 +415,19 @@ const g = (out: string[], code: number, value: string): void => {
 };
 /** Integer-valued group (flags, counts, colours) — never real-formatted. */
 const gi = (out: string[], code: number, value: number): void => g(out, code, String(Math.round(value)));
-/** Real-valued group, meters in, millimetres out. */
-const gr = (out: string[], code: number, meters: number): void => g(out, code, mm(meters));
+/** Real-valued group, meters in, drawing units out (bound to one unit by writeDxf). */
+type RealGroup = (out: string[], code: number, meters: number) => void;
 
-function writeTables(out: string[]): void {
+function writeTables(out: string[], u: DrawingUnits): void {
+  /** A fixed TABLES length, meters in: "3.5", "2.0", "-1.5", "2.5" in mm. */
+  const fig = (meters: number): string => u.fromM(meters).toFixed(u.tableDp);
   g(out, 0, 'SECTION');
   g(out, 2, 'TABLES');
 
-  // Linetypes. The dash pattern is in DRAWING units, i.e. millimetres, so it
-  // matches the SVG template's 2 mm dash / 1.5 mm gap rather than being an
-  // invisible hairline stipple on a 100 mm chord.
+  // Linetypes. The dash pattern is in DRAWING units (millimetres or inches),
+  // so it matches the SVG template's 2 mm dash / 1.5 mm gap in either unit
+  // rather than being an invisible hairline stipple on a 100 mm chord — or,
+  // read as inches, a 50 mm dash that leaves a 100 mm chord looking solid.
   g(out, 0, 'TABLE');
   g(out, 2, 'LTYPE');
   gi(out, 70, 2);
@@ -390,9 +444,9 @@ function writeTables(out: string[]): void {
   g(out, 3, 'Dashed __ __ __');
   gi(out, 72, 65);
   gi(out, 73, 2);
-  g(out, 40, '3.5');
-  g(out, 49, '2.0');
-  g(out, 49, '-1.5');
+  g(out, 40, fig(DASH + GAP));
+  g(out, 49, fig(DASH));
+  g(out, 49, fig(-GAP));
   g(out, 0, 'ENDTAB');
 
   g(out, 0, 'TABLE');
@@ -420,7 +474,7 @@ function writeTables(out: string[]): void {
   g(out, 41, '1.0');
   g(out, 50, '0.0');
   gi(out, 71, 0);
-  g(out, 42, '2.5');
+  g(out, 42, fig(STYLE_LAST_H));
   g(out, 3, 'txt');
   g(out, 4, '');
   g(out, 0, 'ENDTAB');
@@ -428,7 +482,7 @@ function writeTables(out: string[]): void {
   g(out, 0, 'ENDSEC');
 }
 
-function writeEntity(out: string[], e: Ent): void {
+function writeEntity(out: string[], e: Ent, gr: RealGroup): void {
   switch (e.kind) {
     case 'poly': {
       // POLYLINE (not LWPOLYLINE — see the header note). Group 66 = "vertices
@@ -487,17 +541,18 @@ function writeEntity(out: string[], e: Ent): void {
   }
 }
 
-/** Serialize entities (METERS) as a complete R12 ASCII DXF drawing. */
-function writeDxf(ents: Ent[]): string {
+/** Serialize entities (METERS) as a complete R12 ASCII DXF drawing in `u`. */
+function writeDxf(ents: Ent[], u: DrawingUnits): string {
   const b = bounds(ents);
   const out: string[] = [];
+  const gr: RealGroup = (o, code, meters) => g(o, code, geomVal(u, meters));
 
   g(out, 0, 'SECTION');
   g(out, 2, 'HEADER');
   g(out, 9, '$ACADVER');
   g(out, 1, 'AC1009');
   g(out, 9, '$INSUNITS');
-  gi(out, 70, 4); // 4 = millimeters
+  gi(out, 70, u.insunits); // 4 = millimeters, 1 = inches
   g(out, 9, '$EXTMIN');
   gr(out, 10, b.minX);
   gr(out, 20, b.minY);
@@ -508,11 +563,11 @@ function writeDxf(ents: Ent[]): string {
   gr(out, 30, 0);
   g(out, 0, 'ENDSEC');
 
-  writeTables(out);
+  writeTables(out, u);
 
   g(out, 0, 'SECTION');
   g(out, 2, 'ENTITIES');
-  for (const e of ents) writeEntity(out, e);
+  for (const e of ents) writeEntity(out, e, gr);
   g(out, 0, 'ENDSEC');
 
   g(out, 0, 'EOF');
@@ -524,14 +579,17 @@ function writeDxf(ents: Ent[]): string {
 /**
  * Flat cut profile for one component as an R12 DXF, or null when the type is
  * not plate-cuttable. `ctx` is the same SolidContext the STL export builds,
- * so the machined and printed versions of a part cannot disagree.
+ * so the machined and printed versions of a part cannot disagree. `unit` is
+ * the drawing unit — the caller passes dxfUnitFor(the Length preference).
  */
 export function componentDxf(
   node: ComponentNode,
   ctx: SolidContext,
   rocketName: string,
+  unit: DxfUnit = 'mm',
 ): { text: string; label: string } | null {
-  const part = partProfile(node, ctx, ascii(rocketName || 'Rocket'));
+  const u = DRAWING_UNITS[unit];
+  const part = partProfile(node, ctx, ascii(rocketName || 'Rocket'), u);
   if (!part) return null;
-  return { text: writeDxf(part.ents), label: part.label };
+  return { text: writeDxf(part.ents, u), label: part.label };
 }

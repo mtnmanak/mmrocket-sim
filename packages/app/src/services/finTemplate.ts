@@ -74,10 +74,23 @@ export function tabOutline(
 }
 
 /**
+ * The page behind the template. 'transparent' is the file this module always
+ * wrote. 'white' paints the page white with a CSS `background` on the root
+ * <svg>, never a filled <rect>: @atestani (TRF, 2026-10-11) found the
+ * transparent page shows grey in a viewer and turns BLACK when converted to
+ * JPEG — the black outline vanishes into it — while a rectangle would be one
+ * more closed shape for a laser or CAD import to cut. A style is no geometry.
+ */
+export type FinTemplateBackground = 'white' | 'transparent';
+
+/**
  * `ctx` is the exporters' own context (tree/solidContext.ts) — the template
  * reads its `tabMaxDepth`, so the paper tab is no deeper than the cut ones.
  */
-export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: SolidContext = {}): string {
+export function finTemplateSvg(
+  node: ComponentNode, rocketName: string, ctx: SolidContext = {},
+  background: FinTemplateBackground = 'transparent',
+): string {
   if (node.type === 'freeformfinset' && (node['points'] === undefined || node['points'] === null)) {
     node = { ...node, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
   }
@@ -168,7 +181,8 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: Sol
     .join(' ') + ' Z';
 
   const lines: string[] = [];
-  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(1)}mm" height="${h.toFixed(1)}mm" viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}">`);
+  const bg = background === 'white' ? ' style="background:#fff"' : '';
+  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(1)}mm" height="${h.toFixed(1)}mm" viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}"${bg}>`);
   lines.push('<!-- MMRocket Sim fin template — PRINT AT 100% SCALE -->');
   // Cut layer: hairline outline, no fill (laser-cutter friendly).
   lines.push('<g fill="none" stroke="#000" stroke-width="0.2">');
@@ -194,4 +208,21 @@ export function finTemplateSvg(node: ComponentNode, rocketName: string, ctx: Sol
   lines.push(`<text x="${M + RULER_MM + CAPTION_GAP}" y="${ry}" font-family="sans-serif" font-size="3.2" fill="#333">${esc(CAPTION)}</text>`);
   lines.push('</svg>');
   return lines.join('\n');
+}
+
+/** The resolution of the PNG and JPG fin templates, stated in their file name. */
+export const FIN_TEMPLATE_DPI = 300;
+
+/**
+ * The pixel size that renders a template at `dpi`: its page size in mm (the
+ * root <svg>'s own width and height attributes) in inches, times the dots per
+ * inch, each side on its own — never one side from the other through the
+ * aspect ratio. The rounding moves the scale by at most half a pixel across
+ * the page, 0.04 mm at 300 dpi.
+ */
+export function finTemplatePixelSize(svg: string, dpi = FIN_TEMPLATE_DPI): { width: number; height: number } {
+  const m = /^<svg [^>]* width="([\d.]+)mm" height="([\d.]+)mm"/.exec(svg);
+  if (!m) throw new Error('Not a fin template.');
+  const px = (mm: string): number => Math.round((Number(mm) / 25.4) * dpi);
+  return { width: px(m[1]!), height: px(m[2]!) };
 }

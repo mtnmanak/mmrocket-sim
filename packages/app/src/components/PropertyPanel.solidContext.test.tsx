@@ -40,6 +40,11 @@ async function downloadText(glyph: string): Promise<string> {
   try {
     const btn = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith(glyph))!;
     await act(async () => { btn.click(); });
+    // 📐 opens a format choice: take its first entry, the white SVG.
+    if (btn.getAttribute('aria-expanded') === 'true') {
+      const pick = host.querySelector('[aria-label="Fin template — file format"] button') as HTMLButtonElement;
+      await act(async () => { pick.click(); });
+    }
   } finally {
     HTMLAnchorElement.prototype.click = orig;
   }
