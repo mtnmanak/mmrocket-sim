@@ -624,13 +624,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const cls = parent === null && el.tagName === 'BodyTube' ? 'body' : kind.cls;
     const holds = parent === null ? cls === 'body' : (PARENT_HOLDS[parent.type]?.(cls) ?? true);
     if (holds) return true;
-    const quote = (n: string | null | undefined, fallback: string) => `“${n ?? fallback}”`;
-    const on = parent === null ? `the stage ${quote(stageBeingRead, 'stage')}`
-      : `the ${(DISPLAY_NAME[parent.type] ?? parent.type).toLowerCase()} ${quote(parent.name, 'unnamed')}`;
+    // A part with no name is "an unnamed transition", not a transition called “unnamed”.
+    const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${n}”` : `an unnamed ${word}`);
+    const on = parent === null ? (stageBeingRead ? `the stage “${stageBeingRead}”` : 'the stage')
+      : named((DISPLAY_NAME[parent.type] ?? parent.type).toLowerCase(), parent.name);
     // A pod may hold its chain directly as well as in AttachedParts (see the ExternalPod branch).
     const carries = (el.querySelector(':scope > AttachedParts')?.children.length ?? 0) > 0
       || (el.tagName === 'ExternalPod' && Array.from(el.children).some((c) => ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)));
-    leftOut.push(`the ${kind.word} ${quote(text(el, ':scope > Name'), 'unnamed')} on ${on}`
+    leftOut.push(`${named(kind.word, text(el, ':scope > Name'))} on ${on}`
       + (carries ? ', with the parts attached to it' : ''));
     return false;
   };
@@ -862,7 +863,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             ? 'Fins on a nose cone were converted to a freeform outline (same planform) — OpenRocket only allows '
               + 'freeform fins on a nose cone.'
             : 'Fins on a transition were converted to a freeform outline (same '
-              + 'planform) — OpenRocket only allows freeform fins on a transition.';
+              + 'planform) — desktop OR only allows freeform fins on a transition.';
           if (!notes.includes(note)) notes.push(note);
         } else {
           // The same test the fin editor applies before it commits an outline:
