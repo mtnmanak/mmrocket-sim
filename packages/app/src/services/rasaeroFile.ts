@@ -1385,7 +1385,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       type SlotMotor = StageMotor | null | 'absent' | 'unknown';
       const motor: [SlotMotor, SlotMotor, SlotMotor] =
         [stageMotorOf(0, chosen), stageMotorOf(1, chosen), stageMotorOf(2, chosen)];
-      const stageName = (i: number): string => stages[i]?.name ?? `Stage ${i}`;
+      // The fallbacks below count as Motors & Launch does, the sustainer being Stage 1.
+      const stageName = (i: number): string => stages[i]?.name ?? `Stage ${i + 1}`;
 
       // Desktop runs every mass override and THEN every CG override. One pass
       // per stage is the same computation — a stage's CG needs only its OWN
@@ -1574,13 +1575,19 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // only the sustainer told a reader one K627LR reached 100,727 ft.
     const engineOf = (tag: string) => (text(storedSim, `:scope > ${tag}`) ?? '').replace(/\s+/g, ' ').trim();
     const included = (n: number) => (text(storedSim, `:scope > IncludeBooster${n}`) ?? '').toLowerCase() === 'true';
+    // A booster by the name it has on screen, RASAero's own beside it where they
+    // differ (batch 6): the import names RASAero's Booster 1 "Booster".
+    const boosterSaid = (n: number): string => {
+      const shown = stages[n]?.name;
+      return !shown ? `RASAero’s Booster ${n}` : shown === `Booster ${n}` ? `“${shown}”` : `“${shown}” (RASAero’s Booster ${n})`;
+    };
     const flown = [
-      ...[2, 1].filter(included).map((n) => [`Booster ${n}`, engineOf(`Booster${n}Engine`)] as const),
-      ['sustainer', engineOf('SustainerEngine')] as const,
+      ...[2, 1].filter(included).map((n) => [boosterSaid(n), engineOf(`Booster${n}Engine`)] as const),
+      ['the sustainer', engineOf('SustainerEngine')] as const,
     ].filter(([, e]) => e !== '');
     const withMotors = flown.length === 0 ? ''
-      : flown.length === 1 && flown[0]![0] === 'sustainer' ? ` with the ${flown[0]![1]}`
-        : ` with ${flown.map(([stage, e]) => `the ${e} on the ${stage}`).join(' and ')}`;
+      : flown.length === 1 && flown[0]![0] === 'the sustainer' ? ` with the ${flown[0]![1]}`
+        : ` with ${flown.map(([stage, e]) => `the ${e} on ${stage}`).join(' and ')}`;
     const ft = (v: number) => Math.round(v).toLocaleString('en-US');
     const vFps = xmlNum(storedSim, 'MaxVelocity', 0);
     notes.push(`RASAero’s stored prediction for simulation ${chosenSimNr}, as last run in RASAero`
@@ -1659,7 +1666,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // block replaces.
   const appliedParts = stages.flatMap((st, i) => {
     const bits = [massDetail[i], cgDetail[i]].filter((s): s is string => s !== undefined);
-    return bits.length > 0 ? [`${st.name ?? `Stage ${i}`} ${bits.join(', ')}`] : [];
+    return bits.length > 0 ? [`${st.name ?? `Stage ${i + 1}`} ${bits.join(', ')}`] : [];
   });
   if (appliedParts.length > 0) {
     const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
@@ -1699,7 +1706,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const st = stages[i];
       const m = st?.id !== undefined ? openingNozzles[st.id] : undefined;
       if (!src || !st || !(m != null && m > 0)) continue;
-      (src === 'sim' ? fromSim : fromDesign).push(`${st.name ?? `Stage ${i}`} ${inTxt(m)}`);
+      (src === 'sim' ? fromSim : fromDesign).push(`${st.name ?? `Stage ${i + 1}`} ${inTxt(m)}`);
     }
     if (fromSim.length > 0 || fromDesign.length > 0) {
       const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
@@ -2060,7 +2067,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   // .CDX1 export — and the first fix filled a parallel delays array by
   // side-effect pushes on each of the map's exit paths, one future
   // early-return away from writing Booster1's delay into the Sustainer cell.
-  const stageSlots = stagesIn.map((st): { engine: string | null; ignitionDelay: number } => {
+  const stageSlots = stagesIn.map((st, stIdx): { engine: string | null; ignitionDelay: number } => {
     if (!engineOn || !motors) return { engine: null, ignitionDelay: 0 };
     let found: Cdx1ExportEngine | undefined;
     let motorCount = 0;
@@ -2075,7 +2082,8 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     };
     seek(st.children ?? []);
     if (motorCount > 1) {
-      throw new Error(`RASAero supports one engine per stage — “${st.name ?? 'Stage'}” has ${motorCount} motors. `
+      // An unnamed stage by the number Motors & Launch shows for it.
+      throw new Error(`RASAero supports one engine per stage — “${st.name ?? `Stage ${stIdx + 1}`}” has ${motorCount} motors. `
         + 'Export as .ork or .rkt to keep every motor and its thrust.');
     }
     // Only a burnout-triggered motor has a delay this format can express; a
@@ -2488,24 +2496,28 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
   for (let i = 1; i < stagesIn.length; i++) {
     const st = stagesIn[i]!;
     // How a refusal below names this stage: its own name, quoted, or — for a
-    // stage saved without one — its number, as this file's notes do. Quoting
+    // stage saved without one — the number Motors & Launch shows for it
+    // (`Stage ${i + 1}`, the sustainer being Stage 1), with RASAero's own name
+    // for it beside the number (batch 6: it said "stage 1", counting from the
+    // sustainer as 0, for the stage the screen calls Stage 2). Quoting
     // `st.name` refused such a stage as stage "undefined" (audit 2026-09-30).
-    const stageSaid = st.name ? `"${st.name}"` : `${i}`;
+    const stageSaid = st.name ? `"${st.name}"` : `${i + 1}`;
+    const rasaeroSaid = st.name ? '' : ` (RASAero’s Booster ${i})`;
     // Which parts are the shoulder, boat tail and fin carrier is
     // cdx1BoosterParts' call — shared with checkFormatLoss.
     const { kids, tubes, shoulder, boattail, extraTrans, finParents } = cdx1BoosterParts(st, transitionEnds);
     kids.forEach(refuseTailCone);
     if (tubes.length === 0) {
-      throw new Error(`Stage ${stageSaid} has no body tube — RASAero boosters need one.`);
+      throw new Error(`Stage ${stageSaid}${rasaeroSaid} has no body tube — RASAero boosters need one.`);
     }
     const bodyLen = tubes.reduce((s, t) => s + axialLength(t), 0);
     if (extraTrans.length > 0) {
-      throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage ${stageSaid} has other transitions; export as .ork/.rkt.`);
+      throw new Error(`RASAero boosters support only a shoulder and a boat tail — stage ${stageSaid}${rasaeroSaid} has other transitions; export as .ork/.rkt.`);
     }
     const shoulderLen = shoulder ? axialLength(shoulder) : 0;
     const btLen = boattail ? axialLength(boattail) : 0;
     if (finParents.length > 1) {
-      throw new Error(`RASAero allows ONE fin set per booster — stage ${stageSaid} has several; export as .ork/.rkt.`);
+      throw new Error(`RASAero allows ONE fin set per booster — stage ${stageSaid}${rasaeroSaid} has several; export as .ork/.rkt.`);
     }
     // A booster's fins sit on the booster BODY: RASAero measures their
     // <Location> from its bottom, and the importer puts them on the one body
@@ -2522,7 +2534,7 @@ export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors
     if (finParent && finParent.type !== 'bodytube') {
       const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;
       throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${finParent.name ?? where}” `
-        + `(stage ${stageSaid}'s ${where}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
+        + `(stage ${stageSaid}'s ${where}${st.name ? '' : ` — RASAero’s Booster ${i}`}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
     }
     // RASAero's booster body is every tube of the stage end to end, and its
     // fin <Location> counts from the bottom of all of them — so a fin set on
