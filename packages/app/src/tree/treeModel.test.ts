@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
 import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, stagesWithRecoveryDevice, updateAllNodes } from './treeModel.js';
+import { kernelDefault } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
@@ -2203,6 +2204,18 @@ describe('flownRecoveryDevices resolves the automatic parachute Cd', () => {
     expect(d.cd).toBeCloseTo(0.8 * (1 - (0.12192 / 0.6) ** 2), 12);
     expect(d.cdNominal).toBe(0.8);
     expect(d.cdAutomatic).toBe(true);
+  });
+
+  it('RECOV-DIAM reports the diameter the kernel flies a chute stating none at', () => {
+    // ComponentFactory's dbl(node, "diameter", …): an absent or non-finite one
+    // flies the kernel default, so the report carries that, not null.
+    const flown = kernelDefault('parachute', 'diameter')!;
+    expect(flown).toBeGreaterThan(0);
+    expect(flownRecoveryDevices(engineTree(chute({ diameter: undefined }))).Main!.diameter).toBe(flown);
+    expect(flownRecoveryDevices(engineTree(chute({ diameter: NaN }))).Main!.diameter).toBe(flown);
+    // A stated one is what flies; a STREAMER has no diameter at all.
+    expect(flownRecoveryDevices(engineTree(chute())).Main!.diameter).toBe(0.6);
+    expect(flownRecoveryDevices(engineTree(chute({ diameter: undefined }, 'streamer'))).Main!.diameter).toBeNull();
   });
 
   it('leaves a STREAMER null — its automatic Cd is computed from the strip, not a constant', () => {

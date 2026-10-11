@@ -450,6 +450,15 @@ function PartRow({ c, lenSym, velSym, massSym }: {
   // which puts "58" under "59.3" and breaks the alignment of the one figure a
   // reader scans down the list.
   const fixedRate = siToUi('velocity', prefs.units.velocity, c.rate).toFixed(1);
+  // ‡ means exactly what the footnote says of it — "has unverified fit" — so it
+  // follows the fit and nothing else (K13): it used to sit on every row with an
+  // incomplete packed size, verified or not, while the footnote followed the fit.
+  const unverified = c.fit === 'unverified';
+  // Half a packed size is still a published figure: a row that states only its
+  // diameter shows it, with "?" for the length (K13), rather than "unpublished".
+  const half = (si: number | null) => si !== null ? len(si) : (
+    <><span aria-hidden="true">?</span><span className="sr-only">unpublished</span></>
+  );
   return (
     <li className={`recovery-part${c.flagged ? ' recovery-part-warn' : ''}`}>
       <div className="recovery-part-head">
@@ -482,18 +491,18 @@ function PartRow({ c, lenSym, velSym, massSym }: {
         {len(c.diameter)} {lenSym}
         {c.mass !== null && <> · {fmtSi('mass', massSym, c.mass)} {massSym}</>}
         {' · '}
-        {c.packedDiameter !== null && c.packedLength !== null
-          ? <>packs {len(c.packedDiameter)} × {len(c.packedLength)} {lenSym}{c.fit === 'unverified' && ' ‡'}</>
+        {c.packedDiameter !== null || c.packedLength !== null
+          ? <>packs {half(c.packedDiameter)} × {half(c.packedLength)} {lenSym}{unverified && ' ‡'}</>
           : (
             <>
               packed size unpublished
               {/* The words beside it already say it; the mark only ties the row
                   to the footnote, so it is hidden rather than read as "double
                   dagger" (audit 2026-09-22). */}
-              <span className="recovery-mark" aria-hidden="true">‡</span>
+              {unverified && <span className="recovery-mark" aria-hidden="true">‡</span>}
             </>
           )}
-        {c.fit === 'unverified' && <> · {c.fitReason}</>}
+        {unverified && <> · {c.fitReason}</>}
       </div>
       {c.packingNote && <div className="recovery-part-meta">{c.packingNote}</div>}
     </li>

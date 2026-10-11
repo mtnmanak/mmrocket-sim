@@ -2,6 +2,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { getCatalogue, matchDbMotor, manufacturerMatches, type MotorDbEntry } from './motorDb.js';
 import { asStageNodes, stageDefaultName } from '../tree/treeModel.js';
 import { num, numOpt } from '../tree/nodeNum.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { motorLengthLossNotes } from '../tree/motorLength.js';
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
@@ -316,7 +317,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       `${named(c)}: ejection deployment becomes apogee with no delay in the .CDX1.`);
     const omitted = chutes.filter(c => !slotted.has(c));
     add(omitted.length > 0, `Additional parachutes are omitted, including their delays: ${omitted.map(named).join(', ')}. Only the first two in the component tree are written.`);
-    parts(n => n.type === 'parachute' && has(n, 'deployEvent') && !['apogee', 'altitude'].includes(String(n['deployEvent'])),
+    parts(n => n.type === 'parachute' && has(n, 'deployEvent') && !['apogee', 'altitude'].includes(flownDeployEvent(n['deployEvent'])),
       'Unsupported parachute events and their delays become disabled; these parachutes do not reopen');
     add(chutes.length > 0, 'Parachute construction, names, attachment, packing, lines and materials are not kept. Spill holes are folded into Cd, Auto Cd becomes a number, and the reader recreates recovery on the sustainer.');
     for (const [i, stage] of stages.entries()) {

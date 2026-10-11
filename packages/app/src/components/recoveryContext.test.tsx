@@ -7,7 +7,7 @@ import type { SavedConfig } from '../model/design.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { ConfigPanel } from './ConfigPanel.js';
 import { PropertyPanel } from './PropertyPanel.js';
-import { recoveryScope } from './recoveryContext.js';
+import { recoveryScope, recoverySummary } from './recoveryContext.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const configs: SavedConfig[] = [
@@ -72,5 +72,29 @@ describe('recovery configuration context', () => {
       expect(host.textContent).toContain('Recovery: Main: 400 ft AGL descending');
       expect(host.textContent).not.toContain(' m AGL');
     } finally { act(() => root.unmount()); localStorage.clear(); }
+  });
+
+  it('RECOV-CASE reads a mixed-case event the way the kernel flies it', () => {
+    // The kernel lower-cases the event, so "Altitude" flies at its altitude and
+    // "EJECTION" on the charge; the summary quoted the first as a bare word.
+    const mixed: SavedConfig = { id: 'm', name: 'M', isDefault: true, motors: {},
+      deployments: { chute: { deployEvent: 'Altitude', deployAltitude: 121.92 } } };
+    expect(recoverySummary(mixed, 'm', tree)).toBe('Main: 121.92 m AGL descending');
+    expect(recoverySummary({ ...mixed, deployments: { chute: { deployEvent: 'EJECTION' } } }, 'm', tree))
+      .toBe('Main: ejection charge');
+    // The Deploy at menu shows the event flown, not its first option.
+    const host = document.createElement('div'); const root = createRoot(host);
+    try {
+      const show = (deployEvent: unknown) => act(() => root.render(<PrefsProvider>
+        <PropertyPanel tree={tree} node={{ ...node, deployEvent } as ComponentNode} onPatch={() => {}} />
+      </PrefsProvider>));
+      const menu = () => host.querySelector<HTMLSelectElement>('select[aria-label="Deploy at"]')!.value;
+      show('Altitude');
+      expect(menu()).toBe('altitude');
+      show('NEVER');
+      expect(menu()).toBe('never');
+      show(undefined);
+      expect(menu()).toBe('ejection');
+    } finally { act(() => root.unmount()); }
   });
 });

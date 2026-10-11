@@ -23,6 +23,7 @@ import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
 import { isTailCone } from '../tree/tailCone.js';
 import { num as nodeNum, numOpt } from '../tree/nodeNum.js';
+import { foldDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
@@ -2570,7 +2571,7 @@ export function exportOrk({
         : (node.id ? c.deployments[node.id] ?? {} : {});
       if (Object.keys(o).length === 0) continue;
       emit(depth, `<deploymentconfiguration configid="${escapeXmlAttr(c.id)}">`);
-      if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(o.deployEvent)}</deployevent>`);
+      if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(foldDeployEvent(o.deployEvent))}</deployevent>`);
       if (o.deployAltitude !== undefined) emit(depth + 1, `<deployaltitude>${o.deployAltitude}</deployaltitude>`);
       if (o.deployDelay !== undefined) emit(depth + 1, `<deploydelay>${o.deployDelay}</deploydelay>`);
       emit(depth, '</deploymentconfiguration>');
@@ -3107,7 +3108,7 @@ export function exportOrk({
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
+        emit(depth + 1, `<deployevent>${escapeXml(deployEventXml(node))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         deploymentConfigs(depth + 1, node);
@@ -3137,7 +3138,7 @@ export function exportOrk({
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         emit(depth + 1, `<cd>${numOpt(node, 'cd') ?? 'auto'}</cd>`);
         material(depth + 1, node, 'surface');
-        emit(depth + 1, `<deployevent>${escapeXml(String(node['deployEvent'] ?? 'ejection'))}</deployevent>`);
+        emit(depth + 1, `<deployevent>${escapeXml(deployEventXml(node))}</deployevent>`);
         emit(depth + 1, `<deployaltitude>${n(node, 'deployAltitude', 200)}</deployaltitude>`);
         emit(depth + 1, `<deploydelay>${n(node, 'deployDelay', 0)}</deploydelay>`);
         deploymentConfigs(depth + 1, node);
@@ -4060,6 +4061,17 @@ function readFinTabs(el: XmlElement, node: ComponentNode, notes: string[]): void
     const v = parseDecimal(last.textContent);
     node['tabOffset'] = Number.isFinite(v) ? v : 0;
   }
+}
+
+/**
+ * A recovery device's <deployevent> text: absent is the ejection charge, and
+ * the case is folded the way the kernel folds it (RECOV-CASE), because desktop
+ * OR matches the text case-sensitively (DocumentConfig.findEnum) and would drop
+ * the "Altitude" the app flies as altitude. A value the kernel does not name —
+ * desktop's "lowerstageseparation" — is written as the file had it.
+ */
+function deployEventXml(node: ComponentNode): string {
+  return foldDeployEvent(String(node['deployEvent'] ?? 'ejection'));
 }
 
 /**

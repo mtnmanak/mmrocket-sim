@@ -1833,6 +1833,21 @@ describe('RASAero export — dual-deploy recovery slot order', () => {
     expect(xml).toContain('<EventType2>None</EventType2>');
     expect(xml).toContain('<Event2>False</Event2>');
   });
+
+  it('RECOV-CASE reads a mixed-case event the way the kernel flies it', () => {
+    // The kernel lower-cases the event, so "Altitude" and "APOGEE" fly as altitude
+    // and apogee; the writer and its loss check read them as written and sent
+    // both chutes out as None, the drogue in slot 2.
+    const design = dualDeploy({ deployEvent: 'Altitude', deployAltitude: 213.36, deployDelay: 1 }, { deployEvent: 'APOGEE' });
+    const xml = exportCdx1(design);
+    expect(xml).toContain('<EventType1>Apogee</EventType1>');
+    expect(xml).toContain('<EventType2>Altitude</EventType2>');
+    expect(xml).toContain('<Altitude2>700</Altitude2>');
+    const losses = checkFormatLoss('cdx1', { tree: design.tree, motors: {}, launch: DEFAULT_CONDITIONS,
+      configs: [], activeConfigId: null, measured: { massKg: null, cgM: null }, flightData: {} }).losses.join(' ');
+    expect(losses).not.toContain('Unsupported parachute events');
+    expect(cdx1RecoveryDelayNote(design.tree)).toContain('(1 s)');
+  });
 });
 
 /**

@@ -31,7 +31,7 @@ import { clusterCount } from './cluster.js';
 import { num, numOpt, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 import { ventLimit } from './canopyVent.js';
-import { KERNEL_DEFAULT_CD } from './kernelDefaults.js';
+import { KERNEL_DEFAULT_CD, kernelNum } from './kernelDefaults.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -1757,7 +1757,9 @@ export function flownRecoveryDevices(
           cd: typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
           cdNominal: numOrNull(n, 'cdNominal') ?? typed ?? (isChute ? KERNEL_DEFAULT_CD : null),
           cdAutomatic: isChute && (typed === null || n['cdAuto'] === true),
-          diameter: numOrNull(n, 'diameter'),
+          // The diameter the kernel FLIES (RECOV-DIAM): a chute stating none, or a
+          // non-finite one, flies ComponentFactory's default. A streamer has none.
+          diameter: isChute ? kernelNum(n, 'diameter') : null,
           spillHoleDiameter: numOrNull(n, 'spillHoleDiameter'),
         };
       }

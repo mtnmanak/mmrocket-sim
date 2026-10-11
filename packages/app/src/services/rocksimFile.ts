@@ -12,6 +12,7 @@ import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js
 import { resolveAssemblyRadius } from '../tree/assembly.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
+import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
 import { spansOverlap } from '../tree/finAlign.js';
@@ -2406,7 +2407,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
   const emitRecovery = (wrapper: 'SimulationEventList' | 'SimulationEvents') => {
     emit(`<${wrapper}>`);
     for (const { node, serial } of recoveryCopies) {
-      const event = String(node['deployEvent'] ?? 'ejection');
+      // Case folded as the kernel folds it (RECOV-CASE): "Altitude" flies as
+      // altitude and is saved as one. A value the kernel does not name stays
+      // as written, so the refusal below still names it.
+      const event = foldDeployEvent(String(node['deployEvent'] ?? 'ejection'));
       const delay = nnum(node, 'deployDelay', 0);
       const altitude = nnum(node, 'deployAltitude', 200);
       const type = event === 'ejection' ? (delay > 0 ? 2 : 1)
