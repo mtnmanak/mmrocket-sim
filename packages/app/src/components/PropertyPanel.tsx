@@ -10,7 +10,7 @@ import {
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
-  mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  mountName, mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
@@ -1250,7 +1250,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         {fields.map((f) => {
           if (f.key === 'maxMotorLength') {
             return node['motorMount'] === true ? <MotorLengthField key={f.key}
-              mountName={node.name ?? 'Motor mount'} value={motorLengthLimit(node)}
+              mountName={mountName(node)} value={motorLengthLimit(node)}
               onCommit={(value) => onPatch({ maxMotorLength: value })} /> : null;
           }
           // Conical and ellipsoid profiles have no shape parameter.

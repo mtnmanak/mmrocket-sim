@@ -1391,7 +1391,27 @@ export function fairingDeliveredCd(tree: RocketTree, node: ComponentNode): numbe
  * type's, "[FreeformFinSet.FreeformFinSet]", which nothing here could match.
  */
 export function shroudKernelName(node: ComponentNode): string {
-  return typeof node.name === 'string' && node.name.trim() !== '' ? node.name : 'Camera shroud';
+  return nameOr(node, 'Camera shroud');
+}
+
+/**
+ * A part's name as a label shows it: its own, or `fallback` when it has none.
+ * Blank counts as none — clearing a Name box stores '', and a file can carry
+ * only spaces — which `?? fallback` let through, so every label naming the
+ * part went blank (board Tier 2, v0.148).
+ */
+export function nameOr(n: ComponentNode | null | undefined, fallback: string): string {
+  return typeof n?.name === 'string' && n.name.trim() !== '' ? n.name : fallback;
+}
+
+/**
+ * A motor mount's name wherever one is shown — its card, its delay and length
+ * boxes, the launch report's delays table, the import and pad-mass notes: its
+ * own, or "Motor mount" when it has none or an emptied one. `ifGone` is what a
+ * sentence says for a mount the tree no longer has (null / undefined).
+ */
+export function mountName(mount: ComponentNode | null | undefined, ifGone = 'Motor mount'): string {
+  return mount ? nameOr(mount, 'Motor mount') : ifGone;
 }
 
 /**
@@ -1838,7 +1858,7 @@ export function splitClusterTree(tree: RocketTree, mountId: string): ClusterSpli
     ...mount,
     ...overrideMassShare(mount, 2),
     id: freshId(),
-    name: `${mount.name ?? 'Motor mount'} ${suffix}`,
+    name: `${mountName(mount)} ${suffix}`,
     cluster: sub,
     clusterScale: s * scaleMul,
     clusterRotation: phi + rotAdd,
@@ -1876,7 +1896,7 @@ export function splitClusterPairsTree(tree: RocketTree, mountId: string): Cluste
     ...mount,
     ...overrideMassShare(mount, 3),
     id: freshId(),
-    name: `${mount.name ?? 'Motor mount'} ${suffix}`,
+    name: `${mountName(mount)} ${suffix}`,
     cluster: 'double',
     clusterScale: s * 2,
     clusterRotation: phi + rotAdd,

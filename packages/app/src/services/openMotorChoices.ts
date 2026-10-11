@@ -6,7 +6,7 @@ import type { OrkMotorRef } from './orkFile.js';
 import { fileMotorIdentity, mountMotorFromDb, namesOtherMaker } from './motorMatch.js';
 import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
 import { defaultDelay, delayOptions, fetchMotorSpec } from './thrustcurve.js';
-import { findNode, kernelStageIdByNode, motorMounts } from '../tree/treeModel.js';
+import { findNode, kernelStageIdByNode, motorMounts, mountName } from '../tree/treeModel.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DesignSnapshot } from './dirtyState.js';
 import type { MotorMatchResult } from './motorMatch.js';
@@ -76,7 +76,7 @@ export function collectOpenMotorIdentities(
       group.locations.push({ configId: set.configId, mountId, ref });
       const config = snapshot.savedConfigs.find(c => c.id === set.configId);
       const number = mounts.findIndex(m => m.id === mountId) + 1;
-      const mount = findNode(snapshot.tree, mountId)?.name || 'Motor mount';
+      const mount = mountName(findNode(snapshot.tree, mountId));
       const label = `${mount}${number ? ` (mount ${number})` : ''} — ${config ? savedConfigLabel(config) : 'Loaded motors'}`;
       if (!group.carriedBy.includes(label)) group.carriedBy.push(label);
     }

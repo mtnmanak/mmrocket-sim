@@ -26,7 +26,7 @@ import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import { separationEventOrDefault } from '../tree/sanitize.js';
 import {
-  applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountsIn, normalizeTree, primaryMountOf,
+  applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountName, mountsIn, normalizeTree, primaryMountOf,
   updateNode,
 } from '../tree/treeModel.js';
 
@@ -492,8 +492,8 @@ export function planImport(
           const ref = cfgUnmatchedRefs[primary];
           cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
           if (cfg.id === chosenId) {
-            const mountName = findNode(importedTree, primary)?.name ?? 'Motor mount';
-            notes.push(`The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${mountName}”`
+            const named = mountName(findNode(importedTree, primary));
+            notes.push(`The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${named}”`
               + ` (${ref.designation}), which could not be loaded. It is kept so the file saves unchanged,`
               + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
           }

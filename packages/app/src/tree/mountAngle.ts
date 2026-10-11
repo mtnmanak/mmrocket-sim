@@ -10,7 +10,7 @@ import { assemblyInstanceCount, finCountOf } from './counts.js';
 // is one extra kernel eval in the vitest worker for mountAngle.test.ts (~165 ms
 // by treeModel.ts's own note) and nothing at all in the bundle, which already
 // holds the kernel in its eager entry chunk.
-import { mountRadiusOf } from './treeModel.js';
+import { mountRadiusOf, nameOr } from './treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
 /**
@@ -200,8 +200,7 @@ const deg = (rad: number): string => {
   return `${Math.abs(d) < 0.05 ? 0 : Number(d.toFixed(1))}°`;
 };
 
-const nameOf = (n: ComponentNode, fallback: string): string =>
-  (typeof n.name === 'string' && n.name.trim()) ? n.name : fallback;
+const nameOf = nameOr;
 
 /**
  * Design-time interference around the rail.

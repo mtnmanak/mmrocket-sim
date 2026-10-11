@@ -5,7 +5,7 @@ import {
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
-import { findParent, motorMounts } from './treeModel.js';
+import { findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
 // Under its old local name: this module's field walk carried a private copy
@@ -526,7 +526,7 @@ export function previewMounts(
     const inSolidTube = !!parent && parent !== 'stage' && isSolidTube(parent);
     return {
       id: m.id ?? '',
-      name: m.name ?? 'Motor mount',
+      name: mountName(m),
       boreMm,
       scaledBoreMm,
       nearestMm,
