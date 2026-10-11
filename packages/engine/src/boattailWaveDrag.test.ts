@@ -13,6 +13,9 @@ import { OrkRocket, type RocketTree } from './orkEngine.js';
 // curve a false second transonic peak; nothing in this package pinned the replacement, and
 // difftest's `ssphase5.boattail.*` lines have no stored baseline.
 //
+// The baseline is Rogers Kbf with the supersonic flag off (setRogersModifiedBarrowman(true)),
+// NOT Classic: "the classic estimate" above is the flag-off kernel's, which Classic shares.
+//
 // The boat tail's own pressure CD is isolated by subtracting the same rocket without it (a
 // cylinder has none, and the nose ahead does not see the tail). The Prandtl-Meyer inverse here
 // is an independent Newton solve, not the kernel's fixed-count bisection.
@@ -70,7 +73,7 @@ const TAILS = [
 ];
 
 describe('Supersonic boat-tail wave drag (Phase 5)', () => {
-  it('follows classic to M0.90, smoothsteps to a M1.05-1.20 plateau, then exact Prandtl-Meyer', () => {
+  it('follows the flag-off estimate to M0.90, smoothsteps to a M1.05-1.20 plateau, then exact Prandtl-Meyer', () => {
     for (const tail of TAILS) {
       const theta = Math.min(Math.atan2(R - tail.aft, tail.length), 0.349);
       const frontal = (R * R - tail.aft * tail.aft) / (R * R);

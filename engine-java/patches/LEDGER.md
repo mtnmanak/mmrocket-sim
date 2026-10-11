@@ -409,9 +409,10 @@ docs/research/validation-anchors-2026-08-03.md and the spec doc areas 6/7. Files
 - **Goldens:** `ssaerocd.*` lines lock the flag-on CD decomposition at M1.2/2/4/8
   (differential 252 → 256 lines).
 - **Engine vitest guards (2026-10-11):** past a nose table's last Mach, `supersonicNose.test.ts` asserts
-  the cone's analytic branch and the stored-table decay `(1.59 + 1.83/M^2)` against Classic's flat
-  clamp; `supersonicBaseFriction.test.ts` the 1.2/M^2 base cap (Classic 0.25/M);
-  `finInterferenceFriction.test.ts` the x1.8 (its own entry below). The Phase-2 boat-tail blend was
+  the cone's analytic branch and the stored-table decay `(1.59 + 1.83/M^2)` against the flag-off flat
+  clamp; `supersonicBaseFriction.test.ts` the 1.2/M^2 base cap (0.25/M with the flag off);
+  `finInterferenceFriction.test.ts` the x1.8 (its own entry below). Both baselines above run Kbf with
+  the flag off, not Classic, which shares that code but is not flown there. The Phase-2 boat-tail blend was
   replaced in Phase 5 and is guarded there. Mutations (decay to a flat clamp, cap removed): each fails.
 - **Scored result:** 52/137 → **68/137**; ARCAS-Short supersonic CD 7/7, Long 5/6,
   subsonic green with polished fixtures + Re-matching. Documented limitations: the
@@ -474,7 +475,7 @@ feature #2 (no flag): absent inputs ⇒ bit-identical classic behavior. Files:
   Mach-flat — flare-specific physics with no hobby-rocket relevance and only one
   dataset to calibrate on). Both parked as the "blunt/flare body" refinement item.
 - **Engine vitest guards (2026-10-11):** `supersonicBaseFriction.test.ts` - on a mirror finish (turbulent
-  Cf above the roughness limit at every Mach) the Supersonic/Classic friction ratio is the blend of the
+  Cf above the roughness limit at every Mach) the Supersonic/flag-off (Kbf) friction ratio is the blend of the
   two compressibility factors over M3.5-4.5 and exactly 1 through M3.5; `supersonicNose.test.ts` - the
   cone's coefficient fades 2.1 -> Cp_max(M) over M4-8. On the default paint finish the roughness limit
   binds over about M4-6.5 and hides the friction fade there. Mutations (either fade off): each fails.
@@ -545,10 +546,10 @@ revision made harness-visible. Full before/after accounting:
   `ssphase5.finstraight.*` (a 60°-swept and an unswept hexagonal-blunt-base fin
   either side of the LE-sonic band). Differential 271 → **286 lines**, all 15 new
   lines bit-identical JVM↔TeaVM.
-- **Engine vitest guards (2026-10-11):** `packages/engine/src/boattailWaveDrag.test.ts` (Classic to
-  M0.90, the smoothstep, the M1.05-1.20 plateau, exact Prandtl-Meyer above it against an independent
+- **Engine vitest guards (2026-10-11):** `packages/engine/src/boattailWaveDrag.test.ts` (the flag-off
+  estimate, run under Kbf, to M0.90, the smoothstep, the M1.05-1.20 plateau, exact Prandtl-Meyer above it against an independent
   Newton inverse, the 0.349 rad clamp; one maximum, on the plateau), `supersonicNose.test.ts` (Fleeman
-  above M1.3; a cone-like secant ogive keeps the classic curve) and `finThicknessWave.test.ts`
+  above M1.3; a cone-like secant ogive keeps the flag-off curve) and `finThicknessWave.test.ts`
   (sweepWaveFactor on a tan Gamma = 3 fin). Mutations (plateau dropped, linear blend, clamp lifted,
   Fleeman frozen at M1.3, cos^2 at every Mach): each fails.
 - **Scored:** supersonic **52/164 → 69/164**; classic **10/164, every one of the
@@ -1357,7 +1358,8 @@ this repo added above; not an upstream behavior change.
   mass its dry mass plus the spent motor (1e-12). Mutation: a memo held on the Rocket (shared by every
   configuration) fails it. Dropping the modID keys or never invalidating does NOT - every configuration
   that reaches the stepper is fresh, as the note above says - so those keys have no bridge-observable
-  guard.
+  guard. Nor does removing the memo outright: a correct cache changes no number, so this test pins
+  only that the memo is not shared across configurations.
 
 ### aerodynamics/BarrowmanCalculator.java — skip checkGeometry when its output is discarded
 

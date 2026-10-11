@@ -12,6 +12,12 @@ import { OrkRocket, type ComponentNode, type MotorSpec, type RocketTree } from '
 // Nothing asserted a staged flight's MASS: orkEngine.test.ts's two-stage test checks events,
 // branches and apogee bounds. This pins every recorded mass after separation to the dry mass of
 // each stage built on its own - a different rocket, so no memo is shared with the flight.
+//
+// WHAT IT CATCHES, AND WHAT IT CANNOT (checked by editing the compiled kernel): a memo held
+// where the stages' configurations share it (on the Rocket instead of the FlightConfiguration)
+// fails it. The memo's REMOVAL does not: a correct cache changes no number, so its absence is
+// invisible to any assertion on a flight. Nor do the modID invalidation keys: every
+// configuration that reaches the stepper is newly built, so they are never exercised.
 
 const C6: MotorSpec = {
   designation: 'C6', diameter: 0.018, length: 0.07,
@@ -52,7 +58,7 @@ const twoStage = (): RocketTree => ({
 const alone = (parts: ComponentNode[]) =>
   OrkRocket.buildTree({ name: 'alone', components: [{ type: 'stage', name: 'S', children: parts }] } as unknown as RocketTree);
 
-describe('staged flight: each branch carries only its own structure mass', () => {
+describe('staged flight: each branch carries only its own structure mass (a structure-mass memo shared across stages fails this; its removal cannot)', () => {
   it('after separation the sustainer weighs its own dry mass and the booster its dry mass plus the spent motor', () => {
     const sustainerDry = alone(sustainerParts()).staticInfo().massEmpty;
     const boosterDry = alone(boosterParts()).staticInfo().massEmpty;

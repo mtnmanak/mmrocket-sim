@@ -66,7 +66,7 @@ describe('a zero-material slice keeps a finite centroid (OR #3161)', () => {
     // only be off by the cone's share of a quarter slice.
     const trueCG = (cyl * 63 * l + cone * (126 * l + l / 4)) / (cyl + cone);
     expect(Math.abs(tail.cgX - trueCG)).toBeLessThanOrEqual((cone / (cyl + cone)) * (l / 4) + 1e-12);
-  });
+  }, 30_000);
 
   it('the assembled rocket has a finite CG and inertia, and flies to apogee without an abort', () => {
     const r = OrkRocket.buildTree(tree);

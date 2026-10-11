@@ -5,7 +5,8 @@ import { OrkRocket, type RocketTree } from './orkEngine.js';
 // Phases 1, 2, 4 and 5), all in SymmetricComponentCalc and all behind `supersonicAero`:
 //   - Phase 1: a nose's CNa grows above M1, CNa_slender * (1 + g (min(M,5) - 1)), g = 0.10 for a
 //     cone and 0.07 for every other shape; transitions keep their slender value.
-//   - Phase 2: past the last point of a nose's pressure table the classic kernel clamps FLAT.
+//   - Phase 2: past the last point of a nose's pressure table the kernel without the flag clamps
+//     FLAT.
 //     Supersonic continues a cone or ogive on its analytic branch and decays a stored-table
 //     shape with the Fleeman/Bonney Mach shape (1.59 + 1.83/M^2).
 //   - Phase 4: the cone's 2.1 sin^2(phi) coefficient fades to the stagnation Cp_max(M) over M4-8.
@@ -14,6 +15,9 @@ import { OrkRocket, type RocketTree } from './orkEngine.js';
 // Each is asserted as its formula against the shipped bridge. Nothing in this package pinned
 // any of them (orkEngine.test.ts's supersonic test asserts the WHOLE rocket's CNa > 1.5x classic,
 // which the fins carry), and difftest cannot: it has no stored baseline.
+//
+// The baseline is Rogers Kbf with the supersonic flag off (setRogersModifiedBarrowman(true)),
+// NOT Classic: Classic shares the nose code it exercises, but nothing here flies it.
 //
 // Isolation: a nose on a plain tube, no fins. A body tube has no CNa at zero AoA and no
 // pressure drag, so the rocket's CNa and pressure CD ARE the nose's; the nose's aft radius is
@@ -63,12 +67,12 @@ describe('Supersonic nose physics', () => {
       [{ shape: 'power', shapeParameter: 0.5 }, 0.07],
     ];
     for (const [nose, g] of shapes) {
-      const classic = sweep(noseOnTube(nose), false);
+      const kbf = sweep(noseOnTube(nose), false);
       const ss = sweep(noseOnTube(nose), true);
       for (const m of [0.5, 1, 1.25, 2, 3.5, 5, 6, 10]) {
         const label = `${JSON.stringify(nose)} M${m}`;
-        // Slender-body nose CNa is 2 per radian on its own base area, at every Mach, in Classic.
-        expect(classic.s.cna[classic.at(m)]! - 2, `${label} classic`).toBeCloseTo(0, 12);
+        // Slender-body nose CNa is 2 per radian on its own base area, at every Mach, with the flag off.
+        expect(kbf.s.cna[kbf.at(m)]! - 2, `${label} kbf`).toBeCloseTo(0, 12);
         const want = m > 1 ? 2 * (1 + g * (Math.min(m, 5) - 1)) : 2;
         expect(ss.s.cna[ss.at(m)]! / want - 1, `${label} supersonic`).toBeCloseTo(0, 12);
       }
@@ -95,36 +99,36 @@ describe('Supersonic nose physics', () => {
       const mul = 0.72 * (p - 0.5) ** 2 + 0.82;
       const fleemanN = Math.atan(0.5 / fn) ** 1.69 * mul;
       const ss = sweep(noseOnTube({ shape: 'ogive', shapeParameter: p }, length), true);
-      const classic = sweep(noseOnTube({ shape: 'ogive', shapeParameter: p }, length), false);
+      const kbf = sweep(noseOnTube({ shape: 'ogive', shapeParameter: p }, length), false);
       for (const m of [1.5, 2, 3, 5, 8, 10]) {
         const want = (1.59 + 1.83 / (m * m)) * fleemanN;
         expect(ss.s.powerOff.pressure[ss.at(m)]! / want - 1, `l/d ${fn} p ${p} M${m}`).toBeCloseTo(0, 12);
       }
-      // Classic keeps desktop's sinphi-driven branch, which all but vanishes for a tangent
-      // ogive (the defect Phase 5 fixed in the Supersonic model only).
-      if (p === 1) expect(classic.s.powerOff.pressure[classic.at(2)]!).toBeLessThan(0.002);
+      // With the flag off the kernel keeps desktop's sinphi-driven branch, which all but
+      // vanishes for a tangent ogive (the defect Phase 5 fixed in the Supersonic model only).
+      if (p === 1) expect(kbf.s.powerOff.pressure[kbf.at(2)]!).toBeLessThan(0.002);
     }
-    // A cone-like secant ogive (p < 0.35) is NOT Fleeman: it keeps the classic analytic curve
+    // A cone-like secant ogive (p < 0.35) is NOT Fleeman: it keeps the flag-off analytic curve
     // inside the table (M <= 3.98) in the Supersonic model too.
-    const cl = sweep(noseOnTube({ shape: 'ogive', shapeParameter: 0.2 }), false);
+    const off = sweep(noseOnTube({ shape: 'ogive', shapeParameter: 0.2 }), false);
     const sl = sweep(noseOnTube({ shape: 'ogive', shapeParameter: 0.2 }), true);
     for (const m of [1.5, 2, 3, 3.75]) {
-      expect(sl.s.powerOff.pressure[sl.at(m)], `secant p 0.2 M${m}`).toBe(cl.s.powerOff.pressure[cl.at(m)]);
+      expect(sl.s.powerOff.pressure[sl.at(m)], `secant p 0.2 M${m}`).toBe(off.s.powerOff.pressure[off.at(m)]);
     }
   }, 30_000);
 
-  it('a cone continues analytically past its table, its coefficient fading to stagnation Cp over M4-8; Classic stays flat', () => {
+  it('a cone continues analytically past its table, its coefficient fading to stagnation Cp over M4-8; with the flag off it stays flat', () => {
     const length = 0.12;
     // The kernel's own sinphi: the surface slope over the aft 1 % of the shape (exactly the
     // cone half-angle's sine, up to rounding).
     const rAt99 = 0.99 * R;
     const sinphi = (R - rAt99) / Math.hypot(R - rAt99, 0.01 * length);
-    const cl = sweep(noseOnTube({ shape: 'conical' }, length), false);
+    const off = sweep(noseOnTube({ shape: 'conical' }, length), false);
     const ss = sweep(noseOnTube({ shape: 'conical' }, length), true);
-    const flat = cl.s.powerOff.pressure[cl.at(4)]!;
+    const flat = off.s.powerOff.pressure[off.at(4)]!;
     for (const m of [4.5, 5, 6, 7, 8, 9, 10]) {
-      // Classic: the interpolator's last point (M3.98) held flat.
-      expect(cl.s.powerOff.pressure[cl.at(m)], `classic M${m}`).toBe(flat);
+      // Flag off: the interpolator's last point (M3.98) held flat.
+      expect(off.s.powerOff.pressure[off.at(m)], `kbf M${m}`).toBe(flat);
       const t = Math.min(Math.max((m - 4) / 4, 0), 1);
       const coeff = 2.1 * (1 - t) + cpMax(m) * t;
       const want = coeff * sinphi * sinphi + 0.5 * sinphi / Math.sqrt(m * m - 1);
@@ -134,7 +138,7 @@ describe('Supersonic nose physics', () => {
     expect(cpMax(1000)).toBeCloseTo(1.839, 3);
     // Inside the table the two models agree exactly.
     for (const m of [1.5, 2.5, 3.5]) {
-      expect(ss.s.powerOff.pressure[ss.at(m)], `table M${m}`).toBe(cl.s.powerOff.pressure[cl.at(m)]);
+      expect(ss.s.powerOff.pressure[ss.at(m)], `table M${m}`).toBe(off.s.powerOff.pressure[off.at(m)]);
     }
   }, 30_000);
 
@@ -142,9 +146,9 @@ describe('Supersonic nose physics', () => {
     // TR R-100 tables: von Karman (Haack C = 0) ends at M3.0, ellipsoid at M2.4. Fineness 3
     // keeps the C7 stubby-nose floor (fineness < 1.8, subsonic only) out of it entirely.
     for (const [nose, mEnd] of [[{ shape: 'haack', shapeParameter: 0 }, 3.0], [{ shape: 'ellipsoid' }, 2.4]] as const) {
-      const cl = sweep(noseOnTube(nose), false, 0.5, 10, 0.1);
+      const off = sweep(noseOnTube(nose), false, 0.5, 10, 0.1);
       const ss = sweep(noseOnTube(nose), true, 0.5, 10, 0.1);
-      const end = cl.s.powerOff.pressure[cl.at(mEnd)]!;
+      const end = off.s.powerOff.pressure[off.at(mEnd)]!;
       expect(end, `${nose.shape} table end`).toBeGreaterThan(0.05);
       // (The sweep's grid is accumulated, so its "M3.0" can sit an ulp past the table end and
       // start decaying: equal to 12 places here, exact everywhere else.)
@@ -153,7 +157,7 @@ describe('Supersonic nose physics', () => {
       for (const m of [mEnd + 0.5, 4, 6, 10]) {
         const i = ss.at(m);
         const mach = ss.s.machs[i]!; // the grid's own value, which the kernel evaluated
-        expect(cl.s.powerOff.pressure[cl.at(m)], `${nose.shape} classic flat M${m}`).toBe(end);
+        expect(off.s.powerOff.pressure[off.at(m)], `${nose.shape} kbf flat M${m}`).toBe(end);
         expect(ss.s.powerOff.pressure[i]! / (end * shape(mach) / shape(mEnd)) - 1,
           `${nose.shape} supersonic decay M${m}`).toBeCloseTo(0, 12);
       }
