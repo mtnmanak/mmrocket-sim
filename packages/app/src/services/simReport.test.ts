@@ -2333,3 +2333,32 @@ describe('kernelGravity (K17)', () => {
     expect(kernelGravity(45, 2000) / kernelGravity(45, 0)).toBeCloseTo((6371000 / 6373000) ** 2, 12);
   });
 });
+
+describe('thrust : weight at departure: where the report takes g from (K17)', () => {
+  // Zero guided length departs at LAUNCHROD, which is sample 1 of fakeResult.
+  const departing = (): FlightResult => {
+    const result = fakeResult();
+    result.effectiveLaunchRodLength = 0;
+    result.launchGuideReason = 'single-button';
+    return result;
+  };
+  it('reads the kernel’s own g series when the payload carries one', () => {
+    const result = departing();
+    // A g no model would give, so only a read of the series can produce this figure.
+    (result.series as unknown as Record<string, number[]>)['g'] = result.series.time.map(() => 9.5);
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, launch: DEFAULT_CONDITIONS,
+      rocketName: 'g series', execMs: 1 });
+    expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]! * 9.5), 10);
+  });
+  it.each([
+    ['not a number', Number.NaN],
+    ['absent', undefined],
+  ])('flies the kernel’s 28.61° when the latitude is %s', (_label, latitudeDeg) => {
+    const result = departing();
+    const launch = { ...DEFAULT_CONDITIONS, latitudeDeg: latitudeDeg as number };
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, launch,
+      rocketName: 'no latitude', execMs: 1 });
+    expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]!
+      * kernelGravity(28.61, DEFAULT_CONDITIONS.launchAltitudeM + result.series.altitude[1]!)), 10);
+  });
+});

@@ -586,7 +586,8 @@ it('Amendment 1: a single-button report reads the liftoff LAUNCHROD state withou
  * flight data's Twr column are the same quantity, so they must agree. The
  * kernel divides by its own WGS84 gravity at the rocket's latitude and height
  * (AbstractSimulationStepper.storeData: thrust / (mass x gravity)); the report
- * used to divide by standard gravity, 0.3 % high on an equatorial pad at 2 km.
+ * used to divide by standard gravity, 0.3 % low on an equatorial pad at 2 km
+ * (and high near a pole, where local g exceeds 9.80665).
  * The report reads the default 'summary' series, which carries no g, so this
  * flies both payloads and holds the summary run's figure to the full run's Twr.
  */
