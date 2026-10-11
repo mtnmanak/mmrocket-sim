@@ -136,7 +136,10 @@ const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['rkt', 'Multiple ring', { type: 'centeringring', instanceCount: 2 }, { type: 'centeringring', instanceCount: 1 }],
   ['rkt', 'Ring radial', { type: 'bulkhead', radialPosition: 0.01 }, { type: 'bulkhead', radialPosition: 0 }],
   ['rkt', 'Multiple launch', { type: 'launchlug', instanceCount: 2 }, { type: 'launchlug', instanceCount: 1 }],
-  ['rkt', 'Packed recovery', { type: 'parachute', packedLength: 0.1 }, { type: 'parachute' }],
+  // A .rkt re-read packs a parachute itself (rktPackedChuteSize: 0.9 x the
+  // 30 mm tube it sits in), so only a size that differs is lost.
+  ['rkt', 'Packed recovery', { type: 'parachute', packedLength: 0.1 }, { type: 'parachute', packedLength: 0.027, packedRadius: 0.027 }],
+  ['rkt', 'Packed recovery', { type: 'streamer', packedLength: 0.1 }, { type: 'streamer' }],
   ['rkt', 'Mass-object size', { type: 'masscomponent', radius: 0.01 }, { type: 'masscomponent' }],
   ['rkt', 'Zero-density parachute', { type: 'parachute', lineDensity: 0 }, { type: 'parachute', lineDensity: 0.002 }],
   ['rkt', 'reopens on Auto', { type: 'streamer', cd: 0.75 }, { type: 'streamer', cd: 0.8 }],

@@ -164,6 +164,28 @@ const FINISH_TO_CODE = (finish: unknown): number => {
   }
 };
 
+/**
+ * THE PACKED SIZE OF A ROCKSIM PARACHUTE, radius and length alike (m). A .rkt
+ * has no field for one, so desktop's ParachuteHandler approximates it when
+ * <Dia> closes (ParachuteHandler.java:63-76): 0.9 of a parent BODY tube's
+ * OUTER radius, 0.9 of a parent INNER tube's INNER radius, else 2.5 % of the
+ * canopy's diameter — and sets both MassObject.setRadius and setLength to that
+ * one number. Until then the app kept MassObject's own 25 mm x 12.5 mm for
+ * every .rkt chute, so it differed from desktop on each one's CG. Also the
+ * yardstick the .rkt save's loss list measures a chute against
+ * (formatLoss.ts): a re-read gives back exactly this.
+ */
+export function rktPackedChuteSize(parent: ComponentNode | null | undefined, diameterM: number): number {
+  // A blank radius or wall reads as exportRkt WRITES it (its <OD>/<ID> for a
+  // body tube and an inner tube), so a save's loss check sees what the re-read
+  // will. An imported tube always carries both, so on import these never apply.
+  if (parent?.type === 'bodytube') return nnum(parent, 'outerRadius', 0.012) * 0.9;
+  if (parent?.type === 'innertube') {
+    return Math.max(nnum(parent, 'outerRadius', 0.0095) - nnum(parent, 'thickness', 0.0005), 0) * 0.9;
+  }
+  return Math.max(diameterM, 0) * 0.025;
+}
+
 // ============================ IMPORT ============================
 
 export function importRkt(data: ArrayBuffer | string, opts?: {
@@ -896,6 +918,15 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       case 'Parachute': {
         const n = mk('parachute');
         n['diameter'] = num(el, 'Dia', 300) / LEN;
+        // RockSim stores no packed size; desktop makes one up the moment <Dia>
+        // is read (rktPackedChuteSize), and so does this — the kernel's own
+        // 25 mm x 12.5 mm stays only where the file gives no diameter.
+        const dia = num(el, 'Dia', NaN);
+        if (Number.isFinite(dia)) {
+          const packed = rktPackedChuteSize(parent, dia / LEN);
+          n['packedRadius'] = packed;
+          n['packedLength'] = packed;
+        }
         const cd = num(el, 'DragCoefficient', 0);
         if (cd > 0 && cd !== 0.75) n['cd'] = cd;
         const lines = Math.round(num(el, 'ShroudLineCount', 0));

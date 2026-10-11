@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay } from './rocksimFile.js';
+import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay, rktPackedChuteSize } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { exportCdx1, importCdx1 } from './rasaeroFile.js';
 import { matchImportedMotor, refToExportMotor } from './motorMatch.js';
@@ -4155,6 +4155,15 @@ describe('a blank part goes out as the part the kernel flies (B1)', () => {
     const { engineTree } = await import('../tree/treeModel.js');
     const { tree } = roundTrip();
     const back = importRkt(exportRkt({ name: 'Blank', tree })).tree;
+    // The one size a .rkt cannot carry: a blank chute flies the kernel's
+    // 25 mm x 12.5 mm here and re-opens packed as desktop's RockSim reader
+    // packs it (rktPackedChuteSize; the save's loss list says so). Packed so
+    // first, the rest of the design has to fly the same.
+    const host = flatten(tree.components).find((n) => n.name === 'Blank bodytube')!;
+    const chute = host.children!.find((n) => n.type === 'parachute')!;
+    const packed = rktPackedChuteSize(host, 0.3);
+    chute['packedLength'] = packed;
+    chute['packedRadius'] = packed;
     const info = (t: typeof tree | typeof back) => {
       resetEngine();
       return OrkRocket.buildTree(engineTree(t as never)).staticInfo();
