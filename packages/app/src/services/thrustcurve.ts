@@ -618,11 +618,14 @@ export function fileDigests(file: TcSimFile): string[] {
  * none of them is it. Desktop writes the digest of the data file it LOADED, so
  * this is the curve the design flew there; pickSampleFile is the app's own
  * choice for a motor picked here, and the two differ for a motor with more
- * than one file (board Tier 3, the thrust-curve picker; measured 2026-10-11:
- * 49 of the 254 digest-carrying motors in the tester uploads and the owner's
- * designs, in 26 of 49 designs, named another file than the app's pick, 18 of
- * them a curve or masses that fly differently — the AeroTech M1780NT's
- * manufacturer file, 5,341 N·s, against the cert file's 5,623). Two files
+ * than one file (board Tier 3, the thrust-curve picker; measured 2026-10-11
+ * by FILE, not by design — the census counts byte-identical copies once but
+ * a renamed or re-saved copy of one design as another file: 49 of the 254
+ * digest-carrying motor entries across the 49 .ork files carrying digests in
+ * the tester uploads and the owner's designs, in 26 of those files, named
+ * another file than the app's pick, 18 of them a curve or masses that fly
+ * differently — the AeroTech M1780NT's manufacturer file, 5,341 N·s, against
+ * the cert file's 5,623). Two files
  * with one digest are one curve to desktop; pickSampleFile decides between
  * them, so the answer never depends on list order.
  */

@@ -29,6 +29,13 @@ const CERT_FILE = '5f4294d20002e9000000071d';
 /** Desktop's digest of MFR_FILE, as LEM-IV.ork carries it (scripts/motor-digest.test.mjs pins it). */
 const MFR_DIGEST = '975f52b1a968ace7dcb784d9329db969';
 
+// The app's own curve load, watched: simulateFile's network: 'allow' path
+// hands it the file's digest (its fourth argument's `digest`).
+vi.mock('./thrustcurve.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./thrustcurve.js')>();
+  return { ...real, fetchMotorSpec: vi.fn(real.fetchMotorSpec) };
+});
+
 const fetchSpy = vi.fn(async () => { throw new TypeError('the network was used'); });
 beforeEach(() => { localStorage.clear(); vi.stubGlobal('fetch', fetchSpy); });
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -160,5 +167,14 @@ describe('opening a desktop design', () => {
     const fromLink = await simulateFile(new TextEncoder().encode(shared), 'shared.ork');
     expect(flownImpulse(fromLink)).toBeCloseTo(await fileNs(MFR_FILE), 1);
     expect(fetchSpy).not.toHaveBeenCalled();
+  }, 60_000);
+
+  it('network: allow hands the digest to the app’s own curve load', async () => {
+    vi.mocked(fetchMotorSpec).mockClear();
+    const out = await simulateFile(design(MFR_DIGEST), 'lemiv-m1780nt.ork', { network: 'allow' });
+    const calls = vi.mocked(fetchMotorSpec).mock.calls.filter((c) => c[0].motorId === M1780NT_ID);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c[3]).toEqual({ digest: MFR_DIGEST });
+    expect(flownImpulse(out)).toBeCloseTo(await fileNs(MFR_FILE), 1);
   }, 60_000);
 });

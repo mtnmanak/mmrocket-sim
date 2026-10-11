@@ -78,7 +78,12 @@ describe('real data files give the digest desktop OpenRocket wrote for them', ()
     // The RockSim file of the same motor: auto mass and CG, so the same blocks.
     ['5f4294d20002e9000000036e.rse', '4f0059c416964ba2528c83551e6a6839', 'Estes C11 — pringles 2 - baseconehack.ork'],
     ['5f4294d20002e90000000273.eng', '6b4aebccc355196a4e289ce84d517b0e', 'AeroTech I1299N — TRF RASAero Files/38-54 2-stage.ork'],
-    // Two points at t = 0: desktop drops the first.
+    // Two points at t = 0: desktop drops the first. Its auto-calc-mass and
+    // auto-calc-cg are both "1", so no per-sample mass or CG list is digested
+    // and this file does NOT pin the doubled-t = 0 quirk on those lists; only
+    // the synthetic test below does (as Java's finalizeThrustCurve,
+    // AbstractMotorLoader.java:195-198, behaves). A real desktop digest of a
+    // file with auto-calc off and a doubled t = 0 would pin it.
     ['5f4294d20002e90000000274.rse', '6b4aebccc355196a4e289ce84d517b0e', 'AeroTech I1299N — TRF RASAero Files/38-54 2-stage.ork'],
     // The manufacturer's file, which desktop flew; the app's own pick for this
     // motor is the cert file below (5,623 N·s against this one's 5,341).
@@ -171,7 +176,8 @@ describe('the loaders\' steps', () => {
 
   it('keeps desktop\'s quirk: a doubled t = 0 leaves the per-sample lists one longer', () => {
     // finalizeThrustCurve removes the first t = 0 point from time and thrust
-    // only, so desktop digests four masses against three times.
+    // only, so desktop digests four masses against three times. Synthetic: no
+    // real desktop digest in the fixtures exercises it (see the I1299N .rse).
     expect(digestRse(rse('auto-calc-mass="0" auto-calc-cg="0"', [[0, 0, 41, 35], [0, 5, 40, 35], [0.5, 10, 20, 35], [1, 0, 0, 35]])))
       .toEqual([digestOf([
         [DIGEST_DATA_TYPE.TIME_ARRAY, [0, 0.5, 1]],

@@ -66,7 +66,10 @@ describe.skipIf(!MANIFEST)('digest census', () => {
     const rows: Record<string, unknown>[] = [];
     const designs: Record<string, unknown>[] = [];
     for (const file of manifest.files) {
-      if (seen.has(file.sha256)) continue; // the same design twice counts once
+      // Byte-identical copies count once. A renamed or re-saved copy of one
+      // design (LEM-IV.ork and its "(1)", "(2)") is another file and counts
+      // again, so every "designs" count below is a count of FILES.
+      if (seen.has(file.sha256)) continue;
       seen.add(file.sha256);
       const bytes = new Uint8Array(readFileSync(file.path));
       let xml: string;
@@ -145,6 +148,8 @@ describe.skipIf(!MANIFEST)('digest census', () => {
 
     const count = (v: Verdict) => rows.filter((r) => r.verdict === v).length;
     const designsWith = (v: Verdict) => new Set(rows.filter((r) => r.verdict === v).map((r) => r.path)).size;
+    // `distinctDesigns` and every `designs` are distinct FILES (by bytes), not
+    // distinct designs: see the copies note above. Quote them as files.
     const summary = {
       files: manifest.files.length,
       distinctDesigns: seen.size,

@@ -179,7 +179,12 @@ describe('ask at open choices', () => {
   it('replaces every occurrence, keeps offered delay and ignition, defaults unavailable delay, and preserves file identity', async () => {
     const { state, groups, snapshot } = await fixture();
     const row = { ...groups[0]!.candidates.find(m => m.designation === 'F67W')!, delays: '4,6' };
+    fetchSpec.mockClear();
     const next = await applyOpenMotorChoices(state, 'a', groups, { [groups[0]!.key]: { kind: 'catalogue', motor: row } }, fetchSpec);
+    // The file's <digest> goes along to the curve load (its third argument),
+    // so the motor the file named loads the curve desktop flew.
+    expect(fetchSpec).toHaveBeenCalled();
+    for (const call of fetchSpec.mock.calls) expect(call).toEqual([row, 6, 'file-digest']);
     for (const motor of [next.mountMotors.m!, next.mountMotors.n!, next.savedConfigs[0]!.motors.m!, next.savedConfigs[1]!.motors.m!]) {
       expect(motor.meta.motorId).toBe(row.motorId);
       expect(motor.openNote).toBeUndefined();
