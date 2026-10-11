@@ -1,5 +1,5 @@
 {
-  "version": "0.173",
+  "version": "0.174",
   "released": "2026-10-10",
-  "note": "The header shows the design's file name, and Save offers it, as desktop OpenRocket does."
+  "note": "A warning before a .rkt or .CDX1 save loses data; the header shows those files too."
 }

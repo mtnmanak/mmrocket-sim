@@ -32,6 +32,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.174",
+    "date": "2026-10-10",
+    "title": "A warning before a .rkt or .CDX1 save loses data; the header shows those files too",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES OR WHAT A SAVED FILE CONTAINS. No mass, aerodynamic, motor or flight calculation changed, and .ork, .rkt and .CDX1 files are written exactly as in v0.173. What changed is what the app tells you before and after a .rkt or .CDX1 save.",
+      "A WARNING BEFORE A .RKT OR .CDX1 SAVE LOSES PART OF YOUR DESIGN. Neither format can hold everything an .ork does, and the note after saving named only certain cases; for everything else the save reported a plain success. A .rkt keeps no launch conditions (rod, site, weather, time step) and only the flight configuration in use; a .CDX1 keeps inner tubes, couplers, rings, bulkheads, engine blocks, shock cords and mass objects only as part of the rocket's total mass and CG; both drop rail buttons and Cd overrides. Some unset values were written differently from what the app flies: a parachute with no deployment event set flies on the ejection charge here and was written to a .CDX1 as opening at apogee, and an unset trapezoid fin sweep length flies as 20 mm and was written as 0 mm. Now Save .rkt and Save .CDX1 first check the design, and when the file would lose something, a dialog lists what this design would lose, with Save .ork instead, Save .rkt anyway (or Save .CDX1 anyway) and Cancel. When nothing would be lost, the save goes straight ahead. When the format cannot hold the design at all - for example freeform fins that are not a simple three- or four-point outline, or more than one motor in a stage, in a .CDX1 - it says why and writes nothing, as before. Saving in either format still changes nothing in the design on screen.",
+      "THE HEADER SHOWS .RKT AND .CDX1 FILES TOO. v0.173 named only a file opened, or saved as .ork; a design saved as .rkt or .CDX1 still read Not saved to a file. The header now shows the last file opened or saved in any of the three formats, with RockSim file or RASAero II file beside a .rkt or .CDX1 name. After a .rkt or .CDX1 save it reads Saved as .rkt - N not kept, counting the lines the dialog showed, and goes back to Unsaved changes on the next edit or flight. Because those formats are incomplete, such a save never clears Unsaved changes: changes that are not in an .ork still make Open, New and a share link offer to save an .ork first, and that prompt now says what the .rkt or .CDX1 file does not keep. While a .rkt or .CDX1 name is shown, a small warning button beside it says how much the current design holds that the format cannot, and opens the list. After saving foo.rkt, Save .ork offers foo.ork.",
+      "OPENING A .RKT SAYS THE LAUNCH PANEL KEPT YOUR SETTINGS. A .rkt carries no launch conditions, so the app keeps the ones you had; the import note now says so. A .CDX1 names the launch fields it does not carry that were kept."
+    ]
+  },
+  {
     "version": "0.173",
     "date": "2026-10-10",
     "title": "The header shows the design's file name; Save offers it",
