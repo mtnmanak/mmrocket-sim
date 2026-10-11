@@ -1912,6 +1912,30 @@ describe('a RockSim import note in the user’s distance unit', () => {
   }, 30000);
 });
 
+/**
+ * …AND TO THE RockSim WRITER (RKT-ALT-UNIT, board 2026-10-11). Save .rkt
+ * refuses an altitude deployment with a delay, and that refusal quoted the
+ * stored metres with a hard-coded "m": a feet user's 500 ft main read
+ * "152.4 m".
+ */
+it('Save .rkt quotes a refused altitude deployment in the user’s distance unit', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  await mountApp();
+  await waitFor(starterStored, 'starter session');
+  await unmountAll();
+  const saved = storedSession()!;
+  const tree = structuredClone(saved.tree) as RocketTree;
+  const walk = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => [n, ...walk(n.children ?? [])]);
+  const chute = walk(tree.components).find((n) => n.type === 'parachute')!;
+  Object.assign(chute, { name: 'Main', deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 1 });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...saved, tree, savedConfigs: [] }));
+  const host = await mountApp();
+  await saveAs(host, 'Save .rkt', false);
+  const dialog = host.ownerDocument.querySelector('[role="dialog"]')?.textContent ?? '';
+  expect(dialog).toContain('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft with 1 s delay.');
+  expect(dialog).not.toContain('152.4');
+}, 30000);
+
 
 describe('maximum motor length export losses', () => {
   it.each(['.rkt', '.CDX1'])('reports a mount limit only when present on %s export', async (format) => {

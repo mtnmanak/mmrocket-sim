@@ -2302,6 +2302,12 @@ export interface RktExportInput {
    * output back, so the notes and the refusal cannot tell the difference.
    */
   dryRun?: boolean;
+  /**
+   * The user's distance unit (`prefs.units.distance`), for a refused altitude
+   * deployment's altitude. This module holds no unit preference, so App hands
+   * it over, as it does to importRkt; without it the refusal writes metres.
+   */
+  distanceUnit?: string;
 }
 
 /**
@@ -2393,7 +2399,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun, distanceUnit = 'm' }: RktExportInput): string {
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
   notes?.push(...simulationExtensionLossNotes(tree, '.rkt'));
@@ -2418,7 +2424,10 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
       if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
         || (event === 'altitude' && altitude <= 0)) {
         throw new Error(`Recovery device “${node.name ?? node.type}”: .rkt cannot faithfully save `
-          + `${event} deployment${event === 'altitude' ? ` at ${altitude} m` : ''} with ${delay} s delay. Save as .ork to keep these settings.`);
+          // In the user's unit, as the import's recovery line quotes it: this
+          // printed the stored metres with a hard-coded "m".
+          + `${event} deployment${event === 'altitude' ? ` at ${deployAltitudeText(altitude, distanceUnit)}` : ''}`
+          + ` with ${delay} s delay. Save as .ork to keep these settings.`);
       }
       emit(`<SimulationEvent><PartSerialNo>${serial}</PartSerialNo><Type>${type}</Type>`
         + `<DeployAltitude>${event === 'altitude' ? altitude : 0}</DeployAltitude>`
