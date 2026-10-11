@@ -2689,13 +2689,16 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     expect(note).toContain('50 mm');
   });
 
-  it('names the diameter each unresolved component actually got', () => {
-    // TWO fallbacks in one file. The centreline takes the desktop's 25 mm
-    // SymmetricComponent.DEFAULT_RADIUS; the mass object inside that same
-    // unresolved tube takes this reader's 5 mm (autoDim's autoFallback), so
-    // MassObject.getMaxParentRadius has nothing to give it either. The note
-    // used to print 50 mm for every name on the list, including the mass the
-    // importer had built at 10 mm.
+  it('sizes a mass inside an unresolved tube to that tube’s 25 mm, as desktop does', () => {
+    // The centreline takes the desktop's 25 mm SymmetricComponent
+    // .DEFAULT_RADIUS (BodyTube.getAutoOuterRadius), and the mass object inside
+    // that same tube then takes the tube's bore from it, as desktop's
+    // MassObject.getMaxParentRadius does: 25 mm less the 1.27 mm wall. It took
+    // this reader's own 5 mm until board Tier 2 (v0.148's claim check) — only
+    // the inertia and the drawing moved, a mass component's mass is stated.
+    // The note used to print 50 mm for every name on its list, including the
+    // mass the importer had built at 10 mm; each name is still in the note
+    // that tells its own number.
     const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
       <name>Nothing</name><subcomponents><stage><name>S</name><subcomponents>
         <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
@@ -2709,12 +2712,32 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     const r = importOrk(xml);
     const parts = flatten(r.tree.components);
     expect(by(parts, 'B')['outerRadius']).toBeCloseTo(0.025, 12);
-    expect(by(parts, 'W')['radius']).toBeCloseTo(0.005, 12);
+    expect(by(parts, 'W')['radius']).toBeCloseTo(0.025 - 0.00127, 12);
     const note = r.notes.find((n) => n.includes('no neighbour'))!;
-    expect(note).toContain('3 components');
+    expect(note).toContain('2 components');
     expect(note).toContain('N, B use');
     expect(note).toContain('50 mm default');
-    expect(note).toContain('W uses a 10 mm default'); // and NOT 50 mm
+    expect(note).not.toContain('W');
+    const sized = r.notes.find((n) => n.includes('sized from the neighbouring component'))!;
+    expect(sized).toContain('(W)');
+    expect(sized).toContain('47.5 mm');
+  });
+
+  it('sizes a packed chute inside a nose cone with no base to take, at the 25 mm the reader draws it', () => {
+    // Desktop hands the -1 of an unresolvable base radius straight to the
+    // chute (NoseCone.getBaseRadius into MassObject.getAutoRadius), a negative
+    // size. The reader draws that cone at the 25 mm default and names it, so
+    // the chute packs to the cone it is drawn in, not the reader's 12.5 mm.
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Nothing</name><subcomponents><stage><name>S</name><subcomponents>
+        <nosecone><name>N</name><length>0.3</length><thickness>0.001</thickness>
+          <shape>ogive</shape><aftradius>auto</aftradius><subcomponents>
+            <parachute><name>P</name><packedlength>0.05</packedlength><packedradius>auto</packedradius>
+              <diameter>0.6</diameter></parachute></subcomponents></nosecone>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    expect(by(flatten(r.tree.components), 'P')['packedRadius']).toBeCloseTo(0.025, 12);
+    expect(r.notes.find((n) => n.includes('no neighbour'))).not.toContain('P');
   });
 
   it('does not hang on an automatic chain that points at itself', () => {

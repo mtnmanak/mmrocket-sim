@@ -1,0 +1,138 @@
+// @vitest-environment happy-dom
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { importRkt } from './rocksimFile.js';
+import { importedLaunch, retainedLaunchNote } from './importApply.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * A .rkt's launch site (board Tier 0 row 80, ruled by Eric 2026-10-11).
+ * Each RockSim simulation states <LaunchLatitude>, <LaunchLongitude> and
+ * <LaunchAltitude> (metres). Of the ten .rkt files under docs/ that carry
+ * them, nine state longitude 0 — a site on the prime meridian, which the
+ * weather fetch for "This design's site" would then look up. So the site is
+ * taken only when latitude and longitude are both non-zero and in range, and
+ * otherwise the panel keeps the site it had and the import note says so.
+ */
+const rkt = (sims: { lat?: string; lon?: string; alt?: string; motor?: string }[]): string =>
+  `<RockSimDocument><DesignInformation><RocketDesign><Name>Site</Name><StageCount>1</StageCount>
+    <Stage3Parts><BodyTube><Name>Body</Name><OD>54</OD><ID>52</ID><Len>300</Len>
+      <IsMotorMount>1</IsMotorMount><SerialNo>1</SerialNo></BodyTube></Stage3Parts>
+  </RocketDesign></DesignInformation>
+  <SimulationResultsList>${sims.map((s, i) => `<SimulationResults>
+    ${s.lat === undefined ? '' : `<LaunchLatitude>${s.lat}</LaunchLatitude>`}
+    ${s.lon === undefined ? '' : `<LaunchLongitude>${s.lon}</LaunchLongitude>`}
+    ${s.alt === undefined ? '' : `<LaunchAltitude>${s.alt}</LaunchAltitude>`}
+    <Stage3Engines><EngineSet><EngineCode>${s.motor ?? `F${20 + i}W`}</EngineCode>
+      <MountSerialNo>1</MountSerialNo><EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines>
+  </SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`;
+
+const siteNote = (notes: string[]) => notes.find((n) => /launch site/.test(n) && /keeps the site you had/.test(n));
+
+describe('.rkt launch site (board row 80)', () => {
+  it('imports a real site — latitude, longitude and the site altitude', () => {
+    const r = importRkt(rkt([{ lat: '40.845', lon: '-119.112', alt: '1189.94' }]));
+    expect(r.launch).toEqual({ latitudeDeg: 40.845, longitudeDeg: -119.112, launchAltitudeM: 1189.94 });
+    expect(siteNote(r.notes)).toBeUndefined();
+    // The open merges it over the panel's site exactly as a .ork's does.
+    const next = importedLaunch({ ...DEFAULT_CONDITIONS, latitudeDeg: 61.2, longitudeDeg: -149.9, launchAltitudeM: 40 }, r.launch);
+    expect(next.latitudeDeg).toBe(40.845);
+    expect(next.longitudeDeg).toBe(-119.112);
+    expect(next.launchAltitudeM).toBe(1189.94);
+  });
+
+  it('takes the site of the simulation it opens, not the first one', () => {
+    // Simulation 1 carries no motor, so it is no configuration and the
+    // reader opens simulation 2 — whose site is the one taken.
+    const a = importRkt(rkt([{ lat: '40.845', lon: '-119.112', alt: '1189.94', motor: '' },
+      { lat: '32.99', lon: '-106.97', alt: '1401' }]));
+    expect(a.chosenConfigId).toBe('rocksim-sim-2');
+    expect(a.launch).toEqual({ latitudeDeg: 32.99, longitudeDeg: -106.97, launchAltitudeM: 1401 });
+  });
+
+  it('keeps the site and says so when the longitude is 0 (9 of the 10 corpus files)', () => {
+    const r = importRkt(rkt([{ lat: '37.', lon: '0.', alt: '213.36' }]));
+    expect(r.launch).toBeUndefined();
+    const note = siteNote(r.notes)!;
+    expect(note).toContain('latitude 37°');
+    expect(note).toContain('longitude 0°');
+    expect(note).toContain('213.36 m');
+    expect(note).toContain('Simulation 1');
+  });
+
+  it('keeps the site for a 0/0 file', () => {
+    const r = importRkt(rkt([{ lat: '0.', lon: '0.', alt: '152.4' }]));
+    expect(r.launch).toBeUndefined();
+    expect(siteNote(r.notes)).toContain('latitude 0°, longitude 0°');
+  });
+
+  it('keeps the site when latitude 0 meets a real longitude', () => {
+    const r = importRkt(rkt([{ lat: '0', lon: '-80.6', alt: '3' }]));
+    expect(r.launch).toBeUndefined();
+    expect(siteNote(r.notes)).toBeDefined();
+  });
+
+  it('keeps the site when a coordinate is out of range — never clamped onto a pole', () => {
+    for (const [lat, lon] of [['91', '-100'], ['45', '181'], ['-90.5', '10'], ['45', '-200']] as const) {
+      const r = importRkt(rkt([{ lat, lon, alt: '100' }]));
+      expect(r.launch).toBeUndefined();
+      expect(siteNote(r.notes)).toContain(`latitude ${Number(lat)}°, longitude ${Number(lon)}°`);
+    }
+  });
+
+  it('keeps the site when a coordinate is unreadable or missing', () => {
+    const bad = importRkt(rkt([{ lat: '4O.8', lon: '-119.1', alt: '100' }]));
+    expect(bad.launch).toBeUndefined();
+    expect(siteNote(bad.notes)).toContain('latitude “4O.8”');
+    const half = importRkt(rkt([{ lat: '40.8', alt: '100' }]));
+    expect(half.launch).toBeUndefined();
+    expect(siteNote(half.notes)).toContain('no longitude');
+  });
+
+  it('says nothing about a site the file does not state', () => {
+    const r = importRkt(rkt([{}]));
+    expect(r.launch).toBeUndefined();
+    expect(r.notes.some((n) => /launch site/.test(n))).toBe(false);
+  });
+
+  it('takes the coordinates without an altitude when the file states none, and clamps one out of range', () => {
+    const none = importRkt(rkt([{ lat: '40.845', lon: '-119.112' }]));
+    expect(none.launch).toEqual({ latitudeDeg: 40.845, longitudeDeg: -119.112 });
+    const high = importRkt(rkt([{ lat: '40.845', lon: '-119.112', alt: '12000' }]));
+    expect(high.launch?.launchAltitudeM).toBe(10000);
+    expect(high.notes.some((n) => /site altitude is 12000 m/.test(n))).toBe(true);
+  });
+
+  it('runs the .ork open check for a flipped longitude between simulations', () => {
+    // Same site with the sign flipped in a second simulation (row 44 A).
+    const r = importRkt(rkt([{ lat: '40.845', lon: '-119.112', alt: '1189.94', motor: 'F20W' },
+      { lat: '40.845', lon: '119.112', alt: '1189.94', motor: 'G40W' }]));
+    expect(r.longitudeCheck?.opened.longitudeDeg).toBe(-119.112);
+    expect(r.notes.some((n) => /longitude’s sign flipped/.test(n))).toBe(true);
+  });
+
+  it('the Launch panel note says what a .rkt open kept', () => {
+    expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined))
+      .toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.');
+    expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, { latitudeDeg: 40.8, longitudeDeg: -119.1, launchAltitudeM: 1190 }))
+      .toBe('From a .rkt the app reads only the launch site (latitude, longitude and site altitude) — the Launch panel keeps the settings you had for the rest.');
+  });
+
+  // Tester files are gitignored; this runs locally and skips on CI.
+  const corpus = join(here, '../../../../docs/User files');
+  const WILD = join(corpus, 'TRF RASAero Files/SS Wild Bash 20260623v0.rkt');
+  const WM = join(corpus, '4in WM Extreme.rkt');
+  it.skipIf(!existsSync(WILD) || !existsSync(WM))('the corpus: Black Rock imports, a longitude-0 file keeps the site', () => {
+    const wild = importRkt(readFileSync(WILD, 'utf8'));
+    expect(wild.launch?.latitudeDeg).toBe(40.845);
+    expect(wild.launch?.longitudeDeg).toBe(-119.112);
+    expect(wild.launch?.launchAltitudeM).toBe(1189.94);
+    const wm = importRkt(readFileSync(WM, 'utf8'));
+    expect(wm.launch).toBeUndefined();
+    expect(siteNote(wm.notes)).toContain('longitude 0°');
+  }, 30_000);
+});

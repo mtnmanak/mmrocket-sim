@@ -120,7 +120,10 @@ function clusterTree(): RocketTree {
         motorMount: true, cluster: '4-ring', position: { method: 'bottom', offset: 0 }, children: [
           { type: 'engineblock', id: 'block', name: 'Block', length: 0.005, outerRadius: 0.009,
             innerRadius: 0.006, overrideMass: 0.003, overrideCGX: 0.0025, position: { method: 'top', offset: 0.01 } },
-          { type: 'parachute', id: 'chute', name: 'Main', diameter: 0.2, deployEvent: 'altitude', deployAltitude: 121.92 },
+          // Packed as a .rkt re-read packs it (0.9 x the mount's 9 mm bore,
+          // rktPackedChuteSize), so the round trip below has nothing to move.
+          { type: 'parachute', id: 'chute', name: 'Main', diameter: 0.2, deployEvent: 'altitude', deployAltitude: 121.92,
+            packedLength: 0.0081, packedRadius: 0.0081 },
         ] },
     ] },
   ] }] } as RocketTree;

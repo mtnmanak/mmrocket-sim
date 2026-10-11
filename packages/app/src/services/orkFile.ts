@@ -123,7 +123,8 @@ export interface OrkTreeImportResult {
    * to null when the file declares the ISA standard atmosphere, and one of
    * the two is when <atmosphere blank="…"> names it and it is exactly the
    * site-altitude standard: a blank this app's writer had to state, see
-   * readLaunchConditions).
+   * readLaunchConditions). A .rkt fills only the site — latitude, longitude
+   * and site altitude — and only when both coordinates are usable (importRkt).
    */
   launch?: Partial<LaunchConditions>;
   /** Transient evidence from this open; never written to the file or session. */
@@ -412,6 +413,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // is 25 mm for a centreline component and 5 mm for a mass object (see
   // autoDim below), and the note has to state the number this reader used.
   const autoUnresolved: { el: XmlElement; name: string; radius: number }[] = [];
+  /** Automatic radii inside a part with no cavity (resolver answered 0): they keep their own size. */
+  const autoNoCavity: { el: XmlElement; name: string; radius: number }[] = [];
   /**
    * A dimension the desktop may write as a number, as `auto <lastvalue>`, or
    * as a BARE `auto`. The first two parse to the number the desktop itself had
@@ -446,9 +449,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       autoInferred.push({ name: label, radius: r });
       return r;
     }
-    const kept = r === 0 ? noCavity : autoFallback;
-    autoUnresolved.push({ el, name: label, radius: kept });
-    return kept;
+    if (r === 0) {
+      autoNoCavity.push({ el, name: label, radius: noCavity });
+      return noCavity;
+    }
+    autoUnresolved.push({ el, name: label, radius: autoFallback });
+    return autoFallback;
   };
   /**
    * A parachute's, streamer's or shock cord's PACKED size (MassObject
@@ -1369,9 +1375,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   if (autoUnresolved.length > 0) {
     // Group by the fallback each name ACTUALLY got. A centreline component
     // takes the desktop's own 25 mm SymmetricComponent.DEFAULT_RADIUS; a mass
-    // object takes this reader's 5 mm (autoDim's autoFallback), or its own
-    // 12.5 mm in a cavity of none (autoDim's noCavity). Printing one diameter
-    // for the whole list named a number the mass never got.
+    // object whose cavity cannot be found takes this reader's 5 mm (autoDim's
+    // autoFallback; one in a cavity of NONE has its own note, below). Printing
+    // one diameter for the whole list named a number the mass never got.
     const byFallback = new Map<number, string[]>();
     for (const a of autoUnresolved) {
       const names = byFallback.get(a.radius);
@@ -1397,6 +1403,26 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       `${k} component${k === 1 ? '' : 's'} had an automatic diameter and no neighbour to `
       + `take one from, so ${clauses.join('; ')}. `
       + `Set the diameter${k === 1 ? '' : 's'} before simulating.`);
+  }
+  if (autoNoCavity.length > 0) {
+    // NOT "no neighbour to take one from" (board Tier 2, v0.148): these HAVE a
+    // parent to size to, and it has no cavity — a solid tube, or a wall as
+    // thick as its radius. MassObject.getAutoRadius takes the 0 as no answer
+    // and keeps the device's own size, MassObject()'s 12.5 mm, as autoDim's
+    // `noCavity` does.
+    const byKept = new Map<number, string[]>();
+    for (const a of autoNoCavity) {
+      const names = byKept.get(a.radius);
+      if (names) names.push(a.name);
+      else byKept.set(a.radius, [a.name]);
+    }
+    const clauses = [...byKept].map(([radius, names]) =>
+      `${nameList(names)} ${new Set(names).size === 1 ? 'keeps' : 'keep'} OpenRocket’s own ${(radius * 2000).toFixed(0)} mm`);
+    const k = new Set(autoNoCavity.map((a) => a.el)).size;
+    notes.push(
+      `${k} component${k === 1 ? '' : 's'} had an automatic diameter inside a part with no cavity to size `
+      + `${k === 1 ? 'it' : 'them'} to (a solid part, or a wall as thick as the part’s radius), so, as desktop OR does, `
+      + `${clauses.join('; ')}. Set the diameter${k === 1 ? '' : 's'} if that is not the size packed there.`);
   }
 
   // Honesty note for what this reader PRESERVES but the simulation does not
@@ -3828,13 +3854,23 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     const inner = (r: number): number =>
       r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
     switch (owner.tagName) {
-      case 'nosecone':
+      // An owner whose OWN radius cannot be resolved is the size the reader
+      // gives it (board Tier 2, v0.148's claim check), never the device's own
+      // fallback: for a body tube that is desktop's DEFAULT_RADIUS
+      // (BodyTube.getAutoOuterRadius), so its bore is 25 mm less the wall; a
+      // nose cone or transition desktop leaves at -1, a negative size it hands
+      // the device unclamped, and the reader draws at the same 25 mm (the
+      // deviation documented above makeAutoRadii), so the device packs to the
+      // part it is drawn in.
+      case 'nosecone': {
         // The base: from the part behind, or on a tail cone the part ahead.
-        return resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
+        const base = resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
+        return base === UNRESOLVED ? DEFAULT_AUTO_RADIUS : base;
+      }
       case 'transition': {
         const f = resolved(stated(owner, 'foreradius'), () => fore(owner));
         const a = resolved(stated(owner, 'aftradius'), () => aft(owner));
-        return Math.max(f, a) > 0 ? Math.max(f, a) : UNRESOLVED;
+        return Math.max(f, a) > 0 ? Math.max(f, a) : f === UNRESOLVED && a === UNRESOLVED ? DEFAULT_AUTO_RADIUS : UNRESOLVED;
       }
       case 'bodytube':
         // A SOLID tube (<thickness>filled</thickness>) has no cavity:
@@ -3842,7 +3878,10 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
         // as no answer and keeps the device's own radius — what autoDim does
         // with a 0. The word `filled` read as no wall gave the full radius.
         if (text(owner, ':scope > thickness') === 'filled') return 0;
-        return inner(resolved(stated(owner, 'radius'), () => bodyTube(owner)));
+        return inner(resolved(stated(owner, 'radius'), () => {
+          const r = bodyTube(owner);
+          return r > 0 ? r : DEFAULT_AUTO_RADIUS;
+        }));
       case 'innertube':
       case 'tubecoupler':
       case 'engineblock':

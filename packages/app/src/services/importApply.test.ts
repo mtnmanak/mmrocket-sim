@@ -32,7 +32,7 @@ const TEXT = {
 };
 
 it('explains exactly the launch fields an open retained, excluding resets', () => {
-  expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined)).toBe('A .rkt carries no launch conditions — the Launch panel keeps the settings you had.');
+  expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined)).toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.');
   const note = retainedLaunchNote('cdx1', { ...DEFAULT_CONDITIONS, longitudeDeg: 30 },
     { launchRodLengthM: 3, launchRodAngleDeg: 0, launchRodAimDeg: 0, launchAltitudeM: 0, temperatureC: 20, pressureHPa: null, windAverage: 0 });
   expect(note).toContain('Latitude'); expect(note).toContain('Longitude'); expect(note).toContain('Wind gusts σ');

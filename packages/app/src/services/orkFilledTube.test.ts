@@ -189,14 +189,18 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
           <subcomponents><parachute><name>Main</name><packedlength>0.05</packedlength>
             <packedradius>auto</packedradius><diameter>0.6</diameter></parachute></subcomponents></bodytube>
       </subcomponents></stage></subcomponents></rocket></openrocket>`;
-    const unresolved = (notes: string[]) => notes.some((n) => /no neighbour to take one from/.test(n) && /Main/.test(n));
+    // The note says why — a part with no cavity, which is what Main HAS — and
+    // not the "no neighbour to take one from" a part with no parent radius
+    // gets (board Tier 2, v0.148): Main's neighbour is right there.
+    const noCavity = (notes: string[]) => notes.some((n) => /inside a part with no cavity/.test(n) && /Main/.test(n));
     const solid = importOrk(ork('filled'));
     expect(find(solid.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.0125, 12);
-    expect(unresolved(solid.notes)).toBe(true);
+    expect(noCavity(solid.notes)).toBe(true);
+    expect(solid.notes.some((n) => /no neighbour/.test(n))).toBe(false);
     // Hollow, the cavity is the bore, as before.
     const hollow = importOrk(ork('0.001'));
     expect(find(hollow.tree.components, 'Main')['packedRadius']).toBeCloseTo(0.029, 12);
-    expect(unresolved(hollow.notes)).toBe(false);
+    expect(noCavity(hollow.notes)).toBe(false);
   });
 
   it('.ork: a bare automatic MASS COMPONENT inside it keeps the same 12.5 mm, not this reader’s 5 mm', () => {
@@ -216,7 +220,7 @@ describe('a solid tube is solid everywhere the app reads a tube wall', () => {
       </subcomponents></stage></subcomponents></rocket></openrocket>`;
     const solid = importOrk(ork('filled'));
     expect(find(solid.tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);
-    expect(solid.notes.some((n) => /Alt uses a 25 mm default/.test(n))).toBe(true);
+    expect(solid.notes.some((n) => /inside a part with no cavity/.test(n) && /Alt keeps OpenRocket’s own 25 mm/.test(n))).toBe(true);
     // A wall as thick as the tube's radius leaves no cavity either
     // (BodyTube.getInnerRadius is max(outer − wall, 0)).
     expect(find(importOrk(ork('0.03')).tree.components, 'Alt')['radius']).toBeCloseTo(0.0125, 12);

@@ -7,7 +7,7 @@ import { motorLengthLossNotes } from '../tree/motorLength.js';
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
-import { exportRkt } from './rocksimFile.js';
+import { exportRkt, rktPackedChuteSize } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
@@ -177,8 +177,21 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       'Ring radial offsets are not kept; these parts reopen on the centerline');
     parts(n => n.type === 'launchlug' && (num(n, 'instanceCount', 1) > 1 || nonzero(n, 'instanceSeparation')),
       'Multiple launch lug instances and spacing are not kept; only one is written');
-    parts(n => ['parachute', 'streamer', 'shockcord'].includes(n.type) && has(n, 'packedLength', 'packedRadius'),
-      'Packed recovery dimensions are not kept');
+    // A .rkt has no packed size. A streamer or shock cord reopens on the
+    // kernel's own, so only a stated one is lost; a parachute reopens on the
+    // size desktop's RockSim reader makes up from its parent and diameter
+    // (rktPackedChuteSize), so it is lost whenever what it flies differs from
+    // that — a blank one included, which flew the kernel's 25 mm x 12.5 mm.
+    const parentOf = new Map<ComponentNode, ComponentNode>();
+    for (const p of nodes) for (const c of p.children ?? []) parentOf.set(c, p);
+    const repacks = (n: ComponentNode): boolean => {
+      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3));
+      return Math.abs(num(n, 'packedLength', 0.025) - packed) > 1e-6
+        || Math.abs(num(n, 'packedRadius', 0.0125) - packed) > 1e-6;
+    };
+    parts(n => n.type === 'parachute' ? repacks(n)
+      : ['streamer', 'shockcord'].includes(n.type) && has(n, 'packedLength', 'packedRadius'),
+    'Packed recovery dimensions are not kept');
     parts(n => n.type === 'masscomponent' && (has(n, 'radius') || Boolean(n['massComponentType'])),
       'Mass-object size and type (such as electronics) are not kept');
     parts(n => n.type === 'parachute' && numOpt(n, 'lineDensity') === 0,
