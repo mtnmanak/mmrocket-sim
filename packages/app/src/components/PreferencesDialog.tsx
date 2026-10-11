@@ -237,7 +237,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           >
             <option value="eb">{aeroOptionLabel('eb')}</option>
             <option value="kbf">{aeroOptionLabel('kbf', 'the default')}</option>
-            <option value="auto">{aeroOptionLabel('auto', "Rogers Kbf, switching to the app's supersonic model past Mach 0.9")}</option>
+            <option value="auto">{aeroOptionLabel('auto', `${AERO_NAME.kbf}, switching to the app's supersonic model past Mach 0.9`)}</option>
             <option value="supersonic">{aeroOptionLabel('supersonic', "the app's extended model at all speeds (validated to Mach 4.6)")}</option>
             <option value="hybrid">{aeroOptionLabel('hybrid')}</option>
           </select>
@@ -284,7 +284,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           literature and validated against NASA ARCAS and Basic Finner data to
           Mach&nbsp;4.6). A model applies to the <strong>entire flight</strong>, subsonic
           portions included, so expect stability and apogee to shift when the model
-          changes. <strong>Auto</strong> flies Rogers Kbf and re-flies the whole flight
+          changes. <strong>Auto</strong> flies {AERO_NAME.kbf} and re-flies the whole flight
           on the supersonic model only when it's projected past Mach&nbsp;0.9. Each
           saved run records which model flew it.
         </p>

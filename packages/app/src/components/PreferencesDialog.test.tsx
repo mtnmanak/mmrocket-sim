@@ -343,6 +343,8 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
       const name = AERO_NAME[o.value as AeroChoice];
       expect(o.text === name || o.text.startsWith(`${name} — `), o.text).toBe(true);
       expect(o.text, 'the app, never "our"').not.toMatch(/\bour\b/i);
+      // A description names another model by its one name too, never a second one ("Rogers Kbf").
+      expect(o.text.replaceAll(AERO_NAME.kbf, ''), o.text).not.toMatch(/Rogers|Kbf/);
     }
   });
 

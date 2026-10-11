@@ -2925,7 +2925,7 @@ export function App() {
    */
   const apogeeStaleWhy = !apogeeStale || !lastRun ? null
     : modelMatch === false
-      ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)} — not the model now selected. Press Launch to re-fly it.`
+      ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}. That is not the model now selected. Press Launch to re-fly it.`
       : changedSinceNonModel.length > 0
         ? `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} — ${listAnd(changedSinceNonModel)} changed since. Press Launch to fly the current design.`
         : `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} that may not match the design as it stands. Press Launch to fly the current design.`;

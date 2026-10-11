@@ -238,7 +238,7 @@ describe('App — accessibility, as rendered', () => {
     });
     const why = apogee().title;
     expect(why).toBe('Apogee of the most recent flight, which was flown on Rogers Modified Barrowman (Kbf)'
-      + ' — not the model now selected. Press Launch to re-fly it.');
+      + '. That is not the model now selected. Press Launch to re-fly it.');
     expect(apogee().querySelector('.vitals-stale')?.getAttribute('aria-hidden')).toBe('true');
     expect(apogee().querySelector('.vitals-value .sr-only')?.textContent).toBe(` — warning: ${why}`);
   }, 30000);
