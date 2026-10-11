@@ -18,13 +18,20 @@ const ROW_CAP = 300;
  * (plus user CSV imports). Applying a preset patches the node's dimensions,
  * material, and — when the catalog lists a real-world mass — a mass override.
  */
-export function PresetPicker({ type, node, onApply, onClose }: {
+export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   type: ComponentType;
   /**
    * The part a pick replaces. presetPatch needs it to tell the previous part's
    * catalogue mass (cleared) from a weight the user typed (kept) — see there.
    */
   node?: ComponentNode;
+  /**
+   * The radius the part's parent gives an automatic packed radius
+   * (solidContext.massObjectParentRadius): a canopy picked with a packed size
+   * is sized to it, as desktop's Parachute.loadFromPreset does. Without it a
+   * pick leaves the packed size alone.
+   */
+  parentRadius?: number;
   onApply: (patch: Partial<ComponentNode>) => void;
   onClose: () => void;
 }) {
@@ -248,7 +255,8 @@ export function PresetPicker({ type, node, onApply, onClose }: {
               {shownRows.map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row" aria-describedby={hintId}
                   {...rove(i, () => {
-                    onApply(presetPatch(type, p, node && { node, presets: all ?? [] }));
+                    onApply(presetPatch(type, p, node && { node, presets: all ?? [] },
+                      parentRadius !== undefined ? { parentRadius } : undefined));
                     onClose();
                   })}>
                   <td>{p.manufacturer}</td>

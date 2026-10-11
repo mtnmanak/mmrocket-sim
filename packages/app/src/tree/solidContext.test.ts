@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentDxf } from '../services/dxfExport.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
-import { solidContextFor } from './solidContext.js';
+import { massObjectParentRadius, solidContextFor } from './solidContext.js';
 import { componentLoop, componentSolid, finCutOutline, solidVolume } from './solidMesh.js';
 
 /**
@@ -331,4 +331,39 @@ describe('ring parts take their OWN stated outer radius first', () => {
 it.each([['bodytube', 0.0003], ['innertube', 0.0005]] as const)('B6 omitted %s wall sizes the bulkhead to the kernel bore', (type, wall) => {
   const t = tree({ id: 'tube', type, outerRadius: 0.025, children: [bulkhead] });
   expect(solidContextFor(t, find(t, 'bh')).parentInnerRadius).toBeCloseTo(0.025 - wall, 12);
+});
+
+/**
+ * The radius a recovery device's AUTOMATIC packed radius takes
+ * (MassObject.getMaxParentRadius), which a catalogue canopy pick resolves to.
+ */
+describe('massObjectParentRadius', () => {
+  const chute = { id: 'c', type: 'parachute' };
+  it('a body tube: its inner radius; a solid one, none', () => {
+    const t = tree({ id: 'b', type: 'bodytube', length: 0.5, outerRadius: 0.05, thickness: 0.001, children: [chute] });
+    expect(massObjectParentRadius(t, 'c')).toBeCloseTo(0.049, 12);
+    const solid = tree({ id: 'b', type: 'bodytube', length: 0.5, outerRadius: 0.05, filled: true, children: [chute] });
+    expect(massObjectParentRadius(solid, 'c')).toBe(0);
+  });
+  it('a nose cone: its base radius, no wall off', () => {
+    const t = tree({ id: 'n', type: 'nosecone', length: 0.2, aftRadius: 0.04, thickness: 0.002, children: [chute] });
+    expect(massObjectParentRadius(t, 'c')).toBe(0.04);
+  });
+  it('a transition: the larger end, an automatic one resolved from its neighbour', () => {
+    const t = tree(
+      { id: 'b', type: 'bodytube', length: 0.3, outerRadius: 0.03, thickness: 0.001 },
+      { id: 't', type: 'transition', length: 0.1, aftRadius: 0.02, children: [chute] },
+    );
+    expect(massObjectParentRadius(t, 'c')).toBeCloseTo(0.03, 12);
+  });
+  it('a coupler with no radius of its own: the bore it sits in, less its wall', () => {
+    const t = tree({
+      id: 'b', type: 'bodytube', length: 0.5, outerRadius: 0.05, thickness: 0.001,
+      children: [{ id: 'cp', type: 'tubecoupler', length: 0.1, thickness: 0.002, children: [chute] }],
+    });
+    expect(massObjectParentRadius(t, 'c')).toBeCloseTo(0.047, 12);
+  });
+  it('none for a part not in the tree', () => {
+    expect(massObjectParentRadius(tree(), 'c')).toBe(0);
+  });
 });

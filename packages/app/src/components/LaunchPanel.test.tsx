@@ -28,6 +28,22 @@ afterEach(() => {
   host.remove();
 });
 
+/** A label's own words: its text without the unit chip's options. */
+const labelWords = (l: HTMLLabelElement): string => {
+  const c = l.cloneNode(true) as HTMLLabelElement;
+  c.querySelectorAll('select').forEach((x) => x.remove());
+  return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+};
+
+/**
+ * The box whose label's words start with `words`, through the label's own
+ * association (`label.control`): the visible label is the box's one name.
+ */
+const launchBox = (words: string): HTMLInputElement | undefined => {
+  const label = [...host.querySelectorAll('label')].find((l) => labelWords(l).startsWith(words));
+  return (label?.control as HTMLInputElement | null) ?? undefined;
+};
+
 function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: number } | null,
     canLaunch = true) {
   act(() => {
@@ -46,6 +62,35 @@ function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: n
   });
   return host.querySelector('.field-caution');
 }
+
+/**
+ * EVERY LAUNCH CONDITIONS LABEL IS ITS BOX'S (board Tier 2, v0.148). The .field
+ * idiom put a bare <label> beside the box: eight wrapped a unit chip, so the
+ * label reached the chip — clicking "Rod length" opened the unit list — and
+ * Time step, Latitude and Longitude reached nothing; the box was named by a
+ * second copy of the words in an aria-label. The printer boxes' fix
+ * (PreferencesDialog, 2026-10-01): each label points at its box, and the
+ * visible words are the box's one name. `label.control` is the DOM's own
+ * association, so this fails on the unit chip and on no association at all.
+ */
+describe('the Launch conditions labels', () => {
+  it('each label reaches its own box, which carries no second name', () => {
+    render();
+    const fields = [...host.querySelectorAll('.field')].filter((f) => f.querySelector('input[inputmode], input[type="text"]'));
+    const words = fields.map((f) => {
+      const label = f.querySelector('label')!;
+      const box = f.querySelector<HTMLInputElement>('input')!;
+      const text = labelWords(label);
+      expect(label.control, text).toBe(box);
+      expect(box.getAttribute('aria-label'), text).toBeNull();
+      return text;
+    });
+    for (const w of ['Rod angle', 'Rod length', 'Wind avg', 'Site altitude', 'Temperature', 'Station pressure',
+      'Time step (s)', 'Latitude (°)', 'Longitude (°)']) {
+      expect(words, w).toContain(w);
+    }
+  });
+});
 
 describe('the time-step field', () => {
   it('is offered in the panel', () => {
@@ -190,8 +235,7 @@ describe('the station-pressure field', () => {
     // the altitude". A placeholder rather than a committed value, so the number
     // stays LINKED to Site altitude — see LaunchField.autoStored.
     renderConditions({ launchAltitudeM: 1189 });
-    const input = [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Station pressure'));
+    const input = launchBox('Station pressure');
     expect(input, 'the Station pressure input').toBeTruthy();
     // 878 mbar is the standing pressure at 1,189 m.
     expect(input!.getAttribute('placeholder')).toMatch(/878/);
@@ -201,8 +245,7 @@ describe('the station-pressure field', () => {
   it('moves the shown pressure when the site altitude moves', () => {
     const at = (h: number) => {
       renderConditions({ launchAltitudeM: h });
-      return [...host.querySelectorAll('input')]
-        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Station pressure'))!
+      return launchBox('Station pressure')!
         .getAttribute('placeholder') ?? '';
     };
     // The whole reason it is a placeholder and not a written value: a real
@@ -217,8 +260,7 @@ describe('the station-pressure field', () => {
     // through aria-describedby, which is what the `.field` idiom — label
     // BESIDE the control, not around it — otherwise never provides.
     renderConditions({});
-    const input = [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Station pressure'));
+    const input = launchBox('Station pressure');
     expect(input, 'the Station pressure input').toBeTruthy();
     const described = input!.getAttribute('aria-describedby');
     expect(described, 'aria-describedby on the pressure input').toBeTruthy();
@@ -334,8 +376,7 @@ describe('the site-temperature field', () => {
    */
   it('shows the computed temperature in its box, as an actual temperature', () => {
     renderConditions({ launchAltitudeM: 0 });
-    const at = (label: string) => [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!
+    const at = (label: string) => launchBox(label)!
       .getAttribute('placeholder') ?? '';
     // Sea level: the ISA standard, 15 C. NOT -258.15.
     expect(Number(at('Temperature'))).toBeCloseTo(15, 1);
@@ -353,8 +394,7 @@ describe('the site-temperature field', () => {
     // an ordinary air temperature. The field's own range is -60..60 C.
     for (const h of [0, 500, 1189, 2682, 5000, 10000]) {
       renderConditions({ launchAltitudeM: h });
-      const shown = Number([...host.querySelectorAll('input')]
-        .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'))!
+      const shown = Number(launchBox('Temperature')!
         .getAttribute('placeholder'));
       expect(shown, `site altitude ${h} m`).toBeGreaterThan(-60);
       expect(shown, `site altitude ${h} m`).toBeLessThan(60);
@@ -369,8 +409,7 @@ describe('the site-temperature field', () => {
     // -60 C floor, and a typed value IS flown. LaunchField now passes
     // autoValue, so the spinner cannot depend on formatted text at all.
     renderConditions({ launchAltitudeM: 0 });
-    const input = [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'))!;
+    const input = launchBox('Temperature')!;
     act(() => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     });
@@ -380,8 +419,7 @@ describe('the site-temperature field', () => {
 
   it('reaches a screen reader, the same way the pressure help does', () => {
     renderConditions({});
-    const input = [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Temperature'));
+    const input = launchBox('Temperature');
     expect(input, 'the Temperature input').toBeTruthy();
     const described = input!.getAttribute('aria-describedby');
     expect(described, 'aria-describedby on the temperature input').toBeTruthy();
@@ -462,8 +500,7 @@ describe('the pad-pressure caution', () => {
  * was already read as 0 by the ISA helpers themselves; it is pinned here too.)
  */
 describe('a stored site altitude outside the range the flight flies', () => {
-  const box = (label: string) => [...host.querySelectorAll('input')]
-    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!;
+  const box = (label: string) => launchBox(label)!;
   const placeholder = (label: string) => box(label).getAttribute('placeholder') ?? '';
 
   it('shows the air at the altitude flown in the blank boxes', () => {
@@ -717,8 +754,7 @@ describe('the density-altitude readout', () => {
  * blank flies rather than NaN or "0.000".
  */
 describe('the longitude field', () => {
-  const lonInput = () => [...host.querySelectorAll('input')]
-    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Longitude'));
+  const lonInput = () => launchBox('Longitude');
 
   it('shows hemisphere readouts while leaving signed inputs and stored precision alone', () => {
     renderConditions({ latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
@@ -1024,8 +1060,7 @@ describe('applied weather in the Launch panel', () => {
   // and in mph (review of 2026-09-23: the chip printed 0.9 and 1.8 over boxes
   // reading 0.95 and 1.75).
   it('offers the σ the box will show, and states the arithmetic in the boxes’ own digits', () => {
-    const box = (label: string) => [...host.querySelectorAll('input')]
-      .find((i) => (i.getAttribute('aria-label') ?? '').startsWith(label))!.value;
+    const box = (label: string) => launchBox(label)!.value;
     const chip = () => host.querySelector('.gust-estimate')!.textContent!;
     for (const unit of ['m/s', 'mph']) {
       // A fresh root, so PrefsProvider reads the unit afresh.
@@ -1060,8 +1095,7 @@ describe('applied weather in the Launch panel', () => {
  * kernel the golden above, byte for byte.
  */
 describe('the rod-aim field', () => {
-  const aimInput = () => [...host.querySelectorAll('input')]
-    .find((i) => (i.getAttribute('aria-label') ?? '').startsWith('Rod aim'));
+  const aimInput = () => launchBox('Rod aim');
 
   it('normalises any angle into (−180°, 180°]', () => {
     expect(ROD_AIM_DEG_RANGE).toEqual([-180, 180]);
@@ -1124,7 +1158,8 @@ describe('the rod-aim field', () => {
     const input = aimInput();
     expect(input, 'the Rod aim input').toBeTruthy();
     expect(input!.value).toBe('0');
-    expect(input!.getAttribute('aria-label')).toBe('Rod aim (°)');
+    expect(input!.getAttribute('aria-label')).toBeNull();
+    expect(launchBox('Rod aim')).toBe(input);
     expect(lastLaunch).toBeNull();
     renderConditions({ launchRodAngleDeg: 5, launchRodAimDeg: 135 });
     expect(aimInput()!.value).toBe('135');
@@ -1203,7 +1238,7 @@ describe('guide allowance controls', () => {
     const toggle = label.querySelector('input')!;
     expect(toggle.checked).toBe(true);
     expect(host.textContent).toContain(rodLengthHelp(true));
-    const rodInput = host.querySelector('input[aria-label^="Rod length"]')!;
+    const rodInput = launchBox('Rod length')!;
     const description = document.getElementById(rodInput.getAttribute('aria-describedby')!);
     expect(description?.textContent).toBe(rodLengthHelp(true));
     act(() => toggle.click());

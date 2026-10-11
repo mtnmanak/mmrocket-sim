@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
-import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountRadiusOf, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, stagesWithRecoveryDevice, updateAllNodes } from './treeModel.js';
+import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountName, mountRadiusOf, mountsTie, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, stagesWithRecoveryDevice, updateAllNodes } from './treeModel.js';
 import { kernelDefault } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
@@ -2390,5 +2390,60 @@ describe('stagesWithRecoveryDevice — names shared or missing', () => {
       ],
     } as unknown as RocketTree;
     expect(stagesWithRecoveryDevice(tree)).toEqual([]);
+  });
+});
+
+/**
+ * EVERY LABEL NAMING A MOUNT (board Tier 2, v0.148): an emptied Name box stores
+ * '', which `?? 'Motor mount'` let through, so the card, the delay boxes and the
+ * launch report's delays table went blank. One helper, trim-aware.
+ */
+/** `t` with `f` applied to every node. */
+const mapNodes = (t: RocketTree, f: (n: ComponentNode) => ComponentNode): RocketTree => {
+  const walk = (ns: ComponentNode[]): ComponentNode[] => ns.map((n) => f(n.children ? { ...n, children: walk(n.children) } : n));
+  return { ...t, components: walk(t.components) };
+};
+
+describe('mountName', () => {
+  const mount = (name?: unknown) => ({ type: 'innertube', id: 'm', ...(name !== undefined ? { name } : {}) }) as ComponentNode;
+  it('is the mount’s own name, or "Motor mount" for none, an emptied one or spaces', () => {
+    expect(mountName(mount('Core MMT'))).toBe('Core MMT');
+    for (const blank of [undefined, '', '   ']) expect(mountName(mount(blank)), JSON.stringify(blank)).toBe('Motor mount');
+  });
+  it('says what the caller asks for a mount the tree no longer has', () => {
+    expect(mountName(null, 'a removed mount')).toBe('a removed mount');
+    expect(mountName(undefined)).toBe('Motor mount');
+    expect(mountName(mount(''), 'a removed mount')).toBe('Motor mount');
+  });
+  it('names a split cluster’s groups after it, blank or not', () => {
+    const t = defaultTree();
+    const mmt = motorMounts(t)[0]!;
+    const blank = mapNodes(t, (n) => (n.id === mmt.id ? { ...n, name: '', cluster: '4-ring' } as ComponentNode : n));
+    expect(motorMounts(splitClusterTree(blank, mmt.id!)!.tree).map((m) => m.name))
+      .toEqual(['Motor mount (pair A)', 'Motor mount (pair B)']);
+  });
+});
+
+describe('mountsTie', () => {
+  it('is true only for two in-tree mounts of one stage and rank', () => {
+    const t = defaultTree();
+    const body = t.components[0]!.children!.find((n) => n.type === 'bodytube')!;
+    const mmt = motorMounts(t)[0]!.id!;
+    const two = mapNodes(t, (n) => (n.id === body.id ? { ...n, children: [...(n.children ?? []),
+      { type: 'innertube', id: 'b', motorMount: true, length: 0.07, outerRadius: 0.0095, thickness: 0.0003 } as ComponentNode] } : n));
+    expect(mountsTie(two, mmt, 'b')).toBe(true);
+    expect(mountsTie(two, mmt, 'gone')).toBe(false);
+    // A booster's mount, and a pod set's in the same stage, rank below: no tie.
+    const { tree: staged, newId } = addStage(two);
+    const withBooster = mapNodes(staged, (n) => (n.id === newId ? { ...n, children: [{
+      type: 'bodytube', id: 'bt2', length: 0.2, outerRadius: 0.0125, thickness: 0.0005, children: [
+        { type: 'innertube', id: 'm2', motorMount: true, length: 0.07, outerRadius: 0.0095, thickness: 0.0003 }],
+    } as ComponentNode] } : n.id === body.id ? { ...n, children: [...(n.children ?? []), {
+      type: 'podset', id: 'pods', instanceCount: 2, children: [{ type: 'bodytube', id: 'pbt', length: 0.1, outerRadius: 0.01,
+        thickness: 0.0005, children: [{ type: 'innertube', id: 'pm', motorMount: true, length: 0.07, outerRadius: 0.0095, thickness: 0.0003 }] }],
+    } as ComponentNode] } : n));
+    expect(mountsTie(withBooster, mmt, 'b')).toBe(true);
+    expect(mountsTie(withBooster, mmt, 'm2')).toBe(false);
+    expect(mountsTie(withBooster, mmt, 'pm')).toBe(false);
   });
 });

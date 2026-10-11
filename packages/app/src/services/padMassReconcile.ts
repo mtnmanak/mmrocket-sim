@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { findNode } from '../tree/treeModel.js';
+import { findNode, mountName } from '../tree/treeModel.js';
 import { stripRefPadMass, type migrateLegacyPadMass } from './configSync.js';
 import { LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { HeldNote } from './notices.js';
@@ -63,8 +63,8 @@ export function restoredPadMassNote(
     return {
       severity: 'info',
       text: `The weighed pad mass (${text.mass(ranked.kg)}) now sits under ${to ? text.motorName(to.label) : 'another motor'}`
-        + ` on ${findNode(tree, ranked.to)?.name ?? 'its mount'}, not under`
-        + ` ${from ? text.motorName(from.label) : 'the motor'} on ${findNode(tree, ranked.from)?.name ?? 'its mount'}:`
+        + ` on ${mountName(findNode(tree, ranked.to), 'its mount')}, not under`
+        + ` ${from ? text.motorName(from.label) : 'the motor'} on ${mountName(findNode(tree, ranked.from), 'its mount')}:`
         + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
         + ' to ride with whichever was picked first. The value itself is unchanged.',
     };
@@ -131,7 +131,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
   // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
   if (filePrimaryMountId !== primaryMountId) {
     const fileRef = filePrimaryMountId ? input.unmatchedRefs[filePrimaryMountId] : undefined;
-    const where = (filePrimaryMountId && findNode(input.tree, filePrimaryMountId)?.name) ?? 'a removed mount';
+    const where = mountName(filePrimaryMountId ? findNode(input.tree, filePrimaryMountId) : null, 'a removed mount');
     return {
       kind: 'drop',
       mountId: primaryMountId,

@@ -336,3 +336,40 @@ describe('a design with no catalogue links', () => {
     expect(detach()).toBeUndefined();
   });
 });
+
+/**
+ * A CANOPY PICKED WITH A PACKED SIZE FILLS IT (board Tier 2, v0.147): desktop's
+ * Parachute.loadFromPreset sets the row's packed length and diameter, then an
+ * automatic radius — the parent's, keeping the bundle's volume. The harness's
+ * tube is 100 mm across with a 1 mm wall, so the bundle takes its 49 mm bore.
+ */
+describe('a canopy picked from the catalogue', () => {
+  const PACKED: Preset = { ...CHUTE, partNo: 'TC-PK', packedDiameter: 0.06, packedLength: 0.15 };
+  const openPicker = async () => {
+    click(buttons().find((b) => /Choose from preset database/.test(b.textContent ?? ''))!);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  };
+  const pickRow = async (partNo: string) => {
+    await openPicker();
+    const row = [...host.querySelectorAll('tr')].find((tr) => tr.textContent?.includes(partNo));
+    expect(row, `the picker does not list ${partNo}`).toBeTruthy();
+    click(row!);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  };
+
+  it('fills its packed size at the tube’s bore, the bundle’s volume kept, with no conflict marker', async () => {
+    loadPresets.mockResolvedValue([...CATALOGUE, PACKED]);
+    await show({ type: 'parachute', id: 'p1', name: 'Main' } as ComponentNode);
+    await pickRow('TC-PK');
+    expect(current['packedRadius']).toBeCloseTo(0.049, 12);
+    expect(current['packedLength']).toBeCloseTo((0.03 ** 2 * 0.15) / 0.049 ** 2, 12);
+    expect(host.textContent).not.toContain('≠');
+  });
+
+  it('a row without a packed size leaves the one already there', async () => {
+    await show({ type: 'parachute', id: 'p1', name: 'Main', packedLength: 0.2, packedRadius: 0.03 } as ComponentNode);
+    await pickRow('TC-36U');
+    expect(current['packedLength']).toBe(0.2);
+    expect(current['packedRadius']).toBe(0.03);
+  });
+});

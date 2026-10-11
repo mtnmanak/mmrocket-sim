@@ -142,6 +142,14 @@ export function presetPatch(
    * both; without them nothing that might be the user's is cleared.
    */
   prior?: { node: ComponentNode; presets: readonly Preset[] },
+  /**
+   * Where a PICKED part sits: the radius its parent gives an automatic packed
+   * radius (solidContext.massObjectParentRadius, 0 for none). Only the picker
+   * passes it, and only a parachute reads it — the packed size is a pick's,
+   * never filled from a file's catalogue link or compared by the conflict
+   * marker, so no stored or opened design moves.
+   */
+  place?: { parentRadius: number },
 ): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
@@ -325,6 +333,27 @@ export function presetPatch(
       own('surfaceDensity', surf?.density);
       own('lineMaterialName', p.lineMaterial?.name);
       own('lineDensity', p.lineMaterial?.density);
+      // THE PACKED SIZE, as desktop's Parachute.loadFromPreset sets it on a
+      // pick: the row's packed length and half its packed diameter, each only
+      // when the row states it — NOT owned, so a row without one (243 of 473)
+      // keeps the size already there, a typed one included, as desktop does.
+      // With both stated it then sets the radius AUTOMATIC: MassObject takes
+      // its parent's radius and keeps the bundle's volume (r² × length), so the
+      // length is the one that bundle needs at that radius. The app stores
+      // numbers, so this resolves it at the pick, as the .ork reader resolves
+      // a bare `auto`; a later tube edit does not re-size it. No radius from
+      // the parent (0): the row's own, as MassObject.getAutoRadius keeps.
+      if (place) {
+        const pl = pos(n(p, 'packedLength'));
+        const pr = half(pos(n(p, 'packedDiameter')));
+        set('packedLength', pl);
+        set('packedRadius', pr);
+        const R = place.parentRadius;
+        if (pl !== undefined && pr !== undefined && Number.isFinite(R) && R > 0) {
+          set('packedRadius', R);
+          set('packedLength', (pr * pr * pl) / (R * R));
+        }
+      }
       break;
     }
     case 'streamer': {

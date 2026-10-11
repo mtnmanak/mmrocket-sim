@@ -1,6 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { motorisedStagesWithNozzle, motorMounts, primaryMountOf, stages } from '../tree/treeModel.js';
+import { motorisedStagesWithNozzle, motorMounts, mountName, primaryMountOf, stages } from '../tree/treeModel.js';
 import type { BuiltDesign, DesignBuildInput } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
 import type { AeroMode } from './flightPipeline.js';
@@ -124,7 +124,7 @@ export function hardwareDeltaKgOf(built: Pick<BuiltDesign, 'hardware'> | null): 
 
 /** What the report's delay table and the Auto-delay refusal call each mount: the card heading's own fallback. */
 export function mountNamesOf(mounts: readonly ComponentNode[]): Record<string, string> {
-  return Object.fromEntries(mounts.map((m) => [m.id!, m.name ?? 'Motor mount']));
+  return Object.fromEntries(mounts.map((m) => [m.id!, mountName(m)]));
 }
 
 /**

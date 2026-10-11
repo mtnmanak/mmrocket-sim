@@ -125,7 +125,8 @@ import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js
 import {
   addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   findParent, hasParallelStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, mountCountNote, mountMotorCount, primaryMountOf, removeNode, stageIndexOf, stages, stagesWithNozzle,
+  isPristineDefault, mountCountNote, mountMotorCount, mountName, primaryMountOf, removeNode, stageIndexOf, stages,
+  stagesWithNozzle,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { num, numOrNull } from './tree/nodeNum.js';
@@ -3340,7 +3341,7 @@ export function App() {
             const motorCount = mountMotorCount(tree, m.id!);
             return {
               id: m.id!,
-              label: `${m.name ?? 'Motor mount'} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
+              label: `${mountName(m)} (⌀ ${classLabel(diameterClass(mountDiaMm(mNode)))} mm${motorCount > 1 ? ` ×${motorCount}` : ''})`,
               diameterMm: mountDiaMm(mNode),
               motorCount,
               maxMotorLengthM: motorLengthLimit(mNode),
@@ -4167,14 +4168,14 @@ export function App() {
                     {/* The card's title, not a <label>: it names no control
                         (audit 2026-09-30). */}
                     <span className="mount-card-title" style={{ flex: 1, fontWeight: 600 }}>
-                      {m.name ?? 'Motor mount'}
+                      {mountName(m)}
                       <span className="mount-size-inline">⌀&nbsp;{classLabel(diameterClass(mountDiaMm(mNode)))}&nbsp;mm</span>
                       {countNote && ` (${countNote})`}
                     </span>
                     {mm && (
                       <button className="fin-row-del" title="Remove this motor"
                         // Named, not "multiplication x" (audit 2026-09-22).
-                        aria-label={`Remove ${mm.label} from ${m.name ?? 'Motor mount'}`}
+                        aria-label={`Remove ${mm.label} from ${mountName(m)}`}
                         onClick={() => {
                           motorChoices.current.delete(m.id!);
                           setMountMotors((prev) => {
@@ -4190,7 +4191,7 @@ export function App() {
                         }}>✕</button>
                     )}
                   </div>
-                  <MotorLengthField mountName={m.name ?? 'Motor mount'}
+                  <MotorLengthField mountName={mountName(m)}
                     value={motorLengthLimit(mNode)} room={estimateMotorRoom(tree, m.id!)}
                     noBore={mNode ? noBoreReason(mNode) : null}
                     onCommit={(value) => setTree(updateNode(tree, m.id!, { maxMotorLength: value }))} />
@@ -4224,7 +4225,7 @@ export function App() {
                             max={60}
                             placeholder={Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'plugged'}
                             // The card heading's own fallback: never the internal id (audit 2026-09-30).
-                            ariaLabel={`Ejection delay for ${m.name ?? 'Motor mount'}`}
+                            ariaLabel={`Ejection delay for ${mountName(m)}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               // Typing a delay overrides auto (mountDelayEdits).
@@ -4303,7 +4304,7 @@ export function App() {
                             value={mm.ignition.delay}
                             step={0.5}
                             max={60}
-                            ariaLabel={`Ignition delay for ${m.name ?? 'Motor mount'}`}
+                            ariaLabel={`Ignition delay for ${mountName(m)}`}
                             onCommit={(v) => {
                               if (v === null) return;
                               setMountMotors((prev) => ({
@@ -4330,14 +4331,14 @@ export function App() {
                         <MotorPadMass
                           mountId={m.id!}
                           motorLabel={baseLabel(mm.label)}
-                          mountName={m.name ?? 'Motor mount'}
+                          mountName={mountName(m)}
                           multiMotor={assigned.length > 1 || count > 1}
                           valueKg={mm.padMassKg ?? null}
                           legacyPending={mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY}
                           onChange={(kg) => setPadMass(m.id!, kg)}
                           computedPadMassKg={computedPadMassKg}
                           hardware={built?.hardware}
-                          nameOfMount={(id) => findNode(tree, id)?.name ?? 'a removed mount'}
+                          nameOfMount={(id) => mountName(findNode(tree, id), 'a removed mount')}
                           describeIdentity={describeIdentity}
                           identityKey={motorIdentity(mm.meta, mm.spec.designation)}
                         />
@@ -4346,7 +4347,7 @@ export function App() {
                     // The file's primary is an unmatched reference (filePrimaryMountId
                     // is never null while primaryMountId is not).
                     const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
-                    const where = (filePrimaryMountId && findNode(tree, filePrimaryMountId)?.name) ?? 'a removed mount';
+                    const where = mountName(filePrimaryMountId ? findNode(tree, filePrimaryMountId) : null, 'a removed mount');
                     const named = fileRef?.designation ?? 'a motor the file names';
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
                       ? (

@@ -729,6 +729,41 @@ describe('the ejection-delay table in the launch report', () => {
 });
 
 /**
+ * AN EMPTIED MOUNT NAME (board Tier 2, v0.148). Clearing a mount's Name box
+ * stores '' — a name, to `??` — so the card heading, its ✕, its delay boxes
+ * and the launch report's delays table all went blank where a mount with no
+ * name at all reads "Motor mount". A name of spaces is as blank.
+ */
+describe('a mount whose name was emptied', () => {
+  for (const blank of ['', '   ']) {
+    it(`is "Motor mount" on its card, its delay boxes and the delays table (name ${JSON.stringify(blank)})`, async () => {
+      await seedStarterSession({
+        edit: (t) => {
+          const staged = structuredClone(addStage(t).tree);
+          (motorMounts(staged)[0]! as Record<string, unknown>)['name'] = blank;
+          return staged;
+        },
+      });
+      const host = await mountApp();
+      await openTab(host, 'Motors & Launch');
+      await settle(50);
+      const title = host.querySelector('.mount-card .mount-card-title')!;
+      expect(title.firstChild?.textContent).toBe('Motor mount');
+      const labels = [...host.querySelectorAll<HTMLElement>('.mount-card [aria-label]')].map((e) => e.getAttribute('aria-label')!);
+      expect(labels.filter((l) => / delay for /.test(l))).toEqual(['Ejection delay for Motor mount', 'Ignition delay for Motor mount']);
+      expect(labels.some((l) => /^Remove .+ from Motor mount$/.test(l))).toBe(true);
+      const launch = () => host.querySelector<HTMLButtonElement>('.vitals-launch');
+      await waitFor(() => launch()?.disabled === false, 'Launch to be ready');
+      await act(async () => { launch()!.click(); });
+      const rowHeads = () => [...host.querySelectorAll('section[aria-label="Per-mount ejection delays"] tbody th[scope="row"]')]
+        .map((th) => th.textContent);
+      await waitFor(() => rowHeads().length > 0, 'the per-mount delay table');
+      expect(rowHeads()).toEqual(['Motor mount']);
+    }, 30000);
+  }
+});
+
+/**
  * THE HERO CANVAS SIZES TO THE DRAWING (v0.076, v0.092). The schematic reports
  * its natural height and App's stage asks for that plus the stats chip's
  * headroom plus the open drawer, and publishes the drawer's height on its own

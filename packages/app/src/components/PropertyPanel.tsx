@@ -10,7 +10,7 @@ import {
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
-  mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
+  mountName, mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
@@ -38,7 +38,7 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
 };
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';
-import { solidContextFor } from '../tree/solidContext.js';
+import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -1219,7 +1219,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         );
       })()}
       {showPresets && (
-        <PresetPicker type={node.type} node={node} onApply={applyPreset} onClose={() => {
+        <PresetPicker type={node.type} node={node}
+          parentRadius={node.type === 'parachute' && node.id ? massObjectParentRadius(tree, node.id) : undefined}
+          onApply={applyPreset} onClose={() => {
           setShowPresets(false);
           // Its CSV import may have added the very row this part names.
           setPickerCloses((n) => n + 1);
@@ -1248,7 +1250,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         {fields.map((f) => {
           if (f.key === 'maxMotorLength') {
             return node['motorMount'] === true ? <MotorLengthField key={f.key}
-              mountName={node.name ?? 'Motor mount'} value={motorLengthLimit(node)}
+              mountName={mountName(node)} value={motorLengthLimit(node)}
               onCommit={(value) => onPatch({ maxMotorLength: value })} /> : null;
           }
           // Conical and ellipsoid profiles have no shape parameter.

@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { motorMounts, primaryMountOf } from '../tree/treeModel.js';
+import { motorMounts, mountsTie, primaryMountOf } from '../tree/treeModel.js';
 import type { ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { refToExportMotor } from './motorMatch.js';
@@ -126,14 +126,28 @@ export function toOrkMotor(mm: MountMotor, flownS: number | undefined, exLibrary
  * never applied and must never be written; a configuration whose primary is
  * an unmatched reference writes the reference's value. The writer takes the
  * first value it finds per configuration, so this is what makes it one.
+ *
+ * ONE EXCEPTION, A TIE: when the primary carries no pad mass, the first mount
+ * that ties it (same stage, same rank — mountsTie) and carries one keeps its
+ * value. The order a set is handed in decides such a tie, and it is not the
+ * file's: importApply attaches a file's pad mass to the first of two such
+ * mounts IN THE FILE, and when that mount's motor could not be loaded and the
+ * other's could, the working set (loaded motors first) dropped it from Save,
+ * share links and the crash file — after the import note had said it was "kept
+ * so the file saves unchanged". The same when the file's motor is loaded later
+ * and adopts the value behind the other mount's record. Never from a lower
+ * stage or rank, and never over the primary's own.
  */
 function padMassOnPrimaryOnly(
   motors: Record<string, OrkExportMotor>, tree: RocketTree,
 ): Record<string, OrkExportMotor> {
   const primary = primaryMountOf(tree, Object.keys(motors));
+  const carries = (m: OrkExportMotor | undefined): boolean => m !== undefined && 'padMassKg' in m;
+  const keeper = primary === null || carries(motors[primary]) ? primary
+    : Object.keys(motors).find((id) => mountsTie(tree, id, primary) && carries(motors[id])) ?? primary;
   const out: Record<string, OrkExportMotor> = {};
   for (const [id, m] of Object.entries(motors)) {
-    if (id !== primary && 'padMassKg' in m) {
+    if (id !== keeper && 'padMassKg' in m) {
       const { padMassKg: _p, ...rest } = m;
       out[id] = rest;
     } else {
@@ -165,8 +179,8 @@ export interface OrkMotorSetInput {
    * - 'refs' for a stored configuration, as exportConfigs spread it; a mount
    *   with both writes its loaded motor, in the reference's place.
    * Neither is the file's own order, which importApply attaches a file's pad
-   * mass by, so on such a tie either can drop the value the file was opened
-   * with: a known limit of both, which this mapping does not change.
+   * mass by; a tied mount carrying the file's value while the primary carries
+   * none keeps it whichever order is used (padMassOnPrimaryOnly).
    */
   first: 'records' | 'refs';
 }
