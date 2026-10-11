@@ -33,6 +33,9 @@ import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
 import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
+import { importLaunchValue } from './launchConditions.js';
+import { SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
+import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -1980,6 +1983,63 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   }
   if (chosen) notes.push(...configNotes[chosen.id]!);
 
+  // THE LAUNCH SITE (board Tier 0 row 80, ruled by Eric 2026-10-11). Each
+  // RockSim simulation states <LaunchLatitude>, <LaunchLongitude> and
+  // <LaunchAltitude> (degrees, degrees, metres); desktop's RockSim reader
+  // reads none of them. Taken from the simulation the reader opens, as the
+  // .ork reader takes its site from the opened configuration's simulation
+  // (falling back to the first), and handed over in `launch`, so the open
+  // merges it, the weather dialog's "This design's site" offers it and the
+  // flipped-longitude check runs on it exactly as for a .ork. Only when
+  // latitude and longitude are BOTH non-zero and in range: 9 of the 10 .rkt
+  // files under docs/ that state a site give longitude 0 (latitudes 37, 44,
+  // 45, one 0/0) — a pad on the prime meridian, which the weather fetch would
+  // then look up. Such a site is not used, never clamped onto a pole, and the
+  // note quotes it. The altitude is the site's elevation, so it comes with the
+  // coordinates or not at all, held to the panel's range as a .ork's is.
+  // Read past `num`, whose unreadable-number note would say the import "used
+  // its own default" — the note below says what happened instead.
+  const siteNum = (el: XmlElement, tag: string): number => {
+    const t = text(el, `:scope > ${tag}`);
+    return t === null ? NaN : parseDecimal(t.trim());
+  };
+  const openedSim = (chosen ? cfgSim.get(chosen)?.number : null) ?? null;
+  const siteSim = openedSim !== null ? simEls[openedSim - 1] : simEls[0];
+  let launch: OrkImportResult['launch'];
+  let longitudeCheck: OrkImportResult['longitudeCheck'];
+  if (siteSim) {
+    const siteOf = (sim: XmlElement) => ({
+      latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
+    const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
+    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean =>
+      inRange(s.latitudeDeg, 90) && inRange(s.longitudeDeg, 180);
+    const site = siteOf(siteSim);
+    const alt = siteNum(siteSim, 'LaunchAltitude');
+    if (usableSite(site)) {
+      launch = { latitudeDeg: site.latitudeDeg, longitudeDeg: site.longitudeDeg };
+      if (Number.isFinite(alt)) {
+        launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
+          { what: 'site altitude', field: 'Site altitude', show: (x) => `${String(Number(x.toPrecision(6)))} m` }, notes);
+      }
+      // Row 44 A: the same offline check a .ork open runs on its simulations.
+      longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
+      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1'));
+    } else {
+      const latRaw = text(siteSim, ':scope > LaunchLatitude');
+      const lonRaw = text(siteSim, ':scope > LaunchLongitude');
+      if (latRaw !== null || lonRaw !== null) {
+        // What the file carried, as it carried it: a number as a number, an
+        // unreadable one quoted, a missing one named.
+        const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
+          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${raw.trim().slice(0, 40)}”`;
+        notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
+          + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
+          + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; the app takes a site only when its `
+          + 'latitude and longitude are both non-zero and in range, so the Launch panel keeps the site you had.');
+      }
+    }
+  }
+
   // Last, because the engine-set and deployment readers above record into the
   // same map. No cause is claimed: none of the 843 readable corpus files carries
   // a non-decimal number, so there is no evidence of what writes one.
@@ -2004,6 +2064,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     ignored: [...ignored],
     notes,
     ...(measured ? { measured } : {}),
+    ...(launch ? { launch } : {}),
+    ...(longitudeCheck ? { longitudeCheck } : {}),
     configs,
     chosenConfigId,
     configSources,

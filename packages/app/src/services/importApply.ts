@@ -130,9 +130,16 @@ export function retainedLaunchNote(
   const kept = (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[])
     .filter(k => !reset.has(k) && k in prev && !(fromFile && k in fromFile));
   if (!kept.length) return null;
-  return format === 'rkt'
-    ? 'A .rkt carries no launch conditions — the Launch panel keeps the settings you had.'
-    : `This .CDX1 carries no ${kept.map(k => launchFieldLabels[k]).join(', ')} — the Launch panel keeps the settings you had for those fields.`;
+  // A .rkt's own launch conditions are read for the site only (board row 80):
+  // the importer takes it, or names in its own note the site it would not take.
+  if (format === 'rkt') {
+    if (!fromFile || !('latitudeDeg' in fromFile)) {
+      return 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.';
+    }
+    const took = 'launchAltitudeM' in fromFile ? 'latitude, longitude and site altitude' : 'latitude and longitude';
+    return `From a .rkt the app reads only the launch site (${took}) — the Launch panel keeps the settings you had for the rest.`;
+  }
+  return `This .CDX1 carries no ${kept.map(k => launchFieldLabels[k]).join(', ')} — the Launch panel keeps the settings you had for those fields.`;
 }
 
 /** Every motor an opened design names, resolved. */

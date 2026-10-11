@@ -1440,8 +1440,8 @@ describe('an open and ✕ New leave a design that reads saved', () => {
    * render that started it. App hands the plan the launch as it stands after
    * the open's last await, so the typed wind is kept AND is in the mark. (The
    * render's copy loses the wind — savedMarkSites.test.ts held the hand-off as
-   * a string match.) A .rkt carries no launch conditions, so nothing in the
-   * file competes with the wind.
+   * a string match.) The app reads only a .rkt's launch site, never its wind,
+   * so nothing in the file competes with the wind.
    */
   it('keeps a wind typed while a file is opening, and the opened design reads saved', async () => {
     const host = await mountApp();

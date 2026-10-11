@@ -123,7 +123,8 @@ export interface OrkTreeImportResult {
    * to null when the file declares the ISA standard atmosphere, and one of
    * the two is when <atmosphere blank="…"> names it and it is exactly the
    * site-altitude standard: a blank this app's writer had to state, see
-   * readLaunchConditions).
+   * readLaunchConditions). A .rkt fills only the site — latitude, longitude
+   * and site altitude — and only when both coordinates are usable (importRkt).
    */
   launch?: Partial<LaunchConditions>;
   /** Transient evidence from this open; never written to the file or session. */
