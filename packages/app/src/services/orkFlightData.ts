@@ -172,8 +172,9 @@ export interface FlightDataForExportInput {
   assigned: readonly [string, MountMotor][];
   /**
    * The build's refusals: mounts of the working set Launch left off the
-   * rocket (App's `refusedMountIds`). Known for the ACTIVE configuration only,
-   * because App builds no other.
+   * rocket (App's `refusedMountIds`). For the ACTIVE configuration only,
+   * because App builds no other; another configuration's come from its run
+   * (SimRun.refusedMountIds).
    */
   refusedMountIds?: readonly string[];
   /** Ids of the mounts that exist right now. */
@@ -265,9 +266,15 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   if (r.motorDataKey !== undefined && r.motorDataKey !== motorDataKeyOf(cfgMotors)) return null;
   if (!motorDataKeysMatch(r.motorDataKeys, Object.fromEntries(cfgMotors.map(m => [m[0], motorDataKeyOf([m])])))) return null;
   const resolution = r.delayResolution;
-  // Only the active configuration has known build refusals. Unknown ignition
-  // events are refused in every configuration by the shared expected-vector rule.
-  if (!resolutionMatchesPolicy(resolution, expectedDelayMountsOf(cfgMotors, active ? input.refusedMountIds : undefined))) return null;
+  // The build's refusals: App's for the ACTIVE configuration, the one it
+  // built; for another, the ones its Launch recorded on the run. The motor
+  // keys above have already proved those are the motors it was refusing, and
+  // a refused Auto mount stays expected either way. A run stored before the
+  // record knows none, and stays unread beside a refused motor, as it was.
+  // Unknown ignition events are refused in every configuration by the shared
+  // expected-vector rule.
+  const refused = active ? input.refusedMountIds : r.refusedMountIds;
+  if (!resolutionMatchesPolicy(resolution, expectedDelayMountsOf(cfgMotors, refused))) return null;
   return { motors: cfgMotors, resolution };
 }
 

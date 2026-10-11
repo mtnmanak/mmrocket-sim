@@ -420,6 +420,13 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   importedRunId?: string;
   /** Complete flown mount vector and independent delay-policy provenance. */
   delayResolution?: DelayResolution;
+  /**
+   * The mounts the build refused and Launch left off the rocket — absent when
+   * it refused none, and on runs stored before the field. App builds only the
+   * ACTIVE configuration, so this is how another configuration's run says
+   * which of its motors did not fly (orkFlightData's describedMotors).
+   */
+  refusedMountIds?: string[];
   id: string;
   /** epoch ms */
   when: number;
@@ -1863,6 +1870,8 @@ export function extractMaxRollRate(series: FlightSeries): number | null {
 
 export function buildSimRun(input: {
   delayResolution?: DelayResolution;
+  /** SimRun.refusedMountIds: stamped only when the build refused a mount. */
+  refusedMountIds?: readonly string[];
   primaryMountId?: string;
   result: FlightResult;
   info: StaticInfo;
@@ -2308,6 +2317,7 @@ export function buildSimRun(input: {
     motorCount: meta?.motorCount ?? 1,
     delayS: motor.ejectionDelay,
     ...(input.delayResolution ? { delayResolution: input.delayResolution } : {}),
+    ...(input.refusedMountIds?.length ? { refusedMountIds: [...input.refusedMountIds] } : {}),
     maxAltitude: summary.maxAltitude,
     maxVelocity: summary.maxVelocity,
     maxMach: summary.maxMachNumber,

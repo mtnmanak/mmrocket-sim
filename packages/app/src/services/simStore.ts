@@ -58,6 +58,10 @@ export function loadRuns(): SimRun[] {
       if (r.motorDataKeys !== undefined && (typeof r.motorDataKeys !== 'object'
         || r.motorDataKeys === null || Array.isArray(r.motorDataKeys)
         || !Object.values(r.motorDataKeys).every((v) => typeof v === 'string'))) delete r.motorDataKeys;
+      // A refusal list that is not one is no list: the run then reads as it
+      // did before the field, its configuration's refusals unknown.
+      if (r.refusedMountIds !== undefined && (!Array.isArray(r.refusedMountIds)
+        || !r.refusedMountIds.every((v) => typeof v === 'string'))) delete r.refusedMountIds;
       // Keep only complete recovery evidence, using matchingRecoveryEvents' rules.
       const events = r.recoveryEvents;
       if (events !== undefined && (!Array.isArray(events) || !events.every((e) =>

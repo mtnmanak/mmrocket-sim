@@ -124,6 +124,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     ...(now ? { now } : {}),
   });
   const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = flight;
+  const refusedMountIds = refusedMountIdsOf(built.motorFailures);
   // The primary's record is the one `assigned` carries (filtered from the
   // working set, so the same object App's `mountMotors[primaryMountId]` was):
   // ONE source for the motor the report names and the motor that flew. Read
@@ -141,6 +142,9 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const run = buildSimRun({
     result: res,
     delayResolution, primaryMountId,
+    // Which of the configuration's motors did not fly: once another
+    // configuration is active, nothing else can say (orkFlightData).
+    refusedMountIds,
     info: built.info,
     motor: { ...primary.spec, ejectionDelay: flownDelay },
     meta: {
