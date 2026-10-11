@@ -1,0 +1,68 @@
+{
+  "name": "NASA TR R-100 config 23 (1-in body, three large fins: the small-model cell)",
+  "_notes": [
+    "Stoney (1961), NASA TR R-100, config 23 data sheet, PDF page 40 (helium-gun free flight, no sting). Dimensions in inches from the sheet: total 14.294; body diameter 1.00; l_N/d 3.79; l_A/d 2.00; A_b/A_max 0.52; theta_b 4.02 deg; fin root leading edge 11.597 from the nose tip; fin tip 2.3 from the body axis; 45 deg sweep; fin type A (1.8 in root and tip chord, 0.05 in hexagonal section with 0.6 in chamfers and flat).",
+    "Why this configuration: a BT-20-sized body (1.00 in) carrying three fins whose exposed planform is 12.4 x the body cross-section (3 x 1.8 x 1.8 in / 0.785 in^2; the sheet tabulates the wetted S_F/A_max = 24.6, i.e. 12.3 x per face) - the oversized-fin small-model regime the register says no fixture covered (goblin-29.CDX1: 10.5 x). It is the only one of its family (configs 13, 14, 20, 23, 33) whose sheet carries neither a blunt or flat nose nor a note from the report doubting the data (config 33 above M1.1 is flagged by the report itself).",
+    "Nose, from the sheet r/R plot: a sharp 40 deg (included) cone tip to r/R = 0.5, then a curved section to full diameter at x = 3.79 in. The cone tip uses the dimensioned 40 deg (length 0.25/tan 20 deg = 0.687 in; the plot puts the knee at x/l_T = 0.053, 0.757 in). The curved section is an UNCLIPPED power-series transition, parameter 0.5, r = r1 + (R - r1) u^0.5 - it reproduces the plotted r/R within 0.02 at x/l_T = 0.06, 0.08, 0.10, 0.13, 0.15 and 0.20 (0.62/0.69/0.75/0.81/0.84/0.92 against 0.60/0.68/0.73/0.80/0.83/0.90 read by eye off the plot). The kink at the knee is in the real model too.",
+    "Afterbody: conical, 2.00 in, r_b/R = sqrt(0.52) = 0.721 (4.0 deg, against the tabulated 4.02). The fins mount on the cylinder and overhang the boattail by 1.103 in, the same convention as the ARCAS fixtures.",
+    "Cross-checks: wetted body area of this fixture is about 51.6 A_max against the tabulated S_B/A_max = 51.9; fins 24.75 against 24.6.",
+    "Free flight: the sheet plots N_Re about 6.7 x 10^6 at M0.8 rising to 11 x 10^6 at M1.25; sea-level ISA reproduces that (about 6.8 x 10^6 at M0.8), so no machAlt table. Polished finish and 1 mm wall (0.5 mm in the tip cone) are fixture assumptions. The sheet's own C_D,f (the report's computed friction drag, fins included) is about 0.25 of the measured 0.30 subsonic total - this article is friction-dominated by its fins, which is the point."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "polished",
+      "shape": "conical",
+      "length": 0.0174465,
+      "aftRadius": 0.00635,
+      "thickness": 0.0005
+    },
+    {
+      "type": "transition",
+      "finish": "polished",
+      "shape": "power",
+      "shapeParameter": 0.5,
+      "clipped": false,
+      "length": 0.0788195,
+      "foreRadius": 0.00635,
+      "aftRadius": 0.0127,
+      "thickness": 0.001
+    },
+    {
+      "type": "bodytube",
+      "finish": "polished",
+      "length": 0.2160016,
+      "outerRadius": 0.0127,
+      "thickness": 0.001,
+      "children": [
+        {
+          "type": "trapezoidfinset",
+          "finish": "polished",
+          "finCount": 3,
+          "rootChord": 0.04572,
+          "tipChord": 0.04572,
+          "sweep": 0.04572,
+          "height": 0.04572,
+          "thickness": 0.00127,
+          "crossSection": "airfoil",
+          "airfoilSection": "hexagonal",
+          "airfoilLeDiamond": 0.01524,
+          "airfoilTeDiamond": 0.01524,
+          "position": {
+            "method": "top",
+            "offset": 0.1982978
+          }
+        }
+      ]
+    },
+    {
+      "type": "transition",
+      "finish": "polished",
+      "shape": "conical",
+      "length": 0.0508,
+      "foreRadius": 0.0127,
+      "aftRadius": 0.0091581,
+      "thickness": 0.001
+    }
+  ]
+}

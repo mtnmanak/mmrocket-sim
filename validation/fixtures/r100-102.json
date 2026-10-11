@@ -1,0 +1,30 @@
+{
+  "name": "NASA TR R-100 config 102 (parabolic afterbody, fins excluded)",
+  "_notes": [
+    "Stoney (1961), NASA TR R-100, config 102 data sheet, PDF page 119. d = 1.50 in = 0.0381 m; l_N/d = 7.13 full parabola; CURVED (parabolic) afterbody l_A/d = 5, r_b/R = 0.438; no midbody; NO fins.",
+    "Curved afterbody: transition shape parabolic, shapeParameter 1, foreRadius R, aftRadius r_b, so r(x) = R - (R - r_b)(x/L)^2: tangent to the cylinder at the joint, with a base slope twice the inscribed cone's, which is the report's curved-afterbody definition (geometry check: docs/research/Boat-tails/fig10-app/README.md).",
+    "Tabulated base angle 6.4 deg; the full parabola through these radii and length gives 6.41 deg.",
+    "Used for the cdDelta increment against the same-length cylinder (config 98). Polished finish and 1 mm wall are fixture assumptions."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "polished",
+      "shape": "parabolic",
+      "shapeParameter": 1,
+      "length": 0.271653,
+      "aftRadius": 0.01905,
+      "thickness": 0.001
+    },
+    {
+      "type": "transition",
+      "finish": "polished",
+      "shape": "parabolic",
+      "shapeParameter": 1,
+      "length": 0.1905,
+      "foreRadius": 0.01905,
+      "aftRadius": 0.0083439,
+      "thickness": 0.001
+    }
+  ]
+}

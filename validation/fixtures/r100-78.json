@@ -1,0 +1,25 @@
+{
+  "name": "NASA TR R-100 config 78 (cylindrical afterbody, fins excluded)",
+  "_notes": [
+    "Stoney (1961), NASA TR R-100, config 78 data sheet, PDF page 95. d = 1.50 in = 0.0381 m; l_N/d = 7.13 full parabola; cylindrical afterbody l_A/d = 1.78; no midbody; NO fins. Same construction as r100-92.json / r100-98.json.",
+    "Used only as the REFERENCE body for the cdDelta increments of configs 79-83 (the same-length cylinder). The measured increment C_D,T(config) - C_D,T(78) cancels the identical nose and fins; the kernel increment is formed between two finless bodies for the same reason."
+  ],
+  "components": [
+    {
+      "type": "nosecone",
+      "finish": "polished",
+      "shape": "parabolic",
+      "shapeParameter": 1,
+      "length": 0.271653,
+      "aftRadius": 0.01905,
+      "thickness": 0.001
+    },
+    {
+      "type": "bodytube",
+      "finish": "polished",
+      "length": 0.067818,
+      "outerRadius": 0.01905,
+      "thickness": 0.001
+    }
+  ]
+}

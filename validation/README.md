@@ -19,6 +19,30 @@ node --test validation/score.test.mjs        # R-100 fixture and scoring regress
 
 ## Scoreboard
 
+**INFORMATIONAL ADDITION (2026-10-11, gates unchanged at 191): harness coverage —
+a small-model cell, plain-body and boat-tailed-body cells, Finner below M1.05.**
+Eighteen `gate: false` cells, 193 points, every pre-existing scorecard line
+byte-identical in all four models. From NASA TR R-100's config sheets (free flight,
+no sting, stated accuracy ΔC_D ±0.01 and ΔM ±0.01): `r100-23`, a 1.00 in body with
+three fins of 12.4 × its cross-section in planform — the oversized-fin small-model
+regime — measured M0.85–1.25; `r100-78/92/98-finned`, plain (no boat-tail) bodies
+with the report's thin fins; and 13 `r100-*-increment` cells scoring each boattail's
+measured drag change over the same-length cylinder through a new `cdDelta`
+quantity. From Karbon's 2026 R&D report (Figure 23): the Basic Finner's tunnel Cx0,
+the harness's only Finner drag below M1.05. **No model lands inside the stated
+accuracy on any small-model or plain-body point**: on the small model every model
+is high by 0.14–0.21 at M0.85; on the plain bodies by 0.07–0.16 subsonic, with the
+kernel's base term plus body friction already above the measured total. They stay
+informational because each R-100 curve was read by one reader (a second independent
+read would let them gate) and the Finner figure is a reproduction whose source is
+not chased. Aerobee 350 is blocked on geometry (Barrowman & Barrowman 1966, not on
+disk). Everything, with per-model tables: `scorecard-coverage-2026-10-11.md`.
+
+**Score change not recorded here until now (v0.165, commit 7b47fb3e, board Tier 0
+row 75): Supersonic 78 → 83/191, Hybrid 74 → 79/191.** The Supersonic afterbody
+factor now counts only the body behind the fin (ARCAS CP gates 2/9 → 7/9; Long M3.5
+PASS → FAIL). Classic and Kbf were byte-identical. The table below carries it.
+
 **INFORMATIONAL ADDITION (2026-10-07, gates unchanged at 191): NASA TR R-100
 Figure 13(a).** Six helium-gun free-flight points at M1.2 (no sting) compare
 afterbody pressure plus base drag, `cdAfterbody`, with friction and fins excluded.
@@ -135,9 +159,11 @@ row's grade can change with neither the model nor the denominator moving. *(Hois
 | Classic, + the sharp-airfoil cell | 13/191 (6.8%) | `scorecard-nosection-2026-08-29.md` — the 3 gains are the parent cell's own passes double-counted (classic parity, by construction) |
 | Rogers Kbf, same revision | 21/191 (11.0%) | `scorecard-nosection-2026-08-29.md` — subsonic tight, M0.95+ runs 16–27% LOW on the desktop-import fin path |
 | Supersonic, + the sharp-airfoil cell | 77/191 (40.3%) | `scorecard-nosection-2026-08-29.md` |
-| **Current: classic, upstream aero fixes #3262/#3236/#3237 (191 gates)** | **13/191 (6.8%)** | `scorecard-aerofix-2026-10-08.md` — one gain (RMA53D02 M1.06) and one loss (ARCAS-Long M1.8) |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same kernel** | **22/191 (11.5%)** | `scorecard-aerofix-2026-10-08.md` — basic-finner CP M1.056 now passes |
-| **Current: supersonic, same kernel** | **78/191 (40.8%)** | `scorecard-aerofix-2026-10-08.md` — RMA53D02 M1.53 now passes; Hybrid 73 → 74 the same way |
+| **Current: classic, upstream aero fixes #3262/#3236/#3237 (191 gates)** | **13/191 (6.8%)** | `scorecard-aerofix-2026-10-08.md` — one gain (RMA53D02 M1.06) and one loss (ARCAS-Long M1.8); re-scored unchanged on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same kernel** | **22/191 (11.5%)** | `scorecard-aerofix-2026-10-08.md` — basic-finner CP M1.056 now passes; unchanged on the v0.177 kernel |
+| Supersonic, upstream aero fixes (191 gates) | 78/191 (40.8%) historical | `scorecard-aerofix-2026-10-08.md` — RMA53D02 M1.53 now passes; Hybrid 73 → 74 the same way |
+| **Current: supersonic, + the afterbody-factor fix (v0.165, row 75)** | **83/191 (43.5%)** | commit 7b47fb3e (ARCAS CP 2/9 → 7/9, Long M3.5 PASS → FAIL); re-scored on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
+| **Current: hybrid, same kernel** | **79/191 (41.4%)** | commit 7b47fb3e (74 → 79); re-scored on the v0.177 kernel |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
 *fell* from the 2026-08-04 line (47.4% → 42.7%) while the model got materially better,
@@ -232,11 +258,28 @@ node validation/score.mjs > validation/scorecard.md
     tolerances. The research report's equation (1) remains unresolved and is
     not used. These fixtures isolate the reported fin-excluded quantity;
     the real models were fin-stabilised.
+  - `r100-{78,79,80,81,93,94,95,99,102,103}.json` (2026-10-11) — the rest of
+    R-100's Figure 10 series as finless bodies (same nose; cylinder, or a curved
+    afterbody as an exact parabolic transition). With the four conical
+    Figure 13(a) bodies they are the two sides of the `cdDelta` increments:
+    boattailed body minus the same-length cylinder (78, 92 or 98).
+  - `r100-{78,92,98}-finned.json` (2026-10-11) — the plain bodies with the
+    report's three type-A fins as drawn (1.8 in chords, 45° sweep, 0.05 in
+    hexagonal section), scored on total C_D,T.
+  - `r100-23.json` (2026-10-11) — the small-model cell: 1.00 in body, three
+    type-A fins of 12.4 × its cross-section, 40° cone tip plus a power-0.5
+    curved nose section read off the sheet's r/R plot, 2 in conical boattail.
 - `anchors.json` — machine-readable anchor tables (units/conventions in its
-  `_readme`; `gate: false` series are informational)
+  `_readme`; `gate: false` series are informational; a point may carry its own
+  tolerance as a third element)
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
-  power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades
-- `scorecard-aerofix-2026-10-08.md` — **the newest scorecard**: no anchor or tolerance
+  power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades.
+  `cdDelta` subtracts a `referenceFixture` swept under the same model
+- `scorecard-coverage-2026-10-11.md` — **the newest scorecard**: 18 informational
+  cells (small model, plain body, boattail increments, Finner tunnel series), every
+  existing line byte-identical, gate scores 13/191 · 22/191 · 83/191 · 79/191
+  (Classic · Kbf · Supersonic · Hybrid) on the v0.177 kernel.
+- `scorecard-aerofix-2026-10-08.md` — no anchor or tolerance
   changed, the kernel did (three upstream aero fixes, all four models). Gate scores
   13/191 · 22/191 · 78/191 · 74/191 (Classic · Kbf · Supersonic · Hybrid), with every
   verdict that changed listed.
@@ -328,7 +371,17 @@ tolerances come from the datasets' own stated accuracies.
   (`scorecard-finsoff-2026-08-25.md`), but its body keeps the 15° boat tail, so
   it is not the plain-body cell. Remaining candidate: TM X-1771 Cajun.
   R-100 configs 92/98 now provide informational cylinder **base-only** points
-  at M1.2; a plain-body total-drag gate is still absent.
+  at M1.2, and since 2026-10-11 `r100-{78,92,98}-finned` give informational
+  plain-body **total** drag over M0.80–1.25 — but with fins on, and single-read,
+  so a finless plain-body gate is still absent.
+- **Aerobee 350** (Karbon's Figure 24 CP comparison: Barrowman 9.931 m, wind
+  tunnel 10.008 m) — needs the vehicle geometry and test Mach from Barrowman &
+  Barrowman, *The Theoretical Prediction of the Center of Pressure*, NARAM-8 R&D
+  (1966), which is not on disk.
+- **Second, independent reads** of R-100 Figure 10, config 23 and Karbon's
+  Figure 23 — the step that would let the 2026-10-11 cells gate.
+- **Small models below M0.85**: `r100-23` covers the oversized-fin regime only
+  from M0.85 up (its sheet has no lower data).
 - **Fins-off data above M1.2** — TN D-4013's stops there, so no supersonic gate
   can be attributed to the fin term versus the body. This is the single missing
   measurement blocking the ×1.8 question (`scorecard-junction-2026-08-25.md`).
