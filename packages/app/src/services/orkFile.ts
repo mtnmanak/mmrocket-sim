@@ -3829,13 +3829,23 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     const inner = (r: number): number =>
       r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
     switch (owner.tagName) {
-      case 'nosecone':
+      // An owner whose OWN radius cannot be resolved is the size the reader
+      // gives it (board Tier 2, v0.148's claim check), never the device's own
+      // fallback: for a body tube that is desktop's DEFAULT_RADIUS
+      // (BodyTube.getAutoOuterRadius), so its bore is 25 mm less the wall; a
+      // nose cone or transition desktop leaves at -1, a negative size it hands
+      // the device unclamped, and the reader draws at the same 25 mm (the
+      // deviation documented above makeAutoRadii), so the device packs to the
+      // part it is drawn in.
+      case 'nosecone': {
         // The base: from the part behind, or on a tail cone the part ahead.
-        return resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
+        const base = resolved(stated(owner, 'aftradius'), () => (flippedNose(owner) ? fore(owner) : aft(owner)));
+        return base === UNRESOLVED ? DEFAULT_AUTO_RADIUS : base;
+      }
       case 'transition': {
         const f = resolved(stated(owner, 'foreradius'), () => fore(owner));
         const a = resolved(stated(owner, 'aftradius'), () => aft(owner));
-        return Math.max(f, a) > 0 ? Math.max(f, a) : UNRESOLVED;
+        return Math.max(f, a) > 0 ? Math.max(f, a) : f === UNRESOLVED && a === UNRESOLVED ? DEFAULT_AUTO_RADIUS : UNRESOLVED;
       }
       case 'bodytube':
         // A SOLID tube (<thickness>filled</thickness>) has no cavity:
@@ -3843,7 +3853,10 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
         // as no answer and keeps the device's own radius — what autoDim does
         // with a 0. The word `filled` read as no wall gave the full radius.
         if (text(owner, ':scope > thickness') === 'filled') return 0;
-        return inner(resolved(stated(owner, 'radius'), () => bodyTube(owner)));
+        return inner(resolved(stated(owner, 'radius'), () => {
+          const r = bodyTube(owner);
+          return r > 0 ? r : DEFAULT_AUTO_RADIUS;
+        }));
       case 'innertube':
       case 'tubecoupler':
       case 'engineblock':
