@@ -67,14 +67,20 @@ describe('PropertyPanel — an export that throws says so', () => {
       <PrefsProvider><PropertyPanel tree={t} node={fin} onPatch={() => {}} /></PrefsProvider>,
     ));
     render();
-    const button = [...host.querySelectorAll('button')].find((b) => b.textContent!.includes('Fin template'))!;
-    act(() => button.click());
+    // 📐 opens its format choice; the white SVG is the first.
+    const exportSvg = () => {
+      const button = [...host.querySelectorAll('button')].find((b) => b.textContent!.includes('Fin template'))!;
+      act(() => button.click());
+      const svg = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith('SVG, white'))!;
+      act(() => svg.click());
+    };
+    exportSvg();
     expect(host.querySelector('.print-note-warn[role="alert"]')?.textContent)
       .toBe('Could not export this fin template. Check the outline in the fin editor before exporting.');
     expect(downloadBlob).not.toHaveBeenCalled();
     fin['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
     render();
-    act(() => button.click());
+    exportSvg();
     expect(downloadBlob).toHaveBeenCalledOnce();
     expect(host.querySelector('.print-note-warn[role="alert"]')).toBeNull();
   });

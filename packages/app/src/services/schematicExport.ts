@@ -160,8 +160,16 @@ const encodeCanvas = (canvas: HTMLCanvasElement, format: ImageFormat): Promise<B
       `image/${format}`, format === 'jpeg' ? JPEG_QUALITY : undefined);
   });
 
-/** Rasterize an SVG string at the given pixel width. */
-export function svgToImage(svgString: string, widthPx = 3840, format: ImageFormat = 'png'): Promise<Blob> {
+/**
+ * Rasterize an SVG string at the given pixel width. The height follows the
+ * drawing's aspect ratio unless `heightPx` is given: the browser reports an
+ * SVG's natural size in WHOLE CSS pixels, so the derived height can be off by
+ * a pixel in 500 — nothing on a picture, 0.1 mm on a 134 mm fin template that
+ * has to print true to scale.
+ */
+export function svgToImage(
+  svgString: string, widthPx = 3840, format: ImageFormat = 'png', heightPx?: number,
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml' }));
     const img = new Image();
@@ -176,7 +184,7 @@ export function svgToImage(svgString: string, widthPx = 3840, format: ImageForma
         const ratio = img.naturalHeight / Math.max(1, img.naturalWidth);
         const canvas = document.createElement('canvas');
         canvas.width = widthPx;
-        canvas.height = Math.round(widthPx * ratio);
+        canvas.height = heightPx ?? Math.round(widthPx * ratio);
         const c = canvas.getContext('2d');
         if (!c) throw new Error(`the browser refused a ${canvas.width} x ${canvas.height} px canvas`);
         c.fillStyle = '#ffffff';

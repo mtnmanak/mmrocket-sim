@@ -39,7 +39,7 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
-import { componentDxf, DXF_CUTTABLE, DXF_MIME } from '../services/dxfExport.js';
+import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
@@ -52,7 +52,10 @@ import {
 } from '../services/presets.js';
 import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
-import { finTemplateSvg } from '../services/finTemplate.js';
+import { FIN_TEMPLATE_DPI, finTemplatePixelSize, finTemplateSvg } from '../services/finTemplate.js';
+import { svgToImage } from '../services/schematicExport.js';
+import { withDpi } from '../services/rasterDpi.js';
+import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
 
@@ -1086,31 +1089,51 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
       )}
       {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
         || node.type === 'freeformfinset') && (
-        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-          title="True-scale SVG cut template — print at 100% or send to a laser cutter; includes the through-the-wall tab and a 50 mm calibration ruler"
-          onClick={() => {
-            // The exporters' context, so the paper tab is clamped to the body
-            // radius exactly as the ✂ and 🖨 files clamp theirs.
-            try {
-              const svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node));
-              setExportNote(null);
-              downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
-                `${safeName(node.name ?? 'fin', 'fin')}-template.svg`, 'SVG cut template');
-            } catch {
-              setExportNote('Could not export this fin template. Check the outline in the fin editor before exporting.');
-            }
-          }}>
-          📐 Fin template (SVG, 1:1)
-        </button>
+        <FinTemplateMenu onPick={async (format: FinTemplateFormat) => {
+          // The exporters' context, so the paper tab is clamped to the body
+          // radius exactly as the ✂ and 🖨 files clamp theirs.
+          let svg: string;
+          try {
+            svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node),
+              format === 'svg-transparent' ? 'transparent' : 'white');
+          } catch {
+            setExportNote('Could not export this fin template. Check the outline in the fin editor before exporting.');
+            return;
+          }
+          const stem = `${safeName(node.name ?? 'fin', 'fin')}-template`;
+          if (format === 'svg-white' || format === 'svg-transparent') {
+            setExportNote(null);
+            downloadBlob(new Blob([svg], { type: 'image/svg+xml' }),
+              `${stem}${format === 'svg-transparent' ? '-transparent' : ''}.svg`, 'SVG cut template');
+            return;
+          }
+          // The raster is the WHITE svg drawn on svgToImage's white canvas, at
+          // a width that puts FIN_TEMPLATE_DPI pixels in every inch of the
+          // page, with that resolution written into the file (rasterDpi.ts)
+          // and its name, so an import at that resolution is 1:1.
+          try {
+            const { width, height } = finTemplatePixelSize(svg);
+            const img = await svgToImage(svg, width, format, height);
+            const bytes = withDpi(new Uint8Array(await img.arrayBuffer()), format, FIN_TEMPLATE_DPI);
+            setExportNote(null);
+            downloadBlob(new Blob([bytes as BlobPart], { type: `image/${format}` }),
+              `${stem}-${FIN_TEMPLATE_DPI}dpi.${format === 'png' ? 'png' : 'jpg'}`,
+              `${format === 'png' ? 'PNG' : 'JPG'} cut template`);
+          } catch (e) {
+            setExportNote(`Could not draw the fin template as an image: ${e instanceof Error ? e.message : String(e)}`
+              + ' — the SVG options still work.');
+          }
+        }} />
       )}
       {DXF_CUTTABLE.has(node.type) && (
         // Scissors, NOT the 📐 the fin-template button above already owns. The
         // two sit adjacent, and with a shared glyph a user scanning for the
         // laser export stops at the print-and-trace template instead.
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-          title="Flat 1:1 cut profile as R12 DXF in millimetres — for laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting."
+          title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitFor(prefs.units.length) === 'in' ? 'inches' : 'millimetres'} — it follows your Length unit: inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
           onClick={() => {
-            const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket');
+            const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
+              dxfUnitFor(prefs.units.length));
             // Same reason as the STL button below: componentDxf returns null for
             // a planform that collapses under three distinct corners, and a
             // button that silently does nothing reads as a broken button.

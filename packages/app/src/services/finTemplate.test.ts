@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finCutOutline } from '../tree/solidMesh.js';
-import { finOutline, finTemplateSvg, tabOutline } from './finTemplate.js';
+import { finOutline, finTemplatePixelSize, finTemplateSvg, tabOutline } from './finTemplate.js';
 
 describe('fin outlines', () => {
   it('trapezoid: root at y=0, tip offset by sweep', () => {
@@ -282,4 +283,59 @@ it.each([undefined, null])('B6 exports the implicit freeform fin with its real r
   const explicit = { ...fin, points: [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]] } as ComponentNode;
   expect(finTemplateSvg(fin, 'Rocket')).toBe(finTemplateSvg(explicit, 'Rocket'));
   expect(fin['points']).toBe(points);
+});
+
+/**
+ * The page colour (@atestani, TRF 2026-10-11: the SVG's background shows grey
+ * and turns black as a JPEG). 'transparent' must stay byte-for-byte the v0.179
+ * file — the hashes were taken from it — and 'white' must add no geometry.
+ */
+describe('finTemplateSvg — white or transparent page', () => {
+  const FIN = {
+    type: 'trapezoidfinset', name: 'Main fins', finCount: 4, rootChord: 0.1, tipChord: 0.05,
+    sweep: 0.03, height: 0.05, thickness: 0.003, crossSection: 'airfoil',
+  } as unknown as ComponentNode;
+  const GOLDEN: Array<[string, ComponentNode, string]> = [
+    ['trapezoid', FIN, '6dc1d1084081622aa476bbf04fcc529dfbd6168c74fc7d44bf71da9259c7261e'],
+    ['trapezoid with tab', { ...FIN, tabHeight: 0.012, tabLength: 0.04, tabOffsetMethod: 'middle', tabOffset: 0 },
+      'ea7d836f28b3f813ea0130a13012ee38ba9baec00c65858cfe6ecb3950a8d012'],
+    ['elliptical', { type: 'ellipticalfinset', rootChord: 0.08, height: 0.06, thickness: 0.0032 } as ComponentNode,
+      '36af650e37618c23c83d6984c1c2c97bab0b421c107fa7accf2e879a622deb9b'],
+  ];
+  const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+  const ctx = { tabMaxDepth: 0.02 };
+
+  it.each(GOLDEN)('%s: the transparent page is the v0.179 file, byte for byte', (_k, n, hash) => {
+    expect(sha(finTemplateSvg(n, 'Gö “Rocket”', ctx))).toBe(hash);
+    expect(sha(finTemplateSvg(n, 'Gö “Rocket”', ctx, 'transparent'))).toBe(hash);
+  });
+
+  it.each(GOLDEN)('%s: the white page differs only by a CSS background on the root <svg>', (_k, n) => {
+    const clear = finTemplateSvg(n, 'Gö “Rocket”', ctx, 'transparent');
+    const white = finTemplateSvg(n, 'Gö “Rocket”', ctx, 'white');
+    const [head, ...rest] = white.split('\n');
+    expect(head).toMatch(/^<svg [^>]* style="background:#fff">$/);
+    expect([head!.replace(' style="background:#fff"', ''), ...rest].join('\n')).toBe(clear);
+    // No filled shape for a laser or CAD import to cut: the page colour is a
+    // style, never a <rect>, and nothing gains a fill.
+    expect(white).not.toMatch(/<rect\b/);
+    expect(white.match(/fill="[^"]*"/g)).toEqual(clear.match(/fill="[^"]*"/g));
+    // The 50 mm ruler is in both.
+    for (const svg of [clear, white]) expect(svg).toContain('the ruler below must measure exactly 50 mm');
+  });
+
+  it('finTemplatePixelSize puts 300 pixels in every inch of the page, both ways', () => {
+    const svg = finTemplateSvg(FIN, 'R', ctx, 'white');
+    const wMm = Number(/width="([\d.]+)mm"/.exec(svg)![1]);
+    const hMm = Number(/height="([\d.]+)mm"/.exec(svg)![1]);
+    const { width, height } = finTemplatePixelSize(svg);
+    expect(Math.abs(width - (wMm / 25.4) * 300)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(height - (hMm / 25.4) * 300)).toBeLessThanOrEqual(0.5);
+    expect(finTemplatePixelSize(svg, 600)).toEqual({
+      width: Math.round((wMm / 25.4) * 600), height: Math.round((hMm / 25.4) * 600),
+    });
+    // The 50 mm ruler is 590.6 px at 300 dpi.
+    expect(Math.abs((50 / wMm) * width - 590.55)).toBeLessThan(0.5);
+    expect(() => finTemplatePixelSize('<g/>')).toThrow('Not a fin template.');
+  });
 });

@@ -81,6 +81,23 @@ describe('svgToImage — a failure inside onload rejects', () => {
   });
 });
 
+describe('svgToImage — the canvas size', () => {
+  // The refused-canvas message names the size the canvas was given.
+  const sizeOf = async (...args: Parameters<typeof svgToImage>) => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const out = await settled(svgToImage(...args));
+    return (out as { err: Error }).err.message;
+  };
+
+  it('follows the natural aspect ratio by default', async () => {
+    expect(await sizeOf('<svg/>', 1000, 'png')).toBe('the browser refused a 1000 x 250 px canvas');
+  });
+
+  it('takes an explicit height as given — the fin template sizes each side from its own mm', async () => {
+    expect(await sizeOf('<svg/>', 1000, 'png', 251)).toBe('the browser refused a 1000 x 251 px canvas');
+  });
+});
+
 /**
  * The 3D view's image export composes its own canvas, and took the 2D context
  * on trust (`getContext('2d')!`). At the 7680 px width a browser that refuses

@@ -268,7 +268,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
 let crcTable: Int32Array | null = null;
 
 /** CRC-32 of `d`, as a gzip trailer states it. fflate computes one but exports none. */
-function crc32(d: Uint8Array): number {
+export function crc32(d: Uint8Array): number {
   if (!crcTable) {
     crcTable = new Int32Array(256);
     for (let n = 0; n < 256; n++) {
