@@ -98,6 +98,14 @@ test('the 2026-10-11 coverage cells exist, are informational, and keep 191 gates
     const tree = fixture(anchors[cell].fixture);
     assert.ok(!tree.components.some(c => c.children?.length), `${cell}: increment fixture carries fins`);
   }
+  // And the gate set is still the 191 points it was: every gating series'
+  // points inside its gate Mach window, the predicate score.mjs counts by.
+  const gates = Object.entries(anchors).filter(([name]) => !name.startsWith('_'))
+    .flatMap(([, spec]) => spec.series.filter(series => series.gate))
+    .reduce((sum, series) => sum + series.points.filter(([m]) =>
+      (series.gateMaxMach == null || m <= series.gateMaxMach)
+      && (series.gateMinMach == null || m >= series.gateMinMach)).length, 0);
+  assert.equal(gates, 191);
   // The finned cells carry the report's three type-A fins as drawn.
   for (const name of ['r100-78-finned.json', 'r100-92-finned.json', 'r100-98-finned.json', 'r100-23.json']) {
     const fins = fixture(name).components.flatMap(c => c.children ?? []);
@@ -112,7 +120,8 @@ test('the 2026-10-11 coverage cells exist, are informational, and keep 191 gates
 });
 
 for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
-  test(`cdAfterbody subtracts nose pressure, includes base, excludes friction: ${flag || 'Classic'}`, () => {
+  // A real-kernel sweep of every model through the scorer: over a second each.
+  test(`cdAfterbody subtracts nose pressure, includes base, excludes friction: ${flag || 'Classic'}`, { timeout: 30_000 }, () => {
     const args = ['validation/score.mjs', ...(flag ? [flag] : []), '--strict'];
     const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
     assert.equal(result.stderr, '');
