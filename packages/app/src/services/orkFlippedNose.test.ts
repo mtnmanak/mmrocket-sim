@@ -87,9 +87,10 @@ describe('.ork reads, flies and writes a flipped nose cone as a tail cone', () =
     const packed = (flipped: string) =>
       find(importOrk(ORK(NOSE + TUBE + tail(flipped))).tree.components, 'Tape')['packedRadius'];
     expect(packed('true')).toBeCloseTo(0.03, 12);
-    // Unflipped, the same cone's base faces aft, at nothing: the reader's own
-    // 12.5 mm for a mass object it cannot size.
-    expect(packed('false')).toBeCloseTo(0.0125, 12);
+    // Unflipped, the same cone's base faces aft, at nothing: desktop sizes that
+    // base at DEFAULT_RADIUS (Transition.getAutoAftRadius with no next component),
+    // so the device packs to the 25 mm the reader draws the cone at.
+    expect(packed('false')).toBeCloseTo(0.025, 12);
   });
 
   it('hands its base to an automatic transition ahead of it, and only its point to one behind', () => {
