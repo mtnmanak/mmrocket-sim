@@ -2032,6 +2032,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // row 82, Eric 2026-10-11): 1.571 is 90° written in radians, and 1,041
   // simulations in 89 corpus files carry it, all but three of them (one file,
   // estes_alpha.rkt, longitude −101.593) with no longitude or a longitude of 0.
+  // So does a latitude within 0.001 of 90, the same figure in degrees: 1,486
+  // simulations in 155 corpus files carry 89.999980470084, 90.0000016695222 or
+  // 90. — none beside a non-zero longitude today, but the first and the last
+  // are in range and would put the pad at the pole. No corpus file carries a
+  // negative latitude of either form, so the South Pole is read as written.
   // Read past `num`, whose unreadable-number note would say the import "used
   // its own default" — the note below says what happened instead.
   const siteNum = (el: XmlElement, tag: string): number => {
@@ -2048,8 +2053,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
     const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
     const radianLatitude = (v: number): boolean => Math.abs(v - Math.PI / 2) < 0.001;
-    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean =>
-      inRange(s.latitudeDeg, 90) && !radianLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
+    const poleLatitude = (v: number): boolean => Math.abs(v - 90) < 0.001;
+    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean => inRange(s.latitudeDeg, 90)
+      && !radianLatitude(s.latitudeDeg) && !poleLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
     const site = siteOf(siteSim);
     const alt = siteNum(siteSim, 'LaunchAltitude');
     if (usableSite(site)) {
@@ -2074,10 +2080,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
           + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
-          + (radianLatitude(site.latitudeDeg)
-            ? 'that latitude looks unset — it is π/2, 90° written in radians, a figure many RockSim files carry in '
+          + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
+            ? `that latitude looks unset — it is ${radianLatitude(site.latitudeDeg)
+              ? 'π/2, 90° written in radians' : '90°, the North Pole'}, a figure many RockSim files carry in `
               + 'place of a site. The app takes a site only when its latitude and longitude are both non-zero and in '
-              + 'range and the latitude is not π/2, and reads'
+              + 'range and the latitude is not 90° (or π/2), and reads'
             : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
           + ' no other launch condition from a '
           + '.rkt, so the Launch panel keeps the settings you had.');

@@ -114,6 +114,27 @@ describe('.rkt launch site (board row 80)', () => {
     }
   });
 
+  it('reads a latitude within 0.001 of 90 — the degree form of the same figure — as unset (batch 6)', () => {
+    // 1,486 corpus simulations in 155 files carry 89.999980470084,
+    // 90.0000016695222 or 90. — the pole. The first and the last are in range,
+    // so beside a real longitude they would have put the pad at the pole.
+    const r = importRkt(rkt([{ lat: '89.999980470084', lon: '-101.593', alt: '0.' }]));
+    expect(r.launch).toBeUndefined();
+    expect(r.launchSiteRefused).toBe(true);
+    const note = siteNote(r.notes)!;
+    expect(note).toContain('latitude 89.999980470084°, longitude -101.593°, site altitude 0 m');
+    expect(note).toContain('that latitude looks unset — it is 90°, the North Pole');
+    for (const lat of ['90.', '90.000000000000000', '90.0000016695222', '89.9991', '90.0009']) {
+      const s = importRkt(rkt([{ lat, lon: '-101.593' }]));
+      expect(s.launch, lat).toBeUndefined();
+      expect(siteNote(s.notes), lat).toContain('looks unset — it is 90°');
+    }
+    // Just outside the band a latitude is read as written.
+    expect(importRkt(rkt([{ lat: '89.998', lon: '-101.593' }])).launch?.latitudeDeg).toBe(89.998);
+    // Out of range and unset at once: the note names the unset reading.
+    expect(siteNote(importRkt(rkt([{ lat: '90.0000016695222', lon: '0.' }])).notes)).toContain('looks unset — it is 90°');
+  });
+
   it('says the latitude looks unset when the longitude is 0 too, and only then', () => {
     expect(siteNote(importRkt(rkt([{ lat: '1.571', lon: '0.' }])).notes)).toContain('looks unset');
     expect(siteNote(importRkt(rkt([{ lat: '37.', lon: '0.' }])).notes)).not.toContain('looks unset');
