@@ -32,6 +32,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.177",
+    "date": "2026-10-11",
+    "title": "After a save in Firefox, the app names Firefox's own Save As setting",
+    "items": [
+      "NOTHING HERE CHANGES HOW A DESIGN FLIES. No mass, aerodynamic, motor or flight calculation changed.",
+      "FIREFOX CAN GIVE YOU A SAVE AS DIALOG - THE APP NOW SAYS HOW. Firefox does not let a web page open a Save As dialog the way Chrome and Edge do, so Save .ork, .rkt and .CDX1 there are downloads, and with Firefox's default settings they go straight to the download folder with no chance to change the name. Firefox shows its own Save As dialog for every download when Settings → General → Downloads → Always ask you where to save files is turned on. The note after a save in desktop Firefox now names that setting, and the user guide's section on where saved files go says it too."
+    ]
+  },
+  {
     "version": "0.176",
     "date": "2026-10-11",
     "title": "Thrust to weight at departure uses the simulation's gravity; one name per aerodynamics model; compressed .rkt and .CDX1 files open",
