@@ -2028,6 +2028,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // then look up. Such a site is not used, never clamped onto a pole, and the
   // note quotes it. The altitude is the site's elevation, so it comes with the
   // coordinates or not at all, held to the panel's range as a .ork's is.
+  // A latitude within 0.001 of π/2 counts as unset, exactly like a 0 (board
+  // row 82, Eric 2026-10-11): 1.571 is 90° written in radians, and 1,041
+  // simulations in 89 corpus files carry it, all but three of them (one file,
+  // estes_alpha.rkt, longitude −101.593) with longitude 0 as well.
   // Read past `num`, whose unreadable-number note would say the import "used
   // its own default" — the note below says what happened instead.
   const siteNum = (el: XmlElement, tag: string): number => {
@@ -2043,8 +2047,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const siteOf = (sim: XmlElement) => ({
       latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
     const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
+    const radianLatitude = (v: number): boolean => Math.abs(v - Math.PI / 2) < 0.001;
     const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean =>
-      inRange(s.latitudeDeg, 90) && inRange(s.longitudeDeg, 180);
+      inRange(s.latitudeDeg, 90) && !radianLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
     const site = siteOf(siteSim);
     const alt = siteNum(siteSim, 'LaunchAltitude');
     if (usableSite(site)) {
@@ -2068,7 +2073,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // line of its own after this one (retainedLaunchNote).
         notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
-          + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; the app takes a site only when its `
+          + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
+          + (radianLatitude(site.latitudeDeg)
+            ? 'that latitude looks unset — it is π/2, 90° written in radians, a figure many RockSim files carry in '
+              + 'place of a site. The app takes a site only when its '
+            : 'the app takes a site only when its ')
           + 'latitude and longitude are both non-zero and in range, and reads no other launch condition from a '
           + '.rkt, so the Launch panel keeps the settings you had.');
         launchSiteRefused = true;
