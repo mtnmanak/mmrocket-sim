@@ -117,13 +117,14 @@ its ±0.004 *and* a second method agrees within the RSS of the two uncertainties
   method 2 gives the rise to M0.80 / 0.90 as +0.025 / +0.103. The scan gives +0.024 / +0.104, and the superseded
   values +0.005 / +0.037.
 
-The superseded values lie **below the curve all through the drag rise, on both models**, and meet it again at the
-ends. On the Long model the superseded peak sat at M1.10 (0.735); the curve peaks at M1.02–1.05 (0.728). The
+The superseded values lie **below the curve all through the drag rise, on both models** (ten points, by up to
+0.1228 at Long M0.95), and meet it again at the ends, except that two Long points past the peak sat above it
+(M1.10 by 0.037, M1.20 by 0.013). On the Long model the superseded peak sat at M1.10 (0.735); the curve peaks at M1.02–1.05 (0.728). The
 values kept differ from the scan read by ≤ 0.0035, inside its uncertainty. Short M0.60 stays at 0.295: the scan
 reads 0.2983 (+0.0033), with the curve's start lying on the printed 0.30 gridline.
 
-Not touched: the tolerance (±0.03; see section 7), the gate set, and the six gated Machs that are fairing points
-rather than tested Machs (section 7).
+Not touched: the tolerance (±0.03; see section 7), the gate set, and the gated points (four in each Short cell, five on the Long) that are
+fairing points rather than tested Machs (section 7).
 
 ## 4. Gates that flip
 
@@ -225,7 +226,7 @@ or too little (the tunnel). With the curves re-read:
 
 ## 7. Found and not fixed
 
-1. **Six of the ten gated fins-on Machs per model are not tested Machs.**
+1. **Four of the ten gated fins-on Machs on the Short model, and five on the Long, are not tested Machs.**
    - TN D-4013 ran M0.60/0.80/0.90/1.00/1.20, plus 0.95 on the Short model only (p.4).
    - Gated untested points: M0.70, 1.05, 1.10, 1.15 on both models, and M0.95 on the Long.
    - Those values are the draftsman's fairing. The fins-off cells already carry such points as `gate: false`

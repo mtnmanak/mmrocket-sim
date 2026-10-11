@@ -22,7 +22,7 @@ node --test validation/score.test.mjs        # R-100 fixture and scoring regress
 **ANCHOR REVISION (2026-10-11, night; gates unchanged at 191): the TN D-4013 fins-on curves
 re-read off the report scan.** The `cd-transonic-tunnel` values came from a 2026-08 read of the
 curves as reproduced in Rogers' comparison deck, and they lay below the curve all through the drag
-rise on both models. Examples: Short M0.90 was 0.350 where the scan reads 0.4201; Long M1.00 was
+rise on both models (two Long points past the peak, M1.10 and M1.20, sat above it). Examples: Short M0.90 was 0.350 where the scan reads 0.4201; Long M1.00 was
 0.63 where it reads 0.7253; the Long peak sat at M1.10 where the curve peaks at M1.02-1.05.
 `digitize/read-d4013-ca.py` traces the δF = 0 curve on the NTRS scan, separating it from the dashed
 δF = 2 curve where they cross. Read uncertainty is ±0.004. A point was replaced only where the read
@@ -454,9 +454,9 @@ tolerances come from the datasets' own stated accuracies.
   primary source, verified four ways.
 - ~~Re-reading the fins-ON transonic curves (`cd-transonic-tunnel`) the same
   way.~~ — **DONE 2026-10-11** (`scorecard-finson-reread-2026-10-11.md`): 12 points
-  replaced (Short 4, Long 8), each confirmed by a second read. Still open from it: six of
-  the ten gated fins-on Machs per model are fairing points the report did not test (M0.70,
-  1.05, 1.10, 1.15 and Long M0.95), which the fins-off cells carry as `gate: false`. The
+  replaced (Short 4, Long 8), each confirmed by a second read. Still open from it: four of
+  the ten gated fins-on Machs on the Short model and five on the Long are fairing points the
+  report did not test (M0.70, 1.05, 1.10, 1.15 on both, plus M0.95 on the Long), which the fins-off cells carry as `gate: false`. The
   series' ±0.03 is not derived from the report's accuracy; a report-derived budget would be
   about ±0.008 subsonically. Both would change the gate set or a tolerance derivation, so
   they are left for their own decision.
