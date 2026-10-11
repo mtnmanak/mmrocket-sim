@@ -224,3 +224,35 @@ for (const flag of ['', '--kbf', '--supersonic', '--hybrid']) {
     }
   });
 }
+
+// TN D-4013 fins-on C_A,corr, re-read 2026-10-11 off the NTRS scan (validation/digitize/read-d4013-ca.py).
+// The 2026-08 deck read sat below the curve all through the drag rise (Short M0.90 0.350 against the
+// scan's 0.4201, Long M1.00 0.63 against 0.7253); these pins keep it from coming back by accident.
+const finsOnReread = {
+  'arcas-short': [[0.6, 0.295], [0.7, 0.3087], [0.8, 0.3295], [0.9, 0.4201], [0.95, 0.5658], [1.0, 0.683],
+    [1.05, 0.685], [1.1, 0.666], [1.15, 0.635], [1.2, 0.596]],
+  'arcas-long': [[0.6, 0.348], [0.7, 0.355], [0.8, 0.3714], [0.9, 0.4516], [0.95, 0.5928], [1.0, 0.7253],
+    [1.05, 0.7279], [1.1, 0.698], [1.15, 0.665], [1.2, 0.6219]],
+};
+
+test('the TN D-4013 fins-on anchors carry the scan re-read, at the old tolerance, copied into the sharp-airfoil cell', () => {
+  const series = (cell, id) => anchors[cell].series.find(s => s.id === id);
+  for (const [cell, points] of Object.entries(finsOnReread)) {
+    const s = series(cell, 'cd-transonic-tunnel');
+    assert.deepEqual(s.points, points);
+    assert.equal(s.gate, true);
+    assert.equal(s.base, 'excluded');
+    // A re-read moves anchor values only; the tolerance and its derivation stay as they were.
+    assert.equal(s.tol, 0.03);
+    assert.match(s.source, /read-d4013-ca\.py/);
+  }
+  // arcas-short-nosection gates the same tunnel run through another kernel path: its CD series must
+  // stay verbatim copies of the parent's, or the two cells stop measuring the same thing.
+  for (const id of ['cd-transonic-tunnel', 'cd-supersonic-tunnel']) {
+    const parent = series('arcas-short', id);
+    const copy = series('arcas-short-nosection', id);
+    assert.deepEqual(copy.points, parent.points, `${id} points drifted from arcas-short`);
+    assert.equal(copy.tol, parent.tol);
+    assert.equal(copy.gate, parent.gate);
+  }
+});
