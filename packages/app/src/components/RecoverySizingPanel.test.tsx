@@ -180,6 +180,61 @@ describe('RecoverySizingPanel', () => {
   const rowRate = (r: Element) => parseFloat(r.querySelector('.recovery-part-rate')?.textContent ?? '');
 
   /**
+   * K13 — a row carries ‡ exactly when the footnote's sentence ("has unverified
+   * fit") is true of it, the footnote shows exactly when some row carries one,
+   * and a row with half its packed size published shows that half.
+   */
+  describe('K13 the packed-size ‡ and its footnote agree', () => {
+    const canopy = (manufacturer: string, packed: { packedDiameter?: number; packedLength?: number }) => ({
+      kind: 'Parachute', manufacturer, partNo: 'M', description: 'Main', diameter: 0.82, dragCoefficient: 1, ...packed,
+    });
+    const BOTH = canopy('Both', { packedDiameter: 0.04, packedLength: 0.1 });
+    const WIDE = canopy('Wide', { packedDiameter: 0.045 });
+    const LONG = canopy('Long', { packedLength: 0.1 });
+    const NONE = canopy('None', {});
+    const chute: ComponentNode = { type: 'parachute', id: 'chute', diameter: 0.82, deployEvent: 'altitude' };
+    const bayTree: RocketTree = { components: [{ type: 'stage', id: 'stage', children: [
+      { type: 'bodytube', id: 'bay', length: 1, outerRadius: 0.1, thickness: 0.001, children: [chute] }] }] };
+    // No tube anywhere: there is no bay to measure, so no fit is verified.
+    const noBayTree: RocketTree = { components: [{ type: 'stage', id: 'stage', children: [chute] }] };
+    const recovery = { state: 'ok' as const, mass: 1, multiStage: false };
+    const meta = (mfr: string) => rows(0).find((r) => r.querySelector('.recovery-part-mfr')?.textContent === mfr)
+      ?.querySelector('.recovery-part-meta')?.textContent ?? '';
+    const footnote = () => bands()[0]!.querySelector('.recovery-band-foot')!.textContent ?? '';
+
+    it('a measured bay: only the rows it could not verify carry ‡, and each shows the half it has', async () => {
+      vi.spyOn(presetService, 'loadPresets').mockResolvedValue([BOTH, WIDE, LONG, NONE]);
+      await mount({ tree: bayTree, recovery });
+      expect(meta('Both')).toMatch(/packs 1\.57 × 3\.94 in$/);
+      expect(meta('Wide')).toMatch(/packs 1\.77 × \?unpublished in ‡ · Packed length is unpublished\.$/);
+      expect(meta('Long')).toMatch(/packs \?unpublished × 3\.94 in ‡ · Packed diameter is unpublished\.$/);
+      expect(meta('None')).toMatch(/ · packed size unpublished‡ · Packed length is unpublished\.$/);
+      expect(footnote()).toContain('‡ has unverified fit');
+      // The "?" is for the eye; a screen reader hears "unpublished".
+      const q = [...host.querySelectorAll('.recovery-part-meta [aria-hidden="true"]')].filter((e) => e.textContent === '?');
+      expect(q).toHaveLength(2);
+      for (const e of q) expect(e.nextElementSibling?.className).toBe('sr-only');
+    });
+
+    it('a measured bay with only verified rows: no ‡ and no footnote', async () => {
+      vi.spyOn(presetService, 'loadPresets').mockResolvedValue([BOTH]);
+      await mount({ tree: bayTree, recovery });
+      expect(meta('Both')).toMatch(/packs 1\.57 × 3\.94 in$/);
+      expect(bands()[0]!.textContent).not.toContain('‡');
+    });
+
+    it('no bay: every row is unverified, so every row carries ‡ and the footnote shows', async () => {
+      vi.spyOn(presetService, 'loadPresets').mockResolvedValue([BOTH, WIDE, LONG, NONE]);
+      await mount({ tree: noBayTree, recovery });
+      expect(meta('Both')).toMatch(/packs 1\.57 × 3\.94 in ‡ · No recovery bay is modelled\.$/);
+      expect(meta('Wide')).toMatch(/packs 1\.77 × \?unpublished in ‡ · No recovery bay is modelled\.$/);
+      expect(meta('Long')).toMatch(/packs \?unpublished × 3\.94 in ‡ · No recovery bay is modelled\.$/);
+      expect(meta('None')).toMatch(/ · packed size unpublished‡ · No recovery bay is modelled\.$/);
+      expect(footnote()).toContain('‡ has unverified fit');
+    });
+  });
+
+  /**
    * ONE SECTION PER STAGE (v0.115) — the owner's ruling 2026-09-07: each stage
    * has its own recovery system, so each gets its own main and drogue; and the
    * extra sections appear ONLY when there is more than one stage.
