@@ -19,6 +19,34 @@ node --test validation/score.test.mjs        # R-100 fixture and scoring regress
 
 ## Scoreboard
 
+**ANCHOR REVISION (2026-10-11, night; gates unchanged at 191): the TN D-4013 fins-on curves
+re-read off the report scan.** The `cd-transonic-tunnel` values came from a 2026-08 read of the
+curves as reproduced in Rogers' comparison deck, and they lay below the curve all through the drag
+rise on both models (two Long points past the peak, M1.10 and M1.20, sat above it). Examples: Short M0.90 was 0.350 where the scan reads 0.4201; Long M1.00 was
+0.63 where it reads 0.7253; the Long peak sat at M1.10 where the curve peaks at M1.02-1.05.
+`digitize/read-d4013-ca.py` traces the δF = 0 curve on the NTRS scan, separating it from the dashed
+δF = 2 curve where they cross. Read uncertainty is ±0.004. A point was replaced only where the read
+differs by more than that and a second method agrees:
+- the TRF reproduction of the same figure, read by the same code, agrees at all 20 points;
+- the report's own α = 0 data (Fig 7(a)/9(a) C_A plus Fig 3/5 C_p,b × A_b/S) agrees at the tested
+  Machs. On the Long model it runs 0.008-0.010 low at M0.60 too, where nothing is disputed, and it
+  reproduces the rise.
+
+Points replaced: Short 4 of 10 (M0.70-0.95), Long 8 of 10; the sharp-airfoil cell copies Short.
+Tolerance, gate set and kernel are untouched. **Classic 13 → 11, Kbf 41 → 38, Supersonic 86 → 80,
+Hybrid 82 → 80/191**, every flip in `cd-transonic-tunnel`. The fin increment this unblocks:
+- On the bracket-free Short model the tunnel's fin set rises 1.34× from M0.60 to M0.80 and 2.16× to
+  M0.90.
+- The three non-classic models stay flat, so the default model's shortfall grows from −14 % (M0.60,
+  about 1σ) to −38 % (M0.80) and −62 % (M0.90).
+- No Mach the tunnel measured calls for less drag on a sharp-airfoil fin.
+
+Every row, the flips, the increments and the airfoil-fin reading: `scorecard-finson-reread-2026-10-11.md`.
+
+**Scores not recorded here until now (v0.179 kernel, LEDGER: board row 87 and the Supersonic per-fin
+CNα top): Kbf 22 → 41, Supersonic 83 → 86, Hybrid 79 → 82; Classic 13.** The table below carries
+them.
+
 **INFORMATIONAL ADDITION (2026-10-11, later; gates unchanged at 191): the subsonic CP
 anchor, board Tier 0 row 85.** `arcas-short` / `arcas-long` now carry the NASA TN D-4013
 fins-on x_cp at M0.60/0.80/0.90 (the Machs the report tested), one `gate: false` series per
@@ -171,11 +199,17 @@ row's grade can change with neither the model nor the denominator moving. *(Hois
 | Classic, + the sharp-airfoil cell | 13/191 (6.8%) | `scorecard-nosection-2026-08-29.md` — the 3 gains are the parent cell's own passes double-counted (classic parity, by construction) |
 | Rogers Kbf, same revision | 21/191 (11.0%) | `scorecard-nosection-2026-08-29.md` — subsonic tight, M0.95+ runs 16–27% LOW on the desktop-import fin path |
 | Supersonic, + the sharp-airfoil cell | 77/191 (40.3%) | `scorecard-nosection-2026-08-29.md` |
-| **Current: classic, upstream aero fixes #3262/#3236/#3237 (191 gates)** | **13/191 (6.8%)** | `scorecard-aerofix-2026-10-08.md` — one gain (RMA53D02 M1.06) and one loss (ARCAS-Long M1.8); re-scored unchanged on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
-| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same kernel** | **22/191 (11.5%)** | `scorecard-aerofix-2026-10-08.md` — basic-finner CP M1.056 now passes; unchanged on the v0.177 kernel |
+| Classic, upstream aero fixes #3262/#3236/#3237 (191 gates) | 13/191 (6.8%) historical | `scorecard-aerofix-2026-10-08.md` — one gain (RMA53D02 M1.06) and one loss (ARCAS-Long M1.8); re-scored unchanged on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
+| Rogers Kbf, same kernel | 22/191 (11.5%) historical | `scorecard-aerofix-2026-10-08.md` — basic-finner CP M1.056 now passes; unchanged on the v0.177 kernel |
 | Supersonic, upstream aero fixes (191 gates) | 78/191 (40.8%) historical | `scorecard-aerofix-2026-10-08.md` — RMA53D02 M1.53 now passes; Hybrid 73 → 74 the same way |
-| **Current: supersonic, + the afterbody-factor fix (v0.165, row 75)** | **83/191 (43.5%)** | commit 7b47fb3e (ARCAS CP 2/9 → 7/9, Long M3.5 PASS → FAIL); re-scored on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
-| **Current: hybrid, same kernel** | **79/191 (41.4%)** | commit 7b47fb3e (74 → 79); re-scored on the v0.177 kernel |
+| Supersonic, + the afterbody-factor fix (v0.165, row 75) | 83/191 (43.5%) historical | commit 7b47fb3e (ARCAS CP 2/9 → 7/9, Long M3.5 PASS → FAIL); re-scored on the v0.177 kernel in `scorecard-coverage-2026-10-11.md` |
+| Hybrid, same kernel | 79/191 (41.4%) historical | commit 7b47fb3e (74 → 79); re-scored on the v0.177 kernel |
+| Rogers Kbf, v0.179 kernel (row 87: Fleeman nose wave drag) | 41/191 (21.5%) historical | LEDGER row-87 entry (22 → 41); superseded by the fins-on re-read below |
+| Supersonic / Hybrid, v0.179 kernel (per-fin CNα top) | 86 / 82/191 historical | LEDGER entry (83 → 86, 79 → 82); superseded by the fins-on re-read below |
+| **Current: classic, v0.179 kernel, fins-on curves re-read (191 gates)** | **11/191 (5.8%)** | `scorecard-finson-reread-2026-10-11.md` — Short M0.95 and Short-nosection M0.95 PASS → FAIL |
+| **Current: Rogers Kbf — THE SHIPPED DEFAULT, same** | **38/191 (19.9%)** | same — M0.90 PASS → FAIL on Short, Short-nosection and Long |
+| **Current: supersonic, same** | **80/191 (41.9%)** | same — M0.90 ×3 and Long M0.95/1.00/1.10 PASS → FAIL |
+| **Current: hybrid, same** | **80/191 (41.9%)** | same — M0.90 ×3 PASS → FAIL, Long M1.10 FAIL → PASS |
 
 **Read the two 2026-08-25 numbers together or not at all.** The supersonic percentage
 *fell* from the 2026-08-04 line (47.4% → 42.7%) while the model got materially better,
@@ -287,7 +321,14 @@ node validation/score.mjs > validation/scorecard.md
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades.
   `cdDelta` subtracts a `referenceFixture` swept under the same model
-- `scorecard-subsonic-cp-2026-10-11.md` — **the newest scorecard**: the TN D-4013
+- `scorecard-finson-reread-2026-10-11.md` — **the newest scorecard**: the TN D-4013 fins-on
+  `cd-transonic-tunnel` curves re-read off the NTRS scan and checked two other ways, 12 points replaced,
+  every gate flip in all four models (11 · 38 · 80 · 80 of 191), the fin increment above M0.70 and what it
+  says about airfoil fin drag.
+- `digitize/read-d4013-ca.py` — the reader behind that revision: give it the NTRS PDF of TN D-4013 (and
+  optionally the two TRF images of Figs 11/12) and it prints every fins-on, dashed and fins-off read,
+  the independent route through Figs 7/9 and 3/5, and the keep/replace decision per point.
+- `scorecard-subsonic-cp-2026-10-11.md` — the TN D-4013
   subsonic CP series (three reads Short, two Long, all informational), the ±0.5 %L
   tolerance derived from the report's stated accuracy, every existing line
   byte-identical, gate scores 13/191 · 22/191 · 83/191 · 79/191 on the v0.178 kernel.
@@ -411,12 +452,14 @@ tolerances come from the datasets' own stated accuracies.
   tabulated values are still not published in the report — everything in it is
   plots — so a figure read remains the only route, but it is now a read of the
   primary source, verified four ways.
-- **Re-reading the fins-ON transonic curves (`cd-transonic-tunnel`) the same
-  way.** Digitizing Figs 11/12 for the fins-off curve also read the fins-on
-  ones, and they agree with the gated anchors at M0.60–0.70 and M1.00–1.20 but
-  differ by up to **+0.11** at M0.80–0.95 on both configs and both scans. Eight
-  gated rows may be wrong. Not touched in that pass — see
-  `scorecard-finsoff-figs-2026-08-25.md` §6.
+- ~~Re-reading the fins-ON transonic curves (`cd-transonic-tunnel`) the same
+  way.~~ — **DONE 2026-10-11** (`scorecard-finson-reread-2026-10-11.md`): 12 points
+  replaced (Short 4, Long 8), each confirmed by a second read. Still open from it: four of
+  the ten gated fins-on Machs on the Short model and five on the Long are fairing points the
+  report did not test (M0.70, 1.05, 1.10, 1.15 on both, plus M0.95 on the Long), which the fins-off cells carry as `gate: false`. The
+  series' ±0.03 is not derived from the report's accuracy; a report-derived budget would be
+  about ±0.008 subsonically. Both would change the gate set or a tolerance derivation, so
+  they are left for their own decision.
 - **The base-drag panel (C_A,b) of TN D-4013 Figs 11/12** — digitized, its sign
   convention established from the report and demonstrated against the report's
   own C_p,b figures, and deliberately NOT gated: the tunnel base is
