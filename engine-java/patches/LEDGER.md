@@ -2942,3 +2942,81 @@ aerodynamic model.
   over). Two-stage staging fixture's booster: TUMBLE 9.735 s (T3's interim comparator;
   T2: none, ground 23.285 s) -> 5.971 s, ground 22.418 -> 22.661 s. NOT corpus-measured
   in this stage.
+
+### aerodynamics/barrowman/SymmetricComponentCalc.java - Rogers Kbf takes the Fleeman tangent-ogive nose wave drag above M0.8 (board row 87, "M3+ deficit on the shipped default"; approved by Eric 2026-10-11)
+
+- **Status: SHIPPED** (fix/b5-kern, ported onto v0.178 from exp/b4-aero-ss `4ffcf7e3` + the row-1 parts of
+  `b47baf1a`; the branch's research dumps under `validation/research-b4-aero-ss/` stay on the branch). Eric,
+  2026-10-11: *"i approve your recommendations for 82-89, build it"*; the recommendation was Fable 5.1's "ship
+  it as the default's nose drag, not behind a switch" (`docs/research/batch4-wave3-2026-10-11/fable-aero-ss.md`).
+- **Defect (default model):** the shipped default (Rogers Kbf; the app flies it at every Mach unless the user picks
+  Auto/Supersonic/Hybrid) runs the desktop OGIVE nose branch, whose supersonic wave drag is built from `sinphi`
+  (slope over the aft 1 % of the nose) and collapses for a TANGENT ogive: nose pressure CD 0.00022 at M3 on the
+  RM A53D02 nose against 0.053 on the Fleeman branch, which is the dominant term of the registered M3+ deficit
+  (`open-items.md` section 3 item 7: all 17 `rma53d02 cd0-freeflight` gates above M2.9 red, recorded there as
+  -23 % to -44 %; re-measured at v0.177 and again at v0.178, -16.9 % (M5.32) to -43.5 % (M7.19)).
+  Supersonic has carried the fix since Phase 5 (entry above). No published Rogers method exists to port: the
+  "version" Chuck Rogers published is RASAero II's own CD curve (`cd-rasaero-reference`, informational) and his
+  measured "31 % low at Mach 3" figures; RASAero's equations are not public (Rogers & Cooper 2011 is the 1.0.2.0
+  Users Manual and carries none).
+- **The correlation, as printed.** Fleeman prints `(CD0)Body,Wave = (1.59 + 1.83/M^2) {tan^-1[0.5/(lN/d)]}^1.69,
+  for M > 1. Based on Bonney reference, tan^-1 in rad` (E. L. Fleeman, *Maximizing Missile Flight Performance*,
+  Georgia Tech short course, 9/10/2009, slide 5 - his own summary of *Tactical Missile Design*; the book itself
+  was not opened in this sitting). The four-digit 1.586 / 1.834 that Fable recalled are the degree form
+  (0.083 + 0.096/M^2)(theta_c/10 deg)^1.69 converted to radians (`docs/research/rasaero-supersonic-spec-2026-08-03.md`
+  section 3b) and turn up in later papers that cite Fleeman; they differ from the printed pair by < 0.3 %. The
+  kernel keeps the printed 1.59 / 1.83, unchanged since Phase 5. The degree form's stated validity is M ~1.2-4
+  and theta_c < ~30 deg, i.e. l_N/d > ~0.87: a stubbier tangent ogive is outside it - under Supersonic since
+  Phase 5 and now under Kbf too, where it charges MORE drag than the desktop curve (see the stubby-ogive entry,
+  board row 89).
+- **Change:** the OGIVE case takes `calculateFleemanNoseInterpolator` under `supersonicAero || rogersKbf`
+  (nose, shape parameter >= 0.35, exactly Phase 5's scope); the above-table continuation runs under
+  `supersonicAero || fleemanNose`, so conical/table-shape decays stay Supersonic-only. For Kbf without
+  `supersonicAero` the desktop curve is also built (`kbfSubsonicNose`, via `forceClassicNose`) and Kbf charges
+  it bit for bit at and below `KBF_NOSE_ONSET_MACH` = 0.8; over M0.8-1.0 the Fleeman drag-divergence tail's
+  excess over it is smoothstepped in, whole at M1 where the curve meets the Fleeman bridge. Reason: subsonic body
+  drag is parked (Eric, 2026-09-04) and the stubby-ogive subsonic floor is its own board row (89). A first build
+  without that floor moved subsonic Kbf apogees by up to +0.4 % (removing the desktop flat clamp) and was
+  withdrawn. Classic is untouched; Supersonic is untouched (its curve was already this one).
+- **Tests:** `packages/engine/src/kbfOgiveWaveDrag.test.ts` (5): Kbf = Supersonic on tangent ogives L/D 3/4/6 at
+  M2/3/5 and within 5 % of the correlation; Classic stays collapsed (< 0.005) and Kbf >= 10x it; Mach decay to
+  the 1.59 asymptote; Kbf bit-identical to Classic at M0.1-0.8 for L/D 1/2/4 and equal to Supersonic at M1;
+  conical and param-0.2 secant ogive stay classic. **Mutation:** on the v0.178 kernel (the fix absent, md5
+  `2f71b37b`) 4 of 5 fail - the M0.8-floor test too, because base Kbf equals Classic at M0.95; only the scope
+  test passes, by design.
+- **Artifact:** md5 `2f71b37b38b20972dc4d31988e7f7ef5` (v0.178) -> `2356b2aa6d827b984ac579ca73d64d68`.
+  difftest: 446 lines (294 bit-identical, 152 within tolerance). JUnit (`gradlew test`, JAVA_HOME set): 75/75.
+- **Goldens (TeaVM GoldenMain before/after, 446 lines):** 7 move, all Kbf columns at M0.9/M1.5 or supersonic:
+  `parity.airfoilsection` (Kbf column 0.65322 -> 0.76028, the Supersonic value), `podnozzle.{bare,pods,step}.{1,2}`.
+  No Classic or Supersonic value and no flight line moves.
+- **Scorecard (`validation/score.mjs`, 191 gates, v0.178 -> this):** Kbf **22 -> 41** (+19, none lost); Classic 13
+  and Supersonic 83 byte-identical; Hybrid 79 -> 79 (16 gates closer, 9 away, no flip). Kbf gains: rma53d02
+  M1.32/1.44/1.46/1.53/1.57 and M4.04/4.56/4.57/4.64/4.73/5.49/7.17/10.0; ARCAS supersonic CD Short M3.95/4.65,
+  Short-nosection M2.95/3.95/4.65, Long M4.65. rma53d02 above M2.9: Kbf 0/17 -> 8/17 (Supersonic 7/17), error
+  -16.9..-43.5 % -> -14.5..+15.0 %: M5.32 and M5.45 now read HIGH (+15.0 %, +11.3 %; FAIL before and after;
+  RASAero II's own curve reads about +22 % on the M5.32 shot, and the cluster spreads 10 %), M10.01 +10.2 % (FAIL
+  before and after). **Still low:** M1.95-4.0 sits 8-18 % low in Kbf, Supersonic and Hybrid alike (Kbf -9.5 to
+  -18.1 %, Supersonic and Hybrid -8.2 to -18.1 %; Classic -31 to -38 %). Against Rogers' published curve
+  (`cd-rasaero-reference`, informational, M2-M10) Kbf is now within +-0.02 at 7 of 9 points (M3 -0.028, M4
+  -0.024); before, -0.036 to -0.081 at every point. Above M5 Kbf now reads ABOVE Supersonic (M10 0.110 vs 0.092)
+  because Kbf's fin pressure drag clamps flat past the table while Supersonic's decays - its better M7-10 score is
+  accidental, not validation. **Worse, measured:** Kbf transonic M1.05-1.15 on the three ARCAS cells moves
+  0.01-0.033 further low (M1.05 Short 0.408 -> 0.381 against 0.685; the desktop's spurious bump at M1.05-1.10 was
+  adding drag there; all already FAIL by 7-10 tolerances) - the one band where the default becomes LESS
+  conservative on apogee; M0.9 rows +0.0013-0.0029 higher.
+- **Flights (frozen 2026-10-04 inputs + real-inputs, v0.178 -> this):** Kbf LEM-IV 12,302 -> 11,934 ft (error
+  +4.56 % -> +1.43 %), Blue Iguana Muskegon 18,507 -> 17,716 ft (+17.18 % -> +12.17 %), Blue Iguana URRG
+  20,390 -> 19,475 ft (-4.49 %; no measured apogee in the set); Half Fast -0.04 % (-18.11 % -> -18.14 %, worse);
+  Hybrid LEM-IV -0.23 % (better), Blue Iguana Muskegon +0.03 % (11.93 % -> 11.96 %, worse), Half Fast -0.04 %;
+  WM Mach 2 and MESOS (Von Karman noses), Mamba and WM4 (subsonic) unchanged. Classic, Supersonic and Auto: every
+  flight bit-identical.
+- **Corpus (`docs/User files`, 138 files, 116 fly with the bundled motors; app import path, default launch
+  conditions; Classic, Kbf, Auto, Supersonic and Hybrid):** Kbf - 43 of 110 completed flights move (6 aborted
+  excluded), every one with peak Mach >= 0.844, none below. Peak M0.84-1.0: -0.003 % to -0.35 % (5 files).
+  Peak M1.0-1.25: -1.25 % to +0.70 % (14; LOC2P1-1 +0.70 %, test01 +0.49 %, WM_4_Extreme.CDX1 +0.23 %,
+  sssinglestageE063024 -1.25 %) - the desktop's spurious M1.05-1.10 nose bump is gone, so a flight peaking there
+  can gain. Peak M1.25-3.3: -0.85 % to -8.31 % (24; OR vs RAS Test 1 -8.31 %, two stage L2 -8.25 %, Project Y
+  -6.47 %, 50k -4.79 %, 4in WM Extreme.rkt -4.62 %). Two RASAero name-test files that tumble and abort (14/15
+  CTI) read +8.17 %; their "apogee" is the abort altitude. Hybrid: 45 move, -0.53 % to +0.13 %. Auto: one file
+  that stays below M0.9 and so flies Kbf (ninja_4in_75mm-MMT.ork, peak M0.84) -0.003 %. Classic and Supersonic:
+  every corpus flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model (drag only).

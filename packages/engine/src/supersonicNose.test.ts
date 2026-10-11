@@ -104,9 +104,19 @@ describe('Supersonic nose physics', () => {
         const want = (1.59 + 1.83 / (m * m)) * fleemanN;
         expect(ss.s.powerOff.pressure[ss.at(m)]! / want - 1, `l/d ${fn} p ${p} M${m}`).toBeCloseTo(0, 12);
       }
-      // With the flag off the kernel keeps desktop's sinphi-driven branch, which all but
-      // vanishes for a tangent ogive (the defect Phase 5 fixed in the Supersonic model only).
-      if (p === 1) expect(kbf.s.powerOff.pressure[kbf.at(2)]!).toBeLessThan(0.002);
+      // Since board row 87 (2026-10-11) Rogers Kbf takes the same Fleeman branch above M1. Only
+      // Classic keeps desktop's sinphi-driven branch, which all but vanishes for a tangent ogive
+      // (the defect Phase 5 fixed in the Supersonic model, and row 87 in the default).
+      for (const m of [1.5, 2, 3, 5]) {
+        expect(kbf.s.powerOff.pressure[kbf.at(m)]! / ss.s.powerOff.pressure[ss.at(m)]! - 1,
+          `kbf l/d ${fn} p ${p} M${m}`).toBeCloseTo(0, 12);
+      }
+      if (p === 1) {
+        const classic = OrkRocket.buildTree(noseOnTube({ shape: 'ogive', shapeParameter: p }, length));
+        classic.setRogersModifiedBarrowman(false);
+        const c = classic.dragSweep({ machMin: 0.5, machMax: 10, machStep: 0.25 });
+        expect(c.powerOff.pressure[c.machs.findIndex((x) => Math.abs(x - 2) < 1e-9)]!).toBeLessThan(0.002);
+      }
     }
     // A cone-like secant ogive (p < 0.35) is NOT Fleeman: it keeps the flag-off analytic curve
     // inside the table (M <= 3.98) in the Supersonic model too.

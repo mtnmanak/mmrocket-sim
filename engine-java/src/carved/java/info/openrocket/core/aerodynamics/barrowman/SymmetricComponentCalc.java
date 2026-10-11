@@ -246,6 +246,24 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	 * Fleeman correlation instead of the collapsed sinphi-driven branch. */
 	private boolean fleemanNose = false;
 	private double fleemanN = 0;
+	/**
+	 * PATCH (board row 87, "M3+ deficit on the shipped default"; approved by
+	 * Eric 2026-10-11): Rogers Kbf without supersonicAero takes the Fleeman ogive
+	 * branch (OGIVE case) for its TRANSONIC and SUPERSONIC wave drag; this holds
+	 * the desktop curve, which Kbf keeps at and below KBF_NOSE_ONSET_MACH bit
+	 * for bit. The desktop subsonic value is a flat clamp to the sinphi-driven
+	 * M1 point - an artifact - but subsonic body drag is parked (Eric,
+	 * 2026-09-04) and the stubby-ogive subsonic floor is its own board row, so
+	 * the Fleeman drag-divergence tail's EXCESS over the desktop value is
+	 * smoothstepped in over M0.8-1.0 and is whole at M1, where the curve meets
+	 * the Fleeman bridge continuously. Supersonic keeps its pure Fleeman curve
+	 * at all Mach, as before. Null when not used.
+	 */
+	private LinearInterpolator kbfSubsonicNose = null;
+	/** Kbf's nose drag is the desktop curve bit for bit up to here (Hybrid's band starts here too). */
+	private static final double KBF_NOSE_ONSET_MACH = 0.8;
+	/** Set only while building kbfSubsonicNose: the OGIVE case takes the desktop branch. */
+	private boolean forceClassicNose = false;
 
 	@Override
 	public double calculatePressureCD(FlightConditions conditions,
@@ -317,6 +335,16 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 
 		// All nose cones and shoulders from pre-calculated and interpolating
 		if (interpolator == null) {
+			// PATCH (board row 87, 2026-10-11): Kbf keeps the desktop
+			// curve as a SUBSONIC floor - see kbfSubsonicNose.
+			if (rogersKbf && !supersonicAero && isNoseShape && shape == Transition.Shape.OGIVE
+					&& param >= 0.35) {
+				forceClassicNose = true;
+				calculateNoseInterpolator();
+				kbfSubsonicNose = interpolator;
+				forceClassicNose = false;
+				analyticNose = false;
+			}
 			calculateNoseInterpolator();
 		}
 
@@ -328,7 +356,10 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		// Fleeman/Bonney correlation Mach shape (1.59 + 1.83/M^2).
 		double mach = conditions.getMach();
 		double cd;
-		if (supersonicAero && mach > interpolatorMaxMach()) {
+		// fleemanNose is only ever set under supersonicAero || rogersKbf (the
+		// OGIVE case), so Kbf continues on the Fleeman branch above M1.3 while
+		// the conical/table decays stay Supersonic-only.
+		if ((supersonicAero || fleemanNose) && mach > interpolatorMaxMach()) {
 			double mEnd = interpolatorMaxMach();
 			if (fleemanNose) {
 				// PATCH (feature #1 Phase 5): Fleeman ogive nose wave drag,
@@ -354,6 +385,15 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			}
 		} else {
 			cd = interpolator.getValue(mach);
+			if (kbfSubsonicNose != null && mach < 1) {
+				double desktop = kbfSubsonicNose.getValue(mach);
+				if (mach <= KBF_NOSE_ONSET_MACH) {
+					cd = desktop;
+				} else {
+					double t = (mach - KBF_NOSE_ONSET_MACH) / (1 - KBF_NOSE_ONSET_MACH);
+					cd = desktop + t * t * (3 - 2 * t) * Math.max(0, cd - desktop);
+				}
+			}
 		}
 		return cd * frontalArea / conditions.getRefArea();
 	}
@@ -536,7 +576,14 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 				// secant ogives (param < 0.35, which route through the same
 				// interpolator with a true cone slope) and every non-nose
 				// transition keep the classic branch.
-				if (supersonicAero && isNoseShape && param >= 0.35) {
+				//
+				// PATCH (board row 87, "M3+ deficit on the shipped default";
+				// approved by Eric 2026-10-11): rogersKbf takes this branch too. The collapse above is
+				// the dominant term of the default model's measured RM A53D02
+				// deficit above M2.9 (nose pressure CD 0.00022 at M3 vs 0.053 on
+				// the Fleeman branch; whole-rocket gap 0.055). Classic keeps the
+				// desktop branch. See LEDGER.md.
+				if ((supersonicAero || rogersKbf) && !forceClassicNose && isNoseShape && param >= 0.35) {
 					interpolator = calculateFleemanNoseInterpolator();
 					break;
 				}
