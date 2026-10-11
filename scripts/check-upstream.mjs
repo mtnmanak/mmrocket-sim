@@ -193,7 +193,7 @@ async function checkCorrections() {
       if (cur === bad) {
         say(`  ok   ${u.file} ${u.partNo} ${tag} = ${cur} (still the known-bad value; our correction is still needed)`);
       } else if (cur === good) {
-        flag(`${u.file} ${u.partNo} ${tag} = ${cur} — UPSTREAM HAS FIXED THIS. Our correction is now a no-op and should be RETIRED from apply-preset-corrections.mjs (it will still pass: the contract accepts the corrected value).`);
+        flag(`${u.file} ${u.partNo} ${tag} = ${cur} — UPSTREAM HAS FIXED THIS. Our correction is now a no-op and should be RETIRED from apply-preset-corrections.mjs (it will still pass: the contract accepts the corrected value). A mass correction moves to RETIRED_MASS_CORRECTIONS there, so saved designs still read its old mass as a catalogue one.`);
         notes.push(`retire correction ${c.key} ${tag}`);
       } else {
         flag(`${u.file} ${u.partNo} ${tag} = ${cur} — expected the known-bad ${bad} or the corrected ${good}. A regeneration WILL abort here.`);

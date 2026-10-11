@@ -28,11 +28,16 @@ const replacementMasses = {
   'NoseCone|rocketarium|bt80knosecone825long': 0.072,
   'NoseCone|rocketarium|bt70nosecone75long': 0.062,
   'NoseCone|aerotech|11261': 0.106,
-  'Transition|semroc|btc20bbr': 0.0232466089625,
 };
+/**
+ * Corrections upstream has since made itself (RETIRED_MASS_CORRECTIONS): no
+ * longer applied or watched, their bad masses still retired. Value: the mass
+ * the shipped row holds, upstream's own.
+ */
+const retiredCorrections = { 'Transition|semroc|btc20bbr': 0.0232466089625 };
 const serialize = (db) => JSON.stringify(db, null, 1) + '\n';
 
-describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [bad]) => {
+describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCorrections)))('%s mass correction CLI', (key, [bad]) => {
   const good = replacementMasses[key];
   const isTarget = (p) => presetKey(p) === key;
   let dir, path, script, db;
@@ -101,6 +106,55 @@ describe.each(Object.entries(retiredMasses))('%s mass correction CLI', (key, [ba
     const result = run();
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain(key);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+    expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
+  });
+});
+
+describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (key, upstreamMass) => {
+  const isTarget = (p) => presetKey(p) === key;
+  let dir, path, script;
+  beforeEach(() => {
+    dir = mkdtempSync(join(here, '.preset-corrections-'));
+    mkdirSync(join(dir, 'scripts'));
+    mkdirSync(join(dir, 'src/data'), { recursive: true });
+    for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs']) {
+      copyFileSync(join(here, file), join(dir, 'scripts', file));
+    }
+    script = join(dir, 'scripts/apply-preset-corrections.mjs');
+    path = join(dir, 'src/data/presets.json');
+  });
+  afterEach(() => {
+    if (dir && dirname(dir) === here) rmSync(dir, { recursive: true, force: true });
+  });
+  const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
+
+  it('is no longer applied or watched, and the shipped row holds the upstream mass', async () => {
+    const { CORRECTIONS, RETIRED_MASS_CORRECTIONS } = await import('./apply-preset-corrections.mjs');
+    expect(CORRECTIONS.some((c) => c.key === key)).toBe(false);
+    expect(RETIRED_MASS_CORRECTIONS.find((r) => r.key === key)?.bad).toBe(retiredMasses[key][0]);
+    expect(shipped.presets.filter(isTarget).map((p) => p.mass)).toEqual([upstreamMass]);
+  });
+
+  it('leaves the row alone and still retires its old mass', () => {
+    const raw = serialize(shipped);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+    const retired = readFileSync(join(dir, 'src/data/retiredPresetMasses.json'), 'utf8');
+    expect(JSON.parse(retired)).toEqual(retiredMasses);
+    expect(readFileSync(join(here, '../src/data/retiredPresetMasses.json'), 'utf8')).toBe(retired);
+  });
+
+  it('refuses without writing when a regeneration brings the old mass back', () => {
+    const db = structuredClone(shipped);
+    db.presets.find(isTarget).mass = retiredMasses[key][0];
+    const raw = serialize(db);
+    writeFileSync(path, raw);
+    const result = run();
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain(`RETIRED CORRECTION NEEDED AGAIN: ${key}`);
     expect(readFileSync(path, 'utf8')).toBe(raw);
     expect(existsSync(join(dir, 'src/data/retiredPresetMasses.json'))).toBe(false);
   });
