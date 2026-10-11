@@ -22,7 +22,7 @@ import {
 } from './atmosphere.js';
 import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
-import { gunzipCapped } from './zipMember.js';
+import { gunzipCapped, unzipMember } from './zipMember.js';
 import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef, type OrkSeparationOverride } from './orkFile.js';
 import {
   cgFromCombined, nodeLength, OVERRIDE_INCLUDES_MOTOR, stageLength,
@@ -304,7 +304,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // cap: desktop's GeneralRocketLoader sniffs gzip before the format, so it
   // opens one, and its bytes reached the XML parser here as "XML parse error".
   // A damaged one is refused as damaged (zipMember.ts gunzipCapped).
-  const inflated = (bytes: Uint8Array) => (bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1') : bytes);
+  // A ZIP (magic "PK") too: desktop's loadStep1 reads the archive's first entry
+  // when its name ends in .CDX1 (or .ork/.rkt). Its member is taken the way the
+  // .rkt reader takes one, bounded and checksummed (zipMember.ts unzipMember):
+  // the first entry named .CDX1, past a macOS `__MACOSX/._` sidecar, else the
+  // first real entry, which then reads as whatever it is.
+  const inflated = (bytes: Uint8Array) => (bytes[0] === 0x50 && bytes[1] === 0x4b
+    ? unzipMember(bytes, '.cdx1', '.CDX1')
+    : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1') : bytes);
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
   const xml = decoded.xml.replace(/^﻿?/, '');

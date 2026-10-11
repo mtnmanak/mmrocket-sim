@@ -7,7 +7,7 @@ import {
   MAX_DESIGN_FILE_BYTES, openDesignFile, parseDesignFile,
 } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
-import { gzipSync } from 'fflate';
+import { gzipSync, zipSync } from 'fflate';
 
 /**
  * THE FILE DOOR (2026-10-01): the size refusal, the format dispatch, the name
@@ -164,5 +164,45 @@ describe('a gzip-compressed .rkt or .CDX1 opens as desktop opens it', () => {
     const magic = new Uint8Array([0x1f, 0x8b]).buffer;
     expect(() => parseDesignFile(magic, 'x.rkt', { presets: [] })).toThrow(/compressed \.rkt file — it is damaged/);
     expect(() => parseDesignFile(magic, 'x.CDX1', { presets: [] })).toThrow(/compressed \.CDX1 file — it is damaged/);
+  });
+});
+
+/**
+ * ZIP (board Tier 2, 2026-10-11, the residue of the gzip fix above). Desktop's
+ * GeneralRocketLoader.loadStep1 opens a zip too: it reads the archive's FIRST
+ * entry when that entry's name ends in .ork, .rkt or .CDX1. The .rkt reader
+ * already took its member from a zip (zipMember.ts unzipMember); the .CDX1
+ * reader handed the zip's bytes to the XML parser.
+ */
+describe('a zipped .CDX1 opens as desktop opens it', () => {
+  const zipped = (entries: Record<string, Uint8Array>): ArrayBuffer => {
+    const out = zipSync(entries);
+    return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+  };
+  const withoutIds = (r: ImportedDesign): unknown => JSON.parse(JSON.stringify(
+    { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes },
+    (k, v: unknown) => (k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
+
+  it.each(['Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1'])('%s reads the same zipped as plain', (name) => {
+    const plain = parseDesignFile(fixture(name), name, { presets: [] });
+    const fromZip = parseDesignFile(zipped({ [name]: new Uint8Array(fixture(name)) }), name, { presets: [] });
+    expect(fromZip.sourceFormat).toBe('cdx1');
+    expect(fromZip.tree.components.length).toBeGreaterThan(0);
+    expect(withoutIds(fromZip)).toEqual(withoutIds(plain));
+  });
+
+  it('takes the .CDX1 member, not a macOS sidecar that sorts ahead of it', () => {
+    const name = 'Complex.Two-Stage.CDX1';
+    const data = zipped({
+      [`__MACOSX/._${name}`]: new Uint8Array([0, 5, 22, 7, 0, 2, 0, 0]),
+      'readme.txt': new TextEncoder().encode('not a design'),
+      [`designs/${name.toLowerCase()}`]: new Uint8Array(fixture(name)),
+    });
+    expect(withoutIds(parseDesignFile(data, name, { presets: [] })))
+      .toEqual(withoutIds(parseDesignFile(fixture(name), name, { presets: [] })));
+  });
+
+  it('an empty archive is refused by name, not as XML', () => {
+    expect(() => parseDesignFile(zipped({}), 'x.CDX1', { presets: [] })).toThrow(/Empty \.CDX1 archive/);
   });
 });
