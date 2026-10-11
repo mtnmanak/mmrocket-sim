@@ -103,6 +103,42 @@ describe('tangent-ogive nose wave drag under Rogers Kbf', () => {
     }
   });
 
+  // exp/b6-aero item 1: on a SECANT ogive the desktop curve is not collapsed (its aft slope is
+  // real), so just below M1 it can sit far ABOVE the Fleeman tail - 0.090 against 0.031 at shape
+  // parameter 0.5, L/D 3. Blending in only the Fleeman EXCESS (max(0, ...)) then left Kbf on the
+  // desktop curve all the way to M1 and dropped it onto the Fleeman bridge there: a step of
+  // -0.059 in nose CD at M1 (-0.11 at parameter 0.35, L/D 1), and half that in Hybrid. The blend
+  // is now the signed one, so Kbf runs from the desktop curve at M0.8 to the Fleeman curve at M1.
+  it('Kbf and Hybrid nose drag is continuous at M1 on secant ogives, between the desktop and Fleeman tails below it', { timeout: 60_000 }, () => {
+    const sweepAt = (t: RocketTree, model: Model | 'hybrid', machMin: number, machStep: number, n: number) => {
+      const r = OrkRocket.buildTree(t);
+      r.setRogersModifiedBarrowman(model !== 'classic');
+      r.setSupersonicAero(model === 'supersonic');
+      r.setHybridAero(model === 'hybrid');
+      const s = r.dragSweep({ machMin, machMax: machMin + machStep * (n - 0.5), machStep });
+      return s.powerOff.pressure;
+    };
+    for (const p of [0.35, 0.5, 0.7, 0.8]) {
+      for (const fineness of [1, 2, 3, 6]) {
+        const t = nose('ogive', p, fineness);
+        const label = `param ${p} L/D ${fineness}`;
+        for (const model of ['kbf', 'hybrid'] as const) {
+          const [below, at] = sweepAt(t, model, 0.9999, 0.0001, 2);
+          // A step at M1 is the defect; the slope across 1e-4 Mach is ~1e-4 at most.
+          expect(Math.abs(at! - below!), `${label} ${model} step at M1`).toBeLessThan(0.002);
+        }
+        // Over M0.85-0.975 Kbf is a convex blend of the desktop curve and the Supersonic tail.
+        const kbf = sweepAt(t, 'kbf', 0.85, 0.025, 6);
+        const desk = sweepAt(t, 'classic', 0.85, 0.025, 6);
+        const ss = sweepAt(t, 'supersonic', 0.85, 0.025, 6);
+        kbf.forEach((v, i) => {
+          expect(v, `${label} M${0.85 + 0.025 * i} >= min`).toBeGreaterThanOrEqual(Math.min(desk[i]!, ss[i]!) - 1e-12);
+          expect(v, `${label} M${0.85 + 0.025 * i} <= max`).toBeLessThanOrEqual(Math.max(desk[i]!, ss[i]!) + 1e-12);
+        });
+      }
+    }
+  });
+
   it('conical noses and cone-like secant ogives stay on the classic branch under Kbf', { timeout: 30_000 }, () => {
     for (const t of [nose('conical', 0, 4), nose('ogive', 0.2, 4)]) {
       const classic = pressure(t, 'classic', SUPERSONIC);

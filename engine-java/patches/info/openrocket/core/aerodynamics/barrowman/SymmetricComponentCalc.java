@@ -254,10 +254,12 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	 * for bit. The desktop subsonic value is a flat clamp to the sinphi-driven
 	 * M1 point - an artifact - but subsonic body drag is parked (Eric,
 	 * 2026-09-04) and the stubby-ogive subsonic floor is its own board row, so
-	 * the Fleeman drag-divergence tail's EXCESS over the desktop value is
-	 * smoothstepped in over M0.8-1.0 and is whole at M1, where the curve meets
-	 * the Fleeman bridge continuously. Supersonic keeps its pure Fleeman curve
-	 * at all Mach, as before. Null when not used.
+	 * the curve is smoothstepped from the desktop value to the Fleeman
+	 * drag-divergence tail over M0.8-1.0 and is whole at M1, where it meets
+	 * the Fleeman bridge continuously (exp/b6-aero item 1: the signed blend -
+	 * blending only the tail's EXCESS left a step at M1 on secant ogives, whose
+	 * desktop curve sits above the tail). Supersonic keeps its pure Fleeman
+	 * curve at all Mach, as before. Null when not used.
 	 */
 	private LinearInterpolator kbfSubsonicNose = null;
 	/** Kbf's nose drag is the desktop curve bit for bit up to here (Hybrid's band starts here too). */
@@ -390,8 +392,16 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 				if (mach <= KBF_NOSE_ONSET_MACH) {
 					cd = desktop;
 				} else {
+					// PATCH (exp/b6-aero item 1): the SIGNED difference, not
+					// max(0, cd - desktop). On a secant ogive the desktop curve keeps
+					// a real aft slope, so below M1 it can sit far ABOVE the Fleeman
+					// tail (0.090 vs 0.031 at shape parameter 0.5, L/D 3); taking
+					// only the excess left Kbf on the desktop curve right up to M1
+					// and dropped it onto the Fleeman bridge there - a step of
+					// -0.059 in nose CD (-0.11 at parameter 0.35, L/D 1). The signed
+					// blend is the same smoothstep and is whole at M1 either way.
 					double t = (mach - KBF_NOSE_ONSET_MACH) / (1 - KBF_NOSE_ONSET_MACH);
-					cd = desktop + t * t * (3 - 2 * t) * Math.max(0, cd - desktop);
+					cd = desktop + t * t * (3 - 2 * t) * (cd - desktop);
 				}
 			}
 		}

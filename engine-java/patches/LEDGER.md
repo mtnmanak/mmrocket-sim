@@ -3146,3 +3146,59 @@ aerodynamic model.
   two copies (pod-set ogives at L/D 1.0, peak M0.53 on its own motor) -0.26 % / -0.29 %; `ninja_4in_75mm-MMT.ork`
   (L/D 0.5, peak M0.84) -0.15 % / -0.07 %; `ninja_4in_54mm-MMT.ork` (L/D 0.5, peak M1.26) -0.09 % / -0.06 %.
   Classic: every flight bit-identical. Static CP and CNa: unchanged on all 138 designs in every model.
+
+### aerodynamics/barrowman/SymmetricComponentCalc.java - Kbf's M0.8-1.0 ogive-nose blend is the SIGNED one, so a secant ogive no longer steps down at M1 (exp/b6-aero item 1, board Tier 2 "Supersonic tangent-ogive nose pressure drag below M1"; EXP, not shipped - needs Eric's yes)
+
+- **Status: EXP** (`exp/b6-aero`, from v0.179 `39581274`). Nothing here ships without Eric's yes (aerodynamics rule).
+- **What the board row described, re-measured on v0.179** (isolated nose + 0.6 m tube, base-area referenced,
+  `noseprobe2.mjs`): a TANGENT ogive (shape parameter 1) under Supersonic reads ~0 below M0.7 (L/D 3: 0.00000 at
+  M0.5, 0.00017 at M0.7) where Classic and Kbf keep the desktop flat clamp (0.00162), and 0.0176 at M0.95 where
+  Kbf now reads 0.0151 (row 87 blends the same tail in from M0.8). Mechanism: below M1 the Fleeman bridge's
+  interpolator gets the DESKTOP subsonic construction - `calculateNoseInterpolator`'s `Cd = a*M^b + Cd(M=0)`, a and
+  b "computed to fit the drag coefficient and its derivative at the lower bound of the transonic method", with
+  `Cd(M=0) = 0.8 sin^2(phi)` (OpenRocket technical documentation, *Nose cone pressure drag*, citing the Handbook of
+  Supersonic Aerodynamics p. 237) - applied to the Phase-5 bridge's M1 point (0.30 x its M1.3 value) and its capped
+  sonic slope. That is the curve the Phase 5 entry did not describe. It is desktop's own method on Fleeman's
+  endpoint; its ~0 below M0.7 is what that document says the method intends ("a zero pressure drag for all nose cone
+  shapes that have a smooth transition to the body"), and what the TR R-100 streamlined tables in this file show (0
+  below M0.9 for von Karman and LV-Haack, below M0.95 for parabolic). Kbf's 0.00162 is the desktop clamp: the
+  classic tangent-ogive curve skips that fit (desktop fits only when the M1 value exceeds Cd(M=0) by 0.01, and a
+  tangent ogive's sinphi-driven M1 value is ~0.001-0.002) and holds its M1 value flat. The Supersonic curve rises earlier than those tables (0.20 x its M1 value at M0.9 against their 0).
+  Subsonic body drag is parked (Eric, 2026-09-04), so the Supersonic curve is LEFT AS IS and recorded here.
+- **The defect found re-measuring it (default model, shipped v0.179):** on a SECANT ogive the desktop curve is not
+  collapsed - its aft slope is real - so just below M1 it can sit far ABOVE the Fleeman tail (shape parameter 0.5,
+  L/D 3: 0.0902 against 0.0313 at M1). Row 87 blended in only the tail's EXCESS, `max(0, tail - desktop)`, so Kbf
+  stayed on the desktop curve right up to M1 and dropped onto the Fleeman bridge there: a STEP in nose pressure CD
+  at M1 of -0.059 (parameter 0.5, L/D 3), up to **-0.111** (parameter 0.35, L/D 1) - at every L/D 1-6 for shape
+  parameter 0.35-0.6, at L/D 2-6 for 0.7-0.8, at L/D 6 for 0.9 (-0.0035); none on a tangent ogive (`stepprobe.mjs`).
+  Hybrid has half the step (it blends the Kbf endpoint).
+  Supersonic is continuous (its curve is the tail itself). Row 87's own text said the curve "meets the Fleeman
+  bridge continuously"; that holds only where desktop <= tail, i.e. tangent and near-tangent ogives.
+- **Change:** the blend is `desktop + s * (tail - desktop)`, s the same smoothstep over M0.8-1.0 - signed. It is
+  whole at M1 either way, so Kbf meets the bridge continuously for every ogive. No new constant (M0.8 and the
+  smoothstep are row 87's). Classic: `kbfSubsonicNose` exists only under `rogersKbf && !supersonicAero`, untouched.
+  Supersonic: untouched. Kbf at and below M0.8: bit for bit as before.
+- **Residual, measured (`dipprobe.mjs`, M0.8-1.1, 0.005 steps):** largest single-step fall 0.106 -> 0.0017. Where the
+  desktop curve rises steeply and the tail sits well under it (parameter 0.35-0.5, L/D 1-2), the blend has a shallow
+  dip before M1: at most 0.019 below its running peak (parameter 0.35, L/D 1.5); none at parameter >= 0.6 below
+  L/D 6. Kbf on such a nose now charges LESS transonic drag over M0.85-1.0 than v0.179 (parameter 0.5, L/D 3, M0.95:
+  0.0491 -> 0.0218) - drag v0.179 then dropped at M1 anyway.
+- **Tests:** `packages/engine/src/kbfOgiveWaveDrag.test.ts`, *Kbf and Hybrid nose drag is continuous at M1 on secant
+  ogives, between the desktop and Fleeman tails below it*: |CD(M1.0) - CD(M0.9999)| < 0.002 in Kbf and Hybrid,
+  shape parameter 0.35/0.5/0.7/0.8 x L/D 1/2/3/6, and over M0.85-0.975 Kbf between the desktop and Supersonic
+  values. **Mutation:** on the v0.179 kernel (md5 `85016ffe`, the `max(0, ...)` blend) it fails (step 0.111 at
+  parameter 0.35, L/D 1); the five row-87 tests pass on both.
+- **Artifact:** md5 `85016ffe3016655be78fc32d0e0480b5` (v0.179) -> `a3dc46bb6922c2d17d9e7e018849318e`. difftest 450 lines
+  (298 bit-identical, 152 within tolerance). TeaVM GoldenMain: all 450 lines identical before and after (no golden
+  carries a secant ogive in Kbf).
+- **Scorecards (191 gates):** Classic 13, Kbf 41, Supersonic 86, Hybrid 82 - all four byte-identical (no harness nose
+  is a secant ogive).
+- **Flights (frozen inputs):** every scored flight within 0.001 % in every model (the tangent-ogive sliver at
+  M0.80-0.82 where the tail sits a hair under the clamp); Classic, Supersonic and Auto bit-identical.
+- **Corpus (`docs/User files`, 138 designs, 116 flown with the bundled motors):** no corpus nose is a secant ogive
+  in the affected range (71 files carry tangent ogives, 5 the default parameter; none 0.35-0.99). Static CD, CP and
+  CNa at M0.3-2.0 (0.05 grid): unchanged on all 138 in every model. Flights: Classic, Supersonic and Auto 0 move;
+  Kbf 40 of 110 move, -0.014 % to +0.005 %; Hybrid 42 move, -0.003 % to +0.117 %. The largest, `50k.CDX1` (Hybrid
+  +0.117 %, Kbf -0.014 %), comes from a nose-CD change of 2.6e-6 at M0.82 and nothing else: its peak Mach moves
+  2.7896 -> 2.7921, i.e. the adaptive step sequence of that two-stage flight changed, which is integration noise of
+  that size, not physics.

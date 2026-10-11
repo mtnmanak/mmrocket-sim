@@ -24079,7 +24079,7 @@ iocab_SymmetricComponentCalc_calculatePressureCD = ($this, $conditions, $stagnat
             $cd = $this.$kbfSubsonicNose.$getValue1($mach);
             if (!($mach <= 0.8)) {
                 $t = ($mach - 0.8) / 0.19999999999999996;
-                $cd = $cd + $t * $t * (3.0 - 2.0 * $t) * jl_Math_max(0.0, $cd_0 - $cd);
+                $cd = $cd + $t * $t * (3.0 - 2.0 * $t) * ($cd_0 - $cd);
             }
         }
     }
