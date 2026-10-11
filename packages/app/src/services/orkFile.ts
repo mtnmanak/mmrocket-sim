@@ -3856,11 +3856,50 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   };
   const resolved = (v: number | null, fb: () => number): number =>
     v !== null ? v : fb();
+  /** `BodyTube.getInnerRadius()`: the bore of a body tube, its own radius resolved as `packed` below describes. */
+  const tubeBore = (tube: XmlElement): number => {
+    // A SOLID tube (<thickness>filled</thickness>) has no cavity:
+    // BodyTube.getInnerRadius is 0, which MassObject.getAutoRadius takes
+    // as no answer and keeps the device's own radius — what autoDim does
+    // with a 0. The word `filled` read as no wall gave the full radius.
+    if (text(tube, ':scope > thickness') === 'filled') return 0;
+    const r = resolved(stated(tube, 'radius'), () => {
+      const b = bodyTube(tube);
+      return b > 0 ? b : DEFAULT_AUTO_RADIUS;
+    });
+    return r > 0 ? Math.max(r - (stated(tube, 'thickness') ?? 0), 0) : UNRESOLVED;
+  };
+  /**
+   * `RingComponent.getInnerRadius()` of an inner tube, tube coupler or engine
+   * block: its outer radius less its wall. A coupler's or engine block's outer
+   * radius is automatic in every file desktop writes — a BARE `auto`, 24.12
+   * included — and `ThicknessRingComponent.getOuterRadius` (:40-51) then takes
+   * the bore of the part it sits in. Until batch 6 this stopped at the bare
+   * `auto`, so a mass inside a coupler took this reader's 5 mm (a chute its
+   * 12.5 mm) and a "no neighbour" note. A loop up through couplers nested in
+   * couplers, not recursion. In a nose cone or transition the bore varies
+   * along the part (desktop takes the narrower end of the coupler's span), so
+   * it stays unresolved there, as before.
+   */
+  const ringBore = (ring: XmlElement): number => {
+    let wall = 0;
+    for (let el: XmlElement | null = ring; el; ) {
+      wall += stated(el, 'thickness') ?? 0;
+      const outer = stated(el, 'outerradius');
+      if (outer !== null) return Math.max(outer - wall, 0);
+      if (el.tagName === 'innertube') return UNRESOLVED;
+      const host: XmlElement | null = el.parentElement?.parentElement ?? null;
+      if (host?.tagName === 'bodytube') {
+        const bore = tubeBore(host);
+        return bore === UNRESOLVED ? UNRESOLVED : Math.max(bore - wall, 0);
+      }
+      el = host?.tagName === 'tubecoupler' || host?.tagName === 'innertube' ? host : null;
+    }
+    return UNRESOLVED;
+  };
   const packed = (el: XmlElement): number => {
     const owner = el.parentElement?.parentElement ?? null;
     if (!owner) return UNRESOLVED;
-    const inner = (r: number): number =>
-      r > 0 ? Math.max(r - (stated(owner, 'thickness') ?? 0), 0) : UNRESOLVED;
     switch (owner.tagName) {
       // An owner whose OWN radius cannot be resolved is the size the reader
       // gives it (board Tier 2, v0.148's claim check), never the device's own
@@ -3881,19 +3920,11 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
         return Math.max(f, a) > 0 ? Math.max(f, a) : f === UNRESOLVED && a === UNRESOLVED ? DEFAULT_AUTO_RADIUS : UNRESOLVED;
       }
       case 'bodytube':
-        // A SOLID tube (<thickness>filled</thickness>) has no cavity:
-        // BodyTube.getInnerRadius is 0, which MassObject.getAutoRadius takes
-        // as no answer and keeps the device's own radius — what autoDim does
-        // with a 0. The word `filled` read as no wall gave the full radius.
-        if (text(owner, ':scope > thickness') === 'filled') return 0;
-        return inner(resolved(stated(owner, 'radius'), () => {
-          const r = bodyTube(owner);
-          return r > 0 ? r : DEFAULT_AUTO_RADIUS;
-        }));
+        return tubeBore(owner);
       case 'innertube':
       case 'tubecoupler':
       case 'engineblock':
-        return inner(stated(owner, 'outerradius') ?? UNRESOLVED);
+        return ringBore(owner);
       case 'centeringring':
       case 'bulkhead':
         return stated(owner, 'innerradius') ?? UNRESOLVED;
