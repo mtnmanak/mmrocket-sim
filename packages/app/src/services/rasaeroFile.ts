@@ -12,6 +12,7 @@ import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { isTailCone } from '../tree/tailCone.js';
 import { isAssembly } from '../tree/assembly.js';
@@ -1757,9 +1758,17 @@ export interface Cdx1RecoverySlot {
  * stable, so two chutes on the same event keep tree order.
  */
 const eventRank = (c: ComponentNode): number => {
-  const ev = String(c['deployEvent'] ?? 'apogee');
+  const ev = cdx1Event(c);
   return ev === 'apogee' ? 0 : ev === 'altitude' ? 1 : 2;
 };
+/**
+ * The event this writer exports a chute on: a chute stating none goes out at
+ * apogee (checkFormatLoss says so), and any other is read as the kernel reads
+ * it, case-blind (RECOV-CASE) — "Altitude" flies as altitude and is written so.
+ */
+function cdx1Event(c: ComponentNode): string {
+  return c['deployEvent'] == null ? 'apogee' : flownDeployEvent(c['deployEvent']);
+}
 /*
  * A field the chute leaves blank is written as what the kernel FLIES for it
  * (audit 2026-09-22): ComponentFactory's 0.3 m diameter, Parachute.DEFAULT_CD
@@ -1784,7 +1793,7 @@ export function cdx1RecoverySlots(tree: RocketTree): Cdx1RecoverySlot[] {
   const chutes = cdx1Chutes(tree);
   chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
   return chutes.map((chute): Cdx1RecoverySlot => {
-    const ev = String(chute['deployEvent'] ?? 'apogee');
+    const ev = cdx1Event(chute);
     return { chute, eventType: ev === 'apogee' ? 'Apogee' : ev === 'altitude' ? 'Altitude' : 'None' };
   });
 }
@@ -1932,7 +1941,7 @@ export function cdx1WrittenParts(tree: RocketTree): Cdx1WrittenParts {
 
 export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
   const delayed = cdx1Chutes(tree).filter((c) =>
-    ['apogee', 'altitude'].includes(String(c['deployEvent'] ?? 'apogee')) && nnum(c, 'deployDelay', 0) !== 0);
+    ['apogee', 'altitude'].includes(cdx1Event(c)) && nnum(c, 'deployDelay', 0) !== 0);
   return delayed.length === 0 ? null
     : `RASAero cannot store deployment delays: ${delayed.map((c) =>
       `${c.name ?? 'Parachute'} (${nnum(c, 'deployDelay', 0)} s)`).join(', ')}. `

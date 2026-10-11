@@ -11,6 +11,7 @@ import { profileRadius } from '../tree/shapeProfile.js';
 import { noseEnds } from '../tree/tailCone.js';
 import { CANOPY_DIAMETER_FALLBACK, ventLimit } from '../tree/canopyVent.js';
 import { num as nnum, numOrNull } from '../tree/nodeNum.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import {
   findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, stageIndexOf, suppressingAncestor,
 } from '../tree/treeModel.js';
@@ -313,7 +314,9 @@ export function classifyRecoveryDevices(
   const biggest = (list: ComponentNode[]): ComponentNode | null =>
     list.reduce<ComponentNode | null>((best, n) => (best === null || dia(n) > dia(best) ? n : best), null);
 
-  const atAltitude = chutes.filter((n) => n['deployEvent'] === 'altitude');
+  // Read as the kernel reads it — case-blind (RECOV-CASE): a hand-edited
+  // "Altitude" flies as the main and is sized as one.
+  const atAltitude = chutes.filter((n) => flownDeployEvent(n['deployEvent']) === 'altitude');
   const main = biggest(atAltitude.length > 0 ? atAltitude : chutes);
   const drogue = biggest(chutes.filter((n) => n !== main));
   return { main, drogue };

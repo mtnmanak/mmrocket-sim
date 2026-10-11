@@ -17,6 +17,7 @@ import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, start
 import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
@@ -31,6 +32,9 @@ import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButton
 const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> = {
   fairingForeShape: (n) => shroudEnds(n).fore,
   fairingAftShape: (n) => shroudEnds(n).aft,
+  // The event the kernel flies (RECOV-CASE): a hand-edited "Altitude" names no
+  // option as written, and the menu showed its first — the ejection charge.
+  deployEvent: (n) => flownDeployEvent(n['deployEvent']),
 };
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';

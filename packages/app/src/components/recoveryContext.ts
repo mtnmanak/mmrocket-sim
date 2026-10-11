@@ -2,6 +2,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { fmtFieldValue, siToUi } from '../prefs/units.js';
 import { findNode } from '../tree/treeModel.js';
+import { foldDeployEvent } from '../tree/deployEvent.js';
 
 export function recoveryScope(configs: SavedConfig[], activeId: string | null, nodeId: string): string | null {
   if (configs.length <= 1) return null;
@@ -38,7 +39,9 @@ export function recoverySummary(
     const node = tree ? findNode(tree, id) : null;
     const d = live && node ? node : stored;
     // A live node's fields are `unknown`; the stored record's are typed.
-    const event = String(d.deployEvent ?? 'ejection');
+    // Case folded as the kernel folds it (RECOV-CASE): "Altitude" is quoted as
+    // the altitude it flies at, not as a bare word.
+    const event = foldDeployEvent(String(d.deployEvent ?? 'ejection'));
     // A missing or non-finite altitude flies at the kernel's own 200 m
     // (ComponentFactory.applyDeployment keeps its default), so that is quoted.
     const altM = Number.isFinite(d.deployAltitude) ? d.deployAltitude as number : 200;

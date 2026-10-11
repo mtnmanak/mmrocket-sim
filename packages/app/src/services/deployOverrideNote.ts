@@ -1,4 +1,5 @@
 import { DEPLOY_EVENTS } from '../tree/schema.js';
+import { foldDeployEvent } from '../tree/deployEvent.js';
 
 /**
  * A recovery device whose flight configuration OVERRIDES its own deployment
@@ -33,19 +34,26 @@ export interface DeployOverride {
   flown: DeploySetting;
 }
 
-/** Same deployment, as far as a flight can tell: altitude only counts for the altitude event. */
+/**
+ * Same deployment, as far as a flight can tell: altitude only counts for the
+ * altitude event. The event's case is folded the way the kernel folds it
+ * (RECOV-CASE) — "Altitude" and "altitude" fly the same — while a value the
+ * kernel does not name stays distinct, as the file wrote it.
+ */
 export function sameDeployment(a: DeploySetting, b: DeploySetting): boolean {
-  if (a.deployEvent !== b.deployEvent) return false;
+  const event = foldDeployEvent(a.deployEvent);
+  if (event !== foldDeployEvent(b.deployEvent)) return false;
   if (Math.abs(a.deployDelay - b.deployDelay) > 1e-9) return false;
-  return a.deployEvent !== 'altitude' || Math.abs(a.deployAltitude - b.deployAltitude) <= 1e-6;
+  return event !== 'altitude' || Math.abs(a.deployAltitude - b.deployAltitude) <= 1e-6;
 }
 
 const LABEL = new Map(DEPLOY_EVENTS);
 
 /** "Altitude (descending), 91.4 m (300 ft)" / "Motor ejection charge + 1 s". */
 export function describeDeployment(d: DeploySetting): string {
-  let s = LABEL.get(d.deployEvent) ?? d.deployEvent;
-  if (d.deployEvent === 'altitude') {
+  const event = foldDeployEvent(d.deployEvent);
+  let s = LABEL.get(event) ?? event;
+  if (event === 'altitude') {
     s += `, ${d.deployAltitude.toFixed(1)} m (${Math.round(d.deployAltitude / 0.3048)} ft)`;
   }
   if (d.deployDelay > 1e-9) s += ` + ${Number(d.deployDelay.toFixed(2))} s`;

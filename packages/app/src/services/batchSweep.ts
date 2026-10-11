@@ -16,6 +16,7 @@ import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
@@ -362,9 +363,6 @@ export function batchSolverFlights({ candidates, groups, autoDelay, deploysOnCha
   return all - flightsFrom(listed.length) + (deploysOnCharge ? flightsFrom(pluggedOnly) : 0);
 }
 
-/** The deploy events the kernel does NOT read as the ejection charge (ComponentFactory.deployEventOf). */
-const NOT_ON_CHARGE = new Set(['launch', 'apogee', 'altitude', 'never']);
-
 /**
  * Does any recovery device in the design wait for the motor's ejection charge?
  * Read the way the kernel reads it: the event is lower-cased, and anything that
@@ -374,7 +372,7 @@ const NOT_ON_CHARGE = new Set(['launch', 'apogee', 'altitude', 'never']);
 export function deploysOnEjectionCharge(tree: RocketTree): boolean {
   const walk = (nodes: readonly ComponentNode[]): boolean => nodes.some((n) =>
     ((n.type === 'parachute' || n.type === 'streamer')
-      && !NOT_ON_CHARGE.has(String(n['deployEvent'] ?? 'ejection').toLowerCase()))
+      && flownDeployEvent(n['deployEvent']) === 'ejection')
     || walk(n.children ?? []));
   return walk(tree.components);
 }

@@ -671,6 +671,20 @@ describe('classifyRecoveryDevices', () => {
     expect(drogue?.id).toBe('p1');
   });
 
+  it('RECOV-CASE reads the altitude trigger in any case, as the kernel does', () => {
+    // The kernel lower-cases the event (ComponentFactory.deployEventOf), so a
+    // hand-edited "Altitude" flies as the main; the sizer read it as written.
+    for (const ev of ['Altitude', 'ALTITUDE']) {
+      const t = tube(0.3, [
+        { diameter: 0.4, cd: 2.2, deployEvent: ev },
+        { diameter: 0.9, cd: 1.5, deployEvent: 'APOGEE' },
+      ]);
+      const { main, drogue } = classifyRecoveryDevices(t);
+      expect(main?.id, ev).toBe('p0');
+      expect(drogue?.id, ev).toBe('p1');
+    }
+  });
+
   it('falls back to the largest canopy when nothing states a trigger', () => {
     const t = tube(0.3, [{ diameter: 0.4 }, { diameter: 0.9 }]);
     const { main, drogue } = classifyRecoveryDevices(t);
