@@ -225,13 +225,12 @@ describe('sanitizeTree — identity and the load boundary', () => {
 
 describe('the degenerate values that failed the whole build now build', () => {
   // Each of these threw from the kernel at a7756c5 (single-field fuzz, audit
-  // 2026-09-22): InertiaMatrix for the negatives, NaN→BigInt for the zero
-  // tube-fin length, `%g` for the zero-height blunt shroud.
+  // 2026-09-22): InertiaMatrix for the negatives, `%g` for the zero-height
+  // blunt shroud. The zero tube-fin length (NaN→BigInt) is its own case below.
   const cases: [string, Record<string, unknown>][] = [
     ['negative fin height', { id: 'k', type: 'trapezoidfinset', rootChord: 0.05, tipChord: 0.03, sweep: 0.02, height: -0.03, thickness: 0.003 }],
     ['negative elliptical fin height', { id: 'k', type: 'ellipticalfinset', rootChord: 0.05, height: -0.03, thickness: 0.003 }],
     ['negative lug length', { id: 'k', type: 'launchlug', length: -0.05, outerRadius: 0.0022, thickness: 0.0003 }],
-    ['zero tube-fin length', { id: 'k', type: 'tubefinset', finCount: 6, length: 0, thickness: 0.0005 }],
     ['negative tube-fin length', { id: 'k', type: 'tubefinset', finCount: 6, length: -0.1, thickness: 0.0005 }],
     ['zero-height blunt shroud', { id: 'k', type: 'fairing', length: 0.08, width: 0.025, height: 0, fairingForeShape: 'box', fairingAftShape: 'box' }],
     ['negative shroud length', { id: 'k', type: 'fairing', length: -0.08, width: 0.025, height: 0.02 }],
@@ -247,6 +246,20 @@ describe('the degenerate values that failed the whole build now build', () => {
       expect(build(normalizeTree(raw))).toBeNull();
     });
   }
+
+  it('zero tube-fin length: the kernel builds it with no CP, and the repaired tree has one', () => {
+    // It threw too, until 2026-10-11, but from a debug line: TubeFinSetCalc
+    // formatted its forces as text on every call, and the NaN CP of a
+    // zero-length tube failed TeaVM's number formatting. That text is no longer
+    // built (engine-java/patches/LEDGER.md), as desktop OR never failed on it,
+    // so the raw tree builds, with no CP at all, which is why the length is
+    // still raised to the minimum.
+    const raw = rocket([{ id: 'k', type: 'tubefinset', finCount: 6, length: 0, thickness: 0.0005 }]);
+    const cpOf = (t: RocketTree): number | null => { resetEngine(); return OrkRocket.buildTree(engineTree(t)).staticInfo().cp; };
+    // The kernel's NaN arrives as null (the bridge speaks JSON).
+    expect(cpOf(raw)).toBeNull();
+    expect(Number.isFinite(cpOf(normalizeTree(raw)))).toBe(true);
+  });
 
   it('a negative body-tube wall', () => {
     const raw = rocket([]);
@@ -265,11 +278,12 @@ describe('the degenerate values that failed the whole build now build', () => {
 
 describe('explainBuildFailure — naming the part (audit 2026-09-22)', () => {
   it('leads with the part and the field, and keeps the kernel\'s words for a bug report', () => {
-    const t = rocket([{ id: 't', type: 'tubefinset', name: 'Tube fins', length: 0 }]);
+    // A negative length: a zero one no longer fails the build (see above).
+    const t = rocket([{ id: 't', type: 'tubefinset', name: 'Tube fins', length: -0.1 }]);
     const kernel = build(t)!;
-    expect(kernel).toMatch(/BigInt/);
+    expect(kernel).toMatch(/InertiaMatrix/);
     const msg = explainBuildFailure(t, kernel);
-    expect(msg).toBe('This design could not be built. The likely cause: “Tube fins”: length 0 mm is below'
+    expect(msg).toBe('This design could not be built. The likely cause: “Tube fins”: length -100 mm is below'
       + ' the minimum of 0.1 mm. (The simulation reported: ' + kernel + ')');
   });
 

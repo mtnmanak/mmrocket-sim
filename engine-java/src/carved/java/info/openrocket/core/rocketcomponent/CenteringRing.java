@@ -25,7 +25,14 @@ public class CenteringRing extends RadiusRingComponent {
 			innerRadius = 0;
 			// Component can be parentless if detached from rocket
 			if (this.getParent() != null) {
-				for (RocketComponent sibling : this.getParent().getChildren()) {
+				// PERF PATCH (2026-10-11, patches/LEDGER.md): only the parent's
+				// InnerTube children, in the same order, kept by the parent between
+				// changes to its child list. Upstream walked a fresh copy of every
+				// child on every read, and a mass calculation reads each ring's
+				// inner radius several times, so N rings under one parent cost N^2
+				// steps. The loop below skips every non-InnerTube anyway, so it
+				// visits the same siblings in the same order and gets the same max.
+				for (RocketComponent sibling : this.getParent().getInnerTubeChildren()) {
 					/*
 					 * Only InnerTubes are considered when determining the automatic
 					 * inner radius (for now).

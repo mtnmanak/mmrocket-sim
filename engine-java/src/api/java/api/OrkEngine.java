@@ -124,19 +124,31 @@ public final class OrkEngine {
 
     /**
      * Work counters since the last call, which this call zeroes, as JSON:
-     * {"structureScanSteps":n,"geometryChecks":m}. structureScanSteps is how
+     * {"structureScanSteps":n,"geometryChecks":m,"siblingScanSteps":s,
+     * "messageScanSteps":w,"stageScanSteps":t}. structureScanSteps is how
      * many child-list entries RocketComponent's structure check and
      * getChildPosition scanned; geometryChecks is how many times
-     * BarrowmanCalculator.checkGeometry ran. Counts, not timings, so a test
-     * can hold a build to work linear in its parts on any machine (2026-10-11,
-     * patches/LEDGER.md). Nothing in the kernel reads them.
+     * BarrowmanCalculator.checkGeometry ran; siblingScanSteps is how many
+     * siblings the fin-interference count and a centering ring's automatic
+     * inner radius visited; messageScanSteps is how many stored warnings a new
+     * one was compared against; stageScanSteps is how many stage numbers and
+     * stage flags the stage bookkeeping (Rocket, FlightConfiguration) probed.
+     * Counts, not timings, so a test can hold a build to work linear in its
+     * parts on any machine (2026-10-11, patches/LEDGER.md). Nothing in the
+     * kernel reads them.
      */
     @JSExport
     public static String takeWorkCounters() {
         String json = "{\"structureScanSteps\":" + RocketComponent.structureScanSteps
-                + ",\"geometryChecks\":" + BarrowmanCalculator.geometryCheckCalls + "}";
+                + ",\"geometryChecks\":" + BarrowmanCalculator.geometryCheckCalls
+                + ",\"siblingScanSteps\":" + RocketComponent.siblingScanSteps
+                + ",\"messageScanSteps\":" + info.openrocket.core.logging.MessageSet.messageScanSteps
+                + ",\"stageScanSteps\":" + info.openrocket.core.rocketcomponent.Rocket.stageScanSteps + "}";
         RocketComponent.structureScanSteps = 0;
         BarrowmanCalculator.geometryCheckCalls = 0;
+        RocketComponent.siblingScanSteps = 0;
+        info.openrocket.core.logging.MessageSet.messageScanSteps = 0;
+        info.openrocket.core.rocketcomponent.Rocket.stageScanSteps = 0;
         return json;
     }
 

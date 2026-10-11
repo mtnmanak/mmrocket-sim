@@ -163,6 +163,26 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	 */
 	public static int structureScanSteps = 0;
 
+	/**
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): how many sibling entries the
+	 * per-parent sibling scans have visited: the fin-interference count
+	 * (FinSetCalc) and the automatic inner radius of a centering ring
+	 * (getInnerTubeChildren). Read and zeroed by the bridge's
+	 * takeWorkCounters(), like structureScanSteps. Counting only.
+	 */
+	public static int siblingScanSteps = 0;
+
+	/**
+	 * PERF PATCH (2026-10-11): bumped by every change to {@code children}, so a
+	 * list derived from it can tell it is stale. The only writes are addChild,
+	 * removeChild, moveChild, copyFrom and copyWithOriginalID, all in this
+	 * class; each bumps it.
+	 */
+	private int childListVersion = 0;
+	/** PERF PATCH (2026-10-11): see getInnerTubeChildren; null when not built. */
+	private List<RocketComponent> innerTubeChildren = null;
+	private int innerTubeChildrenVersion = -1;
+
 	// ORColor of the component, null means to use the default color
 	private ORColor color = null;
 	private LineStyle lineStyle = null;
@@ -543,6 +563,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 				RocketComponent childCopy = child.copyWithOriginalID();
 				// Don't use addChild(...) method since it fires events
 				clone.children.add(childCopy);
+				clone.childListVersion++; // PERF PATCH (2026-10-11)
 				childCopy.parent = clone;
 			}
 			
@@ -571,6 +592,8 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		clone.childrenStructureVerified = false;
 		clone.structureIndexHint = -1;
 		clone.forgetChildIds();
+		clone.innerTubeChildren = null;
+		clone.innerTubeChildrenVersion = -1;
 		// Make sure the InsideColorComponentHandler is cloned
 		if (clone instanceof InsideColorComponent && this instanceof InsideColorComponent) {
 			InsideColorComponentHandler icch = new InsideColorComponentHandler(clone);
@@ -2158,6 +2181,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 
 		children.add(index, component);
 		component.parent = this;
+		this.childListVersion++; // PERF PATCH (2026-10-11)
 		// PERF PATCH (2026-10-11): keep the record of child ids current.
 		if (this.childIdSet != null && !this.childIdSet.add(component.id)) {
 			this.childIdsRepeat = true;
@@ -2260,6 +2284,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		
 
 		if (children.remove(component)) {
+			this.childListVersion++; // PERF PATCH (2026-10-11)
 			// PERF PATCH (2026-10-11): remove() matches by id, so it may have taken
 			// an id-equal sibling; re-verify both child lists the next time.
 			this.childrenStructureVerified = false;
@@ -2330,6 +2355,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 	public final void moveChild(RocketComponent component, int index) {
 		checkState();
 		if (children.remove(component)) {
+			this.childListVersion++; // PERF PATCH (2026-10-11)
 			children.add(index, component);
 			// PERF PATCH (2026-10-11): as removeChild - remove() matches by id.
 			this.childrenStructureVerified = false;
@@ -2383,6 +2409,31 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		checkState();
 		this.checkComponentStructure();
 		return children.clone();
+	}
+
+	/**
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): this component's InnerTube
+	 * children, in child order, as an unmodifiable list. CenteringRing reads it
+	 * for its automatic inner radius; upstream walked a fresh copy of the whole
+	 * child list on every read, so N rings under one parent cost N^2 steps per
+	 * mass calculation. Rebuilt whenever the child list has changed since
+	 * (childListVersion); the same checks as getChildren run first.
+	 */
+	public final List<RocketComponent> getInnerTubeChildren() {
+		checkState();
+		this.checkComponentStructure();
+		if (this.innerTubeChildren == null || this.innerTubeChildrenVersion != this.childListVersion) {
+			List<RocketComponent> tubes = new java.util.ArrayList<>();
+			for (RocketComponent c : this.children) {
+				siblingScanSteps++;
+				if (c instanceof InnerTube) {
+					tubes.add(c);
+				}
+			}
+			this.innerTubeChildren = java.util.Collections.unmodifiableList(tubes);
+			this.innerTubeChildrenVersion = this.childListVersion;
+		}
+		return this.innerTubeChildren;
 	}
 
 	/**
@@ -3285,6 +3336,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 			child.parent = null;
 		}
 		this.children.clear();
+		this.childListVersion++; // PERF PATCH (2026-10-11)
 		this.childrenStructureVerified = false;
 		this.forgetChildIds();
 		
@@ -3292,6 +3344,7 @@ public abstract class RocketComponent implements ChangeSource, Cloneable, Iterab
 		for (RocketComponent c : src.children) {
 			RocketComponent copy = c.copyWithOriginalID();
 			this.children.add(copy);
+			this.childListVersion++; // PERF PATCH (2026-10-11)
 			copy.parent = this;
 		}
 		

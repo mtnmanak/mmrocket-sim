@@ -1022,6 +1022,12 @@ export interface KernelWorkCounters {
   structureScanSteps: number;
   /** Times the airframe geometry check (diameter steps, gaps, overlaps) ran. */
   geometryChecks: number;
+  /** Siblings the fin-interference count and a centering ring's automatic inner radius visited. */
+  siblingScanSteps: number;
+  /** Stored warnings a new warning was compared against before it was kept. */
+  messageScanSteps: number;
+  /** Stage numbers and stage flags the kernel's stage bookkeeping probed. */
+  stageScanSteps: number;
 }
 
 /**

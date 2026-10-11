@@ -78,6 +78,23 @@ public class Rocket extends ComponentAssembly {
 	private FlightConfiguration selectedConfiguration;
 	private FlightConfigurableParameterSet<FlightConfiguration> configSet;
 	private ConcurrentHashMap<Integer, AxialStage> stageMap = new ConcurrentHashMap<>();
+	/**
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): every stage number below this
+	 * one is a key of stageMap, so getNewStageNumber can start its search here.
+	 * Upstream searched from 0 for every new stage, and every structure change
+	 * forgets and re-tracks every stage, so N stages (thousands of boosters
+	 * under one tube) cost N^2 lookups per change. Lowered by every removal and
+	 * reset to 0 whenever stageMap is replaced, so it can only be too low,
+	 * which costs time, never a different number.
+	 */
+	private int stageNumberFloor = 0;
+
+	/**
+	 * PERF PATCH (2026-10-11): how many stage numbers getNewStageNumber and
+	 * trackStage probed, and how many stages and flags FlightConfiguration.updateStages
+	 * visited. Read and zeroed by the bridge's takeWorkCounters(). Counting only.
+	 */
+	public static int stageScanSteps = 0;
 	
 	// Does the rocket have a perfect finish (a notable amount of laminar flow)
 	private boolean perfectFinish = false;
@@ -352,10 +369,12 @@ public class Rocket extends ComponentAssembly {
 	}
 
 	private int getNewStageNumber() {
-		int guess = 0;
+		int guess = stageNumberFloor; // PERF PATCH (2026-10-11): was 0
 		while (stageMap.containsKey(guess)) {
+			stageScanSteps++;
 			guess++;
 		}
+		stageNumberFloor = guess; // PERF PATCH (2026-10-11): every number below guess is taken
 		return guess;
 	}
 
@@ -374,11 +393,18 @@ public class Rocket extends ComponentAssembly {
 			stageNumber = getNewStageNumber();
 			newStage.setStageNumber(stageNumber);
 			this.stageMap.put(stageNumber, newStage);
+			// PERF PATCH (2026-10-11): the number just taken may extend the run from 0.
+			while (stageMap.containsKey(stageNumberFloor)) {
+				stageScanSteps++;
+				stageNumberFloor++;
+			}
 		}
 	}
 
 	/* package-local */ void forgetStage(final AxialStage oldStage) {
 		this.stageMap.remove(oldStage.getStageNumber());
+		// PERF PATCH (2026-10-11): that number may now be free.
+		stageNumberFloor = Math.min(stageNumberFloor, Math.max(0, oldStage.getStageNumber()));
 	}
 
 	@Override
@@ -479,6 +505,7 @@ public class Rocket extends ComponentAssembly {
 
 		// Rocket copy is cloned, so non-trivial members must be cloned as well:
 		copyRocket.stageMap = new ConcurrentHashMap<>();
+		copyRocket.stageNumberFloor = 0; // PERF PATCH (2026-10-11): a new map
 		for (Map.Entry<Integer,AxialStage> entry : this.stageMap.entrySet()){
 			final AxialStage stage = (AxialStage)copyRocket.findComponent(entry.getValue().getID());
 			if (stage == null) {
@@ -542,6 +569,7 @@ public class Rocket extends ComponentAssembly {
 		this.refType = source.refType;
 		this.customReferenceLength = source.customReferenceLength;
 		this.stageMap = new ConcurrentHashMap<>(source.stageMap);
+		this.stageNumberFloor = 0; // PERF PATCH (2026-10-11): a new map
 
 		// these flight configurations need to reference the _this_ Rocket:
 		this.configSet.reset();

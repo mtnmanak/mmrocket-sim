@@ -1782,14 +1782,22 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	private void buildCalcMap(FlightConfiguration configuration) {
 		calcMap = new HashMap<>();
 
-		for (RocketComponent comp : configuration.getAllComponents()) {
-			if (!comp.isAerodynamic() && !(comp instanceof ComponentAssembly)) {
-				continue;
+		// PERF PATCH (2026-10-11, patches/LEDGER.md): the fin sets under one
+		// parent are placed once for all of them, not once per fin set
+		// (FinSetCalc.beginSiblingFinScope). Nothing here changes geometry.
+		FinSetCalc.beginSiblingFinScope();
+		try {
+			for (RocketComponent comp : configuration.getAllComponents()) {
+				if (!comp.isAerodynamic() && !(comp instanceof ComponentAssembly)) {
+					continue;
+				}
+
+				RocketComponentCalc calcObj = createCalcObject(comp);
+
+				calcMap.put(comp, calcObj);
 			}
-
-			RocketComponentCalc calcObj = createCalcObject(comp);
-
-			calcMap.put(comp, calcObj);
+		} finally {
+			FinSetCalc.endSiblingFinScope();
 		}
 	}
 

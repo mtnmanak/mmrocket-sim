@@ -156,7 +156,15 @@ public class TubeFinSetCalc extends TubeCalc {
 		}
 
 		// Calculate CNa
-		log.debug("body radius " + bodyRadius + ", ref area " + conditions.getRefArea());
+		// PERF PATCH (2026-10-11, patches/LEDGER.md): both debug lines in this
+		// method are built only when debug logging is on. The kernel's logger
+		// (teavm-extras-slf4j) never is, yet the text was built anyway, on every
+		// call: the closing one formats every force and the CP as decimal text,
+		// about 0.3 ms a call, so a tube fin set cost about 100 ms of the 361
+		// evaluations of a static analysis. Same text whenever it is logged.
+		if (log.isDebugEnabled()) {
+			log.debug("body radius " + bodyRadius + ", ref area " + conditions.getRefArea());
+		}
 		final double cna = cnaconst / conditions.getRefArea();
 
 		// Calculate CP position
@@ -200,7 +208,9 @@ public class TubeFinSetCalc extends TubeCalc {
 		forces.setCside(0);
 		forces.setCyaw(0);
 
-		log.debug(forces.toString());
+		if (log.isDebugEnabled()) {
+			log.debug(forces.toString());
+		}
 	}
 
 	/**
