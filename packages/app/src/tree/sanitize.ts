@@ -227,7 +227,7 @@ export function countParts(nodes: readonly ComponentNode[]): number {
 export function refuseTooManyParts(nodes: readonly ComponentNode[]): void {
   const parts = countParts(nodes);
   if (parts <= MAX_DESIGN_PARTS) return;
-  // Worded as the importers' flight-configuration limit is: the count, the limit, then what to do.
+  // Worded like the importers' flight-configuration limit: the count, the limit, and that desktop OR has none.
   const err = new Error(`This design has ${parts.toLocaleString('en-US')} parts, past the `
     + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
   err.name = TOO_MANY_PARTS_ERROR_NAME;

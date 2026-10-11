@@ -2031,7 +2031,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // A latitude within 0.001 of π/2 counts as unset, exactly like a 0 (board
   // row 82, Eric 2026-10-11): 1.571 is 90° written in radians, and 1,041
   // simulations in 89 corpus files carry it, all but three of them (one file,
-  // estes_alpha.rkt, longitude −101.593) with longitude 0 as well.
+  // estes_alpha.rkt, longitude −101.593) with no longitude or a longitude of 0.
   // Read past `num`, whose unreadable-number note would say the import "used
   // its own default" — the note below says what happened instead.
   const siteNum = (el: XmlElement, tag: string): number => {
@@ -2076,9 +2076,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
           + (radianLatitude(site.latitudeDeg)
             ? 'that latitude looks unset — it is π/2, 90° written in radians, a figure many RockSim files carry in '
-              + 'place of a site. The app takes a site only when its '
-            : 'the app takes a site only when its ')
-          + 'latitude and longitude are both non-zero and in range, and reads no other launch condition from a '
+              + 'place of a site. The app takes a site only when its latitude and longitude are both non-zero and in '
+              + 'range and the latitude is not π/2, and reads'
+            : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
+          + ' no other launch condition from a '
           + '.rkt, so the Launch panel keeps the settings you had.');
         launchSiteRefused = true;
       }

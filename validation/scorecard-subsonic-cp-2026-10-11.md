@@ -46,7 +46,8 @@ On the Short model the deck read is the outlier: 1.1–1.2 %L aft of both report
 The report states no x_cp accuracy. It states C_N ±0.03 and C_m ±0.05 (p.4), with moments
 about 70 %L and C_m on S·d (p.2), so x_cp = 70 − (100/f)·C_m/C_N with f = 18.2 (Short) or 23.8
 (Long). Taking both slopes across the stated −2°…+2° window with the stated error at each end,
-at the measured C_Nα at M0.60 (≈0.23/deg Short, Fig 7(b); ≈0.215/deg Long, Fig 9(b)):
+at the measured C_Nα at M0.60 (≈0.23/deg Short, Fig 7(b); ≈0.215/deg Long, Fig 9(b)), combined root-sum-square
+(a linear sum would give 0.63–0.67 %L):
 **0.47 %L on both models**, used as ±0.5. It is tighter than the read-to-read spread on the
 Short model, which is why every read is kept and none gates.
 

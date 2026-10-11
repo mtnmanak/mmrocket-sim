@@ -44,7 +44,7 @@
       },
       {
         "id": "cp-subsonic-tunnel-deckread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
-        "source": "TN D-4013 Fig 11 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 11 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/18.2) Cm/CN as slopes across its -2..+2 deg window at the measured CNa 0.23/deg (Fig 7(b), M0.60): 0.47 %L. The three reads of this figure differ by up to 1.8 %L, more than that accuracy - read the three series together.",
+        "source": "TN D-4013 Fig 11 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 11 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/18.2) Cm/CN as slopes across its -2..+2 deg window, combined RSS, at the measured CNa 0.23/deg (Fig 7(b), M0.60): 0.47 %L. The three reads of this figure differ by up to 1.8 %L, more than that accuracy - read the three series together.",
         "points": [[0.6, 75.7], [0.8, 72.6], [0.9, 70.4]]
       },
       {
@@ -144,7 +144,7 @@
       },
       {
         "id": "cp-subsonic-tunnel-deckread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
-        "source": "TN D-4013 Fig 12 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 12 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/23.8) Cm/CN as slopes across its -2..+2 deg window at the measured CNa 0.215/deg (Fig 9(b), M0.60): 0.47 %L. No earlier project read of Fig 12's x_cp panel exists; the scan read is the second read.",
+        "source": "TN D-4013 Fig 12 x_cp, fins on dF=0, -2<=a<=2 deg, read off the wind-tunnel markers of Rogers' comparison deck slide 12 (markers +/-0.15 %L; validation-anchors-2026-08-03.md 1.4). INFORMATIONAL (added 2026-10-11, board row 85). Mach 0.60/0.80/0.90 only: the report tested no M0.70 or M0.85 (p.4). tol 0.5 %L = the report's stated accuracy (CN +/-0.03, Cm +/-0.05 about 70 %L, p.2 and p.4) carried through x_cp = 70 - (100/23.8) Cm/CN as slopes across its -2..+2 deg window, combined RSS, at the measured CNa 0.215/deg (Fig 9(b), M0.60): 0.47 %L. No earlier project read of Fig 12's x_cp panel exists; the scan read is the second read.",
         "points": [[0.6, 76.6], [0.8, 75.8], [0.9, 76.2]]
       },
       {
