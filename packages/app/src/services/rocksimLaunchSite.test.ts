@@ -74,6 +74,9 @@ describe('.rkt launch site (board row 80)', () => {
     };
     const refused = opened(rkt([{ lat: '37.', lon: '0.', alt: '213.36' }]));
     expect(refused).toHaveLength(1);
+    const unset = opened(rkt([{ lat: '1.571', lon: '-101.593', alt: '0.' }]));
+    expect(unset).toHaveLength(1);
+    expect(unset[0]).toMatch(/latitude 1\.571°, longitude -101\.593°, site altitude 0 m; that latitude looks unset .* so the Launch panel keeps the settings you had\.$/);
     expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.36 m; .* reads no other launch condition from a \.rkt, so the Launch panel keeps the settings you had\.$/);
     // A file that states no site at all still hears the open's own line.
     expect(opened(rkt([{}]))).toEqual([
@@ -91,6 +94,29 @@ describe('.rkt launch site (board row 80)', () => {
     const r = importRkt(rkt([{ lat: '0', lon: '-80.6', alt: '3' }]));
     expect(r.launch).toBeUndefined();
     expect(siteNote(r.notes)).toBeDefined();
+  });
+
+  it('reads a latitude within 0.001 of π/2 as unset, like a 0 (board row 82)', () => {
+    // estes_alpha.rkt: RockSim's 1.571 — 90° written in radians — beside a
+    // real longitude. v0.178 opened it at 1.571° N.
+    const r = importRkt(rkt([{ lat: '1.571', lon: '-101.593', alt: '0.' }]));
+    expect(r.launch).toBeUndefined();
+    expect(r.launchSiteRefused).toBe(true);
+    const note = siteNote(r.notes)!;
+    expect(note).toContain('latitude 1.571°, longitude -101.593°, site altitude 0 m');
+    expect(note).toContain('that latitude looks unset — it is π/2, 90° written in radians');
+    // Every spelling RockSim writes, and the edges of the 0.001 band.
+    for (const lat of ['1.5708', '1.570796', '1.571000000000000', '1.5698', '1.5717']) {
+      expect(importRkt(rkt([{ lat, lon: '-101.593' }])).launch, lat).toBeUndefined();
+    }
+    for (const lat of ['1.5697', '1.5718', '-1.571']) {
+      expect(importRkt(rkt([{ lat, lon: '-101.593' }])).launch?.latitudeDeg, lat).toBe(Number(lat));
+    }
+  });
+
+  it('says the latitude looks unset when the longitude is 0 too, and only then', () => {
+    expect(siteNote(importRkt(rkt([{ lat: '1.571', lon: '0.' }])).notes)).toContain('looks unset');
+    expect(siteNote(importRkt(rkt([{ lat: '37.', lon: '0.' }])).notes)).not.toContain('looks unset');
   });
 
   it('keeps the site when a coordinate is out of range — never clamped onto a pole', () => {

@@ -10,7 +10,7 @@ import {
 import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn, protuberanceFrontalArea } from '../tree/treeModel.js';
 import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
-import { sanitizeTree } from '../tree/sanitize.js';
+import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
@@ -1731,6 +1731,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
 
   const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
+  // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
+  refuseTooManyParts(stages);
   const tree = sanitizeTree({ name, components: stages }, notes);
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {

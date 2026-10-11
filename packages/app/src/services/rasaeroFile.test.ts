@@ -2656,7 +2656,9 @@ describe('RASAero export — a blank temperature is the site’s standard one', 
  * counts the RockSim reader.
  */
 describe('RASAero import — a part hung under a tube does not copy its siblings', () => {
-  const N = 2000;
+  // 995: a fin can or recessed boat tail imports as a pod set and its tube, so
+  // this many fit under the 2,000-part limit at open (board row 84).
+  const N = 995;
   const cdx = (inTube: string, after: string) => `<?xml version="1.0"?><RASAeroDocument><RocketDesign>
     <NoseCone><PartType>NoseCone</PartType><Length>10</Length><Diameter>3</Diameter>
       <Shape>Tangent Ogive</Shape></NoseCone>
@@ -2672,7 +2674,7 @@ describe('RASAero import — a part hung under a tube does not copy its siblings
     ['recessed boat tails', cdx('', many('<BoatTail><PartType>BoatTail</PartType><Length>2</Length><Diameter>3</Diameter>'
       + '<RearDiameter>2.5</RearDiameter></BoatTail>')
       + '<Booster><PartType>Booster</PartType><Length>15</Length><Diameter>3</Diameter></Booster>'), 'podset'],
-  ])('imports 2,000 %s on one tube in work linear in the parts', (_, xml, type) => {
+  ])('imports 995 %s on one tube in work linear in the parts', (_, xml, type) => {
     let r: ReturnType<typeof importCdx1> | undefined;
     const reads = componentsIterated(() => { r = importCdx1(xml); });
     expect(reads / N).toBeLessThan(25);

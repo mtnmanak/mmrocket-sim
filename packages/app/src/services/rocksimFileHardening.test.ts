@@ -261,7 +261,8 @@ describe('a refused .rkt fin outline is replaced by one the user can see (audit 
  * handful, so the bound sits far from both.
  */
 describe('a part appended under its parent does not copy its siblings', () => {
-  const N = 2000;
+  // 1,990: as many as fit under the 2,000-part limit at open (board row 84) beside the stage, tube and sub-assembly.
+  const N = 1990;
   const masses = Array.from({ length: N },
     (_, i) => `<MassObject><Name>M${i}</Name><KnownMass>1</KnownMass><Len>10</Len></MassObject>`).join('');
 
@@ -273,7 +274,7 @@ describe('a part appended under its parent does not copy its siblings', () => {
   it.each([
     ['directly', masses],
     ['through a sub-assembly', `<SubAssembly><Name>S</Name><AttachedParts>${masses}</AttachedParts></SubAssembly>`],
-  ])('imports 2,000 parts under one tube %s in work linear in the parts', (_, parts) => {
+  ])('imports 1,990 parts under one tube %s in work linear in the parts', (_, parts) => {
     let r: ReturnType<typeof importRkt> | undefined;
     const reads = componentsIterated(() => { r = importRkt(rktXml(parts)); });
     expect(reads / N).toBeLessThan(25);
