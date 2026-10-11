@@ -171,16 +171,19 @@ export interface OrkMotorSetInput {
   /**
    * Which come first in the set, the loaded motors or the references. It
    * decides one thing: which of two mounts in the same stage and rank keeps
-   * the weighed pad mass, because primaryMountOf ranks such a tie by the order
-   * it is handed. Each caller keeps the order App has always built its set in,
-   * so no Save changes (verifier's review of audit 2026-09-30, item 23):
+   * the weighed pad mass WHEN BOTH CARRY ONE, because primaryMountOf ranks
+   * such a tie by the order it is handed. Each caller keeps the order App has
+   * always built its set in, so no Save changes (verifier's review of audit
+   * 2026-09-30, item 23):
    * - 'records' for the working set, as App.filePrimaryMountId ranks it, so
    *   the value written is the one under the card that shows the field;
    * - 'refs' for a stored configuration, as exportConfigs spread it; a mount
    *   with both writes its loaded motor, in the reference's place.
-   * Neither is the file's own order, which importApply attaches a file's pad
-   * mass by; a tied mount carrying the file's value while the primary carries
-   * none keeps it whichever order is used (padMassOnPrimaryOnly).
+   * When the primary carries none, the order decides nothing: a tied mount
+   * carrying one keeps it whichever order is used (padMassOnPrimaryOnly) —
+   * the file's value, which importApply attaches by the file's own order and
+   * which sits under no field — until a value typed or cleared on the card
+   * supersedes it (padMassReconcile.ts typedPadMass).
    */
   first: 'records' | 'refs';
 }

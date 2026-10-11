@@ -145,7 +145,7 @@ import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
 import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
-  dropPadMass, legacyPadMassWrite, restoredPadMassNote, type PadMassText,
+  legacyPadMassWrite, restoredPadMassNote, typedPadMass, type PadMassText,
 } from './services/padMassReconcile.js';
 import { baseLabel, massTextFor, padMassTextFor, statedWeightTextFor } from './services/unitText.js';
 import {
@@ -1692,18 +1692,12 @@ export function App() {
    * BOTH — never a null value (dirtyState hashes keys). The key is THIS
    * render's assigned set: the value is a weighing of the rocket as it stands.
    * A typed value supersedes any pad mass the file left on an unmatched
-   * reference, so that is stripped too.
+   * reference, so that is stripped too, and any on a tied mount's record
+   * (padMassReconcile's typedPadMass; a clear is its dropPadMass, the one a
+   * dropped legacy value goes through too).
    */
   const setPadMass = (mountId: string, kg: number | null) => {
-    const key = currentSetKey;
-    setMountMotors((prev) => {
-      const cur = prev[mountId];
-      if (!cur) return prev;
-      // A clear is padMassReconcile's dropPadMass, the one a dropped legacy
-      // value goes through too.
-      if (kg === null || !Number.isFinite(kg) || kg <= 0) return dropPadMass(mountId)(prev);
-      return { ...prev, [mountId]: { ...cur, padMassKg: kg, padMassWeighedWith: key } };
-    });
+    setMountMotors(typedPadMass(tree, mountId, kg, currentSetKey));
     setUnmatchedRefs((prev) => stripRefPadMass(prev));
   };
 
@@ -2042,8 +2036,11 @@ export function App() {
    * rounded delay from the newest complete qualifying flight
    * (flownAutoDelaysNow); with none, an Auto mount keeps its provisional delay
    * and the Save says so (autoDelaySaveNote). Loaded motors first, as
-   * filePrimaryMountId ranks them, so the pad mass kept on a tie is the one
-   * under the field the card shows.
+   * filePrimaryMountId ranks them, so when two tied mounts BOTH carry a pad
+   * mass the one kept is the one under the field the card shows. When that
+   * mount carries none, the tied mount's value is kept instead — the file's,
+   * under no field (orkExportMotors.ts padMassOnPrimaryOnly) — until a value
+   * typed or cleared on the card supersedes it (typedPadMass).
    */
   const exportMotorsMap = (flown: FlownAutoDelays = {}): Record<string, OrkExportMotor> => orkMotorSet({
     records: Object.fromEntries(assigned), refs: unmatchedRefs, tree, flown,

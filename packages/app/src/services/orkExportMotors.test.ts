@@ -9,6 +9,7 @@ import { exportCdx1 } from './rasaeroFile.js';
 import { restoreMotorLabels } from './motorLabels.js';
 import { MOTOR_DB } from './motorDb.js';
 import type { MotorMeta } from './simReport.js';
+import { typedPadMass } from './padMassReconcile.js';
 
 /**
  * THE .ork EXPORT MAPPING FOR MOTORS, ON ITS OWN (audit 2026-09-30, item 23).
@@ -280,6 +281,34 @@ describe('orkMotorSet — a tie for the pad mass', () => {
       expect(loaded['mmt-b']).not.toHaveProperty('padMassKg');
     });
   }
+
+  // The value behind the tied mount, then a pad mass typed on the primary's
+  // card and cleared: the typed value superseded the file's, so the clear
+  // must not bring the file's back on the next Save (typedPadMass).
+  it('a pad mass typed on the primary, then cleared, does not bring back a tied mount’s', () => {
+    const { tree, starter } = tieTree();
+    const save = (records: Record<string, MountMotor>) =>
+      orkMotorSet({ records, tree, configKey: '', exLibrary: noLibrary, first: 'records' });
+    const opened = { 'mmt-b': motor(), [starter]: motor({ padMassKg: 0.5 }) };
+    expect(save(opened)[starter]!.padMassKg).toBe(0.5);
+    const typed = typedPadMass(tree, 'mmt-b', 0.7, 'set')(opened);
+    expect(typed['mmt-b']).toMatchObject({ padMassKg: 0.7, padMassWeighedWith: 'set' });
+    expect(typed[starter]).not.toHaveProperty('padMassKg');
+    expect(save(typed)['mmt-b']!.padMassKg).toBe(0.7);
+    const cleared = typedPadMass(tree, 'mmt-b', null, 'set')(typed);
+    for (const m of Object.values(save(cleared))) expect(m).not.toHaveProperty('padMassKg');
+    // A clear on its own supersedes it too.
+    for (const m of Object.values(save(typedPadMass(tree, 'mmt-b', null, 'set')(opened)))) {
+      expect(m).not.toHaveProperty('padMassKg');
+    }
+  });
+
+  it('a pad mass typed on the primary leaves a mount ranked below it alone', () => {
+    const { tree, core } = podTree();
+    const typed = typedPadMass(tree, core, 1.2, 'set')({ [core]: motor(), 'pod-mmt': motor({ padMassKg: 0.3 }) });
+    expect(typed[core]!.padMassKg).toBe(1.2);
+    expect(typed['pod-mmt']!.padMassKg).toBe(0.3);
+  });
 
   it('never takes a pad mass from a mount ranked below the primary', () => {
     // A pod set's mount under a core mount carrying none: not a tie.

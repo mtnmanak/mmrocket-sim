@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { findNode, mountName } from '../tree/treeModel.js';
+import { findNode, mountName, mountsTie } from '../tree/treeModel.js';
 import { stripRefPadMass, type migrateLegacyPadMass } from './configSync.js';
 import { LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { HeldNote } from './notices.js';
@@ -192,6 +192,35 @@ export function dropPadMass(mountId: string): (prev: Record<string, MountMotor>)
     if (!cur || !('padMassKg' in cur)) return prev;
     const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = cur;
     return { ...prev, [mountId]: rest };
+  };
+}
+
+/**
+ * The pad-mass field's commit (App's `setPadMass`), SI kg or null for a clear,
+ * weighed with the set `setKey`. Writes BOTH keys on `mountId` or deletes BOTH
+ * ({@link dropPadMass}).
+ *
+ * A typed or cleared value also supersedes any pad mass on a record whose
+ * mount TIES `mountId` (same stage, same rank — mountsTie). The Save gate
+ * keeps such a mount's value when the primary carries none
+ * (orkExportMotors.ts padMassOnPrimaryOnly, the file's own value behind a
+ * tied mount), so one left there came back on the next Save after the
+ * primary's own was cleared: a value the user had replaced, and the app had
+ * neither shown nor flown. Records on any other mount keep theirs, as they
+ * did.
+ */
+export function typedPadMass(
+  tree: RocketTree, mountId: string, kg: number | null, setKey: string,
+): (prev: Record<string, MountMotor>) => Record<string, MountMotor> {
+  return (prev) => {
+    const cur = prev[mountId];
+    if (!cur) return prev;
+    let next = prev;
+    for (const id of Object.keys(prev)) {
+      if (id !== mountId && mountsTie(tree, id, mountId)) next = dropPadMass(id)(next);
+    }
+    if (kg === null || !Number.isFinite(kg) || kg <= 0) return dropPadMass(mountId)(next);
+    return { ...next, [mountId]: { ...cur, padMassKg: kg, padMassWeighedWith: setKey } };
   };
 }
 
