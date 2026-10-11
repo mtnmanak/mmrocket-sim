@@ -150,7 +150,7 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
 
   it('is openDesignFile + simulateImported: the same flight from bytes and from the parse', async () => {
     const fromBytes = await simulateFile(bytes('reference.ork'), 'reference.ork');
-    const parsed = parseDesignFile(buffer('reference.ork'), 'reference.ork', { presets: await loadBundledPresets() });
+    const parsed = await parseDesignFile(buffer('reference.ork'), 'reference.ork', { presets: await loadBundledPresets() });
     applyDesignNameFallback(parsed, 'reference.ork');
     const fromParse = await simulateImported(parsed);
     expect(idFree(fromBytes.run)).toStrictEqual(idFree(fromParse.run));
@@ -178,7 +178,7 @@ describe('simulateFile reads the shipped data only', () => {
       ? new TextEncoder().encode(new TextDecoder().decode(bytes(name))
         .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, '<EjectionDelay>-1</EjectionDelay>'))
       : bytes(name);
-    const parsed = parseDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
+    const parsed = await parseDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
       name, { presets: await loadBundledPresets() });
     applyDesignNameFallback(parsed, name);
     const plain = await simulateFile(data, name);
@@ -228,7 +228,7 @@ describe('simulateFile reads the shipped data only', () => {
   }, 30000);
 
   it('flies the bundle’s curve over a curve this browser cached, and leaves the cache alone', async () => {
-    const parsed = parseDesignFile(buffer('reference.ork'), 'reference.ork', { presets: await loadBundledPresets() });
+    const parsed = await parseDesignFile(buffer('reference.ork'), 'reference.ork', { presets: await loadBundledPresets() });
     const plain = await simulateImported(structuredClone(parsed));
     // The same motor's cache entry, 10 % hotter, in the generation the app reads.
     const records = Object.values(plain.state.mountMotors);

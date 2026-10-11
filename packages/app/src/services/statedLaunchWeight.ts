@@ -41,21 +41,18 @@ import { IMPULSE_PREFIX, looseDesignation, prefixWithoutSplit } from './designat
  * back-transformed against the motor, and the mark removed so it can never
  * fire twice. Everything it changes, it says in one plain-English note.
  *
- * WHERE THE MOTOR'S CG IS TAKEN TO BE, and the one place this and the importer
- * are not the same arithmetic (corrected 2026-09-08, from review). The
- * importer's `cgWithoutMotor` puts the motor's CG at its geometric MIDPOINT
- * (`motorFrontX + motor.lengthM / 2`) because a `MOTOR_DB` row publishes no
- * CG; this function uses `spec.cgX`, which is the loaded motor's own figure.
- * The two agree today only because nothing in the app publishes a real motor
- * CG either: `thrustcurve.ts` synthesises `cgX = length / 2` on BOTH paths, the
- * catalogue row (l. 584) and the EX `.eng`/`.rse` import (l. 795). If a source
- * ever supplies a measured CG — `.rse` files carry one — the import path and
- * the load-later path would silently disagree about the same design, and the
- * leverage is large: on MESOS's booster the mass ratio a/b is 24.394/4.518 =
- * 5.4, so 34 mm of assumed motor CG moves the stage's CG override by ~7 in. A
- * test pins the coincidence (`statedLaunchWeight.test.ts`, "the motor CG both
- * halves assume"); when it fails, `rasaeroFile.cgWithoutMotor` is what has to
- * learn the real CG, not this.
+ * WHERE THE MOTOR'S CG IS TAKEN TO BE. This function uses `spec.cgX`, the
+ * loaded motor's own figure. The importer uses the same figure since board
+ * Tier 0 row 81 (2026-10-11): it backs out the spec its curve load returns,
+ * and puts the CG at the geometric MIDPOINT only when that curve cannot load
+ * (a `MOTOR_DB` row publishes no CG). Today the two agree either way, because
+ * nothing in the app publishes a real motor CG: `thrustcurve.ts` synthesises
+ * `cgX = length / 2` on BOTH paths, the catalogue row and the EX `.eng`/`.rse`
+ * import. If a source ever supplies a measured CG — `.rse` files carry one —
+ * only the fallback would differ, and the leverage is large: on MESOS's
+ * booster the mass ratio a/b is 24.394/4.518 = 5.4, so 34 mm of assumed motor
+ * CG moves the stage's CG override by ~7 in. A test pins the coincidence
+ * (`statedLaunchWeight.test.ts`, "the motor CG both halves assume").
  *
  * WHY A MARK RATHER THAN A DERIVED TEST. "This mount had an unresolved motor
  * reference and its stage has a mass override" is nearly the same condition
@@ -257,6 +254,228 @@ export const cgFromCombined = (
   aMass: number, bMass: number, aCg: number, combinedCg: number,
 ): number => combinedCg * (1 + aMass / bMass) - aCg * (aMass / bMass);
 
+/** The loaded motor a stated stage weight is backed out against: what the flight carries. */
+export interface BackedOutMotor {
+  /** Loaded mass at t = 0 (kg): the flown curve's `spec.masses[0]`. */
+  massKg: number;
+  /** Overall length (m). */
+  lengthM: number;
+  /** CG from the motor's leading end (m). */
+  cgXFromFrontM: number;
+}
+
+/**
+ * A stage's own mass, from its motor-inclusive launch weight (the file's
+ * cumulative weight with the stack above it already taken off): desktop's
+ * `launchWt − motor.getLaunchMass()`. `motor` null is desktop's no-motor path,
+ * which subtracts nothing.
+ *
+ * THE ONE COPY (2026-10-11, board Tier 2: a re-picked motor kept the stage CG
+ * worked out for the old one). `rasaeroFile.ts` runs it at import and
+ * {@link restateBackedOutMotor} runs it again when that motor is loaded with
+ * different figures, so a re-pick lands exactly where a re-open would.
+ */
+export const stageMassWithoutMotor = (launchKg: number, motor: BackedOutMotor | null): number =>
+  launchKg - (motor?.massKg ?? 0);
+
+/**
+ * Desktop `getStageCGWithoutMotorCG` (SimulationHandler.java:504-524): the
+ * stage's own CG from the CG of the stage AND its motor, both measured from
+ * the STAGE's own front (the frame `overrideCGX` is written in). NaN when it
+ * cannot be done, never a guess.
+ *
+ * The motor's aft face is the mount's aft end (BodyTube.getMotorPosition =
+ * `length − motorLength + overhang`; the importer sets no overhang), so its
+ * front is that minus its length and its CG is `cgXFromFrontM` further back.
+ * `stageMassKg` must be the OVERRIDDEN stage mass (desktop's own comment at
+ * :510), so the mass is worked out first. `mount` must be a DIRECT child of the
+ * stage — the only kind the importer builds (its `aftTube`); with no mount
+ * there is no motor to place and the combined CG stands, as desktop's other
+ * branch returns it.
+ */
+export function stageCgWithoutMotor(
+  stage: ComponentNode, mount: ComponentNode | undefined, motor: BackedOutMotor | null,
+  stageMassKg: number, launchCgM: number,
+): number {
+  if (!motor) return launchCgM;
+  if (!(stageMassKg > 0)) return NaN; // no overridden mass to divide by
+  if (!mount) return launchCgM;
+  const kids = stage.children ?? [];
+  const at = kids.indexOf(mount);
+  if (at === -1) return NaN;
+  const mountFrontX = kids.slice(0, at).reduce((sum, c) => sum + nodeLength(c), 0);
+  const motorCgX = mountFrontX + nodeLength(mount) - motor.lengthM + motor.cgXFromFrontM;
+  return cgFromCombined(motor.massKg, stageMassKg, motorCgX, launchCgM);
+}
+
+/**
+ * Node key on a STAGE whose overrides the RASAero importer worked out by
+ * backing a CATALOGUED motor out of the file's stated launch weight and CG:
+ * the file's own figures for that stage, so the back-out can be done again
+ * when that motor is loaded with different figures (board Tier 2, 2026-10-11).
+ *
+ * WHY. The override is the stated weight minus the motor as the import knew
+ * it. When the motor that is later loaded weighs or measures something else —
+ * the K62N's length corrected from 274 to 374.25 mm in v0.148, or a curve that
+ * could not load at import so the catalogue's mass stood in for it — the
+ * override still holds the old motor's arithmetic, and the rocket no longer
+ * totals what the file states. Measured on the K62N design in
+ * rasaeroStatedFigures.test.ts: the stale stage CG put the launch CG 18 mm
+ * forward of the file's and read 4.85 cal against the 4.57 the file's own
+ * figures give, until the file was opened again.
+ *
+ * `massKg` / `cgM` are the overrides those figures produced, so a stage whose
+ * overrides have since been typed, cleared or scaled is told apart from one
+ * still holding the import's own numbers, and left alone. Not written to a
+ * saved file: a design saved and opened again keeps its overrides as they
+ * stand.
+ */
+export const STATED_STAGE_FIGURES = 'statedStageFigures';
+
+export interface StatedStageFigures {
+  /** The motor backed out, as the motor database names it. */
+  motor: string;
+  /** The stage plus that motor, the stack above already off (kg). */
+  launchKg?: number;
+  /** The `overrideMass` the import wrote from it. */
+  massKg?: number;
+  /** The CG of the stage plus that motor, from the stage's own front (m). */
+  launchCgM?: number;
+  /** The `overrideCGX` the import wrote from it. */
+  cgM?: number;
+}
+
+/** A stage's stated figures, or null when it carries none (or a malformed record). */
+export function statedFiguresOf(stage: ComponentNode): StatedStageFigures | null {
+  const rec = stage[STATED_STAGE_FIGURES] as unknown;
+  if (typeof rec !== 'object' || rec === null) return null;
+  const r = rec as Record<string, unknown>;
+  if (typeof r['motor'] !== 'string' || r['motor'] === '') return null;
+  const fin = (k: string) => (typeof r[k] === 'number' && Number.isFinite(r[k]) ? (r[k] as number) : undefined);
+  const out: StatedStageFigures = { motor: r['motor'] };
+  for (const k of ['launchKg', 'massKg', 'launchCgM', 'cgM'] as const) {
+    const v = fin(k);
+    if (v !== undefined) out[k] = v;
+  }
+  // A half pair is not a record of anything the import did.
+  if ((out.launchKg === undefined) !== (out.massKg === undefined)) return null;
+  if ((out.launchCgM === undefined) !== (out.cgM === undefined)) return null;
+  return out.massKg === undefined && out.cgM === undefined ? null : out;
+}
+
+const nearly = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+/**
+ * Do a stage's overrides still hold what its stated figures produced? False
+ * once either has been typed, cleared or scaled since: the overrides are the
+ * user's then, and the record describes nothing on screen.
+ */
+export function statedFiguresHold(
+  rec: StatedStageFigures, overrideMass: number | undefined, overrideCGX: number | undefined,
+): boolean {
+  const holds = (want: number | undefined, cur: number | undefined) =>
+    (want === undefined ? cur === undefined : cur !== undefined && nearly(want, cur));
+  return holds(rec.massKg, overrideMass) && holds(rec.cgM, overrideCGX);
+}
+
+/**
+ * Backs the motor out of a stage's stated launch figures AGAIN, with the
+ * figures of the motor loaded now — exactly as opening the file again would
+ * ({@link stageMassWithoutMotor}, {@link stageCgWithoutMotor}, the importer's
+ * own arithmetic). Null — the common case — when the mount's stage carries no
+ * {@link STATED_STAGE_FIGURES}, when the motor is not the one they were worked
+ * out for (the airframe figure stands under any other motor, as a re-open would
+ * leave it), or when nothing moves.
+ *
+ * Overrides that no longer hold what the import wrote (typed, cleared or
+ * scaled since) are the user's, not the file's: the record is dropped quietly
+ * and they are left as they stand. A back-out that cannot be done any more
+ * clears what it cannot back, as the import skips it: a weight that leaves no
+ * airframe takes both overrides, a CG outside the stage takes the CG alone.
+ */
+export function restateBackedOutMotor(
+  tree: RocketTree,
+  mountId: string,
+  motor: AttachedMotor,
+  text: StatedWeightText,
+): ReconciledStatedWeight | null {
+  const found = stageOf(tree, mountId);
+  if (!found) return null;
+  const { stage, index } = found;
+  const rec = statedFiguresOf(stage);
+  if (!rec || !namesSameMotor(motor.designation, rec.motor)) return null;
+
+  const { [STATED_STAGE_FIGURES]: _rec, ...rest } = stage as ComponentNode & Record<string, unknown>;
+  const unrecorded = rest as ComponentNode;
+  const near = nearly;
+  if (!statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'))) {
+    return { tree: replaceStage(tree, index, unrecorded), note: null, severity: 'info' };
+  }
+  const mount = (stage.children ?? []).find((c) => c.id === mountId);
+  if (!mount) return null; // not a direct child: nothing the import placed
+
+  const flown: BackedOutMotor = {
+    massKg: motor.launchMassKg, lengthM: motor.lengthM, cgXFromFrontM: motor.cgXFromFrontM,
+  };
+  const dry = rec.launchKg === undefined ? undefined : stageMassWithoutMotor(rec.launchKg, flown);
+  const cg = rec.launchCgM === undefined ? undefined
+    : stageCgWithoutMotor(stage, mount, flown, dry ?? 0, rec.launchCgM);
+  const len = stageLength(stage);
+  const massOk = dry === undefined || dry > 0;
+  const cgOk = cg === undefined || (massOk && cg >= 0 && cg <= len);
+  if (massOk && cgOk && (dry === undefined || near(dry, rec.massKg!)) && (cg === undefined || near(cg, rec.cgM!))) {
+    return null;
+  }
+
+  const name = stage.name ?? 'Stage';
+  const who = `“${rec.motor}”`;
+  const next: ComponentNode = { ...unrecorded };
+  const after: StatedStageFigures = { motor: rec.motor };
+  const parts: string[] = [];
+  let severity: ReconciledStatedWeight['severity'] = 'info';
+  const cleared: string[] = [];
+  if (dry !== undefined) {
+    if (massOk) {
+      next['overrideMass'] = dry;
+      next['overrideSubcomponentsMass'] = true;
+      Object.assign(after, { launchKg: rec.launchKg, massKg: dry });
+      if (!near(dry, rec.massKg!)) parts.push(`its mass override ${text.mass(rec.massKg!)} → ${text.mass(dry)}`);
+    } else {
+      delete next['overrideMass'];
+      delete next['overrideSubcomponentsMass'];
+      severity = 'warn';
+      cleared.push('mass');
+    }
+  }
+  if (cg !== undefined) {
+    if (cgOk) {
+      next['overrideCGX'] = cg;
+      next['overrideSubcomponentsCG'] = true;
+      Object.assign(after, { launchCgM: rec.launchCgM, cgM: cg });
+      if (!near(cg, rec.cgM!)) parts.push(`its CG override ${text.length(rec.cgM!)} → ${text.length(cg)} from the stage’s own front`);
+    } else {
+      delete next['overrideCGX'];
+      delete next['overrideSubcomponentsCG'];
+      severity = 'warn';
+      cleared.push('CG');
+    }
+  }
+  if (after.massKg !== undefined || after.cgM !== undefined) next[STATED_STAGE_FIGURES] = after;
+  const loaded = `${who} loaded now weighs ${text.mass(motor.launchMassKg)} and is ${text.length(motor.lengthM)} long`;
+  return {
+    tree: replaceStage(tree, index, next),
+    severity,
+    note: `“${name}”: its overrides come from the RASAero file’s stated launch weight and CG with ${who} backed out. `
+      + `The ${loaded}, so it has been backed out again, as opening the file again would do`
+      + `${parts.length > 0 ? ` — ${parts.join(', and ')}` : ''}.`
+      + (cleared.length > 0
+        ? ` Backing it out no longer leaves a ${cleared.join(' or ')} inside the stage, so the stage’s `
+          + `${cleared.join(' and ')} override${cleared.length > 1 ? 's have' : ' has'} been cleared and it is back on its `
+          + 'computed geometry. Check the figures in the file, or type your own under Overrides.'
+        : ''),
+  };
+}
+
 /**
  * Takes a newly assigned motor's weight back out of the stage overrides that
  * still contain it. Returns null — the overwhelmingly common case — when the
@@ -282,7 +501,9 @@ export function reconcileIncludedMotor(
   if (!found) return null;
   const { stage, index } = found;
   const named = stage[OVERRIDE_INCLUDES_MOTOR];
-  if (typeof named !== 'string' || named === '') return null;
+  // No motor still inside the overrides; a catalogued one may have been backed
+  // out of them, with figures the motor loaded now no longer has.
+  if (typeof named !== 'string' || named === '') return restateBackedOutMotor(tree, mountId, motor, text);
 
   const {
     [OVERRIDE_INCLUDES_MOTOR]: _mark, ...unmarked
@@ -481,12 +702,13 @@ export function reconcileAllIncludedMotors(
   motors: Record<string, AttachedMotor>,
   text: StatedWeightText,
 ): { tree: RocketTree; notes: string[]; severity: 'info' | 'warn' } {
-  // The 99 % case: no stage in this design is marked, so no mount can spend a
-  // mark and the per-mount tree walk below is pure cost. Undo/redo run this on
+  // The 99 % case: no stage in this design is marked or carries stated figures
+  // (STATED_STAGE_FIGURES), so no mount can spend a mark or restate a back-out,
+  // and the per-mount tree walk below is pure cost. Undo/redo run this on
   // EVERY keystroke's worth of history, so it is worth the four lines.
   const anyMark = tree.components.some((st) => {
     const mark = st[OVERRIDE_INCLUDES_MOTOR];
-    return typeof mark === 'string' && mark !== '';
+    return (typeof mark === 'string' && mark !== '') || statedFiguresOf(st) !== null;
   });
   if (!anyMark) return { tree, notes: [], severity: 'info' };
 

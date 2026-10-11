@@ -303,7 +303,11 @@ it('the writer takes live active edits even before sync, preserving the inactive
   expect(captureStageMass(importOrk(xml).tree.components[0]!)).toEqual(captureStageMass(live));
   expect(notes.join(' ')).toContain('OpenRocket desktop uses the active configuration');
   const inactive = importOrk(xml, { configId: a.savedConfigs[1]!.id });
-  expect(captureStageMass(inactive.tree.components[0]!)).toEqual(a.savedConfigs[1]!.stageMassOverrides![stage.id!]);
+  // The overrides travel; the RASAero figures they were backed out of do not
+  // (a .ork holds the overrides as they stand — statedLaunchWeight.ts).
+  const { statedStageFigures: stated, ...saved } = a.savedConfigs[1]!.stageMassOverrides![stage.id!]!;
+  expect(stated).toBeDefined();
+  expect(captureStageMass(inactive.tree.components[0]!)).toEqual(saved);
 });
 
 it('switch resets undo and redo so neither restores previous overrides under the new motor', async () => {

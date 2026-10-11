@@ -8,7 +8,7 @@ import { addExMotors, exToDbEntry, parseEng } from './exMotors.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { fetchMotorSpec } from './thrustcurve.js';
-import { MOTOR_DB } from './motorDb.js';
+import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { num } from '../tree/nodeNum.js';
 import {
   includedMotorOf, namesSameMotor, OVERRIDE_INCLUDES_MOTOR, reconcileAllIncludedMotors,
@@ -254,12 +254,17 @@ describe('a design whose motors are all in the catalogue is untouched', () => {
     expect(includedMotorOf(r.tree, mountOf(sus).id!)).toBeNull();
   });
 
-  it('reconciling an unmarked stage changes nothing and returns null', () => {
+  /** The K627LR exactly as the import backed it out: the catalogue's figures (no curve asked for). */
+  const k627 = () => {
+    const db = findDbMotor('K627LR', undefined, undefined, 'Loki')!;
+    return { designation: db.designation, launchMassKg: db.totalWeightG / 1000,
+      lengthM: db.length / 1000, cgXFromFrontM: db.length / 2000 };
+  };
+
+  it('reconciling an unmarked stage with the motor it was worked out for changes nothing and returns null', () => {
     const r = importCdx1(fixture('38-54 2-stage.CDX1'));
     const sus = stagesOf(r.tree)[0]!;
-    expect(reconcileIncludedMotor(r.tree, mountOf(sus).id!, {
-      designation: 'K627LR', launchMassKg: 1.236, lengthM: 0.4, cgXFromFrontM: 0.2,
-    }, TEXT)).toBeNull();
+    expect(reconcileIncludedMotor(r.tree, mountOf(sus).id!, k627(), TEXT)).toBeNull();
   });
 
   it('a mount that is in no stage returns null', () => {
@@ -817,11 +822,23 @@ describe('every path that mounts a motor spends the mark', () => {
   it('returns identity for a design with no mark at all', () => {
     const r = importCdx1(fixture('38-54 2-stage.CDX1'));
     const mountId = mountOf(stagesOf(r.tree)[0]!).id!;
+    const db = findDbMotor('K627LR', undefined, undefined, 'Loki')!;
     const out = reconcileAllIncludedMotors(r.tree, {
-      [mountId]: { designation: 'K627LR', launchMassKg: 1.236, lengthM: 0.4, cgXFromFrontM: 0.2 },
+      [mountId]: { designation: db.designation, launchMassKg: db.totalWeightG / 1000,
+        lengthM: db.length / 1000, cgXFromFrontM: db.length / 2000 },
     }, TEXT);
     expect(out.tree).toBe(r.tree);
     expect(out.notes).toEqual([]);
+    // And a desktop .ork, which carries no mark and no stated figures, under any motor.
+    const plain = { components: r.tree.components.map((st) => {
+      const { statedStageFigures: _drop, ...rest } = st as ComponentNode & Record<string, unknown>;
+      return rest as ComponentNode;
+    }) };
+    const other = reconcileAllIncludedMotors(plain, {
+      [mountId]: { designation: 'K627LR', launchMassKg: 1.236, lengthM: 0.4, cgXFromFrontM: 0.2 },
+    }, TEXT);
+    expect(other.tree).toBe(plain);
+    expect(other.notes).toEqual([]);
   });
 });
 
@@ -860,14 +877,14 @@ describe('a stage that states a CG and no usable weight', () => {
 
 describe('the motor CG both halves assume', () => {
   /**
-   * A PIN ON A COINCIDENCE, not on a shared computation (2026-09-08, from
-   * review). The importer's `cgWithoutMotor` places a motor's CG at its
-   * geometric MIDPOINT, because a `MOTOR_DB` row publishes no CG;
-   * `reconcileIncludedMotor` uses `spec.cgX`. The two agree only because
-   * `thrustcurve.ts` synthesises `cgX = length / 2` on BOTH paths. When a
-   * source starts supplying a real motor CG — `.rse` files carry one — this
-   * test fails, and the fix is to teach `rasaeroFile.cgWithoutMotor` the real
-   * CG, not to change the reconcile.
+   * A PIN ON A COINCIDENCE (2026-09-08, from review). The importer backs out
+   * the flown spec's `cgX` since board Tier 0 row 81, but falls back to a
+   * motor's geometric MIDPOINT when its curve cannot load, because a
+   * `MOTOR_DB` row publishes no CG; `reconcileIncludedMotor` uses `spec.cgX`.
+   * The fallback agrees only because `thrustcurve.ts` synthesises
+   * `cgX = length / 2` on BOTH paths. When a source starts supplying a real
+   * motor CG — `.rse` files carry one — this test fails, and the fallback in
+   * `rasaeroFile.importCdx1` (`stageMotorOf`) is what has to learn it.
    */
   it('is the geometric midpoint on the catalogue path', async () => {
     const c6 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes'

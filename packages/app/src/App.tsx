@@ -156,6 +156,7 @@ import { designFingerprint, stableJson, type DesignSnapshot } from './services/d
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
+import { fetchMotorSpec } from './services/thrustcurve.js';
 import {
   recoveryMass, recoveryMassByStage, recoveryMassTitle, type RecoveryByStage, type RecoveryMass,
 } from './services/recoveryMass.js';
@@ -2620,8 +2621,10 @@ export function App() {
       // reader, whose note quotes each configuration's deployment altitude),
       // and a generically-named design takes its file's name.
       const presets = await loadPresets();
-      const imported = openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance,
-        aeroChoice: aeroOverride ?? aeroChoiceOf(prefs) });
+      // A .CDX1's stated launch weight is backed out with the curve the motor
+      // match below will fly (`fetchMotorSpec`, its default), loaded here first.
+      const imported = await openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance,
+        aeroChoice: aeroOverride ?? aeroChoiceOf(prefs), flownSpec: fetchMotorSpec });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
       // was the FIRST thing a new user saw, and it listed configurations by

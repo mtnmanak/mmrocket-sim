@@ -122,6 +122,35 @@ const input = (node?: ComponentNode): FormatLossInput => ({
 const line = (format: LossyFormat, data: FormatLossInput, text: string) =>
   checkFormatLoss(format, data).losses.some(l => l.includes(text));
 
+/**
+ * Board Tier 2, "A RASAero save still drops a strap-on, or a pod it cannot
+ * write, without a word" (filed at v0.148). Since v0.156 (41cbdbd4) the writer
+ * refuses both, and the Save .CDX1 dialog shows the refusal ("Can't save as
+ * .CDX1", FormatLossDialog) from this report: nothing of either is dropped
+ * silently. Pinned here, on the path the dialog reads.
+ */
+describe('a .CDX1 save cannot drop a strap-on or an unwritable pod without a word', () => {
+  it.each([
+    ['a strap-on', { type: 'parallelstage', name: 'Strap-ons', children: [{ type: 'bodytube', length: 0.3, outerRadius: 0.02 }] },
+      /RASAero has no parallel staging/],
+    ['an off-axis pod', { type: 'podset', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.05,
+      children: [{ type: 'bodytube', length: 0.2, outerRadius: 0.035 }] }, /off-axis or repeated pods/],
+    ['a pod that is neither a fin can nor a boat tail', { type: 'podset', name: 'Odd pod', instanceCount: 1,
+      radiusMethod: 'free', radiusOffset: 0, children: [{ type: 'bodytube', length: 0.2, outerRadius: 0.01 }] },
+    /cannot represent pod set “Odd pod” as a fin can or boat tail/],
+  ] as [string, ComponentNode, RegExp][])('%s refuses the save, by name', (_what, node, why) => {
+    expect(checkFormatLoss('cdx1', input(node)).refused).toMatch(why);
+  });
+
+  it('a pod set somewhere the writer cannot put one refuses too', () => {
+    const d = input();
+    d.tree.components[0]!.children!.unshift({ type: 'nosecone', id: 'n', length: 0.2, aftRadius: 0.03,
+      children: [{ type: 'podset', name: 'Nose pod', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0,
+        children: [{ type: 'bodytube', length: 0.1, outerRadius: 0.035 }] }] });
+    expect(checkFormatLoss('cdx1', d).refused).toMatch(/cannot represent pod set “Nose pod” in this location/);
+  });
+});
+
 // Every row removes just the data named by its detector for the negative case.
 const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['rkt', 'Rail buttons', { type: 'railbutton' }, { type: 'bodytube' }],
