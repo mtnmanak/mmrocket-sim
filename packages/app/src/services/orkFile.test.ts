@@ -2723,6 +2723,49 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     expect(sized).toContain('47.5 mm');
   });
 
+  it('sizes a mass inside an automatic tube coupler to the coupler’s bore, as desktop does (batch 6)', () => {
+    // Every tube coupler desktop writes has a BARE automatic outer radius,
+    // 24.12 included: ThicknessRingComponent.getOuterRadius (:40-51) takes the
+    // bore of the part the coupler sits in, and a mass object inside packs to
+    // the coupler's own bore (MassObject.getMaxParentRadius →
+    // RingComponent.getInnerRadius). This reader stopped at the bare `auto`
+    // and gave the mass its own 5 mm (a chute 12.5 mm), with a "no neighbour"
+    // note it did not deserve.
+    const xml = `<openrocket version="1.4" creator="OpenRocket 15.03"><rocket>
+      <name>Bay</name><subcomponents><stage><name>S</name><subcomponents>
+        <bodytube><name>B</name><length>0.9</length><thickness>0.002</thickness>
+          <radius>0.05</radius><subcomponents>
+            <tubecoupler><name>C</name><length>0.2</length><outerradius>auto</outerradius>
+              <thickness>0.003</thickness><subcomponents>
+                <masscomponent><name>W</name><mass>0.05</mass><packedlength>0.02</packedlength>
+                  <packedradius>auto</packedradius></masscomponent>
+                <tubecoupler><name>C2</name><length>0.1</length><outerradius>auto</outerradius>
+                  <thickness>0.004</thickness><subcomponents>
+                    <parachute><name>P</name><packedlength>0.05</packedlength><packedradius>auto</packedradius>
+                      <diameter>0.6</diameter></parachute></subcomponents></tubecoupler>
+              </subcomponents></tubecoupler>
+          </subcomponents></bodytube>
+        <bodytube><name>Solid</name><length>0.1</length><thickness>filled</thickness>
+          <radius>0.05</radius><subcomponents>
+            <tubecoupler><name>C3</name><length>0.05</length><outerradius>auto</outerradius>
+              <thickness>0.003</thickness><subcomponents>
+                <masscomponent><name>W3</name><mass>0.05</mass><packedlength>0.02</packedlength>
+                  <packedradius>auto</packedradius></masscomponent></subcomponents></tubecoupler>
+          </subcomponents></bodytube>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`;
+    const r = importOrk(xml);
+    const parts = flatten(r.tree.components);
+    // Body bore 48 mm; the coupler's bore 48 − 3 = 45 mm; the inner coupler's 45 − 4 = 41 mm.
+    expect(by(parts, 'W')['radius']).toBeCloseTo(0.045, 12);
+    expect(by(parts, 'P')['packedRadius']).toBeCloseTo(0.041, 12);
+    // In a solid tube the coupler has no room, so neither has the mass: it keeps MassObject()'s 12.5 mm.
+    expect(by(parts, 'W3')['radius']).toBeCloseTo(0.0125, 12);
+    // The couplers themselves stay automatic: the kernel sizes them, as before.
+    expect(by(parts, 'C')['outerRadius']).toBeUndefined();
+    expect(r.notes.some((n) => n.includes('no neighbour'))).toBe(false);
+    expect(r.notes.find((n) => n.includes('sized from the neighbouring component'))).toContain('W, P');
+  });
+
   it('sizes a packed chute inside a nose cone with no base to take, at the 25 mm the reader draws it', () => {
     // Desktop hands the -1 of an unresolvable base radius straight to the
     // chute (NoseCone.getBaseRadius into MassObject.getAutoRadius), a negative

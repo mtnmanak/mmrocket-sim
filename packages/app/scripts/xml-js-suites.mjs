@@ -68,6 +68,7 @@ export const XML_JS_SUITES = [
   'src/services/rocksimFileIgnored.test.ts',
   'src/services/rocksimRecovery.test.ts',
   'src/services/rocksimRingBore.test.ts',
+  'src/services/rocksimAttachRules.test.ts',
   'src/services/rocksimLaunchSite.test.ts',
   'src/services/rocksimPackedChute.test.ts',
   'src/services/statedLaunchWeight.test.ts',

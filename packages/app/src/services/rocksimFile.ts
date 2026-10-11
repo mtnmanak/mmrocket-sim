@@ -27,6 +27,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
+import { DISPLAY_NAME } from '../tree/schema.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
@@ -555,6 +556,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         flattenSubAssembly(sub, parent, add, chain + 1);
         continue;
       }
+      if (!attachable(sub, parent)) continue;
       const node = convertPart(sub, parent);
       if (node) add(node);
     }
@@ -581,6 +583,58 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
   };
 
+  // PARTS ATTACHED WHERE NOTHING CAN BUILD THEM (batch 6). RockSim lets a part
+  // hang off almost anything; the kernel, like desktop OR 24.12, does not. Its
+  // isCompatible rules, for the parents this reader converts children under: a
+  // stage takes nose cones, body tubes and transitions (AxialStage); a body
+  // tube takes anything else (BodyTube); a nose cone or transition takes
+  // internal parts and freeform fins (Transition — this reader converts any fin
+  // set there to freeform); an inner tube takes internal parts (InnerTube).
+  // Kept, such a part made the build throw ("Transition not currently
+  // compatible with BodyTube") and six corpus files opened with no mass, CG,
+  // CP or flight. Desktop's reader drops each one with a warning
+  // (BaseHandler.isCompatible, FinSetHandler.java:297-313) and opens the rest;
+  // so does this one, before converting it, so a part left out records nothing
+  // else (no pod note, no pinned mass), and names it in one note.
+  // A <BodyTube> directly in a stage is a body tube whatever its IsInsideTube
+  // says (placeChainInnerTubes below decides where it goes).
+  const PART_KIND = lookupTable<{ cls: 'body' | 'internal' | 'fin' | 'external' | 'assembly'; word: string }>({
+    NoseCone: { cls: 'body', word: 'nose cone' }, Transition: { cls: 'body', word: 'transition' },
+    BodyTube: { cls: 'internal', word: 'tube' }, Ring: { cls: 'internal', word: 'ring' },
+    MassObject: { cls: 'internal', word: 'mass object' }, Parachute: { cls: 'internal', word: 'parachute' },
+    Streamer: { cls: 'internal', word: 'streamer' }, FinSet: { cls: 'fin', word: 'fin set' },
+    CustomFinSet: { cls: 'fin', word: 'fin set' }, TubeFinSet: { cls: 'external', word: 'tube fin set' },
+    LaunchLug: { cls: 'external', word: 'launch lug' }, ExternalPod: { cls: 'assembly', word: 'pod' },
+  });
+  const PARENT_HOLDS = lookupTable<(cls: string) => boolean>({
+    bodytube: (cls) => cls !== 'body',
+    nosecone: (cls) => cls === 'internal' || cls === 'fin',
+    transition: (cls) => cls === 'internal' || cls === 'fin',
+    innertube: (cls) => cls === 'internal',
+  });
+  const leftOut: string[] = [];
+  /** <BodyTube>s marked <IsInsideTube> that sit in a stage's (or a pod's) own chain — see placeChainInnerTubes. */
+  const chainInside = new Set<ComponentNode>();
+  /** The stage being read, for a part left out of the stage itself. */
+  let stageBeingRead = '';
+  /** Whether `parent` (null: the stage itself) can carry what `el` becomes; records the part left out if not. */
+  const attachable = (el: XmlElement, parent: ComponentNode | null): boolean => {
+    const kind = PART_KIND[el.tagName];
+    if (!kind) return true; // Unknown tags go on to convertPart, which ignores them by name.
+    const cls = parent === null && el.tagName === 'BodyTube' ? 'body' : kind.cls;
+    const holds = parent === null ? cls === 'body' : (PARENT_HOLDS[parent.type]?.(cls) ?? true);
+    if (holds) return true;
+    const quote = (n: string | null | undefined, fallback: string) => `“${n ?? fallback}”`;
+    const on = parent === null ? `the stage ${quote(stageBeingRead, 'stage')}`
+      : `the ${(DISPLAY_NAME[parent.type] ?? parent.type).toLowerCase()} ${quote(parent.name, 'unnamed')}`;
+    // A pod may hold its chain directly as well as in AttachedParts (see the ExternalPod branch).
+    const carries = (el.querySelector(':scope > AttachedParts')?.children.length ?? 0) > 0
+      || (el.tagName === 'ExternalPod' && Array.from(el.children).some((c) => ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)));
+    leftOut.push(`the ${kind.word} ${quote(text(el, ':scope > Name'), 'unnamed')} on ${on}`
+      + (carries ? ', with the parts attached to it' : ''));
+    return false;
+  };
+
   // Appended IN PLACE, as the stage slots below are. A spread here copied every
   // sibling at each append, N²/2 for N parts under one parent (audit
   // 2026-09-30: 20,000 took 2.1 s); the tree is this import's own until it
@@ -596,6 +650,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           });
           continue;
         }
+        if (!attachable(child, parentNode)) continue;
         const node = convertPart(child, parentNode);
         if (node) {
           (parentNode.children ??= []).push(node);
@@ -682,6 +737,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // Inside AttachedParts a <BodyTube> is an inner tube (desktop rule).
         const inside = parent !== null || num(el, 'IsInsideTube', 0) === 1;
         const n = mk(inside ? 'innertube' : 'bodytube');
+        if (inside && parent === null) chainInside.add(n);
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
         n['thickness'] = tubeThickness(el);
@@ -753,7 +809,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // imported design loses its mass, CG, CP and Simulate. The desktop
         // converts the planform instead (FreeformFinSet.convertFinSet); so do
         // we, exactly as the RASAero importer already does (rasaeroFile.ts:87).
-        const onTransition = parent?.type === 'transition';
+        // A nose cone too: the kernel's NoseCone is a Transition (desktop
+        // converts a trapezoid set on either, FinSetHandler.java:290).
+        const onTransition = parent?.type === 'transition' || parent?.type === 'nosecone';
         const type = onTransition || shapeCode === 2 ? 'freeformfinset'
           : shapeCode === 1 ? 'ellipticalfinset' : 'trapezoidfinset';
         const n = mk(type);
@@ -800,8 +858,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
               : [[0, 0], [sweep, height], [rootChord, 0]];
           }
-          const note = 'Fins on a transition were converted to a freeform outline (same '
-            + 'planform) — OpenRocket only allows freeform fins on a transition.';
+          const note = parent?.type === 'nosecone'
+            ? 'Fins on a nose cone were converted to a freeform outline (same planform) — OpenRocket only allows '
+              + 'freeform fins on a nose cone.'
+            : 'Fins on a transition were converted to a freeform outline (same '
+              + 'planform) — OpenRocket only allows freeform fins on a transition.';
           if (!notes.includes(note)) notes.push(note);
         } else {
           // The same test the fin editor applies before it commits an outline:
@@ -1090,16 +1151,54 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       children: [],
     };
     const slotEl = design.querySelector(`:scope > ${slot}`);
+    stageBeingRead = stage.name ?? '';
     for (const el of Array.from(slotEl?.children ?? [])) {
       if (el.tagName === 'SubAssembly') {
         flattenSubAssembly(el, null, (n) => stage.children!.push(n));
         continue;
       }
+      if (!attachable(el, null)) continue;
       const node = convertPart(el, null);
       if (node) stage.children!.push(node);
     }
     return stage;
   });
+
+  // A TUBE MARKED INSIDE, LISTED IN A STAGE (batch 6). A <BodyTube> with
+  // <IsInsideTube>1 directly in a stage, or in a stage-level sub-assembly, was
+  // read as an inner tube and left in the stage, which cannot hold one, so the
+  // build threw (semroc_sls_lil_hustler.rkt: its motor mount, at an absolute
+  // station inside the aft body tube). Desktop's reader ignores the flag there
+  // and adds the tube to the outside of the rocket as one more body tube, which
+  // makes the rocket longer than it is; this one puts it inside the nearest
+  // body tube in front of it, position as read, and says so. With no body tube
+  // in front of it, it is a body tube, as desktop reads it (its attached parts
+  // were already held to an inner tube's rules, so a fin there was left out).
+  const placeChainInnerTubes = (chain: ComponentNode[]): void => {
+    for (let i = 0; i < chain.length; i++) {
+      const n = chain[i]!;
+      if (!chainInside.has(n)) continue;
+      const host = chain.slice(0, i).reverse().find((c) => c.type === 'bodytube');
+      if (!host) {
+        n.type = 'bodytube';
+        radialByNode.delete(n);
+        continue;
+      }
+      chain.splice(i--, 1);
+      (host.children ??= []).push(n);
+      notes.push(`The file marks the tube “${n.name ?? 'unnamed'}” as inside the rocket but lists it among the `
+        + `stage’s outer parts, which cannot hold it; the app put it inside the body tube in front of it, `
+        + `“${host.name ?? 'unnamed'}”, at the position the file gives it. Desktop OR adds it to the outside of the `
+        + 'rocket as another body tube.');
+    }
+  };
+  const placeInPods = (nodes: ComponentNode[] | undefined): void => {
+    for (const n of nodes ?? []) {
+      if (n.type === 'podset' || n.type === 'parallelstage') placeChainInnerTubes(n.children ??= []);
+      placeInPods(n.children);
+    }
+  };
+  for (const stage of components) { placeChainInnerTubes(stage.children!); placeInPods(stage.children); }
 
   if (components.every((s) => (s.children ?? []).length === 0)) {
     throw new Error('No supported components found in this RockSim design.');
@@ -1605,6 +1704,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (ignored.size) {
     notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
+  const [onlyLeftOut] = leftOut;
+  if (leftOut.length === 1 && onlyLeftOut) {
+    notes.push(`Left out ${onlyLeftOut}: the app, like desktop OR, cannot attach that kind of part there, so the `
+      + 'design could not be built with it.');
+  } else if (leftOut.length > 1) {
+    notes.push(`Left out ${leftOut.length} parts the file attaches where the app, like desktop OR, cannot attach `
+      + `that kind of part, so the design could not be built with them: ${leftOut.join('; ')}.`);
+  }
   if (tooDeep) notes.push(TOO_DEEP_NESTING);
   if (keptWithoutCGFlag.size) {
     const n = keptWithoutCGFlag.size;
@@ -2032,6 +2139,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // row 82, Eric 2026-10-11): 1.571 is 90° written in radians, and 1,041
   // simulations in 89 corpus files carry it, all but three of them (one file,
   // estes_alpha.rkt, longitude −101.593) with no longitude or a longitude of 0.
+  // So does a latitude within 0.001 of 90, the same figure in degrees: 1,486
+  // simulations in 155 corpus files carry 89.999980470084, 90.0000016695222 or
+  // 90. — none beside a non-zero longitude today, but the first and the last
+  // are in range and would put the pad at the pole. No corpus file carries a
+  // negative latitude of either form, so the South Pole is read as written.
   // Read past `num`, whose unreadable-number note would say the import "used
   // its own default" — the note below says what happened instead.
   const siteNum = (el: XmlElement, tag: string): number => {
@@ -2048,8 +2160,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       latitudeDeg: siteNum(sim, 'LaunchLatitude'), longitudeDeg: siteNum(sim, 'LaunchLongitude') });
     const inRange = (v: number, max: number): boolean => Number.isFinite(v) && v !== 0 && Math.abs(v) <= max;
     const radianLatitude = (v: number): boolean => Math.abs(v - Math.PI / 2) < 0.001;
-    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean =>
-      inRange(s.latitudeDeg, 90) && !radianLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
+    const poleLatitude = (v: number): boolean => Math.abs(v - 90) < 0.001;
+    const usableSite = (s: { latitudeDeg: number; longitudeDeg: number }): boolean => inRange(s.latitudeDeg, 90)
+      && !radianLatitude(s.latitudeDeg) && !poleLatitude(s.latitudeDeg) && inRange(s.longitudeDeg, 180);
     const site = siteOf(siteSim);
     const alt = siteNum(siteSim, 'LaunchAltitude');
     if (usableSite(site)) {
@@ -2074,10 +2187,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
           + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
-          + (radianLatitude(site.latitudeDeg)
-            ? 'that latitude looks unset — it is π/2, 90° written in radians, a figure many RockSim files carry in '
+          + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
+            ? `that latitude looks unset — it is ${radianLatitude(site.latitudeDeg)
+              ? 'π/2, 90° written in radians' : '90°, the North Pole'}, a figure many RockSim files carry in `
               + 'place of a site. The app takes a site only when its latitude and longitude are both non-zero and in '
-              + 'range and the latitude is not π/2, and reads'
+              + 'range and the latitude is not 90° (or π/2), and reads'
             : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
           + ' no other launch condition from a '
           + '.rkt, so the Launch panel keeps the settings you had.');

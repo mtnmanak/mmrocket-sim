@@ -2486,11 +2486,12 @@ describe('RASAero export — booster fins are located on the whole booster body'
     expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
   });
 
-  it('names a booster with no name "stage 1" when it refuses it, never "undefined" (audit 2026-09-30)', () => {
+  it('names a booster with no name "Stage 2", as Motors & Launch does, never "undefined" (audit 2026-09-30, batch 6)', () => {
     // The four refusals quoted the stage's name, so a booster saved without
     // one (a .ork with no <name>, a session or share link written without it)
-    // was refused as stage "undefined". This file's other notes call such a
-    // stage `Stage ${i}`.
+    // was refused as stage "undefined". Then as "stage 1", counting from the
+    // sustainer as 0, while Motors & Launch calls the same stage "Stage 2";
+    // now by the name on screen, with RASAero's own name beside it.
     const nameless = (children: ComponentNode[]) => {
       const d = booster(children);
       delete (d.tree.components[1] as { name?: string }).name;
@@ -2505,10 +2506,10 @@ describe('RASAero export — booster fins are located on the whole booster body'
       return 'exported';
     };
     const cases: [ComponentNode[], RegExp][] = [
-      [[], /^Stage 1 has no body tube/],
-      [[tube('t1'), narrowing('x'), tube('t2')], /stage 1 has other transitions/],
-      [[tube('t1', [fin()]), tube('t2', [{ ...fin(), id: 'f2' }])], /stage 1 has several/],
-      [[tube('t1'), narrowing('bt', [fin()])], /\(stage 1's boat tail\)/],
+      [[], /^Stage 2 \(RASAero’s Booster 1\) has no body tube/],
+      [[tube('t1'), narrowing('x'), tube('t2')], /stage 2 \(RASAero’s Booster 1\) has other transitions/],
+      [[tube('t1', [fin()]), tube('t2', [{ ...fin(), id: 'f2' }])], /stage 2 \(RASAero’s Booster 1\) has several/],
+      [[tube('t1'), narrowing('bt', [fin()])], /\(stage 2's boat tail — RASAero’s Booster 1\)/],
     ];
     for (const [children, said] of cases) {
       const message = refusal(children);
@@ -2745,6 +2746,10 @@ describe('S1b-1 RASAero physical motor count', () => {
     expect(exportCdx1(design([mount]))).toContain('<SustainerEngine>C6  (ES)</SustainerEngine>');
     expect(exportCdx1({ ...design([{ ...mount, cluster: '3-ring' }]), engineExport: false }))
       .not.toContain('Engine>');
+    // An unnamed stage by the number Motors & Launch shows for it (batch 6), not “Stage”.
+    const unnamed = design([{ ...mount, cluster: '3-ring' }]);
+    delete (unnamed.tree.components[0] as { name?: string }).name;
+    expect(() => exportCdx1(unnamed)).toThrow(/one engine per stage — “Stage 1” has 3 motors/);
   });
   it('counts separate mounts and enclosing assembly instances', () => {
     expect(() => exportCdx1(design([mount, { ...mount, id: 'm2' }], { m: motor, m2: motor } as { m: typeof motor })))
@@ -2783,7 +2788,8 @@ describe('RASAero import — the stored prediction of a staged simulation', () =
     // motorized); give every simulation a stored apogee so that one has a line.
     const xml = fixture('38-54 2-stage.CDX1').replace(/<MaxAltitude>[^<]*<\/MaxAltitude>/g, '<MaxAltitude>12345</MaxAltitude>');
     const line = importCdx1(xml).notes.find((n) => n.startsWith('RASAero\u2019s stored prediction'));
-    expect(line).toContain('on the Booster 1 and the K627LR (Loki) on the sustainer');
+    // By the name the stage has on screen, with RASAero's own beside it (batch 6).
+    expect(line).toContain('on “Booster” (RASAero’s Booster 1) and the K627LR (Loki) on the sustainer');
     expect(line).toContain('apogee 12,345 ft');
   });
 
