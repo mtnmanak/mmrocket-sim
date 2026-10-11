@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
-import { saveFile } from '../services/saveFile.js';
+import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
 import {
   autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange,
 } from '../services/session.js';
@@ -98,7 +98,8 @@ export class AppBoundary extends Component<
     // autosavedDesignFile handed over the held design (it prefers it), so the
     // leave-page guard has nothing left to keep.
     if (held) this.handedOver = true;
-    const where = out.kind === 'saved' ? `Saved “${out.name}”.` : `Saved “${out.name}” to your browser's download folder.`;
+    // The app's own after-save line, so a crash save names Firefox's ask-where setting too.
+    const where = saveOutcomeNote(out)!.text;
     this.setState({
       note: file.ork
         ? `${where} Open it with Open… once the app is running again.`

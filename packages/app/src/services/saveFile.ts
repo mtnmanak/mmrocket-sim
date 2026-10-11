@@ -175,6 +175,23 @@ export function downloadBlob(blob: Blob, filename: string, description = 'File')
 }
 
 /**
+ * Firefox's own Save As, named for a save that became a download. A web page
+ * cannot open a save dialog in Firefox (no `showSaveFilePicker`), but Firefox
+ * opens one for every download when this setting is on; with it off, its
+ * default, the file goes straight to the download folder (Eric's Firefox 157
+ * check, 2026-10-11). Desktop Firefox only: where Android's build keeps the
+ * setting was not checked, so it is not named there.
+ */
+export function downloadSettingHint(
+  ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+): string | null {
+  return /Firefox\//.test(ua) && !/Android|Mobile/.test(ua)
+    ? 'To choose the name and folder every time, turn on Firefox’s Settings → General → Downloads →'
+      + ' “Always ask you where to save files”.'
+    : null;
+}
+
+/**
  * What the file note says after a save — where the file went, and under it
  * whatever the written file could not carry (`losses`, from a writer such as
  * exportRkt's `notes`), which makes it a warning. null for a cancelled dialog:
@@ -182,7 +199,7 @@ export function downloadBlob(blob: Blob, filename: string, description = 'File')
  * and no file exists to have lost anything.
  */
 export function saveOutcomeNote(
-  out: SaveOutcome, losses: readonly string[] = [],
+  out: SaveOutcome, losses: readonly string[] = [], hint: string | null = downloadSettingHint(),
 ): { text: string; severity: 'info' | 'warn' } | null {
   if (out.kind === 'cancelled') return null;
   const lossLines = losses.length ? `\n${losses.join('\n')}` : '';
@@ -196,6 +213,9 @@ export function saveOutcomeNote(
       // send the user looking in the folder they picked.
       ? `Couldn't write to the folder you chose (${out.fellBack}) — `
         + `“${out.name}” went to your browser's download folder instead.`
+      // With the setting on, Firefox asked where, so "the download folder"
+      // may not be where it went.
+      : hint ? `Saved “${out.name}” as a download — to your download folder, unless Firefox asked you where. ${hint}`
       : `Saved “${out.name}” to your browser's download folder.`) + lossLines,
     severity: out.fellBack || losses.length ? 'warn' : 'info',
   };

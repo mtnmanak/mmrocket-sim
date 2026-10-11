@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { downloadBlob, saveFile, saveOutcomeNote } from './saveFile.js';
+import { downloadBlob, downloadSettingHint, saveFile, saveOutcomeNote } from './saveFile.js';
 
 /**
  * A tester on Windows 10 + Chrome: *"When I click on save ORK or others it
@@ -202,5 +202,40 @@ describe('saveOutcomeNote — the save line, and the losses under it', () => {
       .toEqual({ text: `Saved “R.rkt”.\n${loss}`, severity: 'warn' });
     expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt' }, [loss, loss])!.text.split('\n')).toHaveLength(3);
     expect(saveOutcomeNote({ kind: 'cancelled' }, [loss])).toBeNull();
+  });
+});
+
+/**
+ * Option C (Eric, 2026-10-11): Firefox gives a web page no Save As dialog, so a
+ * save there is a download; on his Firefox 157 every one went straight to the
+ * download folder. The note names the setting that makes Firefox ask.
+ */
+describe('downloadSettingHint — the Firefox ask-where setting, named after a download', () => {
+  const FIREFOX = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:157.0) Gecko/20100101 Firefox/157.0';
+  const FIREFOX_ANDROID = 'Mozilla/5.0 (Android 15; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0';
+  const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+  const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15';
+
+  it('names the setting on desktop Firefox only', () => {
+    expect(downloadSettingHint(FIREFOX)).toContain('“Always ask you where to save files”');
+    expect(downloadSettingHint(FIREFOX)).toContain('Settings → General → Downloads');
+    for (const ua of [FIREFOX_ANDROID, CHROME, SAFARI, '']) expect(downloadSettingHint(ua)).toBeNull();
+  });
+
+  it('goes under a download, and does not claim the download folder when Firefox may have asked', () => {
+    const hint = downloadSettingHint(FIREFOX);
+    const note = saveOutcomeNote({ kind: 'downloaded', name: 'R.ork' }, [], hint)!;
+    expect(note).toEqual({
+      text: `Saved “R.ork” as a download — to your download folder, unless Firefox asked you where. ${hint}`,
+      severity: 'info',
+    });
+    // A save through the dialog, or a dialog whose write failed, is not Firefox's download.
+    expect(saveOutcomeNote({ kind: 'saved', name: 'R.ork' }, [], hint)!.text).toBe('Saved “R.ork”.');
+    expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.ork', fellBack: 'disk full' }, [], hint)!.text)
+      .not.toContain('Firefox');
+    // Losses still go under it, one per line.
+    expect(saveOutcomeNote({ kind: 'downloaded', name: 'R.rkt' }, ['lost'], hint)!.text.split('\n')).toEqual([
+      `Saved “R.rkt” as a download — to your download folder, unless Firefox asked you where. ${hint}`, 'lost',
+    ]);
   });
 });
