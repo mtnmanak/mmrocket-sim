@@ -35,6 +35,8 @@ export const XML_JS_SUITES = [
   'src/services/importApply.repick.test.ts',
   'src/App.openMotorChoices.test.tsx',
   'src/services/importLimits.test.ts',
+  // The 2,000-part refusal (board row 84) in all three importers.
+  'src/services/designPartLimit.test.ts',
   'src/services/motorMatch.policy.test.ts',
   'src/services/nozzleStage.test.ts',
   'src/services/nozzleWiring.test.ts',

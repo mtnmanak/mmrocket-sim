@@ -1,5 +1,5 @@
 {
-  "version": "0.178",
+  "version": "0.179",
   "released": "2026-10-11",
-  "note": "A desktop OR file flies the thrust curve desktop flew; RockSim launch sites and parachutes open as desktop does; RASAero launch weights are backed out with the motor mass that flies; designs with thousands of parts open faster."
+  "note": "The default model charges an ogive nose its supersonic wave drag; Supersonic fin lift reaches its supersonic value sooner, moving CP aft at Mach 0.95-1.5; stubby ogives get subsonic pressure drag; a RockSim latitude of 1.571 is read as unset; designs over 2,000 parts are refused at open."
 }
