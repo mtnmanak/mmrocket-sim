@@ -139,10 +139,20 @@ function button(host: ParentNode, text: string): HTMLButtonElement {
   return b;
 }
 
-function input(host: HTMLElement, ariaLabelStart: string): HTMLInputElement {
-  const el = [...host.querySelectorAll('input')]
-    .find((i) => i.getAttribute('aria-label')?.startsWith(ariaLabelStart));
-  if (!el) throw new Error(`no input "${ariaLabelStart}"`);
+/**
+ * The input named `words…`: by its aria-label, or — a Launch conditions box,
+ * named by its visible label alone — through the label's real association
+ * (`label.control`), the label's own words read without the unit chip.
+ */
+function input(host: HTMLElement, words: string): HTMLInputElement {
+  const own = (l: HTMLLabelElement) => {
+    const c = l.cloneNode(true) as HTMLLabelElement;
+    c.querySelectorAll('select').forEach((x) => x.remove());
+    return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+  };
+  const el = [...host.querySelectorAll('input')].find((i) => i.getAttribute('aria-label')?.startsWith(words))
+    ?? [...host.querySelectorAll('label')].find((l) => own(l).startsWith(words))?.control;
+  if (!(el instanceof HTMLInputElement)) throw new Error(`no input "${words}"`);
   return el;
 }
 
@@ -1685,7 +1695,9 @@ describe('a file’s pad mass on a tied mount whose motor cannot load', () => {
     try {
       await saveAs(host, 'Copy share link');
       await waitFor(() => writeText.mock.calls.length === 1, 'share link');
-      expect(padMasses(await decodeShareFragment(new URL(writeText.mock.calls[0]![0]).hash))).toEqual([0.5]);
+      // The fragment alone: what location an earlier test left behind is no URL base.
+      const url = writeText.mock.calls[0]![0];
+      expect(padMasses(await decodeShareFragment(url.slice(url.indexOf('#'))))).toEqual([0.5]);
     } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
     window.dispatchEvent(new Event('pagehide'));
     expect(padMasses(autosavedDesignFile()!.data)).toEqual([0.5]);
