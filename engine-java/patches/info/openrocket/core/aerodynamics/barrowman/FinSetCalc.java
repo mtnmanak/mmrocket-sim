@@ -3,7 +3,10 @@ package info.openrocket.core.aerodynamics.barrowman;
 import static java.lang.Math.pow;
 import static info.openrocket.core.util.MathUtil.pow2;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
+import java.util.List;
 
 import info.openrocket.core.aerodynamics.AerodynamicForces;
 import info.openrocket.core.aerodynamics.FlightConditions;
@@ -1282,9 +1285,12 @@ public class FinSetCalc extends RocketComponentCalc {
 		 */
 		if (trail - lead < 0.007) {
 			interferenceFinCount = finCount;
+		} else if (siblingFinMemo != null && memoInterferenceFinCount(component, parent, lead, trail)) {
+			// PERF PATCH (2026-10-11): set from the per-parent count; see siblingFinMemo.
 		} else {
 			interferenceFinCount = 0;
 			for (RocketComponent c : parent.getChildren()) {
+				RocketComponent.siblingScanSteps++;
 				if (c instanceof FinSet) {
 					double finLead = c.toRelative(Coordinate.NUL, parent)[0].x;
 					double finTrail = c.toRelative(new Coordinate(c.getLength()), parent)[0].x;
@@ -1303,5 +1309,202 @@ public class FinSetCalc extends RocketComponentCalc {
 					", fin points=" + Arrays.toString(component.getFinPoints()));
 		}
 	}
-	
+
+	// ---------- PERF PATCH (2026-10-11, patches/LEDGER.md) ----------
+	//
+	// calculateInterferenceFinCount, upstream, walks every child of the fin
+	// set's parent and places each fin set among them with two toRelative()
+	// calls. Each of N fin sets under one parent does that, so building the
+	// calculators cost N^2 toRelative calls: about 1.1 s of a 3.8 s static
+	// analysis at 2,000 fin sets in one body tube, and four times that at
+	// double the count. Inside BarrowmanCalculator.buildCalcMap, which builds
+	// every calculator at once and changes no geometry while it does, the
+	// siblings are placed ONCE per parent and every fin set's count is read
+	// from that. The count is a sum of ints over the same set of fin sets,
+	// picked by the same two comparisons on the same numbers, so it is the
+	// same int (int addition does not depend on order, even past overflow).
+	// Outside that scope the upstream loop runs as before.
+
+	/**
+	 * Fin set -> {its interference fin count, the leading x and the trailing x
+	 * the count was taken at}; null outside buildCalcMap.
+	 */
+	private static IdentityHashMap<RocketComponent, double[]> siblingFinMemo = null;
+	/** Parents whose fin sets siblingFinMemo already holds. */
+	private static IdentityHashMap<RocketComponent, Boolean> siblingFinParents = null;
+
+	/** Opens the scope in which the fin sets under one parent are placed once (BarrowmanCalculator.buildCalcMap). */
+	public static void beginSiblingFinScope() {
+		siblingFinMemo = new IdentityHashMap<>();
+		siblingFinParents = new IdentityHashMap<>();
+	}
+
+	/** Closes it; called in a finally, so a throw never leaves stale positions behind. */
+	public static void endSiblingFinScope() {
+		siblingFinMemo = null;
+		siblingFinParents = null;
+	}
+
+	/**
+	 * Sets interferenceFinCount from the per-parent count and returns true, or
+	 * returns false (the caller then runs the upstream loop) if this fin set's
+	 * own leading or trailing x is not bit for bit the one the count was taken
+	 * at. toRelative is a pure function of the geometry, so that never
+	 * happens; the check makes a different answer impossible rather than
+	 * merely unlikely.
+	 */
+	private boolean memoInterferenceFinCount(FinSet component, RocketComponent parent, double lead, double trail) {
+		if (!siblingFinParents.containsKey(parent)) {
+			siblingFinParents.put(parent, Boolean.TRUE);
+			List<RocketComponent> fins = new ArrayList<>();
+			for (RocketComponent c : parent.getChildren()) {
+				RocketComponent.siblingScanSteps++;
+				if (c instanceof FinSet) {
+					fins.add(c);
+				}
+			}
+			int m = fins.size();
+			double[] leads = new double[m];
+			double[] trails = new double[m];
+			int[] counts = new int[m];
+			for (int i = 0; i < m; i++) {
+				RocketComponent c = fins.get(i);
+				leads[i] = c.toRelative(Coordinate.NUL, parent)[0].x;
+				trails[i] = c.toRelative(new Coordinate(c.getLength()), parent)[0].x;
+				counts[i] = ((FinSet) c).getFinCount();
+			}
+			int[] overlapping = countOverlappingFins(leads, trails, counts);
+			for (int i = 0; i < m; i++) {
+				siblingFinMemo.put(fins.get(i), new double[] { overlapping[i], leads[i], trails[i] });
+			}
+		}
+		double[] memo = siblingFinMemo.get(component);
+		if (memo == null
+				|| Double.doubleToRawLongBits(memo[1]) != Double.doubleToRawLongBits(lead)
+				|| Double.doubleToRawLongBits(memo[2]) != Double.doubleToRawLongBits(trail)) {
+			return false;
+		}
+		interferenceFinCount = (int) memo[0];
+		return true;
+	}
+
+	/** Below this many fin sets under one parent the direct double loop is used; it is cheap there. */
+	static final int OVERLAP_SWEEP_MIN = 64;
+
+	/**
+	 * For each fin set j, the sum of counts[i] over every fin set i with
+	 * {@code leads[i] < trails[j] - 0.005 && trails[i] > leads[j] + 0.005}:
+	 * upstream's overlap test, with j's own leading and trailing x. Exactly
+	 * what upstream's loop sums for j, for every j at once.
+	 */
+	static int[] countOverlappingFins(double[] leads, double[] trails, int[] counts) {
+		if (leads.length < OVERLAP_SWEEP_MIN || hasNaN(leads) || hasNaN(trails)) {
+			return countOverlappingFinsDirect(leads, trails, counts);
+		}
+		return countOverlappingFinsSweep(leads, trails, counts);
+	}
+
+	private static boolean hasNaN(double[] values) {
+		for (double v : values) {
+			if (Double.isNaN(v)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Upstream's double loop over the same numbers: O(m^2), any input. */
+	static int[] countOverlappingFinsDirect(double[] leads, double[] trails, int[] counts) {
+		int m = leads.length;
+		int[] result = new int[m];
+		for (int j = 0; j < m; j++) {
+			double lead = leads[j];
+			double trail = trails[j];
+			int sum = 0;
+			for (int i = 0; i < m; i++) {
+				if ((leads[i] < trail - 0.005) && (trails[i] > lead + 0.005)) {
+					sum += counts[i];
+				}
+			}
+			result[j] = sum;
+		}
+		return result;
+	}
+
+	/**
+	 * The same sums in O(m log m), for input with no NaN. The fin sets with
+	 * {@code leads[i] < a} are a prefix of the fin sets sorted by lead, and
+	 * the prefix only grows as a grows; those with {@code trails[i] > b} are a
+	 * suffix of the fin sets sorted by trail. So the queries are taken in
+	 * increasing a, each fin set's count goes into a Fenwick tree at its rank
+	 * by trail once its lead falls below a, and each answer is the tree's sum
+	 * over the suffix. Double.compare orders -0.0 before 0.0, which the
+	 * {@code <} and {@code >} tests treat as equal; each cut still falls
+	 * between whole runs of numerically equal values, so neither depends on
+	 * that order.
+	 */
+	static int[] countOverlappingFinsSweep(double[] leads, double[] trails, int[] counts) {
+		final int m = leads.length;
+		final double[] limitA = new double[m]; // fin set i overlaps j only if leads[i] < limitA[j]
+		final double[] limitB = new double[m]; // ... and trails[i] > limitB[j]
+		for (int j = 0; j < m; j++) {
+			limitA[j] = trails[j] - 0.005;
+			limitB[j] = leads[j] + 0.005;
+		}
+		Integer[] byLead = indices(m);
+		Arrays.sort(byLead, (x, y) -> Double.compare(leads[x], leads[y]));
+		Integer[] byTrail = indices(m);
+		Arrays.sort(byTrail, (x, y) -> Double.compare(trails[x], trails[y]));
+		Integer[] byLimitA = indices(m);
+		Arrays.sort(byLimitA, (x, y) -> Double.compare(limitA[x], limitA[y]));
+		double[] sortedTrails = new double[m];
+		int[] trailRank = new int[m];
+		for (int r = 0; r < m; r++) {
+			sortedTrails[r] = trails[byTrail[r]];
+			trailRank[byTrail[r]] = r;
+		}
+		int[] tree = new int[m + 1]; // Fenwick tree over trail ranks, 1-based
+		int[] result = new int[m];
+		int added = 0;
+		for (int q = 0; q < m; q++) {
+			int j = byLimitA[q];
+			while (added < m && leads[byLead[added]] < limitA[j]) {
+				int i = byLead[added++];
+				for (int k = trailRank[i] + 1; k <= m; k += k & -k) {
+					tree[k] += counts[i];
+				}
+			}
+			// The first rank whose trail is > limitB[j]; every rank after it is too.
+			int lo = 0;
+			int hi = m;
+			while (lo < hi) {
+				int mid = (lo + hi) >>> 1;
+				if (sortedTrails[mid] > limitB[j]) {
+					hi = mid;
+				} else {
+					lo = mid + 1;
+				}
+			}
+			result[j] = fenwickPrefix(tree, m) - fenwickPrefix(tree, lo);
+		}
+		return result;
+	}
+
+	private static Integer[] indices(int m) {
+		Integer[] out = new Integer[m];
+		for (int i = 0; i < m; i++) {
+			out[i] = i;
+		}
+		return out;
+	}
+
+	/** Sum over the first n ranks. */
+	private static int fenwickPrefix(int[] tree, int n) {
+		int sum = 0;
+		for (int k = n; k > 0; k -= k & -k) {
+			sum += tree[k];
+		}
+		return sum;
+	}
+
 }

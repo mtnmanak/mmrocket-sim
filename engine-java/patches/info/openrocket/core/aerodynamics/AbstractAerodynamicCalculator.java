@@ -2,6 +2,7 @@ package info.openrocket.core.aerodynamics;
 
 import java.util.Map;
 
+import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.RocketComponent;
@@ -25,8 +26,23 @@ public abstract class AbstractAerodynamicCalculator implements AerodynamicCalcul
 	/**
 	 * A <code>WarningSet</code> that can be used if <code>null</code> is passed
 	 * to a calculation method.
+	 * <p>
+	 * PERF PATCH (2026-10-11, patches/LEDGER.md): it keeps nothing. Upstream's
+	 * is an ordinary WarningSet that nothing ever reads (see the checkGeometry
+	 * patch in BarrowmanCalculator), so every warning poured into it was stored
+	 * after a linear search of everything stored before. A design whose parts
+	 * each raise their own warning (one per camera shroud, say) paid N^2/2
+	 * comparisons per aerodynamic evaluation: on every one of the 360 planes
+	 * of the worst-CP sweep, and on every flight step that records no warnings.
+	 * Every add() path of WarningSet ends in add(Warning), so discarding there
+	 * discards them all. No force, CP or drag reads a warning set.
 	 */
-	protected WarningSet ignoreWarningSet = new WarningSet();
+	protected WarningSet ignoreWarningSet = new WarningSet() {
+		@Override
+		public boolean add(Warning m) {
+			return false;
+		}
+	};
 
 	/** The aerodynamic modification ID of the latest rocket */
 	private ModID rocketAeroModID = new ModID();

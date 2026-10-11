@@ -122,6 +122,36 @@ public final class OrkEngine {
         }
     }
 
+    /**
+     * Work counters since the last call, which this call zeroes, as JSON:
+     * {"structureScanSteps":n,"geometryChecks":m,"siblingScanSteps":s,
+     * "messageScanSteps":w,"stageScanSteps":t}. structureScanSteps is how
+     * many child-list entries RocketComponent's structure check and
+     * getChildPosition scanned; geometryChecks is how many times
+     * BarrowmanCalculator.checkGeometry ran; siblingScanSteps is how many
+     * siblings the fin-interference count and a centering ring's automatic
+     * inner radius visited; messageScanSteps is how many stored warnings a new
+     * one was compared against; stageScanSteps is how many stage numbers and
+     * stage flags the stage bookkeeping (Rocket, FlightConfiguration) probed.
+     * Counts, not timings, so a test can hold a build to work linear in its
+     * parts on any machine (2026-10-11, patches/LEDGER.md). Nothing in the
+     * kernel reads them.
+     */
+    @JSExport
+    public static String takeWorkCounters() {
+        String json = "{\"structureScanSteps\":" + RocketComponent.structureScanSteps
+                + ",\"geometryChecks\":" + BarrowmanCalculator.geometryCheckCalls
+                + ",\"siblingScanSteps\":" + RocketComponent.siblingScanSteps
+                + ",\"messageScanSteps\":" + info.openrocket.core.logging.MessageSet.messageScanSteps
+                + ",\"stageScanSteps\":" + info.openrocket.core.rocketcomponent.Rocket.stageScanSteps + "}";
+        RocketComponent.structureScanSteps = 0;
+        BarrowmanCalculator.geometryCheckCalls = 0;
+        RocketComponent.siblingScanSteps = 0;
+        info.openrocket.core.logging.MessageSet.messageScanSteps = 0;
+        info.openrocket.core.rocketcomponent.Rocket.stageScanSteps = 0;
+        return json;
+    }
+
     // ---------- Rocket construction ----------
 
     /** Creates a rocket with one stage and a dedicated flight configuration. Returns rocket handle. */
@@ -621,14 +651,20 @@ public final class OrkEngine {
         // A SEPARATE FlightConditions, deliberately: getWorstCP writes the
         // winning theta back into the object it is handed
         // (AbstractAerodynamicCalculator:82), and `conditions` is still read
-        // below for the reference length. A throwaway WarningSet too — the
-        // sweep would otherwise pour 360 rounds of duplicates into the set the
-        // caller sees.
+        // below for the reference length. And NO WarningSet (null): the sweep
+        // would otherwise pour 360 rounds of duplicates into the set the
+        // caller sees. It was a throwaway `new WarningSet()` until 2026-10-11,
+        // which still ran BarrowmanCalculator.checkGeometry on every one of the
+        // 360 planes, formatting two lengths as text per pair of airframe
+        // parts, for warnings nobody read: about 9 s on a design of 1,000 body
+        // tubes. Null is the calculator's own "discard" (calculateNonAxialForces
+        // substitutes ignoreWarningSet, and checkGeometry is skipped for it);
+        // no force or CP reads the set, so every number is unchanged. The
+        // design's geometry warnings come from the theta = 0 getCP above.
         FlightConditions worstCond = new FlightConditions(ctx.rocket.getSelectedConfiguration());
         worstCond.setMach(0.3);
         worstCond.setAOA(0);
-        Coordinate cpWorst = calc.getWorstCP(ctx.rocket.getSelectedConfiguration(), worstCond,
-                new WarningSet());
+        Coordinate cpWorst = calc.getWorstCP(ctx.rocket.getSelectedConfiguration(), worstCond, null);
         // No angle produced any normal force at all: getWorstCP never replaced
         // its sentinel, so cpWorst.x is Double.MAX_VALUE. Emit the same shape
         // getCP emits for a design with nothing to measure — zeros — rather

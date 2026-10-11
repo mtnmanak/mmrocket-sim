@@ -22,7 +22,8 @@ import {
  *    to 64, so the drawings also showed counts the kernel never flew.
  *  - DEGENERATE DIMENSIONS the kernel cannot build: a negative fin height,
  *    wall or density ("InertiaMatrix … negative"), a zero tube-fin length ("NaN
- *    … BigInt"), a zero shroud height ("Unknown format conversion: g").
+ *    … BigInt"; since 2026-10-11 it builds instead, with no CP), a zero shroud
+ *    height ("Unknown format conversion: g").
  *  - ENUM STRINGS the bridge refuses ("Unknown separation event: …").
  *
  * The last two failed the WHOLE build — mass, CP, Launch and every export —

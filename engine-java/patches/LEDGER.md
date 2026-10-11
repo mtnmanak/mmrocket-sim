@@ -1406,6 +1406,206 @@ The designs that gain most are the ones with the most automatic-radius ring
 components (centering rings, bulkheads, tube couplers) — which is exactly the
 "some files were fine and some were super slow" pattern from the report.
 
+### rocketcomponent/RocketComponent.java + api/OrkEngine.java (+ a counter in aerodynamics/BarrowmanCalculator.java) — the design build is linear in the parts under one parent (2026-10-11)
+
+- **Why:** the board's Tier 2 row "the design build after every open grows roughly
+  with the square of the parts under one parent (about 3 s at 8,000 parts)"
+  (register, 1 October, v0.147). Profiled on the TeaVM artifact, three causes:
+  1. `checkComponentStructure()` (upstream's own "TODO: Remove this after the
+     inconsistent internal state bug has been corrected") runs on EVERY child
+     accessor (`getChild`, `getChildCount`, `getChildren`, `getChildPosition`, ...)
+     and scans the parent's whole child list (`containsExact`) plus this
+     component's whole child list. One walk over N children under one parent is
+     N²/2 steps, and a build walks the tree dozens of times (FlightConfiguration
+     update, active instances, mass, aero).
+  2. `getChildPosition()` is `children.indexOf(child)`, and every AFTER-placed
+     child (`setAfter`, through `ComponentAssembly.update` and `setAxialOffset`)
+     asks for its own index on every update: N body tubes in one stage, O(N²)
+     per update.
+  3. The bridge's static analysis handed `getWorstCP` a throwaway
+     `new WarningSet()`, so `BarrowmanCalculator.checkGeometry` ran on all 360
+     roll planes — formatting two lengths as display text per pair of airframe
+     parts — for warnings nobody read (with cause 1's `getChildPosition` per
+     flush pair inside it, O(N²) per plane).
+- **Change (RocketComponent):** per component, an index hint (where it was last
+  found in its parent's list, checked by IDENTITY before any scan, and one place
+  either side), a "children verified" flag, and a record of the children's ids.
+  `containsExact` tries the hint, then scans from the end (a build appends);
+  the child loop is skipped once verified; `getChildPosition` answers from the
+  hint while no two children share an id, else falls back to `indexOf`.
+- **Why it is exact, not "almost":** `containsExact` returns the same boolean
+  whatever order it looks in. The child loop can only change its answer if the
+  child list or a child's `parent` field changes, and ONLY RocketComponent writes
+  either (grep of every carved and api file, 2026-10-11): an append (addChild,
+  whose component must have no parent) gives the new child this parent and
+  leaves every other child alone, so it keeps the flag; removeChild, moveChild
+  (both match by id through `ArrayList.remove`) and copyFrom clear it, on the old
+  parent too; clone() clears it because `super.clone()` copies fields
+  wholesale. `indexOf` returns the FIRST child EQUAL to the argument, equality
+  being class plus id (`RocketComponent.equals`); while the ids are distinct the
+  child found by identity is that one. The id record is extended by an append
+  and dropped by every other list change, by `newID`, by `setID` and in
+  clone(). Nothing changes what the structure check THROWS on a broken tree,
+  only when it re-scans a tree it has already verified unchanged.
+- **Change (OrkEngine.getStaticInfo):** `getWorstCP(config, worstCond, null)`.
+  Null is the calculator's own discard (`calculateNonAxialForces` substitutes
+  `ignoreWarningSet`, and the checkGeometry patch above skips `checkGeometry` for it);
+  no force or CP reads a WarningSet. The design's geometry warnings still come
+  from the theta = 0 `getCP` with the real set.
+- **Counters:** `RocketComponent.structureScanSteps` (child-list entries scanned)
+  and `BarrowmanCalculator.geometryCheckCalls`, `int` (TeaVM emulates long),
+  read and zeroed by the bridge's `takeWorkCounters()` (engine:
+  `takeKernelWorkCounters()`). Nothing in the kernel reads them.
+  `packages/app/src/services/buildDesignScale.test.ts` holds a build of 2,000
+  parts in one body tube and 2,000 body tubes in one stage to fewer than 25
+  scanned entries a part (both measure 1.0) and the static analysis to ONE
+  geometry check. Mutation-checked one cause at a time: no verified flag
+  1,048 and 45,085 a part; no hint 24,025 and 25,061; no `getChildPosition`
+  fast path 3,005 (tubes only); the throwaway set again 361 checks.
+- **Oracle:** `goldenJvm` before/after zero-line diff (446 lines); difftest 446
+  lines (294 bit-identical, 152 within tolerance); all 155 corpus designs
+  (`docs/User files` and desktop's examples) build to byte-identical static info
+  and warning text, and 18 of them fly to identical summaries, events and series
+  over three runs each (one, "Pods--powered with recovery deployment", varies in
+  the last digit between runs before and after alike).
+- **Measured** (this machine, Node, kernel `buildTree` + `staticInfo`, cold
+  process each):
+
+  | design | before | after |
+  |---|---|---|
+  | 1,000 / 2,000 / 4,000 / 8,000 mass components in one tube | 0.24 / 0.39 / 0.85 / 2.34 s | 0.15 / 0.23 / 0.37 / 0.69 s |
+  | 1,000 / 2,000 / 4,000 body tubes in one stage | 16.6 / 40.5 / 148 s | 0.50 / 0.95 / 2.1 s |
+  | 8,000 body tubes in one stage | not run | 5.6 s |
+
+  What is left on the tube rows is linear: the forward-CP search evaluates every
+  airframe part on 361 planes (about 0.4-0.7 ms a part per analysis).
+- **Divergence from upstream:** none in behaviour; upstreamable.
+
+### aerodynamics/barrowman/FinSetCalc.java + BarrowmanCalculator.java + AbstractAerodynamicCalculator.java + barrowman/TubeFinSetCalc.java + rocketcomponent/RocketComponent.java + CenteringRing.java (NEW patch) + Rocket.java (NEW patch) + FlightConfiguration.java + logging/MessageSet.java (NEW patch, counter only) — the build stays linear for every kind of part, not only the two above (2026-10-11)
+
+- **Why:** the entry above made the build linear for mass components and body
+  tubes. A review of that lane re-measured other kinds of part under one parent
+  and found more square-law steps, all in the static analysis or the build:
+  1. `FinSetCalc.calculateInterferenceFinCount` places EVERY sibling fin set
+     (two `toRelative` calls each) to count the fins beside it, and every fin set
+     does that when its calculator is built: N² `toRelative` calls. About 1.1 s
+     of 3.8 s (in a profile) at 2,000 trapezoidal fin sets in one tube.
+  2. `ignoreWarningSet` was an ordinary `WarningSet` that nothing reads. Every
+     warning poured into it was stored after a linear search of the others, so
+     a design whose parts each raise their own warning (a camera shroud is
+     lowered to a one-fin freeform set that does) paid N²/2 comparisons on each
+     of the 360 planes of the worst-CP sweep, and on every flight step that
+     records no warnings. 1,000 shrouds: 6.4 s.
+  3. `TubeFinSetCalc.calculateNonaxialForces` built two debug strings on every
+     call, the closing one formatting every force and the CP as decimal text,
+     although the kernel's logger (`teavm-extras-slf4j`) never logs debug:
+     about 0.3 ms a call, 361 calls a static analysis, about 100 ms per tube fin
+     set. Linear, but 1,000 tube fin sets took 105 s.
+  4. `CenteringRing.getInnerRadius` (automatic) walks a fresh copy of its
+     parent's whole child list for inner tubes, and a mass calculation reads it
+     several times per ring: N² per mass calculation.
+  5. `Rocket.getNewStageNumber` searches for a free number from 0 for every new
+     stage, and every structure change forgets and re-files every stage; and
+     `FlightConfiguration.updateStages` looked each stage's flags up by a scan
+     of all the old ones. N boosters: N² per structure change.
+- **Change:**
+  1. Inside `BarrowmanCalculator.buildCalcMap` (`FinSetCalc.beginSiblingFinScope`
+     / `endSiblingFinScope`, closed in a `finally`), the fin sets under one
+     parent are placed ONCE and every fin set's count is read from that. The
+     counts for all of them come from one sort-and-sweep (Fenwick tree over the
+     trailing edges, O(m log m)); below 64 fin sets, or with a NaN position, the
+     double loop runs instead. A fin set uses the per-parent count only if its
+     own leading and trailing x are bit for bit the ones the count was taken at;
+     otherwise, and outside the scope, upstream's loop runs as before.
+  2. `ignoreWarningSet` is a `WarningSet` whose `add(Warning)` keeps nothing.
+     Every `add` path of `WarningSet` (`add(String)`, `add(m, sources)`,
+     `add(m, String)`, `addAll`) ends in `add(Warning)`.
+  3. Both debug lines in `TubeFinSetCalc.calculateNonaxialForces` are built only
+     under `log.isDebugEnabled()`.
+  4. `RocketComponent.getInnerTubeChildren()`: the InnerTube children in child
+     order, kept until the child list changes (`childListVersion`, bumped by
+     addChild, removeChild, moveChild, copyFrom and copyWithOriginalID, the only
+     writers of `children`; clone() also drops the kept list). CenteringRing
+     loops over that instead of `getChildren()`; its loop skipped every
+     non-InnerTube anyway.
+  5. `Rocket.stageNumberFloor`: every number below it is a stage number in use,
+     so `getNewStageNumber` starts there. Lowered by every `forgetStage`, reset
+     to 0 when `stageMap` is replaced (copyWithOriginalID, loadFrom), advanced
+     after `trackStage` files a stage at it. It can only be too low, which costs
+     time, never a different number. `FlightConfiguration.updateStages` builds a
+     map from stage id to the FIRST flag with that id in `values()` order (what
+     the scan found) and reads it; a null id, which made the scan throw, falls
+     back to the scan.
+- **Why it is exact:** the interference count is a sum of ints over the same set
+  of fin sets, chosen by the same two comparisons on the same doubles; int
+  addition does not depend on order, even past overflow. The sweep's two cuts
+  (lead below a, trail above b) each fall between whole runs of numerically
+  equal values, so Double.compare's ordering of -0.0 before 0.0 cannot move
+  them. No force, CP or drag reads a warning set, and nothing reads
+  `ignoreWarningSet` (grep of carved, api and patches). `toString` and
+  `getRefArea` have no side effects. Max over the same inner tubes is the same
+  max.
+  One input does change: a tube fin set of ZERO length used to fail the whole
+  build on TeaVM, because the skipped debug text formatted its NaN CP and
+  TeaVM's formatter throws on NaN ("cannot be converted to a BigInt"). It now
+  builds with a NaN CP, as it always did on the JVM (Java formats NaN as text).
+  The app never sends it: the sanitiser raises the length to 0.1 mm
+  (`sanitize.test.ts` now pins both halves). A free stage number found from a floor below which none is free is the
+  one found from 0.
+- **Tests:** `engine-java/src/test/.../barrowman/SiblingScanTest.java` (JUnit):
+  the sweep against the double loop on 400 random sets with ties at the ±0.005
+  limits, -0.0, infinities and overflowing counts; NaN falls back; 192 fin sets at
+  random places give the same count in and out of the scope, in one pass over
+  the tube's children; centering rings match upstream's loop, and the kept list
+  matches the filtered child list, after insert, move, remove, append and a
+  copy; stage numbers stay 0..n-1 in tree order through adds and removes.
+  `buildDesignScale.test.ts` adds 2,000 trapezoidal fin sets, centering rings
+  and boosters in one tube to the bounded-work cases, one sibling pass per
+  parent for fin sets and rings, and fewer than n² warning comparisons for 500
+  camera shrouds (one pass is n²/2).
+- **Counters:** `RocketComponent.siblingScanSteps`, `MessageSet.messageScanSteps`
+  and `Rocket.stageScanSteps`, `int`, read and zeroed by `takeWorkCounters()`.
+  Nothing in the kernel reads them.
+- **Mutation-checked:** no scope (2,000 sibling steps a part; 4,000,000 in all);
+  kept ring list rebuilt every read (16,000 a part); CenteringRing back on
+  `getChildren()` (the kept list unused: 0 steps); floor search from 0 again
+  (3,021 stage steps a part); flag scan again (7,030 a part); the discard set
+  storing again (45,755,387 comparisons for 500 shrouds, against a bound of
+  250,000); the sweep's `>` as `>=`, and its `<` as `<=` (JUnit, both fail);
+  no version bump on add, move or remove (JUnit fails). Without the clone()
+  reset the copy still matches, because copyWithOriginalID bumps the version.
+- **Oracle:** `goldenJvm` zero-line diff (446 lines); difftest OK (294
+  bit-identical, 152 within tolerance); all 155 corpus designs build to
+  byte-identical static info and warnings, and 18 of them fly identically over
+  three runs; static info byte-identical to main's kernel on crafted designs:
+  480 fin sets of four kinds at random places and lengths in one tube, 100
+  inner tubes among 300 centering rings, 300 tube fin sets, lugs, rail buttons,
+  pod sets and protuberances, 150 boosters each with a nose and a finned tube,
+  1,000 camera shrouds (33 kB of warning text), 1,000 boosters.
+- **Measured** (this machine, Node, kernel `buildTree` + `staticInfo`, cold
+  process each, one at a time; main = before either entry):
+
+  | parts in one body tube | main | after the entry above | after this one |
+  |---|---|---|---|
+  | 1,000 / 2,000 trapezoidal fin sets | 1.7 / 3.8 s | 1.5 / 3.8 s | 1.2 / 2.5 s |
+  | 4,000 / 8,000 trapezoidal fin sets | | | 5.4 / 12.4 s |
+  | 250 / 1,000 tube fin sets | 24.6 s / not run | 24.2 s / about 100 s | 0.5 / 2.0 s |
+  | 4,000 / 8,000 tube fin sets | | | 8.8 / 18.2 s |
+  | 1,000 / 2,000 camera shrouds | 6.4 / 26.1 s | 6.9 / 26.0 s | 0.66 / 1.3 s |
+  | 8,000 camera shrouds | | | 9.6 s |
+  | 2,000 / 8,000 centering rings | 0.87 s / not run | 0.64 s / not run | 0.24 / 0.71 s |
+  | 2,000 / 8,000 boosters | 3.4 s / not run | 0.58 / 6.6 s | 0.29 / 0.88 s |
+
+  The work counted is now linear for every kind measured (about 20 kinds).
+  The time a part takes still rises about 1.5-2x from 1,000 to 8,000 parts; the
+  profile puts that in constant-cost calls (transforms, allocation) getting
+  slower as the working set grows, not in any repeated scan. Still square-law:
+  filling the warning set the design shows, when every part raises a warning of
+  its own (one pass of N²/2 comparisons in the set's duplicate check; about
+  1.9 s of the 9.6 s at 8,000 camera shrouds). Left as it is: `Message.equals`
+  differs by subclass, so a hashed index would need a proof per subclass.
+- **Divergence from upstream:** none in behaviour; upstreamable.
+
 ## Correctness fixes (documented physics change — a kernel defect, fixed deliberately)
 
 This section exists because Rule 1 below did not have a home for it. A performance

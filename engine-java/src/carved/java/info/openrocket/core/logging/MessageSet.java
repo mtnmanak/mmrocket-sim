@@ -35,6 +35,15 @@ public abstract class MessageSet<E extends Message> extends AbstractSet<E> imple
     private ModID modID = ModID.ZERO;
 
     /**
+     * PERF PATCH (2026-10-11, patches/LEDGER.md): how many stored messages
+     * add(E) has compared a new one against. Read and zeroed by the bridge's
+     * takeWorkCounters(); the app's tests hold a static analysis to one pass of
+     * warnings, not one per roll angle of the worst-CP sweep. An int, not a
+     * long (TeaVM emulates long arithmetic). Counting only.
+     */
+    public static int messageScanSteps = 0;
+
+    /**
      * Add a <code>Message</code> to the set.  If a message of the same type
      * exists in the set, the message that is left in the set is defined by the
      * method {@link Message#replaceBy(Message)}.
@@ -51,6 +60,7 @@ public abstract class MessageSet<E extends Message> extends AbstractSet<E> imple
 
         modID = new ModID();
         int index = messages.indexOf(m);
+        messageScanSteps += index < 0 ? messages.size() : index + 1;
 
         if (index < 0) {
             return messages.add(m);

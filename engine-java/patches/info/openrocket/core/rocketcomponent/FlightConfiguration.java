@@ -611,14 +611,39 @@ public class FlightConfiguration implements FlightConfigurableParameter<FlightCo
 	private void updateStages() {
 		Map<Integer, FlightConfiguration.StageFlags> stagesBackup = new HashMap<>(this.stages);
 		this.stages.clear();
+		// PERF PATCH (2026-10-11, patches/LEDGER.md): upstream searched every old
+		// flag for each stage, N^2 per update with N stages (thousands of
+		// boosters under one tube). The first flag in values() order with a
+		// given stage id is what that search found; this map holds exactly that
+		// one per id. A null id would make the search throw, so then the
+		// search runs as before.
+		Map<UUID, Boolean> activeById = new HashMap<>();
+		boolean nullId = false;
+		for (FlightConfiguration.StageFlags flag : stagesBackup.values()) {
+			Rocket.stageScanSteps++;
+			if (flag.stageId == null) {
+				nullId = true;
+				break;
+			}
+			activeById.putIfAbsent(flag.stageId, flag.active);
+		}
 		for (AxialStage curStage : this.rocket.getStageList()) {
 			if (curStage == null)
 				continue;
 			boolean active = true;
-			for (FlightConfiguration.StageFlags flag : stagesBackup.values()) {
-				if (flag.stageId.equals(curStage.getID())) {
-					active = flag.active;
-					break;
+			Rocket.stageScanSteps++;
+			if (!nullId) {
+				Boolean found = activeById.get(curStage.getID());
+				if (found != null) {
+					active = found;
+				}
+			} else {
+				for (FlightConfiguration.StageFlags flag : stagesBackup.values()) {
+					Rocket.stageScanSteps++;
+					if (flag.stageId.equals(curStage.getID())) {
+						active = flag.active;
+						break;
+					}
 				}
 			}
 			StageFlags flagsToAdd = new StageFlags(curStage.getStageNumber(), curStage.getID(), active);

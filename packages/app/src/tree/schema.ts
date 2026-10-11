@@ -331,6 +331,9 @@ export const MAX_DIMENSION_M = 1000;
  * buildTree; 1e-12 m builds in both. 0.1 mm is below any tube fin or shroud
  * anyone builds, yet still reads as a number rather than as zero in millimetres
  * and in inches (the panel shows three decimals), so the repair is visible.
+ * Since 2026-10-11 the zero tube-fin length no longer throws (the throw came
+ * from a debug line the kernel no longer builds) but builds with no CP at all,
+ * so the minimum still applies.
  * @internal Exported for tree/sanitize.test.ts; no other module imports it.
  */
 export const MIN_POSITIVE_DIMENSION_M = 0.0001;
