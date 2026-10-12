@@ -63,6 +63,9 @@ export const XML_JS_SUITES = [
   'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',
   'src/services/rocksimFile.test.ts',
+  // Mount fidelity and early part bounds (audit 2026-10-11, S1b-6/S1b-3).
+  'src/services/rocksimFile.fidelity.test.ts',
+  'src/services/rocksimFile.bounds.test.ts',
   'src/services/rocksimAmbiguousLoadout.test.ts',
   'src/services/rocksimFileHardening.test.ts',
   'src/services/rocksimFileIgnored.test.ts',

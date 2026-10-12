@@ -991,8 +991,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         }
         const cd = num(el, 'DragCoefficient', 0);
         if (cd > 0 && cd !== 0.75) n['cd'] = cd;
-        const lines = Math.round(num(el, 'ShroudLineCount', 0));
-        if (lines > 0) {
+        // Zero explicitly means no lines, not the kernel's six-line default
+        // (audit 2026-10-11, S1b-5); absent/unreadable counts keep that default.
+        const lines = Math.round(num(el, 'ShroudLineCount', NaN));
+        if (lines >= 0) {
           n['lineCount'] = lines;
           n['lineLength'] = num(el, 'ShroudLineLen', 300) / LEN;
         }
@@ -1164,6 +1166,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     return stage;
   });
+
+  // Refuse before tube grouping and fin de-collision can do quadratic work
+  // (audit 2026-10-11, S1b-3). Count the file's parts, even if merging could
+  // shrink them; the final check also covers synthesised base extensions.
+  refuseTooManyParts(components);
 
   // A TUBE MARKED INSIDE, LISTED IN A STAGE (batch 6). A <BodyTube> with
   // <IsInsideTube>1 directly in a stage, or in a stage-level sub-assembly, was
@@ -1425,7 +1432,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       preset ? [preset.manufacturer, preset.partNo] : null,
       (node.children ?? []).map(subtreeValue)];
   };
+  // Keep the number of physical tubes behind a merged mount (audit 2026-10-11,
+  // S1b-2): one set per copy is valid, but excess sets must not overwrite a motor.
+  const mountCopiesRead = new Map<ComponentNode, number>();
   const remapSubtree = (from: ComponentNode, to: ComponentNode): void => {
+    mountCopiesRead.set(to, (mountCopiesRead.get(to) ?? 1) + (mountCopiesRead.get(from) ?? 1));
     for (const [serial, node] of serialToNode) if (node === from) serialToNode.set(serial, to);
     for (const sets of simSets) for (const set of sets) if (set.node === from) set.node = to;
     for (const [el, node] of movedSets) if (node === from) movedSets.set(el, to);
@@ -1466,6 +1477,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // "Motor tubes" only when they are: LEM-M2B.ork's two nose-cone tubes,
         // written out and read back, were called that with no mount among them.
         const kind = g.some((t) => t['motorMount'] === true) ? 'motor tubes' : 'tubes';
+        // A plain tube must not inherit a mount flag or receive a repaired motor
+        // from its twin (audit 2026-10-11, S1b-1).
+        if (g.some((t) => (t['motorMount'] === true) !== (g[0]!['motorMount'] === true))) {
+          notes.push(`${g.length} similar ${kind} in “${where}” have different mount settings; `
+            + 'each stays a separate tube with its own parts and settings.');
+          continue;
+        }
         const loads = groupLoadouts(g);
         if (loads.differ) {
           for (const [el, to] of loads.moves) movedSets.set(el, to);
@@ -1895,7 +1913,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   for (const g of simGroups) {
     const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
     const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${g.name.trim()}\u201d)` : ''}`;
-    const motorLoadoutRefusal = missing === undefined ? undefined
+    // Check after the cluster repair moves, including body-tube and lone mounts
+    // it cannot repair (audit 2026-10-11, S1b-2). Loose sets bypass groupLoadouts:
+    // merged copies can share a motor only when its code, maker and delays agree.
+    const setsPerMount = new Map<ComponentNode, XmlElement[]>();
+    for (const es of g.sets) {
+      if (!text(es, ':scope > EngineCode')) continue;
+      const mount = movedSets.get(es) ?? namedMount(es) ?? stageFallbackMount(es);
+      if (mount) {
+        const sets = setsPerMount.get(mount) ?? [];
+        sets.push(es);
+        setsPerMount.set(mount, sets);
+      }
+    }
+    const duplicate = [...setsPerMount].some(([mount, sets]) =>
+      sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
+    const motorLoadoutRefusal = missing === undefined ? (duplicate
+      ? `Launch refused for ${source}: the file assigns more than one motor to the same mount. `
+        + 'Assign motors on Motors & Launch to separate mounts. No motors from this configuration were loaded.'
+      : undefined)
       : `Launch refused for ${source}: the file names ${missing} motor${missing === 1 ? '' : 's'} for mounts that no longer exist in the design. `
         + 'The app will not guess which tube each motor belongs in. Assign motors on Motors & Launch to real mounts, '
         + 'or add the missing mounts and assign their motors. No motors from this configuration were loaded.';
@@ -2702,6 +2738,9 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
       // to fold the tube into — and its base faces the OTHER way anyway.
       if (isTailCone(a)) continue;
       if (!b || b.type !== 'bodytube' || b['rktBaseExtension'] !== true) continue;
+      // BaseExtensionLen cannot carry a motor mount or its serial link
+      // (audit 2026-10-11, S1b-g3).
+      if (b['motorMount'] === true) continue;
       // Fold only a tube the user has not turned into something else — the element
       // carries a LENGTH and nothing more, so any other edit would die in the fold.
       const or = nnum(a, 'aftRadius', -1);
