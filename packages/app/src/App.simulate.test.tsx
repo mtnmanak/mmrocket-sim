@@ -22,6 +22,7 @@ import { peekSession } from './services/session.js';
 import { designStateFromSession } from './services/sessionRestore.js';
 import { comparable, idFree } from './services/simulate.testSupport.js';
 import type { FreshSimRun } from './services/simReport.js';
+import type { MountMotor } from './model/design.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
 import { fetchMotorSpec } from './services/thrustcurve.js';
@@ -838,8 +839,13 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
 
 const corpus = (name: string) => join(CORPUS, name);
 
-/** Native designs have no importer-seeded ignition defaults. Exercise the actual card and Launch. */
-async function nativeIgnitionCase(staged = false) {
+/**
+ * Native designs have no importer-seeded ignition defaults. Exercise the actual card and Launch.
+ * `own` keeps the card in its default own-setting scope; `others` adds saved configurations.
+ */
+async function nativeIgnitionCase(staged = false, { own = false, others = () => [] }: {
+  own?: boolean; others?: (mount: string, mm: MountMotor) => object[];
+} = {}) {
   prefs(CLASSIC);
   const tree = staged ? addStage(defaultTree()).tree : defaultTree();
   const mount = motorMounts(tree)[0]!.id!;
@@ -847,7 +853,8 @@ async function nativeIgnitionCase(staged = false) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
     launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, configLayers: 1,
     activeConfigId: 'a', detachedOverrides: {}, savedAt: 1, appVersion: APP_VERSION,
-    savedConfigs: [{ id: 'a', name: 'Native A', isDefault: true, motors: { [mount]: mm } }] }));
+    savedConfigs: [{ id: 'a', name: 'Native A', isDefault: true, motors: { [mount]: mm } },
+      ...others(mount, mm)] }));
   const host = await mountApp();
   const click = async (text: string) => act(async () => {
     [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
@@ -859,7 +866,7 @@ async function nativeIgnitionCase(staged = false) {
   expect(scopes.map(l => l.textContent?.trim())).toEqual([
     "Change the part's own setting — every configuration that uses it", 'Override for “Native A” only']);
   expect(scopes[0]!.querySelector('input')!.checked).toBe(true);
-  await act(async () => { scopes[1]!.querySelector('input')!.click(); });
+  if (!own) await act(async () => { scopes[1]!.querySelector('input')!.click(); });
   const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
   const choose = async (event: string) => act(async () => {
     select().value = event;
@@ -924,6 +931,31 @@ it.each(['auto', 'plugged', 'delay'])('FC-4 fixup native ignition survives %s co
   await click('Redo');
   expect(select().value).toBe('launch');
   await fly('launch', 2);
+}, 30000);
+
+it('CFG-2 own-scope ignition edit on a native design freezes another configuration\'s own record, in one Undo step', async () => {
+  // Review of CFG-2: with no shared ignition default yet, B's own motor record
+  // lights differently from A's. An own-setting edit on A's card establishes the
+  // default; B must keep flying its record (frozen as an override), A gains none.
+  const native = { event: 'launch', delay: 1 };
+  const { host, mount, click, choose } = await nativeIgnitionCase(false, { own: true,
+    others: (id, mm) => [{ id: 'b', name: 'Native B', isDefault: false, motors: { [id]: { ...mm, ignition: native } } }] });
+  await choose('never');
+  window.dispatchEvent(new Event('pagehide'));
+  const edited = peekSession()!;
+  expect(edited.tree.ignitionDefaults![mount]).toEqual({ event: 'never', delay: 0 });
+  const [a, b] = edited.savedConfigs!;
+  expect(a!.ignitions?.[mount]).toBeUndefined();
+  expect(b!.ignitions?.[mount]).toEqual(native);
+  expect(resolveFlightState(edited.tree, edited.savedConfigs!, 'b', {}, b!.motors).mountMotors[mount]!.ignition)
+    .toEqual(native);
+  await click('Undo');
+  window.dispatchEvent(new Event('pagehide'));
+  const undone = peekSession()!;
+  expect(undone.tree.ignitionDefaults?.[mount]).toBeUndefined();
+  expect(undone.savedConfigs!.map(c => c.ignitions?.[mount])).toEqual([undefined, undefined]);
+  // One step: nothing older is left to undo.
+  expect([...host.querySelectorAll('button')].find(btn => btn.textContent?.includes('Undo'))!.disabled).toBe(true);
 }, 30000);
 
 it('FC-4 fixup Delete keeps override history in the detached working layer', async () => {

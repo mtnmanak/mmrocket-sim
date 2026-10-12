@@ -1442,7 +1442,11 @@ describe('CFG-2 scoped recovery, stage and ignition editors', () => {
     // The typed gesture was one step: Undo restores the override as it was before typing.
     await act(async () => { button(host, '↩ Undo').click(); });
     expect(read().savedConfigs![0]!.deployments![chute.id!]).toEqual({ ...override, deployEvent: 'altitude' });
-    await act(async () => { button(row, 'Reset to own setting').click(); });
+    // Keyboard: the Reset button goes with the override; focus stays in the row, on Edit… (review of CFG-2).
+    const reset = button(row, 'Reset to own setting');
+    await act(async () => { reset.focus(); reset.click(); });
+    expect(document.activeElement).toBe(button(row, 'Edit…'));
+    expect([...row.querySelectorAll('button')].some(b => b.textContent === 'Reset to own setting')).toBe(false);
     state = read();
     expect(state.savedConfigs![0]!.deployments![chute.id!]).toBeUndefined();
     expect(state.savedConfigs![1]!.deployments![chute.id!]).toEqual(override);
@@ -1500,12 +1504,18 @@ describe('CFG-2 scoped recovery, stage and ignition editors', () => {
     const recovery = 'Reset all recovery overrides in this configuration';
     const stage = 'Reset all stage overrides in this configuration';
     const has = (text: string) => [...host.querySelectorAll('button')].some(b => b.textContent === text);
-    await act(async () => { button(host, recovery).click(); });
+    // Keyboard: each section reset removes its own button; focus lands on that section's heading.
+    const heading = (label: string) => host.querySelector<HTMLElement>(`section[aria-label="${label}"] h3`)!;
+    const recoveryReset = button(host, recovery);
+    await act(async () => { recoveryReset.focus(); recoveryReset.click(); });
+    expect(document.activeElement).toBe(heading('Recovery'));
     let state = read();
     expect(state.savedConfigs![0]).toMatchObject({ deployments: {}, separations: maps.separations, ignitions: maps.ignitions });
     expect(state.savedConfigs![1]).toMatchObject(maps);
     expect(has(recovery)).toBe(false);
-    await act(async () => { button(host, stage).click(); });
+    const stageReset = button(host, stage);
+    await act(async () => { stageReset.focus(); stageReset.click(); });
+    expect(document.activeElement).toBe(heading('Stages'));
     state = read();
     expect(state.savedConfigs![0]).toMatchObject({ deployments: {}, separations: {}, ignitions: maps.ignitions });
     expect(has(stage)).toBe(false);
@@ -1547,9 +1557,101 @@ describe('CFG-2 scoped recovery, stage and ignition editors', () => {
     await choose(chooser, 'b');
     expect(radio(card(), 'Override for “B” only').checked).toBe(true);
     expect(select().value).toBe('launch');
-    await act(async () => { button(card() as HTMLElement, 'Reset to own setting').click(); });
+    // Keyboard: the card's Reset goes with the override; focus moves to the ignition select.
+    const cardReset = button(card() as HTMLElement, 'Reset to own setting');
+    await act(async () => { cardReset.focus(); cardReset.click(); });
     expect(read().savedConfigs!.find(c => c.id === 'b')!.ignitions?.[mount]).toBeUndefined();
     expect(select().value).toBe('never');
+    expect(document.activeElement).toBe(select());
+  }, 60_000);
+
+  // Review of CFG-2 (medium): after Delete the working settings own the
+  // overrides while saved configurations remain, whether or not they still
+  // hold one. An override edited back to the own setting must not turn the
+  // user's chosen override scope into an own-setting edit.
+  const deleteA = async (host: HTMLElement) => {
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete A"]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete A"]')!.click(); });
+  };
+
+  it('after Delete, an ignition override edited back to the own setting keeps the working-settings scope', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const own = { event: 'automatic' as const, delay: 0 };
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: own } }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [
+        { id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 }, ignitions: { [mount]: { event: 'launch', delay: 0 } } },
+        { id: 'b', name: 'B', isDefault: false, motors: { [mount]: c6 } },
+      ] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    await deleteA(host);
+    const card = () => host.querySelector(`[id="cfg-mount-${mount}"]`)!;
+    const select = () => card().querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)!;
+    const WORKING = 'Override in the working settings only';
+    expect(radio(card(), WORKING).checked).toBe(true);
+    expect(select().value).toBe('launch');
+    await choose(select(), 'automatic');
+    expect(read().detachedOverrides?.ignitions?.[mount]).toBeUndefined();
+    await choose(select(), 'never');
+    const state = read();
+    expect(state.detachedOverrides!.ignitions![mount]).toEqual({ event: 'never', delay: 0 });
+    expect(state.tree.ignitionDefaults![mount]).toEqual(own);
+    expect(state.savedConfigs!.map(c => [c.id, c.ignitions?.[mount]])).toEqual([['b', undefined]]);
+    expect(radio(card(), WORKING).checked).toBe(true);
+  }, 60_000);
+
+  it('after Delete, a recovery override edited back to the own setting keeps the working-settings scope', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const chute = chuteOf(tree);
+    const own = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
+    await seedStarterSession({ edit: () => updateNode(tree, chute.id!, own),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [
+        { id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 }, deployments: { [chute.id!]: { ...own, deployEvent: 'apogee' } } },
+        { id: 'b', name: 'B', isDefault: false, motors: { [mount]: c6 } },
+      ] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    await deleteA(host);
+    const row = host.querySelector<HTMLElement>(`[id="cfg-part-${chute.id!}"]`)!;
+    expect(row.textContent).toContain('The working settings: overridden — Apogee');
+    await act(async () => { button(row, 'Edit…').click(); });
+    const WORKING = 'Override in the working settings only';
+    expect(radio(row, WORKING).checked).toBe(true);
+    const event = () => row.querySelector<HTMLSelectElement>('.config-part-editor select')!;
+    expect(event().value).toBe('apogee');
+    await choose(event(), 'ejection');
+    expect(read().detachedOverrides?.deployments?.[chute.id!]).toBeUndefined();
+    await choose(event(), 'launch');
+    const state = read();
+    expect(state.detachedOverrides!.deployments![chute.id!]).toEqual({ ...own, deployEvent: 'launch' });
+    expect(findNode(state.tree, chute.id!)).toMatchObject(own);
+    expect(state.savedConfigs!.map(c => [c.id, c.deployments?.[chute.id!]])).toEqual([['b', undefined]]);
+    expect(radio(row, WORKING).checked).toBe(true);
+  }, 60_000);
+
+  it('ignition: the override scope a card opens in is pinned at the first edit, without touching the radios', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const own = { event: 'launch' as const, delay: 0 };
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: own } }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [
+        { id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 }, ignitions: { [mount]: { event: 'launch', delay: 2 } } },
+      ] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const card = () => host.querySelector(`[id="cfg-mount-${mount}"]`)!;
+    const OVERRIDE = 'Override for “A” only';
+    expect(radio(card(), OVERRIDE).checked).toBe(true);
+    // Typing the delay back to the own setting removes the override when the gesture ends.
+    const delay = card().querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    await act(async () => { delay.focus(); });
+    await type(delay, '0');
+    await act(async () => { delay.blur(); });
+    expect(read().savedConfigs![0]!.ignitions?.[mount]).toBeUndefined();
+    expect(radio(card(), OVERRIDE).checked).toBe(true);
+    await choose(card().querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)!, 'never');
+    const state = read();
+    expect(state.savedConfigs![0]!.ignitions![mount]).toEqual({ event: 'never', delay: 0 });
+    expect(state.tree.ignitionDefaults![mount]).toEqual(own);
   }, 60_000);
 
   it('with no configuration and no working overrides, a row edits only the own setting (no radios)', async () => {
@@ -1559,6 +1661,9 @@ describe('CFG-2 scoped recovery, stage and ignition editors', () => {
     const host = await mountApp();
     await openTab(host, 'Motors & Configuration');
     const row = host.querySelector<HTMLElement>(`[id="cfg-part-${chute.id!}"]`)!;
+    // No configuration exists, so the row does not claim one (review of CFG-2).
+    expect(row.textContent).toContain('The working settings: uses own setting');
+    expect(row.textContent).not.toContain('This configuration');
     await act(async () => { button(row, 'Edit…').click(); });
     expect(row.querySelector('fieldset')).toBeNull();
     expect(host.querySelector('.mount-card fieldset')).toBeNull();

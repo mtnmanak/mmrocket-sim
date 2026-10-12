@@ -79,6 +79,9 @@ describe('CFG-2 Recovery and Stages rows', () => {
   it('offers only the own setting without an owner, and names the working settings when detached', () => {
     const { row, click, buttonIn, render, cleanup } = setup({ configLabel: null, detached: false, overrides: {} });
     try {
+      // With no configuration the row does not claim one (review of CFG-2).
+      expect(row('chute').textContent).toContain('The working settings: uses own setting');
+      expect(row('chute').textContent).not.toContain('This configuration');
       click(buttonIn(row('chute'), 'Edit…')!);
       expect(row('chute').querySelector('fieldset')).toBeNull();
       expect(row('chute').textContent).toContain("Changes the part's own setting");

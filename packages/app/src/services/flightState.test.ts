@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DeploymentTuple, FlightTree, LayeredSavedConfig, MountMotor } from '../model/design.js';
-import { overrideFor, resetOverride, resolveFlightState, setOverride, sparsify, useOverrideEverywhere } from './flightState.js';
+import { holdsOverrides, overrideFor, resetOverride, resolveFlightState, setOverride, sparsify, useOverrideEverywhere,
+  workingSettingsOwnOverrides } from './flightState.js';
 import { sameDeployment } from './deployOverrideNote.js';
 
 const own: DeploymentTuple = { deployEvent: 'apogee', deployAltitude: 91.44, deployDelay: 0 };
@@ -110,5 +111,21 @@ describe('flight-state layer algebra (FC-1)', () => {
     const oldTree = { components: tree().components };
     const motors = { mount: motor };
     expect(resolveFlightState(oldTree, [], null, {}, motors).mountMotors).toBe(motors);
+  });
+
+  it('the working settings own an override layer with no active configuration while saved ones exist or they hold one (review of CFG-2)', () => {
+    const c = config();
+    const held = { deployments: { chute: other } };
+    expect(holdsOverrides({})).toBe(false);
+    expect(holdsOverrides({ deployments: {}, separations: {}, ignitions: {} })).toBe(false);
+    expect(holdsOverrides(held)).toBe(true);
+    // An active configuration owns its overrides; the working settings own none.
+    expect(workingSettingsOwnOverrides([c], 'A', held)).toBe(false);
+    // Detached, with a saved configuration left: owner even with no override held.
+    expect(workingSettingsOwnOverrides([c], null, {})).toBe(true);
+    expect(workingSettingsOwnOverrides([c], 'deleted', { deployments: {} })).toBe(true);
+    // No saved configuration: owner only while holding an override.
+    expect(workingSettingsOwnOverrides([], null, {})).toBe(false);
+    expect(workingSettingsOwnOverrides([], null, held)).toBe(true);
   });
 });

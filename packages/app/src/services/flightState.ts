@@ -31,6 +31,28 @@ export function setOverride<T extends FlightTuple>(
     ? resetOverride(overrides, id) : { ...overrides, [id]: { ...tuple } };
 }
 
+/** The detached working settings hold at least one override of any family. */
+export function holdsOverrides(overrides: FlightOverrides): boolean {
+  return Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);
+}
+
+/**
+ * THE owner rule for the configuration-tab editors (CFG-SPEC A2/A3; review of
+ * CFG-2): with no active configuration, the detached working settings own an
+ * override layer whenever saved configurations exist (an own-setting edit
+ * would change what those configurations fly) as well as whenever they hold
+ * an override. Ownership must not hang on the override being edited: one
+ * edited back to the own setting disappears, and the chosen override scope
+ * would otherwise silently become an own-setting edit. The row and card scope
+ * choices, beginFlightEdit and editIgnition all read this one predicate.
+ */
+export function workingSettingsOwnOverrides(
+  savedConfigs: readonly SavedConfig[], activeConfigId: string | null, detached: FlightOverrides,
+): boolean {
+  if (activeConfigId !== null && savedConfigs.some(c => c.id === activeConfigId)) return false;
+  return savedConfigs.length > 0 || holdsOverrides(detached);
+}
+
 /**
  * Supply this family's maps from ALL configurations plus the detached set.
  * Commit the returned default and maps together as one history step (FC-4/5).

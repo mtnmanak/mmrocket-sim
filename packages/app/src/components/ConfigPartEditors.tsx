@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightOverrides, FlightTree, SeparationTuple } from '../model/design.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -83,6 +83,7 @@ export function ConfigPartEditors({ tree, overrides, ownerKey, configLabel, deta
   const stageNames = useMemo(() => enclosingStages(tree), [tree]);
   const multiStage = stages(tree).length > 1 || hasParallelStage(tree);
   const overrideLabel = overrideScopeText(configLabel, detached);
+  const headings = useRef(new Map<PartFamily, HTMLHeadingElement>());
   const where = configLabel !== null ? 'in this configuration' : 'in the working settings';
   return <>{(['recovery', 'separation'] as const).map(family => {
     const rows = parts.filter(p => p.family === family).map(p => p.node);
@@ -92,12 +93,17 @@ export function ConfigPartEditors({ tree, overrides, ownerKey, configLabel, deta
     const overridden = rows.filter(node => overrideFor(map, node.id!));
     const title = family === 'recovery' ? 'Recovery' : 'Stages';
     return <section key={family} className="config-part-section" aria-label={title}>
-      <h3>{title}</h3>
+      {/* Focusable by script only: a section reset removes its own button, and
+          keyboard focus lands here rather than on the page (review of CFG-2). */}
+      <h3 tabIndex={-1} ref={el => { if (el) headings.current.set(family, el); else headings.current.delete(family); }}>{title}</h3>
       {rows.map(node => <PartRow key={`${node.id!}:${ownerKey}`} node={node} family={family}
         stageName={multiStage && family === 'recovery' ? stageNames.get(node.id!) ?? null : null}
         override={overrideFor(map, node.id!)} configLabel={configLabel} overrideLabel={overrideLabel} {...handlers} />)}
       {overrideLabel !== null && overridden.length > 0 && <button type="button" className="file-btn"
-        onClick={() => onResetAll(family, overridden.map(node => node.id!))}>
+        onClick={() => {
+          onResetAll(family, overridden.map(node => node.id!));
+          headings.current.get(family)?.focus();
+        }}>
         {`Reset all ${family === 'recovery' ? 'recovery' : 'stage'} overrides ${where}`}
       </button>}
     </section>;
@@ -113,6 +119,7 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
   const { prefs } = usePrefs();
   const uid = useId();
   const [editing, setEditing] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
   const [chosen, setScope] = useState<FlightEditScope>(() => defaultFlightScope(overrideLabel !== null, !!override));
   // Without an override owner there is nothing but the own setting to edit.
   const scope: FlightEditScope = overrideLabel === null ? 'own' : chosen;
@@ -136,21 +143,26 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
     const patch = { [keys[field]]: value } as Partial<ComponentFlightTuple>;
     onEdit(node, scope, { ...shown, ...patch } as ComponentFlightTuple, patch, numeric);
   };
-  const owner = configLabel !== null ? 'This configuration' : overrideLabel !== null ? 'The working settings' : 'This configuration';
+  // "This configuration" only names one that exists (review of CFG-2).
+  const owner = configLabel !== null ? 'This configuration' : 'The working settings';
   const verb = recovery ? 'deploy' : 'separation';
   return <div id={`cfg-part-${node.id!}`} tabIndex={-1} className="config-part-row" role="group" aria-labelledby={`${uid}-name`}>
     <strong id={`${uid}-name`}>{name}{stageName && ` (in ${stageName})`}</strong>
     <p className="comp-stats">Own setting: {describe(own)}</p>
     <p className="comp-stats">{owner}: {override ? <><strong>overridden</strong> — {describe(override)}</> : 'uses own setting'}</p>
     <div className="config-part-actions">
-      <button type="button" className="file-btn" aria-expanded={editing} aria-controls={`${uid}-editor`}
+      <button ref={editButton} type="button" className="file-btn" aria-expanded={editing} aria-controls={`${uid}-editor`}
         aria-describedby={`${uid}-name`}
         onClick={() => {
           if (!editing) setScope(defaultFlightScope(overrideLabel !== null, !!override));
           setEditing(!editing);
         }}>Edit…</button>
       {override && <button type="button" className="file-btn" aria-describedby={`${uid}-name`}
-        onClick={() => onReset(node)}>Reset to own setting</button>}
+        onClick={() => {
+          onReset(node);
+          // The Reset button goes with the override; keyboard focus stays in the row.
+          editButton.current?.focus();
+        }}>Reset to own setting</button>}
     </div>
     {editing && <div id={`${uid}-editor`} className="config-part-editor">
       {overrideLabel !== null

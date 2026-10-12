@@ -7,7 +7,8 @@ import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExpo
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
-import { activeFlightOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify } from './services/flightState.js';
+import { activeFlightOverrides, holdsOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify,
+  workingSettingsOwnOverrides } from './services/flightState.js';
 import type { ComponentFlightTuple } from './services/flightOverrideText.js';
 import { deploymentTuple } from './services/foreignConfigLayers.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from './model/design.js';
@@ -1123,9 +1124,14 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these three map identities affect resolution
     [activeLayer?.deployments, activeLayer?.separations, activeLayer?.ignitions, detachedOverrides]);
   const overrideConfigLabel = activeLayer ? savedConfigLabel(activeLayer) : null;
-  // The detached working settings own overrides only while they hold one
-  // (the FC-5 owner rule beginFlightEdit and editIgnition share).
-  const detachedOwnsOverrides = Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length > 0);
+  // The detached working settings own an override layer whenever no
+  // configuration is active and saved ones exist, or they hold an override:
+  // ONE owner rule for the scope choices, beginFlightEdit and editIgnition, so
+  // an override edited back to the own setting cannot flip the user's chosen
+  // scope into an own-setting edit (review of CFG-2).
+  const detachedOwnsOverrides = workingSettingsOwnOverrides(savedConfigs, activeConfigId, detachedOverrides);
+  // The vitals strip names the working settings only while they carry something.
+  const detachedHoldsOverrides = holdsOverrides(detachedOverrides);
   const overrideScopeLabel = overrideScopeText(overrideConfigLabel, detachedOwnsOverrides);
   const flightOwnerKey = activeLayer?.id ?? 'working';
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
@@ -2999,7 +3005,7 @@ export function App() {
   const assignedCount = assigned.length;
   // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
   // then its motor; the tooltip names the configuration and every loaded motor.
-  const flightWorking = !activeLayer && (assignedCount > 0 || detachedOwnsOverrides);
+  const flightWorking = !activeLayer && (assignedCount > 0 || detachedHoldsOverrides);
   const flightItem = useMemo(() => flightVitals({
     active: activeLayer, savedCount: savedConfigs.length, working: flightWorking,
     motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))

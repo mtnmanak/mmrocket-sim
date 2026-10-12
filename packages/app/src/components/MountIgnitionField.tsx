@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { IgnitionEvent } from '@online-openrocket/engine';
 import type { IgnitionTuple } from '../model/design.js';
 import { describeFlownIgnition } from '../services/flightOverrideSummary.js';
@@ -26,6 +26,7 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
 }) {
   const [chosen, setScope] = useState<FlightEditScope | null>(null);
   const [previousOwner, setPreviousOwner] = useState(ownerKey);
+  const select = useRef<HTMLSelectElement>(null);
   if (ownerKey !== previousOwner) {
     setPreviousOwner(ownerKey);
     setScope(null);
@@ -45,9 +46,14 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
       : <>Ignition: uses the mount's own setting — {describeFlownIgnition(own)}.</>}</p>
     {overrideLabel !== null && <FlightScopeChoice scope={scope} overrideLabel={overrideLabel} onChange={setScope}
       legend="Ignition changes apply to" />}
-    {override && <button type="button" className="file-btn" onClick={onReset}>Reset to own setting</button>}
+    {override && <button type="button" className="file-btn" onClick={() => {
+      onReset();
+      // The button goes with the override; keyboard focus moves to the ignition control.
+      select.current?.focus();
+    }}>Reset to own setting</button>}
     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       <select
+        ref={select}
         id={`ignition-${mountId}`}
         style={{ flex: 1 }}
         value={shown.event}
