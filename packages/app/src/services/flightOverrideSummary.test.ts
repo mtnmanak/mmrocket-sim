@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DeploymentTuple, FlightTree, MountMotor } from '../model/design.js';
+import type { DeploymentTuple, FlightTree, IgnitionTuple, MountMotor } from '../model/design.js';
 import { describeFlightOverrides } from './flightOverrideSummary.js';
 
 const own: DeploymentTuple = { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 };
@@ -12,6 +12,74 @@ const tree: FlightTree = { components: [{ type: 'stage', id: 'sustainer', name: 
 const motor = { ignition: { event: 'automatic', delay: 0 } } as MountMotor;
 
 describe('launch override summary', () => {
+  it.each(['launch', 'ignition', 'burnout', 'ejection', 'upperignition', 'apogee', 'never'])(
+    'LW4 ignores dormant separation altitude for %s', separationEvent => {
+      const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' },
+        { type: 'stage', id: 'stage', separationEvent, separationDelay: 2, separationAltitude: 200 }] };
+      const overrides = { separations: { stage: { separationEvent, separationDelay: 2, separationAltitude: 300 } } };
+      const before = structuredClone({ defaults, overrides });
+      expect(describeFlightOverrides(defaults, overrides, {}, null, 'm')).toBeNull();
+      expect({ defaults, overrides }).toEqual(before);
+    });
+  it.each(['BURNOUT', 'UPPER_IGNITION', 'ALTITUDE_ASCENDING', 'ALTITUDE_DESCENDING'])(
+    'LW4 folds separation event %s like the bridge', separationEvent => {
+      const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' }, { type: 'stage', id: 'stage',
+        separationEvent: separationEvent.toLowerCase().replaceAll('_', ''), separationDelay: 2, separationAltitude: 200 }] };
+      expect(describeFlightOverrides(defaults, { separations: { stage: {
+        separationEvent, separationDelay: 2, separationAltitude: 200,
+      } } }, {}, null, 'm')).toBeNull();
+    });
+  it('LW4 ignores Never delays independently for all three families without changing stored tuples', () => {
+    const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' },
+      { type: 'stage', id: 'stage', separationEvent: 'never', separationDelay: 0, separationAltitude: 200 },
+      { type: 'parachute', id: 'a', ...own, deployEvent: 'never' },
+      { type: 'innertube', id: 'mount', motorMount: true }],
+    ignitionDefaults: { mount: { event: 'never', delay: 0 } } };
+    const cases = [
+      { deployments: { a: { ...own, deployEvent: 'NEVER', deployDelay: 2 } } },
+      { separations: { stage: { separationEvent: 'NEVER', separationDelay: 2, separationAltitude: 200 } } },
+      { ignitions: { mount: { event: 'never' as const, delay: 2 } } },
+    ];
+    const before = structuredClone({ defaults, cases });
+    for (const overrides of cases) expect(describeFlightOverrides(defaults, overrides, { mount: motor }, null, 'm')).toBeNull();
+    expect({ defaults, cases }).toEqual(before);
+  });
+  it.each(['altitudeascending', 'altitudedescending'])('LW4 retains active separation altitude and delay differences for %s', separationEvent => {
+    const base = { separationEvent, separationDelay: 0, separationAltitude: 200 };
+    const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' }, { type: 'stage', id: 'stage', ...base }] };
+    for (const tuple of [{ ...base, separationAltitude: 300 }, { ...base, separationDelay: 2 }]) {
+      expect(describeFlightOverrides(defaults, { separations: { stage: tuple } }, {}, null, 'm')).not.toBeNull();
+    }
+  });
+  it.each(['launch', 'ignition', 'burnout', 'ejection', 'upperignition', 'apogee'])(
+    'LW4 retains active separation delay for %s', separationEvent => {
+      const base = { separationEvent, separationDelay: 0, separationAltitude: 200 };
+      const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' }, { type: 'stage', id: 'stage', ...base }] };
+      expect(describeFlightOverrides(defaults, { separations: { stage: { ...base, separationDelay: 2 } } }, {}, null, 'm')).not.toBeNull();
+    });
+  it.each(['launch', 'ejection', 'apogee', 'altitude'])('LW4 retains active recovery delay for %s', deployEvent => {
+    const defaults: FlightTree = { components: [{ type: 'parachute', id: 'a', ...own, deployEvent }] };
+    expect(describeFlightOverrides(defaults, { deployments: { a: { ...own, deployEvent, deployDelay: 2 } } }, {}, null, 'm')).not.toBeNull();
+  });
+  it.each(['automatic', 'launch', 'burnout', 'ejectioncharge'] as const)('LW4 retains active ignition delay for %s', event => {
+    const defaults = { ...tree, ignitionDefaults: { mount: { event, delay: 0 } } };
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 2 } } }, { mount: motor }, null, 'm')).not.toBeNull();
+  });
+  it.each(['LAUNCH', 'EJECTION_CHARGE', 'BURNOUT', 'NEVER', ' AUTOMATIC '])('LW4 folds ignition event %s like the flight runner', event => {
+    const defaults = { ...tree, ignitionDefaults: { mount: { event: event.trim().toLowerCase().replaceAll('_', '') as IgnitionTuple['event'], delay: 2 } } };
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event: event as IgnitionTuple['event'], delay: 2 } } }, { mount: motor }, null, 'm')).toBeNull();
+  });
+  it.each(['flat', 'bottom', 'upper', 'parallel'] as const)('LW4 resolves automatic ignition on the %s stage', kind => {
+    const mount = { type: 'innertube' as const, id: 'mount', motorMount: true };
+    const defaults: FlightTree = { components: kind === 'flat' ? [mount] : [
+      { type: 'stage', id: 'top', children: kind === 'upper' ? [mount] : [] },
+      { type: 'stage', id: 'bottom', children: kind === 'parallel' ? [{ type: 'parallelstage', id: 'strap', children: [mount] }] : kind === 'bottom' ? [mount] : [] },
+    ], ignitionDefaults: { mount: { event: 'automatic', delay: 1 } } };
+    const event = kind === 'upper' ? 'ejectioncharge' : 'launch';
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 1 } } }, { mount: motor }, null, 'm')).toBeNull();
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 2 } } }, { mount: motor }, null, 'm')).not.toBeNull();
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event: event === 'launch' ? 'ejectioncharge' : 'launch', delay: 1 } } }, { mount: motor }, null, 'm')).not.toBeNull();
+  });
   it('omits absent, equal, deleted and wrong-family entries', () => {
     expect(describeFlightOverrides(tree, {}, {}, '[F67C-9]', 'ft')).toBeNull();
     expect(describeFlightOverrides(tree, { deployments: { a: own, gone: flown, mount: flown } }, {}, null, 'ft')).toBeNull();
@@ -120,7 +188,8 @@ describe('launch override summary', () => {
     expect(describeFlightOverrides(tree, overrides, {}, 'Test', 'm')).toBeNull();
     const s = describeFlightOverrides(tree, overrides, { mount: motor, gone: motor }, 'Test', 'm')!;
     expect(s.text).toContain('overrides motor mount:');
-    expect(s.text).toContain('Never, delay 1 s');
+    expect(s.text).toContain('Never');
+    expect(s.text).not.toContain('delay 1 s');
     expect(s.text).toContain("Automatic (launch / lower stage's ejection)");
     expect(s.text).not.toContain('delay 0 s');
     expect(s.first).toEqual({ id: 'mount', family: 'ignition' });

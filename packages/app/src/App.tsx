@@ -1124,9 +1124,21 @@ export function App() {
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
     tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
   ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
+  const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== 'motors' || ignitionTarget === null) return;
+    const control = document.getElementById(`ignition-${ignitionTarget}`);
+    control?.closest('.mount-card')?.scrollIntoView({ block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    control?.focus({ preventScroll: true });
+    setIgnitionTarget(null);
+  }, [tab, ignitionTarget]);
   const showFlightOverride = (target: FlightOverrideSummary['first']) => {
     setShowBatch(false);
-    if (target.family === 'ignition') setTab('motors');
+    if (target.family === 'ignition') {
+      setIgnitionTarget(target.id);
+      setTab('motors');
+    }
     else {
       setSelectedId(target.id);
       setTab('design');

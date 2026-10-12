@@ -1163,6 +1163,46 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
 }, 60000);
 
+it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses Ignition (reduced motion %s)', async reduced => {
+  prefs(CLASSIC);
+  const original = defaultTree();
+  const firstMount = motorMounts(original)[0]!;
+  const mount = 'second-mount';
+  const body = original.components[0]!.children!.find(n => n.type === 'bodytube')!;
+  const tree = addChild(original, body.id!, { ...firstMount, id: mount, name: 'Second motor mount' });
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...tree, ignitionDefaults: { [mount]: mm.ignition } },
+    mountMotors: { [firstMount.id!]: mm, [mount]: mm }, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: { ignitions: { [mount]: { event: 'never', delay: 0 } } } }));
+  const matchMedia = window.matchMedia.bind(window);
+  const media = vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+    const result = matchMedia(query);
+    if (query === '(prefers-reduced-motion: reduce)') Object.defineProperty(result, 'matches', { value: reduced });
+    return result;
+  });
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  try {
+    const host = await mountApp();
+    await waitFor(() => !!host.querySelector('#launch-override-vitals'), 'ignition warning');
+    // First opens the tab; second works while already on Motors & Launch.
+    for (let i = 0; i < 2; i++) {
+      scroll.mockClear();
+      const show = host.querySelector('#launch-override-vitals')!.parentElement!.querySelector<HTMLButtonElement>('button')!;
+      show.focus();
+      await act(async () => show.click());
+      const ignition = host.querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)!;
+      expect(document.activeElement).toBe(ignition);
+      expect(ignition.value).toBe('never');
+      expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: reduced ? 'instant' : 'smooth' });
+      expect(scroll.mock.contexts.at(-1)).toBe(ignition.closest('.mount-card'));
+    }
+  } finally {
+    scroll.mockRestore();
+    media.mockRestore();
+  }
+}, 30000);
+
 it('LW ignition Show reaches the motor editor; Batch excludes candidate ignition', async () => {
   prefs(CLASSIC);
   const tree = defaultTree();
