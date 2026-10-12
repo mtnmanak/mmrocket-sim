@@ -9,6 +9,7 @@ import { planImport, resolveImportMotors } from './importApply.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { engineTree } from '../tree/treeModel.js';
 import { resolveFlightState } from './flightState.js';
+import { checkFormatLoss } from './formatLoss.js';
 
 const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => [n, ...all(n.children ?? [])]);
 const chute = (tree: RocketTree) => all(tree.components).find((n) => n.type === 'parachute')!;
@@ -24,6 +25,28 @@ const fixture = (defaults: string, sims: string) => `<RockSimDocument><DesignInf
 const state = (d: Partial<OrkDeployOverride>) => ({ deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0, ...d });
 const effective = (r: ReturnType<typeof importRkt>, index: number) => resolveFlightState(
   r.tree, r.configs.map(c => ({ ...c, motors: {} })), r.configs[index]!.id, {}, {}).tree;
+
+it('fixup3: motorless recovery override loss is disclosed before save and on the actual round trip', () => {
+  const source = importRkt(fixture(event(12, 5, 91.44), sim(event(12, 2, 0, 2))));
+  const overrides = { deployments: source.configs[0]!.deployments };
+  const notes: string[] = [];
+  const xml = exportRkt({ name: 'Motorless', tree: source.tree, motors: {}, overrides, notes });
+  const reopened = importRkt(xml);
+  expect(chute(reopened.tree)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+  expect(reopened.configs).toEqual([]);
+  const loss = 'Recovery overrides are not saved in a motorless .rkt; it reopens with the recovery devices\' own settings. Save as .ork to keep the overrides.';
+  expect(notes).toContain(loss);
+  const preview = checkFormatLoss('rkt', { tree: source.tree, motors: {}, overrides,
+    configs: [], activeConfigId: null, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, flightData: {} });
+  expect(preview.losses).toContain(loss);
+  const plainNotes: string[] = [];
+  exportRkt({ name: 'Motorless', tree: source.tree, motors: {}, notes: plainNotes });
+  expect(plainNotes).not.toContain(loss);
+  const poweredNotes: string[] = [];
+  exportRkt({ name: 'Powered', tree: source.tree, overrides, notes: poweredNotes,
+    motors: { [Object.keys(source.configs[0]!.motors)[0]!]: { designation: 'E15', manufacturer: 'AeroTech', delay: 4, diameter: 0.024, length: 0.07 } } });
+  expect(poweredNotes).not.toContain(loss);
+});
 
 describe('resolved RockSim recovery configurations', () => {
   it('keeps same-motor recovery variants, folds true duplicates, and switches A→B→A completely', () => {

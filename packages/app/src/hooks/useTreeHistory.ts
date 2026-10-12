@@ -83,6 +83,8 @@ export interface TreeHistory {
   setTree: (next: RocketTree) => void;
   /** A one-shot whole-tree transform (Scale): exactly one step, never merged with a neighbour. */
   commitStep: (next: RocketTree) => void;
+  /** Capture a live-edit gesture; the returned cancellation restores both stacks and its starting state. */
+  checkpoint: () => () => void;
   undo: () => void;
   redo: () => void;
   /**
@@ -250,6 +252,20 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
     if (next !== undefined) writeTree(next);
   }, [writeTree]);
 
+  const checkpoint = useCallback(() => {
+    const entry = capture();
+    const past = [...history.current];
+    const ahead = [...future.current];
+    const editAt = lastEditAt.current;
+    return () => {
+      history.current = past;
+      future.current = ahead;
+      lastEditAt.current = editAt;
+      restore(entry);
+      bumpHist();
+    };
+  }, [capture, restore]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Trust Latin layout letters (QWERTZ/AZERTY); physical keys are only
@@ -286,7 +302,7 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   return {
     treeElementRef,
     selectedId, setSelectedId,
-    tree, treeRef, writeTree, setTree, commitStep, undo, redo, reset,
+    tree, treeRef, writeTree, setTree, commitStep, checkpoint, undo, redo, reset,
     canUndo: history.current.length > 0,
     canRedo: future.current.length > 0,
   };

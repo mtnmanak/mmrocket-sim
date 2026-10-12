@@ -11,10 +11,11 @@ import { NumField } from './NumField.js';
 export type ComponentFlightTuple = DeploymentTuple | SeparationTuple;
 
 /** Defaults stay in the ordinary fields; this region edits only the flown layer (FC-5). */
-export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onEditStart, onEditEnd, onReset, onEverywhere }: {
+export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onEditStart, onEditEnd, onEditCancel, onReset, onEverywhere }: {
   node: ComponentNode; overrides: FlightOverrides; configLabel: string | null;
   onEdit: (tuple: ComponentFlightTuple, numeric?: boolean) => void;
   onEditStart: () => void; onEditEnd: (tuple: ComponentFlightTuple) => void;
+  onEditCancel: () => void;
   onReset: () => void; onEverywhere: () => void;
 }) {
   const { prefs } = usePrefs();
@@ -70,7 +71,7 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onE
       <div className="field">
         <label htmlFor={`${uid}-altitude`}>Override altitude ({unit})</label>
         <NumField id={`${uid}-altitude`} ariaLabel={`Override altitude (${unit})`}
-          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)}
+          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)} onEditCancel={onEditCancel}
           value={siToUi('distance', unit, current.altitude)}
           validate={v => Number.isFinite(uiToSi('distance', unit, v))}
           onCommit={(v, editing) => { if (v !== null) edit({ altitude: uiToSi('distance', unit, v) }, editing); }} />
@@ -78,7 +79,7 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onE
       <div className="field">
         <label htmlFor={`${uid}-delay`}>Override delay (s)</label>
         <NumField id={`${uid}-delay`} ariaLabel="Override delay (s)" value={current.delay} step={0.5}
-          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)}
+          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)} onEditCancel={onEditCancel}
           onCommit={(v, editing) => { if (v !== null) edit({ delay: v }, editing); }} />
       </div>
     </div>}

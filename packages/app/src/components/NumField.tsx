@@ -35,7 +35,7 @@ const NO_TEXT: ReadonlySet<string> = new Set();
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
   integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
-  clampToMax = false, validate, onEditStart, onEditEnd,
+  clampToMax = false, validate, onEditStart, onEditEnd, onEditCancel,
 }: {
   value: number | undefined;
   /** Called with each valid value; editing is false for an unfocused spinner. */
@@ -43,6 +43,8 @@ export function NumField({
   /** Optional transaction boundaries; valid prefixes still commit live. */
   onEditStart?: () => void;
   onEditEnd?: () => void;
+  /** Optional transaction rollback on Escape; ordinary live-commit fields keep their existing behavior. */
+  onEditCancel?: () => void;
   nullable?: boolean;
   min?: number;
   max?: number;
@@ -115,6 +117,7 @@ export function NumField({
   const [focused, setFocused] = useState(false);
   const live = focused ? draft : null;
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelled = useRef(false);
   /**
    * The text this field put in the box itself since it took focus — the value
    * as it was displayed, the focus draft that spells it out, each focused
@@ -254,6 +257,7 @@ export function NumField({
         aria-invalid={draftInvalid || invalid || undefined}
         aria-describedby={describedBy}
         onFocus={() => {
+          cancelled.current = false;
           onEditStart?.();
           const seed = fmtEdit(value);
           setFocused(true);
@@ -261,11 +265,20 @@ export function NumField({
           setDraft(seed);
         }}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => { setFocused(false); setDraft(null); setOwnText(NO_TEXT); onEditEnd?.(); }}
+        onBlur={() => {
+          setFocused(false); setDraft(null); setOwnText(NO_TEXT);
+          if (!cancelled.current) onEditEnd?.();
+        }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowUp') { e.preventDefault(); stepBy(1); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); stepBy(-1); }
           else if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          else if (e.key === 'Escape' && onEditCancel) {
+            e.preventDefault();
+            cancelled.current = true;
+            onEditCancel();
+            (e.target as HTMLInputElement).blur();
+          }
         }}
       />
       <span className="numfield-spin">

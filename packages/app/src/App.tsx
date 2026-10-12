@@ -326,7 +326,9 @@ export function App() {
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
   const layerRevision = useRef<object>({});
-  const flightEdit = useRef<{ owner: 'default' | 'detached' | { configId: string }; committed: boolean } | null>(null);
+  // None clears a detached working set permanently, without resetting tree history.
+  const detachedHistoryEpoch = useRef<object>({});
+  const flightEdit = useRef<{ owner: 'default' | 'detached' | { configId: string }; committed: boolean; cancel: () => void } | null>(null);
   const motorAnswerRevision = useRef<object>({});
   const restoringMotors = useRef<Record<string, MountMotor> | null>(null);
   const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
@@ -338,12 +340,13 @@ export function App() {
   // weight reconciled (`spendSpentMarks`); `blocked` is the
   // flight-holds-a-handle gate.
   const {
-    tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, undo, redo,
+    tree, treeRef, writeTree, setTree, commitStep: commitTreeStep, checkpoint: flightCheckpoint, undo, redo,
     selectedId, setSelectedId, treeElementRef,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
     captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState;
-      layerRevision: object; detachedOverrides: FlightOverrides; activeConfigId: string | null } => ({
+      layerRevision: object; detachedOverrides: FlightOverrides; activeConfigId: string | null; detachedEpoch: object } => ({
+      detachedEpoch: detachedHistoryEpoch.current,
       layerRevision: layerRevision.current, detachedOverrides, activeConfigId,
       revision: scaleRevision.current,
       motorRevision: motorAnswerRevision.current,
@@ -351,14 +354,14 @@ export function App() {
       configs: withActiveConfigTreeSynced(savedConfigs, activeConfigId, treeRef.current),
     }),
     restoreCompanion: ({ revision, configs, motorRevision, motorState, layerRevision: priorLayerRevision,
-      detachedOverrides: priorDetached, activeConfigId: priorActiveId }) => {
+      detachedOverrides: priorDetached, activeConfigId: priorActiveId, detachedEpoch }) => {
       if (priorLayerRevision !== layerRevision.current) {
         layerRevision.current = priorLayerRevision;
-        if (priorActiveId === activeConfigId) setDetachedOverrides(priorDetached);
+        if (detachedEpoch === detachedHistoryEpoch.current && priorActiveId === activeConfigId) setDetachedOverrides(priorDetached);
         // Delete is not a history boundary (audit 2026-10-11, FC-4 fixup).
         // Its former owner's edits now belong to the detached working set.
         // None keeps the saved owner: restore that entry below, leaving None clear.
-        else if (activeConfigId === null && priorActiveId !== null
+        else if (detachedEpoch === detachedHistoryEpoch.current && activeConfigId === null && priorActiveId !== null
             && !savedConfigs.some(c => c.id === priorActiveId)) {
           setDetachedOverrides(activeFlightOverrides(configs, priorActiveId, priorDetached));
         }
@@ -2610,12 +2613,17 @@ export function App() {
   // FC-4: capture defaults and all layer maps before any setter runs. FC-5's
   // default+override controls use this same transaction, one history step.
   const beginFlightEdit = () => {
-    flightEdit.current = { committed: false, owner: activeLayer ? { configId: activeLayer.id }
+    flightEdit.current = { committed: false, cancel: flightCheckpoint(), owner: activeLayer ? { configId: activeLayer.id }
       : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default' };
   };
   const finishFlightEdit = (commit: () => void) => {
     if (flightEdit.current?.committed) commit();
     flightEdit.current = null;
+  };
+  const cancelFlightEdit = () => {
+    const gesture = flightEdit.current;
+    flightEdit.current = null;
+    if (gesture?.committed) gesture.cancel();
   };
   const commitFlightLayers = (next: { tree?: RocketTree; configs?: SavedConfig[]; detached?: FlightOverrides }, numeric = false) => {
     // Ordinary fields use setTree's timed coalescing. Override fields also need
@@ -2634,19 +2642,29 @@ export function App() {
     const owner = gesture?.owner ?? (activeLayer ? { configId: activeLayer.id }
       : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default');
     const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    // Native configurations can still inherit their own propellant-based motor
+    // record. Establishing one shared default must not change any other owner.
+    const establishing = !(tree as FlightTree).ignitionDefaults?.[id];
+    const configs = establishing ? savedConfigs.map(c => {
+      const effective = c.ignitions?.[id] ?? c.motors[id]?.ignition;
+      return effective ? { ...c, ignitions: setOverride(c.ignitions, id, baseline, effective) } : c;
+    }) : savedConfigs;
+    const detached = establishing ? { ...detachedOverrides,
+      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, detachedOverrides.ignitions?.[id] ?? mountMotors[id]!.ignition),
+    } : detachedOverrides;
     // With no owner, the motor card edits the mount default (FC-5).
     if (owner === 'default') {
       commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: tuple } } as FlightTree }, numeric);
       return;
     }
-    const previous = typeof owner === 'object' ? savedConfigs.find(c => c.id === owner.configId)?.ignitions : detachedOverrides.ignitions;
+    const previous = typeof owner === 'object' ? configs.find(c => c.id === owner.configId)?.ignitions : detached.ignitions;
     const ignitions = gesture && !finished ? { ...previous, [id]: tuple } : setOverride(previous, id, baseline, tuple);
     // Freeze a native mount's true default before exporting resolved motors
     // (audit 2026-10-11, FC-4 fixup). Undo restores both layers together.
     const defaults = { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: baseline } } as FlightTree;
     if (typeof owner === 'object') {
-      commitFlightLayers({ tree: defaults, configs: savedConfigs.map(c => c.id === owner.configId ? { ...c, ignitions } : c) }, numeric);
-    } else commitFlightLayers({ tree: defaults, detached: { ...detachedOverrides, ignitions } }, numeric);
+      commitFlightLayers({ tree: defaults, configs: configs.map(c => c.id === owner.configId ? { ...c, ignitions } : c), detached }, numeric);
+    } else commitFlightLayers({ tree: defaults, configs, detached: { ...detached, ignitions } }, numeric);
   };
 
   const commitActiveOverrides = (patch: FlightOverrides, numeric = false) => {
@@ -2723,6 +2741,7 @@ export function App() {
   /** The "None" row / full unload: no motors, no active configuration. */
   const clearConfig = () => {
     motorChoices.current.clear();
+    detachedHistoryEpoch.current = {};
     // The working set — and what the tree holds for the configuration — goes
     // back into it before it is emptied, for the same reason applyConfig does
     // it: "None" is a switch, not a discard, and the configuration must still
@@ -4161,6 +4180,7 @@ export function App() {
                 node={selectedNode} overrides={activeOverrides} configLabel={activeLayer ? savedConfigLabel(activeLayer) : null}
                 onEdit={(tuple, numeric) => editComponentOverride(selectedNode, tuple, numeric)}
                 onEditStart={beginFlightEdit}
+                onEditCancel={cancelFlightEdit}
                 onEditEnd={tuple => finishFlightEdit(() => editComponentOverride(selectedNode, tuple, true, true))}
                 onReset={() => resetComponentOverride(selectedNode)}
                 onEverywhere={() => adoptComponentOverrideEverywhere(selectedNode)} />}
@@ -4464,6 +4484,7 @@ export function App() {
                           <NumField
                             value={mm.ignition.delay}
                             onEditStart={beginFlightEdit}
+                            onEditCancel={cancelFlightEdit}
                             onEditEnd={() => finishFlightEdit(() => editIgnition(m.id!, mm.ignition, true, true))}
                             step={0.5}
                             max={60}

@@ -109,6 +109,32 @@ afterEach(() => {
 });
 
 describe('NumField — typing', () => {
+  it('fixup3: ordinary live-commit fields retain their Escape and blur behavior', () => {
+    let ended = 0;
+    render({ value: 1, onEditEnd: () => { ended++; } }, { controlled: true });
+    type('9');
+    key('Escape');
+    expect(input().value).toBe('9');
+    expect(focused()).toBe(true);
+    expect(commits).toEqual([9]);
+    blur();
+    expect(ended).toBe(1);
+  });
+
+  it('fixup3: cancellation skips stale blur finalization and allows the next normal gesture', () => {
+    let ended = 0;
+    render({ value: 1, onEditCancel: () => rerender({ value: 1 }), onEditEnd: () => { ended++; } }, { controlled: true });
+    type('9');
+    key('Escape');
+    expect(input().value).toBe('1');
+    expect(focused()).toBe(false);
+    expect(ended).toBe(0);
+    type('3');
+    key('Enter');
+    expect(input().value).toBe('3');
+    expect(ended).toBe(1);
+  });
+
   it('flags and refuses a conversion overflow, including with clampToMax', () => {
     render({ value: 2, max: 10, clampToMax: true, validate: (v) => Number.isFinite(v * 1000) });
     type('1e306');
