@@ -11,9 +11,11 @@ import { NumField } from './NumField.js';
 export type ComponentFlightTuple = DeploymentTuple | SeparationTuple;
 
 /** Defaults stay in the ordinary fields; this region edits only the flown layer (FC-5). */
-export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onReset, onEverywhere }: {
+export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onEditStart, onEditEnd, onReset, onEverywhere }: {
   node: ComponentNode; overrides: FlightOverrides; configLabel: string | null;
-  onEdit: (tuple: ComponentFlightTuple) => void; onReset: () => void; onEverywhere: () => void;
+  onEdit: (tuple: ComponentFlightTuple, numeric?: boolean) => void;
+  onEditStart: () => void; onEditEnd: (tuple: ComponentFlightTuple) => void;
+  onReset: () => void; onEverywhere: () => void;
 }) {
   const { prefs } = usePrefs();
   const uid = useId();
@@ -37,10 +39,10 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onR
     const altitude = `${fmtFieldValue(siToUi('distance', unit, v.altitude))} ${unit}`;
     return `${event}${v.event.toLowerCase().startsWith('altitude') ? ` ${altitude}` : ` (stored altitude ${altitude})`}, delay ${fmtFieldValue(v.delay)} s`;
   };
-  const edit = (patch: Partial<ReturnType<typeof values>>) => {
+  const edit = (patch: Partial<ReturnType<typeof values>>, numeric = false) => {
     const v = { ...current, ...patch };
     onEdit(recovery ? { deployEvent: v.event, deployAltitude: v.altitude, deployDelay: v.delay }
-      : { separationEvent: v.event, separationAltitude: v.altitude, separationDelay: v.delay });
+      : { separationEvent: v.event, separationAltitude: v.altitude, separationDelay: v.delay }, numeric);
   };
   const subject = recovery ? node.type : 'stage';
   return <div className="flight-override" role="region" aria-label={recovery ? 'Recovery override' : 'Stage separation override'}
@@ -68,14 +70,16 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onR
       <div className="field">
         <label htmlFor={`${uid}-altitude`}>Override altitude ({unit})</label>
         <NumField id={`${uid}-altitude`} ariaLabel={`Override altitude (${unit})`}
+          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)}
           value={siToUi('distance', unit, current.altitude)}
           validate={v => Number.isFinite(uiToSi('distance', unit, v))}
-          onCommit={v => { if (v !== null) edit({ altitude: uiToSi('distance', unit, v) }); }} />
+          onCommit={(v, editing) => { if (v !== null) edit({ altitude: uiToSi('distance', unit, v) }, editing); }} />
       </div>
       <div className="field">
         <label htmlFor={`${uid}-delay`}>Override delay (s)</label>
         <NumField id={`${uid}-delay`} ariaLabel="Override delay (s)" value={current.delay} step={0.5}
-          onCommit={v => { if (v !== null) edit({ delay: v }); }} />
+          onEditStart={onEditStart} onEditEnd={() => onEditEnd(tuple)}
+          onCommit={(v, editing) => { if (v !== null) edit({ delay: v }, editing); }} />
       </div>
     </div>}
   </div>;

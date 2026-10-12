@@ -326,6 +326,7 @@ export function App() {
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
   const layerRevision = useRef<object>({});
+  const flightEdit = useRef<{ owner: 'default' | 'detached' | { configId: string }; committed: boolean } | null>(null);
   const motorAnswerRevision = useRef<object>({});
   const restoringMotors = useRef<Record<string, MountMotor> | null>(null);
   const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
@@ -2608,40 +2609,67 @@ export function App() {
 
   // FC-4: capture defaults and all layer maps before any setter runs. FC-5's
   // default+override controls use this same transaction, one history step.
-  const commitFlightLayers = (next: { tree?: RocketTree; configs?: SavedConfig[]; detached?: FlightOverrides }) => {
-    commitTreeStep(next.tree ?? treeRef.current);
+  const beginFlightEdit = () => {
+    flightEdit.current = { committed: false, owner: activeLayer ? { configId: activeLayer.id }
+      : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default' };
+  };
+  const finishFlightEdit = (commit: () => void) => {
+    if (flightEdit.current?.committed) commit();
+    flightEdit.current = null;
+  };
+  const commitFlightLayers = (next: { tree?: RocketTree; configs?: SavedConfig[]; detached?: FlightOverrides }, numeric = false) => {
+    // Ordinary fields use setTree's timed coalescing. Override fields also need
+    // a stable owner and deferred sparsification, so their focus/blur gesture
+    // explicitly keeps the first companion snapshot, even during slow typing.
+    const gesture = numeric ? flightEdit.current : null;
+    if (gesture?.committed) writeTree(next.tree ?? treeRef.current);
+    else commitTreeStep(next.tree ?? treeRef.current);
+    if (gesture) gesture.committed = true;
     layerRevision.current = {};
     if (next.configs) setSavedConfigs(next.configs);
     if (next.detached) setDetachedOverrides(next.detached);
   };
-  const editIgnition = (id: string, tuple: IgnitionTuple) => {
+  const editIgnition = (id: string, tuple: IgnitionTuple, numeric = false, finished = false) => {
+    const gesture = numeric ? flightEdit.current : null;
+    const owner = gesture?.owner ?? (activeLayer ? { configId: activeLayer.id }
+      : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default');
     const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
     // With no owner, the motor card edits the mount default (FC-5).
-    if (!activeLayer && !Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length)) {
-      commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: tuple } } as FlightTree });
+    if (owner === 'default') {
+      commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: tuple } } as FlightTree }, numeric);
       return;
     }
-    const ignitions = setOverride(activeOverrides.ignitions, id, baseline, tuple);
+    const previous = typeof owner === 'object' ? savedConfigs.find(c => c.id === owner.configId)?.ignitions : detachedOverrides.ignitions;
+    const ignitions = gesture && !finished ? { ...previous, [id]: tuple } : setOverride(previous, id, baseline, tuple);
     // Freeze a native mount's true default before exporting resolved motors
     // (audit 2026-10-11, FC-4 fixup). Undo restores both layers together.
     const defaults = { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: baseline } } as FlightTree;
-    if (activeConfigId && savedConfigs.some(c => c.id === activeConfigId)) {
-      commitFlightLayers({ tree: defaults, configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ignitions } : c) });
-    } else commitFlightLayers({ tree: defaults, detached: { ...detachedOverrides, ignitions } });
+    if (typeof owner === 'object') {
+      commitFlightLayers({ tree: defaults, configs: savedConfigs.map(c => c.id === owner.configId ? { ...c, ignitions } : c) }, numeric);
+    } else commitFlightLayers({ tree: defaults, detached: { ...detachedOverrides, ignitions } }, numeric);
   };
 
-  const commitActiveOverrides = (patch: FlightOverrides) => {
-    if (activeLayer) commitFlightLayers({ configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ...patch } : c) });
-    else commitFlightLayers({ detached: { ...detachedOverrides, ...patch } });
+  const commitActiveOverrides = (patch: FlightOverrides, numeric = false) => {
+    const owner = numeric ? flightEdit.current?.owner : undefined;
+    const configId = owner ? typeof owner === 'object' ? owner.configId : null : activeLayer?.id;
+    if (configId) commitFlightLayers({ configs: savedConfigs.map(c => c.id === configId ? { ...c, ...patch } : c) }, numeric);
+    else commitFlightLayers({ detached: { ...detachedOverrides, ...patch } }, numeric);
   };
-  const editComponentOverride = (node: ComponentNode, tuple: ComponentFlightTuple) => {
+  const editComponentOverride = (node: ComponentNode, tuple: ComponentFlightTuple, numeric = false, finished = false) => {
     const id = node.id!;
+    const gesture = numeric ? flightEdit.current : null;
+    const owner = gesture?.owner;
+    const overrides = owner
+      ? activeFlightOverrides(savedConfigs, typeof owner === 'object' ? owner.configId : null, detachedOverrides)
+      : activeOverrides;
     commitActiveOverrides('deployEvent' in tuple
-      ? { deployments: setOverride(activeOverrides.deployments, id, deploymentTuple(node), tuple) }
-      : { separations: setOverride(activeOverrides.separations, id, {
+      ? { deployments: gesture && !finished ? { ...overrides.deployments, [id]: tuple }
+        : setOverride(overrides.deployments, id, deploymentTuple(node), tuple) }
+      : { separations: gesture && !finished ? { ...overrides.separations, [id]: tuple }
+        : setOverride(overrides.separations, id, {
         separationEvent: String(node['separationEvent'] ?? 'ejection'),
         separationDelay: num(node, 'separationDelay', 0), separationAltitude: num(node, 'separationAltitude', 200),
-      }, tuple) });
+      }, tuple) }, numeric);
   };
   const resetComponentOverride = (node: ComponentNode) => {
     const id = node.id!;
@@ -4131,7 +4159,9 @@ export function App() {
               recoveryContext={recoveryScope(savedConfigs, activeConfigId, selectedNode.id!, detachedOverrides)}
               flightOverride={<FlightOverrideBanner key={`${selectedNode.id!}:${activeConfigId ?? 'detached'}`}
                 node={selectedNode} overrides={activeOverrides} configLabel={activeLayer ? savedConfigLabel(activeLayer) : null}
-                onEdit={tuple => editComponentOverride(selectedNode, tuple)}
+                onEdit={(tuple, numeric) => editComponentOverride(selectedNode, tuple, numeric)}
+                onEditStart={beginFlightEdit}
+                onEditEnd={tuple => finishFlightEdit(() => editComponentOverride(selectedNode, tuple, true, true))}
                 onReset={() => resetComponentOverride(selectedNode)}
                 onEverywhere={() => adoptComponentOverrideEverywhere(selectedNode)} />}
               info={selectedInfo}
@@ -4433,12 +4463,14 @@ export function App() {
                         <div style={{ width: 70 }}>
                           <NumField
                             value={mm.ignition.delay}
+                            onEditStart={beginFlightEdit}
+                            onEditEnd={() => finishFlightEdit(() => editIgnition(m.id!, mm.ignition, true, true))}
                             step={0.5}
                             max={60}
                             ariaLabel={`Ignition delay for ${mountName(m)}`}
-                            onCommit={(v) => {
+                            onCommit={(v, editing) => {
                               if (v === null) return;
-                              editIgnition(m.id!, { ...mm.ignition, delay: v });
+                              editIgnition(m.id!, { ...mm.ignition, delay: v }, editing);
                             }}
                           />
                         </div>

@@ -903,6 +903,128 @@ async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Lau
  * is for. statsDrawerDefault.test.ts held both as regexes over App.tsx.
  */
 describe('FC-5 configuration editors', () => {
+  it.each(['detached', 'saved'] as const)('FC-5 gesture: %s ignition keeps its owner through an equal prefix and coalesces history', async owner => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const ignitions = { [mount]: { event: 'launch', delay: 1 } };
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'launch', delay: 0 } } }),
+      over: { configLayers: 1, activeConfigId: owner === 'saved' ? 'a' : null,
+        detachedOverrides: owner === 'detached' ? { ignitions } : {},
+        savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+          ...(owner === 'saved' ? { ignitions } : {}) },
+        { id: 'b', name: 'Inherits', isDefault: false, motors: { [mount]: c6 } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    const read = () => {
+      window.dispatchEvent(new Event('pagehide'));
+      const state = peekSession()!;
+      return { state, tuple: (owner === 'saved' ? state.savedConfigs![0] : state.detachedOverrides)?.ignitions?.[mount] };
+    };
+    await act(async () => { field.focus(); });
+    for (const prefix of ['0', '0.', '0.5']) {
+      await type(field, prefix);
+      expect(read().tuple, `override survives ${prefix}`).toEqual({ event: 'launch', delay: Number(prefix) });
+      expect(document.activeElement).toBe(field);
+    }
+    await act(async () => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(read().state.tree.ignitionDefaults?.[mount]).toEqual({ event: 'launch', delay: 0 });
+    expect(read().state.savedConfigs![1]!.ignitions?.[mount]).toBeUndefined();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 1 });
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0.5 });
+    // A second gesture is separate even when it immediately follows the first.
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10']) await type(field, prefix);
+    await act(async () => { field.blur(); });
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0.5 });
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 10 });
+    await act(async () => { field.focus(); });
+    await type(field, '0');
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0 });
+    await act(async () => { field.blur(); });
+    expect(read().tuple).toBeUndefined();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 10 });
+  }, 30000);
+
+  it('FC-5 gesture: an unfocused ignition spinner starts a separate step after an editor unmount', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+      savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+        ignitions: { [mount]: { event: 'launch', delay: 1 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10']) await type(field, prefix);
+    // Removing a focused input does not emit React's onBlur. The next card
+    // must not reuse that field's history transaction for its spinner.
+    await openTab(host, 'Design');
+    await openTab(host, 'Motors & Launch');
+    const next = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    await act(async () => { next.parentElement!.querySelector<HTMLButtonElement>('[aria-label="Increment"]')!.click(); });
+    expect(next.value).toBe('10.5');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(next.value).toBe('10');
+    await act(async () => { next.focus(); });
+    await type(next, 'invalid');
+    await act(async () => { next.blur(); });
+    expect(next.value).toBe('10');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(next.value).toBe('1');
+  }, 30000);
+
+  it.each([
+    ['parachute', 'altitude'], ['parachute', 'delay'], ['streamer', 'altitude'],
+    ['streamer', 'delay'], ['stage', 'altitude'], ['stage', 'delay'],
+  ] as const)('FC-5 gesture: %s %s retains the focused editor and one undo step', async (kind, fieldName) => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const node = kind === 'stage' ? tree.components[0]!
+      : tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const defaults = kind === 'stage'
+      ? { separationEvent: 'altitudedescending', separationAltitude: 1, separationDelay: 1 }
+      : { deployEvent: 'altitude', deployAltitude: 1, deployDelay: 1 };
+    const tuple = kind === 'stage'
+      ? { ...defaults, [fieldName === 'altitude' ? 'separationAltitude' : 'separationDelay']: 2 }
+      : { ...defaults, [fieldName === 'altitude' ? 'deployAltitude' : 'deployDelay']: 2 };
+    await seedStarterSession({ edit: () => updateNode(tree, node.id!, { ...defaults, name: 'Gesture part', type: kind }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [{
+        id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+        [kind === 'stage' ? 'separations' : 'deployments']: { [node.id!]: tuple },
+      }] } });
+    const host = await mountApp();
+    await openTab(host, 'Design');
+    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+      .find(r => r.querySelector('.tree-label')?.textContent === 'Gesture part')!.click(); });
+    const banner = () => host.querySelector(`[aria-label="${kind === 'stage' ? 'Stage separation' : 'Recovery'} override"]`);
+    await act(async () => { button(host, 'Edit the override').click(); });
+    const field = host.querySelector<HTMLInputElement>(`[aria-label="Override ${fieldName} (${fieldName === 'altitude' ? 'm' : 's'})"]`)!;
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10', '100']) {
+      await type(field, prefix);
+      expect(banner(), `banner survives ${prefix}`).not.toBeNull();
+      expect(document.activeElement).toBe(field);
+      expect(field.isConnected).toBe(true);
+      expect(field.value).toBe(prefix);
+    }
+    await act(async () => { field.blur(); });
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(field.value).toBe('2');
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(field.value).toBe('100');
+    await act(async () => { field.focus(); });
+    await type(field, '1');
+    expect(banner()).not.toBeNull();
+    await act(async () => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(banner()).toBeNull();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(banner()).not.toBeNull();
+    expect(host.querySelector<HTMLInputElement>(`[aria-label^="Override ${fieldName}"]`)!.value).toBe('100');
+  }, 30000);
+
   it('no override banners or counts appear for inheriting recovery, stage and ignition', async () => {
     const { tree, mount, c6 } = await seedStarterSession();
     await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'plain', detachedOverrides: {},
