@@ -5,23 +5,22 @@ import { savedConfigLabel, type SavedConfig } from '../model/design.js';
  * configuration Launch flies, then its motor.
  *
  * - `name`: the active configuration's own (user or file) name; "Working
- *   settings" for an unsaved loadout while saved configurations exist (the
- *   chooser's "Working settings (not saved)"); otherwise null, because an
- *   unnamed configuration's label IS its motor list, which the motor label
- *   already says.
+ *   settings" exactly when the chooser shows "Working settings (not saved)"
+ *   (`working`, from flightState's isWorkingSettings — with or without saved
+ *   configurations beside it; CFG-3 review, finding 5); otherwise null,
+ *   because an unnamed configuration's label IS its motor list, which the
+ *   motor label already says.
  * - `title`: the configuration's label and every loaded motor.
  */
-export function flightVitals({ active, savedCount, working, motors }: {
+export function flightVitals({ active, working, motors }: {
   active: SavedConfig | undefined;
-  /** How many saved configurations exist. */
-  savedCount: number;
-  /** Something is loaded or overridden with no configuration active. */
+  /** The chooser shows "Working settings (not saved)" (isWorkingSettings). */
   working: boolean;
   /** Every loaded motor, primary first: its mount and its tooltip text. */
   motors: readonly { mount: string; text: string }[];
 }): { name: string | null; title: string } {
   const own = active?.name?.trim();
-  const detached = !active && savedCount > 0 && working;
+  const detached = !active && working;
   const name = own ? own : detached ? 'Working settings' : null;
   const config = active
     ? `Flight configuration “${savedConfigLabel(active)}”`

@@ -113,10 +113,10 @@ describe('per-mount maximum motor length', () => {
     expect(host.textContent).not.toContain('Max motor length (override)');
     // CFG-3 (A4): the card shows the limit read-only; it and its Estimate are
     // edited on Design, where "set on Design ▸" lands on that mount's field.
-    const toDesign = (name: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Set max motor length for ${name} on Design"]`)!;
+    const toDesign = (name: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Max motor length for ${name}: set on Design"]`)!;
     expect(toDesign('Core').closest('.mount-card')!.textContent).toContain('Max motor length: 500 mm');
     expect(toDesign('Pod').closest('.mount-card')!.textContent).toContain('Max motor length: 400 mm');
-    expect(host.querySelector('.mount-card [aria-label^="Max motor length for"]')).toBeNull();
+    expect(host.querySelector('.mount-card input[aria-label^="Max motor length for"]')).toBeNull();
     expect(host.querySelector('.mount-card [aria-label^="Estimate maximum motor length"]')).toBeNull();
     const onDesign = async (name: string) => {
       await act(async () => { button(host, 'Motors & Configuration').click(); });
@@ -618,8 +618,14 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
     }));
     const host = await mountApp();
     await act(async () => { button(host, 'Motors & Configuration').click(); });
+    // The motor card says it too (CFG-3 review, finding 2): with the Estimate
+    // on Design, the card's read-only line was all a user facing an empty
+    // motor browser saw, and it said only "no limit".
+    const toDesign = host.querySelector<HTMLButtonElement>('[aria-label="Max motor length for Core: set on Design"]')!;
+    expect(toDesign.closest('.mount-card')!.textContent).toContain(
+      'No motor fits this mount: it is ticked Solid (filled), so it has no bore. Untick Solid (filled) on it to make it a tube.');
     // CFG-3 (A4): the hint sits with the Estimate on Design's mount panel.
-    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Set max motor length for Core on Design"]')!.click(); });
+    await act(async () => { toDesign.click(); });
     const field = input(host, 'Max motor length for Core').closest('.field')!;
     expect(field.closest('.mount-card')).toBeNull();
     expect(field.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.');

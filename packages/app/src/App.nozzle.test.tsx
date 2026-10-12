@@ -251,6 +251,45 @@ describe('strap-on nozzle controls in App', () => {
 });
 
 /**
+ * CFG-3 review, finding 4: a stage with no motor mount lists its nozzle field
+ * only while it carries a value, so the value can be cleared. The field
+ * commits a blank draft as "no value" at once, and that unlisted the stage:
+ * the field unmounted under the cursor and focus fell to the page, so the
+ * value could not be retyped. It stays while it is being typed in.
+ */
+describe('the nozzle field of a stage with no motor mount', () => {
+  it('stays, focused, while its value is cleared and retyped; it goes once left blank', async () => {
+    const t = defaultTree();
+    t.components = [...t.components, {
+      type: 'stage', id: 'bare-stage', name: 'Bare booster', nozzleExitDiameter: 0.03,
+      children: [{ type: 'bodytube', id: 'bare-body', length: 0.2, outerRadius: 0.0125, thickness: 0.0005 }],
+    } as ComponentNode];
+    seedSession(t, { [motorMounts(t)[0]!.id!]: await c6() });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    await settle(50);
+    const field = () => host.querySelector<HTMLInputElement>('#cfg-nozzle-bare-stage');
+    expect(Number(field()!.value)).toBeCloseTo(30, 2);
+    await act(async () => { field()!.focus(); });
+    await type(field()!, '');
+    await settle(50);
+    expect(field()).not.toBeNull();
+    expect(document.activeElement).toBe(field());
+    window.dispatchEvent(new Event('pagehide'));
+    expect(findNode(storedSession().tree, 'bare-stage')!['nozzleExitDiameter']).toBeUndefined();
+    await type(field()!, '25');
+    await settle(50);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(findNode(storedSession().tree, 'bare-stage')!['nozzleExitDiameter']).toBeCloseTo(0.025, 6);
+    // Cleared and left: the stage has nothing to show any more.
+    await type(field()!, '');
+    await act(async () => { field()!.blur(); });
+    await settle(50);
+    expect(field()).toBeNull();
+  }, 30000);
+});
+
+/**
  * A CONFIGURATION SWITCH KEEPS THE NOZZLE THE CONFIGURATION STATES (audit
  * 2026-09-22, row 279). Measured by the audit on ThreeCarbYen-2018.CDX1:
  * switching to sim-2 deleted its stated 25.40 mm sustainer exit under a false

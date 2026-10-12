@@ -239,6 +239,38 @@ function exportCsv(sweep: DragSweep, meta: DragTableMeta) {
 
 type DragChartId = 'cd' | 'cp' | 'breakdown';
 
+type SweepResult = DragSweep | { error: string };
+
+/**
+ * How long the rocket must stay unchanged, while the panel is open, before a
+ * new one is swept (see `sweepRocket` in DragPanel). Exported for the tests.
+ */
+export const DRAG_SWEEP_IDLE_MS = 300;
+
+/**
+ * Each rocket handle's LAST sweep, per slot (0 degrees, and the CP chart's
+ * angle), keyed by the options it ran with. Design unmounts the panel on every
+ * workspace switch while App keeps the rocket, so without this every return
+ * to Design with the panel open re-ran the same sweep at once (CFG-3 review,
+ * finding 1). One entry per handle, like the useMemo it backs: going back to
+ * an earlier range or altitude sweeps again, as it always did. A WeakMap, so
+ * a handle the app has dropped takes its sweep with it.
+ */
+const lastSweeps = { zero: new WeakMap<OrkRocket, { key: string; value: SweepResult }>(), aoa: new WeakMap<OrkRocket, { key: string; value: SweepResult }>() };
+function sweepOnce(slot: keyof typeof lastSweeps, rocket: OrkRocket, opts: Parameters<OrkRocket['dragSweep']>[0]): SweepResult {
+  const key = JSON.stringify(opts);
+  const hit = lastSweeps[slot].get(rocket);
+  if (hit && hit.key === key) return hit.value;
+  let value: SweepResult;
+  try {
+    value = rocket.dragSweep(opts);
+  } catch (e) {
+    value = { error: e instanceof Error ? e.message : String(e) };
+  }
+  lastSweeps[slot].set(rocket, { key, value });
+  return value;
+}
+
 /** The highest Max Mach the Barrowman models are offered (the menu stops here). */
 const CLASSIC_MACH_MAX = 5;
 
@@ -432,18 +464,43 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
     return undefined;
   }, [conditions, fileKey, altM]);
 
-  // Only pay the sweep cost while the panel is open. Recomputes when the design
-  // (rocket handle), the range or the conditions change.
-  const sweep = useMemo<DragSweep | { error: string } | null>(() => {
-    if (!open) return null;
-    try {
-      // Default conditions pass the options object they always did — no
-      // machAlt key at all, so the kernel path is byte-for-byte the old one.
-      return rocket.dragSweep(machAlt ? { machMax: machTop, machAlt } : { machMax: machTop });
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+  /**
+   * The rocket the sweep runs on (CFG-3 review, finding 1). On Design the
+   * panel sits under a tree that rebuilds the rocket on every edit — NumField
+   * commits each keystroke, a schematic drag each pointer move — and a sweep
+   * costs ~160 ms to Mach 5 and 350-540 ms to Mach 25 (LEM-IV, real kernel),
+   * synchronously in render. So a NEW rocket arriving while the panel is open
+   * and nothing else about the sweep changed waits for the edits to stop
+   * (DRAG_SWEEP_IDLE_MS) and is swept once; the charts keep the last design's
+   * curves until then. Anything else that re-runs the sweep anyway — opening
+   * the panel, the range, the conditions — takes the current rocket at once,
+   * so a model switch that also clamps the range still sweeps exactly once
+   * (the 2026-09-22 audit's case). The numbers are the kernel's, unchanged:
+   * only WHEN the sweep runs moved.
+   */
+  const sweepInputs = `${open ? 1 : 0}|${machTop}|${machAlt ? JSON.stringify(machAlt) : ''}`;
+  const [settled, setSettled] = useState({ rocket, inputs: sweepInputs });
+  const pending = open && settled.rocket !== rocket && settled.inputs === sweepInputs;
+  const sweepRocket = pending ? settled.rocket : rocket;
+  useEffect(() => {
+    if (!open) return;
+    if (!pending) {
+      if (settled.rocket !== rocket || settled.inputs !== sweepInputs) setSettled({ rocket, inputs: sweepInputs });
+      return;
     }
-  }, [open, rocket, machTop, machAlt]);
+    const t = setTimeout(() => setSettled({ rocket, inputs: sweepInputs }), DRAG_SWEEP_IDLE_MS);
+    return () => clearTimeout(t);
+  }, [open, pending, rocket, settled, sweepInputs]);
+
+  // Only pay the sweep cost while the panel is open. Recomputes when the design
+  // (rocket handle), the range or the conditions change — and not on a return
+  // to Design with the same rocket: sweepOnce keeps each handle's last answer.
+  const sweep = useMemo<SweepResult | null>(() => {
+    if (!open) return null;
+    // Default conditions pass the options object they always did — no
+    // machAlt key at all, so the kernel path is byte-for-byte the old one.
+    return sweepOnce('zero', sweepRocket, machAlt ? { machMax: machTop, machAlt } : { machMax: machTop });
+  }, [open, sweepRocket, machTop, machAlt]);
 
   /**
    * The SAME sweep at the CP chart's angle of attack — run only for an angle
@@ -460,16 +517,12 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
    * still quotes the forward CP the app flies on. Up to 20 degrees the reported
    * CP equals the force-consistent Cm·d/CN (measured 2026-10-07).
    */
-  const aoaSweep = useMemo<DragSweep | { error: string } | null>(() => {
+  const aoaSweep = useMemo<SweepResult | null>(() => {
     if (!open || cpAoa <= 0) return null;
-    try {
-      return rocket.dragSweep(machAlt
-        ? { machMax: machTop, machAlt, aoaDeg: cpAoa }
-        : { machMax: machTop, aoaDeg: cpAoa });
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
-    }
-  }, [open, cpAoa, rocket, machTop, machAlt]);
+    return sweepOnce('aoa', sweepRocket, machAlt
+      ? { machMax: machTop, machAlt, aoaDeg: cpAoa }
+      : { machMax: machTop, aoaDeg: cpAoa });
+  }, [open, cpAoa, sweepRocket, machTop, machAlt]);
   const aoaCpSweep = aoaSweep && !('error' in aoaSweep) ? aoaSweep : null;
 
   const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
@@ -480,11 +533,11 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   const info = useMemo<StaticInfo | null>(() => {
     if (!sweep || 'error' in sweep) return null;
     try {
-      return rocket.staticInfo();
+      return sweepRocket.staticInfo();
     } catch {
       return null;
     }
-  }, [sweep, rocket]);
+  }, [sweep, sweepRocket]);
   const rollNote = info ? rollDependentCp(info) : null;
 
   // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots,
@@ -544,7 +597,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   }, [sweep, mode, C]);
 
   return (
-    <div className={open ? 'panel' : 'panel panel-dormant'}>
+    <div className={open ? 'panel' : 'panel panel-dormant'} aria-busy={pending || undefined}>
       <div className="panel-head">
         <h2 style={{ flex: 1 }}>Drag analysis</h2>
         <button className="file-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -598,7 +651,10 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
             )}
             <span style={{ flex: 1 }} />
             <span className="download-caption">Drag vs Mach for this design:</span>
-            <button className="file-btn" title="The full aerodynamic-coefficient table (CD power-off/on, CP, CNα) against Mach number — a static property of the geometry, NOT a time series. Opens with comment lines naming the design, the aero model and the conditions it ran in." onClick={() => exportCsv(sweep, {
+            <button className="file-btn" title="The full aerodynamic-coefficient table (CD power-off/on, CP, CNα) against Mach number — a static property of the geometry, NOT a time series. Opens with comment lines naming the design, the aero model and the conditions it ran in."
+              // Held for the moment an edit's sweep is waiting (sweepRocket): the
+              // table on screen is the last design's, and a file must not be.
+              disabled={pending} onClick={() => exportCsv(sweep, {
               design: designName || 'Rocket',
               // Same wording as the launch report's "Aero model" row — the
               // model the sweep actually ran on, not a fixed string.

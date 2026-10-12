@@ -1967,6 +1967,18 @@ describe('the vitals strip Flight item', () => {
     ['detached working settings beside a saved configuration',
       (m, mm) => ({ savedConfigs: [{ id: 'c', name: 'Other', isDefault: true, motors: { [m]: mm } }], activeConfigId: null }),
       'Working settings · F67C-9', ['Working settings (not saved', 'AeroTech F67C, 9 s delay (F67C-9)']],
+    // CFG-3 review, finding 5: the strip says Working settings exactly when
+    // the chooser says "Working settings (not saved)" — with no saved
+    // configuration too (the starter rocket, or the only one deleted)…
+    ['loaded motors with no saved configuration',
+      () => ({ savedConfigs: [], activeConfigId: null }),
+      'Working settings · F67C-9', ['Working settings (not saved', 'AeroTech F67C, 9 s delay (F67C-9)']],
+    // …and when the one thing loaded is a motor the file named that the
+    // database did not match.
+    ['only an unmatched motor beside a saved configuration',
+      (m, mm) => ({ mountMotors: {}, savedConfigs: [{ id: 'c', name: 'Other', isDefault: true, motors: { [m]: mm } }],
+        activeConfigId: null, unmatchedRefs: { [m]: { manufacturer: 'Nobody', designation: 'Z9', diameter: 0.029, length: 0.1, delay: 5, mountId: m } } }),
+      'Working settings · no motor', ['Working settings (not saved', 'no motor loaded']],
     ['no configuration and no motor', () => ({ mountMotors: {} }), 'none', ['No saved flight configuration', 'no motor loaded']],
   ];
   it.each(cases)('names %s', async (_name, over, shown, titleParts) => {
@@ -1985,7 +1997,7 @@ describe('the vitals strip Flight item', () => {
       .filter(n => !(n instanceof HTMLButtonElement)).map(n => n.textContent).join('');
     expect(value).toBe(shown);
     for (const part of titleParts) expect(item.getAttribute('title')).toContain(part);
-    expect(!!item.querySelector('.vitals-unload')).toBe(shown !== 'none');
+    expect(!!item.querySelector('.vitals-unload')).toBe(shown !== 'none' && !shown.endsWith('no motor'));
   }, 30000);
 
   it('clips the configuration name and the motor so the item never outgrows a 360 px strip', async () => {

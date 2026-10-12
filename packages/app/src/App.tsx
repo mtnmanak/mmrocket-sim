@@ -8,7 +8,7 @@ import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExpo
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { activeFlightOverrides, holdsOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify,
-  workingSettingsOwnOverrides } from './services/flightState.js';
+  workingSettingsOwnOverrides, isWorkingSettings } from './services/flightState.js';
 import type { ComponentFlightTuple } from './services/flightOverrideText.js';
 import { deploymentTuple } from './services/foreignConfigLayers.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from './model/design.js';
@@ -144,6 +144,7 @@ import {
 } from './services/orkFlightData.js';
 import { sameStoredFlight } from './services/storedRunIdentity.js';
 import { motorLengthLimit } from './tree/motorLength.js';
+import { noBoreReason } from './tree/motorRoom.js';
 import { MotorLengthReadout } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
@@ -1105,6 +1106,20 @@ export function App() {
   const stageList = useMemo(() => stages(tree), [tree.components]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   const nozzleEditableIds = useMemo(() => nozzleEditableStageIds(tree), [tree.components]);
+  // A nozzle field being typed in stays listed (CFG-3 review, finding 4). A
+  // stage with no motor mount is listed only while it carries a value, so it
+  // can be cleared — and the field commits a blank draft as "no value" at
+  // once, so backspacing the last digit removed the field from under the
+  // cursor and dropped focus on the page. A stage stays here while focus is
+  // inside its field, and the list is let go when the workspace changes.
+  const [nozzleHeld, setNozzleHeld] = useState<ReadonlySet<string>>(() => new Set());
+  const holdNozzle = (id: string, held: boolean) => setNozzleHeld((prev) => {
+    if (prev.has(id) === held) return prev;
+    const next = new Set(prev);
+    if (held) next.add(id);
+    else next.delete(id);
+    return next;
+  });
   // "Staged" for the batch-sim gate: a serial stage OR a separating parallel
   // booster — both make the flight multi-branch (batch across them explodes
   // combinatorially, per the owner's rule). A non-separating pod alone is fine.
@@ -1151,6 +1166,9 @@ export function App() {
     focus?.focus({ preventScroll: true });
     setConfigPartTarget(null);
   }, [tab, configPartTarget]);
+  useEffect(() => {
+    if (tab !== 'motors') setNozzleHeld((prev) => (prev.size ? new Set() : prev));
+  }, [tab]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || ignitionTarget === null) return;
@@ -3005,13 +3023,16 @@ export function App() {
   const assignedCount = assigned.length;
   // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
   // then its motor; the tooltip names the configuration and every loaded motor.
-  const flightWorking = !activeLayer && (assignedCount > 0 || detachedHoldsOverrides);
+  // The chooser's own test (isWorkingSettings), so the strip says "Working
+  // settings" exactly when the chooser does.
+  const flightWorking = isWorkingSettings({ active: !!activeLayer, hasMotors: assignedCount > 0,
+    hasUnmatched: Object.keys(unmatchedRefs).length > 0, hasOverrides: detachedHoldsOverrides });
   const flightItem = useMemo(() => flightVitals({
-    active: activeLayer, savedCount: savedConfigs.length, working: flightWorking,
+    active: activeLayer, working: flightWorking,
     motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))
       .map(([id, mm]) => ({ mount: mountName(mounts.find((m) => m.id === id)!),
         text: motorTooltip(mountMotors[id] ?? mm, catalogue) })),
-  }), [activeLayer, savedConfigs.length, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
+  }), [activeLayer, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
   // surfaced in the Rocket panel and Motors panel so the flyer never has to
@@ -4198,7 +4219,8 @@ export function App() {
             )}
             {stageList.map((st, stIdx) => {
               const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
-              const stNozzles = nozzleStages({ ...tree, components: [st] }).filter((s) => s.id && nozzleEditableIds.has(s.id));
+              const stNozzles = nozzleStages({ ...tree, components: [st] })
+                .filter((s) => s.id && (nozzleEditableIds.has(s.id) || nozzleHeld.has(s.id)));
               // A stage with no mount still lists a nozzle value it carries, so
               // its one editor can clear it (CFG-SPEC A4).
               if (stMounts.length === 0 && stNozzles.length === 0) return null;
@@ -4215,7 +4237,11 @@ export function App() {
                         drawings with the provenance shown. */}
                     {stNozzles.map((nozzleStage) => {
                       const loadout = stageMotorLoadout.find((s) => s.stageId === nozzleStage.id)?.motors ?? [];
-                      return <div key={nozzleStage.id}>
+                      return <div key={nozzleStage.id}
+                        onFocus={() => holdNozzle(nozzleStage.id!, true)}
+                        onBlur={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) holdNozzle(nozzleStage.id!, false);
+                        }}>
                         {nozzleStage.type === 'parallelstage' && <div className="motor-stage-header">{nozzleStage.name ?? 'Strap-on'}</div>}
                         <NozzleField
                           inputId={`cfg-nozzle-${nozzleStage.id!}`}
@@ -4295,6 +4321,7 @@ export function App() {
                   {/* Read-only: the limit belongs to the physical mount and is
                       edited, with its Estimate, on Design (CFG-SPEC A4). */}
                   <MotorLengthReadout mountName={mountName(m)} value={motorLengthLimit(mNode)}
+                    noBore={mNode ? noBoreReason(mNode) : null}
                     onOpenDesign={() => showMotorLengthOnDesign(m.id!)} />
                   <MotorPicker
                     mountDiameterMm={mountDiaMm(mNode)}

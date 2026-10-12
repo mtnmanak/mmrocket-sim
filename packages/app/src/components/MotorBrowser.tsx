@@ -649,7 +649,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <label className="motor-inline-label"
               title={maxMotorLengthM !== null
                 ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the limit for this mount. When off, longer motors stay flagged and selectable.`
-                : 'This mount has no maximum motor length set. Set one on its motor card in Motors & Configuration.'}>
+                // The card's line is read-only since CFG-3 (A4): the limit is set
+                // on the physical mount, on Design (CFG-3 review, finding 3).
+                : 'This mount has no maximum motor length set. Set one on the mount in Design (the motor card’s “set on Design ▸” link takes you there).'}>
               <input
                 type="checkbox"
                 checked={filters.fitsOnly && maxMotorLengthM !== null}

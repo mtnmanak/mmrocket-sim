@@ -953,6 +953,20 @@ describe('per-mount length flag and opt-in hiding', () => {
   });
 });
 
+describe('the "only motors that fit" tooltip', () => {
+  it('sends a mount with no limit to Design, where the limit is set (CFG-3 review, finding 3)', () => {
+    const h = openBrowser({ mountDiameterMm: 24, maxMotorLengthM: null });
+    try {
+      const label = Array.from(h.host.querySelectorAll('label'))
+        .find((el) => el.textContent?.includes('only motors that fit'))!;
+      const title = label.getAttribute('title')!;
+      expect(title).toContain('Set one on the mount in Design');
+      expect(title).toContain('set on Design ▸');
+      expect(title).not.toContain('on its motor card in Motors & Configuration');
+    } finally { closeBrowser(h); }
+  });
+});
+
 describe('MotorBrowser designation labels', () => {
   it.each(['F67C', 'F67W'])('loads %s with its propellant letter and selected delay', async (designation) => {
     const h = openBrowser({ mountDiameterMm: 29 });

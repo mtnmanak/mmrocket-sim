@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { MotorLengthField } from './MotorLengthField.js';
+import { MotorLengthField, MotorLengthReadout } from './MotorLengthField.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -73,4 +73,46 @@ describe('mount length field estimates and units', () => {
       localStorage.clear();
     }
   });
+});
+
+describe("the motor card's read-only Max motor length", () => {
+  const withReadout = (run: (host: HTMLDivElement, render: (noBore: 'solid' | 'wall' | null) => void, opened: string[]) => void) => {
+    localStorage.clear();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const opened: string[] = [];
+    const render = (noBore: 'solid' | 'wall' | null) => act(() => root.render(<PrefsProvider>
+      <MotorLengthReadout mountName="Rod" value={null} noBore={noBore} onOpenDesign={() => opened.push('Rod')} />
+    </PrefsProvider>));
+    try {
+      run(host, render, opened);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      localStorage.clear();
+    }
+  };
+
+  it('says why no motor fits a mount with no bore, as Design does (CFG-3 review, finding 2)', () => withReadout((host, render) => {
+    render('solid');
+    expect(host.textContent).toContain('Max motor length: no limit');
+    expect(host.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.'
+      + ' Untick Solid (filled) on it to make it a tube.');
+    render('wall');
+    expect(host.textContent).toContain('No motor fits this mount: its wall is as thick as its radius, so it has no bore.');
+    render(null);
+    expect(host.textContent).not.toContain('No motor fits');
+  }));
+
+  it('names its Design link with the words it shows (WCAG 2.5.3, label in name)', () => withReadout((host, render, opened) => {
+    render(null);
+    const link = host.querySelector('button')!;
+    const visible = link.textContent!.replace('▸', '').trim();
+    expect(visible).toBe('set on Design');
+    expect(link.getAttribute('aria-label')).toBe('Max motor length for Rod: set on Design');
+    expect(link.getAttribute('aria-label')!.toLowerCase()).toContain(visible.toLowerCase());
+    act(() => link.click());
+    expect(opened).toEqual(['Rod']);
+  }));
 });

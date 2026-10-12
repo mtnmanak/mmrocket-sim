@@ -31,6 +31,19 @@ export function setOverride<T extends FlightTuple>(
     ? resetOverride(overrides, id) : { ...overrides, [id]: { ...tuple } };
 }
 
+/**
+ * Whether Launch flies the WORKING SETTINGS: no configuration is active and
+ * something is loaded — a motor, a motor the file named that the database did
+ * not match, or a detached override. THE one test for it (CFG-3 review,
+ * finding 5): the chooser's "Working settings (not saved)" option and the
+ * vitals strip's "Working settings" both read it, so the two cannot disagree.
+ */
+export function isWorkingSettings({ active, hasMotors, hasUnmatched, hasOverrides }: {
+  active: boolean; hasMotors: boolean; hasUnmatched: boolean; hasOverrides: boolean;
+}): boolean {
+  return !active && (hasMotors || hasUnmatched || hasOverrides);
+}
+
 /** The detached working settings hold at least one override of any family. */
 export function holdsOverrides(overrides: FlightOverrides): boolean {
   return Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);

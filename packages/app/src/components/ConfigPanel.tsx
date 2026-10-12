@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { savedConfigLabel, type SavedConfig, type FlightTree, type FlightOverrides, type MountMotor } from '../model/design.js';
 import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/configSnapshot.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { activeFlightOverrides } from '../services/flightState.js';
+import { activeFlightOverrides, isWorkingSettings } from '../services/flightState.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import type { OrkMotorRef } from '../services/orkFile.js';
 
@@ -59,7 +59,8 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const active = configs.find(c => c.id === activeConfigId);
   const overrides = activeFlightOverrides(configs, activeConfigId, detachedOverrides);
   const hasOverrides = Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);
-  const working = !active && (hasMotors || Object.keys(unmatchedRefs ?? {}).length > 0 || hasOverrides);
+  const working = isWorkingSettings({ active: !!active, hasMotors,
+    hasUnmatched: Object.keys(unmatchedRefs ?? {}).length > 0, hasOverrides });
   const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
     active ? savedConfigLabel(active) : null, prefs.units.distance) : null;
   const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;

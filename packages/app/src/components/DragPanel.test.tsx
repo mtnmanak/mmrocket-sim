@@ -8,7 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
-import { DragPanel } from './DragPanel.js';
+import { DRAG_SWEEP_IDLE_MS, DragPanel } from './DragPanel.js';
 import { foldTypography } from '../services/textFold.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -360,11 +360,76 @@ describe('DragPanel — sweep conditions', () => {
     render(false);
     expect(machsSince(before)).toEqual([5]);
     expect(machSel.value).toBe('5');
-    // Back on, the range starts from 5, as it always has.
-    before = calls.length;
-    render(true);
-    expect(machsSince(before)).toEqual([5]);
-    expect(machSel.value).toBe('5');
+    // Back on, the range starts from 5, as it always has. Nothing else about
+    // the sweep changed this time, so the new handle is swept once the
+    // rocket stops changing (DRAG_SWEEP_IDLE_MS) — once, at 5.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      before = calls.length;
+      render(true);
+      act(() => { vi.advanceTimersByTime(DRAG_SWEEP_IDLE_MS); });
+      expect(machsSince(before)).toEqual([5]);
+      expect(machSel.value).toBe('5');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * CFG-3 review, finding 1: on Design every edit rebuilds the rocket, and
+   * each keystroke paid a whole synchronous sweep (~160 ms to Mach 5, up to
+   * 540 ms to Mach 25 on LEM-IV). A burst of edits now sweeps once, after the
+   * rocket stops changing, and a remount with the same rocket (a return to
+   * Design) sweeps nothing.
+   */
+  describe("edits to an open panel's rocket", () => {
+    const renderWith = (rocket: OrkRocket) => act(() => root.render(
+      <PrefsProvider><DragPanel rocket={rocket} open onOpenChange={() => {}} /></PrefsProvider>,
+    ));
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('several quick edits sweep once, on the last rocket, after they stop', () => {
+      const first = stubRocket(calls);
+      renderWith(first);
+      expect(calls).toHaveLength(1);
+      const own: unknown[][] = [];
+      let last = first;
+      for (let i = 0; i < 5; i++) {
+        const mine: unknown[] = [];
+        own.push(mine);
+        last = stubRocket(mine);
+        renderWith(last);
+        act(() => { vi.advanceTimersByTime(DRAG_SWEEP_IDLE_MS / 3); });
+      }
+      expect(calls).toHaveLength(1);
+      expect(own.flat()).toEqual([]);
+      act(() => { vi.advanceTimersByTime(DRAG_SWEEP_IDLE_MS); });
+      // Only the last edit's rocket was swept, once, with the options it
+      // always got: the numbers are the kernel's own.
+      expect(own.slice(0, 4).flat()).toEqual([]);
+      expect(own[4]).toEqual([calls[0]]);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('a CSV cannot be saved from the last design while an edit waits', () => {
+      renderWith(stubRocket(calls));
+      const csv = () => Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.includes('Drag table'))!;
+      expect(csv().disabled).toBe(false);
+      renderWith(stubRocket([]));
+      expect(csv().disabled).toBe(true);
+      act(() => { vi.advanceTimersByTime(DRAG_SWEEP_IDLE_MS); });
+      expect(csv().disabled).toBe(false);
+    });
+
+    it('a return to Design with the same rocket sweeps nothing', () => {
+      const rocket = stubRocket(calls);
+      renderWith(rocket);
+      expect(calls).toHaveLength(1);
+      act(() => root.render(<PrefsProvider><div>Motors</div></PrefsProvider>));
+      renderWith(rocket);
+      expect(calls).toHaveLength(1);
+    });
   });
 
   /**

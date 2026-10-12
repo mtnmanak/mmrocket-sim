@@ -6,6 +6,18 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
+ * Why no motor fits a mount with no bore — ONE sentence, said both on Design
+ * (under the Estimate) and on the mount's motor card (CFG-3 review, finding
+ * 2: when the Estimate moved to Design the card lost it, and a user facing an
+ * empty motor browser was left with "no limit").
+ */
+export function noBoreText(noBore: NoBore): string {
+  return noBore === 'solid'
+    ? 'No motor fits this mount: it is ticked Solid (filled), so it has no bore. Untick Solid (filled) on it to make it a tube.'
+    : 'No motor fits this mount: its wall is as thick as its radius, so it has no bore.';
+}
+
+/**
  * The Design property panel's Max motor length field: edited ONLY there, on the
  * physical mount, with its ⌾ Estimate (CFG-SPEC A4). The motor card shows it
  * read-only through `MotorLengthReadout`.
@@ -48,11 +60,8 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore, inp
     </p>
     {room !== undefined && <p className="comp-stats" style={{ margin: '3px 0 0' }}>
       {room ? <>Room for {fmtSi('motorDimensions', unit, room.lengthM)} {unit} to {room.limitedBy}.</>
-        : noBore === 'solid'
-          ? 'No motor fits this mount: it is ticked Solid (filled), so it has no bore. Untick Solid (filled) on it to make it a tube.'
-          : noBore === 'wall'
-            ? 'No motor fits this mount: its wall is as thick as its radius, so it has no bore.'
-            : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
+        : noBore ? noBoreText(noBore)
+          : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
     </p>}
   </div>;
 }
@@ -61,16 +70,21 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore, inp
  * A motor card's Max motor length, read-only (CFG-SPEC A4): the limit belongs
  * to the physical mount and is set on Design, where its Estimate is.
  */
-export function MotorLengthReadout({ mountName, value, onOpenDesign }: {
+export function MotorLengthReadout({ mountName, value, onOpenDesign, noBore }: {
   mountName: string;
   value: number | null;
   onOpenDesign: () => void;
+  /** Why the mount has no bore, when it has none (`noBoreReason`). */
+  noBore?: NoBore | null;
 }) {
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <p className="comp-stats motor-length-readout" style={{ margin: '0 0 8px' }}>
     Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`}
-    {' — '}<button type="button" className="file-btn" aria-label={`Set max motor length for ${mountName} on Design`}
+    {/* The accessible name CONTAINS the visible words (WCAG 2.5.3, label in
+        name), so a speech-input user can say what they see. */}
+    {' — '}<button type="button" className="file-btn" aria-label={`Max motor length for ${mountName}: set on Design`}
       onClick={onOpenDesign}>set on Design ▸</button>
+    {noBore && <><br />{noBoreText(noBore)}</>}
   </p>;
 }

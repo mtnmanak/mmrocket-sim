@@ -153,7 +153,7 @@ describe('Max motor length is edited on Design, with its Estimate (A4)', () => {
     render(0.15);
     expect(host.textContent).toContain('Max motor length: 150 mm');
     expect(host.querySelector('input')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Set max motor length for Mount on Design"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Max motor length for Mount: set on Design"]')!.click());
     expect(go).toEqual(['design']);
     expect(host.querySelector('button')!.textContent).toBe('set on Design ▸');
     render(null);
