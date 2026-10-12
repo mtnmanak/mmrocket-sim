@@ -1,5 +1,5 @@
 {
-  "version": "0.183",
+  "version": "0.184",
   "released": "2026-10-12",
-  "note": "A parachute keeps its own setting beside a flight configuration's override, as desktop OR stores them, with a banner to edit, reset or adopt the override (LEM-1). No change to what any design flies in its default configuration across 1,008 design files."
+  "note": "Internal tidy-up from the 11 October audit: no change to what you see or how a design flies."
 }

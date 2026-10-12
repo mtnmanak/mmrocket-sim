@@ -32,6 +32,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.184",
+    "date": "2026-10-12",
+    "title": "Internal tidy-up only: nothing you see or fly changes",
+    "items": [
+      "NOTHING HERE CHANGES WHAT YOU SEE OR HOW A DESIGN FLIES. This release finishes the 11 October engineering audit's optional clean-up: the rules that assign a motor to a mount and assemble what a saved or shared file carries move out of the main screen's code into their own tested modules, the five confirmation dialogs move into their own component, and the parts panel's number-field rules (fillet material, tube-fin limits, shape and vent ceilings) move into the design helpers. The existing tests for the main screen, saving, flights and simulation pass unchanged, and the moved rules now have direct tests of their own."
+    ]
+  },
+  {
     "version": "0.183",
     "date": "2026-10-12",
     "title": "A parachute keeps its own setting beside a flight configuration's override, as in desktop OR (LEM-1)",
