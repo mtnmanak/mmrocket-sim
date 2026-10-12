@@ -375,15 +375,17 @@ describe('.ork resolved deployment inheritance', () => {
     for (const configId of ['a', 'b']) {
       const r = importOrk(xml, { configId });
       expect(r.configs.map((c) => c.deployments[chute(r.tree).id!])).toEqual([
-        state({ deployEvent: 'altitude', deployAltitude: 123, deployDelay: 2 }),
+        undefined, // no block: inherit the component's own tuple
         state({ deployEvent: 'altitude', deployAltitude: 123 }),
       ]);
       const streamer = all(r.tree.components).find((n) => n.type === 'streamer')!;
-      expect(r.configs.map((c) => c.deployments[streamer.id!])).toEqual([state({}), state({ deployDelay: 3 })]);
+      expect(r.configs.map((c) => c.deployments[streamer.id!])).toEqual([undefined, state({ deployDelay: 3 })]);
       const saved = exportOrk({ name: 'T', tree: r.tree, configs: r.configs.map((c) => ({ ...c, motors: {} })), activeConfigId: configId });
       for (const id of ['a', 'b']) {
         const back = importOrk(saved, { configId: id });
-        expect(chute(back.tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 123, deployDelay: id === 'a' ? 2 : 0 }));
+        expect(chute(back.tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 123, deployDelay: 2 }));
+        expect({ ...chute(back.tree), ...back.configs.find(c => c.id === id)!.deployments[chute(back.tree).id!] })
+          .toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 123, deployDelay: id === 'a' ? 2 : 0 }));
       }
     }
   });

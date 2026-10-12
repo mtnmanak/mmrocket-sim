@@ -40,6 +40,8 @@ export interface Notice {
   id: string;
   severity: NoticeSeverity;
   text: string;
+  /** Open this informational note once on arrival; later collapse still wins. */
+  expand?: boolean;
   /** Present when the user is allowed to dismiss this one. */
   onDismiss?: () => void;
 }
@@ -74,7 +76,7 @@ const noticeKey = (n: Notice): string => `${n.id}\u0000${n.severity}\u0000${n.te
  * the bar — the same text a sighted user is shown.
  */
 const spoken = (n: Notice): string =>
-  `${LABEL[n.severity]}: ${n.severity === 'info' ? firstLine(n.text) : n.text}`;
+  `${LABEL[n.severity]}: ${n.severity === 'info' && !n.expand ? firstLine(n.text) : n.text}`;
 
 export function NoticeBar({ notices }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
@@ -135,12 +137,13 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
   useEffect(() => {
     const seen = announced.current;
     announced.current = new Set(notices.map(noticeKey));
-    // Problems open themselves; routine information does not. Only a problem
+    // Problems and flagged information open on arrival (FC-2). Only a notice
     // NOT already on the bar counts (audit 2026-09-22): testing "is any
     // problem present" re-opened a bar the user had collapsed over a warning
     // every time a routine notice ("Share link copied") came or went beside it.
-    // Changed problem text or severity under the same id is new information.
-    if (notices.some((n) => n.severity !== 'info' && !seen.has(noticeKey(n)))) {
+    // Changed text or severity under the same id is new information; the flag
+    // is not part of the identity, so a later user collapse still wins.
+    if (notices.some((n) => (n.severity !== 'info' || n.expand) && !seen.has(noticeKey(n)))) {
       setExpanded(true);
     }
   }, [textKey, notices]);

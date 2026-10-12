@@ -686,10 +686,10 @@ export function App() {
    * default) so every existing call site is unchanged.
    */
   const [fileNoteState, setFileNoteState] =
-    useState<{ text: string; severity: NoticeSeverity } | null>(() =>
+    useState<{ text: string; severity: NoticeSeverity; expand?: boolean } | null>(() =>
       restoreNotes.length ? { text: restoreNotes.join('\n'), severity: 'info' } : null);
-  const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info') => {
-    setFileNoteState(text === null ? null : { text, severity });
+  const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean) => {
+    setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}) });
   }, []);
   /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
@@ -2521,7 +2521,7 @@ export function App() {
       setFileNote([plan.note.text,
         `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.`,
         `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.`,
-      ].filter(Boolean).join('\n'), plan.note.severity);
+      ].filter(Boolean).join('\n'), plan.note.severity, plan.note.expand);
     }
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.

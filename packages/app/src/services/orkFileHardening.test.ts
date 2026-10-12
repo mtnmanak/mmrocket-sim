@@ -185,7 +185,7 @@ describe('.ork GZIP reading (the format older OpenRocket releases saved)', () =>
   /** An import with every minted id blanked, so two reads of one design compare equal. */
   const withoutIds = (r: ReturnType<typeof importOrk>): unknown => JSON.parse(JSON.stringify(
     { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes, ignored: r.ignored },
-    (k, v: unknown) => (k === 'id' || k === 'mountId' ? '' : v)));
+    (k, v: unknown) => (k === 'ignitionDefaults' ? Object.values(v as object) : k === 'id' || k === 'mountId' ? '' : v)));
 
   it('opens a GZIP-compressed .ork', () => {
     expect(importOrk(buf(gzipSync(strToU8(orkXml(BODY_TUBE))))).name).toBe('Test');
@@ -462,7 +462,10 @@ describe('flight-configuration ids survive the exporter as XML', () => {
     ] as unknown as ComponentNode[],
   };
   const configs: OrkExportConfig[] = [
-    { id: WEIRD, name: 'A & B', isDefault: true, motors: { mount: MOTOR }, deployments: {}, separations: {} },
+    { id: WEIRD, name: 'A & B', isDefault: true, motors: { mount: MOTOR },
+      deployments: { chute: { deployEvent: 'altitude', deployAltitude: 200, deployDelay: 0 } },
+      separations: { st2: { separationEvent: 'never', separationDelay: 0, separationAltitude: 200 } },
+      ignitions: { mount: { event: 'launch', delay: 1 } } },
     {
       id: 'plain-2', name: null, isDefault: false, motors: { mount: MOTOR },
       deployments: { chute: { deployEvent: 'altitude', deployAltitude: 300 } },
@@ -772,8 +775,10 @@ describe('.ork configuration count limit', () => {
     const chute = flatten(result.tree.components).find(n => n.type === 'parachute')!;
     const stage = result.tree.components[1]!;
     for (const config of result.configs) {
-      expect(config.deployments[chute.id!]?.deployAltitude).toBe(321);
-      expect(config.separations[stage.id!]?.separationDelay).toBe(2);
+      expect(config.deployments[chute.id!]).toBeUndefined();
+      expect(config.separations[stage.id!]).toBeUndefined();
+      expect(chute['deployAltitude']).toBe(321);
+      expect(stage['separationDelay']).toBe(2);
     }
   });
 });

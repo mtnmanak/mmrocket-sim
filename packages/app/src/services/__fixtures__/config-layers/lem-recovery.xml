@@ -1,0 +1,54 @@
+<!-- Declarations and both parachutes extracted from LEM-1-2026_2.ork; geometry/motors omitted. -->
+<openrocket version="1.10"><rocket><name>LEM recovery excerpt</name><motorconfiguration configid="8e228506-9567-4893-b445-5f393eb7f9da">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+<motorconfiguration configid="365b8430-de05-45ee-a421-5142de1fd1ae" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration><subcomponents><stage><subcomponents><parachute>
+                <name>Parachute</name>
+                <id>4d645dcd-bdff-4618-b807-acdfeae48a12</id>
+                <axialoffset method="bottom">-0.17779999999999999</axialoffset>
+                <position type="bottom">-0.17779999999999999</position>
+                <packedlength>0.07619999999999999</packedlength>
+                <packedradius>0.038099999999999995</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>
+                <deployevent>altitude</deployevent>
+                <deployaltitude>91.44</deployaltitude>
+                <deploydelay>0.0</deploydelay>
+                <deploymentconfiguration configid="365b8430-de05-45ee-a421-5142de1fd1ae">
+                  <deployevent>ejection</deployevent>
+                  <deployaltitude>200.0</deployaltitude>
+                  <deploydelay>0.0</deploydelay>
+                </deploymentconfiguration>
+                <diameter>0.9144</diameter>
+                <linecount>6</linecount>
+                <linelength>0.9144</linelength>
+                <linematerial type="line" density="0.001" group="ThreadsLines">Braided nylon (2 mm, 1/16 in)</linematerial>
+              </parachute>
+<parachute>
+                <name>Parachute</name>
+                <id>536cce02-2c5a-42bc-9f11-46f169509002</id>
+                <axialoffset method="bottom">-0.11938</axialoffset>
+                <position type="bottom">-0.11938</position>
+                <packedlength>0.07619999999999999</packedlength>
+                <packedradius>0.038099999999999995</packedradius>
+                <radialposition>0.0</radialposition>
+                <radialdirection>0.0</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.067" group="Fabrics">Ripstop nylon</material>
+                <deployevent>altitude</deployevent>
+                <deployaltitude>91.44</deployaltitude>
+                <deploydelay>0.0</deploydelay>
+                <deploymentconfiguration configid="365b8430-de05-45ee-a421-5142de1fd1ae">
+                  <deployevent>ejection</deployevent>
+                  <deployaltitude>200.0</deployaltitude>
+                  <deploydelay>0.0</deploydelay>
+                </deploymentconfiguration>
+                <diameter>0.9144</diameter>
+                <linecount>6</linecount>
+                <linelength>0.9144</linelength>
+                <linematerial type="line" density="0.001" group="ThreadsLines">Braided nylon (2 mm, 1/16 in)</linematerial>
+              </parachute></subcomponents></stage></subcomponents></rocket></openrocket>

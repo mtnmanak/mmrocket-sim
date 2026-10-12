@@ -62,8 +62,8 @@ import {
  * .CDX1's only what RASAero states; the flight-configuration fields are
  * optional.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat' | 'legacyFlightState'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & { machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
@@ -379,7 +379,7 @@ export interface ImportPlan {
   unmatchedRefs: Record<string, OrkMotorRef>;
   machAlt: [number, number][] | undefined;
   /** The import note, and whether it reads as a warning. */
-  note: { text: string; severity: NoticeSeverity };
+  note: { text: string; severity: NoticeSeverity; expand?: boolean };
   /** Hand-rolled camera shrouds to offer the native fairing for. */
   shrouds: ShroudCandidate[];
 }
@@ -395,6 +395,9 @@ export function planImport(
   resolved: ResolvedImportMotors,
   ctx: { launch: LaunchConditions; text: StatedWeightText },
 ): ImportPlan {
+  // Temporary FC-2 boundary: the app and simulateFile still need full tuples
+  // and a working tree. The importer itself retains defaults + sparse layers.
+  if (imported.legacyFlightState) imported = { ...imported, ...imported.legacyFlightState() };
   const massText = ctx.text.mass;
   // The configuration to show: the reader's, unless it cannot leave the pad
   // and another can (flyablePick). Everything below reads these three — the
@@ -612,7 +615,8 @@ export function planImport(
     // when every motor matched. Extensions also warn: omitting their behavior
     // can change the flight's numbers. Other reader notes retain their severity.
     note: { text: notes.join('\n'), severity: imported.newerFormat || hasSimulationExtensions(imported.tree)
-      || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
+      || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info',
+      ...(imported.expand ? { expand: true } : {}) },
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     shrouds: findShroudCandidates(importedTree),
@@ -635,7 +639,7 @@ export interface ImportSinks {
   setLongitudeCheck?: (check: OrkTreeImportResult['longitudeCheck']) => void;
   setMeasured: (m: MeasuredFigures) => void;
   setMachAlt: (t: [number, number][] | undefined) => void;
-  setNote: (text: string, severity: NoticeSeverity) => void;
+  setNote: (text: string, severity: NoticeSeverity, expand?: boolean) => void;
   setShroudPrompt: (s: ShroudCandidate[] | null) => void;
   markSaved: (mark: string) => void;
 }
@@ -694,7 +698,7 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   sinks.setLaunch(snapshot.launch);
   sinks.setLongitudeCheck?.(plan.longitudeCheck);
   sinks.setMeasured(snapshot.measured);
-  sinks.setNote(plan.note.text, plan.note.severity);
+  sinks.setNote(plan.note.text, plan.note.severity, plan.note.expand);
   sinks.setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
   // The design now IS the file on disk, so the baseline moves with it — taken
   // over the plan, NOT from React state, which has not re-rendered yet: reading

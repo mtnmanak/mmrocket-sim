@@ -25,7 +25,7 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
       : fixture(tube + second, config('A') + config('B'));
     const r = importOrk(xml, { configId: 'B' });
     const node = kind === 'stage' ? r.tree.components[1]! : r.tree.components[0]!.children![1]!;
-    expect(node).toMatchObject({ separationEvent: 'never', separationDelay: 1, separationAltitude: 350 });
+    expect(node).toMatchObject({ separationEvent: 'never', separationDelay: 4, separationAltitude: 350 });
     expect(r.configs[1]!.separations[node.id!]).toEqual({ separationEvent: 'never', separationDelay: 1, separationAltitude: 350 });
     const a = importOrk(save(r), { configId: 'A' });
     const again = kind === 'stage' ? a.tree.components[1]! : a.tree.components[0]!.children![1]!;

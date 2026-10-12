@@ -30,6 +30,7 @@ import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from
 export interface HeldNote {
   text: string;
   severity: NoticeSeverity;
+  expand?: boolean;
 }
 
 /** What the list is made from — App's state, read as it stands. */
@@ -216,6 +217,7 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
       id: 'file-note',
       severity: input.fileNote.severity,
       text: fileText,
+      ...(input.fileNote.expand ? { expand: true } : {}),
       onDismiss: dismiss.fileNote,
     });
   }

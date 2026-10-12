@@ -67,6 +67,10 @@ const one = (over: Partial<NoticeInput>, d = dismissers()) => {
 };
 
 describe('designNotices', () => {
+  it('carries a file note attention flag without raising its severity', () => {
+    expect(one({ fileNote: { text: 'Configuration override', severity: 'info', expand: true } }))
+      .toMatchObject({ id: 'file-note', severity: 'info', expand: true });
+  });
   it.each(['bad', {}, [1, null, 'kept repair']].map(v => [v]))('S7d-2 ignores malformed curve repair entries (%j)', curveRepairs => {
     const notices = designNotices(quiet({ assigned: [['mount', mm(spec('H100', 29, { curveRepairs }))]] }), dismissers());
     if (Array.isArray(curveRepairs)) expect(notices[0]?.text).toContain('kept repair');
